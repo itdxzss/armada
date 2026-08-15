@@ -114,6 +114,18 @@
     FOR UPDATE
   </select>
 
+  <select id="selectGroupIdsWithoutLock"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$GroupId">
+    SELECT group_jid AS groupJid, id AS groupId
+    FROM wa_group
+    WHERE tenant_id = #{tenantId}
+      AND group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+    ORDER BY group_jid ASC
+  </select>
+
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
       group_id, subject, member_count, wa_created_at, announce_only,
@@ -140,21 +152,21 @@
       OR (
         VALUES(presence_observed_at) = wa_group_participant.presence_observed_at
         AND CASE VALUES(presence_source)
-              WHEN 'WGP2_REMOVE' THEN 5
-              WHEN 'WGP2_LEAVE' THEN 5
-              WHEN 'WGP2_PROMOTE' THEN 4
-              WHEN 'WGP2_DEMOTE' THEN 4
-              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+              WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
             &gt; CASE wa_group_participant.presence_source
-              WHEN 'WGP2_REMOVE' THEN 5
-              WHEN 'WGP2_LEAVE' THEN 5
-              WHEN 'WGP2_PROMOTE' THEN 4
-              WHEN 'WGP2_DEMOTE' THEN 4
-              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+              WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
@@ -244,24 +256,29 @@
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
-  <insert id="upsertSelfParticipant">
+  <insert id="upsertParticipantFacts">
     INSERT INTO wa_group_participant (
-      group_id, pn_jid, phone,
+      group_id, pn_jid, lid_jid, phone,
       presence_status, presence_source, presence_observed_at, presence_event_id,
       last_joined_at, last_join_event_at, last_join_source_event_id,
       last_exited_at, last_exit_type, last_exit_event_at,
       last_exit_source_event_id, last_exit_source_type,
       created_at, updated_at
-    ) VALUES (
-      #{row.groupId}, #{row.pnJid}, #{row.phone},
-      #{row.presenceStatus}, #{row.presenceSource}, #{row.occurredAt}, #{row.eventId},
-      #{row.lastJoinedAt}, #{row.lastJoinedAt},
-      CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
-      #{row.lastExitedAt}, #{row.lastExitType}, #{row.lastExitedAt},
-      CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
-      CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE 'WGP2_NOTIFICATION' END,
-      #{row.now}, #{row.now}
-    )
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupId}, #{row.pnJid}, #{row.lidJid}, #{row.phone},
+        #{row.presenceStatus}, #{row.presenceSource}, #{row.occurredAt}, #{row.eventId},
+        #{row.lastJoinedAt},
+        CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.occurredAt} END,
+        CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
+        #{row.lastExitedAt}, #{row.lastExitType},
+        CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.occurredAt} END,
+        CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
+        #{row.lastExitSourceType},
+        #{row.now}, #{row.now}
+      )
+    </foreach>
     ON DUPLICATE KEY UPDATE
       phone = COALESCE(VALUES(phone), phone),
       presence_status = CASE
@@ -347,11 +364,11 @@
         OR (
           #{syncAt} = presence_observed_at
           AND 1 &gt; CASE presence_source
-            WHEN 'WGP2_REMOVE' THEN 5
-            WHEN 'WGP2_LEAVE' THEN 5
-            WHEN 'WGP2_PROMOTE' THEN 4
-            WHEN 'WGP2_DEMOTE' THEN 4
-            WHEN 'WGP2_ADD' THEN 3
+            WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+            WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+            WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+            WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
             WHEN 'GROUP_MEMBER_QUERY' THEN 2
             WHEN 'GROUP_SNAPSHOT' THEN 1
             ELSE 0

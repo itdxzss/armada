@@ -15,9 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsappGroupMemberJoinFactServiceImpl implements WhatsappGroupMemberJoinFactService {
 
     private final WhatsappGroupMemberJoinFactMapper mapper;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
 
-    public WhatsappGroupMemberJoinFactServiceImpl(WhatsappGroupMemberJoinFactMapper mapper) {
+    public WhatsappGroupMemberJoinFactServiceImpl(
+            WhatsappGroupMemberJoinFactMapper mapper,
+            AccountGroupCurrentSnapshotPersistenceImpl currentPersistence) {
         this.mapper = mapper;
+        this.currentPersistence = currentPersistence;
     }
 
     @Override
@@ -31,6 +35,7 @@ public class WhatsappGroupMemberJoinFactServiceImpl implements WhatsappGroupMemb
                 .sorted(Comparator.comparing(WhatsappGroupJoinFact::groupJid)
                         .thenComparing(WhatsappGroupJoinFact::participantJid))
                 .forEach(fact -> mapper.upsertLatest(fact, now));
+        currentPersistence.applyParticipantJoins(facts);
     }
 
     @Override

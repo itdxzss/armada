@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -308,6 +310,72 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 .containsEntry("first_post_control_observed_at", null);
     }
 
+    @Test
+    void participantJoinFactsCreatePnAndLidParticipantsWithoutAccountBinding() {
+        writeParticipantJoins(List.of(
+                new WhatsappGroupJoinFact(
+                        TENANT_ID, groupJid(7), "15550000007@s.whatsapp.net", "15550000007",
+                        2_000L, 2_000L, "join-pn", 104L),
+                new WhatsappGroupJoinFact(
+                        TENANT_ID, groupJid(7), "123456789012347@lid", "5218129230974",
+                        2_100L, 2_100L, "join-lid", 104L)));
+
+        assertThat(count("wa_group")).isOne();
+        assertThat(count("wa_group_participant")).isEqualTo(2);
+        assertThat(count("wa_account_group_binding")).isZero();
+        assertThat(jdbc.queryForList("""
+                SELECT pn_jid, lid_jid, phone, presence_status, presence_source, last_joined_at
+                FROM wa_group_participant
+                ORDER BY COALESCE(pn_jid, lid_jid)
+                """))
+                .satisfiesExactly(
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", null)
+                                .containsEntry("lid_jid", "123456789012347@lid")
+                                .containsEntry("phone", "5218129230974")
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("presence_source", "ADD_EVENT")
+                                .containsEntry("last_joined_at", 2_100L),
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", "15550000007@s.whatsapp.net")
+                                .containsEntry("lid_jid", null)
+                                .containsEntry("phone", "15550000007")
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("presence_source", "ADD_EVENT")
+                                .containsEntry("last_joined_at", 2_000L));
+    }
+
+    @Test
+    void newerParticipantDepartureWinsOverDelayedJoinAndKeepsBothLatestFacts() {
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, groupJid(8), "15550000008@s.whatsapp.net", "15550000008",
+                2_000L, 2_000L, "join-first", 104L)));
+        writeParticipantDepartures(List.of(new WhatsappGroupDepartureFact(
+                TENANT_ID, groupJid(8), "15550000008@s.whatsapp.net", "15550000008",
+                3_000L, "LEFT", 3_000L, "left-newer", "WGP2_NOTIFICATION")));
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, groupJid(8), "15550000008@s.whatsapp.net", "15550000008",
+                2_500L, 2_500L, "join-delayed", 104L)));
+
+        assertThat(jdbc.queryForMap("""
+                SELECT presence_status, presence_source, presence_observed_at,
+                       last_joined_at, last_join_source_event_id,
+                       last_exit_type, last_exited_at, last_exit_source_event_id,
+                       last_exit_source_type
+                FROM wa_group_participant
+                """))
+                .containsEntry("presence_status", 2)
+                .containsEntry("presence_source", "LEAVE_EVENT")
+                .containsEntry("presence_observed_at", 3_000L)
+                .containsEntry("last_joined_at", 2_500L)
+                .containsEntry("last_join_source_event_id", "join-delayed")
+                .containsEntry("last_exit_type", "LEFT")
+                .containsEntry("last_exited_at", 3_000L)
+                .containsEntry("last_exit_source_event_id", "left-newer")
+                .containsEntry("last_exit_source_type", "WGP2_NOTIFICATION");
+        assertThat(count("wa_account_group_binding")).isZero();
+    }
+
     private static void writeSnapshot(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -335,6 +403,26 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             transactionTemplate.executeWithoutResult(transaction ->
                     persistence.applySelfMembershipChanged(
                             accountId, groupJid, status, occurredAt, eventId, source));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeParticipantJoins(List<WhatsappGroupJoinFact> facts) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.applyParticipantJoins(facts));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeParticipantDepartures(List<WhatsappGroupDepartureFact> facts) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.applyParticipantDepartures(facts));
         } finally {
             TenantContext.clear();
         }

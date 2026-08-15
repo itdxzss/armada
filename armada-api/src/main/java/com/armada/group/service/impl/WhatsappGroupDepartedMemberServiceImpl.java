@@ -15,9 +15,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsappGroupDepartedMemberServiceImpl implements WhatsappGroupDepartedMemberService {
 
     private final WhatsappGroupDepartedMemberMapper mapper;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
 
-    public WhatsappGroupDepartedMemberServiceImpl(WhatsappGroupDepartedMemberMapper mapper) {
+    public WhatsappGroupDepartedMemberServiceImpl(
+            WhatsappGroupDepartedMemberMapper mapper,
+            AccountGroupCurrentSnapshotPersistenceImpl currentPersistence) {
         this.mapper = mapper;
+        this.currentPersistence = currentPersistence;
     }
 
     @Override
@@ -35,6 +39,7 @@ public class WhatsappGroupDepartedMemberServiceImpl implements WhatsappGroupDepa
                     mapper.upsertIdentity(fact, now);
                     mapper.updateIfNewer(fact, now);
                 });
+        currentPersistence.applyParticipantDepartures(facts);
     }
 
     @Override

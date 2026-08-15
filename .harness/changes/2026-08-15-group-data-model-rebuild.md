@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：六表最小 additive DDL（V117）、账号群报告事件和账号自身精确进退群事件的同事务新表写入已完成本地实现；旧表仍决定列表、营销和全部业务结果，尚未回填、切换读取、迁移或部署
+- 状态：六表最小 additive DDL（V117）、账号群报告、账号自身及普通成员进退群事件的同事务新表写入已完成本地实现；旧表仍决定列表、营销和全部业务结果，尚未回填、切换读取、迁移或部署
 
 ## 目标
 
@@ -41,6 +41,7 @@
 - [x] 真实 MySQL 8.4.8 验证 400 群 `<=10`、完整空快照、重放和 M-before-B
 - [x] 复用现有账号群报告事件的租户校验、过期句柄过滤、完整性判断和事务，同步写入新表；旧表结果继续驱动营销
 - [x] 复用现有账号自身进退群事件的校验、事实时间和来源优先级，同步写入 `wa_group`、`wa_group_participant`、`wa_account_group_binding`；`remove` 保持“不在群/退出原因未知”
+- [x] 复用现有普通成员进群、退群事实服务同步写入 `wa_group_participant`；支持 PN/LID，保持现有事实时间、退出类型和乱序优先级，不创建账号群关系
 - [x] 用 test1 只读报告量化同 JID 多 active legacy 行及 alias 级属性冲突：当前均为 0
 - [ ] 用户评审六表字段和迁移/切换方案
 - [ ] 评审后另写实施计划；本记录不授权改表、部署或真实环境写入
@@ -96,7 +97,7 @@
 
 ### 数据库
 
-当前代码新增 V117 六表建表迁移，以及尚未接入生产事件入口的 S/G/P/M/B 批量持久化底座；没有修改旧表，也没有回填或切流。后续数据回填只能由可重入 migration runner 执行。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
+当前代码新增 V117 六表建表迁移，并已把账号群报告、账号自身进退群、普通成员进退群接入新表双写；没有修改旧表结构，也没有回填或切流。后续数据回填只能由可重入 migration runner 执行。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
 
 ### API / 前端
 
@@ -122,6 +123,7 @@
 - `DOCKER_HOST=... mvn -q -Dtest=GroupDataModelFoundationMigrationMysqlTest test`：真实 MySQL 8.4.8，2 个测试通过，0 失败、0 错误、0 跳过。
 - `DOCKER_HOST=... mvn -q -Dtest=AccountGroupCurrentSnapshotPersistenceMySqlTest test`：真实 MySQL 8.4.8，3 个测试通过，覆盖 400 群 SQL 预算、空完整快照和重放/锁序，0 失败、0 错误、0 跳过。
 - `DOCKER_HOST=... mvn -q -Dtest=AccountGroupCurrentSnapshotPersistenceMySqlTest test`：新增精确进退群双写后共 5 个测试通过；补充覆盖上控后分类、`remove -> UNKNOWN` 以及迟到 `add` 不覆盖较新 `remove`，0 失败、0 错误、0 跳过。
+- `DOCKER_HOST=... mvn -q -Dtest=AccountGroupCurrentSnapshotPersistenceMySqlTest test`：普通成员进退群双写后共 7 个测试通过；补充覆盖 PN/LID、不创建账号群关系、退群优先级和迟到进群事实，0 失败、0 错误、0 跳过。
 - `mvn -q -Dtest=AccountGroupMembershipSnapshotServiceImplTest test`：12 个测试通过，0 失败、0 错误、0 跳过。
 - `mvn -q -Dtest=AccountGroupSyncMySqlConcurrencyTest test`：本机无 Docker socket，5 个测试全部 skipped；不计为 MySQL 门禁通过。
 
@@ -142,6 +144,6 @@
 
 - 当前 test1 无多 alias/属性冲突，迁移期继续保留旧 `group_link` 作为外部 ID 兼容；不新增 alias 业务表，后续若门禁发现冲突则停止迁移并重新评审。
 - 六表字段、索引、迁移规则和业务 parity 评审通过。
-- 账号群报告和账号自身精确进退群已接新表双写；其他成员、资料、邀请写入口仍需逐条接入。切换读取前必须完成真实 RR 并发门禁，本轮不新增重试框架。
+- 账号群报告、账号自身及普通成员进退群已接新表双写；成员完整快照、资料、邀请写入口仍需逐条接入。切换读取前必须完成真实可重复读并发门禁，本轮不新增重试框架。
 - 后端列表 API/DTO 与全业务 shadow diff 为 0；前端另验收 DOM 不再渲染展开区。
 - 旧表 drop 必须单独发布、恢复演练并再次取得用户确认。

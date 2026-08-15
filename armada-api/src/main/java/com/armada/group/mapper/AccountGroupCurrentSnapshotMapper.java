@@ -3,7 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
-import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SelfMembershipWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
@@ -38,11 +38,16 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
 
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupId> selectGroupIdsWithoutLock(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJids") List<String> groupJids);
+
     int upsertProfiles(@Param("rows") List<Write> rows);
 
     int upsertParticipants(@Param("rows") List<Write> rows);
 
-    int upsertSelfParticipant(@Param("row") SelfMembershipWrite row);
+    int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
 
     int markMissingParticipants(
             @Param("participantIds") List<Long> participantIds,
@@ -60,7 +65,7 @@ public interface AccountGroupCurrentSnapshotMapper {
     int upsertSelfBinding(
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
-            @Param("row") SelfMembershipWrite row);
+            @Param("row") ParticipantPresenceWrite row);
 
     int upsertSyncState(@Param("row") SyncStateWrite row);
 }

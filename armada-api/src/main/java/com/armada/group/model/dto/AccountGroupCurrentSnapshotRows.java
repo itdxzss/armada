@@ -34,11 +34,12 @@ public final class AccountGroupCurrentSnapshotRows {
     public record GroupId(String groupJid, Long groupId) {
     }
 
-    /** 账号自身精确进退群事件在群、成员、账号群关系三域中的写入值。 */
-    public record SelfMembershipWrite(
+    /** 精确进退群事实写入成员当前状态时使用的行模型。 */
+    public record ParticipantPresenceWrite(
             Long groupId,
             String groupJid,
             String pnJid,
+            String lidJid,
             String phone,
             Integer presenceStatus,
             String presenceSource,
@@ -48,16 +49,17 @@ public final class AccountGroupCurrentSnapshotRows {
             Long lastJoinedAt,
             String lastExitType,
             Long lastExitedAt,
+            String lastExitSourceType,
             Integer wasInInitialBaseline,
             String baselineSubjectSnapshot,
             Long membershipActiveSinceAt,
             Long firstPostControlObservedAt) {
 
-        public SelfMembershipWrite withGroupId(Long resolvedGroupId) {
-            return new SelfMembershipWrite(
-                    resolvedGroupId, groupJid, pnJid, phone, presenceStatus,
+        public ParticipantPresenceWrite withGroupId(Long resolvedGroupId) {
+            return new ParticipantPresenceWrite(
+                    resolvedGroupId, groupJid, pnJid, lidJid, phone, presenceStatus,
                     presenceSource, eventId, occurredAt, now, lastJoinedAt,
-                    lastExitType, lastExitedAt, wasInInitialBaseline,
+                    lastExitType, lastExitedAt, lastExitSourceType, wasInInitialBaseline,
                     baselineSubjectSnapshot, membershipActiveSinceAt,
                     firstPostControlObservedAt);
         }

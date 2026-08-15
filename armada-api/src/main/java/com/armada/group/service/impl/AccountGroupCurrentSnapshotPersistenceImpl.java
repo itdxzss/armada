@@ -5,10 +5,12 @@ import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
-import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SelfMembershipWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.util.WhatsappJids;
@@ -23,7 +25,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -33,7 +37,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 将当前账号群快照和账号自身精确进退群事实写入 V117 新表。 */
+/** 将账号群快照及现有精确进退群事实写入 V117 新表。 */
 @Service
 public class AccountGroupCurrentSnapshotPersistenceImpl {
 
@@ -48,6 +52,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
+    private static final int PARTICIPANT_WRITE_BATCH_SIZE = 200;
     private static final int PRESENCE_IN_GROUP = 1;
     private static final String SNAPSHOT_SOURCE = "GROUP_SNAPSHOT";
     private final AccountGroupCurrentSnapshotMapper mapper;
@@ -234,10 +239,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 ? occurredAt : null;
         long now = System.currentTimeMillis();
         String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
-        SelfMembershipWrite row = new SelfMembershipWrite(
+        ParticipantPresenceWrite row = new ParticipantPresenceWrite(
                 existing == null ? null : existing.groupId(),
                 normalizedGroupJid,
                 self.ownerJid(),
+                null,
                 self.ownerPhone(),
                 inGroup ? 1 : 2,
                 normalizedSource,
@@ -248,6 +254,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 status == AccountGroupMembershipStatus.LEFT ? "LEFT"
                         : inGroup ? null : "UNKNOWN",
                 inGroup ? null : occurredAt,
+                inGroup ? null : "WGP2_NOTIFICATION",
                 classification.wasInInitialBaseline(),
                 classification.baselineSubjectSnapshot(),
                 activeSince,
@@ -265,8 +272,126 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             }
             row = row.withGroupId(groupIds.get(0).groupId());
         }
-        mapper.upsertSelfParticipant(row);
+        mapper.upsertParticipantFacts(List.of(row));
         mapper.upsertSelfBinding(tenantId, accountId, row);
+    }
+
+    /** 双写现有普通成员进群事实，不创建账号群关系。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyParticipantJoins(List<WhatsappGroupJoinFact> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        List<ParticipantPresenceWrite> rows = facts.stream()
+                .filter(Objects::nonNull)
+                .map(fact -> {
+                    validateParticipantFactTenant(tenantId, fact.tenantId());
+                    ParticipantIdentity identity = participantIdentity(fact.participantJid());
+                    return new ParticipantPresenceWrite(
+                            null,
+                            participantGroupJid(fact.groupJid()),
+                            identity.pnJid(),
+                            identity.lidJid(),
+                            blankToNull(fact.phone()),
+                            1,
+                            "ADD_EVENT",
+                            clamp(blankToNull(fact.sourceEventId()), EVENT_ID_MAX_LENGTH),
+                            requiredFactTime(fact.eventAt()),
+                            now,
+                            requiredFactTime(fact.joinedAt()),
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null);
+                })
+                .toList();
+        persistParticipantFacts(tenantId, rows);
+    }
+
+    /** 双写现有普通成员退群事实，不创建账号群关系。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyParticipantDepartures(List<WhatsappGroupDepartureFact> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        List<ParticipantPresenceWrite> rows = facts.stream()
+                .filter(Objects::nonNull)
+                .map(fact -> {
+                    validateParticipantFactTenant(tenantId, fact.tenantId());
+                    ParticipantIdentity identity = participantIdentity(fact.participantJid());
+                    String exitType = normalizedExitType(fact.exitType());
+                    return new ParticipantPresenceWrite(
+                            null,
+                            participantGroupJid(fact.groupJid()),
+                            identity.pnJid(),
+                            identity.lidJid(),
+                            blankToNull(fact.phone()),
+                            2,
+                            departurePresenceSource(fact.sourceType(), exitType),
+                            clamp(blankToNull(fact.sourceEventId()), EVENT_ID_MAX_LENGTH),
+                            requiredFactTime(fact.eventAt()),
+                            now,
+                            null,
+                            exitType,
+                            requiredFactTime(fact.exitedAt()),
+                            blankToNull(fact.sourceType()),
+                            null,
+                            null,
+                            null,
+                            null);
+                })
+                .toList();
+        persistParticipantFacts(tenantId, rows);
+    }
+
+    private void persistParticipantFacts(
+            Long tenantId,
+            List<ParticipantPresenceWrite> incomingRows) {
+        if (incomingRows.isEmpty()) {
+            return;
+        }
+        List<String> groupJids = incomingRows.stream()
+                .map(ParticipantPresenceWrite::groupJid)
+                .distinct()
+                .sorted()
+                .toList();
+        Map<String, Long> groupIds = mapper.selectGroupIdsWithoutLock(tenantId, groupJids).stream()
+                .collect(Collectors.toMap(GroupId::groupJid, GroupId::groupId));
+        List<String> missingGroupJids = groupJids.stream()
+                .filter(groupJid -> !groupIds.containsKey(groupJid))
+                .toList();
+        if (!missingGroupJids.isEmpty()) {
+            long now = incomingRows.get(0).now();
+            List<Write> missingGroups = missingGroupJids.stream()
+                    .map(groupJid -> new Write(
+                            null, groupJid, groupJid, null,
+                            null, null, null, null, null, null, 0, null,
+                            now, now, null, null, null, null))
+                    .toList();
+            mapper.insertMissingGroups(tenantId, missingGroups);
+            mapper.selectGroupIds(tenantId, missingGroupJids)
+                    .forEach(group -> groupIds.put(group.groupJid(), group.groupId()));
+        }
+        if (groupIds.size() != groupJids.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员事件的 groupId");
+        }
+        List<ParticipantPresenceWrite> rows = incomingRows.stream()
+                .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
+                .sorted(Comparator.comparing(ParticipantPresenceWrite::groupId)
+                        .thenComparing(AccountGroupCurrentSnapshotPersistenceImpl::participantIdentityKey)
+                        .thenComparingLong(ParticipantPresenceWrite::occurredAt))
+                .toList();
+        for (int start = 0; start < rows.size(); start += PARTICIPANT_WRITE_BATCH_SIZE) {
+            mapper.upsertParticipantFacts(rows.subList(
+                    start, Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, rows.size())));
+        }
     }
 
     private BaselineEvidence baselineEvidenceForPreciseEvent(Context context) {
@@ -408,9 +533,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             return 0;
         }
         return switch (source) {
-            case "WGP2_REMOVE", "WGP2_LEAVE" -> 5;
+            case "WGP2_REMOVE", "WGP2_LEAVE", "REMOVE_EVENT", "LEAVE_EVENT",
+                    "UNKNOWN_EXIT_EVENT" -> 5;
             case "WGP2_PROMOTE", "WGP2_DEMOTE" -> 4;
-            case "WGP2_ADD" -> 3;
+            case "WGP2_ADD", "ADD_EVENT" -> 3;
             case "GROUP_MEMBER_QUERY" -> 2;
             case SNAPSHOT_SOURCE -> 1;
             default -> 0;
@@ -446,6 +572,83 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         return epochSeconds == null ? null : Math.multiplyExact(epochSeconds, 1_000L);
     }
 
+    private static Long requiredTenantId() {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return tenantId;
+    }
+
+    private static void validateParticipantFactTenant(Long tenantId, Long factTenantId) {
+        if (!Objects.equals(tenantId, factTenantId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件租户不一致");
+        }
+    }
+
+    private static String participantGroupJid(String value) {
+        String groupJid = normalizeJid(value);
+        if (groupJid == null || !groupJid.toLowerCase(Locale.ROOT).endsWith("@g.us")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件 groupJid 非法");
+        }
+        return groupJid.toLowerCase(Locale.ROOT);
+    }
+
+    private static ParticipantIdentity participantIdentity(String value) {
+        String participantJid = normalizeJid(value);
+        if (participantJid == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件 participantJid 为空");
+        }
+        participantJid = participantJid.toLowerCase(Locale.ROOT);
+        int at = participantJid.indexOf('@');
+        int device = participantJid.indexOf(':');
+        if (device >= 0 && at > device) {
+            participantJid = participantJid.substring(0, device) + participantJid.substring(at);
+        }
+        if (participantJid.endsWith("@s.whatsapp.net")) {
+            return new ParticipantIdentity(participantJid, null);
+        }
+        if (participantJid.endsWith("@lid")) {
+            return new ParticipantIdentity(null, participantJid);
+        }
+        throw new BusinessException(ErrorCode.VALIDATION, "群成员事件 participantJid 非法");
+    }
+
+    private static long requiredFactTime(Long value) {
+        if (value == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件缺少事实时间");
+        }
+        return value;
+    }
+
+    private static String normalizedExitType(String value) {
+        String exitType = blankToNull(value);
+        if (exitType == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件缺少退出方式");
+        }
+        exitType = exitType.toUpperCase(Locale.ROOT);
+        if (!Set.of("LEFT", "REMOVED", "UNKNOWN").contains(exitType)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员事件退出方式非法");
+        }
+        return exitType;
+    }
+
+    private static String departurePresenceSource(String sourceType, String exitType) {
+        if ("WGP2_NOTIFICATION".equalsIgnoreCase(sourceType)
+                && "REMOVED".equals(exitType)) {
+            return "UNKNOWN_EXIT_EVENT";
+        }
+        return switch (exitType) {
+            case "REMOVED" -> "REMOVE_EVENT";
+            case "LEFT" -> "LEAVE_EVENT";
+            default -> "UNKNOWN_EXIT_EVENT";
+        };
+    }
+
+    private static String participantIdentityKey(ParticipantPresenceWrite row) {
+        return row.pnJid() == null ? row.lidJid() : row.pnJid();
+    }
+
     private static String normalizeJid(String value) {
         return blankToNull(value);
     }
@@ -457,6 +660,9 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private static String clamp(String value, int maxLength) {
         return value == null || value.length() <= maxLength
                 ? value : value.substring(0, maxLength);
+    }
+
+    private record ParticipantIdentity(String pnJid, String lidJid) {
     }
 
     private record ParsedBaseline(

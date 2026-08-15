@@ -25,26 +25,31 @@ class WhatsappGroupDepartedMemberServiceImplTest {
     @Mock
     private WhatsappGroupDepartedMemberMapper mapper;
 
+    @Mock
+    private AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
+
     @Test
     void saveLatestSortsLocksAndWritesEachFactIndependently() {
         WhatsappGroupDepartureFact second = fact("group-b@g.us", "2@s.whatsapp.net");
         WhatsappGroupDepartureFact first = fact("group-a@g.us", "1@s.whatsapp.net");
+        List<WhatsappGroupDepartureFact> facts = List.of(second, first);
         WhatsappGroupDepartedMemberServiceImpl service =
-                new WhatsappGroupDepartedMemberServiceImpl(mapper);
+                new WhatsappGroupDepartedMemberServiceImpl(mapper, currentPersistence);
 
-        service.saveLatest(List.of(second, first));
+        service.saveLatest(facts);
 
-        InOrder order = inOrder(mapper);
+        InOrder order = inOrder(mapper, currentPersistence);
         order.verify(mapper).upsertIdentity(eq(first), anyLong());
         order.verify(mapper).updateIfNewer(eq(first), anyLong());
         order.verify(mapper).upsertIdentity(eq(second), anyLong());
         order.verify(mapper).updateIfNewer(eq(second), anyLong());
+        order.verify(currentPersistence).applyParticipantDepartures(facts);
     }
 
     @Test
     void saveLatestIgnoresEmptyBatch() {
         WhatsappGroupDepartedMemberServiceImpl service =
-                new WhatsappGroupDepartedMemberServiceImpl(mapper);
+                new WhatsappGroupDepartedMemberServiceImpl(mapper, currentPersistence);
 
         service.saveLatest(List.of());
 
@@ -60,7 +65,7 @@ class WhatsappGroupDepartedMemberServiceImplTest {
         when(mapper.selectByGroupJids(eq(7L), org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of());
         WhatsappGroupDepartedMemberServiceImpl service =
-                new WhatsappGroupDepartedMemberServiceImpl(mapper);
+                new WhatsappGroupDepartedMemberServiceImpl(mapper, currentPersistence);
 
         assertThat(service.findByGroupJids(7L, groupJids)).isEmpty();
 

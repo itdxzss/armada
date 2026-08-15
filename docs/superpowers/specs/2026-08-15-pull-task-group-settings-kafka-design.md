@@ -372,6 +372,35 @@ switch (payload.setting) {
 
 ## 9. Android 侧改造
 
+### 9.0 现状盘点：已有什么、缺什么
+
+**IQ 协议能力已完整实现，且与 baileys 报文逐字一致，无需重写。** 调用链：
+
+```text
+WaApp.SendApproveNewMembers          (internal/service/app/group.go:103)
+  -> MainNodeProcessor.CreateApproveNewMembers  (internal/service/node/node_processor.go:841)
+  -> IqProcessor.BuildIqApproveNewMembers       (internal/service/node/processor/iq.go:479)
+  -> createIqApproveNewMembers                  (internal/service/node/processor/iq.go:2099)
+```
+
+该链路已被建普群（`internal/armada/normal_group_creation_sender.go:234`）在生产使用，
+HTTP 路由 `POST /ws/v1/groups/settings/approval/:key` 也已注册（`api/router/router.go:144`）。
+加人权限走 `SendGroupPermission(groupJID, "member_add_mode", state)`，同样已实现。
+
+| 报文 | baileys 对应 | 状态 |
+| --- | --- | --- |
+| `<membership_approval_mode><group_join state='on'\|'off'/></membership_approval_mode>` | `groupJoinApprovalMode(jid, 'on'\|'off')` | 已实现，一致 |
+| `<member_add_mode>all_member_add\|admin_add</member_add_mode>` | `groupMemberAddMode(jid, ...)` | 已实现，一致 |
+
+**缺的是接线，共两处**，都在本次范围内：
+
+1. Go `internal/armada` 没有独立的群设置命令分发分支。群设置目前只能从建普群那个复合动作内部触发，
+   新的 `group.settings.requested` 命令到达后会因 spec 表无匹配项被拒。补 9.1 的 spec 与 9.2 的 executor 分支。
+2. armada Java 的 `AndroidNativeGroupSettingsAdapter.setJoinApprovalEnabled` 仍是
+   `throw unsupported("join-approval")`，导致 Android 账号在群详情页改该设置直接报错。补 7.2 表中的三个文件。
+
+第 2 项不在拉群异步链路上（拉群改异步后不再走同步端口），但属于同一能力缺口，一并补齐。
+
 ### 9.1 命令契约
 
 `internal/armada/group_action_command.go`：
@@ -416,7 +445,7 @@ switch (payload.setting) {
 </iq>
 ```
 
-Go 服务端无需新增能力，也无需新增 HTTP 路由。
+底层 IQ 能力与 HTTP 路由都已存在，本节新增的只是 Kafka 命令到这两个方法的分发分支。
 
 ### 9.3 结果发布
 

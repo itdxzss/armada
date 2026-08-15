@@ -33,7 +33,7 @@
 
 ### 2.1 目标
 
-1. 任务管理员提权确认后、占用拉手之前，由该管理员账号一次性把目标群设置为「全体成员可加人」且「关闭进群审核」。
+1. 任务管理员提权确认后、占用拉手之前，由该管理员账号放开加人权限并关闭进群审核。
 2. 群设置从同步 HTTP 改为 outbox + Kafka 异步命令，与 promote、邀请、批量 add 使用同一条通道和同一套收敛模型。
 3. 去掉群元数据回读确认，改以协议动作结果事件为准。
 4. 补齐 Android 协议后端的 join-approval 能力。
@@ -42,58 +42,103 @@
 ### 2.2 非目标
 
 - 不改群详情页手工修改群设置（`GroupDetailServiceImpl`）。那是同步交互，异步化需要改前端，收益为零。
-- 不改新建普群链路。它已经走 Kafka 的 `GROUP_SETTINGS_APPLY`，不使用同步 `GroupSettingsPort`。
+- 不改新建普群链路。它已经走 Kafka 的 `GROUP_SETTINGS_APPLY`，本次完全不触碰。
 - 不删除 `GroupSettingsPort` 及其 HTTP 适配器，群详情页仍在使用。
 - 不新增 Kafka topic。
 - 不新增任务级或全局级配置开关，关闭进群审核是固定行为。
 - 不改动群资料设置（`pull_task_standard_group_setting`）的应用时机与语义。
 
-## 3. 业务流程
+## 3. 设计原则
 
-### 3.1 阶段位置
+### 3.1 一条命令一个动作
 
-阶段枚举不变，仍是八段。改造发生在 `MANAGER_PULLER_CONTACT` 阶段内部：
+拉群现有的协议命令全部是单动作粒度：`pull_task_manager_admin` 一条只 promote 一个人，
+`pull_task_puller_invite` 一条只邀请一个拉手，Android spec 上标着 `singleTarget: true`。
+一条命令对应一个 `commandId`、一行 `pull_task_account_action`、一个结果事件、一个 `reasonCode`。
+
+本次沿用该粒度：**放开加人权限和关闭进群审核是两条独立命令**，不合并。
+
+合并的唯一动机本是省一次 Kafka 往返，代价却是要在结果事件里发明「逐项结果数组」这种新契约，
+并让协议层承担「哪项失败算数」的业务判断。拆开之后这两样都不需要：命令级的 `outcome` 与
+`reasonCode` 就是该设置的结果，用的是现成格式。
+
+拆开常见的顾虑是「两次回调乱序，不知道何时该推进」。这里不存在该问题，原因见 3.2。
+
+### 3.2 阻断规则只表达为「哪个动作是推进条件」
+
+| 动作 | 失败后果 | 是否推进条件 |
+| --- | --- | --- |
+| 放开加人权限 | 阻断，退避重试 | 是 |
+| 关闭进群审核 | 只记录 `reason_code`，不重试 | 否 |
+
+执行行的推进只等加人权限那条命令的结果。关闭审核的结果到达时只更新自己的动作行，不触碰执行行，
+因此它何时到达、成功与否都不影响阶段推进，没有乱序问题。
+
+这条规则写在 armada 的结果收敛器里。将来若某场景要求关审核也必须成功，改控端一处即可，
+协议层不需要发布。
+
+### 3.3 协议层不做业务判断
+
+协议层只做协议映射：收到一条命令，发一条 IQ，如实上报成败与原因码。
+哪条失败要阻断、哪条可以放过，全部由控端决定。
+
+这与既有分层一致。`HttpGroupSettingsAdapter` 的类注释已写明「执行账号选择、管理员权限判断、
+超时回读确认和业务异常转换均由上层 Service 负责」。
+
+### 3.4 不回读
+
+同步 HTTP 时代回读是防御「HTTP 200 只代表协议层收到了命令」。异步命令的
+`group.action_result_reported` 是协议层真正把 IQ 发完之后才发出的执行结果，不是提交回执。
+判据从「回读 metadata 的 `memberAddMode`」换成「结果事件的 outcome 与 reasonCode」。
+
+Android 的群元数据本来也不返回 `joinApprovalMode`，回读对关审核这一项从来就不可用。
+
+### 3.5 顺序保证
+
+Outbox 行的 `kafka_key` 是 `protocolAccountId`。同一管理员账号的 promote 命令与群设置命令落在同一分区，
+严格保序，不会出现「设置命令先于提权命令被消费、账号还不是管理员因而被拒」的竞态。
+同步 HTTP 版本没有这个保证。
+
+## 4. 业务流程
+
+阶段枚举不变，仍是八段。改造发生在 `MANAGER_PULLER_CONTACT` 阶段内部。
 
 ```text
 MANAGER_ADMIN 提权确认成功
   -> 阶段推进到 MANAGER_PULLER_CONTACT
   -> 有补充拉手指令则优先处理，本段不执行
   -> 短事务：复核租约、选定管理员账号、取 groupJid
-  -> 短事务：写群设置动作行(SUBMITTED) + 写 outbox 行(PENDING)，原子提交
-  -> 释放租约，等待协议结果事件
-  -> 结果事件到达，收敛动作行
-       加人权限成功 -> 唤醒执行行，继续本阶段后续（占拉手、建联系人）
-                       其中关审核若失败，只写原因码留痕，不影响推进
-       加人权限失败 -> 保留阶段，按原因码退避重试
+  -> 短事务：写「放开加人权限」动作行(SUBMITTED) + outbox 行(PENDING)，原子提交
+  -> 释放租约，等待结果事件
+
+  -> 加人权限结果到达
+       失败 -> 保留阶段，按原因码退避重试，重新提交命令
+       成功 -> 同一事务内：
+                 写「关闭进群审核」动作行 + outbox 行
+                 唤醒执行行，next_run_at 置为立即
   -> 短事务：占用拉手、创建管理—拉手联系人动作、推进到 PULLER_INVITE
+       （不等待关闭审核的结果）
+
+  -> 关闭进群审核结果到达（时点不定，可能在推进之后）
+       成功 -> 动作行 SUCCESS
+       失败 -> 动作行 FAILED + reason_code，不重试，不影响任何阶段
 ```
 
 改造前该段是「事务外同步 HTTP 设置 + 回读确认 + 未确认则 defer」，改造后是「写命令 + 等回调」。
 
-### 3.2 为什么合成一条命令
+### 4.1 为什么关闭审核在加人权限成功之后才发
 
-两项设置合成一条命令，一条 outbox、一条结果事件、一个动作行。`GROUP_SETTINGS_APPLY` 在两端本来就是批量语义。
-拆成两条会产生两倍的 outbox 行、两次回调、两次执行行唤醒，还要处理两次回调乱序到达时的推进条件。
+两条命令若同时发出，加人权限因账号无管理员权限而失败时，关闭审核必然同样失败；
+之后加人权限重试成功，关闭审核却因为不重试而永远停在失败态，目标群审批一直开着。
 
-两项失败语义不同（加人权限阻断、关审核不阻断），这一点由结果事件的 `requiredSettings` / `failedSettings`
-表达，不需要拆成两条命令，见 4.5。
+改为串行发出后，关闭审核只在管理员权限已被协议层实际验证可用之后发出一次，
+它的一次性不重试才是安全的。
 
-### 3.3 为什么去掉回读
+代价是关闭审核晚一个 Kafka 往返，但它不阻断任何阶段，晚到无影响。
 
-同步 HTTP 时代回读是防御「HTTP 200 只代表协议层收到了命令」。异步命令的 `group.action_result_reported`
-是协议层真正把 IQ 发完之后才发出的执行结果，不是提交回执。判据从「回读 metadata 的 `memberAddMode`」
-换成「结果事件的 outcome 与 reasonCode」。
+## 5. 命令与事件契约
 
-Android 的群元数据本来也不返回 `joinApprovalMode`，回读对关审核这一项从来就不可用。
-
-### 3.4 顺序保证
-
-Outbox 行的 `kafka_key` 是 `protocolAccountId`。同一管理员账号的 promote 命令与群设置命令落在同一分区，
-严格保序，不会出现「设置命令先于提权命令被消费、账号还不是管理员因而被拒」的竞态。同步 HTTP 版本没有这个保证。
-
-## 4. 命令与事件契约
-
-### 4.1 Topic
+### 5.1 Topic
 
 不新增 topic，复用现有两条。
 
@@ -107,18 +152,22 @@ Outbox 行的 `kafka_key` 是 `protocolAccountId`。同一管理员账号的 pro
 
 避开新建普群的独立通道（`protocol.android.normal-group.commands.v1` / `protocol.normal-group.events.v1`）。
 
-### 4.2 命令标识
+### 5.2 命令标识
+
+两条命令共用命令类型与 source，靠 payload 的 `setting` 字段区分。
 
 | 字段 | 取值 |
 | --- | --- |
 | `commandType` | `group.settings.requested`（新增） |
 | `source` | `pull_task_group_settings`（新增） |
-| `action` | `GROUP_SETTINGS_APPLY`（复用两端已有常量） |
+| `setting` | `memberAdd` 或 `joinApproval` |
 | `aggregateType` | `PULL_TASK_ACCOUNT_ACTION` |
-| `aggregateId` | 群设置动作行 ID |
+| `aggregateId` | 对应动作行 ID |
 | `kafkaKey` | 管理员的 `protocolAccountId` |
 
-### 4.3 Outbox 引用 payload
+`normal_group_creation` 的 `GROUP_SETTINGS_APPLY` 是另一个命令类型，与本契约无交集。
+
+### 5.3 Outbox 引用 payload
 
 Outbox 只持久化轻量业务引用，不含号码、群 JID 和协议账号句柄，与现有 pull_task 命令族一致：
 
@@ -132,10 +181,13 @@ Outbox 只持久化轻量业务引用，不含号码、群 JID 和协议账号�
 }
 ```
 
-### 4.4 发布时补全的 wire payload
+设置项由动作行的 `action_type` 推出，不必冗余存进引用。
+
+### 5.4 发布时补全的 wire payload
 
 新增 `PullTaskGroupSettingsPayloadHydrator`，`supports` 判据为
-`commandType = group.settings.requested` 且 `aggregateType = PULL_TASK_ACCOUNT_ACTION`：
+`commandType = group.settings.requested` 且 `aggregateType = PULL_TASK_ACCOUNT_ACTION`。
+按动作行的 `action_type` 决定 `setting` 与 `enabled`：
 
 ```json
 {
@@ -148,199 +200,186 @@ Outbox 只持久化轻量业务引用，不含号码、群 JID 和协议账号�
   "accountPhone": "8613900000000",
   "protocolBackend": "WEB",
   "groupJid": "1203xxxx@g.us",
-  "action": "GROUP_SETTINGS_APPLY",
-  "addMembersAllowed": true,
-  "joinApprovalEnabled": false,
-  "requiredSettings": ["addMembers"],
+  "setting": "memberAdd",
+  "enabled": true,
   "timeoutMs": 30000,
   "attemptNo": 1,
   "source": "pull_task_group_settings"
 }
 ```
 
-**字段缺省即不设置。** 五项群设置字段（`sendMessagesAllowed`、`editGroupSettingsAllowed`、
-`addMembersAllowed`、`joinApprovalEnabled`、`ephemeralDurationSeconds`）全部可选，两端只对
-payload 中实际出现的字段发 IQ。拉群只带两项，其余三项属于任务群资料设置，不得被顺手覆盖。
-
-`requiredSettings` 声明哪些项失败会导致命令失败，取值为设置项名称：`sendMessages`、
-`editGroupSettings`、`addMembers`、`joinApproval`、`ephemeral`。已传但不在该数组中的项为尽力项。
-
-**该字段可选，缺省等价于「已传的项全部必需」。** 缺省值取「全必需」而非「全尽力」，
-是为了让漏传该字段的失败方向是安全的：设置失败会阻断并重试，不会被静默吞掉。
-
-必需与否只在已传的项之间区分。未传的项根本不执行，不存在必需与否的问题。
-
-由此，`normal_group_creation` 的 payload 完全不需要改动：五项全传、不传 `requiredSettings`，
-按缺省即五项全必需，任一失败整体失败，与现状逐字一致。只有拉群显式传 `["addMembers"]`，
-把关审核降级为尽力项。
-
-### 4.5 结果事件
-
-沿用 `group.action_result_reported`，`data.source = pull_task_group_settings`，
-`data.operation = group_settings_apply`，携带 `commandId`、`attemptNo`、`outcome`、`reasonCode`、
-`reasonMessage`、`occurredAt`。
-
-一条命令承载两项语义不同的设置，因此结果事件必须区分二者，否则「关审核失败不阻断」无法表达。
-payload 中每项设置分为必需项与尽力项：
-
-| 字段 | 语义 | 失败影响 |
+| `action_type` | `setting` | `enabled` |
 | --- | --- | --- |
-| `requiredSettings` | 必需项名称数组，拉群传 `["addMembers"]` | 任一失败即命令 `outcome = FAILED` |
-| 其余已传字段 | 尽力项，拉群的 `joinApproval` 属此类 | 失败不影响 `outcome` |
+| `OPEN_MEMBER_ADD` | `memberAdd` | `true`（全体成员可加人） |
+| `CLOSE_JOIN_APPROVAL` | `joinApproval` | `false`（关闭进群审核） |
 
-结果事件新增 `data.failedSettings`：字符串数组，列出实际失败的设置项名称，成功时为空数组。
+### 5.5 结果事件
 
-因此「加人成功、关审核失败」的事件是 `outcome = SUCCESS` 且 `failedSettings = ["joinApproval"]`。
-协议侧不吞异常，失败项被显式上报；是否阻断由控端按 `requiredSettings` 判定。
+沿用 `group.action_result_reported`，不新增字段。
 
-`normal_group_creation` 保持现状：五项全部为必需项，任一失败即整体失败，行为不变。
+| 字段 | 取值 |
+| --- | --- |
+| `data.source` | `pull_task_group_settings` |
+| `data.operation` | `group_settings_apply` |
+| `data.setting` | `memberAdd` 或 `joinApproval`，原样回显 |
+| `commandId` / `attemptNo` | 与命令一致 |
+| `outcome` | `SUCCESS` / `FAILED` |
+| `reasonCode` / `reasonMessage` | 失败时的协议错误码与脱敏描述 |
 
-## 5. 数据模型
+一条命令一个设置，因此命令级 `outcome` 就是该设置的结果，不需要逐项结果数组。
 
-### 5.1 动作类型扩展
+## 6. 数据模型
 
-`pull_task_account_action.action_type` 新增取值 `5 = 应用群设置`。
+### 6.1 动作类型扩展
 
-`PullTaskAccountActionType` 新增枚举项：
+`pull_task_account_action.action_type` 新增两个取值。两条命令是两个不同的动作，
+不能靠同一个类型加判别字段区分——唯一键 `uq_pull_task_action_pair` 包含 `action_type`，
+两行的 `actor` 与 `target` 相同，必须靠 `action_type` 才能共存。
+
+`PullTaskAccountActionType` 新增：
 
 ```java
-/** 应用群设置：任务管理员放开加人权限并关闭进群审核。 */
-APPLY_GROUP_SETTINGS(5);
+/** 放开加人权限：任务管理员把群设置为全体成员可添加成员。 */
+OPEN_MEMBER_ADD(5),
+/** 关闭进群审核：任务管理员关闭群的管理员入群审批。 */
+CLOSE_JOIN_APPROVAL(6);
 ```
 
-### 5.2 唯一键处理
+### 6.2 唯一键处理
 
-现有唯一键 `uq_pull_task_action_pair (tenant_id, group_execution_id, action_type, actor_group_account_id,
-target_group_account_id)`，且两个账号列都是 `NOT NULL`。
+现有唯一键 `uq_pull_task_action_pair (tenant_id, group_execution_id, action_type,
+actor_group_account_id, target_group_account_id)`，两个账号列都是 `NOT NULL`。
 
 群设置动作没有「对象账号」。沿用踩链接入群那一行已有的约定（表注释：踩链接入群时 actor 为目标账号自身 ID），
-把 `target_group_account_id` 写成与 `actor_group_account_id` 相同的管理员角色行 ID。这样唯一键天然表达
-「每个执行行只有一条群设置动作」，重复调度不会插出第二行。
+把 `target_group_account_id` 写成与 `actor_group_account_id` 相同的管理员角色行 ID。
+于是每个执行行每种群设置动作至多一行，重复调度不会插出第二行。
 
-### 5.3 Flyway
+### 6.3 Flyway
 
-新增 `V119__pull_task_group_settings_action.sql`，只做一件事：修改 `action_type` 列注释，
-补上 `5=应用群设置`。列类型和索引不变，无数据迁移。
+新增 `V119__pull_task_group_settings_action.sql`，只修改 `action_type` 列注释。
+列类型与索引不变，无数据迁移。
 
 ```sql
 ALTER TABLE pull_task_account_action
     MODIFY COLUMN action_type TINYINT NOT NULL
-    COMMENT '动作类型:1=保存联系人 2=邀请入群 3=踩链接入群 4=设置任务管理员 5=应用群设置';
+    COMMENT '动作类型:1=保存联系人 2=邀请入群 3=踩链接入群 4=设置任务管理员 5=放开加人权限 6=关闭进群审核';
 ```
 
-## 6. armada 侧改造清单
+## 7. armada 侧改造清单
 
-### 6.1 新增
+### 7.1 新增
 
 | 文件 | 职责 |
 | --- | --- |
-| `ProtocolPullTaskGroupSettingsCommandRequest` | 命令请求记录，`SOURCE = pull_task_group_settings`，含 actor 与两个布尔 |
-| `PullTaskGroupSettingsPayloadHydrator` | 从动作行、角色快照、执行行补全 wire payload |
-| `PullTaskGroupSettingsResultService` + `Impl` | 以 `commandId + attemptNo` CAS 收敛结果并唤醒执行行 |
+| `ProtocolPullTaskGroupSettingsCommandRequest` | 命令请求记录，`SOURCE = pull_task_group_settings`，含 actor 与动作行 ID |
+| `PullTaskGroupSettingsPayloadHydrator` | 按动作行 `action_type` 补全 `setting` 与 `enabled` |
+| `PullTaskGroupSettingsResultService` + `Impl` | 以 `commandId + attemptNo` CAS 收敛结果；仅加人权限那条唤醒执行行 |
 | `PullTaskGroupSettingsCallback`（DTO） | 结果事件的领域入参 |
 | `V119__pull_task_group_settings_action.sql` | 动作类型注释 |
 
-### 6.2 修改
+### 7.2 修改
 
 | 文件 | 改动 |
 | --- | --- |
-| `PullTaskAccountActionType` | 新增 `APPLY_GROUP_SETTINGS(5)` |
+| `PullTaskAccountActionType` | 新增 `OPEN_MEMBER_ADD(5)`、`CLOSE_JOIN_APPROVAL(6)` |
 | `ProtocolCommandOutboxServiceImpl` | 新增 `COMMAND_TYPE_GROUP_SETTINGS_REQUESTED` 常量与 `enqueuePullTaskGroupSettingsCommands`，topic 路由复用 `backend == ANDROID ? groupActionTopic : masterTopic` |
 | `ProtocolCommandOutboxService` | 新增接口方法 |
+| `ProtocolCommandOutboxServiceImpl.cancelPendingPullTaskCommands` | 覆盖新命令类型 |
 | `ProtocolGroupEventConsumer` | `handleActionResultReported` 增加 `pull_task_group_settings` 分支 |
-| `PullTaskManagerPullerContactProcessor` | 删除 `ensureMemberAddPermission` 与 `memberAddAllowed`，改为「准备 → 提交命令 → 返回等待」 |
-| `PullTaskManagerPullerContactTransactionService` | `prepareMemberAddPermission` 改名为 `prepareGroupSettings`，返回值增加两个布尔；`deferMemberAddPermission` 改名为 `deferGroupSettings`；新增 `submitGroupSettingsCommand`（写动作行 + outbox，同事务） |
-| `PullTaskMemberAddPermissionWork` | 改名 `PullTaskGroupSettingsWork`，字段增加 `addMembersAllowed`、`joinApprovalEnabled` |
-| `PullTaskExecutionReasonCode` | 保留 `GROUP_MEMBER_ADD_PERMISSION_DENIED` / `_UNCONFIRMED`；新增 `GROUP_JOIN_APPROVAL_CLOSE_FAILED`，仅写入动作行 `reason_code` 留痕，不阻断执行行 |
+| `PullTaskManagerPullerContactProcessor` | 删除 `ensureMemberAddPermission` 与 `memberAddAllowed`，改为「准备 → 提交加人权限命令 → 返回等待」 |
+| `PullTaskManagerPullerContactTransactionService` | `prepareMemberAddPermission` 改名 `prepareGroupSettings`；`deferMemberAddPermission` 改名 `deferGroupSettings`；新增 `submitMemberAddCommand`（写动作行 + outbox，同事务） |
+| `PullTaskMemberAddPermissionWork` | 改名 `PullTaskGroupSettingsWork` |
+| `PullTaskExecutionReasonCode` | 保留 `GROUP_MEMBER_ADD_PERMISSION_DENIED` / `_UNCONFIRMED`；新增 `GROUP_JOIN_APPROVAL_CLOSE_FAILED`，仅写动作行 `reason_code`，不进执行行 |
+| `PullTaskUnknownResultReconciliationService` | 纳入两类群设置动作的未知结果兜底；关闭审核的未知不得阻断执行行 |
 | `AndroidNativeClient` | 新增 `setGroupJoinApproval(wsPhone, groupJid, enabled)` |
 | `HttpAndroidNativeClient` | 实现之，`GROUP_JOIN_APPROVAL_URI_PREFIX = "/ws/v1/groups/settings/approval/"`，复用 `GroupPermissionRequest` |
 | `AndroidNativeGroupSettingsAdapter` | `setJoinApprovalEnabled` 由 `throw unsupported` 改为真实调用 |
-| `PullTaskUnknownResultReconciliationService` | 纳入群设置动作的未知结果兜底 |
-| `ProtocolCommandOutboxServiceImpl.cancelPendingPullTaskCommands` | 覆盖群设置命令类型 |
 
-`AndroidNativeGroupSettingsAdapter` 的补齐虽然拉群链路改异步后不再直接用它，但群详情页手工设置仍走该端口，
-Android 账号目前在那里是不可用的，一并补上。
+`AndroidNativeGroupSettingsAdapter` 的补齐虽然拉群改异步后不再走它，但群详情页手工设置仍用该端口，
+Android 账号目前在那里不可用，一并补上。
 
-### 6.3 结果收敛语义
+### 7.3 结果收敛语义
 
-`PullTaskGroupSettingsResultService.apply` 与 `PullTaskManagerAdminResultServiceImpl` 同构：
+`PullTaskGroupSettingsResultService.apply` 先按动作行的 `action_type` 分流。
 
-1. 按 `commandId` 定位动作行，校验 `attemptNo`、租户、执行行、动作类型一致
+公共前置与 `PullTaskManagerAdminResultServiceImpl` 同构：
+
+1. 按 `commandId` 定位动作行，校验 `attemptNo`、租户、执行行一致
 2. 目标状态已到达则幂等返回 true
 3. CAS 从 `{SUBMITTED, UNKNOWN}` 迁移到 `{SUCCESS, FAILED, UNKNOWN}`
-4. CAS 唤醒执行行：期望 `EXECUTING + MANAGER_PULLER_CONTACT`
 
-结果分支：
+**`OPEN_MEMBER_ADD` 分支**，额外 CAS 唤醒执行行（期望 `EXECUTING + MANAGER_PULLER_CONTACT`）：
 
 | 结果 | 动作行 | 执行行 |
 | --- | --- | --- |
-| `SUCCESS` 且 `failedSettings` 为空 | SUCCESS | 保留 `MANAGER_PULLER_CONTACT`，`next_run_at` 置为立即，下轮走占拉手 |
-| `SUCCESS` 且 `failedSettings = ["joinApproval"]` | SUCCESS，`reasonCode = GROUP_JOIN_APPROVAL_CLOSE_FAILED` | 同上，照常推进，不重试 |
-| 失败且 `GROUP_PERMISSION_DENIED` | FAILED | 保留阶段，`reasonCode = GROUP_MEMBER_ADD_PERMISSION_DENIED`，按统一退避重试 |
-| 其它失败 | FAILED | 保留阶段，`reasonCode = GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED`，按统一退避重试 |
+| 成功 | SUCCESS | 同事务内追加 `CLOSE_JOIN_APPROVAL` 动作行与 outbox 行；`next_run_at` 置为立即 |
+| 失败且 `GROUP_PERMISSION_DENIED` | FAILED | 保留阶段，`reasonCode = GROUP_MEMBER_ADD_PERMISSION_DENIED`，退避重试 |
+| 其它失败 | FAILED | 保留阶段，`reasonCode = GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED`，退避重试 |
 | 未知 | UNKNOWN | 保留阶段，交由未知结果兜底调度 |
 
-失败重试时重新生成 `commandId` 并递增 `attemptNo`，与提权动作一致。
+失败重试时重新生成 `commandId` 并递增 `attemptNo`，与提权动作一致。重复设置
+`all_member_add` 是幂等 IQ，无副作用。
 
-第二行是「关审核失败不阻断」的落点：动作行仍是 SUCCESS，只在 `reason_code` 留痕供排查和统计，
-执行行照常推进到占拉手。加人权限失败才阻断，因为它是拉手 add 料子的硬前置。
+**`CLOSE_JOIN_APPROVAL` 分支**，只写动作行，一律不触碰执行行：
 
-加人权限失败时命令整体重试，重试会连带重发关审核。两项 IQ 均幂等，无副作用。
+| 结果 | 动作行 |
+| --- | --- |
+| 成功 | SUCCESS |
+| 失败 | FAILED，`reasonCode = GROUP_JOIN_APPROVAL_CLOSE_FAILED`，不重试 |
+| 未知 | UNKNOWN，由兜底调度收口为终态，不重试 |
 
-## 7. protocol-layer 侧改造
+该分支必须对「执行行已推进到 `PULLER_INVITE` 甚至更后阶段」保持可写。它不读也不 CAS 执行行，
+因此结果何时到达都能正常落库。
 
-### 7.1 命令类型注册
+## 8. protocol-layer 侧改造
+
+### 8.1 命令类型注册
 
 - `types.ts`：`MasterCommandType` 与 `SUPPORTED_COMMAND_TYPES` 增加 `group.settings.requested`
 - `master-router.ts`：按 `protocolAccountId` 路由到 worker，与 `group.participants.requested` 同路径
 - `pull-task-action.ts`：新增 `GROUP_SETTINGS_SOURCE_SPECS` 白名单，收录 `pull_task_group_settings`，
-  校验 source 与 operation 严格配对
+  校验 source 与 operation 严格配对，并校验 `setting` 取值在 `memberAdd` / `joinApproval` 之内
 - `worker-consumer.ts`：新增 executor 分派
 
-### 7.2 执行器
+### 8.2 执行器
 
-新增 `group-settings-executor.ts`，或复用 `normal-group-creation-executor.ts` 中
-`GROUP_SETTINGS_APPLY` 分支并抽出共享函数。执行语义改为按字段存在性逐项设置，
-并按 `requiredSettings` 区分失败处理：
+新增独立的 `group-settings-executor.ts`，**不复用也不改动 `normal-group-creation-executor.ts`**。
+建普群那条分支保持原样，本次不触碰，回归面为零。
+
+一条命令只发一条 IQ：
 
 ```ts
-const failed: string[] = []
-for (const item of ORDERED_SETTINGS) {
-  if (payload[item.field] === undefined) continue
-  // requiredSettings 缺省时视为全必需，漏传该字段的失败方向是阻断而非静默
-  const required = payload.requiredSettings === undefined
-    || payload.requiredSettings.includes(item.name)
-  try {
-    await item.apply(socket, payload)
-  } catch (error) {
-    if (required) throw error              // 必需项失败立即中止，后续项不再执行
-    failed.push(item.name)                 // 尽力项失败记录后继续
-    logSettingFailure(item.name, error)
-  }
+switch (payload.setting) {
+  case 'memberAdd':
+    if (!socket.groupMemberAddMode) unsupported('groupMemberAddMode')
+    await socket.groupMemberAddMode.call(
+      socket, payload.groupJid, payload.enabled ? 'all_member_add' : 'admin_add')
+    return
+  case 'joinApproval':
+    if (!socket.groupJoinApprovalMode) unsupported('groupJoinApprovalMode')
+    await socket.groupJoinApprovalMode.call(
+      socket, payload.groupJid, payload.enabled ? 'on' : 'off')
+    return
 }
-return { failedSettings: failed }
 ```
 
-`ORDERED_SETTINGS` 顺序固定为：发言权限、编辑权限、加人权限、进群审批、限时消息。拉群只命中中间两项，
-即「先加人权限、后进群审核」。加人权限是必需项，失败直接抛出，进群审批不再执行；
-进群审批是尽力项，失败进入 `failedSettings` 并继续。
+抛出的异常按现有 pull_task 动作结果路径转成 `outcome = FAILED` 与 `reasonCode`。
 
-`normal_group_creation` 不传 `requiredSettings`，按缺省即五项全必需，任一失败即抛出，与现状逐字一致。
-其 payload 无需任何改动。
-
-### 7.3 结果发布
+### 8.3 结果发布
 
 复用现有 pull_task 动作结果发布路径，`source = pull_task_group_settings`，
-`operation = group_settings_apply`。
+`operation = group_settings_apply`，回显 `setting`。
 
-## 8. Android 侧改造
+## 9. Android 侧改造
 
-### 8.1 命令契约
+### 9.1 命令契约
 
 `internal/armada/group_action_command.go`：
 
 - 新增 `SourcePullTaskGroupSettings = "pull_task_group_settings"`
 - 新增 `CommandTypeGroupSettingsRequested = "group.settings.requested"`
+- 新增 `operationGroupSettingsApply = "group_settings_apply"`
+- `GroupActionCommandPayload` 新增 `Setting string` 与 `Enabled *bool`（指针以区分未传与 false）
 - `groupActionSpecs` 增加一条：
 
 ```go
@@ -348,25 +387,21 @@ return { failedSettings: failed }
     commandType: CommandTypeGroupSettingsRequested, source: SourcePullTaskGroupSettings,
     operation: operationGroupSettingsApply,
     aggregateType: aggregateTypePullTaskAccountActionGroupAction,
-    key: correlationKeyActionID, action: ActionGroupSettingsApply,
+    key: correlationKeyActionID,
     validateExecution: validatePullTaskGroupSettingsExecution,
 },
 ```
 
-- `GroupActionCommandPayload` 的五个设置字段改为指针类型，以区分「未传」与「传了 false」
-- `GroupActionCommandPayload` 新增 `RequiredSettings *[]string`，用指针区分「未传」与「传了空数组」；
-  未传按全必需，空数组按全尽力
-- 现有 `validateNormalGroupCreationExecution` 对 `GROUP_SETTINGS_APPLY` 的必填校验保持不变，
-  新增的 `validatePullTaskGroupSettingsExecution` 要求 `groupJid` 非空、至少带一项设置，
-  且 `requiredSettings` 若传了，其中每一项都必须在 payload 中实际出现
+`validatePullTaskGroupSettingsExecution` 要求 `groupJid` 非空、`setting` 在白名单内、`enabled` 非 nil。
 
-### 8.2 执行
+建普群的 `GROUP_SETTINGS_APPLY` 契约与校验保持原样，不触碰。
 
-`internal/armada/group_action_executor.go` 按字段存在性逐项调用，失败处理与 7.2 一致
-（必需项失败中止，尽力项失败进 `failedSettings` 后继续）：
+### 9.2 执行
 
-- `addMembersAllowed` → `SendGroupPermission(groupJID, "member_add_mode", v)`
-- `joinApprovalEnabled` → `SendApproveNewMembers(groupJID, v)`
+`internal/armada/group_action_executor.go` 新增分支，一条命令发一条 IQ：
+
+- `setting = memberAdd` → `SendGroupPermission(groupJID, "member_add_mode", enabled)`
+- `setting = joinApproval` → `SendApproveNewMembers(groupJID, enabled)`
 
 两个方法都已存在（`internal/service/app/group.go:103` 与 `:108`），底层分别落到
 `createIqApproveNewMembers` 与 `createIqSetGroupPermission`，报文与 baileys
@@ -383,80 +418,92 @@ return { failedSettings: failed }
 
 Go 服务端无需新增能力，也无需新增 HTTP 路由。
 
-### 8.3 结果发布
+### 9.3 结果发布
 
-`internal/armada/group_action_event.go` 复用现有 `group.action_result_reported` 发布路径。
+`internal/armada/group_action_event.go` 复用现有 `group.action_result_reported` 发布路径，回显 `setting`。
 
-## 9. 存量兼容与灰度
+## 10. 存量兼容与灰度
 
-### 9.1 存量执行行
+### 10.1 存量执行行
 
 改造前停留在 `MANAGER_PULLER_CONTACT` 阶段的执行行，其加人权限可能已经通过同步 HTTP 设置成功，
-但没有任何动作行记录。部署后这些执行行会新建一条群设置动作并重新提交命令。重复设置
-`all_member_add` 与 `off` 都是幂等 IQ，无副作用。
+但没有任何动作行记录。部署后这些执行行会新建加人权限动作并重新提交命令。重复设置
+`all_member_add` 是幂等 IQ，无副作用。
 
 不需要数据回补脚本。
 
-### 9.2 版本依赖
+### 10.2 版本依赖
 
 armada 的新命令类型必须在 protocol-layer 与 Android 都已支持之后才能发布，否则命令会被
 `UNSUPPORTED_COMMAND_TYPE` 拒绝消费，执行行会卡在等待。
 
 发布顺序：protocol-layer 与 Android 先发（新增分支对存量命令无影响），确认两端就绪后再发 armada。
 
-### 9.3 回滚
+### 10.3 回滚
 
 armada 回滚到旧版本后，同步 HTTP 路径恢复，已写入但未消费的群设置命令会在协议侧被拒绝并进入失败，
 对应执行行由未知结果兜底调度回收。不需要清理 outbox。
 
-## 10. 可观测性
+## 11. 可观测性
 
-- 命令提交、结果收敛各记一条 INFO，字段限于 `taskId`、`executionId`、`actionId`、`commandId`、
-  `attemptNo`、`outcome`、`reasonCode`，不记录号码、群 JID 和协议账号句柄
+- 两条命令的提交与结果收敛各记一条 INFO，字段限于 `taskId`、`executionId`、`actionId`、
+  `commandId`、`attemptNo`、`setting`、`outcome`、`reasonCode`，不记录号码、群 JID 和协议账号句柄
 - 关闭审核失败单独记 WARN，便于统计目标群开启审批的比例
 - 拉群任务详情沿用现有原因码展示，`GROUP_MEMBER_ADD_PERMISSION_DENIED` 与
   `GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED` 的展示文案不变
 
-## 11. 测试计划
+## 12. 测试计划
 
-### 11.1 armada 单元测试
+### 12.1 armada 单元测试
 
-- `PullTaskGroupSettingsPayloadHydratorTest`：payload 只含两项设置字段；动作行与冻结事实不一致时抛校验异常；租户上下文正确恢复
-- `PullTaskGroupSettingsResultServiceTest`：成功唤醒执行行；`failedSettings = ["joinApproval"]` 时仍推进且写入 `GROUP_JOIN_APPROVAL_CLOSE_FAILED`；`GROUP_PERMISSION_DENIED` 映射到 DENIED 原因码并退避；其它失败映射到 UNCONFIRMED；重复回调幂等；`attemptNo` 不匹配时拒绝
-- `PullTaskManagerPullerContactProcessorTest`：补充拉手指令优先，群设置命令不提交；命令提交后返回等待且不占用拉手；动作行与 outbox 行同事务写入
-- `ProtocolCommandOutboxServiceImplTest`：WEB 账号进 master topic，ANDROID 账号进 group-action topic；`kafkaKey` 为 protocolAccountId；批量上限与 commandId 冲突
+- `PullTaskGroupSettingsPayloadHydratorTest`：`OPEN_MEMBER_ADD` 补出 `memberAdd/true`，
+  `CLOSE_JOIN_APPROVAL` 补出 `joinApproval/false`；动作行与冻结事实不一致时抛校验异常；租户上下文正确恢复
+- `PullTaskGroupSettingsResultServiceTest`
+  - 加人权限成功：动作行 SUCCESS、追加关闭审核动作行与 outbox 行、执行行被唤醒
+  - 加人权限 `GROUP_PERMISSION_DENIED`：映射 DENIED 原因码、退避、不追加关闭审核动作
+  - 加人权限其它失败：映射 UNCONFIRMED 原因码、退避
+  - 关闭审核失败：动作行 FAILED + `GROUP_JOIN_APPROVAL_CLOSE_FAILED`，执行行完全不被触碰
+  - 关闭审核结果在执行行已推进到 `PULLER_INVITE` 之后到达：仍能正常落库
+  - 重复回调幂等；`attemptNo` 不匹配时拒绝
+- `PullTaskManagerPullerContactProcessorTest`：补充拉手指令优先，不提交群设置命令；
+  提交加人权限命令后返回等待且不占用拉手；动作行与 outbox 行同事务写入
+- `ProtocolCommandOutboxServiceImplTest`：WEB 进 master topic，ANDROID 进 group-action topic；
+  `kafkaKey` 为 protocolAccountId；批量上限与 commandId 冲突；取消覆盖新命令类型
 - `PullTaskGroupSettingsActionMigrationSqlTest`：V119 幂等且只改注释
 - `AndroidNativeGroupSettingsAdapterTest`：`setJoinApprovalEnabled` 打到
   `/ws/v1/groups/settings/approval/{wsPhone}`；协议失败映射为 ProtocolException
 
-### 11.2 protocol-layer 测试
+### 12.2 protocol-layer 测试
 
-- 字段缺省时不调用对应 socket 方法
-- 两项都传时按「先加人、后审批」顺序调用
-- 加人（必需项）失败时审批不执行且整体失败
-- 审批（尽力项）失败时 `outcome = SUCCESS` 且 `failedSettings = ["joinApproval"]`
-- 不传 `requiredSettings` 时任一项失败均整体失败（缺省全必需）
-- 传空数组时任一项失败均不影响 `outcome`，全部进入 `failedSettings`
-- `normal_group_creation` 五项全传、不传 `requiredSettings` 的调用序列与改造前逐字一致（回归）
+- `setting = memberAdd` 只调 `groupMemberAddMode`，不碰其它 socket 方法
+- `setting = joinApproval` 只调 `groupJoinApprovalMode`
+- `setting` 取值非法时命令被拒绝
+- socket 能力缺失时抛 `unsupported`
 - source 白名单外的命令被拒绝
+- `normal-group-creation-executor.ts` 未被本次改动触及（文件级 diff 为空）
 
-### 11.3 Android 测试
+### 12.3 Android 测试
 
-- 指针字段区分未传与 false
-- `pull_task_group_settings` spec 的必填校验，含 `requiredSettings` 与实际字段的一致性校验
-- 结果事件字段完整，含 `failedSettings`
+- `pull_task_group_settings` spec 的字段校验，含 `setting` 白名单与 `enabled` 非 nil
+- 两种 `setting` 各自落到正确的 `Send*` 方法
+- 结果事件字段完整并回显 `setting`
+- 建普群 `GROUP_SETTINGS_APPLY` 校验与执行未受影响（回归）
 
-### 11.4 集成验证
+### 12.4 集成验证
 
 在测试环境跑一条真实拉群任务，确认：目标群加人权限被放开、进群审批被关闭、执行行正常推进到
 `PULLER_INVITE`、补充管理员踩链接不再返回待审核。Web 与 Android 两种管理员账号各验一次。
 
-## 12. 风险
+补充一条负向验证：人为让管理员失去群管理员权限，确认加人权限命令失败并退避重试，
+且关闭审核命令没有被发出。
+
+## 13. 风险
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
-| 三仓联动发布顺序错误 | 执行行卡在等待群设置结果 | 按 9.2 顺序发布；armada 侧命令被拒后由未知结果兜底回收，不会永久卡死 |
-| 异步化后阶段耗时增加 | 每条执行行多一次 Kafka 往返 | 同分区保序，实测往返在百毫秒级；换来的是不再占用调度线程做三次同步 HTTP |
-| `GROUP_SETTINGS_APPLY` payload 语义扩展改错 | 建普群的群设置被漏设 | 建普群 payload 不改动，`requiredSettings` 缺省即全必需；7.2 的回归测试逐字比对五项全传的调用序列 |
-| 关闭审核失败被静默 | 补充管理员持续待审核 | 单独 WARN 日志 + 原因码，可统计 |
-| 目标群管理员权限在命令消费前丢失 | 命令失败 | 与提权失败同路径，退避重试并轮换候选，行为不变 |
+| 三仓联动发布顺序错误 | 执行行卡在等待加人权限结果 | 按 10.2 顺序发布；命令被拒后由未知结果兜底回收，不会永久卡死 |
+| 异步化后阶段耗时增加 | 每条执行行多一次 Kafka 往返 | 同分区保序，往返在百毫秒级；换来不再占用调度线程做三次同步 HTTP |
+| 关闭审核失败被静默 | 补充管理员持续待审核 | 单独 WARN 日志 + 动作行 `reason_code`，可统计 |
+| 关闭审核动作行长期停留非终态 | 观测噪声 | 纳入未知结果兜底调度收口，但不阻断执行行 |
+| 目标群管理员权限在命令消费前丢失 | 加人权限命令失败 | 与提权失败同路径，退避重试并轮换候选，行为不变 |
+| `GroupActionCommandPayload` 新增字段影响建普群 | 建普群校验或执行异常 | 新字段仅被新 spec 使用，建普群校验分支不变；12.3 有回归用例 |

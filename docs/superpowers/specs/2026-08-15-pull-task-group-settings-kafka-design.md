@@ -26,8 +26,19 @@
 ### 1.2 缺少「关闭管理员审核进入」
 
 目标群若开启了入群审批（`membership_approval_mode`），通过邀请链接自主进群的账号会卡在待审核。
-拉群链路里补充管理员是踩链接进群的（`PullTaskSupplementManagerProcessor` 会返回 `entryPendingApproval`），
-提权完成后若不关闭审批，补充管理员补位会持续失败。
+
+**受益方是踩链接进群的拉手。** 拉手的进群方式可配置（`pull_task_standard_setting.puller_join_by_link`），
+取 `JOIN_BY_LINK` 时由拉手自行踩链接，发生在 `MANAGER_PULLER_CONTACT` 与 `PULLER_INVITE` 阶段，
+晚于本次关审核，因此能直接受益。
+
+**补充管理员不在受益范围内。** 它由 `PullTaskManagerJoinProcessor` 在 `MANAGER_JOIN`（阶段 2）
+调用 `PullTaskSupplementManagerProcessor` 踩链接，早于阶段 4 的关审核。这不是放错位置——关审核
+需要群管理员权限，任务管理员在提权确认前不具备该权限，本操作无法更早执行。若要覆盖补充管理员，
+需改由阶段 3 执行提权的既有管理员顺手关闭，属于另一次改动。
+
+存在一个时序缝隙：关审核命令与执行行唤醒在同一事务入队，拉手踩链接至少晚一个调度轮次，
+命令大概率先落地但不保证。抢先踩链接的那次会卡待审核，由拉手自身的失败重试兜底。
+关审核本就是尽力项，该缝隙可接受。
 
 ## 2. 目标与非目标
 

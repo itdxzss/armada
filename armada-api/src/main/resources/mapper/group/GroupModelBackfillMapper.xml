@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupModelBackfillMapper">
+
+  <select id="countInvalidGroupSources" resultType="int">
+    SELECT COUNT(*)
+    FROM group_link_preview preview
+    LEFT JOIN group_link link
+      ON preview.tenant_id = link.tenant_id
+     AND preview.group_link_id = link.id
+    WHERE preview.group_jid IS NOT NULL
+      AND (
+        link.id IS NULL
+        OR TRIM(preview.group_jid) = ''
+        OR LOWER(TRIM(preview.group_jid)) NOT LIKE '%@g.us'
+      )
+  </select>
+
+  <select id="countDuplicateGroupJids" resultType="int">
+    SELECT COUNT(*)
+    FROM (
+      SELECT preview.tenant_id, LOWER(TRIM(preview.group_jid)) AS group_jid
+      FROM group_link_preview preview
+      INNER JOIN group_link link
+        ON preview.tenant_id = link.tenant_id
+       AND preview.group_link_id = link.id
+      WHERE preview.group_jid IS NOT NULL
+        AND TRIM(preview.group_jid) &lt;&gt; ''
+      GROUP BY preview.tenant_id, LOWER(TRIM(preview.group_jid))
+      HAVING COUNT(*) &gt; 1
+    ) duplicate_group
+  </select>
+
+  <insert id="backfillGroups">
+    <!-- 普通读筛选后按完整自然键排序执行 IODKU；禁止对缺失键先做 UPDATE。 -->
+    INSERT INTO wa_group (
+      tenant_id, group_jid, folder_id, display_name, avatar_url, remark,
+      origin, created_at, updated_at, deleted_at
+    )
+    SELECT preview.tenant_id,
+           LOWER(TRIM(preview.group_jid)) AS group_jid,
+           link.folder_id,
+           NULLIF(TRIM(link.group_name), ''),
+           NULLIF(TRIM(preview.avatar_url), ''),
+           link.remark,
+           link.origin,
+           LEAST(link.created_at, preview.created_at),
+           GREATEST(link.updated_at, preview.updated_at),
+           link.deleted_at
+    FROM group_link_preview preview
+    INNER JOIN group_link link
+      ON preview.tenant_id = link.tenant_id
+     AND preview.group_link_id = link.id
+    LEFT JOIN wa_group target
+      ON target.tenant_id = preview.tenant_id
+     AND target.group_jid = LOWER(TRIM(preview.group_jid))
+    WHERE preview.group_jid IS NOT NULL
+      AND TRIM(preview.group_jid) &lt;&gt; ''
+      AND LOWER(TRIM(preview.group_jid)) LIKE '%@g.us'
+      AND (
+        target.id IS NULL
+        OR (
+          GREATEST(link.updated_at, preview.updated_at) &gt;= target.updated_at
+          AND (
+            NOT (target.folder_id &lt;=&gt; link.folder_id)
+            OR (
+              NULLIF(TRIM(link.group_name), '') IS NOT NULL
+              AND NOT (target.display_name &lt;=&gt; NULLIF(TRIM(link.group_name), ''))
+            )
+            OR (
+              NULLIF(TRIM(preview.avatar_url), '') IS NOT NULL
+              AND NOT (target.avatar_url &lt;=&gt; NULLIF(TRIM(preview.avatar_url), ''))
+            )
+            OR NOT (target.remark &lt;=&gt; link.remark)
+            OR NOT (target.deleted_at &lt;=&gt; link.deleted_at)
+          )
+        )
+        OR target.created_at &gt; LEAST(link.created_at, preview.created_at)
+      )
+    ORDER BY preview.tenant_id ASC, group_jid ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      folder_id = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group.updated_at
+          OR VALUES(created_at) &lt; wa_group.created_at
+          THEN VALUES(folder_id)
+        ELSE wa_group.folder_id
+      END,
+      display_name = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group.updated_at
+          OR VALUES(created_at) &lt; wa_group.created_at
+          THEN COALESCE(VALUES(display_name), wa_group.display_name)
+        ELSE wa_group.display_name
+      END,
+      avatar_url = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group.updated_at
+          OR VALUES(created_at) &lt; wa_group.created_at
+          THEN COALESCE(VALUES(avatar_url), wa_group.avatar_url)
+        ELSE wa_group.avatar_url
+      END,
+      remark = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group.updated_at
+          OR VALUES(created_at) &lt; wa_group.created_at
+          THEN VALUES(remark)
+        ELSE wa_group.remark
+      END,
+      deleted_at = CASE
+        WHEN VALUES(updated_at) &gt;= wa_group.updated_at
+          OR VALUES(created_at) &lt; wa_group.created_at
+          THEN VALUES(deleted_at)
+        ELSE wa_group.deleted_at
+      END,
+      origin = CASE
+        WHEN VALUES(created_at) &lt; wa_group.created_at THEN VALUES(origin)
+        ELSE wa_group.origin
+      END,
+      created_at = LEAST(wa_group.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group.updated_at, VALUES(updated_at))
+  </insert>
+
+</mapper>

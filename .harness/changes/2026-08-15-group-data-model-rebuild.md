@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：六表最小 additive DDL（V117）、账号群报告、账号自身及普通成员进退群事件、完整成员和群资料快照、当前邀请码、公开邀请预览、健康结果、已确认群名/权限设置、本地资料和分组入口，以及旧入口删除/恢复同步新表写入已完成本地实现；旧表仍决定列表、营销和全部业务结果，尚未回填、切换读取、迁移或部署
+- 状态：六表最小 additive DDL（V117）、现有写入口双写、只读回填门禁和 `wa_group` 分批回填第一阶段已完成本地实现；旧表仍决定列表、营销和全部业务结果，回填任务默认关闭且未在任何环境执行，其余五表回填、切换读取、迁移和部署尚未进行
 
 ## 目标
 
@@ -51,8 +51,11 @@
 - [x] 复用现有本地资料、URL 群头像、详情群名/头像、metadata 列表镜像、导入链接分组和群组分组入口同步 `wa_group` / `wa_group_invite`；使用批量 SQL，不增加锁，未解析邀请不虚构 `folder_id`
 - [x] 旧群链接和链接分组删除只在真实群最后一条有效 alias 消失时同步软删 `wa_group`，运营分组删除同步清空 `wa_group.folder_id`；普通 UI 删除不占用仅供系统退役的 `wa_group_invite.deleted_at`，重新观察、导入或编辑时恢复新表软删除态
 - [x] 用 test1 只读报告量化同 JID 多 active legacy 行及 alias 级属性冲突：当前均为 0
+- [x] 新增只读回填门禁脚本，拆分旧模型孤儿引用与 `wa_group` 回填后的 binding 目标未解析；实时双写 first-post 只统计现状，baseline=1 + first-post 非空继续作为硬门禁
+- [x] 新增默认关闭、要求单实例启用的 `wa_group` 分批回填第一阶段；每轮 2 条只读门禁 + 1 条 500 行集合写，显式租户连接、自然键排序，不使用 `FOR UPDATE` 或逐群调用；用源/目标水位阻止较旧回填覆盖较新的实时双写
+- [ ] 完成 `wa_group_profile`、`wa_group_invite`、`wa_group_participant`、`wa_account_group_binding`、`account_group_sync_state` 的保守回填和真实 MySQL 门禁
 - [ ] 用户评审六表字段和迁移/切换方案
-- [ ] 评审后另写实施计划；本记录不授权改表、部署或真实环境写入
+- [ ] 任何环境写入、切读或部署前再次取得用户确认
 
 ## 关键设计决策
 
@@ -105,7 +108,7 @@
 
 ### 数据库
 
-当前代码新增 V117 六表建表迁移，并已把账号群报告、账号自身进退群、普通成员进退群、完整成员和群资料快照、当前邀请码、公开邀请预览、健康回报、已确认群名/权限、本地资料、分组及删除/恢复入口接入新表双写；没有修改旧表结构，也没有回填或切流。后续数据回填只能由可重入 migration runner 执行。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
+当前代码新增 V117 六表建表迁移，并已把账号群报告、账号自身进退群、普通成员进退群、完整成员和群资料快照、当前邀请码、公开邀请预览、健康回报、已确认群名/权限、本地资料、分组及删除/恢复入口接入新表双写；没有修改旧表结构或切流。新增的回填任务默认不存在于 Spring 容器，显式启用后当前只处理 `wa_group`，要求只在一个应用实例启用；未在 test1 或其他环境执行。其余五表继续按可重入、集合 SQL 的 migration runner 分阶段实现。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
 
 ### API / 前端
 
@@ -123,6 +126,13 @@
 
 - `pnpm exec node --import tsx --test src/views/group/list/components/GroupListTable.test.ts`：4 个测试通过，包含展开行不存在门禁。
 - `pnpm typecheck`：通过。
+
+本轮 `wa_group` 回填第一阶段验证：
+
+- `mvn -q -Dtest=GroupModelBackfillJobTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：6 个测试通过，0 失败、0 错误、0 跳过；覆盖默认批量上限、冲突先阻断、只读门禁语义、显式租户连接、自然键排序、回填水位保护及无 `FOR UPDATE` / first-post 写入。
+- `mvn -q -DskipTests package`、`xmllint --noout armada-api/src/main/resources/mapper/group/GroupModelBackfillMapper.xml`、`git diff --check`：均通过。
+- `mvn -q test`：已尝试全量测试，但仓库既有 `PromotionCapiEventOutboxSchemaDbTest` 持续等待本地数据库连接，未进入完整测试集；为避免无效等待手动停止，退出码 130，不计为代码测试失败或全量通过。
+- `GroupCurrentLocalWriteMySqlTest` 已增加 `wa_group` 回填的租户隔离、大小写规范化、字段投影、幂等、重复 JID 和不覆盖较新实时双写用例；本轮因本机容器执行额度限制未运行，不能计为真实 MySQL 通过，执行环境恢复后补跑。
 
 此前聚焦验证：
 

@@ -15,6 +15,7 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.GroupModelBackfillMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
@@ -68,6 +69,7 @@ class GroupCurrentLocalWriteMySqlTest {
     private static JdbcTemplate jdbc;
     private static GroupLinkMapper groupLinkMapper;
     private static GroupLinkPreviewMapper previewMapper;
+    private static GroupModelBackfillMapper backfillMapper;
     private static GroupCurrentLocalPersistence currentLocalPersistence;
     private static AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
@@ -84,6 +86,7 @@ class GroupCurrentLocalWriteMySqlTest {
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         groupLinkMapper = session.getMapper(GroupLinkMapper.class);
         previewMapper = session.getMapper(GroupLinkPreviewMapper.class);
+        backfillMapper = session.getMapper(GroupModelBackfillMapper.class);
         currentLocalPersistence = new GroupCurrentLocalPersistence(
                 session.getMapper(GroupCurrentLocalMapper.class));
         currentSnapshotPersistence = new AccountGroupCurrentSnapshotPersistenceImpl(
@@ -435,6 +438,97 @@ class GroupCurrentLocalWriteMySqlTest {
                 """, Long.class)).isNull();
     }
 
+    @Test
+    void groupBackfillIsTenantScopedAndIdempotent() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, group_name, folder_id, origin,
+                  membership_state, remark, created_at, updated_at
+                ) VALUES
+                  (50, 7, 'wa://group/120363-backfill@g.us', '本地群名', 9, 3,
+                   2, '回填备注', 100, 200),
+                  (51, 8, 'wa://group/120363-other-tenant@g.us', '其他租户', NULL, 5,
+                   2, NULL, 120, 220)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, avatar_url, created_at, updated_at
+                ) VALUES
+                  (7, 50, '120363-BACKFILL@g.us', 'https://cdn.example/backfill.jpg', 110, 300),
+                  (8, 51, '120363-other-tenant@g.us', NULL, 130, 230)
+                """);
+
+        assertThat(backfillMapper.countInvalidGroupSources()).isZero();
+        assertThat(backfillMapper.countDuplicateGroupJids()).isZero();
+        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(2);
+        assertThat(backfillMapper.backfillGroups(500)).isZero();
+
+        assertThat(jdbc.queryForMap("""
+                SELECT folder_id, display_name, avatar_url, remark, origin,
+                       created_at, updated_at, deleted_at
+                FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-backfill@g.us'
+                """))
+                .containsEntry("folder_id", 9L)
+                .containsEntry("display_name", "本地群名")
+                .containsEntry("avatar_url", "https://cdn.example/backfill.jpg")
+                .containsEntry("remark", "回填备注")
+                .containsEntry("origin", 3)
+                .containsEntry("created_at", 100L)
+                .containsEntry("updated_at", 300L)
+                .containsEntry("deleted_at", null);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wa_group WHERE tenant_id = 8",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void groupBackfillReportsDuplicateTenantGroupJid() {
+        seedGroupAlias(52L, "wa://group/duplicate-one@g.us", "120363-duplicate@g.us");
+        seedGroupAlias(53L, "wa://group/duplicate-two@g.us", "120363-DUPLICATE@g.us");
+
+        assertThat(backfillMapper.countDuplicateGroupJids()).isEqualTo(1);
+    }
+
+    @Test
+    void groupBackfillDoesNotOverwriteNewerDualWrite() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, group_name, folder_id, origin,
+                  membership_state, remark, created_at, updated_at
+                ) VALUES (54, 7, 'wa://group/120363-newer@g.us', '旧表名称', 9, 3,
+                          2, '旧表备注', 100, 200)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, avatar_url, created_at, updated_at
+                ) VALUES (7, 54, '120363-newer@g.us', 'https://cdn.example/legacy.jpg',
+                          110, 300)
+                """);
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, folder_id, display_name, avatar_url, remark,
+                  origin, created_at, updated_at
+                ) VALUES (7, '120363-newer@g.us', 19, '实时名称',
+                          'https://cdn.example/current.jpg', '实时备注', 4, 90, 400)
+                """);
+
+        assertThat(backfillMapper.backfillGroups(500)).isZero();
+        assertThat(jdbc.queryForMap("""
+                SELECT folder_id, display_name, avatar_url, remark, origin,
+                       created_at, updated_at
+                FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = '120363-newer@g.us'
+                """))
+                .containsEntry("folder_id", 19L)
+                .containsEntry("display_name", "实时名称")
+                .containsEntry("avatar_url", "https://cdn.example/current.jpg")
+                .containsEntry("remark", "实时备注")
+                .containsEntry("origin", 4)
+                .containsEntry("created_at", 90L)
+                .containsEntry("updated_at", 400L);
+    }
+
     private static GroupLinkServiceImpl service() {
         return service(mock(GroupFolderMapper.class), mock(GroupLinkLabelMapper.class));
     }
@@ -590,7 +684,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                 new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"),
                 new ClassPathResource("mapper/group/GroupCurrentLocalMapper.xml"),
-                new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"));
+                new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"),
+                new ClassPathResource("mapper/group/GroupModelBackfillMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("无法创建本地字段双写测试 SqlSessionFactory");

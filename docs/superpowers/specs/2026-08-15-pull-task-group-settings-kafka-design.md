@@ -286,9 +286,10 @@ ALTER TABLE pull_task_account_action
 | `ProtocolCommandOutboxService` | 新增接口方法 |
 | `ProtocolCommandOutboxServiceImpl.cancelPendingPullTaskCommands` | 覆盖新命令类型 |
 | `ProtocolGroupEventConsumer` | `handleActionResultReported` 增加 `pull_task_group_settings` 分支 |
-| `PullTaskManagerPullerContactProcessor` | 删除 `ensureMemberAddPermission` 与 `memberAddAllowed`，改为「准备 → 提交加人权限命令 → 返回等待」 |
-| `PullTaskManagerPullerContactTransactionService` | `prepareMemberAddPermission` 改名 `prepareGroupSettings`；`deferMemberAddPermission` 改名 `deferGroupSettings`；新增 `submitMemberAddCommand`（写动作行 + outbox，同事务） |
-| `PullTaskMemberAddPermissionWork` | 改名 `PullTaskGroupSettingsWork` |
+| `PullTaskManagerPullerContactProcessor` | 删除 `ensureMemberAddPermission` 与 `memberAddAllowed`，并去掉 `FixedAccountGroupMetadataPort`、`GroupSettingsPort` 两个构造依赖——本阶段不再有任何事务外协议调用 |
+| `PullTaskManagerPullerContactTransactionService` | 新增 `ensureGroupSettings`（查动作事实 → 未确认则写动作行 + outbox → 返回等待，全在一个短事务内）；`deferMemberAddPermission` 改名 `deferGroupSettings`；删除 `prepareMemberAddPermission` |
+| `PullTaskGroupSettingsGate`（新增） | 门控结果；`open()` 表示加人权限已确认可继续占拉手，`waiting(result)` 表示本轮到此为止 |
+| `PullTaskMemberAddPermissionWork` / `PullTaskMemberAddPermissionPreparation` | 随同步路径一并删除，不再有调用方 |
 | `PullTaskExecutionReasonCode` | 保留 `GROUP_MEMBER_ADD_PERMISSION_DENIED` / `_UNCONFIRMED`；新增 `GROUP_JOIN_APPROVAL_CLOSE_FAILED`，仅写动作行 `reason_code`，不进执行行 |
 | `PullTaskUnknownResultReconciliationService` | 纳入两类群设置动作的未知结果兜底；关闭审核的未知不得阻断执行行 |
 | `AndroidNativeClient` | 新增 `setGroupJoinApproval(wsPhone, groupJid, enabled)` |

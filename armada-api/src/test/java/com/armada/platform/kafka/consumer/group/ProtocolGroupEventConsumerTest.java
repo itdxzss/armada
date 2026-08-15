@@ -547,6 +547,37 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
+    void onMessage_groupSettingsResultIsAcceptedWithoutTargetJid() {
+        // 群设置改的是群属性，不针对任何成员，因此不带也不该要求 targetJid。
+        String raw = """
+                {
+                  "eventId":"manager-901:group.action_result_reported:cmd-settings-1",
+                  "event":"group.action_result_reported",
+                  "accountId":"manager-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":811,
+                    "source":"pull_task_group_settings","operation":"GROUP_SETTINGS_APPLY",
+                    "accountId":901,"protocolAccountId":"manager-901",
+                    "commandId":"cmd-settings-1","attemptNo":2,
+                    "outcome":"SUCCESS","retryable":false,"timestamp":5000
+                  }
+                }
+                """;
+
+        onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "manager-901:group.action_result_reported:cmd-settings-1",
+                7L, 100L, 11L, 811L, "pull_task_group_settings", "GROUP_SETTINGS_APPLY",
+                901L, "manager-901", "cmd-settings-1", 2, "SUCCESS",
+                null, null, null, false, 5_000L, "worker-a"));
+    }
+
+    @Test
     void onMessage_batchAddResultDispatchesPerParticipantCorrelation() {
         String raw = """
                 {

@@ -129,11 +129,8 @@
 
   <!-- 调度器跨租户扫描：条件顺序对齐 idx_pull_task_execution_dispatch
        (execution_status, manual_paused, next_run_at, id)。 -->
-  <update id="claimDue">
-    UPDATE pull_task_group_execution
-    SET lock_owner = #{criteria.lease.lockOwner},
-        lock_expires_at = #{criteria.lease.lockExpiresAt},
-        updated_at = #{criteria.lease.now}
+  <!-- claim 与积压计数必须使用同一套到期条件，否则埋点会和实际调度口径漂移。 -->
+  <sql id="DueScanConditions">
     WHERE (
       <foreach collection="criteria.eligibleStates" item="state" separator=" OR ">
         (execution_status = #{state.executionStatus}
@@ -161,9 +158,24 @@
           AND parent_task.mode = #{criteria.parent.taskMode}
           AND parent_task.status = #{criteria.parent.taskStatus}
       )
+  </sql>
+
+  <update id="claimDue">
+    UPDATE pull_task_group_execution
+    SET lock_owner = #{criteria.lease.lockOwner},
+        lock_expires_at = #{criteria.lease.lockExpiresAt},
+        updated_at = #{criteria.lease.now}
+    <include refid="DueScanConditions"/>
     ORDER BY next_run_at ASC, id ASC
     LIMIT #{criteria.lease.limit}
   </update>
+
+  <!-- 本轮抢占之后仍然到期未被处理的行数；已抢占行的租约在未来，天然被排除。 -->
+  <select id="countDue" resultType="int">
+    SELECT COUNT(*)
+    FROM pull_task_group_execution
+    <include refid="DueScanConditions"/>
+  </select>
 
   <!-- lock_expires_at 必须比对 now，否则租约静默过期后、尚未被别的实例抢占前，
        本实例仍会把这些行当作自己持有。 -->

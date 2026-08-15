@@ -72,6 +72,54 @@ class ProtocolCommandOutboxMapperInMemoryTest {
                 });
     }
 
+    @Test
+    void deleteSentBeforeRemovesOnlyExpiredSentRows() throws SQLException {
+        insertRow("cmd-sent-old", ProtocolCommandOutboxStatus.SENT.code(), 100L);
+        insertRow("cmd-sent-fresh", ProtocolCommandOutboxStatus.SENT.code(), 900L);
+        insertRow("cmd-dead-old", ProtocolCommandOutboxStatus.DEAD.code(), 100L);
+        insertRow("cmd-canceled-old", ProtocolCommandOutboxStatus.CANCELED.code(), 100L);
+        insertRow("cmd-pending-old", ProtocolCommandOutboxStatus.PENDING.code(), 100L);
+
+        // 只清已发送且超过保留期的行；死信与已取消量小且有诊断价值，必须保留。
+        assertThat(mapper.deleteSentBefore(500L, 10)).isEqualTo(1);
+        assertThat(remainingCommandIds())
+                .containsExactlyInAnyOrder(
+                        "cmd-sent-fresh", "cmd-dead-old", "cmd-canceled-old", "cmd-pending-old");
+    }
+
+    @Test
+    void deleteSentBeforeStopsAtBatchLimitSoTheRunCanDrainInBoundedBatches() throws SQLException {
+        insertRow("cmd-sent-1", ProtocolCommandOutboxStatus.SENT.code(), 100L);
+        insertRow("cmd-sent-2", ProtocolCommandOutboxStatus.SENT.code(), 101L);
+        insertRow("cmd-sent-3", ProtocolCommandOutboxStatus.SENT.code(), 102L);
+
+        // 单批有上限，调用方据此判断是否还要继续删下一批。
+        assertThat(mapper.deleteSentBefore(500L, 2)).isEqualTo(2);
+        assertThat(mapper.deleteSentBefore(500L, 2)).isEqualTo(1);
+        assertThat(mapper.deleteSentBefore(500L, 2)).isZero();
+    }
+
+    private void insertRow(String commandId, int status, long createdAt) throws SQLException {
+        ProtocolCommandOutbox row = pendingRow();
+        row.setCommandId(commandId);
+        mapper.batchInsertPending(List.of(row));
+        execute("UPDATE protocol_command_outbox SET status = " + status
+                + ", created_at = " + createdAt + " WHERE command_id = '" + commandId + "'");
+    }
+
+    private List<String> remainingCommandIds() throws SQLException {
+        List<String> ids = new java.util.ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             java.sql.ResultSet rs = statement.executeQuery(
+                     "SELECT command_id FROM protocol_command_outbox ORDER BY command_id")) {
+            while (rs.next()) {
+                ids.add(rs.getString(1));
+            }
+        }
+        return ids;
+    }
+
     private static ProtocolCommandOutbox pendingRow() {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();
         row.setCommandId("cmd-trace-1");

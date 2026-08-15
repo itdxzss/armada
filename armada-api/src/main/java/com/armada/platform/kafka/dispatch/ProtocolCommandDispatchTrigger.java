@@ -122,17 +122,11 @@ public class ProtocolCommandDispatchTrigger {
                 }
             });
         } catch (RuntimeException ex) {
-            log.warn("协议命令 outbox 异步 dispatch 提交失败,改为当前线程兜底 rows={} error={}",
+            // 不能改用当前线程同步发送：调用方通常是拉群/进群调度线程，
+            // 同步发送会把整个调度轮次连同 Kafka 往返一起阻塞。
+            // 这些行已提交为 PENDING，周期兜底扫描会把它们捡起来。
+            log.warn("协议命令 outbox 异步 dispatch 提交失败,等待周期兜底扫描 rows={} error={}",
                     rows.size(), ex.toString());
-            dispatchInCurrentThread(rows);
-        }
-    }
-
-    private void dispatchInCurrentThread(List<ProtocolCommandOutbox> rows) {
-        try {
-            dispatcher.dispatchInsertedRows(rows);
-        } catch (RuntimeException ex) {
-            log.error("协议命令 outbox 当前线程兜底 dispatch 失败 rows={}", rows.size(), ex);
         }
     }
 }

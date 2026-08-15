@@ -435,7 +435,9 @@ public class ProtocolGroupEventConsumer {
                 && "PARTICIPANT_PROMOTE".equals(operation);
         boolean managerAdmin = "pull_task_manager_admin".equals(source)
                 && "PARTICIPANT_PROMOTE".equals(operation);
-        if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin) {
+        boolean groupSettings = "pull_task_group_settings".equals(source)
+                && "GROUP_SETTINGS_APPLY".equals(operation);
+        if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin && !groupSettings) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果来源或动作非法");
         }
         Long accountId = requiredLong(data, "accountId");

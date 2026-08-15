@@ -160,6 +160,61 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
     }
 
     @Test
+    void mapsAndroidGroupJoinStateOnToJoinApprovalEnabled() throws Exception {
+        // Go 侧已把 <membership_approval_mode><group_join state=.../> 解析成 group_join_state，
+        // 不接这个字段会让群详情页的回读确认永远拿到 null 而报状态不一致。
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"开启进群审核群",
+                          "GroupId":"120363001@g.us",
+                          "GroupJoinState":"on",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.joinApprovalMode()).isTrue();
+    }
+
+    @Test
+    void mapsAndroidGroupJoinStateOffToJoinApprovalDisabled() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"关闭进群审核群",
+                          "GroupId":"120363001@g.us",
+                          "group_join_state":"off",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.joinApprovalMode()).isFalse();
+    }
+
+    @Test
+    void leavesJoinApprovalUnknownWhenAndroidOmitsGroupJoinState() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"未上报进群审核群",
+                          "GroupId":"120363001@g.us",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.joinApprovalMode()).isNull();
+    }
+
+    @Test
     void rejectsMismatchedGroupIdWithAndroidContext() throws Exception {
         when(client.members("919000000001", "120363001@g.us"))
                 .thenReturn(envelope("""

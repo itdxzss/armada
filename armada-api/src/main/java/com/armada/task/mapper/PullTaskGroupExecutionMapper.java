@@ -213,6 +213,19 @@ public interface PullTaskGroupExecutionMapper {
     int claimDue(@Param("criteria") PullTaskExecutionClaimCriteria criteria);
 
     /**
+     * 统计同一套到期条件下仍未被抢占的行数，即当前调度积压深度。
+     *
+     * <p>与 {@link #claimDue} 共用 XML 条件片段，避免埋点口径与实际调度漂移；
+     * {@code criteria.lease.limit} 在这里不参与计算。已被本轮抢占的行租约在未来，
+     * 天然不计入积压。</p>
+     *
+     * @param criteria 与本轮抢占完全相同的扫描条件
+     * @return 到期但尚未被任何实例持有的行数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int countDue(@Param("criteria") PullTaskExecutionClaimCriteria criteria);
+
+    /**
      * 读取本实例当前持有且租约仍未过期的执行行。
      *
      * <p>只按 {@code lock_owner} 过滤是不够的：租约静默过期后，若尚未有别的实例把它抢走，

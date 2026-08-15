@@ -165,8 +165,14 @@ payload 中实际出现的字段发 IQ。拉群只带两项，其余三项属于
 `requiredSettings` 声明哪些项失败会导致命令失败，取值为设置项名称：`sendMessages`、
 `editGroupSettings`、`addMembers`、`joinApproval`、`ephemeral`。已传但不在该数组中的项为尽力项。
 
-这是对现有 `GROUP_SETTINGS_APPLY` 语义的扩展：`normal_group_creation` 五项全带且
-`requiredSettings` 含全部五项，行为不变。
+**该字段可选，缺省等价于「已传的项全部必需」。** 缺省值取「全必需」而非「全尽力」，
+是为了让漏传该字段的失败方向是安全的：设置失败会阻断并重试，不会被静默吞掉。
+
+必需与否只在已传的项之间区分。未传的项根本不执行，不存在必需与否的问题。
+
+由此，`normal_group_creation` 的 payload 完全不需要改动：五项全传、不传 `requiredSettings`，
+按缺省即五项全必需，任一失败整体失败，与现状逐字一致。只有拉群显式传 `["addMembers"]`，
+把关审核降级为尽力项。
 
 ### 4.5 结果事件
 
@@ -301,11 +307,14 @@ Android 账号目前在那里是不可用的，一并补上。
 const failed: string[] = []
 for (const item of ORDERED_SETTINGS) {
   if (payload[item.field] === undefined) continue
+  // requiredSettings 缺省时视为全必需，漏传该字段的失败方向是阻断而非静默
+  const required = payload.requiredSettings === undefined
+    || payload.requiredSettings.includes(item.name)
   try {
     await item.apply(socket, payload)
   } catch (error) {
-    if (payload.requiredSettings?.includes(item.name)) throw error   // 必需项失败立即中止
-    failed.push(item.name)                                           // 尽力项失败记录后继续
+    if (required) throw error              // 必需项失败立即中止，后续项不再执行
+    failed.push(item.name)                 // 尽力项失败记录后继续
     logSettingFailure(item.name, error)
   }
 }
@@ -316,7 +325,8 @@ return { failedSettings: failed }
 即「先加人权限、后进群审核」。加人权限是必需项，失败直接抛出，进群审批不再执行；
 进群审批是尽力项，失败进入 `failedSettings` 并继续。
 
-`normal_group_creation` 的 `requiredSettings` 含全部五项，任一失败即抛出，与现状逐字一致。
+`normal_group_creation` 不传 `requiredSettings`，按缺省即五项全必需，任一失败即抛出，与现状逐字一致。
+其 payload 无需任何改动。
 
 ### 7.3 结果发布
 
@@ -344,10 +354,11 @@ return { failedSettings: failed }
 ```
 
 - `GroupActionCommandPayload` 的五个设置字段改为指针类型，以区分「未传」与「传了 false」
-- `GroupActionCommandPayload` 新增 `RequiredSettings []string`
+- `GroupActionCommandPayload` 新增 `RequiredSettings *[]string`，用指针区分「未传」与「传了空数组」；
+  未传按全必需，空数组按全尽力
 - 现有 `validateNormalGroupCreationExecution` 对 `GROUP_SETTINGS_APPLY` 的必填校验保持不变，
   新增的 `validatePullTaskGroupSettingsExecution` 要求 `groupJid` 非空、至少带一项设置，
-  且 `requiredSettings` 中的每一项都必须在 payload 中实际出现
+  且 `requiredSettings` 若传了，其中每一项都必须在 payload 中实际出现
 
 ### 8.2 执行
 
@@ -424,7 +435,9 @@ armada 回滚到旧版本后，同步 HTTP 路径恢复，已写入但未消费�
 - 两项都传时按「先加人、后审批」顺序调用
 - 加人（必需项）失败时审批不执行且整体失败
 - 审批（尽力项）失败时 `outcome = SUCCESS` 且 `failedSettings = ["joinApproval"]`
-- `normal_group_creation` 五项全传、五项全必需的行为与改造前逐字一致（回归）
+- 不传 `requiredSettings` 时任一项失败均整体失败（缺省全必需）
+- 传空数组时任一项失败均不影响 `outcome`，全部进入 `failedSettings`
+- `normal_group_creation` 五项全传、不传 `requiredSettings` 的调用序列与改造前逐字一致（回归）
 - source 白名单外的命令被拒绝
 
 ### 11.3 Android 测试
@@ -444,6 +457,6 @@ armada 回滚到旧版本后，同步 HTTP 路径恢复，已写入但未消费�
 | --- | --- | --- |
 | 三仓联动发布顺序错误 | 执行行卡在等待群设置结果 | 按 9.2 顺序发布；armada 侧命令被拒后由未知结果兜底回收，不会永久卡死 |
 | 异步化后阶段耗时增加 | 每条执行行多一次 Kafka 往返 | 同分区保序，实测往返在百毫秒级；换来的是不再占用调度线程做三次同步 HTTP |
-| `GROUP_SETTINGS_APPLY` payload 语义收窄改错 | 建普群的群设置被漏设 | 7.2 的回归测试逐字比对五项全传的调用序列 |
+| `GROUP_SETTINGS_APPLY` payload 语义扩展改错 | 建普群的群设置被漏设 | 建普群 payload 不改动，`requiredSettings` 缺省即全必需；7.2 的回归测试逐字比对五项全传的调用序列 |
 | 关闭审核失败被静默 | 补充管理员持续待审核 | 单独 WARN 日志 + 原因码，可统计 |
 | 目标群管理员权限在命令消费前丢失 | 命令失败 | 与提权失败同路径，退避重试并轮换候选，行为不变 |

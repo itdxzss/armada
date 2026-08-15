@@ -18,6 +18,7 @@ import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCom
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
@@ -86,6 +87,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             "group.normal_creation.requested";
 
     /** 群成员事实查询命令类型。 */
+    /** 拉群任务管理员应用单项群设置的命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_SETTINGS_REQUESTED = "group.settings.requested";
+
     public static final String COMMAND_TYPE_GROUP_MEMBERS_QUERY_REQUESTED =
             "group.members.query.requested";
 
@@ -466,6 +470,30 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** {@inheritDoc} */
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupSettingsCommands(
+            List<ProtocolPullTaskGroupSettingsCommandRequest> commands) {
+        validatePullTaskGroupSettingsCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskGroupSettingsCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskGroupSettingsOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public ProtocolCommandOutboxEnqueueResult enqueuePullTaskManagerAdminCommands(
             List<ProtocolPullTaskManagerAdminCommandRequest> commands) {
         validatePullTaskManagerAdminCommands(commands);
@@ -935,6 +963,32 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setKafkaKey(command.actor().protocolAccountId());
         row.setProtocolAccountId(command.actor().protocolAccountId());
         row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把普通拉群群设置动作引用转换为待发送 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskGroupSettingsOutboxRow(
+            ProtocolPullTaskGroupSettingsCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_SETTINGS_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.manager().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.manager().protocolAccountId());
+        row.setProtocolAccountId(command.manager().protocolAccountId());
+        row.setProtocolBackend(command.manager().backend().name());
         row.setPayloadJson(payloadJson(command.reference()));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -1511,6 +1565,32 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     }
 
     /** 校验普通拉群管理员设置命令和当前租户。 */
+    private void validatePullTaskGroupSettingsCommands(
+            List<ProtocolPullTaskGroupSettingsCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "普通拉群群设置协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "普通拉群群设置协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskGroupSettingsCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null
+                    || command.groupExecutionId() == null
+                    || command.actionId() == null
+                    || command.manager() == null
+                    || command.manager().armadaAccountId() <= 0
+                    || isBlank(command.manager().protocolAccountId())
+                    || isBlank(command.manager().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "普通拉群群设置协议命令字段非法");
+            }
+        }
+    }
+
     private void validatePullTaskManagerAdminCommands(
             List<ProtocolPullTaskManagerAdminCommandRequest> commands) {
         if (commands == null || commands.isEmpty()) {

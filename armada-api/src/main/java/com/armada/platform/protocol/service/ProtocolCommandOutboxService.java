@@ -11,6 +11,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinComma
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
@@ -138,6 +139,18 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskManagerAdminCommands(
             List<ProtocolPullTaskManagerAdminCommandRequest> commands);
+
+    /**
+     * 批量写入普通拉群任务管理员应用群设置的命令。
+     *
+     * <p>一条命令一个设置项，设置项由动作行 {@code action_type} 决定。调用方必须在同一事务内
+     * 写入对应动作行并把返回的 commandId 写回，保证业务状态与 outbox 原子提交。</p>
+     *
+     * @param commands 群设置动作引用，最多 500 条
+     * @return 稳定任务批次、命令 ID 与插入数量
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupSettingsCommands(
+            List<ProtocolPullTaskGroupSettingsCommandRequest> commands);
 
     /** 批量写入普通拉群站台和料子同批入群命令。 */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskBatchAddCommands(

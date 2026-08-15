@@ -20,6 +20,8 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
             "/ws/v1/groups/settings/sendmessage/";
     private static final String GROUP_MEMBER_ADD_MODE_URI_PREFIX =
             "/ws/v1/groups/settings/join-mode/";
+    private static final String GROUP_JOIN_APPROVAL_URI_PREFIX =
+            "/ws/v1/groups/settings/approval/";
     private static final String GROUP_NAME_URI_PREFIX = "/ws/v1/groups/settings/name/";
     private static final String GROUP_PICTURE_URI_PREFIX = "/ws/v1/groups/settings/avatar/";
     private static final String GROUP_MEMBERS_ADD_URI_PREFIX = "/ws/v1/groups/members/add/";
@@ -174,6 +176,19 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
                 new GroupPermissionRequest(
                         requireText(groupJid, GROUP_JID_FIELD),
                         membersCanAdd),
+                AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope setGroupJoinApproval(
+            String wsPhone,
+            String groupJid,
+            boolean approvalRequired) {
+        return httpExecutor.postTyped(
+                GROUP_JOIN_APPROVAL_URI_PREFIX + requireDigits(wsPhone),
+                new GroupPermissionRequest(
+                        requireText(groupJid, GROUP_JID_FIELD),
+                        approvalRequired),
                 AndroidResponseEnvelope.class);
     }
 

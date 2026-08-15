@@ -111,7 +111,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 booleanValue(data.get("Announce")),
                 null,
                 memberAddMode(data),
-                null,
+                joinApprovalMode(data),
                 null,
                 null,
                 false,
@@ -119,6 +119,29 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 true,
                 participants);
+    }
+
+    /**
+     * 把 Android 的进群审核状态映射为统一布尔权限。
+     *
+     * <p>Go 侧把 {@code <membership_approval_mode><group_join state=.../>} 解析成
+     * {@code group_join_state} 一并返回；不接这个字段会让群详情页的回读确认恒拿到 null，
+     * 从而把成功的设置误判成状态不一致。字段缺失时返回 null 表示未观察到。</p>
+     */
+    private static Boolean joinApprovalMode(JsonNode data) {
+        JsonNode node = data.get("GroupJoinState");
+        if (node == null) {
+            node = data.get("group_join_state");
+        }
+        String value = text(node);
+        if (value == null) {
+            return null;
+        }
+        return switch (value) {
+            case "on" -> true;
+            case "off" -> false;
+            default -> null;
+        };
     }
 
     private static Boolean memberAddMode(JsonNode data) {

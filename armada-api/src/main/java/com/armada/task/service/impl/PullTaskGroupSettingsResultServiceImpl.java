@@ -46,6 +46,17 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
 
+    /**
+     * 允许提交新一轮关闭进群审核命令的动作状态：首次为 PENDING，重发为失败或结果未知。
+     *
+     * <p>与放开加人权限的 MEMBER_ADD_SUBMITTABLE 取同一组状态，两种群设置动作共用注水器与
+     * 结果服务，提交语义必须一致。</p>
+     */
+    private static final List<Integer> CLOSE_JOIN_APPROVAL_SUBMITTABLE = List.of(
+            PullTaskActionStatus.PENDING.code(),
+            PullTaskActionStatus.FAILED.code(),
+            PullTaskActionStatus.UNKNOWN.code());
+
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
@@ -220,9 +231,15 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
                         new ProtocolPullTaskGroupSettingsCommandRequest(
                                 callback.tenantId(), callback.pullTaskId(),
                                 execution.getId(), row.getId(), account)));
+        // submitAttempt 而非 markSubmitted：关闭进群审核与放开加人权限共用注水器和结果服务，
+        // 注水器发真实 attempt_no、结果服务按 attempt_no 对账，两者同属"真实计数"约定。
+        // markSubmitted 不递增 attempt_no，首次提交会发出 attemptNo=0，被协议层
+        // validateGroupActionCorrelation 的 "attemptNo must be positive" 判为永久校验失败、
+        // 提交 offset 后静默丢弃，动作行永远停在已提交且等不到任何结果。
         if (enqueued.commandIds().size() != 1
-                || actionMapper.markSubmitted(
-                row.getId(), enqueued.commandIds().get(0), callback.occurredAt()) != 1) {
+                || actionMapper.submitAttempt(
+                row.getId(), CLOSE_JOIN_APPROVAL_SUBMITTABLE,
+                enqueued.commandIds().get(0), callback.occurredAt()) != 1) {
             throw new IllegalStateException("关闭进群审核命令提交状态写入不完整");
         }
     }

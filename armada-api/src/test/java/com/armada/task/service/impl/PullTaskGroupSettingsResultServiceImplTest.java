@@ -76,7 +76,8 @@ class PullTaskGroupSettingsResultServiceImplTest {
                         "pull-task:100", List.of("cmd-close-1"), 1));
         when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(
                 new ProtocolAccountRef(901L, ProtocolBackend.WEB, "manager-901", "8613800000901")));
-        when(actionMapper.markSubmitted(anyLong(), anyString(), anyLong())).thenReturn(1);
+        when(actionMapper.submitAttempt(anyLong(), anyList(), anyString(), anyLong()))
+                .thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
         assertThat(service.apply(callback(
@@ -92,7 +93,18 @@ class PullTaskGroupSettingsResultServiceImplTest {
         assertThat(inserted.getValue().getTargetGroupAccountId()).isEqualTo(501L);
         verify(outboxService).enqueuePullTaskGroupSettingsCommands(anyList());
         // 动作行必须写回真实 commandId，否则关闭审核的回调找不到自己的动作行。
-        verify(actionMapper).markSubmitted(eq(812L), eq("cmd-close-1"), anyLong());
+        // 必须走 submitAttempt 而非 markSubmitted：本动作与放开加人权限共用注水器和结果服务，
+        // 注水器发真实 attempt_no、结果服务按 attempt_no 对账，属于"真实计数"约定。
+        // markSubmitted 不递增 attempt_no，首次提交会发出 attemptNo=0，被协议层
+        // validateGroupActionCorrelation 的 "attemptNo must be positive" 永久拒绝并静默丢弃。
+        verify(actionMapper).submitAttempt(
+                eq(812L),
+                eq(List.of(
+                        PullTaskActionStatus.PENDING.code(),
+                        PullTaskActionStatus.FAILED.code(),
+                        PullTaskActionStatus.UNKNOWN.code())),
+                eq("cmd-close-1"),
+                anyLong());
         verify(executionMapper).transitionManagerJoinResult(any());
     }
 

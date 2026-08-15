@@ -239,10 +239,18 @@ class PullTaskPullWaveSettlementIntegrationTest {
 
     private void closeAttempt(PullTaskPullCallMemberAttempt attempt, String outcome)
             throws SQLException {
+        closeAttempt(attempt, outcome, "TIMEOUT");
+    }
+
+    /** 明确失败只有可重试原因码才会产生下一波次，因此原因码必须显式给出。 */
+    private void closeAttempt(
+            PullTaskPullCallMemberAttempt attempt, String outcome, String reasonCode)
+            throws SQLException {
         execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status="
                 + PullTaskParticipantAttemptStatus.CLOSED.code()
                 + ", active_slot=NULL, protocol_outcome='" + outcome
-                + "', execution_state='STARTED', result_at=1500, updated_at=1500 WHERE id="
+                + "', execution_state='STARTED', reason_code='" + reasonCode
+                + "', result_at=1500, updated_at=1500 WHERE id="
                 + attempt.getId());
         execute("UPDATE pull_task_pull_call SET call_status="
                 + PullTaskPullCallStatus.WRITTEN_BACK.code()

@@ -33,13 +33,15 @@ class AccountGroupMembershipReportServiceImplTest {
     private final AccountGroupMembershipMapper membershipMapper = Mockito.mock(AccountGroupMembershipMapper.class);
     private final AccountGroupMembershipSnapshotService snapshotService =
             Mockito.mock(AccountGroupMembershipSnapshotService.class);
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence =
+            Mockito.mock(AccountGroupCurrentSnapshotPersistenceImpl.class);
     private final MarketingNewGroupImmediateSendService immediateSendService =
             Mockito.mock(MarketingNewGroupImmediateSendService.class);
     private final GroupClassificationService classificationService =
             Mockito.mock(GroupClassificationService.class);
     private final AccountGroupMembershipReportServiceImpl service =
             new AccountGroupMembershipReportServiceImpl(
-                    membershipMapper, snapshotService, immediateSendService,
+                    membershipMapper, snapshotService, currentSnapshotPersistence, immediateSendService,
                     classificationService, new ObjectMapper());
 
     @BeforeEach
@@ -116,6 +118,14 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq("evt-pending-baseline"),
                 eq(null),
                 eq(ProtocolBackend.WEB));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L),
+                argThat(groups -> groups != null
+                        && groups.size() == 4
+                        && "120363old@g.us".equals(groups.get(1).groupJid().trim())),
+                eq(true),
+                eq(1782626401000L),
+                eq("evt-pending-baseline"));
     }
 
     @Test
@@ -179,6 +189,14 @@ class AccountGroupMembershipReportServiceImplTest {
                 eq("evt-visible"),
                 eq("wa_groups_dirty"),
                 eq(ProtocolBackend.WEB));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(10L),
+                argThat(groups -> groups.size() == 2
+                        && "120363old@g.us".equals(groups.get(0).groupJid())
+                        && "120363new@g.us".equals(groups.get(1).groupJid())),
+                eq(true),
+                eq(1782626401000L),
+                eq("evt-visible"));
         verify(membershipMapper, never()).capturePendingAccountGroupBaseline(
                 org.mockito.ArgumentMatchers.any(AccountGroupBaselineRow.class), anyLong(), anyLong());
     }
@@ -299,6 +317,8 @@ class AccountGroupMembershipReportServiceImplTest {
 
         verify(snapshotService, Mockito.never()).replaceVisibleGroups(
                 any(), any(), anyBoolean(), anyLong(), any(), any(), any());
+        verify(currentSnapshotPersistence, Mockito.never()).replaceVisibleGroups(
+                any(), any(), anyBoolean(), anyLong(), any());
     }
 
     private static AccountGroupBaselineRow baseline(Long accountId, Integer state) {

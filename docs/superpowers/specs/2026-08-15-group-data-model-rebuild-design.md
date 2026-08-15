@@ -424,6 +424,7 @@ presence 与 role 分列，解决物理字段混用；但初始回填和实时 A
 | was_in_initial_baseline | TINYINT | NULL | NULL 未知，0 当前业务判为上控后群，1 初始 baseline 内 |
 | baseline_subject_snapshot | VARCHAR(255) | NULL | baseline 当时群名快照；不是当前群名 |
 | baseline_captured_at | BIGINT | NULL | 该关系被纳入 baseline 的时间 |
+| membership_active_since_at | BIGINT | NULL | 兼容旧 joined_at 的“当前在群周期首次建行/恢复在群观察时间”；只服务现有营销截止和导出，不参与历史/上控分类 |
 | first_observed_at | BIGINT | NOT NULL | 当前旧模型可证明的首次观察时间 |
 | last_observed_at | BIGINT | NOT NULL | 最近观察时间 |
 | last_observed_event_id | VARCHAR(128) ASCII BIN | NULL | 当前事件有 eventId 时记录，用于后端幂等 |
@@ -440,6 +441,7 @@ presence 与 role 分列，解决物理字段混用；但初始回填和实时 A
 | uq_wa_account_group_binding | tenant_id, account_id, group_id | 一个账号对一个群一行 |
 | idx_wa_binding_group_participant | tenant_id, group_id, participant_id | 执行账号与成员关联 |
 | idx_wa_binding_account_seen | tenant_id, account_id, last_observed_at, group_id | 账号群列表 |
+| idx_wa_binding_account_active_since | tenant_id, account_id, membership_active_since_at, group_id | 兼容现有 joined_at 营销截止查询 |
 | idx_wa_binding_historical | tenant_id, group_id, was_in_initial_baseline, account_id | 历史/上控筛选候选 |
 
 本表不复制 membership_status、is_admin、is_owner 或 last_exit_type；这些当前值来自 M，账号是否可执行再连接 account/account_state。`first_post_control_observed_at` 非空时必须满足 `was_in_initial_baseline=0`；was=1/NULL 时必须为空。
@@ -722,7 +724,7 @@ I-only、同 JID 多 legacy 行、sourceFileName、labelId、status 和所有 nu
 | account_group_membership.account_id / group_jid | binding + participant | 用 account.ws_phone 构造确认 PN participant |
 | membership.is_admin | participant.role 候选 | 与完整成员/角色事件按时间比较 |
 | membership.membership_status | participant.presence 候选 | 按 status_updated_at 和显式 exit 事实比较 |
-| membership.joined_at | 不回填 binding.first_post_control_observed_at | **禁止直迁**。本期 legacy migration 只能写 was=1/NULL，绝不迁 0，因此 first_post_control_observed_at 固定为 NULL |
+| membership.joined_at | binding.membership_active_since_at；不回填 binding.first_post_control_observed_at | 原值只迁兼容字段。**禁止**迁 first-post；本期 legacy migration 只能写 was=1/NULL，绝不迁 0，因此 first_post_control_observed_at 固定为 NULL |
 | membership.last_seen_at | binding.last_observed_at | 保留 |
 | membership.last_exit_* | participant.last_exit_* 候选 | 与 departed_member 合并取可靠较新值 |
 | account_group_baseline JSON | binding baseline + sync_state header | 只有下述 state=2 + 真实合法 row 才迁；不能以 row 存在推断已拍 |
@@ -731,7 +733,7 @@ I-only、同 JID 多 legacy 行、sourceFileName、labelId、status 和所有 nu
 
 迁移以 account.group_baseline_state 为主值，不能以 account_group_baseline row 是否存在判断 CAPTURED。现有 markGroupSyncRequested 会为没有 baseline row 的 state=2/3 账号插入 `JSON_ARRAY()/count=0/captured_at=requestedAt` 只为保存同步水位，而且后续请求只更新 last_group_sync_requested_at/updated_at；因此时间相等式只能提示 placeholder，不能永久、确定地区分“真实空 baseline”。WATERMARK_ONLY 必须有创建版本、审计/binlog或调用链证据；state=2 的空数组若无正向 provenance 一律记 AMBIGUOUS_EMPTY_BASELINE，人工签字，不能自动当真实空集合。确定性矩阵如下：
 
-现有 `AccountGroupMembershipSnapshotServiceImpl.membershipRow` 每次都把本次 `syncAt` 赋给 `joined_at`；`AccountGroupMembershipMapper.xml` 又会在新行、旧值为 NULL，或退群后再回到在群时改写它。所以该列是“快照首次建行/最近回群观察时间”的混合值，不是 WhatsApp 首次入群事实，也无法单独证明发生在 baseline 之后。本期输入集的 was 只可能是 1/NULL，first-post 实际回填一律 NULL。不允许用 `COALESCE`、行存在性或“JSON 未列出”推导 was=0。
+现有 `AccountGroupMembershipSnapshotServiceImpl.membershipRow` 每次都把本次 `syncAt` 赋给 `joined_at`；`AccountGroupMembershipMapper.xml` 又会在新行、旧值为 NULL，或退群后再回到在群时改写它。所以该列是“快照首次建行/最近回群观察时间”的混合值，不是 WhatsApp 首次入群事实，也无法单独证明发生在 baseline 之后。该值仅原样迁入 `membership_active_since_at` 以保持现有营销截止和导出；本期输入集的 was 只可能是 1/NULL，first-post 实际回填一律 NULL。不允许用 `COALESCE`、行存在性或“JSON 未列出”推导 was=0。
 
 | legacy 状态 | row 证据 | 目标 |
 |---|---|---|
@@ -908,6 +910,8 @@ member_count 的迁移必须先按当前列表/详情使用的优先级得到兼
 
 ### Phase 1：只扩展，不切流
 
+当前已批准的首个实施切片仅为 `V117__group_data_model_foundation.sql` 中六张表的最小字段集。本文其余 `field_version_keys`、`*_version_key`、`membership_epoch`、`pool_hidden_at`、`group_status`、新 outbox 等候选设计均不进入本切片，也不得据此补入 V117；只有后续代码出现当前字段无法承载的可复现问题时，才单独举证评审。
+
 - 用一组按部署边界拆开的 additive Flyway 版本创建六表、约束、索引和兼容列；不把数据回填塞进 migration。
 - 增加六表内部 canonical ID、Reducer/Mapper、只读对账服务、legacy handle 和仅供账号快照使用的 `group_snapshot_effect_outbox`。把仍会创建/修改 account_group_baseline 的旧入口登记到 writer 清单；不修改 account 绑定模型，不建设 V2 admission、binding history 或新生命周期 Service。
 - 旧 API 和业务行为保持；六表发布不要求同步发布前端或两个协议项目。已确认的展开区删除可以独立发布，不与模型切换绑在一起。
@@ -1020,7 +1024,7 @@ WhatsApp 命令已产生的建群、进退群、升降权、revoke 等外部副�
 
 ### 15.2 迁移与快照安全
 
-- 旧 `membership.joined_at` 一律不迁 `first_post_control_observed_at`；迁移产生 first-post 非空数必须为 0。
+- 旧 `membership.joined_at` 只迁 `membership_active_since_at`，一律不迁 `first_post_control_observed_at`；迁移产生 first-post 非空数必须为 0。
 - `was_in_initial_baseline=1 AND first_post_control_observed_at IS NOT NULL` 数量必须为 0。
 - 迁移 origin 不生成即时营销 intent/task/send attempt/protocol command，增量必须为 0。
 - 现有 Web/Android 完整、部分、空快照在新旧模型上的群关系、baseline 和副作用逐项相等；不以缺 generation、queryStartedAt 或 fieldMask 拒绝当前事件。

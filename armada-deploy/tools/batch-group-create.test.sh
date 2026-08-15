@@ -47,16 +47,23 @@ printf '%b\n' \
   '148\t974\tANDROID\tcreator-974\t9100000974\tREADY' \
   '148\t975\tANDROID\tcreator-975\t9100000975\tREADY' \
   '148\t976\tANDROID\tcreator-976\t9100000976\tACCOUNT_STATE_6' \
+  '151\t977\tANDROID\tcreator-977\t9100000977\tREADY' \
   '149\t2001\tANDROID\tadmin-1\t9200000001\tREADY' \
   >"${selected_accounts}"
 batch_creator_protocol_online() {
-  [ "$2" -eq 975 ] || [ "$2" -eq 976 ]
+  [ "$2" -eq 975 ] || [ "$2" -eq 976 ] || [ "$2" -eq 977 ]
 }
-batch_select_creators "${selected_accounts}" '975 976'
+BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS=151
+batch_select_creators "${selected_accounts}" '975 976 977'
+unset BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS
 assert_equals READY "$(awk -F '\t' '$2==976{print $6}' "${selected_accounts}")" \
   "selected realtime-online creator readiness"
 assert_equals READY "$(awk -F '\t' '$2==975{print $6}' "${selected_accounts}")" \
   "second selected creator readiness"
+assert_equals 148 "$(awk -F '\t' '$2==977{print $1}' "${selected_accounts}")" \
+  "explicit archived creator must be normalized only in the runtime snapshot"
+assert_equals READY "$(awk -F '\t' '$2==977{print $6}' "${selected_accounts}")" \
+  "explicit archived creator readiness"
 assert_equals NOT_SELECTED "$(awk -F '\t' '$2==974{print $6}' "${selected_accounts}")" \
   "unselected creator readiness"
 

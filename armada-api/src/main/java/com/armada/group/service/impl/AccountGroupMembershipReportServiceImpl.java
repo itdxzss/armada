@@ -43,6 +43,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
 
     private final AccountGroupMembershipMapper membershipMapper;
     private final AccountGroupMembershipSnapshotService snapshotService;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
     private final MarketingNewGroupImmediateSendService immediateSendService;
     private final GroupClassificationService classificationService;
     private final ObjectMapper objectMapper;
@@ -52,17 +53,20 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      *
      * @param membershipMapper 账号群关系 mapper
      * @param snapshotService  账号可见群关系快照写入服务
+     * @param currentSnapshotPersistence 新群模型账号快照持久化服务
      * @param immediateSendService 新群首次即时营销服务
      * @param classificationService 历史群与上控后群分类服务
      * @param objectMapper     JSON 解析器
      */
     public AccountGroupMembershipReportServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                    AccountGroupMembershipSnapshotService snapshotService,
+                                                   AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
                                                    MarketingNewGroupImmediateSendService immediateSendService,
                                                    GroupClassificationService classificationService,
                                                    ObjectMapper objectMapper) {
         this.membershipMapper = membershipMapper;
         this.snapshotService = snapshotService;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
         this.immediateSendService = immediateSendService;
         this.classificationService = classificationService;
         this.objectMapper = objectMapper;
@@ -108,6 +112,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                     event.eventId(),
                     event.source(),
                     observedBackend);
+            currentSnapshotPersistence.replaceVisibleGroups(
+                    event.accountId(), event.groups(), snapshotComplete, syncAt, event.eventId());
             if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
                 List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
                         .map(group -> new MarketingNewGroupDTO(

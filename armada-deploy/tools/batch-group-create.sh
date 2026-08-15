@@ -9,6 +9,7 @@ BATCH_GROUP_WEB_CONCURRENCY="${BATCH_GROUP_WEB_CONCURRENCY:-2}"
 BATCH_GROUP_INTERVAL_SECONDS="${BATCH_GROUP_INTERVAL_SECONDS:-10}"
 BATCH_GROUP_POLL_SECONDS="${BATCH_GROUP_POLL_SECONDS:-1}"
 BATCH_GROUP_ROUNDS="${BATCH_GROUP_ROUNDS:-5}"
+BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS="${BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS:-}"
 BATCH_GROUP_TRACE_FILE="${BATCH_GROUP_TRACE_FILE:-}"
 BATCH_GROUP_LEDGER_FILE="${BATCH_GROUP_LEDGER_FILE:-}"
 BATCH_CONTACT_148_149_BASE="${BATCH_CONTACT_148_149_BASE:-/tmp/armada-mutual-contacts-failures-20260813T014830Z.jsonl}"
@@ -319,9 +320,9 @@ batch_mutual_contact_ids() {
 
 batch_creator_protocol_online() {
   local accounts_file="$1" creator_id="$2" protocol protocol_id phone response
-  protocol="$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{print $3;exit}' "${accounts_file}")"
-  protocol_id="$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{print $4;exit}' "${accounts_file}")"
-  phone="$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{print $5;exit}' "${accounts_file}")"
+  protocol="$(awk -F '\t' -v id="${creator_id}" '$2==id{print $3;exit}' "${accounts_file}")"
+  protocol_id="$(awk -F '\t' -v id="${creator_id}" '$2==id{print $4;exit}' "${accounts_file}")"
+  phone="$(awk -F '\t' -v id="${creator_id}" '$2==id{print $5;exit}' "${accounts_file}")"
   response="$(mktemp)"
   if [ "${protocol}" = WEB ]; then
     batch_http GET WEB "${BATCH_WEB_BASE_URL}/v1/accounts/${protocol_id}/status" /dev/null "${response}"
@@ -339,11 +340,17 @@ batch_creator_protocol_online() {
 }
 
 batch_select_creators() {
-  local accounts_file="$1" creator_ids="$2" creator_id row_count readiness selected_file
+  local accounts_file="$1" creator_ids="$2" creator_id row_count readiness selected_file source_group_ids source_group_id
+  source_group_ids="148${BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS:+ ${BATCH_EXTRA_SELECTED_CREATOR_GROUP_IDS}}"
+  for source_group_id in ${source_group_ids}; do
+    batch_require_positive_integer "建群来源分组" "${source_group_id}"
+  done
   for creator_id in ${creator_ids}; do
-    row_count="$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{n++}END{print n+0}' "${accounts_file}")"
-    [ "${row_count}" -eq 1 ] || { batch_fail "指定建群号不在分组 148: ${creator_id}"; return 20; }
-    readiness="$(awk -F '\t' -v id="${creator_id}" '$1==148 && $2==id{print $6;exit}' "${accounts_file}")"
+    row_count="$(awk -F '\t' -v id="${creator_id}" -v groups="${source_group_ids}" \
+      'BEGIN{split(groups,values," ");for(i in values)allowed[values[i]]=1} allowed[$1]&&$2==id{n++}END{print n+0}' "${accounts_file}")"
+    [ "${row_count}" -eq 1 ] || { batch_fail "指定建群号不在允许的建群来源分组: ${creator_id}"; return 20; }
+    readiness="$(awk -F '\t' -v id="${creator_id}" -v groups="${source_group_ids}" \
+      'BEGIN{split(groups,values," ");for(i in values)allowed[values[i]]=1} allowed[$1]&&$2==id{print $6;exit}' "${accounts_file}")"
     case "${readiness}" in
       READY|ACCOUNT_STATE_6|ACCOUNT_STATE_7) ;;
       *) batch_fail "指定建群号状态不可用: ${creator_id} ${readiness}"; return 20 ;;
@@ -352,8 +359,10 @@ batch_select_creators() {
       || { batch_fail "指定建群号协议实时不在线: ${creator_id}"; return 20; }
   done
   selected_file="${accounts_file}.selected"
-  awk -F '\t' -v ids="${creator_ids}" 'BEGIN{OFS="\t"; split(ids,values," "); for(i in values) selected[values[i]]=1}
-    $1==148 {$6=(selected[$2]?"READY":"NOT_SELECTED")}
+  awk -F '\t' -v ids="${creator_ids}" -v groups="${source_group_ids}" \
+    'BEGIN{OFS="\t"; split(ids,values," "); for(i in values) selected[values[i]]=1; split(groups,sources," "); for(i in sources) allowed[sources[i]]=1}
+    selected[$2]&&allowed[$1] {$1=148;$6="READY"}
+    $1==148&&!selected[$2] {$6="NOT_SELECTED"}
     {print}
   ' "${accounts_file}" >"${selected_file}"
   mv "${selected_file}" "${accounts_file}"

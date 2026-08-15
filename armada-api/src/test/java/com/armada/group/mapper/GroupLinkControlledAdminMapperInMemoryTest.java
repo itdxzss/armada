@@ -80,11 +80,48 @@ class GroupLinkControlledAdminMapperInMemoryTest {
         assertThat(mapper.selectPageByLabel(external)).isEmpty();
     }
 
+    @Test
+    void listPreservesLegacyAliasRowsUnresolvedInvitationAndStableOrder() throws SQLException {
+        insertListCompatibilityFixtures();
+
+        GroupLinkQuery query = pageQuery();
+        assertThat(mapper.countByLabel(query)).isEqualTo(4L);
+
+        var rows = mapper.selectPageByLabel(query);
+        assertThat(rows).extracting(row -> row.getId())
+                .containsExactly(204L, 203L, 202L, 201L);
+        assertThat(rows).filteredOn(row -> "same-jid@g.us".equals(row.getGroupJid()))
+                .extracting(row -> row.getId())
+                .containsExactly(203L, 202L);
+        assertThat(rows).filteredOn(row -> row.getId().equals(204L))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getGroupJid()).isNull());
+    }
+
     private static GroupLinkQuery pageQuery() {
         GroupLinkQuery query = new GroupLinkQuery();
         query.setPage(1);
         query.setPageSize(10);
         return query;
+    }
+
+    private void insertListCompatibilityFixtures() throws SQLException {
+        execute(
+                """
+                INSERT INTO group_link
+                  (id, tenant_id, link_url, origin, membership_state, created_at, updated_at)
+                VALUES
+                  (202, 7, 'wa://group/same-jid-alias-a@g.us', 5, 2, 200, 200),
+                  (203, 7, 'wa://group/same-jid-alias-b@g.us', 5, 2, 200, 200),
+                  (204, 7, 'https://chat.whatsapp.com/unresolved-code', 1, 1, 300, 300)
+                """,
+                """
+                INSERT INTO group_link_preview
+                  (tenant_id, group_link_id, group_jid, wa_subject, member_size)
+                VALUES
+                  (7, 202, 'same-jid@g.us', '同 JID 别名 A', 10),
+                  (7, 203, 'same-jid@g.us', '同 JID 别名 B', 10)
+                """);
     }
 
     private void insertFixtures() throws SQLException {

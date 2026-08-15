@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.AccountGroupCurrentSnapshotMapper">
+
+  <select id="selectContext"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
+    SELECT a.id AS accountId,
+           a.ws_phone AS wsPhone,
+           a.group_baseline_state AS baselineState,
+           b.baseline_group_jids AS baselineGroupJidsJson,
+           b.baseline_group_subjects AS baselineGroupSubjectsJson,
+           b.group_count AS baselineGroupCount,
+           b.captured_at AS baselineCapturedAt,
+           b.last_group_sync_requested_at AS lastSyncRequestedAt,
+           s.baseline_completeness AS targetBaselineCompleteness
+    FROM account a
+    LEFT JOIN account_group_baseline b
+      ON b.account_id = a.id
+    LEFT JOIN account_group_sync_state s
+      ON s.account_id = a.id
+    WHERE a.id = #{accountId}
+      AND a.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <!--
+    必须是普通一致性读：一次同时区分可见键的 existing/missing，并返回本账号旧绑定，
+    供完整快照生成按 participant id 排序的缺失集合。禁止改成 FOR UPDATE 或逐键查询。
+  -->
+  <select id="selectExisting"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
+    SELECT g.group_jid AS groupJid,
+           g.id AS groupId,
+           p.id AS participantId,
+           p.presence_status AS presenceStatus,
+           p.presence_source AS presenceSource,
+           p.presence_observed_at AS presenceObservedAt,
+           b.id AS bindingId
+    FROM wa_group g
+    LEFT JOIN wa_group_participant p
+      ON p.group_id = g.id
+     AND p.pn_jid = #{pnJid}
+    LEFT JOIN wa_account_group_binding b
+      ON b.account_id = #{accountId}
+     AND b.group_id = g.id
+    WHERE
+    <choose>
+      <when test="groupJids != null and !groupJids.isEmpty()">
+        g.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          #{groupJid}
+        </foreach>
+        OR b.id IS NOT NULL
+      </when>
+      <otherwise>
+        b.id IS NOT NULL
+      </otherwise>
+    </choose>
+    ORDER BY g.group_jid ASC
+  </select>
+
+  <insert id="insertMissingGroups">
+    <!-- 普通读已筛出 missing；并发 winner 由后续 G current-read 收敛，禁止先 UPDATE 缺失键。 -->
+    INSERT INTO wa_group (
+      tenant_id, group_jid, display_name, avatar_url,
+      origin, created_at, updated_at, deleted_at
+    )
+    SELECT #{tenantId}, incoming.group_jid, incoming.display_name, incoming.avatar_url,
+           5, incoming.created_at, incoming.updated_at, NULL
+    FROM (
+      <foreach collection="rows" item="row" separator=" UNION ALL ">
+        SELECT #{row.groupJid} AS group_jid,
+               #{row.displayName} AS display_name,
+               #{row.avatarUrl} AS avatar_url,
+               #{row.now} AS created_at,
+               #{row.now} AS updated_at
+      </foreach>
+    ) incoming
+    ORDER BY incoming.group_jid ASC
+    ON DUPLICATE KEY UPDATE id = wa_group.id
+  </insert>
+
+  <select id="selectGroupIds"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$GroupId">
+    <!-- 按完整自然唯一键锁 G；重叠快照从此处开始以同一顺序串行写 P/M/B。 -->
+    SELECT group_jid AS groupJid, id AS groupId
+    FROM wa_group
+    WHERE tenant_id = #{tenantId}
+      AND group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+    ORDER BY group_jid ASC
+    FOR UPDATE
+  </select>
+
+  <insert id="upsertProfiles">
+    INSERT INTO wa_group_profile (
+      group_id, subject, member_count, wa_created_at, announce_only,
+      metadata_observed_at, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.waCreatedAt},
+        #{row.announceOnly}, #{row.syncAt}, #{row.now}, #{row.now}
+      )
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      subject = COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject),
+      member_count = COALESCE(VALUES(member_count), member_count),
+      wa_created_at = COALESCE(VALUES(wa_created_at), wa_created_at),
+      announce_only = COALESCE(VALUES(announce_only), announce_only),
+      metadata_observed_at = VALUES(metadata_observed_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <sql id="incomingPresenceWins">
+    (
+      VALUES(presence_observed_at) &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+      OR (
+        VALUES(presence_observed_at) = wa_group_participant.presence_observed_at
+        AND CASE VALUES(presence_source)
+              WHEN 'WGP2_REMOVE' THEN 5
+              WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+            &gt; CASE wa_group_participant.presence_source
+              WHEN 'WGP2_REMOVE' THEN 5
+              WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+      )
+    )
+  </sql>
+
+  <sql id="incomingRoleWins">
+    (
+      VALUES(role_observed_at) &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+      OR (
+        VALUES(role_observed_at) = wa_group_participant.role_observed_at
+        AND CASE VALUES(role_source)
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+            &gt; CASE wa_group_participant.role_source
+              WHEN 'WGP2_PROMOTE' THEN 4
+              WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+      )
+    )
+  </sql>
+
+  <insert id="upsertParticipants">
+    INSERT INTO wa_group_participant (
+      group_id, pn_jid, phone,
+      presence_status, presence_source, presence_observed_at, presence_event_id,
+      role, role_source, role_observed_at, role_event_id,
+      created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupId}, #{row.pnJid}, #{row.phone},
+        1, 'GROUP_SNAPSHOT', #{row.syncAt}, #{row.eventId},
+        #{row.role},
+        CASE WHEN #{row.role} = 0 THEN NULL ELSE 'GROUP_SNAPSHOT' END,
+        CASE WHEN #{row.role} = 0 THEN NULL ELSE #{row.syncAt} END,
+        CASE WHEN #{row.role} = 0 THEN NULL ELSE #{row.eventId} END,
+        #{row.now}, #{row.now}
+      )
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(VALUES(phone), phone),
+      presence_status = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)
+        ELSE presence_status
+      END,
+      presence_source = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_source)
+        ELSE presence_source
+      END,
+      presence_event_id = CASE
+        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_event_id)
+        ELSE presence_event_id
+      END,
+      presence_observed_at = GREATEST(
+        COALESCE(presence_observed_at, VALUES(presence_observed_at)),
+        VALUES(presence_observed_at)
+      ),
+      role = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role)
+        ELSE role
+      END,
+      role_source = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_source)
+        ELSE role_source
+      END,
+      role_event_id = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_event_id)
+        ELSE role_event_id
+      END,
+      role_observed_at = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/>
+          THEN VALUES(role_observed_at)
+        ELSE role_observed_at
+      END,
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <update id="markMissingParticipants">
+    UPDATE wa_group_participant
+    SET presence_status = 2,
+        presence_source = 'GROUP_SNAPSHOT',
+        presence_observed_at = #{syncAt},
+        presence_event_id = #{eventId},
+        updated_at = GREATEST(updated_at, #{now})
+    WHERE id IN
+    <foreach collection="participantIds" item="participantId" open="(" separator="," close=")">
+      #{participantId}
+    </foreach>
+      AND (
+        #{syncAt} &gt; COALESCE(presence_observed_at, -1)
+        OR (
+          #{syncAt} = presence_observed_at
+          AND 1 &gt; CASE presence_source
+            WHEN 'WGP2_REMOVE' THEN 5
+            WHEN 'WGP2_LEAVE' THEN 5
+            WHEN 'WGP2_PROMOTE' THEN 4
+            WHEN 'WGP2_DEMOTE' THEN 4
+            WHEN 'WGP2_ADD' THEN 3
+            WHEN 'GROUP_MEMBER_QUERY' THEN 2
+            WHEN 'GROUP_SNAPSHOT' THEN 1
+            ELSE 0
+          END
+        )
+      )
+  </update>
+
+  <insert id="upsertBindings">
+    INSERT INTO wa_account_group_binding (
+      tenant_id, account_id, group_id, participant_id,
+      was_in_initial_baseline, baseline_subject_snapshot,
+      membership_active_since_at, last_observed_at,
+      first_post_control_observed_at, created_at, updated_at
+    )
+    SELECT #{tenantId}, #{accountId}, incoming.group_id, participant.id,
+           incoming.was_in_initial_baseline, incoming.baseline_subject_snapshot,
+           incoming.membership_active_since_at, incoming.last_observed_at,
+           incoming.first_post_control_observed_at, incoming.created_at, incoming.updated_at
+    FROM (
+      <foreach collection="rows" item="row" separator=" UNION ALL ">
+        SELECT #{row.groupId} AS group_id,
+               #{row.pnJid} AS pn_jid,
+               #{row.wasInInitialBaseline} AS was_in_initial_baseline,
+               #{row.baselineSubjectSnapshot} AS baseline_subject_snapshot,
+               #{row.membershipActiveSinceAt} AS membership_active_since_at,
+               #{row.syncAt} AS last_observed_at,
+               #{row.firstPostControlObservedAt} AS first_post_control_observed_at,
+               #{row.now} AS created_at,
+               #{row.now} AS updated_at
+      </foreach>
+    ) incoming
+    STRAIGHT_JOIN wa_group_participant participant
+      FORCE INDEX (uq_wa_group_participant_pn)
+      ON participant.tenant_id = #{tenantId}
+     AND participant.group_id = incoming.group_id
+     AND participant.pn_jid = incoming.pn_jid
+    ORDER BY incoming.group_id ASC, incoming.pn_jid ASC
+    ON DUPLICATE KEY UPDATE
+      participant_id = VALUES(participant_id),
+      was_in_initial_baseline = COALESCE(
+        wa_account_group_binding.was_in_initial_baseline,
+        VALUES(was_in_initial_baseline)
+      ),
+      baseline_subject_snapshot = COALESCE(
+        wa_account_group_binding.baseline_subject_snapshot,
+        VALUES(baseline_subject_snapshot)
+      ),
+      membership_active_since_at = CASE
+        WHEN VALUES(membership_active_since_at) IS NOT NULL
+          THEN VALUES(membership_active_since_at)
+        ELSE wa_account_group_binding.membership_active_since_at
+      END,
+      last_observed_at = GREATEST(
+        COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
+        VALUES(last_observed_at)
+      ),
+      first_post_control_observed_at = COALESCE(
+        wa_account_group_binding.first_post_control_observed_at,
+        VALUES(first_post_control_observed_at)
+      ),
+      updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="upsertSyncState">
+    INSERT INTO account_group_sync_state (
+      account_id, baseline_state, baseline_completeness,
+      baseline_captured_at, baseline_group_count, last_sync_requested_at,
+      last_reported_at, last_snapshot_complete, last_complete_at,
+      created_at, updated_at
+    ) VALUES (
+      #{row.accountId}, #{row.baselineState}, #{row.baselineCompleteness},
+      #{row.baselineCapturedAt}, #{row.baselineGroupCount}, #{row.lastSyncRequestedAt},
+      #{row.lastReportedAt},
+      CASE WHEN #{row.snapshotComplete} = TRUE THEN 1 ELSE 0 END,
+      #{row.lastCompleteAt}, #{row.now}, #{row.now}
+    )
+    ON DUPLICATE KEY UPDATE
+      baseline_state = VALUES(baseline_state),
+      baseline_completeness = CASE
+        WHEN account_group_sync_state.baseline_completeness = 1 THEN 1
+        ELSE VALUES(baseline_completeness)
+      END,
+      baseline_captured_at = VALUES(baseline_captured_at),
+      baseline_group_count = VALUES(baseline_group_count),
+      last_sync_requested_at = CASE
+        WHEN VALUES(last_sync_requested_at) IS NULL THEN last_sync_requested_at
+        WHEN last_sync_requested_at IS NULL THEN VALUES(last_sync_requested_at)
+        ELSE GREATEST(last_sync_requested_at, VALUES(last_sync_requested_at))
+      END,
+      last_snapshot_complete = CASE
+        WHEN account_group_sync_state.last_reported_at IS NULL
+          OR VALUES(last_reported_at) &gt;= account_group_sync_state.last_reported_at
+          THEN VALUES(last_snapshot_complete)
+        ELSE account_group_sync_state.last_snapshot_complete
+      END,
+      last_complete_at = CASE
+        WHEN VALUES(last_complete_at) IS NULL THEN account_group_sync_state.last_complete_at
+        WHEN account_group_sync_state.last_complete_at IS NULL THEN VALUES(last_complete_at)
+        ELSE GREATEST(account_group_sync_state.last_complete_at, VALUES(last_complete_at))
+      END,
+      last_reported_at = GREATEST(
+        COALESCE(account_group_sync_state.last_reported_at, VALUES(last_reported_at)),
+        VALUES(last_reported_at)
+      ),
+      updated_at = GREATEST(account_group_sync_state.updated_at, VALUES(updated_at))
+  </insert>
+
+</mapper>

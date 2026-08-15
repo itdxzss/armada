@@ -14,6 +14,7 @@ import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.service.GroupInviteLinkService;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +41,9 @@ class GroupMetadataSnapshotPersistenceImplTest {
     @Mock
     private GroupInviteLinkService inviteLinkService;
 
+    @Mock
+    private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     @Test
     void freshMetadataMirrorsWhatsappSubjectToGroupListName() {
         GroupLinkPreview preview = preview("test-Android");
@@ -65,6 +69,11 @@ class GroupMetadataSnapshotPersistenceImplTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyLong());
         verify(memberMapper, never()).deleteByGroupLinkId(10L);
+        verify(currentSnapshotPersistence, never()).replaceCompleteGroupMetadataSnapshot(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
@@ -144,11 +153,18 @@ class GroupMetadataSnapshotPersistenceImplTest {
                                 301L, true, 1, "GROUP_SNAPSHOT", 2_000L, 2_000L),
                         org.assertj.core.groups.Tuple.tuple(
                                 302L, false, 1, "GROUP_SNAPSHOT", 2_000L, 2_000L));
+        verify(currentSnapshotPersistence).replaceCompleteGroupMetadataSnapshot(
+                preview,
+                List.of(new GroupParticipantResult(
+                        "1001@s.whatsapp.net", "1001", true, false, null)),
+                2_100L,
+                "metadata:10:2100");
     }
 
     private GroupMetadataSnapshotPersistenceImpl service() {
         return new GroupMetadataSnapshotPersistenceImpl(
-                previewMapper, memberMapper, groupLinkMapper, membershipMapper, inviteLinkService);
+                previewMapper, memberMapper, groupLinkMapper, membershipMapper,
+                inviteLinkService, currentSnapshotPersistence);
     }
 
     private static AccountGroupMembership controlledMembership(long accountId, boolean admin) {
@@ -163,6 +179,7 @@ class GroupMetadataSnapshotPersistenceImplTest {
     private static GroupLinkPreview preview(String subject) {
         GroupLinkPreview preview = new GroupLinkPreview();
         preview.setGroupLinkId(10L);
+        preview.setGroupJid("120363history@g.us");
         preview.setWaSubject(subject);
         preview.setUpdatedAt(1_786_190_145_628L);
         return preview;

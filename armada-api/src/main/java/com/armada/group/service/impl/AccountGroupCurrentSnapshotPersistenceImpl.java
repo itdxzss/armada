@@ -11,8 +11,10 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -52,6 +54,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
+    private static final int SNAPSHOT_VERSION_MAX_LENGTH = 64;
     private static final int PARTICIPANT_WRITE_BATCH_SIZE = 200;
     private static final int PRESENCE_IN_GROUP = 1;
     private static final String SNAPSHOT_SOURCE = "GROUP_SNAPSHOT";
@@ -255,6 +258,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                         : inGroup ? null : "UNKNOWN",
                 inGroup ? null : occurredAt,
                 inGroup ? null : "WGP2_NOTIFICATION",
+                null,
+                null,
+                null,
+                null,
+                null,
                 classification.wasInInitialBaseline(),
                 classification.baselineSubjectSnapshot(),
                 activeSince,
@@ -307,6 +315,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             null,
                             null,
                             null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
                             null);
                 })
                 .toList();
@@ -345,10 +358,91 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             null,
                             null,
                             null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
                             null);
                 })
                 .toList();
         persistParticipantFacts(tenantId, rows);
+    }
+
+    /** 用已确认完整的成员数组替换新模型成员快照。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void replaceCompleteParticipantSnapshot(
+            String groupJid,
+            List<GroupParticipantResult> participants,
+            long snapshotAt,
+            String snapshotVersion) {
+        replaceCompleteSnapshot(groupJid, participants, snapshotAt, snapshotVersion, null);
+    }
+
+    /** 将现有群详情成功结果同步写入新模型群资料和完整成员快照。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void replaceCompleteGroupMetadataSnapshot(
+            GroupLinkPreview preview,
+            List<GroupParticipantResult> participants,
+            long snapshotAt,
+            String snapshotVersion) {
+        if (preview == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "完整群资料快照为空");
+        }
+        replaceCompleteSnapshot(
+                preview.getGroupJid(), participants, snapshotAt, snapshotVersion, preview);
+    }
+
+    private void replaceCompleteSnapshot(
+            String groupJid,
+            List<GroupParticipantResult> participants,
+            long snapshotAt,
+            String snapshotVersion,
+            GroupLinkPreview preview) {
+        Long tenantId = requiredTenantId();
+        if (participants == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照缺少成员数组");
+        }
+        String normalizedGroupJid = participantGroupJid(groupJid);
+        String normalizedVersion = clamp(
+                blankToNull(snapshotVersion), SNAPSHOT_VERSION_MAX_LENGTH);
+        if (normalizedVersion == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照缺少版本");
+        }
+        long now = System.currentTimeMillis();
+        Long groupId = resolveGroupIds(
+                tenantId, List.of(normalizedGroupJid), now).get(normalizedGroupJid);
+        if (groupId == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员快照的 groupId");
+        }
+        if (preview != null) {
+            long metadataObservedAt = preview.getMetadataObservedAt() == null
+                    ? requiredFactTime(preview.getUpdatedAt())
+                    : preview.getMetadataObservedAt();
+            mapper.upsertGroupMetadata(
+                    groupId, preview, toEpochMillis(preview.getGroupCreatedAt()),
+                    metadataObservedAt, now);
+        }
+        List<ParticipantPresenceWrite> rows = participants.stream()
+                .map(participant -> snapshotParticipant(
+                        groupId, normalizedGroupJid, participant,
+                        snapshotAt, normalizedVersion, now))
+                .sorted(Comparator.comparing(
+                        AccountGroupCurrentSnapshotPersistenceImpl::participantIdentityKey))
+                .toList();
+        mapper.upsertParticipantSnapshotHeader(
+                groupId, rows.size(), snapshotAt, normalizedVersion, now);
+        String winningVersion = mapper.selectParticipantSnapshotVersionForUpdate(groupId);
+        if (!normalizedVersion.equals(winningVersion)) {
+            return;
+        }
+        upsertParticipantFactsInBatches(rows);
+        mapper.markParticipantSnapshotMissing(
+                groupId,
+                snapshotAt,
+                normalizedVersion,
+                clamp("snapshot:" + normalizedVersion + ":absent", EVENT_ID_MAX_LENGTH),
+                now);
     }
 
     private void persistParticipantFacts(
@@ -362,13 +456,27 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 .distinct()
                 .sorted()
                 .toList();
+        Map<String, Long> groupIds = resolveGroupIds(
+                tenantId, groupJids, incomingRows.get(0).now());
+        List<ParticipantPresenceWrite> rows = incomingRows.stream()
+                .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
+                .sorted(Comparator.comparing(ParticipantPresenceWrite::groupId)
+                        .thenComparing(AccountGroupCurrentSnapshotPersistenceImpl::participantIdentityKey)
+                        .thenComparingLong(ParticipantPresenceWrite::occurredAt))
+                .toList();
+        upsertParticipantFactsInBatches(rows);
+    }
+
+    private Map<String, Long> resolveGroupIds(
+            Long tenantId,
+            List<String> groupJids,
+            long now) {
         Map<String, Long> groupIds = mapper.selectGroupIdsWithoutLock(tenantId, groupJids).stream()
                 .collect(Collectors.toMap(GroupId::groupJid, GroupId::groupId));
         List<String> missingGroupJids = groupJids.stream()
                 .filter(groupJid -> !groupIds.containsKey(groupJid))
                 .toList();
         if (!missingGroupJids.isEmpty()) {
-            long now = incomingRows.get(0).now();
             List<Write> missingGroups = missingGroupJids.stream()
                     .map(groupJid -> new Write(
                             null, groupJid, groupJid, null,
@@ -382,12 +490,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (groupIds.size() != groupJids.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员事件的 groupId");
         }
-        List<ParticipantPresenceWrite> rows = incomingRows.stream()
-                .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
-                .sorted(Comparator.comparing(ParticipantPresenceWrite::groupId)
-                        .thenComparing(AccountGroupCurrentSnapshotPersistenceImpl::participantIdentityKey)
-                        .thenComparingLong(ParticipantPresenceWrite::occurredAt))
-                .toList();
+        return groupIds;
+    }
+
+    private void upsertParticipantFactsInBatches(List<ParticipantPresenceWrite> rows) {
         for (int start = 0; start < rows.size(); start += PARTICIPANT_WRITE_BATCH_SIZE) {
             mapper.upsertParticipantFacts(rows.subList(
                     start, Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, rows.size())));
@@ -537,7 +643,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     "UNKNOWN_EXIT_EVENT" -> 5;
             case "WGP2_PROMOTE", "WGP2_DEMOTE" -> 4;
             case "WGP2_ADD", "ADD_EVENT" -> 3;
-            case "GROUP_MEMBER_QUERY" -> 2;
+            case "GROUP_MEMBER_QUERY", "FULL_SNAPSHOT", "SNAPSHOT_ABSENT" -> 2;
             case SNAPSHOT_SOURCE -> 1;
             default -> 0;
         };
@@ -643,6 +749,58 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             case "LEFT" -> "LEAVE_EVENT";
             default -> "UNKNOWN_EXIT_EVENT";
         };
+    }
+
+    private static ParticipantPresenceWrite snapshotParticipant(
+            Long groupId,
+            String groupJid,
+            GroupParticipantResult participant,
+            long snapshotAt,
+            String snapshotVersion,
+            long now) {
+        if (participant == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照包含空成员");
+        }
+        ParticipantIdentity identity = participantIdentity(participant.jid());
+        String identityKey = identity.pnJid() == null ? identity.lidJid() : identity.pnJid();
+        String eventId = clamp(
+                "snapshot:" + snapshotVersion + ":" + identityKey,
+                EVENT_ID_MAX_LENGTH);
+        int role = Boolean.TRUE.equals(participant.owner())
+                ? 3 : Boolean.TRUE.equals(participant.admin()) ? 2 : 1;
+        return new ParticipantPresenceWrite(
+                groupId,
+                groupJid,
+                identity.pnJid(),
+                identity.lidJid(),
+                normalizedPhone(participant.phone()),
+                1,
+                "FULL_SNAPSHOT",
+                eventId,
+                snapshotAt,
+                now,
+                null,
+                null,
+                null,
+                null,
+                role,
+                "FULL_SNAPSHOT",
+                snapshotAt,
+                eventId,
+                snapshotVersion,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private static String normalizedPhone(String value) {
+        String phone = blankToNull(value);
+        if (phone == null) {
+            return null;
+        }
+        String digits = phone.replaceAll("[^0-9]", "");
+        return digits.isEmpty() ? null : digits;
     }
 
     private static String participantIdentityKey(ParticipantPresenceWrite row) {

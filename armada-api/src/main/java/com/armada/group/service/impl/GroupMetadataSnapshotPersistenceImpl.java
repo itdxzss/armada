@@ -11,6 +11,7 @@ import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +27,7 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     private final GroupLinkMapper groupLinkMapper;
     private final AccountGroupMembershipMapper membershipMapper;
     private final GroupInviteLinkService inviteLinkService;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     /**
      * 创建快照持久化实现。
@@ -35,18 +37,21 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
      * @param groupLinkMapper 群入口数据访问
      * @param membershipMapper 账号群关系数据访问
      * @param inviteLinkService 当前群邀请链接事实服务
+     * @param currentSnapshotPersistence 新群模型当前成员快照写入
      */
     public GroupMetadataSnapshotPersistenceImpl(
             GroupLinkPreviewMapper previewMapper,
             WhatsappGroupMemberSnapshotMapper memberMapper,
             GroupLinkMapper groupLinkMapper,
             AccountGroupMembershipMapper membershipMapper,
-            GroupInviteLinkService inviteLinkService) {
+            GroupInviteLinkService inviteLinkService,
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.previewMapper = previewMapper;
         this.memberMapper = memberMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
         this.inviteLinkService = inviteLinkService;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
     @Override
@@ -65,8 +70,31 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         if (members != null && !members.isEmpty()) {
             memberMapper.insertBatch(members);
         }
+        writeCurrentGroupSnapshot(preview, members);
         reconcileControlledMemberships(preview);
         return true;
+    }
+
+    private void writeCurrentGroupSnapshot(
+            GroupLinkPreview preview,
+            List<WhatsappGroupMemberSnapshot> members) {
+        List<WhatsappGroupMemberSnapshot> snapshotMembers = members == null ? List.of() : members;
+        long snapshotAt = snapshotMembers.isEmpty()
+                ? preview.getUpdatedAt()
+                : snapshotMembers.get(0).getSnapshotAt();
+        List<GroupParticipantResult> participants = snapshotMembers.stream()
+                .map(member -> new GroupParticipantResult(
+                        member.getParticipantJid(),
+                        member.getPhone(),
+                        member.getIsAdmin(),
+                        member.getIsOwner(),
+                        member.getRole()))
+                .toList();
+        currentSnapshotPersistence.replaceCompleteGroupMetadataSnapshot(
+                preview,
+                participants,
+                snapshotAt,
+                "metadata:" + preview.getGroupLinkId() + ":" + snapshotAt);
     }
 
     private void reconcileControlledMemberships(GroupLinkPreview preview) {

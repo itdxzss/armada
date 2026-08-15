@@ -34,12 +34,15 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
 
     private final WhatsappGroupMemberCacheMapper mapper;
     private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     public WhatsappGroupMemberCacheServiceImpl(
             WhatsappGroupMemberCacheMapper mapper,
-            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper) {
+            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.mapper = mapper;
         this.memberSnapshotMapper = memberSnapshotMapper;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
     @Override
@@ -183,6 +186,8 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         mapper.markSnapshotMissing(
                 tenantId, normalizedGroupJid, snapshotVersion, snapshotAt,
                 "snapshot:" + snapshotVersion + ":absent", observerAccountId, now);
+        currentSnapshotPersistence.replaceCompleteParticipantSnapshot(
+                normalizedGroupJid, metadata.participants(), snapshotAt, snapshotVersion);
         return findByGroupJids(tenantId, List.of(normalizedGroupJid)).get(normalizedGroupJid);
     }
 

@@ -31,6 +31,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
     private final GroupLinkHealthMapper healthMapper;
     private final GroupExecutionAccountSelector accountSelector;
     private final GroupInvitePort invitePort;
+    private final GroupCurrentInvitePersistence currentInvitePersistence;
 
     /**
      * 创建当前群邀请链接事实服务。
@@ -40,18 +41,21 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
      * @param healthMapper 群链接健康数据访问
      * @param accountSelector 群内执行账号选择器
      * @param invitePort 群邀请链接协议端口
+     * @param currentInvitePersistence 新群模型当前邀请码写入
      */
     public GroupInviteLinkServiceImpl(
             GroupLinkRegistryService registryService,
             GroupLinkPreviewMapper previewMapper,
             GroupLinkHealthMapper healthMapper,
             GroupExecutionAccountSelector accountSelector,
-            GroupInvitePort invitePort) {
+            GroupInvitePort invitePort,
+            GroupCurrentInvitePersistence currentInvitePersistence) {
         this.registryService = registryService;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
         this.accountSelector = accountSelector;
         this.invitePort = invitePort;
+        this.currentInvitePersistence = currentInvitePersistence;
     }
 
     /** {@inheritDoc} */
@@ -68,6 +72,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         storeCurrentInvite(
                 groupLinkId, observation.groupJid(), observation.inviteCode(), observedAt);
         String inviteCode = observation.inviteCode().trim();
+        currentInvitePersistence.apply(observation.groupJid(), inviteCode, observedAt);
         log.info("群邀请链接当前事实已接收 observationId={} groupLinkId={} source={} "
                         + "backend={} inviteCodeSuffix={}",
                 observation.observationId(), groupLinkId, observation.source(),
@@ -88,6 +93,11 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
         previewMapper.upsertGroupJidBinding(row);
+        GroupLinkPreview current = previewMapper.selectByGroupLinkId(groupLinkId);
+        if (current != null && hasText(current.getInviteCode())) {
+            currentInvitePersistence.apply(
+                    groupJid, current.getInviteCode().trim(), observedAt);
+        }
     }
 
     private void storeCurrentInvite(

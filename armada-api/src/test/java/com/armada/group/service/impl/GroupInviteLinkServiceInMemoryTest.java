@@ -250,9 +250,16 @@ class GroupInviteLinkServiceInMemoryTest {
                 GroupLinkPreviewMapper previewMapper,
                 GroupLinkHealthMapper healthMapper,
                 GroupExecutionAccountSelector accountSelector,
-                GroupInvitePort invitePort) {
+                GroupInvitePort invitePort,
+                GroupCurrentInvitePersistence currentInvitePersistence) {
             return new GroupInviteLinkServiceImpl(
-                    registry, previewMapper, healthMapper, accountSelector, invitePort);
+                    registry, previewMapper, healthMapper, accountSelector,
+                    invitePort, currentInvitePersistence);
+        }
+
+        @Bean
+        GroupCurrentInvitePersistence groupCurrentInvitePersistence() {
+            return mock(GroupCurrentInvitePersistence.class);
         }
 
         @Bean

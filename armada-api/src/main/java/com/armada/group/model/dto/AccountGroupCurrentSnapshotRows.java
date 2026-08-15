@@ -50,6 +50,11 @@ public final class AccountGroupCurrentSnapshotRows {
             String lastExitType,
             Long lastExitedAt,
             String lastExitSourceType,
+            Integer role,
+            String roleSource,
+            Long roleObservedAt,
+            String roleEventId,
+            String lastSnapshotVersion,
             Integer wasInInitialBaseline,
             String baselineSubjectSnapshot,
             Long membershipActiveSinceAt,
@@ -59,7 +64,9 @@ public final class AccountGroupCurrentSnapshotRows {
             return new ParticipantPresenceWrite(
                     resolvedGroupId, groupJid, pnJid, lidJid, phone, presenceStatus,
                     presenceSource, eventId, occurredAt, now, lastJoinedAt,
-                    lastExitType, lastExitedAt, lastExitSourceType, wasInInitialBaseline,
+                    lastExitType, lastExitedAt, lastExitSourceType,
+                    role, roleSource, roleObservedAt, roleEventId, lastSnapshotVersion,
+                    wasInInitialBaseline,
                     baselineSubjectSnapshot, membershipActiveSinceAt,
                     firstPostControlObservedAt);
         }

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupCurrentInviteMapper">
+
+  <select id="selectGroupId" resultType="java.lang.Long">
+    SELECT id
+    FROM wa_group
+    WHERE tenant_id = #{tenantId}
+      AND group_jid = #{groupJid}
+    LIMIT 1
+  </select>
+
+  <insert id="insertGroup">
+    INSERT INTO wa_group (
+      tenant_id, group_jid, display_name, origin, created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{groupJid}, #{groupJid}, 5, #{now}, #{now}
+    )
+    ON DUPLICATE KEY UPDATE id = wa_group.id
+  </insert>
+
+  <select id="selectGroupIdForUpdate" resultType="java.lang.Long">
+    <!-- 只在缺失群已完成 INSERT 后做当前读；不对不存在的键加锁。 -->
+    SELECT id
+    FROM wa_group
+    WHERE tenant_id = #{tenantId}
+      AND group_jid = #{groupJid}
+    FOR UPDATE
+  </select>
+
+  <insert id="lockProfile">
+    <!-- 先取得 wa_group_profile 行锁，再写 wa_group_invite，统一锁顺序。 -->
+    INSERT INTO wa_group_profile (
+      tenant_id, group_id, created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{groupId}, #{now}, #{now}
+    )
+    ON DUPLICATE KEY UPDATE id = wa_group_profile.id
+  </insert>
+
+  <insert id="upsertInvite">
+    INSERT INTO wa_group_invite (
+      tenant_id, group_id, invite_code, origin,
+      health_status, banned, last_checked_at, last_error_code, failure_count,
+      created_at, updated_at, deleted_at
+    ) VALUES (
+      #{tenantId}, #{groupId}, #{inviteCode}, 5,
+      1, 0, #{observedAt}, NULL, 0,
+      #{now}, #{now}, NULL
+    )
+    ON DUPLICATE KEY UPDATE
+      group_id = COALESCE(group_id, VALUES(group_id)),
+      health_status = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(last_checked_at, 0)
+         AND COALESCE(banned, 0) = 0
+          THEN 1
+        ELSE health_status
+      END,
+      last_error_code = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(last_checked_at, 0)
+         AND COALESCE(banned, 0) = 0
+          THEN NULL
+        ELSE last_error_code
+      END,
+      failure_count = CASE
+        WHEN VALUES(last_checked_at) &gt;= COALESCE(last_checked_at, 0)
+         AND COALESCE(banned, 0) = 0
+          THEN 0
+        ELSE failure_count
+      END,
+      last_checked_at = GREATEST(COALESCE(last_checked_at, 0), VALUES(last_checked_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <select id="selectInviteIdForUpdate" resultType="java.lang.Long">
+    SELECT id
+    FROM wa_group_invite
+    WHERE tenant_id = #{tenantId}
+      AND invite_code = #{inviteCode}
+    FOR UPDATE
+  </select>
+
+  <update id="updateCurrentInvite">
+    UPDATE wa_group_profile
+    SET current_invite_id = CASE
+          WHEN #{observedAt} &gt;= COALESCE(current_invite_observed_at, 0)
+            THEN #{inviteId}
+          ELSE current_invite_id
+        END,
+        updated_at = CASE
+          WHEN #{observedAt} &gt;= COALESCE(current_invite_observed_at, 0)
+            THEN GREATEST(updated_at, #{now})
+          ELSE updated_at
+        END,
+        current_invite_observed_at = GREATEST(
+          COALESCE(current_invite_observed_at, 0), #{observedAt}
+        )
+    WHERE tenant_id = #{tenantId}
+      AND group_id = #{groupId}
+  </update>
+
+</mapper>

@@ -3,31 +3,25 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.service.impl.GroupCurrentSnapshotMySqlTestSupport.RecordingDataSource;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
+import com.armada.group.mapper.GroupCurrentInviteMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.PrintWriter;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Proxy;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.logging.Logger;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterAll;
@@ -67,6 +61,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     private static RecordingDataSource recordingDataSource;
     private static TransactionTemplate transactionTemplate;
     private static AccountGroupCurrentSnapshotPersistenceImpl persistence;
+    private static GroupCurrentInvitePersistence currentInvitePersistence;
 
     @BeforeAll
     static void configureMysqlAndProductionMapper() throws Exception {
@@ -76,8 +71,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         rawDataSource.setUsername(MYSQL.getUsername());
         rawDataSource.setPassword(MYSQL.getPassword());
         jdbc = new JdbcTemplate(rawDataSource);
-        createLegacyContextSchema();
-        executeV117(rawDataSource);
+        GroupCurrentSnapshotMySqlTestSupport.createLegacyContextSchema(jdbc);
+        GroupCurrentSnapshotMySqlTestSupport.executeV117(rawDataSource);
 
         recordingDataSource = new RecordingDataSource(rawDataSource);
         DataSourceTransactionManager transactionManager =
@@ -87,6 +82,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         AccountGroupCurrentSnapshotMapper mapper =
                 sqlSessionTemplate.getMapper(AccountGroupCurrentSnapshotMapper.class);
         persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper, OBJECT_MAPPER);
+        currentInvitePersistence = new GroupCurrentInvitePersistence(
+                sqlSessionTemplate.getMapper(GroupCurrentInviteMapper.class));
     }
 
     @AfterAll
@@ -376,6 +373,250 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         assertThat(count("wa_account_group_binding")).isZero();
     }
 
+    @Test
+    void completeParticipantSnapshotUpdatesRolesHeaderAndMarksMissingParticipants() {
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, groupJid(9), "15550000009@s.whatsapp.net", "15550000009",
+                1_500L, 1_500L, "join-before-snapshot", 104L)));
+
+        writeParticipantSnapshot(groupJid(9), List.of(
+                new GroupParticipantResult(
+                        "15550000010:3@s.whatsapp.net", "+1 555 000 0010",
+                        true, false, "admin"),
+                new GroupParticipantResult(
+                        "123456789012349@lid", null,
+                        true, true, "superadmin")),
+                2_000L, "member-snapshot-2000");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT member_count, member_snapshot_at, member_snapshot_version
+                FROM wa_group_profile
+                """))
+                .containsEntry("member_count", 2)
+                .containsEntry("member_snapshot_at", 2_000L)
+                .containsEntry("member_snapshot_version", "member-snapshot-2000");
+        assertThat(jdbc.queryForList("""
+                SELECT pn_jid, lid_jid, presence_status, presence_source,
+                       role, role_source, last_snapshot_version
+                FROM wa_group_participant
+                ORDER BY COALESCE(pn_jid, lid_jid)
+                """))
+                .satisfiesExactly(
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", null)
+                                .containsEntry("lid_jid", "123456789012349@lid")
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("presence_source", "FULL_SNAPSHOT")
+                                .containsEntry("role", 3)
+                                .containsEntry("role_source", "FULL_SNAPSHOT")
+                                .containsEntry("last_snapshot_version", "member-snapshot-2000"),
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", "15550000009@s.whatsapp.net")
+                                .containsEntry("lid_jid", null)
+                                .containsEntry("presence_status", 2)
+                                .containsEntry("presence_source", "SNAPSHOT_ABSENT"),
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", "15550000010@s.whatsapp.net")
+                                .containsEntry("lid_jid", null)
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("role", 2)
+                                .containsEntry("role_source", "FULL_SNAPSHOT")
+                                .containsEntry("last_snapshot_version", "member-snapshot-2000"));
+        assertThat(count("wa_account_group_binding")).isZero();
+    }
+
+    @Test
+    void olderCompleteSnapshotCannotRollBackNewerHeaderOrExplicitDeparture() {
+        writeParticipantSnapshot(groupJid(10), List.of(new GroupParticipantResult(
+                "15550000011@s.whatsapp.net", "15550000011",
+                false, false, "member")), 2_000L, "member-snapshot-2000");
+        writeParticipantDepartures(List.of(new WhatsappGroupDepartureFact(
+                TENANT_ID, groupJid(10), "15550000011@s.whatsapp.net", "15550000011",
+                3_000L, "LEFT", 3_000L, "left-3000", "WGP2_NOTIFICATION")));
+        writeParticipantSnapshot(groupJid(10), List.of(new GroupParticipantResult(
+                "15550000011@s.whatsapp.net", "15550000011",
+                true, true, "superadmin")), 2_500L, "member-snapshot-2500");
+        writeParticipantSnapshot(
+                groupJid(10), List.of(), 1_500L, "member-snapshot-1500");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT member_count, member_snapshot_at, member_snapshot_version
+                FROM wa_group_profile
+                """))
+                .containsEntry("member_count", 1)
+                .containsEntry("member_snapshot_at", 2_500L)
+                .containsEntry("member_snapshot_version", "member-snapshot-2500");
+        assertThat(jdbc.queryForMap("""
+                SELECT presence_status, presence_source, presence_observed_at,
+                       role, role_source, role_observed_at
+                FROM wa_group_participant
+                """))
+                .containsEntry("presence_status", 2)
+                .containsEntry("presence_source", "LEAVE_EVENT")
+                .containsEntry("presence_observed_at", 3_000L)
+                .containsEntry("role", 3)
+                .containsEntry("role_source", "FULL_SNAPSHOT")
+                .containsEntry("role_observed_at", 2_500L);
+    }
+
+    @Test
+    void sameTimeWinningSnapshotVersionAlsoWinsParticipantPresenceAndRole() {
+        writeParticipantJoins(List.of(
+                new WhatsappGroupJoinFact(
+                        TENANT_ID, groupJid(11), "15550000012@s.whatsapp.net", "15550000012",
+                        1_000L, 1_000L, "join-12", 104L),
+                new WhatsappGroupJoinFact(
+                        TENANT_ID, groupJid(11), "15550000013@s.whatsapp.net", "15550000013",
+                        1_000L, 1_000L, "join-13", 104L)));
+        writeParticipantSnapshot(groupJid(11), List.of(new GroupParticipantResult(
+                "15550000012@s.whatsapp.net", "15550000012",
+                false, false, "member")), 2_000L, "member-snapshot-a");
+        writeParticipantSnapshot(groupJid(11), List.of(
+                new GroupParticipantResult(
+                        "15550000012@s.whatsapp.net", "15550000012",
+                        true, true, "superadmin"),
+                new GroupParticipantResult(
+                        "15550000013@s.whatsapp.net", "15550000013",
+                        true, false, "admin")),
+                2_000L, "member-snapshot-z");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT member_count, member_snapshot_version
+                FROM wa_group_profile
+                """))
+                .containsEntry("member_count", 2)
+                .containsEntry("member_snapshot_version", "member-snapshot-z");
+        assertThat(jdbc.queryForList("""
+                SELECT pn_jid, presence_status, role, last_snapshot_version
+                FROM wa_group_participant
+                ORDER BY pn_jid
+                """))
+                .satisfiesExactly(
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", "15550000012@s.whatsapp.net")
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("role", 3)
+                                .containsEntry("last_snapshot_version", "member-snapshot-z"),
+                        row -> assertThat(row)
+                                .containsEntry("pn_jid", "15550000013@s.whatsapp.net")
+                                .containsEntry("presence_status", 1)
+                                .containsEntry("role", 2)
+                                .containsEntry("last_snapshot_version", "member-snapshot-z"));
+    }
+
+    @Test
+    void completeMetadataSnapshotUpdatesOnlyAcceptedProfileFields() {
+        List<GroupParticipantResult> participants = List.of(new GroupParticipantResult(
+                "15550000014@s.whatsapp.net", "15550000014",
+                false, false, "member"));
+        GroupLinkPreview first = metadataPreview(groupJid(12), 2_000L, 2_100L);
+        first.setWaSubject("当前群名");
+        first.setWaDescription("当前描述");
+        first.setWaDescriptionObserved(true);
+        first.setMemberSize(1);
+        first.setGroupCreatedAt(1_700_000_000L);
+        first.setAnnounceOnly(true);
+        first.setAnnounceOnlyObserved(true);
+        first.setAdminOnlyEditInfo(false);
+        first.setAdminOnlyEditInfoObserved(true);
+        first.setMemberAddMode(true);
+        first.setMemberAddModeObserved(true);
+        first.setJoinApprovalMode(false);
+        first.setJoinApprovalModeObserved(true);
+        first.setEphemeralDurationSeconds(86_400);
+        first.setEphemeralDurationObserved(true);
+        writeCompleteMetadataSnapshot(first, participants, 2_100L, "metadata-2100");
+
+        GroupLinkPreview stale = metadataPreview(groupJid(12), 1_500L, 1_600L);
+        stale.setWaSubject("过期群名");
+        stale.setWaDescription("过期描述");
+        stale.setWaDescriptionObserved(true);
+        stale.setMemberSize(0);
+        stale.setAnnounceOnly(false);
+        stale.setAnnounceOnlyObserved(true);
+        writeCompleteMetadataSnapshot(stale, List.of(), 1_600L, "metadata-1600");
+
+        GroupLinkPreview latest = metadataPreview(groupJid(12), 3_000L, 3_100L);
+        latest.setWaSubject(" ");
+        latest.setWaDescription(null);
+        latest.setWaDescriptionObserved(true);
+        latest.setMemberSize(1);
+        latest.setAnnounceOnly(false);
+        latest.setAnnounceOnlyObserved(true);
+        latest.setAdminOnlyEditInfo(true);
+        latest.setAdminOnlyEditInfoObserved(false);
+        writeCompleteMetadataSnapshot(latest, participants, 3_100L, "metadata-3100");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT subject, description, member_count, wa_created_at,
+                       announce_only, admin_only_edit_info, member_add_mode,
+                       join_approval_mode, ephemeral_duration_seconds,
+                       metadata_observed_at, member_snapshot_at
+                FROM wa_group_profile
+                """))
+                .containsEntry("subject", "当前群名")
+                .containsEntry("description", null)
+                .containsEntry("member_count", 1)
+                .containsEntry("wa_created_at", 1_700_000_000_000L)
+                .containsEntry("announce_only", 0)
+                .containsEntry("admin_only_edit_info", 0)
+                .containsEntry("member_add_mode", 1)
+                .containsEntry("join_approval_mode", 0)
+                .containsEntry("ephemeral_duration_seconds", 86_400)
+                .containsEntry("metadata_observed_at", 3_000L)
+                .containsEntry("member_snapshot_at", 3_100L);
+    }
+
+    @Test
+    void currentInviteBindsAfterGroupResolutionAndRejectsDelayedRotation() {
+        writeCurrentInvite(null, "invite-a", 1_000L);
+        assertThat(jdbc.queryForMap("""
+                SELECT group_id, health_status, banned, last_checked_at
+                FROM wa_group_invite
+                WHERE invite_code = 'invite-a'
+                """))
+                .containsEntry("group_id", null)
+                .containsEntry("health_status", 1)
+                .containsEntry("banned", 0)
+                .containsEntry("last_checked_at", 1_000L);
+
+        writeCurrentInvite(groupJid(13), "invite-a", 1_500L);
+        writeCurrentInvite(groupJid(13), "invite-b", 2_000L);
+        writeCurrentInvite(groupJid(13), "invite-a", 1_700L);
+
+        assertThat(jdbc.queryForMap("""
+                SELECT invite.invite_code, profile.current_invite_observed_at
+                FROM wa_group_profile profile
+                JOIN wa_group_invite invite ON invite.id = profile.current_invite_id
+                """))
+                .containsEntry("invite_code", "invite-b")
+                .containsEntry("current_invite_observed_at", 2_000L);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM wa_group_invite invite
+                JOIN wa_group wa_group ON wa_group.id = invite.group_id
+                WHERE wa_group.group_jid = ?
+                """, Integer.class, groupJid(13))).isEqualTo(2);
+
+        jdbc.update("""
+                UPDATE wa_group_invite
+                SET health_status = 3, banned = 1, last_error_code = 'BANNED',
+                    failure_count = 4, last_checked_at = 2500
+                WHERE invite_code = 'invite-b'
+                """);
+        writeCurrentInvite(groupJid(13), "invite-b", 3_000L);
+        assertThat(jdbc.queryForMap("""
+                SELECT health_status, banned, last_error_code, failure_count, last_checked_at
+                FROM wa_group_invite
+                WHERE invite_code = 'invite-b'
+                """))
+                .containsEntry("health_status", 3)
+                .containsEntry("banned", 1)
+                .containsEntry("last_error_code", "BANNED")
+                .containsEntry("failure_count", 4)
+                .containsEntry("last_checked_at", 3_000L);
+    }
+
     private static void writeSnapshot(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -423,6 +664,60 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(transaction ->
                     persistence.applyParticipantDepartures(facts));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeParticipantSnapshot(
+            String groupJid,
+            List<GroupParticipantResult> participants,
+            long snapshotAt,
+            String snapshotVersion) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.replaceCompleteParticipantSnapshot(
+                            groupJid, participants, snapshotAt, snapshotVersion));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeCompleteMetadataSnapshot(
+            GroupLinkPreview preview,
+            List<GroupParticipantResult> participants,
+            long snapshotAt,
+            String snapshotVersion) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.replaceCompleteGroupMetadataSnapshot(
+                            preview, participants, snapshotAt, snapshotVersion));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static GroupLinkPreview metadataPreview(
+            String groupJid,
+            long metadataObservedAt,
+            long updatedAt) {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupJid(groupJid);
+        preview.setMetadataObservedAt(metadataObservedAt);
+        preview.setUpdatedAt(updatedAt);
+        return preview;
+    }
+
+    private static void writeCurrentInvite(
+            String groupJid,
+            String inviteCode,
+            long observedAt) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    currentInvitePersistence.apply(groupJid, inviteCode, observedAt));
         } finally {
             TenantContext.clear();
         }
@@ -528,7 +823,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         factoryBean.setConfiguration(configuration);
         factoryBean.setPlugins(interceptor);
         factoryBean.setMapperLocations(
-                new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"));
+                new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"),
+                new ClassPathResource("mapper/group/GroupCurrentInviteMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("无法创建账号群新模型测试 SqlSessionFactory");
@@ -536,167 +832,4 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return new SqlSessionTemplate(factory);
     }
 
-    private static void createLegacyContextSchema() {
-        jdbc.execute("""
-                CREATE TABLE account (
-                  id BIGINT NOT NULL,
-                  tenant_id BIGINT NOT NULL,
-                  ws_phone VARCHAR(64) NOT NULL,
-                  protocol_id VARCHAR(32) DEFAULT NULL,
-                  protocol_account_id VARCHAR(64) DEFAULT NULL,
-                  group_baseline_state TINYINT NOT NULL DEFAULT 1,
-                  created_at BIGINT NOT NULL,
-                  updated_at BIGINT NOT NULL,
-                  deleted_at BIGINT DEFAULT NULL,
-                  PRIMARY KEY (id),
-                  UNIQUE KEY uq_account_phone (tenant_id, ws_phone)
-                ) ENGINE=InnoDB
-                """);
-        jdbc.execute("""
-                CREATE TABLE account_group_baseline (
-                  id BIGINT NOT NULL AUTO_INCREMENT,
-                  tenant_id BIGINT NOT NULL,
-                  account_id BIGINT NOT NULL,
-                  baseline_group_jids JSON NOT NULL,
-                  baseline_group_subjects JSON DEFAULT NULL,
-                  group_count INT DEFAULT NULL,
-                  captured_at BIGINT DEFAULT NULL,
-                  last_group_sync_requested_at BIGINT DEFAULT NULL,
-                  created_at BIGINT NOT NULL,
-                  updated_at BIGINT NOT NULL,
-                  PRIMARY KEY (id),
-                  UNIQUE KEY uq_account_group_baseline (tenant_id, account_id)
-                ) ENGINE=InnoDB
-                """);
-    }
-
-    private static void executeV117(DataSource dataSource) throws Exception {
-        String sql;
-        try (var stream = AccountGroupCurrentSnapshotPersistenceMySqlTest.class.getResourceAsStream(
-                "/db/migration/V117__group_data_model_foundation.sql")) {
-            assertThat(stream).isNotNull();
-            sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            for (String command : sql.split(";")) {
-                if (!command.isBlank()) {
-                    statement.execute(command);
-                }
-            }
-        }
-    }
-
-    /** 记录一次 mapper 调用真正执行的 JDBC statement，不统计连接和事务控制。 */
-    private static final class RecordingDataSource implements DataSource {
-
-        private final DataSource delegate;
-        private final CopyOnWriteArrayList<String> statements = new CopyOnWriteArrayList<>();
-
-        private RecordingDataSource(DataSource delegate) {
-            this.delegate = delegate;
-        }
-
-        private void reset() {
-            statements.clear();
-        }
-
-        private List<String> statements() {
-            return List.copyOf(statements);
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            return wrap(delegate.getConnection());
-        }
-
-        @Override
-        public Connection getConnection(String username, String password) throws SQLException {
-            return wrap(delegate.getConnection(username, password));
-        }
-
-        private Connection wrap(Connection connection) {
-            return (Connection) Proxy.newProxyInstance(
-                    Connection.class.getClassLoader(),
-                    new Class<?>[]{Connection.class},
-                    (proxy, method, args) -> {
-                        try {
-                            Object value = method.invoke(connection, args);
-                            if (value instanceof Statement statement) {
-                                String preparedSql = args != null && args.length > 0
-                                        && args[0] instanceof String sql ? normalize(sql) : null;
-                                return wrap(statement, preparedSql);
-                            }
-                            return value;
-                        } catch (InvocationTargetException exception) {
-                            throw exception.getTargetException();
-                        }
-                    });
-        }
-
-        private Statement wrap(Statement statement, String preparedSql) {
-            Class<?> type = statement instanceof java.sql.PreparedStatement
-                    ? java.sql.PreparedStatement.class : Statement.class;
-            return (Statement) Proxy.newProxyInstance(
-                    type.getClassLoader(),
-                    new Class<?>[]{type},
-                    (proxy, method, args) -> {
-                        String name = method.getName();
-                        if (name.equals("executeBatch") || name.equals("executeLargeBatch")) {
-                            statements.add("BATCH " + preparedSql);
-                        } else if (name.startsWith("execute")) {
-                            String sql = preparedSql;
-                            if (sql == null && args != null && args.length > 0
-                                    && args[0] instanceof String rawSql) {
-                                sql = normalize(rawSql);
-                            }
-                            statements.add(sql == null ? name : sql);
-                        }
-                        try {
-                            return method.invoke(statement, args);
-                        } catch (InvocationTargetException exception) {
-                            throw exception.getTargetException();
-                        }
-                    });
-        }
-
-        private static String normalize(String sql) {
-            return sql.replaceAll("\\s+", " ").trim().toUpperCase();
-        }
-
-        @Override
-        public PrintWriter getLogWriter() throws SQLException {
-            return delegate.getLogWriter();
-        }
-
-        @Override
-        public void setLogWriter(PrintWriter out) throws SQLException {
-            delegate.setLogWriter(out);
-        }
-
-        @Override
-        public void setLoginTimeout(int seconds) throws SQLException {
-            delegate.setLoginTimeout(seconds);
-        }
-
-        @Override
-        public int getLoginTimeout() throws SQLException {
-            return delegate.getLoginTimeout();
-        }
-
-        @Override
-        public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-            return delegate.getParentLogger();
-        }
-
-        @Override
-        public <T> T unwrap(Class<T> iface) throws SQLException {
-            return delegate.unwrap(iface);
-        }
-
-        @Override
-        public boolean isWrapperFor(Class<?> iface) throws SQLException {
-            return delegate.isWrapperFor(iface);
-        }
-    }
 }

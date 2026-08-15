@@ -28,9 +28,12 @@ class GroupInviteLinkServiceImplTest {
     private final GroupExecutionAccountSelector accountSelector =
             mock(GroupExecutionAccountSelector.class);
     private final GroupInvitePort invitePort = mock(GroupInvitePort.class);
+    private final GroupCurrentInvitePersistence currentInvitePersistence =
+            mock(GroupCurrentInvitePersistence.class);
     private final GroupInviteLinkServiceImpl service =
             new GroupInviteLinkServiceImpl(
-                    registry, previewMapper, healthMapper, accountSelector, invitePort);
+                    registry, previewMapper, healthMapper, accountSelector,
+                    invitePort, currentInvitePersistence);
 
     @Test
     void applyRegistersObservedGroupAndStoresCurrentInviteCode() {
@@ -49,6 +52,8 @@ class GroupInviteLinkServiceImplTest {
         assertThat(captor.getValue().getGroupJid()).isEqualTo("120363group@g.us");
         assertThat(captor.getValue().getInviteCode()).isEqualTo("NewInviteCode_2026");
         assertThat(captor.getValue().getInviteCodeObservedAt()).isEqualTo(1786341600000L);
+        verify(currentInvitePersistence).apply(
+                "120363group@g.us", "NewInviteCode_2026", 1786341600000L);
     }
 
     @Test
@@ -116,5 +121,17 @@ class GroupInviteLinkServiceImplTest {
         assertThat(captor.getValue().getInviteCode()).isEqualTo("ObservedReplacement_2026");
         assertThat(captor.getValue().getInviteCodeObservedAt()).isEqualTo(3_000L);
         verifyNoInteractions(registry);
+    }
+
+    @Test
+    void bindingGroupJidAlsoBindsThePreviouslyObservedInvite() {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setInviteCode("ObservedBeforeJoin_2026");
+        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+
+        service.bindGroupJid(51L, "120363joined@g.us", 4_000L);
+
+        verify(currentInvitePersistence).apply(
+                "120363joined@g.us", "ObservedBeforeJoin_2026", 4_000L);
     }
 }

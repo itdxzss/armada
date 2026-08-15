@@ -31,6 +31,7 @@ class WhatsappGroupMemberCacheServiceImplTest {
 
     @Mock private WhatsappGroupMemberCacheMapper mapper;
     @Mock private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
+    @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     @Test
     void findByGroupJidsFallsBackToLatestDurableSnapshot() {
@@ -46,7 +47,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                                 "15550000002@s.whatsapp.net", "15550000002",
                                 false, false, 1_000L)));
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
 
         var result = service.findByGroupJids(7L, List.of("120363-TEST@G.US"));
 
@@ -83,7 +85,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "15550000002@s.whatsapp.net", "15550000002",
                         false, false, 1_000L)));
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
 
         var result = service.findByGroupJids(7L, List.of(
                 "120363-missing@g.us", "120363-cached@g.us"));
@@ -115,7 +118,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "15550000001@s.whatsapp.net", "15550000001",
                         true, false, "admin", true, "FULL_SNAPSHOT", 1_000L)));
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
         GroupMetadataResult metadata = new GroupMetadataResult(
                 "120363-test@g.us", "真实群", null, null, null,
                 true, true, null, null, null,
@@ -156,7 +160,7 @@ class WhatsappGroupMemberCacheServiceImplTest {
         assertThat(header.getValue().subject()).isEqualTo("真实群");
         assertThat(result.members()).hasSize(1);
 
-        InOrder order = inOrder(mapper);
+        InOrder order = inOrder(mapper, currentSnapshotPersistence);
         order.verify(mapper).upsertHeader(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
         order.verify(mapper).selectSnapshotVersionForUpdate(7L, "120363-test@g.us");
@@ -165,6 +169,9 @@ class WhatsappGroupMemberCacheServiceImplTest {
                 eq(7L), eq("120363-test@g.us"), org.mockito.ArgumentMatchers.anyString(),
                 eq(1_000L), org.mockito.ArgumentMatchers.anyString(), eq(10L),
                 org.mockito.ArgumentMatchers.anyLong());
+        order.verify(currentSnapshotPersistence).replaceCompleteParticipantSnapshot(
+                eq("120363-test@g.us"), eq(metadata.participants()), eq(1_000L),
+                eq(writtenHeader.get().snapshotVersion()));
         order.verify(mapper).selectByGroupJids(7L, List.of("120363-test@g.us"));
     }
 
@@ -178,7 +185,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "15550000002@s.whatsapp.net", "15550000002",
                         false, false, "", true, "FULL_SNAPSHOT", 2_000L)));
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
         GroupMetadataResult older = new GroupMetadataResult(
                 "120363-test@g.us", "旧群", null, null, null,
                 true, false, null, null, null,
@@ -203,12 +211,19 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.anyLong(),
                         org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.Mockito.verify(currentSnapshotPersistence, org.mockito.Mockito.never())
+                .replaceCompleteParticipantSnapshot(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyList(),
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString());
     }
 
     @Test
     void eventsUpdateCachedMembershipWithExplicitSources() {
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
         service.applyJoins(List.of(
                 new WhatsappGroupJoinFact(
                         7L, "120363-test@g.us", "15550000001@s.whatsapp.net", "15550000001",
@@ -270,7 +285,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
     @Test
     void keepsLidAsCacheKeyWhenPhoneAliasIsPresent() {
         WhatsappGroupMemberCacheServiceImpl service =
-                new WhatsappGroupMemberCacheServiceImpl(mapper, memberSnapshotMapper);
+                new WhatsappGroupMemberCacheServiceImpl(
+                        mapper, memberSnapshotMapper, currentSnapshotPersistence);
 
         service.applyJoins(List.of(new WhatsappGroupJoinFact(
                 7L, "120363-test@g.us", "123456789012345:9@lid", "5218129230974",

@@ -151,13 +151,15 @@
       VALUES(presence_observed_at) &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
       OR (
         VALUES(presence_observed_at) = wa_group_participant.presence_observed_at
-        AND CASE VALUES(presence_source)
+        AND (
+          CASE VALUES(presence_source)
               WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
               WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
               WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
               WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
               WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
@@ -168,9 +170,17 @@
               WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
               WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
+          OR (
+            VALUES(presence_source) IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+            AND wa_group_participant.presence_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+            AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
+                &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
+          )
+        )
       )
     )
   </sql>
@@ -180,11 +190,13 @@
       VALUES(role_observed_at) &gt; COALESCE(wa_group_participant.role_observed_at, -1)
       OR (
         VALUES(role_observed_at) = wa_group_participant.role_observed_at
-        AND CASE VALUES(role_source)
+        AND (
+          CASE VALUES(role_source)
               WHEN 'WGP2_PROMOTE' THEN 4
               WHEN 'WGP2_DEMOTE' THEN 4
               WHEN 'WGP2_ADD' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'FULL_SNAPSHOT' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
@@ -193,9 +205,17 @@
               WHEN 'WGP2_DEMOTE' THEN 4
               WHEN 'WGP2_ADD' THEN 3
               WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'FULL_SNAPSHOT' THEN 2
               WHEN 'GROUP_SNAPSHOT' THEN 1
               ELSE 0
             END
+          OR (
+            VALUES(role_source) = 'FULL_SNAPSHOT'
+            AND wa_group_participant.role_source = 'FULL_SNAPSHOT'
+            AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
+                &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
+          )
+        )
       )
     )
   </sql>
@@ -263,6 +283,7 @@
       last_joined_at, last_join_event_at, last_join_source_event_id,
       last_exited_at, last_exit_type, last_exit_event_at,
       last_exit_source_event_id, last_exit_source_type,
+      role, role_source, role_observed_at, role_event_id, last_snapshot_version,
       created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
@@ -276,6 +297,8 @@
         CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.occurredAt} END,
         CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.eventId} END,
         #{row.lastExitSourceType},
+        COALESCE(#{row.role}, 0), #{row.roleSource}, #{row.roleObservedAt},
+        #{row.roleEventId}, #{row.lastSnapshotVersion},
         #{row.now}, #{row.now}
       )
     </foreach>
@@ -345,8 +368,188 @@
           THEN VALUES(last_exit_event_at)
         ELSE last_exit_event_at
       END,
+      role = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role)
+        ELSE role
+      END,
+      role_source = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_source)
+        ELSE role_source
+      END,
+      role_observed_at = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/>
+          THEN VALUES(role_observed_at)
+        ELSE role_observed_at
+      END,
+      role_event_id = CASE
+        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_event_id)
+        ELSE role_event_id
+      END,
+      last_snapshot_version = COALESCE(
+        VALUES(last_snapshot_version), last_snapshot_version
+      ),
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
+
+  <sql id="incomingMemberSnapshotWins">
+    (
+      wa_group_profile.member_snapshot_at IS NULL
+      OR VALUES(member_snapshot_at) &gt; wa_group_profile.member_snapshot_at
+      OR (
+        VALUES(member_snapshot_at) = wa_group_profile.member_snapshot_at
+        AND CAST(VALUES(member_snapshot_version) AS BINARY)
+            &gt; CAST(COALESCE(wa_group_profile.member_snapshot_version, '') AS BINARY)
+      )
+    )
+  </sql>
+
+  <insert id="upsertGroupMetadata">
+    INSERT INTO wa_group_profile (
+      group_id, subject, description, member_count, wa_created_at,
+      announce_only, admin_only_edit_info, member_add_mode,
+      join_approval_mode, ephemeral_duration_seconds,
+      metadata_observed_at, created_at, updated_at
+    ) VALUES (
+      #{groupId}, NULLIF(TRIM(#{row.waSubject}), ''), #{row.waDescription},
+      #{row.memberSize}, #{waCreatedAt}, #{row.announceOnly},
+      #{row.adminOnlyEditInfo}, #{row.memberAddMode}, #{row.joinApprovalMode},
+      #{row.ephemeralDurationSeconds}, #{metadataObservedAt}, #{now}, #{now}
+    )
+    ON DUPLICATE KEY UPDATE
+      updated_at = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+          THEN GREATEST(updated_at, VALUES(updated_at))
+        ELSE updated_at
+      END,
+      subject = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject)
+        ELSE subject
+      END,
+      description = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.waDescriptionObserved} = TRUE
+          THEN VALUES(description)
+        ELSE description
+      END,
+      member_count = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND (member_snapshot_at IS NULL
+              OR VALUES(metadata_observed_at) &gt;= member_snapshot_at)
+          THEN COALESCE(VALUES(member_count), member_count)
+        ELSE member_count
+      END,
+      wa_created_at = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+          THEN COALESCE(VALUES(wa_created_at), wa_created_at)
+        ELSE wa_created_at
+      END,
+      announce_only = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.announceOnlyObserved} = TRUE
+          THEN VALUES(announce_only)
+        ELSE announce_only
+      END,
+      admin_only_edit_info = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.adminOnlyEditInfoObserved} = TRUE
+          THEN VALUES(admin_only_edit_info)
+        ELSE admin_only_edit_info
+      END,
+      member_add_mode = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.memberAddModeObserved} = TRUE
+          THEN VALUES(member_add_mode)
+        ELSE member_add_mode
+      END,
+      join_approval_mode = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.joinApprovalModeObserved} = TRUE
+          THEN VALUES(join_approval_mode)
+        ELSE join_approval_mode
+      END,
+      ephemeral_duration_seconds = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.ephemeralDurationObserved} = TRUE
+          THEN VALUES(ephemeral_duration_seconds)
+        ELSE ephemeral_duration_seconds
+      END,
+      metadata_observed_at = GREATEST(
+        COALESCE(metadata_observed_at, 0), VALUES(metadata_observed_at)
+      )
+  </insert>
+
+  <insert id="upsertParticipantSnapshotHeader">
+    INSERT INTO wa_group_profile (
+      group_id, member_count, member_snapshot_at, member_snapshot_version,
+      created_at, updated_at
+    ) VALUES (
+      #{groupId}, #{memberCount}, #{snapshotAt}, #{snapshotVersion}, #{now}, #{now}
+    )
+    ON DUPLICATE KEY UPDATE
+      updated_at = CASE
+        WHEN <include refid="incomingMemberSnapshotWins"/>
+          THEN GREATEST(updated_at, VALUES(updated_at))
+        ELSE updated_at
+      END,
+      member_count = CASE
+        WHEN <include refid="incomingMemberSnapshotWins"/>
+         AND (metadata_observed_at IS NULL OR VALUES(member_snapshot_at) &gt;= metadata_observed_at)
+          THEN VALUES(member_count)
+        ELSE member_count
+      END,
+      member_snapshot_version = CASE
+        WHEN <include refid="incomingMemberSnapshotWins"/> THEN VALUES(member_snapshot_version)
+        ELSE member_snapshot_version
+      END,
+      member_snapshot_at = CASE
+        WHEN <include refid="incomingMemberSnapshotWins"/> THEN VALUES(member_snapshot_at)
+        ELSE member_snapshot_at
+      END
+  </insert>
+
+  <select id="selectParticipantSnapshotVersionForUpdate" resultType="java.lang.String">
+    SELECT member_snapshot_version
+    FROM wa_group_profile
+    WHERE group_id = #{groupId}
+    FOR UPDATE
+  </select>
+
+  <update id="markParticipantSnapshotMissing">
+    UPDATE wa_group_participant
+    SET presence_status = 2,
+        presence_source = 'SNAPSHOT_ABSENT',
+        presence_observed_at = #{snapshotAt},
+        presence_event_id = #{eventId},
+        last_snapshot_version = #{snapshotVersion},
+        updated_at = GREATEST(updated_at, #{now})
+    WHERE group_id = #{groupId}
+      AND (last_snapshot_version IS NULL OR last_snapshot_version &lt;&gt; #{snapshotVersion})
+      AND (
+        #{snapshotAt} &gt; COALESCE(presence_observed_at, -1)
+        OR (
+          #{snapshotAt} = presence_observed_at
+          AND (
+            2 &gt; CASE presence_source
+              WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+              WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+              WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
+              WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+              WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
+              WHEN 'GROUP_MEMBER_QUERY' THEN 2
+              WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
+              WHEN 'GROUP_SNAPSHOT' THEN 1
+              ELSE 0
+            END
+            OR (
+              presence_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+              AND CAST(#{snapshotVersion} AS BINARY)
+                  &gt; CAST(COALESCE(last_snapshot_version, '') AS BINARY)
+            )
+          )
+        )
+      )
+  </update>
 
   <update id="markMissingParticipants">
     UPDATE wa_group_participant
@@ -370,6 +573,7 @@
             WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
             WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
             WHEN 'GROUP_MEMBER_QUERY' THEN 2
+            WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
             WHEN 'GROUP_SNAPSHOT' THEN 1
             ELSE 0
           END

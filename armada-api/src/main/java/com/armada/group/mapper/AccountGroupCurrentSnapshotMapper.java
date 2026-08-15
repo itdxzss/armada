@@ -6,6 +6,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -48,6 +49,29 @@ public interface AccountGroupCurrentSnapshotMapper {
     int upsertParticipants(@Param("rows") List<Write> rows);
 
     int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
+
+    int upsertGroupMetadata(
+            @Param("groupId") Long groupId,
+            @Param("row") GroupLinkPreview row,
+            @Param("waCreatedAt") Long waCreatedAt,
+            @Param("metadataObservedAt") long metadataObservedAt,
+            @Param("now") long now);
+
+    int upsertParticipantSnapshotHeader(
+            @Param("groupId") Long groupId,
+            @Param("memberCount") int memberCount,
+            @Param("snapshotAt") long snapshotAt,
+            @Param("snapshotVersion") String snapshotVersion,
+            @Param("now") long now);
+
+    String selectParticipantSnapshotVersionForUpdate(@Param("groupId") Long groupId);
+
+    int markParticipantSnapshotMissing(
+            @Param("groupId") Long groupId,
+            @Param("snapshotAt") long snapshotAt,
+            @Param("snapshotVersion") String snapshotVersion,
+            @Param("eventId") String eventId,
+            @Param("now") long now);
 
     int markMissingParticipants(
             @Param("participantIds") List<Long> participantIds,

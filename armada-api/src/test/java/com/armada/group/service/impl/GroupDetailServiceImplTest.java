@@ -90,6 +90,9 @@ class GroupDetailServiceImplTest {
     @Mock
     private GroupMetadataSyncTaskService metadataSyncTaskService;
 
+    @Mock
+    private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     private GroupDetailServiceImpl service;
 
     @BeforeEach
@@ -105,7 +108,8 @@ class GroupDetailServiceImplTest {
                         groupParticipantPort),
                 snapshotReader,
                 memberSnapshotMapper,
-                metadataSyncTaskService);
+                metadataSyncTaskService,
+                currentSnapshotPersistence);
     }
 
     @Test
@@ -218,6 +222,10 @@ class GroupDetailServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(10L),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
+        assertThat(currentCaptor.getValue().getWaSubject()).isEqualTo("新群名");
     }
 
     @Test
@@ -388,6 +396,12 @@ class GroupDetailServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(10L),
                 org.mockito.ArgumentMatchers.eq(true),
                 org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
+        assertThat(currentCaptor.getValue().getGroupJid()).isEqualTo("120363detail@g.us");
+        assertThat(currentCaptor.getValue().getMemberAddMode()).isTrue();
+        assertThat(currentCaptor.getValue().getMemberAddModeObserved()).isTrue();
         verify(selector).require(10L);
     }
 

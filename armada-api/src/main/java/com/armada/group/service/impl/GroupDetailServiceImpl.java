@@ -126,6 +126,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 群详情异步同步任务状态机。 */
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
+    /** 新群模型已确认资料写入。 */
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     /**
      * 创建群详情业务服务。
      *
@@ -141,7 +144,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupDetailProtocolPorts protocolPorts,
             GroupDetailSnapshotReader snapshotReader,
             WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
-            GroupMetadataSyncTaskService metadataSyncTaskService) {
+            GroupMetadataSyncTaskService metadataSyncTaskService,
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.selector = selector;
@@ -149,6 +153,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         this.snapshotReader = snapshotReader;
         this.memberSnapshotMapper = memberSnapshotMapper;
         this.metadataSyncTaskService = metadataSyncTaskService;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
     /**
@@ -278,9 +283,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             log.info("群名称协议调用超时后回读确认成功 groupLinkId={} accountId={}",
                     id, account.accountId());
         }
-        if (groupLinkMapper.updateGroupName(id, subject, System.currentTimeMillis()) == 0) {
+        long observedAt = System.currentTimeMillis();
+        if (groupLinkMapper.updateGroupName(id, subject, observedAt) == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
+        GroupLinkPreview current = confirmedMetadata(target.groupJid(), observedAt);
+        current.setWaSubject(subject);
+        currentSnapshotPersistence.applyConfirmedMetadata(current);
         enqueueMetadataRefresh(id);
         log.info("WhatsApp 群名称已更新并同步本地镜像 groupLinkId={} accountId={}",
                 id, account.accountId());
@@ -400,7 +409,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.key(), dto.enabled());
         }
         confirmSetting(account, target.groupJid(), dto.key(), dto.enabled());
-        persistConfirmedSetting(id, dto.key(), dto.enabled());
+        persistConfirmedSetting(id, target.groupJid(), dto.key(), dto.enabled());
         enqueueMetadataRefresh(id);
         log.info("WhatsApp 群权限已更新 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
@@ -412,7 +421,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      * <p>详情接口只读本地快照；如果仅排队异步 metadata 刷新，前端写成功后立即重载会读到旧值，
      * 导致开关视觉回弹。这里仅写本次已确认字段，并提升观察时间以阻止更早的异步结果覆盖。</p>
      */
-    private void persistConfirmedSetting(Long groupLinkId, GroupPermissionKey key, boolean enabled) {
+    private void persistConfirmedSetting(
+            Long groupLinkId, String groupJid, GroupPermissionKey key, boolean enabled) {
         long now = System.currentTimeMillis();
         int updated = switch (key) {
             case EDIT_GROUP_SETTINGS -> previewMapper.updateAdminOnlyEditInfo(
@@ -428,6 +438,44 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (updated == 0 && key != GroupPermissionKey.INVITE_VIA_LINK) {
             log.warn("群权限已确认但本地快照未更新 groupLinkId={} key={}", groupLinkId, key);
         }
+        GroupLinkPreview current = confirmedSetting(groupJid, key, enabled, now);
+        if (current != null) {
+            currentSnapshotPersistence.applyConfirmedMetadata(current);
+        }
+    }
+
+    private static GroupLinkPreview confirmedSetting(
+            String groupJid, GroupPermissionKey key, boolean enabled, long observedAt) {
+        GroupLinkPreview preview = confirmedMetadata(groupJid, observedAt);
+        switch (key) {
+            case EDIT_GROUP_SETTINGS -> {
+                preview.setAdminOnlyEditInfo(!enabled);
+                preview.setAdminOnlyEditInfoObserved(true);
+            }
+            case SEND_MESSAGES -> {
+                preview.setAnnounceOnly(!enabled);
+                preview.setAnnounceOnlyObserved(true);
+            }
+            case ADD_MEMBERS -> {
+                preview.setMemberAddMode(enabled);
+                preview.setMemberAddModeObserved(true);
+            }
+            case ADMIN_APPROVE_NEW_MEMBERS -> {
+                preview.setJoinApprovalMode(enabled);
+                preview.setJoinApprovalModeObserved(true);
+            }
+            case INVITE_VIA_LINK -> {
+                return null;
+            }
+        }
+        return preview;
+    }
+
+    private static GroupLinkPreview confirmedMetadata(String groupJid, long observedAt) {
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupJid(groupJid);
+        preview.setMetadataObservedAt(observedAt);
+        return preview;
     }
 
     /**

@@ -9,6 +9,7 @@ import com.armada.group.mapper.GroupCurrentInviteMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
+import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -570,11 +571,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     @Test
     void currentInviteBindsAfterGroupResolutionAndRejectsDelayedRotation() {
         writeCurrentInvite(null, "invite-a", 1_000L);
-        assertThat(jdbc.queryForMap("""
-                SELECT group_id, health_status, banned, last_checked_at
-                FROM wa_group_invite
-                WHERE invite_code = 'invite-a'
-                """))
+        assertThat(jdbc.queryForMap("SELECT group_id, health_status, banned, last_checked_at FROM wa_group_invite WHERE invite_code = 'invite-a'"))
                 .containsEntry("group_id", null)
                 .containsEntry("health_status", 1)
                 .containsEntry("banned", 0)
@@ -584,37 +581,57 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         writeCurrentInvite(groupJid(13), "invite-b", 2_000L);
         writeCurrentInvite(groupJid(13), "invite-a", 1_700L);
 
-        assertThat(jdbc.queryForMap("""
-                SELECT invite.invite_code, profile.current_invite_observed_at
-                FROM wa_group_profile profile
-                JOIN wa_group_invite invite ON invite.id = profile.current_invite_id
-                """))
+        assertThat(jdbc.queryForMap("SELECT invite.invite_code, profile.current_invite_observed_at "
+                        + "FROM wa_group_profile profile JOIN wa_group_invite invite ON invite.id = profile.current_invite_id"))
                 .containsEntry("invite_code", "invite-b")
                 .containsEntry("current_invite_observed_at", 2_000L);
-        assertThat(jdbc.queryForObject("""
-                SELECT COUNT(*)
-                FROM wa_group_invite invite
-                JOIN wa_group wa_group ON wa_group.id = invite.group_id
-                WHERE wa_group.group_jid = ?
-                """, Integer.class, groupJid(13))).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wa_group_invite invite "
+                        + "JOIN wa_group wa_group ON wa_group.id = invite.group_id "
+                        + "WHERE wa_group.group_jid = ?", Integer.class, groupJid(13))).isEqualTo(2);
 
-        jdbc.update("""
-                UPDATE wa_group_invite
-                SET health_status = 3, banned = 1, last_error_code = 'BANNED',
-                    failure_count = 4, last_checked_at = 2500
-                WHERE invite_code = 'invite-b'
-                """);
+        jdbc.update("UPDATE wa_group_invite SET health_status = 3, banned = 1, "
+                + "last_error_code = 'BANNED', failure_count = 4, last_checked_at = 2500 "
+                + "WHERE invite_code = 'invite-b'");
         writeCurrentInvite(groupJid(13), "invite-b", 3_000L);
-        assertThat(jdbc.queryForMap("""
-                SELECT health_status, banned, last_error_code, failure_count, last_checked_at
-                FROM wa_group_invite
-                WHERE invite_code = 'invite-b'
-                """))
+        assertThat(jdbc.queryForMap(
+                "SELECT health_status, banned, last_error_code, failure_count, last_checked_at "
+                        + "FROM wa_group_invite WHERE invite_code = 'invite-b'"))
                 .containsEntry("health_status", 3)
                 .containsEntry("banned", 1)
                 .containsEntry("last_error_code", "BANNED")
                 .containsEntry("failure_count", 4)
                 .containsEntry("last_checked_at", 3_000L);
+    }
+
+    @Test
+    void publicPreviewAndHealthResultUpdateTheCurrentInvite() {
+        GroupLinkPreview publicPreview = metadataPreview(null, 900L, 900L);
+        publicPreview.setInviteCode("invite-health");
+        publicPreview.setWaSubject("公开群名");
+        publicPreview.setAvatarUrl("https://cdn.example/public.jpg");
+        publicPreview.setLastPreviewAt(900L);
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction -> {
+                currentInvitePersistence.applyPublicPreview(publicPreview, 8L);
+                currentInvitePersistence.apply(groupJid(14), "invite-health", 1_000L);
+                currentInvitePersistence.applyHealth(groupJid(14), unavailableHealth());
+                persistence.applyConfirmedMetadata(confirmedMemberAddMode());
+            });
+        } finally {
+            TenantContext.clear();
+        }
+        assertThat(jdbc.queryForMap("SELECT * FROM wa_group_invite WHERE invite_code = 'invite-health'"))
+                .containsAllEntriesOf(Map.ofEntries(
+                        Map.entry("origin", 1), Map.entry("label_id", 8L),
+                        Map.entry("preview_subject", "公开群名"), Map.entry("avatar_url", "https://cdn.example/public.jpg"),
+                        Map.entry("preview_observed_at", 900L), Map.entry("health_status", 3),
+                        Map.entry("banned", 1), Map.entry("checked_member_count", 41),
+                        Map.entry("last_checked_at", 2_000L), Map.entry("last_error_code", "CHAT_SUSPENDED"), Map.entry("failure_count", 2)));
+        assertThat(jdbc.queryForMap("SELECT member_add_mode, metadata_observed_at FROM wa_group_profile"))
+                .containsEntry("member_add_mode", 1)
+                .containsEntry("metadata_observed_at", 2_500L);
     }
 
     private static void writeSnapshot(
@@ -721,6 +738,24 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         } finally {
             TenantContext.clear();
         }
+    }
+
+    private static GroupLinkHealth unavailableHealth() {
+        GroupLinkHealth health = new GroupLinkHealth();
+        health.setHealthStatus(3);
+        health.setBanned(true);
+        health.setCurrentCount(41);
+        health.setLastCheckAt(2_000L);
+        health.setLastHealthError("CHAT_SUSPENDED");
+        health.setHealthFailureCount(2);
+        return health;
+    }
+
+    private static GroupLinkPreview confirmedMemberAddMode() {
+        GroupLinkPreview preview = metadataPreview(groupJid(14), 2_500L, 2_500L);
+        preview.setMemberAddMode(true);
+        preview.setMemberAddModeObserved(true);
+        return preview;
     }
 
     private static void seedCapturedAccount(Long accountId, String phone, List<String> baselineJids)

@@ -17,7 +17,6 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
@@ -25,7 +24,6 @@ import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.entity.GroupLinkLabel;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
@@ -34,6 +32,7 @@ import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.util.List;
@@ -58,7 +57,7 @@ class GroupLinkImportServiceImplTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
-    private GroupLinkPreviewMapper previewMapper;
+    private GroupInviteLinkService inviteLinkService;
 
     @Mock
     private GroupLinkImportBatchMapper importBatchMapper;
@@ -149,14 +148,14 @@ class GroupLinkImportServiceImplTest {
 
         assertThat(result.successRows()).isEqualTo(1);
         verify(invitePageFetcher).fetch("chat.whatsapp.com/AbcDef1234567890123456");
-        ArgumentCaptor<GroupLinkPreview> previewCaptor = ArgumentCaptor.forClass(GroupLinkPreview.class);
-        verify(previewMapper).upsertInvitePageMetadata(previewCaptor.capture());
-        GroupLinkPreview preview = previewCaptor.getValue();
-        assertThat(preview.getGroupLinkId()).isEqualTo(100L);
-        assertThat(preview.getInviteCode()).isEqualTo("AbcDef1234567890123456");
-        assertThat(preview.getWaSubject()).isEqualTo("2017+44");
-        assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg");
-        assertThat(preview.getLastPreviewAt()).isNotNull();
+        ArgumentCaptor<GroupInvitePageMetadata> metadataCaptor =
+                ArgumentCaptor.forClass(GroupInvitePageMetadata.class);
+        verify(inviteLinkService).applyPublicPreview(
+                eq(100L), eq(1L), metadataCaptor.capture(), anyLong());
+        assertThat(metadataCaptor.getValue().inviteCode()).isEqualTo("AbcDef1234567890123456");
+        assertThat(metadataCaptor.getValue().waSubject()).isEqualTo("2017+44");
+        assertThat(metadataCaptor.getValue().avatarUrl())
+                .isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/avatar.jpg");
         ArgumentCaptor<List<GroupLinkImportDetail>> detailCaptor = ArgumentCaptor.forClass(List.class);
         verify(detailMapper).batchInsert(detailCaptor.capture());
         assertThat(detailCaptor.getValue().get(0).getGroupName()).isEqualTo("2017+44");
@@ -177,7 +176,7 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.failedRows()).isEqualTo(1);
         assertThat(result.errors()).containsExactly("第 1 行：链接失效");
         verify(groupLinkMapper, never()).insert(any());
-        verify(previewMapper, never()).upsertInvitePageMetadata(any());
+        verify(inviteLinkService, never()).applyPublicPreview(anyLong(), anyLong(), any(), anyLong());
 
         ArgumentCaptor<List<GroupLinkImportDetail>> detailCaptor = ArgumentCaptor.forClass(List.class);
         verify(detailMapper).batchInsert(detailCaptor.capture());
@@ -209,7 +208,7 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
         verify(groupLinkMapper, never()).insert(any());
-        verify(previewMapper, never()).upsertInvitePageMetadata(any());
+        verify(inviteLinkService, never()).applyPublicPreview(anyLong(), anyLong(), any(), anyLong());
     }
 
     @Test

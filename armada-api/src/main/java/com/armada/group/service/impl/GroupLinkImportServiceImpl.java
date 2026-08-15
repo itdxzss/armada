@@ -5,14 +5,12 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
@@ -22,6 +20,7 @@ import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkUrls;
 import com.armada.shared.exception.BusinessException;
@@ -67,7 +66,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     private final GroupLinkLabelMapper labelMapper;
     private final GroupLinkMapper groupLinkMapper;
-    private final GroupLinkPreviewMapper previewMapper;
+    private final GroupInviteLinkService inviteLinkService;
     private final GroupLinkImportBatchMapper importBatchMapper;
     private final GroupLinkImportDetailMapper detailMapper;
     private final GroupConverter converter;
@@ -75,14 +74,14 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     public GroupLinkImportServiceImpl(GroupLinkLabelMapper labelMapper,
                                       GroupLinkMapper groupLinkMapper,
-                                      GroupLinkPreviewMapper previewMapper,
+                                      GroupInviteLinkService inviteLinkService,
                                       GroupLinkImportBatchMapper importBatchMapper,
                                       GroupLinkImportDetailMapper detailMapper,
                                       GroupConverter converter,
                                       GroupInvitePageFetcher invitePageFetcher) {
         this.labelMapper = labelMapper;
         this.groupLinkMapper = groupLinkMapper;
-        this.previewMapper = previewMapper;
+        this.inviteLinkService = inviteLinkService;
         this.importBatchMapper = importBatchMapper;
         this.detailMapper = detailMapper;
         this.converter = converter;
@@ -172,7 +171,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 d.setFailReason(p.failReason());
                 d.setExistingOrigin(p.existingOrigin());
                 if (p.result() == GroupLinkImportResult.SUCCESS) {
-                    saveInvitePageMetadata(p.linkId(), p.metadata());
+                    saveInvitePageMetadata(p.linkId(), dto.labelId(), p.metadata());
                     d.setGroupName(importDetailGroupName(p.metadata()));
                     if (GroupLinkImportSuccessType.ADOPTED.code() == p.successType()) {
                         adopted++;
@@ -337,22 +336,14 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         }
     }
 
-    private void saveInvitePageMetadata(Long groupLinkId, GroupInvitePageMetadata metadata) {
+    private void saveInvitePageMetadata(
+            Long groupLinkId, Long labelId, GroupInvitePageMetadata metadata) {
         if (groupLinkId == null) {
             return;
         }
 
         long now = System.currentTimeMillis();
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(groupLinkId);
-        preview.setInviteCode(metadata.inviteCode());
-        preview.setWaSubject(metadata.waSubject());
-        preview.setAvatarUrl(metadata.avatarUrl());
-        preview.setLastPreviewAt(now);
-        preview.setCreatedAt(now);
-        preview.setUpdatedAt(now);
-        // 预览资料独立于 group_link 主表，使用 upsert 同时覆盖新建、复活和收编场景。
-        previewMapper.upsertInvitePageMetadata(preview);
+        inviteLinkService.applyPublicPreview(groupLinkId, labelId, metadata, now);
     }
 
     private static String importDetailGroupName(GroupInvitePageMetadata metadata) {

@@ -13,6 +13,7 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
+import com.armada.group.service.impl.GroupCurrentInvitePersistence;
 import com.armada.group.service.impl.GroupLinkHealthReportServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
@@ -39,12 +40,16 @@ class GroupLinkHealthReportServiceImplTest {
     @Mock
     private GroupLinkMapper groupLinkMapper;
 
+    @Mock
+    private GroupCurrentInvitePersistence currentInvitePersistence;
+
     private GroupLinkHealthReportServiceImpl service;
 
     @BeforeEach
     void setUp() {
         TenantContext.clear();
-        service = new GroupLinkHealthReportServiceImpl(healthMapper, groupLinkMapper);
+        service = new GroupLinkHealthReportServiceImpl(
+                healthMapper, groupLinkMapper, currentInvitePersistence);
     }
 
     @AfterEach
@@ -81,6 +86,7 @@ class GroupLinkHealthReportServiceImplTest {
         assertThat(row.getLastCheckAt()).isEqualTo(1_782_712_801_000L);
         assertThat(row.getLastHealthError()).isNull();
         assertThat(row.getHealthFailureCount()).isZero();
+        verify(currentInvitePersistence).applyHealth("1203630health@g.us", row);
         assertThat(tenantContextDuringMapperCalls).containsExactly(9L, 9L);
         assertThat(TenantContext.get()).isNull();
     }

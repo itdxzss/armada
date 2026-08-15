@@ -12,6 +12,7 @@ import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
@@ -133,5 +134,20 @@ class GroupInviteLinkServiceImplTest {
 
         verify(currentInvitePersistence).apply(
                 "120363joined@g.us", "ObservedBeforeJoin_2026", 4_000L);
+    }
+
+    @Test
+    void publicPreviewWritesLegacyAndNewInviteModels() {
+        GroupInvitePageMetadata metadata = new GroupInvitePageMetadata(
+                "PublicCode_2026", "公开群名", "https://cdn.example/public.jpg");
+
+        service.applyPublicPreview(51L, 8L, metadata, 2_000L);
+
+        ArgumentCaptor<GroupLinkPreview> captor = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(previewMapper).upsertInvitePageMetadata(captor.capture());
+        assertThat(captor.getValue().getGroupLinkId()).isEqualTo(51L);
+        assertThat(captor.getValue().getInviteCode()).isEqualTo("PublicCode_2026");
+        assertThat(captor.getValue().getWaSubject()).isEqualTo("公开群名");
+        verify(currentInvitePersistence).applyPublicPreview(captor.getValue(), 8L);
     }
 }

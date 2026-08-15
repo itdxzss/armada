@@ -1,5 +1,7 @@
 package com.armada.group.mapper;
 
+import com.armada.group.model.entity.GroupLinkHealth;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -43,5 +45,17 @@ public interface GroupCurrentInviteMapper {
             @Param("groupId") Long groupId,
             @Param("inviteId") Long inviteId,
             @Param("observedAt") long observedAt,
+            @Param("now") long now);
+
+    int updateCurrentInviteHealth(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJid") String groupJid,
+            @Param("health") GroupLinkHealth health,
+            @Param("now") long now);
+
+    int upsertPublicPreview(
+            @Param("tenantId") Long tenantId,
+            @Param("row") GroupLinkPreview row,
+            @Param("labelId") Long labelId,
             @Param("now") long now);
 }

@@ -1,6 +1,8 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupCurrentInviteMapper;
+import com.armada.group.model.entity.GroupLinkHealth;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -43,6 +45,36 @@ public class GroupCurrentInvitePersistence {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析当前邀请码");
         }
         mapper.updateCurrentInvite(tenantId, groupId, inviteId, observedAt, now);
+    }
+
+    /** 将现有健康检测结论同步到该群当前邀请码；当前邀请码不存在时不补造数据。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyHealth(String groupJid, GroupLinkHealth health) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        String normalizedGroupJid = normalizeGroupJid(groupJid);
+        if (normalizedGroupJid == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康结果缺少群 JID");
+        }
+        mapper.updateCurrentInviteHealth(
+                tenantId, normalizedGroupJid, health, System.currentTimeMillis());
+    }
+
+    /** 将已通过导入校验的公开邀请页资料同步到新邀请表。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyPublicPreview(GroupLinkPreview preview, Long labelId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        if (preview == null || preview.getInviteCode() == null
+                || labelId == null || preview.getLastPreviewAt() == null
+                || preview.getLastPreviewAt() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "公开邀请页资料不完整");
+        }
+        mapper.upsertPublicPreview(tenantId, preview, labelId, System.currentTimeMillis());
     }
 
     private Long resolveGroupId(Long tenantId, String groupJid, long now) {

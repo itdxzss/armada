@@ -22,6 +22,10 @@ public interface GroupInviteLinkService {
      */
     void bindGroupJid(Long groupLinkId, String groupJid, long observedAt);
 
+    /** 保存导入校验已接受的公开邀请页资料。 */
+    void applyPublicPreview(
+            Long groupLinkId, Long labelId, GroupInvitePageMetadata metadata, long observedAt);
+
     /**
      * 读取群入口当前邀请码；尚未观察到新链接时回退任务冻结值。
      *

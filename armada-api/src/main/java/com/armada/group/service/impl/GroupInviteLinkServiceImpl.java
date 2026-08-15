@@ -8,6 +8,7 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
@@ -98,6 +99,28 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
             currentInvitePersistence.apply(
                     groupJid, current.getInviteCode().trim(), observedAt);
         }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void applyPublicPreview(
+            Long groupLinkId, Long labelId, GroupInvitePageMetadata metadata, long observedAt) {
+        if (groupLinkId == null || labelId == null || metadata == null
+                || !hasText(metadata.inviteCode())
+                || observedAt <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "公开邀请页资料不完整");
+        }
+        GroupLinkPreview preview = new GroupLinkPreview();
+        preview.setGroupLinkId(groupLinkId);
+        preview.setInviteCode(metadata.inviteCode());
+        preview.setWaSubject(metadata.waSubject());
+        preview.setAvatarUrl(metadata.avatarUrl());
+        preview.setLastPreviewAt(observedAt);
+        preview.setCreatedAt(observedAt);
+        preview.setUpdatedAt(observedAt);
+        previewMapper.upsertInvitePageMetadata(preview);
+        currentInvitePersistence.applyPublicPreview(preview, labelId);
     }
 
     private void storeCurrentInvite(

@@ -42,16 +42,21 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
 
     private final GroupLinkMapper groupLinkMapper;
 
+    private final GroupCurrentInvitePersistence currentInvitePersistence;
+
     /**
      * 创建群链接健康检测回报落库服务。
      *
      * @param healthMapper    群链接健康状态 mapper
      * @param groupLinkMapper 群入口 mapper
+     * @param currentInvitePersistence 新群模型当前邀请码写入
      */
     public GroupLinkHealthReportServiceImpl(GroupLinkHealthMapper healthMapper,
-                                            GroupLinkMapper groupLinkMapper) {
+                                            GroupLinkMapper groupLinkMapper,
+                                            GroupCurrentInvitePersistence currentInvitePersistence) {
         this.healthMapper = healthMapper;
         this.groupLinkMapper = groupLinkMapper;
+        this.currentInvitePersistence = currentInvitePersistence;
     }
 
     /**
@@ -78,6 +83,7 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
             GroupLinkHealth current = healthMapper.selectByGroupLinkId(groupLinkId);
             GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
             healthMapper.upsert(row);
+            currentInvitePersistence.applyHealth(event.groupJid(), row);
             log.info("群链接健康事件已回写 tenantId={} groupLinkId={} groupJid={} health={} status={} "
                             + "banned={} failureCount={} eventId={} protocolAccountId={}",
                     event.tenantId(), groupLinkId, event.groupJid(), event.health(),

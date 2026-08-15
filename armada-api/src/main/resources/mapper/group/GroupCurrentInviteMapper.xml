@@ -99,4 +99,45 @@
       AND group_id = #{groupId}
   </update>
 
+  <update id="updateCurrentInviteHealth">
+    UPDATE wa_group_invite invite
+    INNER JOIN wa_group_profile profile
+      ON profile.tenant_id = invite.tenant_id
+     AND profile.current_invite_id = invite.id
+    INNER JOIN wa_group wa_group
+      ON wa_group.tenant_id = profile.tenant_id
+     AND wa_group.id = profile.group_id
+    SET invite.health_status = #{health.healthStatus},
+        invite.banned = #{health.banned},
+        invite.checked_member_count = COALESCE(
+          #{health.currentCount}, invite.checked_member_count
+        ),
+        invite.last_checked_at = #{health.lastCheckAt},
+        invite.last_error_code = LEFT(#{health.lastHealthError}, 64),
+        invite.failure_count = #{health.healthFailureCount},
+        invite.updated_at = #{now}
+    WHERE invite.tenant_id = #{tenantId}
+      AND wa_group.group_jid = #{groupJid}
+  </update>
+
+  <insert id="upsertPublicPreview">
+    INSERT INTO wa_group_invite (
+      tenant_id, group_id, invite_code, label_id, origin,
+      preview_subject, avatar_url, preview_observed_at,
+      created_at, updated_at, deleted_at
+    ) VALUES (
+      #{tenantId}, NULL, #{row.inviteCode}, #{labelId}, 1,
+      LEFT(#{row.waSubject}, 255), LEFT(#{row.avatarUrl}, 1024), #{row.lastPreviewAt},
+      #{now}, #{now}, NULL
+    )
+    ON DUPLICATE KEY UPDATE
+      label_id = VALUES(label_id),
+      preview_subject = COALESCE(
+        NULLIF(TRIM(VALUES(preview_subject)), ''), preview_subject
+      ),
+      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
+      preview_observed_at = VALUES(preview_observed_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
 </mapper>

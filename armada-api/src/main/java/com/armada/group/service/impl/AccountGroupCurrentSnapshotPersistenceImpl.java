@@ -393,6 +393,20 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 preview.getGroupJid(), participants, snapshotAt, snapshotVersion, preview);
     }
 
+    /** 将协议回读已确认的群资料单字段立即写入新模型。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyConfirmedMetadata(GroupLinkPreview preview) {
+        if (preview == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "已确认群资料为空");
+        }
+        Long tenantId = requiredTenantId();
+        String groupJid = participantGroupJid(preview.getGroupJid());
+        long observedAt = requiredFactTime(preview.getMetadataObservedAt());
+        long now = System.currentTimeMillis();
+        Long groupId = resolveGroupIds(tenantId, List.of(groupJid), now).get(groupJid);
+        mapper.upsertGroupMetadata(groupId, preview, null, observedAt, now);
+    }
+
     private void replaceCompleteSnapshot(
             String groupJid,
             List<GroupParticipantResult> participants,

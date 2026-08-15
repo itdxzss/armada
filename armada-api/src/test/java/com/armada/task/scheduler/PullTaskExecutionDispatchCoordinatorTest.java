@@ -3,6 +3,7 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -122,6 +123,32 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 .extracting(PullTaskExecutionClaimState::executionStatus)
                 .containsExactly(PullTaskExecutionStatus.WAIT_START.code());
         assertThat(starting.lease().limit()).isEqualTo(1);
+    }
+
+    @Test
+    void backlogIsOnlyCountedForPoolsThatConsumedTheirWholeQuota() {
+        PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
+        // 推进池吃满 batchSize=3，启动池没有名额可用。
+        when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(3);
+        when(mapper.countDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(42);
+        when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of());
+
+        emptyCoordinator(mapper).dispatchOnce(1_000L);
+
+        // 只有吃满整批的池才付出一次计数查询。
+        verify(mapper, times(1)).countDue(any(PullTaskExecutionClaimCriteria.class));
+    }
+
+    @Test
+    void backlogCountIsSkippedEntirelyWhenNeitherPoolIsSaturated() {
+        PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
+        // 两池都没取满，说明到期行已经取空，空闲轮次不应产生额外查询。
+        when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(1, 0);
+        when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of());
+
+        emptyCoordinator(mapper).dispatchOnce(1_000L);
+
+        verify(mapper, never()).countDue(any(PullTaskExecutionClaimCriteria.class));
     }
 
     @Test

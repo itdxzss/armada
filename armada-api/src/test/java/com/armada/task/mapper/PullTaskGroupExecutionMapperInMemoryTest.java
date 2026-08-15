@@ -384,6 +384,26 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
+    void countDueReportsRemainingBacklogUnderTheSameConditionsAsClaim() {
+        insertParent(7L, 100L, "EXECUTING");
+        mapper.insertDraft(draft(100L, 1, LINK, 1));
+        mapper.insertDraft(draft(100L, 2, "chat.whatsapp.com/BBBB", 2));
+        mapper.insertDraft(draft(100L, 3, "chat.whatsapp.com/CCCC", 3));
+        mapper.freezeDraftRows(100L, 500L);
+
+        TenantContext.clear();
+        // 抢占前三行全部到期。
+        assertThat(mapper.countDue(claimCriteria(10, 600L, "worker-1", 660L))).isEqualTo(3);
+
+        // 抢走两行之后，剩余积压只剩一行：已持有的行租约在未来，天然不计入。
+        assertThat(mapper.claimDue(claimCriteria(2, 600L, "worker-1", 660L))).isEqualTo(2);
+        assertThat(mapper.countDue(claimCriteria(10, 600L, "worker-1", 660L))).isEqualTo(1);
+
+        // 租约过期后重新计入积压，与 claim 的可抢占口径保持一致。
+        assertThat(mapper.countDue(claimCriteria(10, 700L, "worker-1", 760L))).isEqualTo(3);
+    }
+
+    @Test
     void claimDueLetsWaitStartRowsStarveDueExecutingRows() throws SQLException {
         insertParent(7L, 100L, "EXECUTING");
         // 三行待启动：insertDraft 固定写入 next_run_at = 0，freezeDraftRows 不会改它。

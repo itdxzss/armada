@@ -93,6 +93,9 @@ class GroupDetailServiceImplTest {
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    @Mock
+    private GroupCurrentLocalPersistence currentLocalPersistence;
+
     private GroupDetailServiceImpl service;
 
     @BeforeEach
@@ -109,7 +112,8 @@ class GroupDetailServiceImplTest {
                 snapshotReader,
                 memberSnapshotMapper,
                 metadataSyncTaskService,
-                currentSnapshotPersistence);
+                currentSnapshotPersistence,
+                currentLocalPersistence);
     }
 
     @Test

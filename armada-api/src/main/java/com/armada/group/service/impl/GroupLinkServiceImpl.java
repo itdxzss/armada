@@ -10,6 +10,7 @@ import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
@@ -92,6 +93,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final AccountMapper accountMapper;
     private final GroupPreviewPort groupPreviewPort;
     private final GroupProfilePort groupProfilePort;
+    private final GroupCurrentLocalPersistence currentLocalPersistence;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupFolderMapper folderMapper,
@@ -101,7 +103,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupConverter converter,
                                 AccountMapper accountMapper,
                                 GroupPreviewPort groupPreviewPort,
-                                GroupProfilePort groupProfilePort) {
+                                GroupProfilePort groupProfilePort,
+                                GroupCurrentLocalPersistence currentLocalPersistence) {
         this.groupLinkMapper = groupLinkMapper;
         this.folderMapper = folderMapper;
         this.previewMapper = previewMapper;
@@ -111,6 +114,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.accountMapper = accountMapper;
         this.groupPreviewPort = groupPreviewPort;
         this.groupProfilePort = groupProfilePort;
+        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     /**
@@ -177,6 +181,15 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (dto.avatarUrl() != null) {
             previewMapper.upsertAvatarUrl(id, avatarUrl, now);
         }
+        currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                id,
+                groupName,
+                dto.groupName() != null,
+                remark,
+                dto.remark() != null,
+                avatarUrl,
+                dto.avatarUrl() != null,
+                now));
         log.info("群链接本地资料更新 groupLinkId={} groupNameUpdated={} remarkUpdated={} avatarUpdated={}",
                 id, dto.groupName() != null, dto.remark() != null, dto.avatarUrl() != null);
     }
@@ -238,7 +251,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         // 协议成功后再写本地 URL 镜像;协议失败时不要让列表显示一个实际未生效的头像。
         groupProfilePort.updatePicture(target.account(), target.groupJid(), picture.url(), picture.base64());
         if (picture.url() != null) {
-            previewMapper.upsertAvatarUrl(id, picture.url(), System.currentTimeMillis());
+            long now = System.currentTimeMillis();
+            previewMapper.upsertAvatarUrl(id, picture.url(), now);
+            currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                    id, null, false, null, false, picture.url(), true, now));
         }
         log.info("WhatsApp 群头像已更新 groupLinkId={} groupJid={} accountId={} source={}",
                 id, target.groupJid(), target.accountId(), picture.url() == null ? "base64" : "url");
@@ -402,7 +418,9 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "部分群链接不存在或已删除,迁移取消(期望 " + linkIds.size() + " 条,活跃 " + activeCount + " 条)");
         }
-        int n = groupLinkMapper.migrateToLabel(linkIds, targetLabelId, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        int n = groupLinkMapper.migrateToLabel(linkIds, targetLabelId, now);
+        currentLocalPersistence.applyInviteLabel(linkIds, targetLabelId, now);
         log.info("群链接批量迁移 count={} targetLabelId={}", n, targetLabelId);
         return n;
     }
@@ -492,8 +510,9 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (groups.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组不存在或已删除，请刷新后重试");
         }
-        int updated = groupLinkMapper.assignFolder(
-                normalizedIds, folderId, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        int updated = groupLinkMapper.assignFolder(normalizedIds, folderId, now);
+        currentLocalPersistence.applyGroupFolder(normalizedIds, folderId, now);
         log.info("群组批量设置运营分组 count={} folderId={} ids={}",
                 updated, folderId, normalizedIds);
         return updated;

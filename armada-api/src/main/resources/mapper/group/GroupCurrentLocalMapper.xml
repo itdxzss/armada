@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupCurrentLocalMapper">
+
+  <update id="updateResolvedGroupProfile">
+    UPDATE wa_group wa_group
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = wa_group.tenant_id
+     AND preview.group_jid = wa_group.group_jid
+    SET wa_group.display_name = CASE
+          WHEN #{row.displayNameObserved} THEN #{row.displayName}
+          ELSE wa_group.display_name
+        END,
+        wa_group.remark = CASE
+          WHEN #{row.remarkObserved} THEN #{row.remark}
+          ELSE wa_group.remark
+        END,
+        wa_group.avatar_url = CASE
+          WHEN #{row.avatarObserved} THEN #{row.avatarUrl}
+          ELSE wa_group.avatar_url
+        END,
+        wa_group.updated_at = GREATEST(wa_group.updated_at, #{row.updatedAt})
+    WHERE wa_group.tenant_id = #{tenantId}
+      AND preview.group_link_id = #{row.groupLinkId}
+  </update>
+
+  <update id="updateUnresolvedInviteProfile">
+    UPDATE wa_group_invite invite
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = invite.tenant_id
+     AND preview.invite_code = invite.invite_code
+    SET invite.display_name = CASE
+          WHEN #{row.displayNameObserved} THEN #{row.displayName}
+          ELSE invite.display_name
+        END,
+        invite.remark = CASE
+          WHEN #{row.remarkObserved} THEN #{row.remark}
+          ELSE invite.remark
+        END,
+        invite.avatar_url = CASE
+          WHEN #{row.avatarObserved} THEN #{row.avatarUrl}
+          ELSE invite.avatar_url
+        END,
+        invite.updated_at = GREATEST(invite.updated_at, #{row.updatedAt})
+    WHERE invite.tenant_id = #{tenantId}
+      AND invite.group_id IS NULL
+      AND preview.group_link_id = #{row.groupLinkId}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM wa_group resolved_group
+        WHERE resolved_group.tenant_id = invite.tenant_id
+          AND resolved_group.group_jid = preview.group_jid
+      )
+  </update>
+
+  <update id="updateInviteLabel">
+    UPDATE wa_group_invite invite
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = invite.tenant_id
+     AND preview.invite_code = invite.invite_code
+    SET invite.label_id = #{labelId},
+        invite.updated_at = GREATEST(invite.updated_at, #{updatedAt})
+    WHERE invite.tenant_id = #{tenantId}
+      AND preview.group_link_id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+  </update>
+
+  <update id="updateGroupFolder">
+    UPDATE wa_group wa_group
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = wa_group.tenant_id
+     AND preview.group_jid = wa_group.group_jid
+    SET wa_group.folder_id = #{folderId},
+        wa_group.updated_at = GREATEST(wa_group.updated_at, #{updatedAt})
+    WHERE wa_group.tenant_id = #{tenantId}
+      AND preview.group_link_id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+  </update>
+
+</mapper>

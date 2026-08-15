@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
+import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
 import com.armada.group.model.dto.GroupSettingCommandDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
@@ -129,6 +130,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 新群模型已确认资料写入。 */
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    /** 新群模型本地展示字段写入。 */
+    private final GroupCurrentLocalPersistence currentLocalPersistence;
+
     /**
      * 创建群详情业务服务。
      *
@@ -145,7 +149,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupDetailSnapshotReader snapshotReader,
             WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupMetadataSyncTaskService metadataSyncTaskService,
-            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
+            GroupCurrentLocalPersistence currentLocalPersistence) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.selector = selector;
@@ -154,6 +159,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         this.memberSnapshotMapper = memberSnapshotMapper;
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
+        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     /**
@@ -287,6 +293,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (groupLinkMapper.updateGroupName(id, subject, observedAt) == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
+        currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                id, subject, true, null, false, null, false, observedAt));
         GroupLinkPreview current = confirmedMetadata(target.groupJid(), observedAt);
         current.setWaSubject(subject);
         currentSnapshotPersistence.applyConfirmedMetadata(current);
@@ -331,9 +339,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId());
             result = new GroupPictureResult(true, confirmedUrl);
         }
+        long observedAt = System.currentTimeMillis();
         boolean mirrorSynced = result.avatarUrl() != null
-                && previewMapper.upsertAvatarUrl(
-                        id, result.avatarUrl(), System.currentTimeMillis()) > 0;
+                && previewMapper.upsertAvatarUrl(id, result.avatarUrl(), observedAt) > 0;
+        if (mirrorSynced) {
+            currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                    id, null, false, null, false, result.avatarUrl(), true, observedAt));
+        }
         log.info("WhatsApp 群头像更新完成 groupLinkId={} accountId={} applied={} mirrorSynced={}",
                 id, account.accountId(), result.applied(), mirrorSynced);
         if (result.applied()) {

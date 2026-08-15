@@ -4,6 +4,7 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
+import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -28,6 +29,7 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     private final AccountGroupMembershipMapper membershipMapper;
     private final GroupInviteLinkService inviteLinkService;
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+    private final GroupCurrentLocalPersistence currentLocalPersistence;
 
     /**
      * 创建快照持久化实现。
@@ -45,13 +47,15 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
             GroupLinkMapper groupLinkMapper,
             AccountGroupMembershipMapper membershipMapper,
             GroupInviteLinkService inviteLinkService,
-            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
+            GroupCurrentLocalPersistence currentLocalPersistence) {
         this.previewMapper = previewMapper;
         this.memberMapper = memberMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
         this.inviteLinkService = inviteLinkService;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
+        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     @Override
@@ -62,9 +66,17 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         }
         applyCurrentInvite(preview);
         String subject = preview.getWaSubject();
-        if (subject != null && !subject.isBlank()) {
+        boolean subjectObserved = subject != null && !subject.isBlank();
+        if (subjectObserved) {
             groupLinkMapper.updateGroupName(
                     preview.getGroupLinkId(), subject, preview.getUpdatedAt());
+        }
+        String avatarUrl = preview.getAvatarUrl();
+        boolean avatarObserved = avatarUrl != null && !avatarUrl.isBlank();
+        if (subjectObserved || avatarObserved) {
+            currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                    preview.getGroupLinkId(), subject, subjectObserved,
+                    null, false, avatarUrl, avatarObserved, preview.getUpdatedAt()));
         }
         memberMapper.deleteByGroupLinkId(preview.getGroupLinkId());
         if (members != null && !members.isEmpty()) {

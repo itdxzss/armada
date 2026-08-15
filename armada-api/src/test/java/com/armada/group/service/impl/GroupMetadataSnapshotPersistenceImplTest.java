@@ -44,6 +44,9 @@ class GroupMetadataSnapshotPersistenceImplTest {
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    @Mock
+    private GroupCurrentLocalPersistence currentLocalPersistence;
+
     @Test
     void freshMetadataMirrorsWhatsappSubjectToGroupListName() {
         GroupLinkPreview preview = preview("test-Android");
@@ -164,7 +167,7 @@ class GroupMetadataSnapshotPersistenceImplTest {
     private GroupMetadataSnapshotPersistenceImpl service() {
         return new GroupMetadataSnapshotPersistenceImpl(
                 previewMapper, memberMapper, groupLinkMapper, membershipMapper,
-                inviteLinkService, currentSnapshotPersistence);
+                inviteLinkService, currentSnapshotPersistence, currentLocalPersistence);
     }
 
     private static AccountGroupMembership controlledMembership(long accountId, boolean admin) {

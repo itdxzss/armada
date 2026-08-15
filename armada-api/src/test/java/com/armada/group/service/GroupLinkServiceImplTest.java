@@ -21,6 +21,7 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
+import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
@@ -35,6 +36,7 @@ import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
+import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.port.GroupProfilePort;
@@ -86,11 +88,15 @@ class GroupLinkServiceImplTest {
 
     private GroupLinkServiceImpl service;
 
+    @Mock
+    private GroupCurrentLocalPersistence currentLocalPersistence;
+
     @BeforeEach
     void setUp() {
         service = new GroupLinkServiceImpl(
                 groupLinkMapper, folderMapper, previewMapper, healthMapper, labelMapper,
-                converter, accountMapper, groupPreviewPort, groupProfilePort);
+                converter, accountMapper, groupPreviewPort, groupProfilePort,
+                currentLocalPersistence);
     }
 
     // ---- listByLabel ----
@@ -367,6 +373,16 @@ class GroupLinkServiceImplTest {
         verify(groupProfilePort).updatePicture(accountRef(), "120363profile@g.us",
                 "https://cdn.example.test/group.jpg", null);
         verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group.jpg"), anyLong());
+        ArgumentCaptor<GroupCurrentLocalProfileWrite> currentWrite =
+                ArgumentCaptor.forClass(GroupCurrentLocalProfileWrite.class);
+        verify(currentLocalPersistence).applyProfile(currentWrite.capture());
+        assertThat(currentWrite.getValue()).satisfies(row -> {
+            assertThat(row.groupLinkId()).isEqualTo(10L);
+            assertThat(row.avatarUrl()).isEqualTo("https://cdn.example.test/group.jpg");
+            assertThat(row.avatarObserved()).isTrue();
+            assertThat(row.displayNameObserved()).isFalse();
+            assertThat(row.remarkObserved()).isFalse();
+        });
     }
 
     // ---- migrate ----

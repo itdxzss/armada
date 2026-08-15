@@ -103,6 +103,7 @@ class GroupModelBackfillRunnerTest {
         when(mapper.backfillMemberSnapshotHeaders(500)).thenReturn(2, 0);
         when(mapper.backfillInvites(500)).thenReturn(10, 0);
         when(mapper.backfillCurrentInvitePointers(500)).thenReturn(8, 0);
+        when(mapper.backfillProfileOwners(500)).thenReturn(1, 0);
         when(mapper.backfillParticipants(500)).thenReturn(40, 0);
         when(mapper.backfillAccountParticipants(500)).thenReturn(5, 0);
         when(mapper.backfillParticipantJoinFacts(500)).thenReturn(4, 0);
@@ -114,16 +115,17 @@ class GroupModelBackfillRunnerTest {
         GroupModelBackfillRunner.BackfillResult result = runner.backfillAll();
 
         assertThat(runner).isInstanceOf(ApplicationRunner.class);
-        assertThat(result.batches()).isEqualTo(12);
-        assertThat(result.affectedRows()).isEqualTo(637);
-        verify(mapper, times(23)).countDuplicateGroupJids();
-        verify(mapper, times(23)).countParticipantConflicts();
-        verify(mapper, times(23)).countBindingConflicts();
+        assertThat(result.batches()).isEqualTo(13);
+        assertThat(result.affectedRows()).isEqualTo(638);
+        verify(mapper, times(25)).countDuplicateGroupJids();
+        verify(mapper, times(25)).countParticipantConflicts();
+        verify(mapper, times(25)).countBindingConflicts();
         verify(mapper, times(3)).backfillGroups(500);
         verify(mapper, times(2)).backfillProfiles(500);
         verify(mapper, times(2)).backfillMemberSnapshotHeaders(500);
         verify(mapper, times(2)).backfillInvites(500);
         verify(mapper, times(2)).backfillCurrentInvitePointers(500);
+        verify(mapper, times(2)).backfillProfileOwners(500);
         verify(mapper, times(2)).backfillParticipants(500);
         verify(mapper, times(2)).backfillAccountParticipants(500);
         verify(mapper, times(2)).backfillParticipantJoinFacts(500);

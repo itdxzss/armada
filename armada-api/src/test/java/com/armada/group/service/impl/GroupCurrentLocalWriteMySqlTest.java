@@ -680,6 +680,13 @@ class GroupCurrentLocalWriteMySqlTest {
                   (7, 61, '120363-current@g.us', '当前群', 100, 100)
                 """);
         jdbc.update("""
+                UPDATE group_link_preview
+                SET owner_phone = '923300000099',
+                    creator_country_iso2 = 'PK',
+                    metadata_observed_at = 2500
+                WHERE tenant_id = 7 AND group_link_id = 61
+                """);
+        jdbc.update("""
                 INSERT INTO account (
                   id, tenant_id, ws_phone, group_baseline_state,
                   created_at, updated_at
@@ -756,6 +763,7 @@ class GroupCurrentLocalWriteMySqlTest {
         assertThat(backfillMapper.countBindingConflicts()).isZero();
         assertThat(backfillMapper.backfillProfiles(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillProfileOwners(500)).isEqualTo(1);
         assertThat(backfillMapper.backfillParticipants(500)).isEqualTo(1);
         assertThat(backfillMapper.backfillAccountParticipants(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isEqualTo(1);
@@ -764,6 +772,7 @@ class GroupCurrentLocalWriteMySqlTest {
         assertThat(backfillMapper.backfillAccountGroupSyncStates(500)).isEqualTo(1);
 
         assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isZero();
+        assertThat(backfillMapper.backfillProfileOwners(500)).isZero();
         assertThat(backfillMapper.backfillParticipants(500)).isZero();
         assertThat(backfillMapper.backfillAccountParticipants(500)).isZero();
         assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isZero();
@@ -807,14 +816,15 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("member_snapshot_at", 2500L)
                 .containsEntry("member_snapshot_version", "snapshot-v1");
         assertThat(jdbc.queryForMap("""
-                SELECT presence_status, role, last_snapshot_version
+                SELECT presence_status, role, last_snapshot_version, phone_country_iso2
                 FROM wa_group_participant
                 WHERE tenant_id = 7 AND group_id = ?
                   AND pn_jid = '923300000099@s.whatsapp.net'
                 """, currentGroupId))
                 .containsEntry("presence_status", 1)
                 .containsEntry("role", 3)
-                .containsEntry("last_snapshot_version", "snapshot-v1");
+                .containsEntry("last_snapshot_version", "snapshot-v1")
+                .containsEntry("phone_country_iso2", "PK");
         assertThat(jdbc.queryForMap("""
                 SELECT baseline_state, baseline_completeness,
                        baseline_captured_at, baseline_group_count,
@@ -1071,6 +1081,9 @@ class GroupCurrentLocalWriteMySqlTest {
                   ephemeral_duration_seconds INT DEFAULT NULL,
                   group_created_at BIGINT DEFAULT NULL,
                   avatar_url VARCHAR(512) DEFAULT NULL,
+                  owner_phone VARCHAR(32) DEFAULT NULL,
+                  creator_country_iso2 CHAR(2) DEFAULT NULL,
+                  creator_continent_code VARCHAR(24) DEFAULT NULL,
                   last_preview_at BIGINT DEFAULT NULL,
                   metadata_observed_at BIGINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,

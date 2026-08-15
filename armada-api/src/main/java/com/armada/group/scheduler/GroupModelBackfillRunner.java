@@ -68,6 +68,8 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
         BackfillResult invites = backfillStage(() -> mapper.backfillInvites(BATCH_SIZE));
         BackfillResult invitePointers = backfillStage(
                 () -> mapper.backfillCurrentInvitePointers(BATCH_SIZE));
+        BackfillResult profileOwners = backfillStage(
+                () -> mapper.backfillProfileOwners(BATCH_SIZE));
         BackfillResult participants = backfillStage(
                 () -> mapper.backfillParticipants(BATCH_SIZE));
         BackfillResult accountParticipants = backfillStage(
@@ -83,13 +85,15 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
         return new BackfillResult(
                 groups.batches() + profiles.batches() + memberSnapshotHeaders.batches()
                         + invites.batches() + invitePointers.batches()
-                        + participants.batches() + accountParticipants.batches()
+                        + profileOwners.batches() + participants.batches()
+                        + accountParticipants.batches()
                         + joinFacts.batches() + exitFacts.batches()
                         + bindings.batches() + syncStates.batches(),
                 groups.affectedRows() + profiles.affectedRows()
                         + memberSnapshotHeaders.affectedRows()
                         + invites.affectedRows() + invitePointers.affectedRows()
-                        + participants.affectedRows() + accountParticipants.affectedRows()
+                        + profileOwners.affectedRows() + participants.affectedRows()
+                        + accountParticipants.affectedRows()
                         + joinFacts.affectedRows() + exitFacts.affectedRows()
                         + bindings.affectedRows() + syncStates.affectedRows());
     }

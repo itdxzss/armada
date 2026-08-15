@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupListCurrentMapper">
+
+  <!-- group_link 只保留现有数值 ID、alias 和过程字段；当前群事实来自六表。 -->
+  <sql id="currentListFrom">
+    FROM group_link handle
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
+    LEFT JOIN group_link_import_batch source_batch
+      ON source_batch.tenant_id = handle.tenant_id
+     AND source_batch.id = handle.import_batch_id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.group_jid = LOWER(TRIM(legacy_preview.group_jid))
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = handle.tenant_id
+     AND input_invite.invite_code = TRIM(legacy_preview.invite_code)
+  </sql>
+
+  <sql id="currentListFilter">
+    handle.tenant_id = #{tenantId}
+    AND handle.deleted_at IS NULL
+    <if test="query.labelId != null">
+      AND handle.label_id = #{query.labelId}
+    </if>
+    <if test="query.folderId != null">
+      AND COALESCE(current_group.folder_id, handle.folder_id) = #{query.folderId}
+    </if>
+    <if test="query.withoutFolder != null and query.withoutFolder">
+      AND COALESCE(current_group.folder_id, handle.folder_id) IS NULL
+    </if>
+    <if test="query.groupTypeHistorical">
+      AND handle.is_historical = 1
+    </if>
+    <if test="query.groupTypePostControl">
+      AND handle.is_post_control = 1
+    </if>
+    <if test="query.groupTypeBoth">
+      AND handle.is_historical = 1
+      AND handle.is_post_control = 1
+    </if>
+    <if test="query.availableAdmin != null and query.availableAdmin">
+      AND EXISTS (
+        SELECT 1
+        FROM wa_account_group_binding binding
+        INNER JOIN wa_group_participant participant
+          ON participant.tenant_id = binding.tenant_id
+         AND participant.group_id = binding.group_id
+         AND participant.id = binding.participant_id
+        INNER JOIN account execution_account
+          ON execution_account.tenant_id = binding.tenant_id
+         AND execution_account.id = binding.account_id
+         AND execution_account.deleted_at IS NULL
+         AND execution_account.protocol_account_id IS NOT NULL
+         AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
+        INNER JOIN account_state execution_state
+          ON execution_state.tenant_id = execution_account.tenant_id
+         AND execution_state.account_id = execution_account.id
+         AND execution_state.login_state = 1
+         AND execution_state.account_state = 2
+        WHERE binding.tenant_id = handle.tenant_id
+          AND binding.group_id = current_group.id
+          AND participant.presence_status = 1
+          AND participant.role IN (2, 3)
+      )
+    </if>
+    <if test="query.availableAdmin != null and !query.availableAdmin">
+      AND NOT EXISTS (
+        SELECT 1
+        FROM wa_account_group_binding binding
+        INNER JOIN wa_group_participant participant
+          ON participant.tenant_id = binding.tenant_id
+         AND participant.group_id = binding.group_id
+         AND participant.id = binding.participant_id
+        INNER JOIN account execution_account
+          ON execution_account.tenant_id = binding.tenant_id
+         AND execution_account.id = binding.account_id
+         AND execution_account.deleted_at IS NULL
+         AND execution_account.protocol_account_id IS NOT NULL
+         AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
+        INNER JOIN account_state execution_state
+          ON execution_state.tenant_id = execution_account.tenant_id
+         AND execution_state.account_id = execution_account.id
+         AND execution_state.login_state = 1
+         AND execution_state.account_state = 2
+        WHERE binding.tenant_id = handle.tenant_id
+          AND binding.group_id = current_group.id
+          AND participant.presence_status = 1
+          AND participant.role IN (2, 3)
+      )
+    </if>
+    <if test="query.memberCountMin != null">
+      AND COALESCE(
+        current_invite.checked_member_count,
+        input_invite.checked_member_count,
+        current_profile.member_count
+      ) IS NOT NULL
+      AND COALESCE(
+        current_invite.checked_member_count,
+        input_invite.checked_member_count,
+        current_profile.member_count
+      ) &gt;= #{query.memberCountMin}
+    </if>
+    <if test="query.memberCountMax != null">
+      AND COALESCE(
+        current_invite.checked_member_count,
+        input_invite.checked_member_count,
+        current_profile.member_count
+      ) IS NOT NULL
+      AND COALESCE(
+        current_invite.checked_member_count,
+        input_invite.checked_member_count,
+        current_profile.member_count
+      ) &lt;= #{query.memberCountMax}
+    </if>
+    <if test="query.countryIso2 != null and query.countryIso2 != ''">
+      AND EXISTS (
+        SELECT 1
+        FROM wa_group_participant owner
+        WHERE owner.tenant_id = current_group.tenant_id
+          AND owner.group_id = current_group.id
+          AND owner.role = 3
+          AND owner.phone_country_iso2 = #{query.countryIso2}
+      )
+    </if>
+    <if test="query.continentCode != null and query.continentCode != ''">
+      AND EXISTS (
+        SELECT 1
+        FROM wa_group_participant owner
+        INNER JOIN country owner_country
+          ON owner_country.iso2 = owner.phone_country_iso2
+         AND owner_country.deleted_at IS NULL
+        WHERE owner.tenant_id = current_group.tenant_id
+          AND owner.group_id = current_group.id
+          AND owner.role = 3
+          AND owner_country.continent_code = #{query.continentCode}
+      )
+    </if>
+    <if test="query.ageDaysMin != null or query.ageDaysMax != null">
+      AND current_profile.wa_created_at IS NOT NULL
+      AND current_profile.wa_created_at &gt; 0
+      AND current_profile.wa_created_at &lt;= #{query.nowSeconds} * 1000
+    </if>
+    <if test="query.ageDaysMin != null">
+      AND FLOOR(
+        (#{query.nowSeconds} - FLOOR(current_profile.wa_created_at / 1000)) / 86400
+      ) &gt;= #{query.ageDaysMin}
+    </if>
+    <if test="query.ageDaysMax != null">
+      AND FLOOR(
+        (#{query.nowSeconds} - FLOOR(current_profile.wa_created_at / 1000)) / 86400
+      ) &lt;= #{query.ageDaysMax}
+    </if>
+    <if test="query.sourceFileName != null and query.sourceFileName != ''">
+      AND source_batch.source_file_name LIKE CONCAT('%', #{query.sourceFileName}, '%')
+    </if>
+    <if test="query.origin != null">
+      AND handle.origin = #{query.origin}
+    </if>
+    <if test="query.membershipState != null">
+      AND handle.membership_state = #{query.membershipState}
+    </if>
+    <if test="query.statusUnchecked">
+      AND COALESCE(current_invite.health_status, input_invite.health_status) IS NULL
+      AND COALESCE(current_invite.banned, input_invite.banned, 0) = 0
+    </if>
+    <if test="query.statusAvailable">
+      AND COALESCE(current_invite.health_status, input_invite.health_status) = 1
+      AND COALESCE(current_invite.banned, input_invite.banned, 0) = 0
+    </if>
+    <if test="query.statusBanned">
+      AND COALESCE(current_invite.banned, input_invite.banned, 0) = 1
+    </if>
+    <if test="query.statusLinkInvalid">
+      AND COALESCE(current_invite.health_status, input_invite.health_status) = 2
+      AND COALESCE(current_invite.banned, input_invite.banned, 0) = 0
+    </if>
+    <if test="query.statusUnavailable">
+      AND COALESCE(current_invite.health_status, input_invite.health_status) = 3
+      AND COALESCE(current_invite.banned, input_invite.banned, 0) = 0
+    </if>
+    <if test="query.keyword != null and query.keyword != ''">
+      AND (
+        COALESCE(
+          NULLIF(TRIM(current_group.display_name), ''),
+          NULLIF(TRIM(input_invite.display_name), ''),
+          current_profile.subject,
+          input_invite.preview_subject
+        ) LIKE CONCAT('%', #{query.keyword}, '%')
+        OR COALESCE(current_profile.subject, input_invite.preview_subject)
+             LIKE CONCAT('%', #{query.keyword}, '%')
+        OR handle.link_url LIKE CONCAT('%', #{query.keyword}, '%')
+        OR COALESCE(current_invite.invite_code, input_invite.invite_code)
+             LIKE CONCAT('%', #{query.keyword}, '%')
+        OR current_group.group_jid LIKE CONCAT('%', #{query.keyword}, '%')
+        OR EXISTS (
+          SELECT 1
+          FROM wa_group_participant owner
+          WHERE owner.tenant_id = current_group.tenant_id
+            AND owner.group_id = current_group.id
+            AND owner.role = 3
+            AND owner.phone LIKE CONCAT('%', #{query.keyword}, '%')
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM wa_group_participant participant
+          INNER JOIN account controlled_account
+            ON controlled_account.tenant_id = participant.tenant_id
+           AND controlled_account.ws_phone = participant.phone
+           AND controlled_account.deleted_at IS NULL
+          WHERE participant.tenant_id = current_group.tenant_id
+            AND participant.group_id = current_group.id
+            AND participant.presence_status = 1
+            AND participant.role IN (2, 3)
+            AND participant.phone LIKE CONCAT('%', #{query.keyword}, '%')
+        )
+      )
+    </if>
+  </sql>
+
+  <select id="count" resultType="long">
+    SELECT COUNT(*)
+    <include refid="currentListFrom"/>
+    WHERE <include refid="currentListFilter"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.group.model.vo.GroupLinkVoRow">
+    WITH page_ids AS (
+      SELECT handle.tenant_id, handle.id
+      <include refid="currentListFrom"/>
+      WHERE <include refid="currentListFilter"/>
+      ORDER BY handle.created_at DESC, handle.id DESC
+      LIMIT #{query.offset}, #{query.pageSize}
+    ),
+    page_groups AS (
+      SELECT DISTINCT page.tenant_id, current_group.id AS group_id
+      FROM page_ids page
+      INNER JOIN group_link page_handle
+        ON page_handle.tenant_id = page.tenant_id
+       AND page_handle.id = page.id
+      INNER JOIN group_link_preview page_preview
+        ON page_preview.tenant_id = page_handle.tenant_id
+       AND page_preview.group_link_id = page_handle.id
+      INNER JOIN wa_group current_group
+        ON current_group.tenant_id = page_preview.tenant_id
+       AND current_group.group_jid = LOWER(TRIM(page_preview.group_jid))
+    ),
+    admins AS (
+      SELECT participant.tenant_id,
+             participant.group_id,
+             GROUP_CONCAT(
+               DISTINCT participant.phone
+               ORDER BY participant.phone SEPARATOR ', '
+             ) AS admin
+      FROM wa_group_participant participant
+      INNER JOIN page_groups page_group
+        ON participant.tenant_id = page_group.tenant_id
+       AND participant.group_id = page_group.group_id
+      INNER JOIN account controlled_account
+        ON controlled_account.tenant_id = participant.tenant_id
+       AND controlled_account.ws_phone = participant.phone
+       AND controlled_account.deleted_at IS NULL
+      WHERE participant.presence_status = 1
+        AND participant.role IN (2, 3)
+        AND participant.phone IS NOT NULL
+        AND TRIM(participant.phone) &lt;&gt; ''
+      GROUP BY participant.tenant_id, participant.group_id
+    ),
+    operable AS (
+      SELECT binding.tenant_id,
+             binding.group_id,
+             COUNT(DISTINCT binding.account_id) AS available_admin_count
+      FROM wa_account_group_binding binding
+      INNER JOIN page_groups page_group
+        ON page_group.tenant_id = binding.tenant_id
+       AND page_group.group_id = binding.group_id
+      INNER JOIN wa_group_participant participant
+        ON participant.tenant_id = binding.tenant_id
+       AND participant.group_id = binding.group_id
+       AND participant.id = binding.participant_id
+      INNER JOIN account execution_account
+        ON execution_account.tenant_id = binding.tenant_id
+       AND execution_account.id = binding.account_id
+       AND execution_account.deleted_at IS NULL
+       AND execution_account.protocol_account_id IS NOT NULL
+       AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
+      INNER JOIN account_state execution_state
+        ON execution_state.tenant_id = execution_account.tenant_id
+       AND execution_state.account_id = execution_account.id
+       AND execution_state.login_state = 1
+       AND execution_state.account_state = 2
+      WHERE participant.presence_status = 1
+        AND participant.role IN (2, 3)
+      GROUP BY binding.tenant_id, binding.group_id
+    ),
+    owner_ranked AS (
+      SELECT participant.tenant_id,
+             participant.group_id,
+             participant.phone,
+             participant.phone_country_iso2,
+             ROW_NUMBER() OVER (
+               PARTITION BY participant.tenant_id, participant.group_id
+               ORDER BY COALESCE(participant.role_observed_at, 0) DESC,
+                        participant.id ASC
+             ) AS row_no
+      FROM wa_group_participant participant
+      INNER JOIN page_groups page_group
+        ON participant.tenant_id = page_group.tenant_id
+       AND participant.group_id = page_group.group_id
+      WHERE participant.role = 3
+        AND participant.phone IS NOT NULL
+        AND TRIM(participant.phone) &lt;&gt; ''
+    )
+    SELECT handle.id,
+           handle.link_url AS url,
+           COALESCE(
+             NULLIF(TRIM(current_group.display_name), ''),
+             NULLIF(TRIM(input_invite.display_name), ''),
+             current_profile.subject,
+             input_invite.preview_subject
+           ) AS groupName,
+           COALESCE(current_profile.subject, input_invite.preview_subject) AS waSubject,
+           current_group.group_jid AS groupJid,
+           source_batch.source_file_name AS sourceFileName,
+           COALESCE(current_invite.health_status, input_invite.health_status)
+             AS healthStatus,
+           COALESCE(current_invite.banned, input_invite.banned) AS banned,
+           current_profile.member_count AS memberSize,
+           COALESCE(
+             current_invite.checked_member_count,
+             input_invite.checked_member_count
+           ) AS currentCount,
+           owner.phone AS ownerPhone,
+           admins.admin,
+           handle.sync_protocol_mask AS syncProtocolMask,
+           handle.origin,
+           handle.membership_state AS membershipState,
+           COALESCE(current_group.remark, input_invite.remark) AS remark,
+           COALESCE(current_group.avatar_url, input_invite.avatar_url) AS avatarUrl,
+           COALESCE(
+             current_profile.metadata_observed_at,
+             input_invite.preview_observed_at
+           ) AS lastPreviewAt,
+           COALESCE(current_invite.last_checked_at, input_invite.last_checked_at)
+             AS lastCheckAt,
+           COALESCE(current_invite.last_error_code, input_invite.last_error_code)
+             AS lastHealthError,
+           handle.created_at AS createdAt,
+           handle.is_historical AS isHistorical,
+           handle.is_post_control AS isPostControl,
+           COALESCE(current_group.folder_id, handle.folder_id) AS folderId,
+           folder.name AS folderName,
+           CASE
+             WHEN COALESCE(current_invite.invite_code, input_invite.invite_code) IS NULL
+               THEN NULL
+             ELSE CONCAT(
+               'https://chat.whatsapp.com/',
+               COALESCE(current_invite.invite_code, input_invite.invite_code)
+             )
+           END AS inviteUrl,
+           COALESCE(operable.available_admin_count, 0) AS availableAdminCount,
+           owner.phone_country_iso2 AS creatorCountryIso2,
+           country.name_zh AS creatorCountryName,
+           country.flag AS creatorCountryFlag,
+           country.continent_code AS creatorContinentCode,
+           CASE WHEN current_profile.wa_created_at IS NULL THEN NULL
+             ELSE FLOOR(current_profile.wa_created_at / 1000) END AS groupCreatedAt,
+           metadata_task.status AS metadataSyncStatus,
+           metadata_task.last_success_at AS metadataSyncedAt,
+           metadata_task.last_error_message AS metadataSyncError
+    FROM page_ids page
+    INNER JOIN group_link handle
+      ON handle.tenant_id = page.tenant_id
+     AND handle.id = page.id
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
+    LEFT JOIN group_link_import_batch source_batch
+      ON source_batch.tenant_id = handle.tenant_id
+     AND source_batch.id = handle.import_batch_id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.group_jid = LOWER(TRIM(legacy_preview.group_jid))
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = handle.tenant_id
+     AND input_invite.invite_code = TRIM(legacy_preview.invite_code)
+    LEFT JOIN admins
+      ON admins.tenant_id = current_group.tenant_id
+     AND admins.group_id = current_group.id
+    LEFT JOIN operable
+      ON operable.tenant_id = current_group.tenant_id
+     AND operable.group_id = current_group.id
+    LEFT JOIN owner_ranked owner
+      ON owner.tenant_id = current_group.tenant_id
+     AND owner.group_id = current_group.id
+     AND owner.row_no = 1
+    LEFT JOIN country country
+      ON country.iso2 = owner.phone_country_iso2
+     AND country.deleted_at IS NULL
+    LEFT JOIN group_folder folder
+      ON folder.tenant_id = handle.tenant_id
+     AND folder.id = COALESCE(current_group.folder_id, handle.folder_id)
+     AND folder.deleted_at IS NULL
+    LEFT JOIN group_metadata_sync_task metadata_task
+      ON metadata_task.tenant_id = handle.tenant_id
+     AND metadata_task.group_link_id = handle.id
+    ORDER BY handle.created_at DESC, handle.id DESC
+  </select>
+
+</mapper>

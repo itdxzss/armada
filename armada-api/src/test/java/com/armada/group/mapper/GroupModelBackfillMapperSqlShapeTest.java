@@ -50,6 +50,8 @@ class GroupModelBackfillMapperSqlShapeTest {
                 .contains("<insert id=\"backfillParticipants\"")
                 .contains("INSERT INTO wa_group_participant")
                 .contains("state.tenant_id = resolved_group.tenant_id")
+                .contains("<insert id=\"backfillProfileOwners\"")
+                .contains("preview.creator_country_iso2 AS phone_country_iso2")
                 .contains("<insert id=\"backfillAccountParticipants\"")
                 .contains("CONCAT(TRIM(account.ws_phone), '@s.whatsapp.net')")
                 .contains("<insert id=\"backfillParticipantJoinFacts\"")

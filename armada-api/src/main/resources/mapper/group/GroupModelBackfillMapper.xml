@@ -104,6 +104,20 @@
            LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@s.whatsapp.net'
            AND LOWER(TRIM(exit_fact.participant_jid)) NOT LIKE '%@lid'
          )
+
+      UNION ALL
+
+      SELECT preview.id
+      FROM group_link_preview preview
+      LEFT JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = preview.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+      WHERE preview.owner_phone IS NOT NULL
+        AND TRIM(preview.owner_phone) &lt;&gt; ''
+        AND (
+          resolved_group.id IS NULL
+          OR NULLIF(REGEXP_REPLACE(preview.owner_phone, '[^0-9]', ''), '') IS NULL
+        )
     ) participant_conflict
   </select>
 
@@ -900,6 +914,86 @@
           wa_group_participant.presence_observed_at, VALUES(presence_observed_at)
         )
       END,
+      role = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role)
+        ELSE wa_group_participant.role
+      END,
+      role_source = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_source)
+        ELSE wa_group_participant.role_source
+      END,
+      role_event_id = CASE
+        WHEN VALUES(role_observed_at)
+               &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+          THEN VALUES(role_event_id)
+        ELSE wa_group_participant.role_event_id
+      END,
+      role_observed_at = CASE
+        WHEN wa_group_participant.role_observed_at IS NULL THEN VALUES(role_observed_at)
+        ELSE GREATEST(wa_group_participant.role_observed_at, VALUES(role_observed_at))
+      END,
+      created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="backfillProfileOwners">
+    INSERT INTO wa_group_participant (
+      tenant_id, group_id, pn_jid, phone, phone_country_iso2,
+      role, role_source, role_observed_at, role_event_id,
+      created_at, updated_at
+    )
+    SELECT source.tenant_id, source.group_id, source.pn_jid, source.phone,
+           source.phone_country_iso2, 3, 'LEGACY_METADATA_OWNER',
+           source.role_observed_at, source.role_event_id,
+           source.created_at, source.updated_at
+    FROM (
+      SELECT preview.tenant_id,
+             resolved_group.id AS group_id,
+             CONCAT(
+               REGEXP_REPLACE(preview.owner_phone, '[^0-9]', ''),
+               '@s.whatsapp.net'
+             ) AS pn_jid,
+             REGEXP_REPLACE(preview.owner_phone, '[^0-9]', '') AS phone,
+             preview.creator_country_iso2 AS phone_country_iso2,
+             COALESCE(
+               preview.metadata_observed_at,
+               preview.last_preview_at,
+               preview.updated_at
+             ) AS role_observed_at,
+             CONCAT('legacy-owner:', preview.group_link_id) AS role_event_id,
+             preview.created_at,
+             preview.updated_at
+      FROM group_link_preview preview
+      INNER JOIN wa_group resolved_group
+        ON resolved_group.tenant_id = preview.tenant_id
+       AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
+      WHERE preview.owner_phone IS NOT NULL
+        AND TRIM(preview.owner_phone) &lt;&gt; ''
+    ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND target.pn_jid = source.pn_jid
+    WHERE target.id IS NULL
+       OR target.created_at &gt; source.created_at
+       OR target.phone IS NULL
+       OR (target.phone_country_iso2 IS NULL AND source.phone_country_iso2 IS NOT NULL)
+       OR (
+         source.role_observed_at &gt; COALESCE(target.role_observed_at, -1)
+         AND target.role &lt;&gt; 3
+       )
+    ORDER BY source.tenant_id ASC, source.group_id ASC, source.pn_jid ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
+      phone_country_iso2 = COALESCE(
+        wa_group_participant.phone_country_iso2,
+        VALUES(phone_country_iso2)
+      ),
       role = CASE
         WHEN VALUES(role_observed_at)
                &gt; COALESCE(wa_group_participant.role_observed_at, -1)

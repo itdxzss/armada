@@ -1,0 +1,129 @@
+package com.armada.group.mapper;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.enums.GroupListType;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
+import org.apache.ibatis.builder.xml.XMLMapperBuilder;
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.session.Configuration;
+import org.junit.jupiter.api.Test;
+
+/** 新群当前事实列表查询必须 page-first，且不得重新全量聚合旧成员表。 */
+class GroupListCurrentMapperSqlShapeTest {
+
+    private static final Path MAPPER = Path.of(
+            "src/main/resources/mapper/group/GroupListCurrentMapper.xml");
+
+    @Test
+    void listUsesLegacyHandlePageAndOnlyEnrichesCurrentPageFromSixTables() throws IOException {
+        String xml = Files.readString(MAPPER, StandardCharsets.UTF_8);
+
+        assertThat(xml)
+                .contains("<select id=\"count\"")
+                .contains("<select id=\"selectPage\"")
+                .contains("WITH page_ids AS")
+                .contains("LIMIT #{query.offset}, #{query.pageSize}")
+                .contains("FROM page_ids page")
+                .contains("wa_group current_group")
+                .contains("wa_group_profile current_profile")
+                .contains("wa_group_invite current_invite")
+                .contains("wa_group_participant participant")
+                .contains("wa_account_group_binding binding")
+                .contains("handle.tenant_id = #{tenantId}")
+                .contains("participant.tenant_id = page_group.tenant_id")
+                .contains("EXISTS (")
+                .doesNotContain(
+                        "whatsapp_group_member_snapshot",
+                        "account_group_membership",
+                        "group_link_health",
+                        "FOR UPDATE");
+
+        String countSql = statement(xml, "select", "count");
+        assertThat(countSql).doesNotContain("GROUP_CONCAT", "page_ids");
+    }
+
+    @Test
+    void dynamicSqlRendersExistingFiltersForCountAndPage() throws IOException {
+        Configuration configuration = new Configuration();
+        try (InputStream input = getClass().getResourceAsStream(
+                "/mapper/group/GroupListCurrentMapper.xml")) {
+            new XMLMapperBuilder(
+                    input,
+                    configuration,
+                    MAPPER.toString(),
+                    configuration.getSqlFragments()).parse();
+        }
+
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setLabelId(11L);
+        query.setFolderId(12L);
+        query.setGroupType(GroupListType.BOTH);
+        query.setAvailableAdmin(false);
+        query.setMemberCountMin(51);
+        query.setMemberCountMax(500);
+        query.setCountryIso2("PK");
+        query.setContinentCode("ASIA");
+        query.setAgeDaysMin(7);
+        query.setAgeDaysMax(365);
+        query.setSourceFileName("groups.csv");
+        query.setOrigin(1);
+        query.setMembershipState(2);
+        query.setStatus("AVAILABLE");
+        query.setKeyword("120363");
+        query.setNowSeconds(1_800_000_000L);
+        query.setPage(3);
+        query.setPageSize(25);
+        Map<String, Object> parameters = Map.of("tenantId", 7L, "query", query);
+
+        String countSql = boundSql(configuration, "count", parameters);
+        String pageSql = boundSql(configuration, "selectPage", parameters);
+
+        for (String sql : java.util.List.of(countSql, pageSql)) {
+            assertThat(sql)
+                    .contains("handle.tenant_id = ?")
+                    .contains("handle.label_id = ?")
+                    .contains("COALESCE(current_group.folder_id, handle.folder_id) = ?")
+                    .contains("handle.is_historical = 1")
+                    .contains("handle.is_post_control = 1")
+                    .contains("NOT EXISTS (")
+                    .contains("current_invite.checked_member_count")
+                    .contains("owner.phone_country_iso2 = ?")
+                    .contains("owner_country.continent_code = ?")
+                    .contains("current_invite.health_status, input_invite.health_status")
+                    .contains("LIKE CONCAT('%', ?, '%')")
+                    .doesNotContain("FOR UPDATE");
+        }
+        assertThat(countSql).doesNotContain("WITH page_ids", "GROUP_CONCAT");
+        assertThat(pageSql)
+                .contains("WITH page_ids AS")
+                .contains("LIMIT ?, ?")
+                .contains("INNER JOIN page_groups page_group")
+                .contains("GROUP_CONCAT");
+    }
+
+    private static String statement(String xml, String tag, String id) {
+        String startTag = "<" + tag + " id=\"" + id + "\"";
+        int start = xml.indexOf(startTag);
+        assertThat(start).isGreaterThanOrEqualTo(0);
+        int end = xml.indexOf("</" + tag + ">", start);
+        assertThat(end).isGreaterThan(start);
+        return xml.substring(start, end);
+    }
+
+    private static String boundSql(
+            Configuration configuration,
+            String statementId,
+            Map<String, Object> parameters) {
+        BoundSql boundSql = configuration
+                .getMappedStatement(GroupListCurrentMapper.class.getName() + "." + statementId)
+                .getBoundSql(parameters);
+        return boundSql.getSql().replaceAll("\\s+", " ").trim();
+    }
+}

@@ -59,6 +59,9 @@ public interface GroupModelBackfillMapper {
     /** 从旧成员当前态按群和成员身份顺序回填一批成员。 */
     int backfillParticipants(@Param("limit") int limit);
 
+    /** 从旧群预览回填一批群主身份及国家投影。 */
+    int backfillProfileOwners(@Param("limit") int limit);
+
     /** 从账号关系和合法 baseline 回填一批账号自身成员。 */
     int backfillAccountParticipants(@Param("limit") int limit);
 

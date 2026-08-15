@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：六表最小 additive DDL（V117）、现有写入口双写、只读回填门禁和六表人工分批回填均已完成本地实现；旧表仍决定列表、营销和全部业务结果，回填入口默认不注册且未在任何环境执行，真实 MySQL 回填验证、切换读取、迁移和部署尚未进行
+- 状态：六表最小 additive DDL（V117）、现有写入口双写、只读回填门禁、六表人工分批回填和新表列表影子 Mapper 均已完成本地实现；旧表仍决定列表、营销和全部业务结果，影子 Mapper 尚未接入 Service，回填入口默认不注册且未在任何环境执行，真实 MySQL 回填/列表验证、切换读取、迁移和部署尚未进行
 
 ## 目标
 
@@ -55,7 +55,10 @@
 - [x] 新增通过启动参数 `--armada.group-model-backfill.run-once=true` 人工触发的 `wa_group` 一次性回填入口；无 `@Scheduled`，每批在独立事务中执行只读冲突门禁 + 1 条 500 行集合写，直到无数据，显式租户连接、自然键排序，不使用 `FOR UPDATE` 或逐群调用；用源/目标水位阻止较旧回填覆盖较新的实时双写
 - [x] 在同一人工入口顺序增加 `wa_group_profile`、`wa_group_invite` 和当前邀请码指针的 500 行集合回填；保持群资料/本地展示/公开预览/健康字段边界、秒转毫秒、NULL 未知语义和实时水位，不映射普通 UI 删除为邀请系统退役
 - [x] 在同一人工入口增加 `wa_group_participant`、`wa_account_group_binding`、`account_group_sync_state` 的保守集合回填；旧 `joined_at` 只进 `membership_active_since_at`，baseline 只迁 1/NULL，回填 SQL 不写 first-post，成员当前态与最近进退群事实按各自水位写入
+- [x] 补齐旧预览群主号码/国家到 `wa_group_participant` 的保守回填；只写 role=群主及其观察水位，不虚构在群态
+- [x] 新增未接业务入口的群列表影子 Mapper；复用现有 `GroupLinkQuery` / `GroupLinkVoRow`，count 不聚合成员，page 先分页 legacy 行句柄、再仅对本页从六表补齐当前事实，显式租户连接且不加锁
 - [ ] 在容器环境执行最后三表的真实 MySQL 回填、幂等和门禁用例
+- [ ] 在真实 MySQL 固定水位数据上对比旧/新列表的总数、行集合、字段、排序、分页和全部筛选
 - [ ] 用户评审六表字段和迁移/切换方案
 - [ ] 任何环境写入、切读或部署前再次取得用户确认
 
@@ -132,6 +135,7 @@
 本轮六表回填验证：
 
 - `mvn -q -Dtest=GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：10 个测试通过，0 失败、0 错误、0 跳过；覆盖人工启动参数、无定时器、各阶段 500 行循环批次、群 JID/邀请码/成员身份/账号 baseline 冲突先阻断、显式租户连接、自然键排序、NULL 与回填水位保护，以及无 `FOR UPDATE`；账号关系回填 SQL 明确不包含 first-post 字段。
+- `mvn -q -Dtest=GroupListCurrentMapperSqlShapeTest,GroupModelBackfillRunnerTest,GroupModelBackfillMapperSqlShapeTest,GroupModelBackfillDryRunSqlTest test`：12 个测试通过，0 失败、0 错误、0 跳过；新增覆盖群主迁移阶段、列表 count/page 共用现有筛选、MyBatis 动态 SQL 实际解析、显式租户条件、page-first、本页成员聚合，以及不读取三张旧事实大表和不使用 `FOR UPDATE`。列表 SQL 尚未在真实 MySQL 执行，不能据此声称新旧结果一致。
 - `mvn -q -DskipTests package`、`xmllint --noout armada-api/src/main/resources/mapper/group/GroupModelBackfillMapper.xml`、`git diff --check`：均通过。
 - `mvn -q test`：已尝试全量测试，但仓库既有 `PromotionCapiEventOutboxSchemaDbTest` 持续等待本地数据库连接，未进入完整测试集；为避免无效等待手动停止，退出码 130，不计为代码测试失败或全量通过。
 - `GroupCurrentLocalWriteMySqlTest` 已增加群身份、已解析/未解析邀请、群资料、成员快照头、成员当前态与进退群事实、账号关系、baseline、同步状态、幂等、重复 JID/code 和不覆盖较新实时双写用例；本轮因本机容器执行额度限制未运行，不能计为真实 MySQL 通过，执行环境恢复后补跑。

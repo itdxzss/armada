@@ -131,13 +131,17 @@ public class PullTaskManagerPullerContactTransactionService {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskGroupSettingsGate.waiting(PullTaskExecutionDispatchResult.LOST);
             }
-            PullTaskAccountAction memberAdd = latestMemberAddAction(candidate.getId());
-            if (memberAdd != null
-                    && Objects.equals(memberAdd.getActionStatus(),
-                    PullTaskActionStatus.SUCCESS.code())) {
+            // 管理员轮换会让本执行行留下多行加人权限动作（唯一键含 actor），因此按整个集合判断：
+            // 任一行成功即视为权限已放开，任一行在途即等待，都不成立才提交新一轮。
+            List<PullTaskAccountAction> memberAddActions =
+                    actionMapper.selectByExecutionAndType(
+                            candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+            if (memberAddActions.stream().anyMatch(row -> Objects.equals(
+                    row.getActionStatus(), PullTaskActionStatus.SUCCESS.code()))) {
                 return PullTaskGroupSettingsGate.open();
             }
-            if (memberAdd != null && awaitingResult(memberAdd)) {
+            if (memberAddActions.stream().anyMatch(
+                    PullTaskManagerPullerContactTransactionService::awaitingResult)) {
                 // 命令已在途，等回调唤醒；此处重复提交会产生两条并发的同义命令。
                 return PullTaskGroupSettingsGate.waiting(
                         deferGroupSettings(candidate,
@@ -145,7 +149,7 @@ public class PullTaskManagerPullerContactTransactionService {
                                         .GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now));
             }
             return PullTaskGroupSettingsGate.waiting(
-                    submitMemberAddCommand(candidate, memberAdd, now));
+                    submitMemberAddCommand(candidate, memberAddActions, now));
         } finally {
             restoreTenant(previousTenant);
         }
@@ -154,7 +158,7 @@ public class PullTaskManagerPullerContactTransactionService {
     /** 写入或复用加人权限动作行，并在同事务内提交 outbox 命令。 */
     private PullTaskExecutionDispatchResult submitMemberAddCommand(
             PullTaskGroupExecution candidate,
-            PullTaskAccountAction existing,
+            List<PullTaskAccountAction> existingActions,
             long now) {
         List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
         if (managers.isEmpty()) {
@@ -172,9 +176,14 @@ public class PullTaskManagerPullerContactTransactionService {
             return deferGroupSettings(candidate,
                     PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now);
         }
-        Long actionId = existing == null
-                ? insertMemberAddAction(candidate, managerRole, now)
-                : existing.getId();
+        // 动作行必须与本轮真正执行的管理员对齐：hydrator 按 actor 补出号码，outbox 按选定管理员
+        // 路由。复用上一轮别人的动作行会让二者指向不同账号，动作行记的执行人是假的。
+        Long actionId = existingActions.stream()
+                .filter(row -> Objects.equals(
+                        row.getActorGroupAccountId(), managerRole.getId()))
+                .map(PullTaskAccountAction::getId)
+                .findFirst()
+                .orElseGet(() -> insertMemberAddAction(candidate, managerRole, now));
         if (actionId == null) {
             return deferGroupSettings(candidate,
                     PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now);
@@ -212,12 +221,6 @@ public class PullTaskManagerPullerContactTransactionService {
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return actionMapper.insertIfAbsent(row) == 1 ? row.getId() : null;
-    }
-
-    private PullTaskAccountAction latestMemberAddAction(long executionId) {
-        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
-                executionId, PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
-        return actions.isEmpty() ? null : actions.get(actions.size() - 1);
     }
 
     /**

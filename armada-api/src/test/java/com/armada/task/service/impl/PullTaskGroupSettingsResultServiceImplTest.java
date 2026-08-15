@@ -146,6 +146,38 @@ class PullTaskGroupSettingsResultServiceImplTest {
                 .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
     }
 
+    @Test
+    @DisplayName("执行行已不在本阶段时收敛动作但不唤醒，避免回调无限重投")
+    void memberAddResultConvergesWithoutWakingWhenExecutionMovedOn() {
+        givenAction(PullTaskAccountActionType.OPEN_MEMBER_ADD);
+        givenActionCasSucceeds();
+        // 任务被暂停或执行行已推进后，唤醒 CAS 必然为 0。此时抛异常会回滚动作收敛，
+        // 消息重投后重复同一路径——poison message，执行行与回调都永远出不来。
+        givenManagerAndExecution(PullTaskExecutionStage.PULLER_INVITE);
+
+        assertThat(service.apply(callback(
+                PullTaskGroupSettingsProtocolOutcome.SUCCESS, null))).isTrue();
+
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+        verify(outboxService, never()).enqueuePullTaskGroupSettingsCommands(anyList());
+    }
+
+    @Test
+    @DisplayName("执行行已被放弃时同样只收敛动作")
+    void memberAddResultConvergesWithoutWakingWhenExecutionNotExecuting() {
+        givenAction(PullTaskAccountActionType.OPEN_MEMBER_ADD);
+        givenActionCasSucceeds();
+        when(accountMapper.selectById(501L)).thenReturn(manager());
+        PullTaskGroupExecution paused = execution(PullTaskExecutionStage.MANAGER_PULLER_CONTACT);
+        paused.setExecutionStatus(PullTaskExecutionStatus.ABANDONED.code());
+        when(executionMapper.selectById(11L)).thenReturn(paused);
+
+        assertThat(service.apply(callback(
+                PullTaskGroupSettingsProtocolOutcome.SUCCESS, null))).isTrue();
+
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+    }
+
     // ---------- 关闭进群审核：绝不触碰执行行 ----------
 
     @Test

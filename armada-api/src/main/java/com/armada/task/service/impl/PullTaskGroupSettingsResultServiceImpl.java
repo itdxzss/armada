@@ -110,6 +110,17 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
         if (execution == null) {
             throw new IllegalStateException("群设置结果找不到执行行");
         }
+        // 任务被放弃、或执行行已推进到后续阶段时，唤醒 CAS 必然为 0。此时若抛异常会连同动作
+        // 收敛一起回滚，消息重投后重复同一路径，形成永远出不来的 poison message。
+        // 正确做法是让动作落到终态、跳过唤醒：任务恢复时 ensureGroupSettings 会按动作事实
+        // 决定继续还是重发，闭环不依赖这次唤醒。
+        if (!awaitingGroupSettings(execution)) {
+            log.info("拉群加人权限结果到达时执行行已不在本阶段，只收敛动作 executionId={} "
+                            + "actionId={} status={} stage={}",
+                    callback.groupExecutionId(), callback.actionId(),
+                    execution.getExecutionStatus(), execution.getStage());
+            return true;
+        }
         if (success) {
             submitJoinApprovalCommand(action, callback, execution);
         }
@@ -214,6 +225,14 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
                 row.getId(), enqueued.commandIds().get(0), callback.occurredAt()) != 1) {
             throw new IllegalStateException("关闭进群审核命令提交状态写入不完整");
         }
+    }
+
+    /** 只有仍停在本阶段的执行中行才需要被唤醒。 */
+    private static boolean awaitingGroupSettings(PullTaskGroupExecution execution) {
+        return Objects.equals(execution.getExecutionStatus(),
+                PullTaskExecutionStatus.EXECUTING.code())
+                && Objects.equals(execution.getStage(),
+                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
     }
 
     private static PullTaskExecutionReasonCode memberAddReason(

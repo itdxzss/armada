@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
@@ -45,6 +48,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -246,6 +250,62 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
         // attemptNo 必须递增，否则新旧两次尝试在动作行上无法区分。
         assertThat(actions.get(0).getAttemptNo()).isGreaterThan(firstAttempt);
+    }
+
+    @Test
+    void groupSettingsRetryKeepsCommandRoutingAlignedWithActionActor() throws SQLException {
+        // 首轮管理员 901 提交后失效，次轮换成 902。命令的路由账号必须与动作行的 actor 一致，
+        // 否则 hydrator 按 actor 补出 901 的号码，outbox 却把命令路由到 902 的 worker，
+        // 动作行记的执行人和真正执行的账号对不上。
+        PullTaskGroupAccount second = manager(executionId());
+        second.setAccountId(902L);
+        second.setAccountPhone("8613800000902");
+        second.setRoleSeq(2);
+        groupAccountMapper.insert(second);
+        groupAccountMapper.updateMembership(second.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        groupAccountMapper.transitionAdminStatus(second.getId(),
+                List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
+                PullTaskGroupAccountAdminStatus.SUCCESS.code(), 550L);
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
+                new ProtocolAccountRef(901L, ProtocolBackend.ANDROID, "manager-901", "919000000001"),
+                new ProtocolAccountRef(902L, ProtocolBackend.ANDROID, "manager-902", "919000000002")));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-1"), 1),
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-2"), 1));
+
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        service.ensureGroupSettings(candidate, "worker-1", 610L);
+
+        TenantContext.set(7L);
+        PullTaskAccountAction first = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code()).get(0);
+        execute("UPDATE pull_task_account_action SET action_status="
+                + PullTaskActionStatus.FAILED.code() + " WHERE id=" + first.getId());
+        // 首轮管理员退出可用集合，迫使次轮换号。
+        execute("UPDATE pull_task_group_account SET availability_status="
+                + PullTaskGroupAccountAvailability.REMOVED.code()
+                + " WHERE id=" + first.getActorGroupAccountId());
+
+        PullTaskGroupExecution retry = claim("worker-1", 40_000L, 50_000L);
+        service.ensureGroupSettings(retry, "worker-1", 40_010L);
+
+        TenantContext.set(7L);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        PullTaskAccountAction submitted = actions.stream()
+                .filter(row -> PullTaskActionStatus.SUBMITTED.code() == row.getActionStatus())
+                .findFirst()
+                .orElseThrow();
+        ArgumentCaptor<List<ProtocolPullTaskGroupSettingsCommandRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService, times(2)).enqueuePullTaskGroupSettingsCommands(captor.capture());
+        ProtocolPullTaskGroupSettingsCommandRequest lastRequest =
+                captor.getAllValues().get(1).get(0);
+        PullTaskGroupAccount actor =
+                groupAccountMapper.selectById(submitted.getActorGroupAccountId());
+        assertThat(lastRequest.actionId()).isEqualTo(submitted.getId());
+        assertThat(lastRequest.manager().armadaAccountId()).isEqualTo(actor.getAccountId());
     }
 
     @Test

@@ -1,8 +1,8 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
-import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
@@ -49,6 +49,7 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final AccountProtocolLookupService accountLookup;
     private final ProtocolCommandOutboxService outboxService;
     private final PullTaskExecutionDispatchProperties properties;
 
@@ -57,11 +58,13 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
+            AccountProtocolLookupService accountLookup,
             ProtocolCommandOutboxService outboxService,
             PullTaskExecutionDispatchProperties properties) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
+        this.accountLookup = accountLookup;
         this.outboxService = outboxService;
         this.properties = properties;
     }
@@ -177,6 +180,15 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
         if (manager == null || manager.getAccountId() == null) {
             throw new IllegalStateException("群设置结果找不到任务管理员角色行");
         }
+        // 协议身份取账号当前的活跃事实，而非回调事件里的快照：命令是现在才发出去的。
+        ProtocolAccountRef account = accountLookup
+                .findActiveProtocolRefs(List.of(manager.getAccountId()))
+                .stream()
+                .findFirst()
+                .orElse(null);
+        if (account == null) {
+            throw new IllegalStateException("群设置结果任务管理员协议身份不可用");
+        }
         PullTaskAccountAction row = new PullTaskAccountAction();
         row.setTenantId(callback.tenantId());
         row.setTaskId(callback.pullTaskId());
@@ -196,12 +208,7 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
                 outboxService.enqueuePullTaskGroupSettingsCommands(List.of(
                         new ProtocolPullTaskGroupSettingsCommandRequest(
                                 callback.tenantId(), callback.pullTaskId(),
-                                execution.getId(), row.getId(),
-                                new ProtocolAccountRef(
-                                        manager.getAccountId(),
-                                        backend(callback.protocolBackend()),
-                                        callback.protocolAccountId(),
-                                        manager.getAccountPhone()))));
+                                execution.getId(), row.getId(), account)));
         if (enqueued.commandIds().size() != 1
                 || actionMapper.markSubmitted(
                 row.getId(), enqueued.commandIds().get(0), callback.occurredAt()) != 1) {
@@ -240,14 +247,6 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
         return actionType != null
                 && (actionType == PullTaskAccountActionType.OPEN_MEMBER_ADD.code()
                 || actionType == PullTaskAccountActionType.CLOSE_JOIN_APPROVAL.code());
-    }
-
-    private static ProtocolBackend backend(String value) {
-        try {
-            return ProtocolBackend.valueOf(value);
-        } catch (IllegalArgumentException | NullPointerException ex) {
-            throw new IllegalStateException("群设置结果协议后端非法");
-        }
     }
 
     private static void restoreTenant(Long previousTenant) {

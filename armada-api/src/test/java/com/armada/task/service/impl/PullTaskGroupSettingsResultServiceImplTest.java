@@ -13,7 +13,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
+import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -45,6 +47,8 @@ class PullTaskGroupSettingsResultServiceImplTest {
             mock(PullTaskGroupAccountMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper =
             mock(PullTaskGroupExecutionMapper.class);
+    private final AccountProtocolLookupService accountLookup =
+            mock(AccountProtocolLookupService.class);
     private final ProtocolCommandOutboxService outboxService =
             mock(ProtocolCommandOutboxService.class);
     private final PullTaskExecutionDispatchProperties properties =
@@ -52,7 +56,8 @@ class PullTaskGroupSettingsResultServiceImplTest {
 
     private final PullTaskGroupSettingsResultServiceImpl service =
             new PullTaskGroupSettingsResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, outboxService, properties);
+                    actionMapper, accountMapper, executionMapper, accountLookup,
+                    outboxService, properties);
 
     // ---------- 放开加人权限：推进条件 ----------
 
@@ -69,6 +74,8 @@ class PullTaskGroupSettingsResultServiceImplTest {
         when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:100", List.of("cmd-close-1"), 1));
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(
+                new ProtocolAccountRef(901L, ProtocolBackend.WEB, "manager-901", "8613800000901")));
         when(actionMapper.markSubmitted(anyLong(), anyString(), anyLong())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -268,7 +275,7 @@ class PullTaskGroupSettingsResultServiceImplTest {
     private static PullTaskGroupSettingsCallback callback(
             PullTaskGroupSettingsProtocolOutcome outcome, String reasonCode) {
         return new PullTaskGroupSettingsCallback(
-                7L, 100L, 11L, 812L, 901L, "manager-901", "WEB",
+                7L, 100L, 11L, 812L, 901L, "manager-901",
                 "cmd-settings-1", 2, outcome, reasonCode, "raw", 1_000L);
     }
 

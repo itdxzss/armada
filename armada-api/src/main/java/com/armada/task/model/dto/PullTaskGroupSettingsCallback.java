@@ -14,7 +14,6 @@ import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
  * @param actionId 群设置动作 ID
  * @param accountId 执行设置的任务管理员账号 ID
  * @param protocolAccountId 协议账号 ID
- * @param protocolBackend 协议后端，追加关闭审核命令时用于复用同一路由
  * @param commandId Outbox 命令 ID
  * @param attemptNo 尝试序号
  * @param outcome 协议结果
@@ -29,7 +28,6 @@ public record PullTaskGroupSettingsCallback(
         long actionId,
         long accountId,
         String protocolAccountId,
-        String protocolBackend,
         String commandId,
         int attemptNo,
         PullTaskGroupSettingsProtocolOutcome outcome,

@@ -6,12 +6,15 @@ import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
+import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
 import com.armada.task.model.dto.PullTaskManagerAdminCallback;
+import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.service.PullTaskContactSaveResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
+import com.armada.task.service.PullTaskGroupSettingsResultService;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import org.springframework.stereotype.Component;
@@ -23,6 +26,7 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
     private final PullTaskContactSaveResultService contactSaveResultService;
     private final PullTaskPullerInviteResultService pullerInviteResultService;
     private final PullTaskManagerAdminResultService managerAdminResultService;
+    private final PullTaskGroupSettingsResultService groupSettingsResultService;
     private final PullTaskProtocolResultCallbackService callbackService;
 
     /**
@@ -31,16 +35,19 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
      * @param contactSaveResultService 联系人保存结果状态机
      * @param pullerInviteResultService 管理员邀请结果状态机
      * @param managerAdminResultService 任务管理员提权结果状态机
+     * @param groupSettingsResultService 群设置结果状态机
      * @param callbackService 批量拉人和料子提权结果状态机
      */
     public ProtocolGroupActionResultAdapter(
             PullTaskContactSaveResultService contactSaveResultService,
             PullTaskPullerInviteResultService pullerInviteResultService,
             PullTaskManagerAdminResultService managerAdminResultService,
+            PullTaskGroupSettingsResultService groupSettingsResultService,
             PullTaskProtocolResultCallbackService callbackService) {
         this.contactSaveResultService = contactSaveResultService;
         this.pullerInviteResultService = pullerInviteResultService;
         this.managerAdminResultService = managerAdminResultService;
+        this.groupSettingsResultService = groupSettingsResultService;
         this.callbackService = callbackService;
     }
 
@@ -69,6 +76,17 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
                     event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
                     event.targetJid(), PullTaskManagerAdminProtocolOutcome.valueOf(event.outcome()),
                     event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
+            return;
+        }
+        if ("pull_task_group_settings".equals(event.source())) {
+            // 群设置改的是群属性，事件没有 targetJid；一条命令一个设置项，
+            // 因此命令级 outcome 就是该设置项的结果。
+            groupSettingsResultService.apply(new PullTaskGroupSettingsCallback(
+                    event.tenantId(), event.pullTaskId(), event.groupExecutionId(),
+                    event.actionId(), event.accountId(), event.protocolAccountId(),
+                    event.commandId(), event.attemptNo(),
+                    PullTaskGroupSettingsProtocolOutcome.valueOf(event.outcome()),
+                    event.reasonCode(), event.reasonMessage(), event.timestamp()));
             return;
         }
         if ("pull_task_material_admin".equals(event.source())) {

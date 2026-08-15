@@ -199,6 +199,56 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
+    void groupSettingsGateResubmitsAfterUnknownResult() throws SQLException {
+        // UNKNOWN 表示协议层无法确认结果。群设置没有可观察的快照可兜底（回读已去掉，
+        // Android 本来也不报 joinApprovalMode），唯一出路是重发；两条 IQ 都幂等。
+        // 把 UNKNOWN 当成"命令还在途"会让执行行永远退避空转。
+        assertResubmitsFrom(PullTaskActionStatus.UNKNOWN.code(), "cmd-member-add-retry-1");
+    }
+
+    @Test
+    void groupSettingsGateResubmitsAfterFailedResult() throws SQLException {
+        assertResubmitsFrom(PullTaskActionStatus.FAILED.code(), "cmd-member-add-retry-2");
+    }
+
+    private void assertResubmitsFrom(int stuckStatus, String newCommandId) throws SQLException {
+        ProtocolAccountRef manager = new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-first"), 1),
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of(newCommandId), 1));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        service.ensureGroupSettings(candidate, "worker-1", 610L);
+
+        TenantContext.set(7L);
+        PullTaskAccountAction submitted = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code()).get(0);
+        int firstAttempt = submitted.getAttemptNo();
+        execute("UPDATE pull_task_account_action SET action_status=" + stuckStatus
+                + " WHERE id=" + submitted.getId());
+
+        // 首次提交把执行行退避到 610 + retryDelay，重试必须发生在退避到期之后。
+        PullTaskGroupExecution retryCandidate = claim("worker-1", 40_000L, 50_000L);
+        PullTaskGroupSettingsGate gate =
+                service.ensureGroupSettings(retryCandidate, "worker-1", 40_010L);
+
+        assertThat(gate.satisfied()).isFalse();
+        TenantContext.set(7L);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        // 复用同一行动作，不插第二行；唯一键本就只允许一行。
+        assertThat(actions).hasSize(1);
+        assertThat(actions.get(0).getCommandId()).isEqualTo(newCommandId);
+        assertThat(actions.get(0).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+        // attemptNo 必须递增，否则新旧两次尝试在动作行上无法区分。
+        assertThat(actions.get(0).getAttemptNo()).isGreaterThan(firstAttempt);
+    }
+
+    @Test
     void groupSettingsGateDefersCurrentStageWithoutAllocatingPuller() {
         ProtocolAccountRef manager = new ProtocolAccountRef(
                 901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");

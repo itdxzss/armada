@@ -44,6 +44,11 @@ public class PullTaskManagerPullerContactTransactionService {
     private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
+    /** 允许提交新一轮加人权限命令的动作状态：首次为 PENDING，重发为失败或结果未知。 */
+    private static final List<Integer> MEMBER_ADD_SUBMITTABLE = List.of(
+            PullTaskActionStatus.PENDING.code(),
+            PullTaskActionStatus.FAILED.code(),
+            PullTaskActionStatus.UNKNOWN.code());
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -181,9 +186,11 @@ public class PullTaskManagerPullerContactTransactionService {
                                 candidate.getTenantId(), candidate.getTaskId(),
                                 candidate.getId(), actionId,
                                 accounts.get(managerRole.getAccountId()))));
+        // submitAttempt 而非 markSubmitted：后者只接受 PENDING，FAILED/UNKNOWN 重发会写不进去。
+        // 它同时递增 attempt_no 并清空上一轮原因，使新旧尝试在动作行上可区分。
         if (enqueued.commandIds().size() != 1
-                || actionMapper.markSubmitted(
-                actionId, enqueued.commandIds().get(0), now) != 1) {
+                || actionMapper.submitAttempt(
+                actionId, MEMBER_ADD_SUBMITTABLE, enqueued.commandIds().get(0), now) != 1) {
             throw new IllegalStateException("加人权限命令提交状态写入不完整");
         }
         return deferGroupSettings(candidate,
@@ -213,9 +220,15 @@ public class PullTaskManagerPullerContactTransactionService {
         return actions.isEmpty() ? null : actions.get(actions.size() - 1);
     }
 
+    /**
+     * 只有 SUBMITTED 才算命令在途。
+     *
+     * <p>UNKNOWN 表示协议层无法确认结果。群设置没有可观察的快照可兜底——回读已随异步化去掉，
+     * Android 的群元数据本来也不报 joinApprovalMode——因此唯一出路是重发，两条 IQ 都幂等。
+     * 把 UNKNOWN 当成在途会让执行行永远退避空转。</p>
+     */
     private static boolean awaitingResult(PullTaskAccountAction action) {
-        return Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code())
-                || Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code());
+        return Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code());
     }
 
     private PullTaskExecutionDispatchResult deferGroupSettings(

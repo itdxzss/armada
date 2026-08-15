@@ -95,7 +95,11 @@ class PullTaskGroupSettingsPayloadHydratorTest {
         assertThat(payload.path("actionId").asLong()).isEqualTo(811L);
         assertThat(payload.path("accountId").asLong()).isEqualTo(901L);
         assertThat(payload.path("protocolAccountId").asText()).isEqualTo("manager-901");
-        assertThat(payload.path("accountPhone").asText()).isEqualTo("8613800000901");
+        // 字段名必须是 wsPhone：协议侧按这个名字取归属手机号。coordinator 的 ExtractPhone
+        // 用它做 group-action 族路由，安卓节点 group_settings_sender 用它 Resolve 会话。
+        // 叫成别的名字不会报错，只会让命令被 coordinator 以 "phone unresolvable" 静默丢弃。
+        assertThat(payload.path("wsPhone").asText()).isEqualTo("8613800000901");
+        assertThat(payload.has("accountPhone")).isFalse();
         assertThat(payload.path("protocolBackend").asText()).isEqualTo("WEB");
         assertThat(payload.path("groupJid").asText()).isEqualTo("120363group@g.us");
         assertThat(payload.path("attemptNo").asInt()).isEqualTo(2);

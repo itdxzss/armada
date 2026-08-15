@@ -194,7 +194,14 @@ public class PullTaskGroupSettingsPayloadHydrator implements ProtocolCommandPayl
     private record SettingSpec(String setting, boolean enabled) {
     }
 
-    /** 协议层可执行的群设置 wire payload。 */
+    /**
+     * 协议层可执行的群设置 wire payload。
+     *
+     * <p>手机号字段必须叫 {@code wsPhone}：coordinator 的 ExtractPhone 用它做 group-action
+     * 族路由，安卓节点 group_settings_sender 用它 Resolve 会话。改名不会报错，只会让命令被
+     * coordinator 以 "phone unresolvable" 判为业务拒绝、提交 offset 后静默丢弃，
+     * 控端于是永远等不到结果、无限重试。</p>
+     */
     private record WirePayload(
             Long tenantId,
             Long pullTaskId,
@@ -202,7 +209,7 @@ public class PullTaskGroupSettingsPayloadHydrator implements ProtocolCommandPayl
             Long actionId,
             Long accountId,
             String protocolAccountId,
-            String accountPhone,
+            String wsPhone,
             String protocolBackend,
             String groupJid,
             String setting,

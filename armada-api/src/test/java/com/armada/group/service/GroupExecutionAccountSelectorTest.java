@@ -112,6 +112,32 @@ class GroupExecutionAccountSelectorTest {
     }
 
     @Test
+    void requireOwnerReturnsExactOnlineGroupOwnerSelectedByMapper() {
+        GroupExecutionAccount owner = account(9L, "923310000009", true);
+        when(mapper.selectGroupOwnerExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL))
+                .thenReturn(owner);
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.requireOwner(10L)).isEqualTo(owner);
+        verify(mapper).selectGroupOwnerExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL);
+    }
+
+    @Test
+    void requireOwnerThrowsDedicatedErrorInsteadOfFallingBackToAnotherMember() {
+        when(mapper.selectGroupOwnerExecutionAccount(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL))
+                .thenReturn(null);
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThatThrownBy(() -> selector.requireOwner(10L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.GROUP_EXECUTOR_UNAVAILABLE.code()))
+                .hasMessage("没有在线且仍在该群内的群主账号");
+    }
+
+    @Test
     void pullTaskPromoterCandidatesUseExplicitTenantAndPreserveMapperOrder() {
         GroupExecutionAccount owner = new GroupExecutionAccount(
                 906L, "web", "owner-906", "906", true);

@@ -76,6 +76,20 @@ class HttpGroupSettingsAdapterTest {
     }
 
     @Test
+    void disablingMemberEditPostsLockedMode() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupSettingsPort port = new HttpGroupSettingsAdapter(
+                new ProtocolHttpExecutor(builder.build()));
+
+        expectMode(server, "locked", "locked");
+
+        port.setEditGroupSettingsAllowed("acc_7", "120363settings@g.us", false);
+
+        server.verify();
+    }
+
+    @Test
     void inviteViaLinkFailsExplicitlyWithoutCallingHttp() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

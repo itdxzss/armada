@@ -400,7 +400,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 修改一项 WhatsApp 群权限并回读确认。
      *
-     * <p>权限 key 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，当前协议版本
+     * <p>权限写操作固定选择 metadata 已确认的群主账号，禁止回退到其它群成员。权限 key
+     * 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，当前协议版本
      * 不支持时直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
      * 仍由同一账号回读对应 metadata 字段确认。</p>
      *
@@ -414,7 +415,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             throw new BusinessException(ErrorCode.VALIDATION, "群权限设置不能为空");
         }
         GroupTarget target = requireLiveTarget(id);
-        GroupExecutionAccount account = selector.require(id);
+        GroupExecutionAccount account = selector.requireOwner(id);
         ensureSupportedSetting(account, target.groupJid(), dto.key());
         try {
             applySetting(account, target.groupJid(), dto);
@@ -1293,9 +1294,12 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         } catch (ProtocolException ex) {
             log.warn("群权限设置回读失败 accountId={} key={} expected={} code={}",
                     account.accountId(), key, expected, ex.errorCode());
-            throw new BusinessException(
-                    ErrorCode.GROUP_PROTOCOL_TIMEOUT,
-                    "群设置结果待确认，请刷新");
+            if (ex.errorCode() == ProtocolErrorCode.TIMEOUT) {
+                throw new BusinessException(
+                        ErrorCode.GROUP_PROTOCOL_TIMEOUT,
+                        "群设置结果待确认，请刷新");
+            }
+            throw groupBusinessException(ex);
         }
     }
 

@@ -67,6 +67,28 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
+    void selectGroupOwnerExecutionAccountRequiresConfirmedOwnerAndExecutableState() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectGroupOwnerExecutionAccount\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+        int sharedStart = xml.indexOf("<sql id=\"groupExecutionAccountColumnsAndJoins\"");
+        int sharedEnd = xml.indexOf("</sql>", sharedStart);
+        assertTrue(sharedStart >= 0 && sharedEnd > sharedStart);
+        String sharedQuery = xml.substring(sharedStart, sharedEnd);
+
+        assertTrue(query.contains("<include refid=\"groupExecutionAccountColumnsAndJoins\"/>"));
+        assertTrue(query.contains("p.owner_phone IS NOT NULL"));
+        assertTrue(query.contains("SUBSTRING_INDEX(TRIM(a.ws_phone), '@', 1)"));
+        assertTrue(query.contains("SUBSTRING_INDEX(TRIM(p.owner_phone), '@', 1)"));
+        assertFalse(query.contains("m.is_admin = 1"));
+        assertTrue(sharedQuery.contains("s.login_state = #{onlineLoginState}"));
+        assertTrue(sharedQuery.contains("s.account_state = #{normalAccountState}"));
+        assertTrue(sharedQuery.contains("m.membership_status = 1"));
+    }
+
+    @Test
     void pullTaskPromoterCandidatesAreTenantGroupAndPermissionScoped() throws IOException {
         String xml = mapperXml();
         int start = xml.indexOf(

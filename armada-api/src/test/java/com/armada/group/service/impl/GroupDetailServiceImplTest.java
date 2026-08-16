@@ -390,7 +390,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSettingUsesSelectedAccountAndConfirmsMetadata() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
@@ -415,13 +415,13 @@ class GroupDetailServiceImplTest {
         assertThat(currentCaptor.getValue().getGroupJid()).isEqualTo("120363detail@g.us");
         assertThat(currentCaptor.getValue().getMemberAddMode()).isTrue();
         assertThat(currentCaptor.getValue().getMemberAddModeObserved()).isTrue();
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
     }
 
     @Test
-    void disablingMemberEditUsesAvailableGroupAccountAndPersistsAdminOnlyMode() {
+    void disablingMemberEditUsesAvailableGroupAdminAndPersistsAdminOnlyMode() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, true, false, 0));
@@ -433,7 +433,7 @@ class GroupDetailServiceImplTest {
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.EDIT_GROUP_SETTINGS, false));
 
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
         verify(groupSettingsPort).setEditGroupSettingsAllowed(
                 webAccount(), "120363detail@g.us", false);
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
@@ -452,7 +452,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSendMessagesPersistsConfirmedSnapshotWithoutUiRebound() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+        when(selector.requireAdmin(10L)).thenReturn(new GroupExecutionAccount(
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, true, false, false, 0));
@@ -475,7 +475,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSettingMapsProtocolPermissionDeniedToBusinessError() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
@@ -488,13 +488,13 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode())
                                 .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code()));
 
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
     }
 
     @Test
     void updateSettingPreservesPermissionDeniedFromSameAccountMetadataConfirmation() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
@@ -515,7 +515,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSettingTimeoutConfirmedBySameAccountSucceeds() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
@@ -526,14 +526,14 @@ class GroupDetailServiceImplTest {
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.EDIT_GROUP_SETTINGS, true));
 
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
     void updateSettingUnconfirmedThrowsDedicatedError() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
+        when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
@@ -544,14 +544,14 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode())
                                 .isEqualTo(ErrorCode.GROUP_PROTOCOL_TIMEOUT.code()));
 
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
     }
 
     @Test
     void updateSettingRejectsUnsupportedInviteViaLinkBeforeMutation() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
-                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", false));
+        when(selector.requireAdmin(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
@@ -561,15 +561,16 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode())
                                 .isEqualTo(ErrorCode.GROUP_CAPABILITY_UNSUPPORTED.code()));
 
+        verify(selector).requireAdmin(10L);
         verify(selector, never()).requireOwner(10L);
         verifyNoInteractions(groupSettingsPort);
     }
 
     @Test
-    void updateInviteViaLinkUsesAvailableGroupAccountAndPersistsBothSnapshots() {
+    void updateInviteViaLinkUsesAvailableGroupAdminAndPersistsBothSnapshots() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(
-                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", false));
+        when(selector.requireAdmin(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadataWithInviteViaLink(true));
         when(previewMapper.updateMemberLinkMode(
@@ -580,7 +581,7 @@ class GroupDetailServiceImplTest {
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.INVITE_VIA_LINK, true));
 
-        verify(selector).require(10L);
+        verify(selector).requireAdmin(10L);
         verify(selector, never()).requireOwner(10L);
         verify(groupSettingsPort).setInviteViaLinkAllowed(
                 webAccount(), "120363detail@g.us", true);

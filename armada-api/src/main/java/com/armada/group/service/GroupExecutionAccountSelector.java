@@ -125,6 +125,22 @@ public final class GroupExecutionAccountSelector {
     }
 
     /**
+     * 要求存在在线、正常且仍在群内的管理员执行账号。
+     *
+     * <p>群主和普通管理员都满足条件，不要求必须由群主执行；普通成员不能作为
+     * 群权限写操作的执行账号，避免协议端返回管理员权限不足。</p>
+     *
+     * @param groupLinkId 群链接 ID
+     * @return 可用的群管理员或群主账号
+     * @throws BusinessException 无在线在群管理员时抛出
+     */
+    public GroupExecutionAccount requireAdmin(Long groupLinkId) {
+        return findAdmin(groupLinkId).orElseThrow(() -> new BusinessException(
+                ErrorCode.GROUP_EXECUTOR_UNAVAILABLE,
+                "没有在线且仍在该群内的管理员账号"));
+    }
+
+    /**
      * 要求目标群已确认的群主账号当前在线、正常且仍在群内。
      *
      * <p>群权限设置不能回退到其它管理员或普通成员，避免本地角色快照滞后时把写操作

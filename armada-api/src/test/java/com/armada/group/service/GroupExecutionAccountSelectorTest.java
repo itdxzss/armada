@@ -188,6 +188,41 @@ class GroupExecutionAccountSelectorTest {
         assertThat(selector.findAdmin(10L)).contains(admin);
     }
 
+    @Test
+    void requireAdminReturnsAvailableGroupAdminWithoutRequiringOwner() {
+        GroupExecutionAccount admin = account(7L, "923310000001", true);
+        when(mapper.selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                .thenReturn(List.of(admin));
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.requireAdmin(10L)).isEqualTo(admin);
+        verify(mapper).selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1);
+        verify(mapper, org.mockito.Mockito.never()).selectGroupOwnerExecutionAccount(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void requireAdminThrowsInsteadOfFallingBackToOrdinaryMember() {
+        when(mapper.selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                .thenReturn(List.of());
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThatThrownBy(() -> selector.requireAdmin(10L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.GROUP_EXECUTOR_UNAVAILABLE.code()))
+                .hasMessage("没有在线且仍在该群内的管理员账号");
+        verify(mapper, org.mockito.Mockito.never()).selectGroupExecutionAccounts(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt());
+    }
+
     private static GroupExecutionAccount account(long id, String phone, boolean admin) {
         return new GroupExecutionAccount(id, "WEB", "acc_" + phone, phone, admin);
     }

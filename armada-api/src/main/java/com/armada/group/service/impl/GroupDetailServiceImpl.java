@@ -401,7 +401,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 修改一项 WhatsApp 群权限并回读确认。
      *
-     * <p>权限写操作选择在线且仍在群内的执行账号，候选排序优先管理员，不要求群主在线。
+     * <p>权限写操作只选择在线、正常且仍在群内的管理员或群主，不要求必须由群主执行，
+     * 也不会回退到普通成员。
      * 权限 key 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，协议未明确返回该能力时
      * 直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
      * 仍由同一账号回读对应 metadata 字段确认。</p>
@@ -416,7 +417,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             throw new BusinessException(ErrorCode.VALIDATION, "群权限设置不能为空");
         }
         GroupTarget target = requireLiveTarget(id);
-        GroupExecutionAccount account = selector.require(id);
+        GroupExecutionAccount account = selector.requireAdmin(id);
         ensureSupportedSetting(account, target.groupJid(), dto.key());
         try {
             applySetting(account, target.groupJid(), dto);

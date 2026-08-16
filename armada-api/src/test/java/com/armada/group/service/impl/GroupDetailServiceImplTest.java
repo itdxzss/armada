@@ -32,6 +32,7 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -96,6 +97,9 @@ class GroupDetailServiceImplTest {
     @Mock
     private GroupCurrentLocalPersistence currentLocalPersistence;
 
+    @Mock
+    private WhatsappGroupBusinessDepartureService businessDepartureService;
+
     private GroupDetailServiceImpl service;
 
     @BeforeEach
@@ -113,7 +117,8 @@ class GroupDetailServiceImplTest {
                 memberSnapshotMapper,
                 metadataSyncTaskService,
                 currentSnapshotPersistence,
-                currentLocalPersistence);
+                currentLocalPersistence,
+                businessDepartureService);
     }
 
     @Test

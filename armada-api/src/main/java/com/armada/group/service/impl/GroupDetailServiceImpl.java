@@ -29,6 +29,7 @@ import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
@@ -38,6 +39,7 @@ import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -133,6 +135,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 新群模型本地展示字段写入。 */
     private final GroupCurrentLocalPersistence currentLocalPersistence;
 
+    /** 已确认踢出事实的旧缓存与新群模型双写入口。 */
+    private final WhatsappGroupBusinessDepartureService businessDepartureService;
+
     /**
      * 创建群详情业务服务。
      *
@@ -150,7 +155,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupMetadataSyncTaskService metadataSyncTaskService,
             AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
-            GroupCurrentLocalPersistence currentLocalPersistence) {
+            GroupCurrentLocalPersistence currentLocalPersistence,
+            WhatsappGroupBusinessDepartureService businessDepartureService) {
         this.groupLinkMapper = groupLinkMapper;
         this.previewMapper = previewMapper;
         this.selector = selector;
@@ -160,6 +166,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
         this.currentLocalPersistence = currentLocalPersistence;
+        this.businessDepartureService = businessDepartureService;
     }
 
     /**
@@ -599,7 +606,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                             account,
                             target.groupJid(),
                             actionable,
-                            mutationResults);
+                            mutationResults,
+                            currentMembers);
                 }
             } catch (ProtocolException ex) {
                 if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
@@ -610,7 +618,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 log.warn("群成员协议操作超时，开始同账号回读 groupLinkId={} accountId={} action={} targetCount={}",
                         id, account.accountId(), action, actionable.size());
                 mutationResults = confirmTimedOutMembers(
-                        account, target.groupJid(), actionable, action);
+                        account, target.groupJid(), actionable, action, currentMembers);
             }
             fixedResults.putAll(mutationResults);
         }
@@ -621,8 +629,12 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 .toList();
         long successCount = successfulJids.size();
         if (successCount > 0) {
-            persistConfirmedMemberChanges(id, action, successfulJids);
-            enqueueMetadataRefresh(id);
+            persistConfirmedMemberChanges(
+                    id, target.groupJid(), action, successfulJids, currentMembers);
+            // REMOVE 已由同账号实时回读确认并即时双写，禁止再排队可能回灌旧视图的全量刷新。
+            if (action != GroupParticipantAction.REMOVE) {
+                enqueueMetadataRefresh(id);
+            }
         }
         log.info("群成员批量操作完成 groupLinkId={} accountId={} action={} requestedCount={} "
                         + "protocolTargetCount={} successCount={} partial={}",
@@ -705,9 +717,23 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      */
     private void persistConfirmedMemberChanges(
             Long groupLinkId,
+            String groupJid,
             GroupParticipantAction action,
-            List<String> successfulJids) {
+            List<String> successfulJids,
+            Map<String, GroupParticipantResult> membersBefore) {
         if (action == GroupParticipantAction.REMOVE) {
+            long removedAt = System.currentTimeMillis();
+            Map<String, String> participantPhones = new LinkedHashMap<>();
+            for (String jid : successfulJids) {
+                GroupParticipantResult participant = membersBefore.get(jid);
+                participantPhones.put(jid, participant == null ? null : participant.phone());
+            }
+            businessDepartureService.recordConfirmedRemovals(
+                    TenantContext.get(),
+                    groupJid,
+                    participantPhones,
+                    removedAt,
+                    "group-detail:" + groupLinkId + ":" + removedAt);
             memberSnapshotMapper.deleteParticipants(groupLinkId, successfulJids);
             return;
         }
@@ -822,7 +848,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupExecutionAccount account,
             String groupJid,
             List<String> actionable,
-            Map<String, GroupMemberOperationResultVO> protocolResults) {
+            Map<String, GroupMemberOperationResultVO> protocolResults,
+            Map<String, GroupParticipantResult> membersBefore) {
         List<String> reportedSuccesses = actionable.stream()
                 .filter(jid -> {
                     GroupMemberOperationResultVO result = protocolResults.get(jid);
@@ -845,7 +872,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 new LinkedHashMap<>(protocolResults);
         int confirmedCount = 0;
         for (String jid : reportedSuccesses) {
-            boolean removed = currentMembers != null && !currentMembers.containsKey(jid);
+            boolean removed = removalConfirmed(currentMembers, membersBefore.get(jid));
             String status = removed ? MEMBER_STATUS_OK : MEMBER_STATUS_UNKNOWN;
             confirmed.put(jid, memberResult(jid, status, memberStatusReason(status)));
             if (removed) {
@@ -870,7 +897,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             GroupExecutionAccount account,
             String groupJid,
             List<String> actionable,
-            GroupParticipantAction action) {
+            GroupParticipantAction action,
+            Map<String, GroupParticipantResult> membersBefore) {
         GroupMetadataResult confirmed;
         try {
             confirmed = protocolPorts.metadata().getMetadata(
@@ -883,7 +911,11 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         Map<String, GroupParticipantResult> current = membersByJid(confirmed);
         Map<String, GroupMemberOperationResultVO> results = new LinkedHashMap<>();
         for (String jid : actionable) {
-            String status = mutationConfirmed(current.get(jid), action)
+            GroupParticipantResult memberBefore = membersBefore.get(jid);
+            boolean confirmedMutation = action == GroupParticipantAction.REMOVE
+                    ? removalConfirmed(current, memberBefore)
+                    : mutationConfirmed(matchingParticipant(current, memberBefore), action);
+            String status = confirmedMutation
                     ? MEMBER_STATUS_OK
                     : MEMBER_STATUS_UNKNOWN;
             results.put(jid, memberResult(jid, status, memberStatusReason(status)));
@@ -894,6 +926,64 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         log.info("群成员操作超时回读完成 accountId={} action={} targetCount={} confirmedCount={}",
                 account.accountId(), action, actionable.size(), confirmedCount);
         return results;
+    }
+
+    /** 按精确 JID、再按明确手机号查找操作前后的同一逻辑成员。 */
+    private static GroupParticipantResult matchingParticipant(
+            Map<String, GroupParticipantResult> members,
+            GroupParticipantResult expected) {
+        if (members == null || expected == null) {
+            return null;
+        }
+        GroupParticipantResult exactJid = members.values().stream()
+                .filter(current -> sameJid(expected.jid(), current.jid()))
+                .findFirst()
+                .orElse(null);
+        if (exactJid != null) {
+            return exactJid;
+        }
+        String expectedPhone = stableParticipantPhone(expected);
+        if (expectedPhone == null) {
+            return null;
+        }
+        return members.values().stream()
+                .filter(current -> expectedPhone.equals(stableParticipantPhone(current)))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 仅在 metadata 无歧义地证明目标缺席时确认移除。
+     * 非空成员列表中存在无法比较手机号的 LID 时保持 UNKNOWN，避免 PN/LID 切换造成假成功。
+     */
+    private static boolean removalConfirmed(
+            Map<String, GroupParticipantResult> members,
+            GroupParticipantResult expected) {
+        if (members == null || expected == null) {
+            return false;
+        }
+        if (members.isEmpty()) {
+            return true;
+        }
+        if (matchingParticipant(members, expected) != null) {
+            return false;
+        }
+        if (stableParticipantPhone(expected) == null) {
+            return false;
+        }
+        return members.values().stream()
+                .allMatch(current -> stableParticipantPhone(current) != null);
+    }
+
+    private static boolean sameJid(String expected, String current) {
+        return expected != null
+                && current != null
+                && expected.trim().equalsIgnoreCase(current.trim());
+    }
+
+    private static String stableParticipantPhone(GroupParticipantResult participant) {
+        String phone = normalizedPhone(participant.phone());
+        return phone == null ? normalizedPhone(participant.jid()) : phone;
     }
 
     /**

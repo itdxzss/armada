@@ -9,6 +9,7 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -30,11 +31,15 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Mock
     private GroupLinkPreviewMapper previewMapper;
 
+    @Mock
+    private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     @Test
     void registerAccountObservedGroupRevivesArchivedGroupLinkMatchedByJid() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, membershipMapper, previewMapper);
+                        groupLinkMapper, membershipMapper, previewMapper,
+                        currentSnapshotPersistence);
         when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363001@g.us"))
                 .thenReturn(88L);
 
@@ -50,7 +55,8 @@ class GroupLinkRegistryServiceImplUnitTest {
     void registerAccountObservedGroupAtomicallyCreatesOrReusesDerivedLink() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, membershipMapper, previewMapper);
+                        groupLinkMapper, membershipMapper, previewMapper,
+                        currentSnapshotPersistence);
         when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363002@g.us"))
                 .thenReturn(null);
         org.mockito.Mockito.doReturn(1).when(groupLinkMapper).upsertAccountObservedGroup(
@@ -80,5 +86,23 @@ class GroupLinkRegistryServiceImplUnitTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void knownMarketingMembershipIsWrittenToCurrentModel() {
+        GroupLinkRegistryServiceImpl service = new GroupLinkRegistryServiceImpl(
+                groupLinkMapper, membershipMapper, previewMapper,
+                currentSnapshotPersistence);
+
+        service.registerKnownMembership(
+                77L, "120363003@g.us", 301L, true, 3_000L);
+
+        verify(currentSnapshotPersistence).applySelfMembershipChanged(
+                301L, "120363003@g.us",
+                AccountGroupMembershipStatus.IN_GROUP,
+                3_000L, "registry:77:301:3000", "GROUP_PULL_MARKETING");
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                301L, "120363003@g.us", true, true, 3_000L,
+                "registry:77:301:3000", "GROUP_PULL_MARKETING");
     }
 }

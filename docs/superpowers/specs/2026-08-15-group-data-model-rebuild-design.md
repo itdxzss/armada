@@ -409,6 +409,8 @@ PN/LID 同时保存是为了适配 Web/Android 当前寻址差异，不能拿 LI
 
 presence 与 role 分列，解决物理字段混用；但初始回填和实时 Adapter 必须复现当前 member state/cache/snapshot 与 Consumer 的可见结果。`membership_epoch`/version 字段只用于防止同一存储内部旧角色复活，不能据此改变当前列表管理员、成员详情、动作目标和导出。
 
+现有群详情成员接口的业务口径是“最后一次完整成员快照”，不是“当前仍在群的成员”。`wa_group_participant` 会被完整快照之后的成员事件持续更新，当前六表不能重建该历史截面的明细。因此切换期详情头可读取 `wa_group/wa_group_profile`，成员列表必须继续读取 `whatsapp_group_member_snapshot`；不得直接用 `presence_status=1` 替代。只有新模型能够保存并验证同一完整快照明细后，才允许另行切换。
+
 现有 API 继续提交/返回当前 participantJid/JID 参数。`participant.id` 只是后端内部关联键，本期不新增 participantId API，也不让前端选择 PN/LID。
 
 ### 5.5 wa_account_group_binding

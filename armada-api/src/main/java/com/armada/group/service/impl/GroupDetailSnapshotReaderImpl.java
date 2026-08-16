@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
+import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
@@ -15,12 +16,15 @@ import org.springframework.stereotype.Component;
 public class GroupDetailSnapshotReaderImpl implements GroupDetailSnapshotReader {
 
     private final GroupListCurrentMapper currentMapper;
+    private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
     private final GroupMetadataSyncTaskMapper taskMapper;
 
     public GroupDetailSnapshotReaderImpl(
             GroupListCurrentMapper currentMapper,
+            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupMetadataSyncTaskMapper taskMapper) {
         this.currentMapper = currentMapper;
+        this.memberSnapshotMapper = memberSnapshotMapper;
         this.taskMapper = taskMapper;
     }
 
@@ -31,7 +35,7 @@ public class GroupDetailSnapshotReaderImpl implements GroupDetailSnapshotReader 
 
     @Override
     public List<WhatsappGroupMemberSnapshot> members(Long groupLinkId) {
-        return currentMapper.selectGroupDetailMembers(TenantContext.get(), groupLinkId);
+        return memberSnapshotMapper.selectByGroupLinkId(groupLinkId);
     }
 
     @Override

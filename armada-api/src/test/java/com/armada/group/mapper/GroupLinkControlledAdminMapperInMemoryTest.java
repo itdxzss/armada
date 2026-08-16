@@ -273,7 +273,7 @@ class GroupLinkControlledAdminMapperInMemoryTest {
     }
 
     @Test
-    void groupDetailAndMembersComeFromCurrentFacts() throws SQLException {
+    void groupDetailComesFromCurrentFacts() throws SQLException {
         execute(
                 """
                 INSERT INTO group_link
@@ -297,15 +297,6 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 VALUES (630, 7, 530, '当前详情群名', '当前群公告', 2,
                         113600000, 1, 0, 1, 1, 0, 604800,
                         200, 100, 200)
-                """,
-                """
-                INSERT INTO wa_group_participant
-                  (id, tenant_id, group_id, pn_jid, phone, presence_status,
-                   presence_observed_at, role, created_at, updated_at)
-                VALUES
-                  (830, 7, 530, '1001@s.whatsapp.net', '1001', 1, 200, 1, 100, 200),
-                  (831, 7, 530, '1002@s.whatsapp.net', '1002', 1, 200, 3, 100, 200),
-                  (832, 7, 530, '1003@s.whatsapp.net', '1003', 2, 200, 2, 100, 200)
                 """);
 
         assertThat(currentMapper.selectGroupDetail(TENANT_ID, 230L))
@@ -318,16 +309,6 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                     assertThat(detail.getAnnounceOnly()).isTrue();
                     assertThat(detail.getAdminOnlyEditInfo()).isFalse();
                 });
-        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 230L))
-                .extracting(member -> member.getParticipantJid(),
-                        member -> member.getRole(),
-                        member -> member.getIsAdmin(),
-                        member -> member.getIsOwner())
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple(
-                                "1002@s.whatsapp.net", "OWNER", true, true),
-                        org.assertj.core.groups.Tuple.tuple(
-                                "1001@s.whatsapp.net", "MEMBER", false, false));
     }
 
     private static GroupLinkQuery pageQuery() {

@@ -549,6 +549,20 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
+    void groupBackfillAllowsAliasesResolvedToSameCanonicalGroup() {
+        seedGroupAlias(62L, "wa://group/resolved-one@g.us", "120363-resolved@g.us");
+        seedGroupAlias(63L, "wa://group/resolved-two@g.us", "120363-RESOLVED@g.us");
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES (7, '120363-resolved@g.us', 1, 100, 100)
+                """);
+        refreshCanonicalReferences();
+
+        assertThat(backfillMapper.countDuplicateGroupJids()).isZero();
+    }
+
+    @Test
     void groupBackfillDoesNotOverwriteNewerDualWrite() {
         jdbc.update("""
                 INSERT INTO group_link (

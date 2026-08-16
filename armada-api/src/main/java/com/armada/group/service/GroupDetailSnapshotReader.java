@@ -11,7 +11,7 @@ public interface GroupDetailSnapshotReader {
     /** 读取当前群资料。 */
     GroupLinkPreview profile(Long groupLinkId);
 
-    /** 读取当前仍在群的成员。 */
+    /** 读取最后一次完整成员快照。 */
     List<WhatsappGroupMemberSnapshot> members(Long groupLinkId);
 
     /** 读取单群耐久 metadata 同步任务。 */

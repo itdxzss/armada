@@ -111,9 +111,9 @@ class GroupListCurrentMapperSqlShapeTest {
         }
         assertThat(countSql).doesNotContain("WITH page_ids", "GROUP_CONCAT");
         assertThat(countSql)
-                .contains("current_group.group_jid LIKE CONCAT")
-                .contains("invite_code) LIKE CONCAT")
-                .contains("participant.phone LIKE CONCAT");
+                .contains("CAST(current_group.group_jid AS CHAR)")
+                .contains("CAST(COALESCE(current_invite.invite_code, input_invite.invite_code) AS CHAR)")
+                .contains("CAST(participant.phone AS CHAR)");
         assertThat(pageSql)
                 .contains("WITH page_ids AS")
                 .contains("LIMIT ?, ?")
@@ -135,9 +135,9 @@ class GroupListCurrentMapperSqlShapeTest {
         String nonAsciiCountSql = boundSql(configuration, "count", nonAsciiParameters);
         assertThat(nonAsciiCountSql)
                 .contains("current_group.display_name")
-                .doesNotContain("current_group.group_jid LIKE CONCAT")
-                .doesNotContain("invite_code LIKE CONCAT")
-                .doesNotContain("participant.phone LIKE CONCAT");
+                .doesNotContain("CAST(current_group.group_jid AS CHAR)")
+                .doesNotContain("CAST(COALESCE(current_invite.invite_code, input_invite.invite_code) AS CHAR)")
+                .doesNotContain("CAST(participant.phone AS CHAR)");
     }
 
     @Test

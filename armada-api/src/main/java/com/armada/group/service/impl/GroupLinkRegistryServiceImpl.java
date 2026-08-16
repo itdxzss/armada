@@ -48,19 +48,25 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     /** 当前邀请码到原群入口的数据访问。 */
     private final GroupLinkPreviewMapper previewMapper;
 
+    /** 新群模型当前关系写入。 */
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     /**
      * 创建群组池登记服务。
      *
      * @param groupLinkMapper 群入口数据访问
      * @param membershipMapper 账号在群关系及群信息快照数据访问
      * @param previewMapper 当前邀请码事实数据访问
+     * @param currentSnapshotPersistence 新群模型当前关系写入
      */
     public GroupLinkRegistryServiceImpl(GroupLinkMapper groupLinkMapper,
                                         AccountGroupMembershipMapper membershipMapper,
-                                        GroupLinkPreviewMapper previewMapper) {
+                                        GroupLinkPreviewMapper previewMapper,
+                                        AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
         this.previewMapper = previewMapper;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
     /**
@@ -305,6 +311,13 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         membership.setCreatedAt(now);
         membership.setUpdatedAt(now);
         membershipMapper.upsertMembership(membership);
+        String eventId = "registry:" + groupLinkId + ":" + accountId + ":" + now;
+        currentSnapshotPersistence.applySelfMembershipChanged(
+                accountId, groupJid, AccountGroupMembershipStatus.IN_GROUP,
+                now, eventId, source);
+        currentSnapshotPersistence.applyControlledParticipantObservation(
+                accountId, groupJid, true, admin, now,
+                eventId, source);
     }
 
     /**

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
+import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupExecutionAccountSelector;
@@ -41,6 +42,8 @@ class GroupInviteLinkServiceImplTest {
         when(registry.registerAccountObservedGroup(
                 "120363group@g.us", null, ProtocolBackend.ANDROID, 1786341600000L))
                 .thenReturn(51L);
+        when(healthMapper.insertAvailableFromInviteObservationIfAbsent(
+                org.mockito.ArgumentMatchers.any(GroupLinkHealth.class))).thenReturn(1);
 
         service.applyCurrentInvite(new GroupInviteLinkObservation(
                 "evt-1", null, "120363group@g.us", "NewInviteCode_2026",
@@ -55,6 +58,14 @@ class GroupInviteLinkServiceImplTest {
         assertThat(captor.getValue().getInviteCodeObservedAt()).isEqualTo(1786341600000L);
         verify(currentInvitePersistence).apply(
                 "120363group@g.us", "NewInviteCode_2026", 1786341600000L);
+        ArgumentCaptor<GroupLinkHealth> healthCaptor =
+                ArgumentCaptor.forClass(GroupLinkHealth.class);
+        verify(currentInvitePersistence).applyHealth(
+                org.mockito.ArgumentMatchers.eq("120363group@g.us"),
+                healthCaptor.capture());
+        assertThat(healthCaptor.getValue().getHealthStatus()).isEqualTo(1);
+        assertThat(healthCaptor.getValue().getBanned()).isFalse();
+        assertThat(healthCaptor.getValue().getLastCheckAt()).isEqualTo(1786341600000L);
     }
 
     @Test
@@ -122,6 +133,19 @@ class GroupInviteLinkServiceImplTest {
         assertThat(captor.getValue().getInviteCode()).isEqualTo("ObservedReplacement_2026");
         assertThat(captor.getValue().getInviteCodeObservedAt()).isEqualTo(3_000L);
         verifyNoInteractions(registry);
+    }
+
+    @Test
+    void rejectedLegacyHealthObservationDoesNotOverwriteGroupProfile() {
+        service.applyCurrentInvite(new GroupInviteLinkObservation(
+                "stale-observation-1", 51L, "120363group@g.us",
+                "StaleReplacement_2026", ProtocolBackend.WEB,
+                "MANUAL_REFRESH", 2_000L));
+
+        org.mockito.Mockito.verify(currentInvitePersistence, org.mockito.Mockito.never())
+                .applyHealth(
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(GroupLinkHealth.class));
     }
 
     @Test

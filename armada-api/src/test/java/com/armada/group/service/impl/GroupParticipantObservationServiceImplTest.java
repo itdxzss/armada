@@ -39,6 +39,7 @@ class GroupParticipantObservationServiceImplTest {
     @Mock private GroupLinkMapper groupLinkMapper;
     @Mock private AccountMapper accountMapper;
     @Mock private AccountGroupMembershipMapper membershipMapper;
+    @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     @AfterEach
     void clearTenant() {
@@ -54,7 +55,7 @@ class GroupParticipantObservationServiceImplTest {
                 7L, "120363-test@g.us", List.of("123456789012345@lid")))
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
                         "123456789012345@lid", "15550000001", true, false,
-                        "admin", true, "ROLE_EVENT", 1_000L)));
+                        "admin", true, "ROLE_EVENT", 1_000L, "event-1")));
         when(groupLinkMapper.selectActiveIdByGroupJid("120363-test@g.us")).thenReturn(99L);
         when(memberSnapshotMapper.selectByGroupLinkId(99L)).thenReturn(List.of(
                 snapshot("123456789012345@lid", "15550000001")));
@@ -93,6 +94,9 @@ class GroupParticipantObservationServiceImplTest {
             assertThat(row.getStatusSource()).isEqualTo("WGP2_PROMOTE");
             assertThat(row.getStatusUpdatedAt()).isEqualTo(1_000L);
         });
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                77L, "120363-test@g.us", true, true,
+                1_000L, "event-1", "WGP2_PROMOTE");
         assertThat(TenantContext.get()).isNull();
     }
 
@@ -125,6 +129,9 @@ class GroupParticipantObservationServiceImplTest {
         assertThat(membershipCaptor.getValue().getAdmin()).isFalse();
         assertThat(membershipCaptor.getValue().getStatusSource()).isEqualTo("WGP2_DEMOTE");
         assertThat(membershipCaptor.getValue().getStatusUpdatedAt()).isEqualTo(2_000L);
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                77L, "120363-test@g.us", true, false,
+                2_000L, null, "WGP2_DEMOTE");
     }
 
     @Test
@@ -158,6 +165,9 @@ class GroupParticipantObservationServiceImplTest {
         assertThat(membershipCaptor.getValue().getMembershipStatus())
                 .isEqualTo(AccountGroupMembershipStatus.LEFT.code());
         assertThat(membershipCaptor.getValue().getStatusSource()).isEqualTo("GROUP_MEMBER_QUERY");
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                77L, "120363-test@g.us", false, false,
+                3_000L, null, "GROUP_MEMBER_QUERY");
     }
 
     @Test
@@ -181,7 +191,8 @@ class GroupParticipantObservationServiceImplTest {
 
     private GroupParticipantObservationServiceImpl service() {
         return new GroupParticipantObservationServiceImpl(
-                memberStateMapper, memberSnapshotMapper, groupLinkMapper, accountMapper, membershipMapper);
+                memberStateMapper, memberSnapshotMapper, groupLinkMapper, accountMapper,
+                membershipMapper, currentSnapshotPersistence);
     }
 
     private static GroupParticipantObservation observation(

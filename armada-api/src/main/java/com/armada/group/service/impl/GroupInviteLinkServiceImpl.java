@@ -70,10 +70,18 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
                         observation.groupJid().trim(), null,
                         observation.protocolBackend(), observedAt)
                 : observation.groupLinkId();
-        storeCurrentInvite(
+        GroupLinkHealth health = storeCurrentInvite(
                 groupLinkId, observation.groupJid(), observation.inviteCode(), observedAt);
         String inviteCode = observation.inviteCode().trim();
         currentInvitePersistence.apply(observation.groupJid(), inviteCode, observedAt);
+        String resolvedGroupJid = trimToNull(observation.groupJid());
+        if (resolvedGroupJid == null) {
+            GroupLinkPreview current = previewMapper.selectByGroupLinkId(groupLinkId);
+            resolvedGroupJid = current == null ? null : trimToNull(current.getGroupJid());
+        }
+        if (resolvedGroupJid != null && health != null) {
+            currentInvitePersistence.applyHealth(resolvedGroupJid, health);
+        }
         log.info("群邀请链接当前事实已接收 observationId={} groupLinkId={} source={} "
                         + "backend={} inviteCodeSuffix={}",
                 observation.observationId(), groupLinkId, observation.source(),
@@ -123,7 +131,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         currentInvitePersistence.applyPublicPreview(preview, labelId);
     }
 
-    private void storeCurrentInvite(
+    private GroupLinkHealth storeCurrentInvite(
             Long groupLinkId, String groupJid, String inviteCode, long observedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(groupLinkId);
@@ -133,7 +141,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
         previewMapper.upsertInviteLinkChange(row);
-        restoreAvailableHealth(groupLinkId, observedAt);
+        return restoreAvailableHealth(groupLinkId, observedAt);
     }
 
     /** {@inheritDoc} */
@@ -212,7 +220,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         }
     }
 
-    private void restoreAvailableHealth(Long groupLinkId, long observedAt) {
+    private GroupLinkHealth restoreAvailableHealth(Long groupLinkId, long observedAt) {
         GroupLinkHealth row = new GroupLinkHealth();
         row.setGroupLinkId(groupLinkId);
         row.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
@@ -222,10 +230,12 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         row.setHealthFailureCount(0);
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
-        if (healthMapper.updateAvailableFromInviteObservation(row) == 0) {
-            healthMapper.insertAvailableFromInviteObservationIfAbsent(row);
-            healthMapper.updateAvailableFromInviteObservation(row);
+        if (healthMapper.updateAvailableFromInviteObservation(row) > 0) {
+            return row;
         }
+        int inserted = healthMapper.insertAvailableFromInviteObservationIfAbsent(row);
+        int refreshed = healthMapper.updateAvailableFromInviteObservation(row);
+        return inserted > 0 || refreshed > 0 ? row : null;
     }
 
     private static boolean hasText(String value) {

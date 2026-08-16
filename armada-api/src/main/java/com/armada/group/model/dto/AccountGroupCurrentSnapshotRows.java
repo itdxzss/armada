@@ -77,7 +77,6 @@ public final class AccountGroupCurrentSnapshotRows {
     public record Write(
             Long groupId,
             String groupJid,
-            String displayName,
             String avatarUrl,
             String subject,
             Integer memberCount,
@@ -96,7 +95,7 @@ public final class AccountGroupCurrentSnapshotRows {
 
         public Write withGroupId(Long resolvedGroupId) {
             return new Write(
-                    resolvedGroupId, groupJid, displayName, avatarUrl,
+                    resolvedGroupId, groupJid, avatarUrl,
                     subject, memberCount, waCreatedAt, announceOnly, pnJid, phone,
                     role, eventId, syncAt, now, wasInInitialBaseline,
                     baselineSubjectSnapshot, membershipActiveSinceAt,

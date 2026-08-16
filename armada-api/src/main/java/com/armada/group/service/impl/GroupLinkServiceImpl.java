@@ -9,6 +9,7 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
@@ -35,6 +36,7 @@ import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.tenant.TenantContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -51,7 +53,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 群链接业务实现。
  *
- * <p>租户隔离由 MyBatis 租户拦截器透明完成,本类不手写 tenant_id。</p>
+ * <p>租户隔离默认由 MyBatis 租户拦截器完成；群组列表使用当前模型并显式传入请求租户。</p>
  */
 @Service
 public class GroupLinkServiceImpl implements GroupLinkService {
@@ -85,6 +87,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA");
 
     private final GroupLinkMapper groupLinkMapper;
+    private final GroupListCurrentMapper groupListCurrentMapper;
     private final GroupFolderMapper folderMapper;
     private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkHealthMapper healthMapper;
@@ -94,8 +97,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupPreviewPort groupPreviewPort;
     private final GroupProfilePort groupProfilePort;
     private final GroupCurrentLocalPersistence currentLocalPersistence;
+    private final GroupCurrentInvitePersistence currentInvitePersistence;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
+                                GroupListCurrentMapper groupListCurrentMapper,
                                 GroupFolderMapper folderMapper,
                                 GroupLinkPreviewMapper previewMapper,
                                 GroupLinkHealthMapper healthMapper,
@@ -104,8 +109,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 AccountMapper accountMapper,
                                 GroupPreviewPort groupPreviewPort,
                                 GroupProfilePort groupProfilePort,
-                                GroupCurrentLocalPersistence currentLocalPersistence) {
+                                GroupCurrentLocalPersistence currentLocalPersistence,
+                                GroupCurrentInvitePersistence currentInvitePersistence) {
         this.groupLinkMapper = groupLinkMapper;
+        this.groupListCurrentMapper = groupListCurrentMapper;
         this.folderMapper = folderMapper;
         this.previewMapper = previewMapper;
         this.healthMapper = healthMapper;
@@ -115,6 +122,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.groupPreviewPort = groupPreviewPort;
         this.groupProfilePort = groupProfilePort;
         this.currentLocalPersistence = currentLocalPersistence;
+        this.currentInvitePersistence = currentInvitePersistence;
     }
 
     /**
@@ -131,10 +139,11 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         validateStatus(query.getStatus());
         normalizeAndValidateListQuery(query);
         query.setNowSeconds(Instant.now().getEpochSecond());
-        long total = groupLinkMapper.countByLabel(query);
+        Long tenantId = TenantContext.get();
+        long total = groupListCurrentMapper.count(tenantId, query);
         List<GroupLinkVO> rows = total == 0
                 ? List.of()
-                : converter.toGroupLinkVOList(groupLinkMapper.selectPageByLabel(query));
+                : converter.toGroupLinkVOList(groupListCurrentMapper.selectPage(tenantId, query));
         log.debug("群链接分页查询 labelId={} total={}", query.getLabelId(), total);
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
@@ -627,6 +636,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         health.setCreatedAt(now);
         health.setUpdatedAt(now);
         healthMapper.upsert(health);
+        currentInvitePersistence.applyHealth(preview.groupJid(), health);
     }
 
     /** 构造单条成功返回,字段尽量对齐 preview/health 快照,便于前端即时刷新列表行。 */

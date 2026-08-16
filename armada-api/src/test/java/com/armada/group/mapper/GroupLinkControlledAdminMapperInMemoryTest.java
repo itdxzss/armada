@@ -161,8 +161,8 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 """
                 INSERT INTO wa_group_profile
                   (id, tenant_id, group_id, subject, member_count, wa_created_at,
-                   current_invite_id, created_at, updated_at)
-                VALUES (610, 7, 510, '当前模型筛选群', 5, 113600000, 710, 100, 100)
+                   health_status, banned, current_invite_id, created_at, updated_at)
+                VALUES (610, 7, 510, '当前模型筛选群', 6, 113600000, 1, 0, 710, 100, 100)
                 """,
                 """
                 INSERT INTO wa_group_participant
@@ -351,7 +351,10 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 """
                 CREATE TABLE wa_group_profile (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
-                  subject VARCHAR(255), member_count INT, wa_created_at BIGINT,
+                  subject VARCHAR(255), member_count INT, checked_member_count INT,
+                  wa_created_at BIGINT,
+                  health_status TINYINT, banned TINYINT, last_checked_at BIGINT,
+                  last_error_code VARCHAR(64), failure_count INT DEFAULT 0,
                   metadata_observed_at BIGINT, current_invite_id BIGINT,
                   current_invite_observed_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
                 )
@@ -415,6 +418,7 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 MybatisPlusInterceptor interceptor) throws Exception {
             MybatisConfiguration configuration = new MybatisConfiguration();
             configuration.setMapUnderscoreToCamelCase(true);
+            configuration.setDatabaseId("h2");
             MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
             factory.setDataSource(dataSource);
             factory.setConfiguration(configuration);

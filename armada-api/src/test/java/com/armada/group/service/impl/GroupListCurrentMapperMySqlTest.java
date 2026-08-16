@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.model.dto.GroupLinkQuery;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
+import org.mapstruct.factory.Mappers;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -30,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 class GroupListCurrentMapperMySqlTest {
 
     private static final long TENANT_ID = 7L;
+    private static final GroupConverter CONVERTER = Mappers.getMapper(GroupConverter.class);
 
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.8")
@@ -50,6 +53,8 @@ class GroupListCurrentMapperMySqlTest {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         createLegacySchema(jdbc);
         GroupCurrentSnapshotMySqlTestSupport.executeV120(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV121(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV122(dataSource);
         insertFixtures(jdbc);
 
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
@@ -104,8 +109,11 @@ class GroupListCurrentMapperMySqlTest {
         assertThat(currentMapper.count(TENANT_ID, query))
                 .isEqualTo(legacyMapper.countByLabel(query));
         assertThat(currentMapper.selectPage(TENANT_ID, query))
-                .usingRecursiveFieldByFieldElementComparator()
-                .containsExactlyElementsOf(legacyMapper.selectPageByLabel(query));
+                .extracting(CONVERTER::toGroupLinkVO)
+                .containsExactlyElementsOf(
+                        legacyMapper.selectPageByLabel(query).stream()
+                                .map(CONVERTER::toGroupLinkVO)
+                                .toList());
     }
 
     private static GroupLinkQuery pageQuery(int page, int pageSize) {
@@ -216,11 +224,13 @@ class GroupListCurrentMapperMySqlTest {
                 """);
         jdbc.update("""
                 INSERT INTO wa_group_profile
-                  (id, tenant_id, group_id, subject, member_count, wa_created_at,
+                  (id, tenant_id, group_id, subject, member_count, checked_member_count,
+                   wa_created_at,
+                   health_status, banned, last_checked_at, last_error_code, failure_count,
                    metadata_observed_at, current_invite_id,
                    current_invite_observed_at, created_at, updated_at)
-                VALUES (601, 7, 501, 'WA群名', 5, 113600000,
-                        120, 701, 120, 200, 200)
+                VALUES (601, 7, 501, 'WA群名', 5, 6, 113600000,
+                        1, 0, 130, NULL, 0, 120, 701, 120, 200, 200)
                 """);
         jdbc.update("""
                 INSERT INTO wa_group_participant
@@ -230,7 +240,9 @@ class GroupListCurrentMapperMySqlTest {
                   (801, 7, 501, '1001@s.whatsapp.net', '1001', NULL,
                    1, 2, 100, 100, 100),
                   (802, 7, 501, '1002@s.whatsapp.net', '1002', 'PK',
-                   1, 3, 100, 100, 100)
+                   1, 2, 100, 100, 100),
+                  (803, 7, 501, '9199@s.whatsapp.net', '9199', 'IN',
+                   1, 3, 200, 200, 200)
                 """);
         jdbc.update("""
                 INSERT INTO wa_account_group_binding

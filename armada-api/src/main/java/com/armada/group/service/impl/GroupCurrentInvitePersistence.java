@@ -47,7 +47,7 @@ public class GroupCurrentInvitePersistence {
         mapper.updateCurrentInvite(tenantId, groupId, inviteId, observedAt, now);
     }
 
-    /** 将现有健康检测结论同步到该群当前邀请码；当前邀请码不存在时不补造数据。 */
+    /** 将现有按群 JID 检测的健康结论同步到群资料，不依赖当前邀请码。 */
     @Transactional(rollbackFor = Exception.class)
     public void applyHealth(String groupJid, GroupLinkHealth health) {
         Long tenantId = TenantContext.get();
@@ -58,7 +58,7 @@ public class GroupCurrentInvitePersistence {
         if (normalizedGroupJid == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康结果缺少群 JID");
         }
-        mapper.updateCurrentInviteHealth(
+        mapper.updateGroupHealth(
                 tenantId, normalizedGroupJid, health, System.currentTimeMillis());
     }
 

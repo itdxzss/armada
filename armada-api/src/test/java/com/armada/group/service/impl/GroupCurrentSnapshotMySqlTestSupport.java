@@ -55,11 +55,25 @@ final class GroupCurrentSnapshotMySqlTestSupport {
     }
 
     static void executeV120(DataSource dataSource) throws Exception {
+        executeMigration(dataSource, "/db/migration/V120__group_data_model_foundation.sql");
+    }
+
+    static void executeV121(DataSource dataSource) throws Exception {
+        executeMigration(dataSource, "/db/migration/V121__group_profile_health.sql");
+    }
+
+    static void executeV122(DataSource dataSource) throws Exception {
+        executeMigration(
+                dataSource,
+                "/db/migration/V122__group_profile_checked_member_count.sql");
+    }
+
+    private static void executeMigration(DataSource dataSource, String resource) throws Exception {
         String sql;
         try (var stream = GroupCurrentSnapshotMySqlTestSupport.class.getResourceAsStream(
-                "/db/migration/V120__group_data_model_foundation.sql")) {
+                resource)) {
             if (stream == null) {
-                throw new IllegalStateException("找不到 V120 新群模型迁移");
+                throw new IllegalStateException("找不到新群模型迁移: " + resource);
             }
             sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

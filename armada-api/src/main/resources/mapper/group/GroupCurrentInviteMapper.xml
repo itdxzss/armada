@@ -103,24 +103,21 @@
       AND group_id = #{groupId}
   </update>
 
-  <update id="updateCurrentInviteHealth">
-    UPDATE wa_group_invite invite
-    INNER JOIN wa_group_profile profile
-      ON profile.tenant_id = invite.tenant_id
-     AND profile.current_invite_id = invite.id
+  <update id="updateGroupHealth">
+    UPDATE wa_group_profile profile
     INNER JOIN wa_group wa_group
       ON wa_group.tenant_id = profile.tenant_id
      AND wa_group.id = profile.group_id
-    SET invite.health_status = #{health.healthStatus},
-        invite.banned = #{health.banned},
-        invite.checked_member_count = COALESCE(
-          #{health.currentCount}, invite.checked_member_count
+    SET profile.health_status = #{health.healthStatus},
+        profile.banned = #{health.banned},
+        profile.checked_member_count = COALESCE(
+          #{health.currentCount}, profile.checked_member_count
         ),
-        invite.last_checked_at = #{health.lastCheckAt},
-        invite.last_error_code = LEFT(#{health.lastHealthError}, 64),
-        invite.failure_count = #{health.healthFailureCount},
-        invite.updated_at = #{now}
-    WHERE invite.tenant_id = #{tenantId}
+        profile.last_checked_at = #{health.lastCheckAt},
+        profile.last_error_code = LEFT(#{health.lastHealthError}, 64),
+        profile.failure_count = #{health.healthFailureCount},
+        profile.updated_at = #{now}
+    WHERE profile.tenant_id = #{tenantId}
       AND wa_group.group_jid = #{groupJid}
   </update>
 

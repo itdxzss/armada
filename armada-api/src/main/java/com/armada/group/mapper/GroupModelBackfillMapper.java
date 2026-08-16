@@ -62,6 +62,16 @@ public interface GroupModelBackfillMapper {
     /** 从旧群预览回填一批群主身份及国家投影。 */
     int backfillProfileOwners(@Param("limit") int limit);
 
+    /** 读取旧成员快照下一批的末尾主键；用于按主键游标推进，避免重复全表扫描。 */
+    Long selectLegacyMemberSnapshotBatchEndId(
+            @Param("afterId") long afterId,
+            @Param("limit") int limit);
+
+    /** 从旧列表实际使用的完整成员快照主键区间回填成员当前态。 */
+    int backfillLegacyMemberSnapshots(
+            @Param("afterId") long afterId,
+            @Param("endId") long endId);
+
     /** 从账号关系和合法 baseline 回填一批账号自身成员。 */
     int backfillAccountParticipants(@Param("limit") int limit);
 

@@ -47,7 +47,7 @@ public interface GroupCurrentInviteMapper {
             @Param("observedAt") long observedAt,
             @Param("now") long now);
 
-    int updateCurrentInviteHealth(
+    int updateGroupHealth(
             @Param("tenantId") Long tenantId,
             @Param("groupJid") String groupJid,
             @Param("health") GroupLinkHealth health,

@@ -128,6 +128,7 @@ class WhatsappGroupMemberCacheMapperH2Test {
                     assertThat(row.admin()).isTrue();
                     assertThat(row.stateSource()).isEqualTo("ROLE_EVENT");
                     assertThat(row.stateUpdatedAt()).isEqualTo(2_000L);
+                    assertThat(row.sourceEventId()).isEqualTo("promote-1");
                 });
     }
 

@@ -91,6 +91,9 @@ SELECT 'unresolved_member_group' AS gate_name,
        COUNT(*) AS observed_count,
        'information_only' AS expected_count
 FROM (
+    SELECT snapshot.tenant_id, snapshot.group_jid
+    FROM whatsapp_group_member_snapshot snapshot
+    UNION ALL
     SELECT state.tenant_id, state.group_jid
     FROM whatsapp_group_member_state state
     UNION ALL
@@ -109,6 +112,8 @@ SELECT 'invalid_participant_jid' AS gate_name,
        COUNT(*) AS violation_count,
        0 AS expected_count
 FROM (
+    SELECT participant_jid FROM whatsapp_group_member_snapshot
+    UNION ALL
     SELECT participant_jid FROM whatsapp_group_member_state
     UNION ALL
     SELECT participant_jid FROM whatsapp_group_member_join_fact

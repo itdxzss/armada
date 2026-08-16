@@ -84,15 +84,14 @@
   <insert id="insertMissingGroups">
     <!-- 普通读已筛出 missing；并发 winner 由后续 G current-read 收敛，禁止先 UPDATE 缺失键。 -->
     INSERT INTO wa_group (
-      tenant_id, group_jid, display_name, avatar_url,
+      tenant_id, group_jid, avatar_url,
       origin, created_at, updated_at, deleted_at
     )
-    SELECT #{tenantId}, incoming.group_jid, incoming.display_name, incoming.avatar_url,
+    SELECT #{tenantId}, incoming.group_jid, incoming.avatar_url,
            5, incoming.created_at, incoming.updated_at, NULL
     FROM (
       <foreach collection="rows" item="row" separator=" UNION ALL ">
         SELECT #{row.groupJid} AS group_jid,
-               #{row.displayName} AS display_name,
                #{row.avatarUrl} AS avatar_url,
                #{row.now} AS created_at,
                #{row.now} AS updated_at
@@ -132,18 +131,33 @@
 
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
-      group_id, subject, member_count, wa_created_at, announce_only,
-      metadata_observed_at, created_at, updated_at
+      group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,
+      metadata_observed_at, health_status, banned, last_checked_at,
+      last_error_code, failure_count, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.waCreatedAt},
-        #{row.announceOnly}, #{row.syncAt}, #{row.now}, #{row.now}
+        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.memberCount},
+        #{row.waCreatedAt},
+        #{row.announceOnly}, #{row.syncAt}, 1, 0, #{row.syncAt},
+        NULL, 0, #{row.now}, #{row.now}
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
       subject = COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject),
       member_count = COALESCE(VALUES(member_count), member_count),
+      checked_member_count = COALESCE(
+        VALUES(checked_member_count), checked_member_count
+      ),
+      health_status = CASE WHEN COALESCE(banned, 0) = 1
+        THEN health_status ELSE VALUES(health_status) END,
+      banned = CASE WHEN COALESCE(banned, 0) = 1
+        THEN banned ELSE VALUES(banned) END,
+      last_checked_at = VALUES(last_checked_at),
+      last_error_code = CASE WHEN COALESCE(banned, 0) = 1
+        THEN last_error_code ELSE VALUES(last_error_code) END,
+      failure_count = CASE WHEN COALESCE(banned, 0) = 1
+        THEN failure_count ELSE VALUES(failure_count) END,
       wa_created_at = COALESCE(VALUES(wa_created_at), wa_created_at),
       announce_only = COALESCE(VALUES(announce_only), announce_only),
       metadata_observed_at = VALUES(metadata_observed_at),

@@ -93,19 +93,65 @@ class GroupListCurrentMapperSqlShapeTest {
                     .contains("handle.is_historical = 1")
                     .contains("handle.is_post_control = 1")
                     .contains("NOT EXISTS (")
-                    .contains("current_invite.checked_member_count")
-                    .contains("owner.phone_country_iso2 = ?")
-                    .contains("owner_country.continent_code = ?")
-                    .contains("current_invite.health_status, input_invite.health_status")
+                    .contains("current_profile.checked_member_count")
+                    .contains("current_profile.member_count")
+                    .contains("input_invite.checked_member_count")
+                    .contains("legacy_preview.creator_country_iso2 = ?")
+                    .contains("legacy_preview.creator_continent_code = ?")
+                    .contains("legacy_preview.owner_phone LIKE CONCAT('%', ?, '%')")
+                    .contains("current_profile.health_status")
+                    .contains("input_invite.health_status")
                     .contains("LIKE CONCAT('%', ?, '%')")
-                    .doesNotContain("FOR UPDATE");
+                    .doesNotContain("owner_ranked", "FOR UPDATE");
         }
         assertThat(countSql).doesNotContain("WITH page_ids", "GROUP_CONCAT");
         assertThat(pageSql)
                 .contains("WITH page_ids AS")
                 .contains("LIMIT ?, ?")
-                .contains("INNER JOIN page_groups page_group")
+                .contains("FROM page_groups page_group")
+                .contains("STRAIGHT_JOIN wa_group_participant participant")
+                .contains("CHAR CHARACTER SET ascii")
+                .contains("COLLATE ascii_bin")
                 .contains("GROUP_CONCAT");
+    }
+
+    @Test
+    void defaultCountAndPageIdQueryDoNotJoinEnrichmentTables() throws IOException {
+        Configuration configuration = new Configuration();
+        try (InputStream input = getClass().getResourceAsStream(
+                "/mapper/group/GroupListCurrentMapper.xml")) {
+            new XMLMapperBuilder(
+                    input,
+                    configuration,
+                    MAPPER.toString(),
+                    configuration.getSqlFragments()).parse();
+        }
+
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setPage(1);
+        query.setPageSize(20);
+        Map<String, Object> parameters = Map.of("tenantId", 7L, "query", query);
+
+        String countSql = boundSql(configuration, "count", parameters);
+        String pageSql = boundSql(configuration, "selectPage", parameters);
+        String pageIdSql = pageSql.substring(0, pageSql.indexOf("), page_groups AS"));
+
+        assertThat(countSql)
+                .contains("FROM group_link handle")
+                .doesNotContain(
+                        "group_link_preview",
+                        "group_link_import_batch",
+                        "wa_group current_group",
+                        "wa_group_profile",
+                        "wa_group_invite");
+        assertThat(pageIdSql)
+                .contains("FROM group_link handle")
+                .doesNotContain(
+                        "group_link_preview",
+                        "group_link_import_batch",
+                        "wa_group current_group",
+                        "wa_group_profile",
+                        "wa_group_invite");
     }
 
     private static String statement(String xml, String tag, String id) {

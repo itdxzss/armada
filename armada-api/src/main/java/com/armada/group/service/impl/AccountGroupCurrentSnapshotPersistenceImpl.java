@@ -50,7 +50,6 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     };
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
-    private static final int DISPLAY_NAME_MAX_LENGTH = 128;
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
@@ -119,9 +118,6 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     entry.getKey(), baseline, acceptedPresence, syncAt);
             AccountGroupsReportedEvent.Group group = entry.getValue();
             String subject = clamp(blankToNull(group.subject()), SUBJECT_MAX_LENGTH);
-            String displayName = subject == null
-                    ? existing == null ? entry.getKey() : null
-                    : clamp(subject, DISPLAY_NAME_MAX_LENGTH);
             Long activeSince = acceptedPresence
                     && (existing == null || existing.presenceStatus() == null
                     || existing.presenceStatus() != PRESENCE_IN_GROUP)
@@ -129,7 +125,6 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             rows.add(new Write(
                     null,
                     entry.getKey(),
-                    displayName,
                     clamp(blankToNull(group.avatarUrl()), AVATAR_URL_MAX_LENGTH),
                     subject,
                     group.memberCount(),
@@ -273,7 +268,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
 
         if (row.groupId() == null || (inGroup && existing.deletedAt() != null)) {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
-                    null, normalizedGroupJid, normalizedGroupJid, null,
+                    null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
                     0, normalizedEventId, occurredAt, now, null, null, null, null)));
         }
@@ -282,6 +277,81 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     tenantId, List.of(normalizedGroupJid));
             if (groupIds.size() != 1) {
                 throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析精确关系事件的 groupId");
+            }
+            row = row.withGroupId(groupIds.get(0).groupId());
+        }
+        mapper.upsertParticipantFacts(List.of(row));
+        mapper.upsertSelfBinding(tenantId, accountId, row);
+    }
+
+    /**
+     * 双写受控账号的成员当前状态和角色观察，不把角色或查询时间解释成进群时间。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyControlledParticipantObservation(
+            Long accountId,
+            String groupJid,
+            boolean inGroup,
+            boolean admin,
+            long observedAt,
+            String eventId,
+            String source) {
+        Long tenantId = requiredTenantId();
+        Context context = mapper.selectContext(accountId);
+        if (context == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型成员观察找不到活跃账号");
+        }
+        WhatsappJids.OwnerIdentity self = WhatsappJids.ownerIdentity(context.wsPhone(), "pn");
+        if (self.kind() != OwnerIdentityKind.PN
+                || self.ownerJid() == null
+                || self.ownerPhone() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号手机号无法构造 self PN JID");
+        }
+        String normalizedGroupJid = participantGroupJid(groupJid);
+        String normalizedSource = blankToNull(source);
+        if (normalizedSource == null || observedAt <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型成员观察来源或事实时间非法");
+        }
+
+        Existing existing = mapper.selectSelfMembershipExisting(
+                accountId, self.ownerJid(), normalizedGroupJid);
+        long now = System.currentTimeMillis();
+        ParticipantPresenceWrite row = new ParticipantPresenceWrite(
+                existing == null ? null : existing.groupId(),
+                normalizedGroupJid,
+                self.ownerJid(),
+                null,
+                self.ownerPhone(),
+                inGroup ? 1 : 2,
+                normalizedSource,
+                clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH),
+                observedAt,
+                now,
+                null,
+                null,
+                null,
+                null,
+                inGroup ? (admin ? 2 : 1) : null,
+                inGroup ? normalizedSource : null,
+                inGroup ? observedAt : null,
+                inGroup ? clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH) : null,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        if (row.groupId() == null || (inGroup && existing.deletedAt() != null)) {
+            mapper.insertMissingGroups(tenantId, List.of(new Write(
+                    null, normalizedGroupJid, null,
+                    null, null, null, null, self.ownerJid(), self.ownerPhone(),
+                    0, row.eventId(), observedAt, now, null, null, null, null)));
+        }
+        if (row.groupId() == null) {
+            List<GroupId> groupIds = mapper.selectGroupIds(
+                    tenantId, List.of(normalizedGroupJid));
+            if (groupIds.size() != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员观察的 groupId");
             }
             row = row.withGroupId(groupIds.get(0).groupId());
         }
@@ -498,7 +568,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (!missingGroupJids.isEmpty()) {
             List<Write> missingGroups = missingGroupJids.stream()
                     .map(groupJid -> new Write(
-                            null, groupJid, groupJid, null,
+                            null, groupJid, null,
                             null, null, null, null, null, null, 0, null,
                             now, now, null, null, null, null))
                     .toList();

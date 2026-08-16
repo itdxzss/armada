@@ -110,6 +110,10 @@ class GroupListCurrentMapperSqlShapeTest {
                     .doesNotContain("owner_ranked", "FOR UPDATE");
         }
         assertThat(countSql).doesNotContain("WITH page_ids", "GROUP_CONCAT");
+        assertThat(countSql)
+                .contains("current_group.group_jid LIKE CONCAT")
+                .contains("invite_code) LIKE CONCAT")
+                .contains("participant.phone LIKE CONCAT");
         assertThat(pageSql)
                 .contains("WITH page_ids AS")
                 .contains("LIMIT ?, ?")
@@ -120,6 +124,20 @@ class GroupListCurrentMapperSqlShapeTest {
                 .contains("GROUP_CONCAT")
                 .contains("available_admin_count")
                 .doesNotContain("page_preview.group_jid");
+
+        GroupLinkQuery nonAsciiQuery = new GroupLinkQuery();
+        nonAsciiQuery.setKeyword("五段号续批-909-2-20260806-095529");
+        nonAsciiQuery.setPage(1);
+        nonAsciiQuery.setPageSize(20);
+        Map<String, Object> nonAsciiParameters = Map.of(
+                "tenantId", 7L,
+                "query", nonAsciiQuery);
+        String nonAsciiCountSql = boundSql(configuration, "count", nonAsciiParameters);
+        assertThat(nonAsciiCountSql)
+                .contains("current_group.display_name")
+                .doesNotContain("current_group.group_jid LIKE CONCAT")
+                .doesNotContain("invite_code LIKE CONCAT")
+                .doesNotContain("participant.phone LIKE CONCAT");
     }
 
     @Test

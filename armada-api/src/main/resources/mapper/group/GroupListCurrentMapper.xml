@@ -209,23 +209,25 @@
         OR COALESCE(current_profile.subject, input_invite.preview_subject)
              LIKE CONCAT('%', #{query.keyword}, '%')
         OR handle.link_url LIKE CONCAT('%', #{query.keyword}, '%')
-        OR COALESCE(current_invite.invite_code, input_invite.invite_code)
-             LIKE CONCAT('%', #{query.keyword}, '%')
-        OR current_group.group_jid LIKE CONCAT('%', #{query.keyword}, '%')
         OR legacy_preview.owner_phone LIKE CONCAT('%', #{query.keyword}, '%')
-        OR EXISTS (
-          SELECT 1
-          FROM wa_group_participant participant
-          INNER JOIN account controlled_account
-            ON controlled_account.tenant_id = participant.tenant_id
-           AND controlled_account.ws_phone = participant.phone
-           AND controlled_account.deleted_at IS NULL
-          WHERE participant.tenant_id = current_group.tenant_id
-            AND participant.group_id = current_group.id
-            AND participant.presence_status = 1
-            AND participant.role IN (2, 3)
-            AND participant.phone LIKE CONCAT('%', #{query.keyword}, '%')
-        )
+        <if test="query.keywordAscii">
+          OR COALESCE(current_invite.invite_code, input_invite.invite_code)
+               LIKE CONCAT('%', #{query.keyword}, '%')
+          OR current_group.group_jid LIKE CONCAT('%', #{query.keyword}, '%')
+          OR EXISTS (
+            SELECT 1
+            FROM wa_group_participant participant
+            INNER JOIN account controlled_account
+              ON controlled_account.tenant_id = participant.tenant_id
+             AND controlled_account.ws_phone = participant.phone
+             AND controlled_account.deleted_at IS NULL
+            WHERE participant.tenant_id = current_group.tenant_id
+              AND participant.group_id = current_group.id
+              AND participant.presence_status = 1
+              AND participant.role IN (2, 3)
+              AND participant.phone LIKE CONCAT('%', #{query.keyword}, '%')
+          )
+        </if>
       )
     </if>
   </sql>

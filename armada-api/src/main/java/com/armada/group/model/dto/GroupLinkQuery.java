@@ -75,6 +75,17 @@ public class GroupLinkQuery extends PageQuery {
         this.keyword = keyword;
     }
 
+    /**
+     * 返回关键词是否只包含 ASCII 字符。
+     *
+     * <p>群 JID、邀请码和规范化手机号使用 ascii_bin 排序规则；非 ASCII 关键词
+     * 不应参与这些字段的 LIKE 比较，否则 MySQL 会把 ascii_bin 与 utf8mb4 参数
+     * 放在同一个 LIKE 表达式中并抛出排序规则冲突。</p>
+     */
+    public boolean isKeywordAscii() {
+        return keyword == null || keyword.chars().allMatch(ch -> ch <= 0x7F);
+    }
+
     public String getStatus() {
         return status;
     }

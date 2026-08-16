@@ -27,6 +27,7 @@ import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -1109,7 +1110,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(WhatsappGroupMemberSnapshotMapper.class),
                 mock(GroupMetadataSyncTaskService.class),
                 currentSnapshotPersistence,
-                currentLocalPersistence);
+                currentLocalPersistence,
+                mock(WhatsappGroupBusinessDepartureService.class));
     }
 
     private static GroupExecutionAccountSelector selector(long groupLinkId) {

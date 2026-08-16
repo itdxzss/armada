@@ -1,12 +1,14 @@
 package com.armada.group.service;
 
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 记录系统已明确发起并成功执行的 WhatsApp 主动退群事实。 */
+/** 记录系统已明确发起并成功确认的 WhatsApp 主动离群事实。 */
 @Service
 public class WhatsappGroupBusinessDepartureService {
 
@@ -56,6 +58,41 @@ public class WhatsappGroupBusinessDepartureService {
         memberCacheService.applyDepartures(facts);
     }
 
+    /**
+     * 在踢人协议命令经同账号 metadata 回读确认后，批量落 REMOVED 事实。
+     *
+     * <p>该入口同时驱动离群事实表、营销成员缓存和新群模型普通成员 presence，确保
+     * {@code 1.0.3-group} 双写期间不会出现旧详情已删除而新成员模型仍显示在群的分叉。</p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void recordConfirmedRemovals(
+            Long tenantId,
+            String groupJid,
+            Map<String, String> participantPhones,
+            long exitedAt,
+            String operationId) {
+        String normalizedGroupJid = normalizedGroupJid(groupJid);
+        String normalizedOperationId = required(operationId, "踢出成员操作 ID 不能为空");
+        if (tenantId == null || exitedAt <= 0 || normalizedGroupJid == null
+                || participantPhones == null || participantPhones.isEmpty()) {
+            throw new IllegalArgumentException("踢出成员事实缺少租户、群、成员或时间");
+        }
+        List<WhatsappGroupDepartureFact> facts = new ArrayList<>(participantPhones.size());
+        participantPhones.forEach((participantJid, phone) -> facts.add(
+                new WhatsappGroupDepartureFact(
+                        tenantId,
+                        normalizedGroupJid,
+                        normalizedParticipantJid(participantJid),
+                        normalizedPhone(phone),
+                        exitedAt,
+                        "REMOVED",
+                        exitedAt,
+                        "business-remove:" + normalizedOperationId,
+                        SOURCE_TYPE)));
+        departedMemberService.saveLatest(List.copyOf(facts));
+        memberCacheService.applyDepartures(List.copyOf(facts));
+    }
+
     private static String normalizedGroupJid(String value) {
         String normalized = value == null ? null : value.trim().toLowerCase(Locale.ROOT);
         if (normalized == null || normalized.isBlank() || !normalized.endsWith("@g.us")) {
@@ -70,6 +107,15 @@ public class WhatsappGroupBusinessDepartureService {
         }
         String digits = value.replaceAll("[^0-9]", "");
         return digits.length() >= 5 && digits.length() <= 20 ? digits : null;
+    }
+
+    private static String normalizedParticipantJid(String value) {
+        String normalized = value == null ? null : value.trim().toLowerCase(Locale.ROOT);
+        if (normalized == null || normalized.isBlank()
+                || (!normalized.endsWith("@s.whatsapp.net") && !normalized.endsWith("@lid"))) {
+            throw new IllegalArgumentException("踢出成员 JID 非法");
+        }
+        return normalized;
     }
 
     private static String required(String value, String message) {

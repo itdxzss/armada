@@ -7,6 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -38,6 +39,7 @@ import com.armada.task.service.impl.PullTaskStandardReadServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardReadFactMappers;
 import com.armada.task.service.impl.PullTaskStandardReadResources;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class PullTaskStandardReadServiceTest {
@@ -55,6 +57,7 @@ class PullTaskStandardReadServiceTest {
             mock(PullTaskStandardSettingMapper.class);
     private final PullTaskStandardGroupSettingMapper groupSettingMapper =
             mock(PullTaskStandardGroupSettingMapper.class);
+    private final GroupLinkService groupLinkService = mock(GroupLinkService.class);
     private final PullTaskStandardReadService service = new PullTaskStandardReadServiceImpl(
             taskMapper,
             new PullTaskStandardReadResources(
@@ -63,7 +66,8 @@ class PullTaskStandardReadServiceTest {
                     settingMapper,
                     groupSettingMapper,
                     new PullTaskStandardReadFactMappers(
-                            accountMapper, materialMapper, callMapper, actionMapper)));
+                            accountMapper, materialMapper, callMapper, actionMapper)),
+            groupLinkService);
 
     @Test
     void readsTaskExecutionCallsRolesAndMemberFactsWithoutStaticSamples() {
@@ -106,6 +110,8 @@ class PullTaskStandardReadServiceTest {
                 org.mockito.ArgumentMatchers.eq(11L),
                 org.mockito.ArgumentMatchers.anyList()))
                 .thenReturn(List.of(action()));
+        when(groupLinkService.findWhatsAppGroupNamesByIds(List.of(21L)))
+                .thenReturn(Map.of(21L, "WhatsApp 详情群名"));
 
         assertThat(service.task(100L).executions()).isEmpty();
         assertThat(service.task(100L).summary().successfulMemberCount()).isEqualTo(1);
@@ -122,6 +128,8 @@ class PullTaskStandardReadServiceTest {
         verify(executionMapper, never()).selectByTaskId(100L);
         var detail = service.execution(100L, 11L);
         assertThat(detail.execution().groupJid()).isEqualTo("120363000000000000@g.us");
+        assertThat(detail.execution().groupName()).isEqualTo("WhatsApp 详情群名");
+        assertThat(detail.execution().normalizedLink()).isEqualTo("chat.whatsapp.com/AAAA");
         assertThat(detail.execution().sourceFileName()).isEqualTo("印度料子包.txt");
         assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
@@ -191,6 +199,8 @@ class PullTaskStandardReadServiceTest {
         when(readMapper.selectExecutionAggregates(
                 PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(11L))))
                 .thenReturn(List.of(executionAggregate()));
+        when(groupLinkService.findWhatsAppGroupNamesByIds(List.of(21L)))
+                .thenReturn(Map.of(21L, "WhatsApp 列表群名"));
 
         var result = service.executions(100L, query);
 
@@ -199,6 +209,8 @@ class PullTaskStandardReadServiceTest {
         assertThat(result.list()).singleElement()
                 .satisfies(row -> {
                     assertThat(row.executionId()).isEqualTo(11L);
+                    assertThat(row.groupName()).isEqualTo("WhatsApp 列表群名");
+                    assertThat(row.normalizedLink()).isEqualTo("chat.whatsapp.com/AAAA");
                     assertThat(row.sourceFileName()).isNull();
                     assertThat(row.manualPaused()).isTrue();
                     assertThat(row.waitResourceType()).isEqualTo(1);
@@ -224,6 +236,7 @@ class PullTaskStandardReadServiceTest {
         row.setId(id);
         row.setTaskId(100L);
         row.setSeq(1);
+        row.setGroupLinkId(21L);
         row.setNormalizedLink("chat.whatsapp.com/AAAA");
         row.setGroupJid("120363000000000000@g.us");
         row.setExecutionStatus(2);

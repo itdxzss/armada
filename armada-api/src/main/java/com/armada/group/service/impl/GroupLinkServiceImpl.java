@@ -148,6 +148,31 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
     }
 
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, String> findWhatsAppGroupNamesByIds(List<Long> groupLinkIds) {
+        if (groupLinkIds == null || groupLinkIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> distinctIds = groupLinkIds.stream()
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        if (distinctIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> groupNames = new HashMap<>();
+        for (GroupLinkPreview preview : previewMapper.selectByGroupLinkIds(distinctIds)) {
+            if (preview.getGroupLinkId() != null
+                    && preview.getWaSubject() != null
+                    && !preview.getWaSubject().isBlank()) {
+                groupNames.put(preview.getGroupLinkId(), preview.getWaSubject());
+            }
+        }
+        return Map.copyOf(groupNames);
+    }
+
     /**
      * {@inheritDoc}
      *

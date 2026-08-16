@@ -7,6 +7,7 @@ package com.armada.task.model.vo;
  * @param seq             任务内顺序
  * @param normalizedLink  归一化群链接
  * @param groupJid        WhatsApp 群 JID
+ * @param groupName       WhatsApp 真实群名称，未获取到预览时为空
  * @param sourceFileName  创建任务时与该群链接匹配的料子包原始文件名
  * @param executionStatus 执行状态码
  * @param stage           当前业务阶段码
@@ -22,6 +23,7 @@ public record PullTaskStandardExecutionSummaryVO(
         int seq,
         String normalizedLink,
         String groupJid,
+        String groupName,
         String sourceFileName,
         int executionStatus,
         int stage,
@@ -49,7 +51,7 @@ public record PullTaskStandardExecutionSummaryVO(
             String reasonCode,
             String reasonMessage,
             Long lastBusinessExecutedAt) {
-        this(executionId, seq, normalizedLink, groupJid, null, executionStatus, stage,
+        this(executionId, seq, normalizedLink, groupJid, null, null, executionStatus, stage,
                 manualPaused, null, validMemberCount, reasonCode, reasonMessage,
                 lastBusinessExecutedAt, null, null, null, null);
     }

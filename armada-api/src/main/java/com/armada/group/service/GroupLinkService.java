@@ -10,6 +10,7 @@ import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 群链接业务接口(分页列表、迁移分组、批量删除)。
@@ -23,6 +24,17 @@ public interface GroupLinkService {
      * @return 分页结果
      */
     PageResult<GroupLinkVO> listByLabel(GroupLinkQuery query);
+
+    /**
+     * 批量读取 WhatsApp 真实群名称。
+     *
+     * <p>名称严格来自 {@code group_link_preview.wa_subject}；不存在预览或群名为空白的群链接
+     * 不进入返回映射。</p>
+     *
+     * @param groupLinkIds 群链接 ID，可包含重复值或 null
+     * @return 群链接 ID 到 WhatsApp 真实群名称的映射；无有效 ID 时返回空映射
+     */
+    Map<Long, String> findWhatsAppGroupNamesByIds(List<Long> groupLinkIds);
 
     /**
      * 更新群组列表本地资料。

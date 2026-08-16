@@ -72,6 +72,24 @@ class GroupLinkControlledAdminMapperInMemoryTest {
     }
 
     @Test
+    void listCountsOnlineAdminsFromSnapshotWithoutMembershipAdminFlag() throws SQLException {
+        execute(
+                "UPDATE account SET protocol_account_id = 'acc-301' WHERE id = 301",
+                "UPDATE account SET protocol_account_id = 'acc-302' WHERE id = 302",
+                """
+                INSERT INTO account_state
+                  (tenant_id, account_id, login_state, account_state)
+                VALUES (7, 301, 1, 2), (7, 302, 1, 2)
+                """);
+
+        GroupLinkQuery query = pageQuery();
+        assertThat(mapper.selectPageByLabel(query))
+                .singleElement()
+                .extracting(row -> row.getAvailableAdminCount())
+                .isEqualTo(2);
+    }
+
+    @Test
     void keywordMatchesControlledAdminButNotExternalAdmin() {
         GroupLinkQuery controlled = pageQuery();
         controlled.setKeyword("1002");

@@ -102,14 +102,10 @@
     <if test="query.availableAdmin != null and query.availableAdmin">
       AND EXISTS (
         SELECT 1
-        FROM wa_account_group_binding binding
-        INNER JOIN wa_group_participant participant
-          ON participant.tenant_id = binding.tenant_id
-         AND participant.group_id = binding.group_id
-         AND participant.id = binding.participant_id
+        FROM wa_group_participant participant
         INNER JOIN account execution_account
-          ON execution_account.tenant_id = binding.tenant_id
-         AND execution_account.id = binding.account_id
+          ON execution_account.tenant_id = participant.tenant_id
+         AND execution_account.ws_phone = participant.phone
          AND execution_account.deleted_at IS NULL
          AND execution_account.protocol_account_id IS NOT NULL
          AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
@@ -117,9 +113,9 @@
           ON execution_state.tenant_id = execution_account.tenant_id
          AND execution_state.account_id = execution_account.id
          AND execution_state.login_state = 1
-         AND execution_state.account_state = 2
-        WHERE binding.tenant_id = handle.tenant_id
-          AND binding.group_id = current_group.id
+          AND execution_state.account_state = 2
+        WHERE participant.tenant_id = handle.tenant_id
+          AND participant.group_id = current_group.id
           AND participant.presence_status = 1
           AND participant.role IN (2, 3)
       )
@@ -127,14 +123,10 @@
     <if test="query.availableAdmin != null and !query.availableAdmin">
       AND NOT EXISTS (
         SELECT 1
-        FROM wa_account_group_binding binding
-        INNER JOIN wa_group_participant participant
-          ON participant.tenant_id = binding.tenant_id
-         AND participant.group_id = binding.group_id
-         AND participant.id = binding.participant_id
+        FROM wa_group_participant participant
         INNER JOIN account execution_account
-          ON execution_account.tenant_id = binding.tenant_id
-         AND execution_account.id = binding.account_id
+          ON execution_account.tenant_id = participant.tenant_id
+         AND execution_account.ws_phone = participant.phone
          AND execution_account.deleted_at IS NULL
          AND execution_account.protocol_account_id IS NOT NULL
          AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
@@ -142,9 +134,9 @@
           ON execution_state.tenant_id = execution_account.tenant_id
          AND execution_state.account_id = execution_account.id
          AND execution_state.login_state = 1
-         AND execution_state.account_state = 2
-        WHERE binding.tenant_id = handle.tenant_id
-          AND binding.group_id = current_group.id
+          AND execution_state.account_state = 2
+        WHERE participant.tenant_id = handle.tenant_id
+          AND participant.group_id = current_group.id
           AND participant.presence_status = 1
           AND participant.role IN (2, 3)
       )
@@ -267,8 +259,15 @@
              participant.group_id,
              GROUP_CONCAT(
                DISTINCT participant.phone
-               ORDER BY participant.phone SEPARATOR ', '
-             ) AS admin
+                ORDER BY participant.phone SEPARATOR ', '
+              ) AS admin,
+             COUNT(DISTINCT CASE
+                  WHEN controlled_account.protocol_account_id IS NOT NULL
+                   AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''
+                   AND execution_state.login_state = 1
+                   AND execution_state.account_state = 2
+                  THEN controlled_account.id
+                END) AS available_admin_count
       FROM page_groups page_group
       STRAIGHT_JOIN wa_group_participant participant
         ON participant.tenant_id = page_group.tenant_id
@@ -277,38 +276,14 @@
         ON controlled_account.tenant_id = participant.tenant_id
        AND controlled_account.ws_phone = participant.phone
        AND controlled_account.deleted_at IS NULL
+       LEFT JOIN account_state execution_state
+         ON execution_state.tenant_id = controlled_account.tenant_id
+        AND execution_state.account_id = controlled_account.id
       WHERE participant.presence_status = 1
         AND participant.role IN (2, 3)
         AND participant.phone IS NOT NULL
         AND TRIM(participant.phone) &lt;&gt; ''
       GROUP BY participant.tenant_id, participant.group_id
-    ),
-    operable AS (
-      SELECT binding.tenant_id,
-             binding.group_id,
-             COUNT(DISTINCT binding.account_id) AS available_admin_count
-      FROM page_groups page_group
-      STRAIGHT_JOIN wa_account_group_binding binding
-        ON binding.tenant_id = page_group.tenant_id
-       AND binding.group_id = page_group.group_id
-      STRAIGHT_JOIN wa_group_participant participant
-        ON participant.tenant_id = binding.tenant_id
-       AND participant.group_id = binding.group_id
-       AND participant.id = binding.participant_id
-      STRAIGHT_JOIN account execution_account
-        ON execution_account.tenant_id = binding.tenant_id
-       AND execution_account.id = binding.account_id
-       AND execution_account.deleted_at IS NULL
-       AND execution_account.protocol_account_id IS NOT NULL
-       AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
-      STRAIGHT_JOIN account_state execution_state
-        ON execution_state.tenant_id = execution_account.tenant_id
-       AND execution_state.account_id = execution_account.id
-       AND execution_state.login_state = 1
-       AND execution_state.account_state = 2
-      WHERE participant.presence_status = 1
-        AND participant.role IN (2, 3)
-      GROUP BY binding.tenant_id, binding.group_id
     )
     SELECT handle.id,
            handle.link_url AS url,
@@ -355,7 +330,7 @@
                COALESCE(current_invite.invite_code, input_invite.invite_code)
              )
            END AS inviteUrl,
-           COALESCE(operable.available_admin_count, 0) AS availableAdminCount,
+            COALESCE(admins.available_admin_count, 0) AS availableAdminCount,
            legacy_preview.creator_country_iso2 AS creatorCountryIso2,
            country.name_zh AS creatorCountryName,
            country.flag AS creatorCountryFlag,
@@ -390,9 +365,6 @@
     LEFT JOIN admins
       ON admins.tenant_id = current_group.tenant_id
      AND admins.group_id = current_group.id
-    LEFT JOIN operable
-      ON operable.tenant_id = current_group.tenant_id
-     AND operable.group_id = current_group.id
     LEFT JOIN country country
       ON country.iso2 = legacy_preview.creator_country_iso2
      AND country.deleted_at IS NULL

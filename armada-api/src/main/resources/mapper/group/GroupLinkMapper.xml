@@ -212,12 +212,22 @@
      AND c.deleted_at IS NULL
     LEFT JOIN (
       SELECT member.tenant_id, member.group_link_id,
-             GROUP_CONCAT(DISTINCT member.phone ORDER BY member.phone SEPARATOR ', ') AS admin
+             GROUP_CONCAT(DISTINCT member.phone ORDER BY member.phone SEPARATOR ', ') AS admin,
+             COUNT(DISTINCT CASE
+               WHEN controlled_account.protocol_account_id IS NOT NULL
+                AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''
+                AND execution_state.login_state = 1
+                AND execution_state.account_state = 2
+               THEN controlled_account.id
+             END) AS availableAdminCount
       FROM whatsapp_group_member_snapshot member
       INNER JOIN account controlled_account
         ON controlled_account.tenant_id = member.tenant_id
        AND controlled_account.ws_phone = member.phone
        AND controlled_account.deleted_at IS NULL
+      LEFT JOIN account_state execution_state
+        ON execution_state.tenant_id = controlled_account.tenant_id
+       AND execution_state.account_id = controlled_account.id
       WHERE member.is_admin = 1
         AND member.phone IS NOT NULL
         AND TRIM(member.phone) &lt;&gt; ''
@@ -225,28 +235,6 @@
     ) admins
       ON admins.tenant_id = g.tenant_id
      AND admins.group_link_id = g.id
-    LEFT JOIN (
-      SELECT membership.tenant_id, membership.group_link_id,
-             COUNT(DISTINCT membership.account_id) AS availableAdminCount
-      FROM account_group_membership membership
-      INNER JOIN account execution_account
-        ON execution_account.tenant_id = membership.tenant_id
-       AND execution_account.id = membership.account_id
-       AND execution_account.deleted_at IS NULL
-       AND execution_account.protocol_account_id IS NOT NULL
-       AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
-      INNER JOIN account_state execution_state
-        ON execution_state.tenant_id = execution_account.tenant_id
-       AND execution_state.account_id = execution_account.id
-       AND execution_state.login_state = 1
-       AND execution_state.account_state = 2
-      WHERE membership.deleted_at IS NULL
-        AND membership.membership_status = 1
-        AND membership.is_admin = 1
-      GROUP BY membership.tenant_id, membership.group_link_id
-    ) operable
-      ON operable.tenant_id = g.tenant_id
-     AND operable.group_link_id = g.id
     LEFT JOIN group_metadata_sync_task metadata_task
       ON metadata_task.tenant_id = g.tenant_id
      AND metadata_task.group_link_id = g.id
@@ -275,10 +263,10 @@
       AND g.is_post_control = 1
     </if>
     <if test="availableAdmin != null and availableAdmin">
-      AND COALESCE(operable.availableAdminCount, 0) &gt; 0
+      AND COALESCE(admins.availableAdminCount, 0) &gt; 0
     </if>
     <if test="availableAdmin != null and !availableAdmin">
-      AND COALESCE(operable.availableAdminCount, 0) = 0
+      AND COALESCE(admins.availableAdminCount, 0) = 0
     </if>
     <if test="memberCountMin != null">
       AND COALESCE(h.current_count, p.member_size) IS NOT NULL
@@ -383,7 +371,7 @@
              WHEN p.invite_code IS NULL OR TRIM(p.invite_code) = '' THEN NULL
              ELSE CONCAT('https://chat.whatsapp.com/', p.invite_code)
            END AS inviteUrl,
-           COALESCE(operable.availableAdminCount, 0) AS availableAdminCount,
+           COALESCE(admins.availableAdminCount, 0) AS availableAdminCount,
            p.creator_country_iso2 AS creatorCountryIso2,
            c.name_zh AS creatorCountryName,
            c.flag AS creatorCountryFlag,

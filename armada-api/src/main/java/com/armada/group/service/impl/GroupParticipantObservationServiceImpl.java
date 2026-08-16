@@ -41,18 +41,21 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
     private final GroupLinkMapper groupLinkMapper;
     private final AccountMapper accountMapper;
     private final AccountGroupMembershipMapper membershipMapper;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     public GroupParticipantObservationServiceImpl(
             WhatsappGroupMemberCacheMapper memberStateMapper,
             WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupLinkMapper groupLinkMapper,
             AccountMapper accountMapper,
-            AccountGroupMembershipMapper membershipMapper) {
+            AccountGroupMembershipMapper membershipMapper,
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.memberStateMapper = memberStateMapper;
         this.memberSnapshotMapper = memberSnapshotMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.accountMapper = accountMapper;
         this.membershipMapper = membershipMapper;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
     @Override
@@ -198,6 +201,10 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             AccountGroupMembership row = membershipRow(
                     account.getId(), groupLinkId, groupJid, winner, current, now);
             membershipMapper.upsertMembership(row);
+            currentSnapshotPersistence.applyControlledParticipantObservation(
+                    account.getId(), groupJid, Boolean.TRUE.equals(winner.inGroup()),
+                    Boolean.TRUE.equals(winner.admin()), winner.stateUpdatedAt(),
+                    winner.sourceEventId(), row.getStatusSource());
         }
     }
 

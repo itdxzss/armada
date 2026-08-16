@@ -104,6 +104,18 @@ public interface AndroidNativeClient {
             String groupJid,
             boolean membersCanAdd);
 
+    /** 使用 Android 原生接口设置普通成员是否可以编辑群资料。 */
+    AndroidResponseEnvelope setGroupEditAllowed(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanEdit);
+
+    /** 使用 Android 原生接口设置普通成员是否可以访问并分享群邀请链接。 */
+    AndroidResponseEnvelope setGroupMemberLinkMode(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanInviteViaLink);
+
     /** 使用 Android 原生接口修改群名称。 */
     AndroidResponseEnvelope setGroupName(String wsPhone, String groupJid, String name);
 

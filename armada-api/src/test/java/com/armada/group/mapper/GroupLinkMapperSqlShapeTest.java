@@ -71,7 +71,7 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("<include refid=\"groupListFrom\"/>")
                 .contains("<include refid=\"groupListFilter\"/>")
                 .contains("whatsapp_group_member_snapshot")
-                .contains("account_group_membership")
+                .contains("account_state")
                 .contains("FLOOR((#{nowSeconds} - p.group_created_at) / 86400)")
                 .doesNotContain("FROM join_task_result");
     }
@@ -92,9 +92,10 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("controlled_account.tenant_id = member.tenant_id")
                 .contains("controlled_account.ws_phone = member.phone")
                 .contains("controlled_account.deleted_at IS NULL")
-                .doesNotContain("account_state")
-                .doesNotContain("login_state")
-                .doesNotContain("protocol_account_id")
+                .contains("account_state execution_state")
+                .contains("execution_state.login_state = 1")
+                .contains("execution_state.account_state = 2")
+                .contains("controlled_account.protocol_account_id")
                 .doesNotContain("EXISTS");
     }
 
@@ -112,6 +113,42 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("baseline_group.group_jid")
                 .doesNotContain(") groups")
                 .doesNotContain("groups.group_jid");
+    }
+
+    @Test
+    void activeGroupJidLookupUsesCanonicalGroupReference() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int start = xml.indexOf("<select id=\"selectActiveIdByGroupJid\"");
+        int end = xml.indexOf("</select>", start);
+        String selectSql = xml.substring(start, end);
+
+        assertThat(selectSql)
+                .contains("LEFT JOIN wa_group current_group")
+                .contains("current_group.id = link.group_id")
+                .contains("current_group.group_jid = #{groupJid}")
+                .contains("link.link_url = CONCAT('wa://group/', #{groupJid})")
+                .doesNotContain("group_link_preview");
+    }
+
+    @Test
+    void healthCheckCandidatesUseCurrentGroupAndProfileFacts() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int start = xml.indexOf("<select id=\"selectHealthCheckCandidates\"");
+        int end = xml.indexOf("</select>", start);
+        String selectSql = xml.substring(start, end);
+
+        assertThat(selectSql)
+                .contains("INNER JOIN wa_group current_group")
+                .contains("current_group.id = g.group_id")
+                .contains("r.group_jid = current_group.group_jid")
+                .contains("current_profile.last_checked_at AS lastCheckAt")
+                .contains("current_profile.banned IS NULL OR current_profile.banned = 0")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link_health");
     }
 
     @Test
@@ -143,7 +180,7 @@ class GroupLinkMapperSqlShapeTest {
             assertThat(sql)
                     .contains("g.is_historical = 1")
                     .contains("g.is_post_control = 1")
-                    .contains("COALESCE(operable.availableAdminCount, 0) = 0")
+                    .contains("COALESCE(admins.availableAdminCount, 0) = 0")
                     .contains("COALESCE(h.current_count, p.member_size) >= ?")
                     .contains("p.creator_continent_code = ?")
                     .contains("FLOOR((? - p.group_created_at) / 86400) <= ?");

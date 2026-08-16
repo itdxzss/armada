@@ -84,15 +84,14 @@
   <insert id="insertMissingGroups">
     <!-- 普通读已筛出 missing；并发 winner 由后续 G current-read 收敛，禁止先 UPDATE 缺失键。 -->
     INSERT INTO wa_group (
-      tenant_id, group_jid, display_name, avatar_url,
+      tenant_id, group_jid, avatar_url,
       origin, created_at, updated_at, deleted_at
     )
-    SELECT #{tenantId}, incoming.group_jid, incoming.display_name, incoming.avatar_url,
+    SELECT #{tenantId}, incoming.group_jid, incoming.avatar_url,
            5, incoming.created_at, incoming.updated_at, NULL
     FROM (
       <foreach collection="rows" item="row" separator=" UNION ALL ">
         SELECT #{row.groupJid} AS group_jid,
-               #{row.displayName} AS display_name,
                #{row.avatarUrl} AS avatar_url,
                #{row.now} AS created_at,
                #{row.now} AS updated_at
@@ -101,7 +100,7 @@
     ORDER BY incoming.group_jid ASC
     ON DUPLICATE KEY UPDATE
       deleted_at = NULL,
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(wa_group.updated_at, VALUES(updated_at))
   </insert>
 
   <select id="selectGroupIds"
@@ -130,20 +129,55 @@
     ORDER BY group_jid ASC
   </select>
 
+  <update id="updateLegacyGroupReferences">
+    UPDATE group_link handle
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = handle.tenant_id
+     AND preview.group_link_id = handle.id
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.group_jid =
+       CAST(LOWER(TRIM(preview.group_jid)) AS CHAR CHARACTER SET ascii)
+         COLLATE ascii_bin
+    SET handle.group_id = current_group.id
+    WHERE handle.tenant_id = #{tenantId}
+      AND current_group.group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+      <!-- canonical 引用一经建立即稳定；快照重放只认领空句柄，缩短兼容表写锁范围。 -->
+      AND handle.group_id IS NULL
+  </update>
+
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
-      group_id, subject, member_count, wa_created_at, announce_only,
-      metadata_observed_at, created_at, updated_at
+      group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,
+      metadata_observed_at, health_status, banned, last_checked_at,
+      last_error_code, failure_count, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.waCreatedAt},
-        #{row.announceOnly}, #{row.syncAt}, #{row.now}, #{row.now}
+        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.memberCount},
+        #{row.waCreatedAt},
+        #{row.announceOnly}, #{row.syncAt}, 1, 0, #{row.syncAt},
+        NULL, 0, #{row.now}, #{row.now}
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
       subject = COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject),
       member_count = COALESCE(VALUES(member_count), member_count),
+      checked_member_count = COALESCE(
+        VALUES(checked_member_count), checked_member_count
+      ),
+      health_status = CASE WHEN COALESCE(banned, 0) = 1
+        THEN health_status ELSE VALUES(health_status) END,
+      banned = CASE WHEN COALESCE(banned, 0) = 1
+        THEN banned ELSE VALUES(banned) END,
+      last_checked_at = VALUES(last_checked_at),
+      last_error_code = CASE WHEN COALESCE(banned, 0) = 1
+        THEN last_error_code ELSE VALUES(last_error_code) END,
+      failure_count = CASE WHEN COALESCE(banned, 0) = 1
+        THEN failure_count ELSE VALUES(failure_count) END,
       wa_created_at = COALESCE(VALUES(wa_created_at), wa_created_at),
       announce_only = COALESCE(VALUES(announce_only), announce_only),
       metadata_observed_at = VALUES(metadata_observed_at),
@@ -410,13 +444,13 @@
   <insert id="upsertGroupMetadata">
     INSERT INTO wa_group_profile (
       group_id, subject, description, member_count, wa_created_at,
-      announce_only, admin_only_edit_info, member_add_mode,
+      announce_only, admin_only_edit_info, member_add_mode, member_link_mode,
       join_approval_mode, ephemeral_duration_seconds,
       metadata_observed_at, created_at, updated_at
     ) VALUES (
       #{groupId}, NULLIF(TRIM(#{row.waSubject}), ''), #{row.waDescription},
       #{row.memberSize}, #{waCreatedAt}, #{row.announceOnly},
-      #{row.adminOnlyEditInfo}, #{row.memberAddMode}, #{row.joinApprovalMode},
+      #{row.adminOnlyEditInfo}, #{row.memberAddMode}, #{row.memberLinkMode}, #{row.joinApprovalMode},
       #{row.ephemeralDurationSeconds}, #{metadataObservedAt}, #{now}, #{now}
     )
     ON DUPLICATE KEY UPDATE
@@ -465,6 +499,12 @@
          AND #{row.memberAddModeObserved} = TRUE
           THEN VALUES(member_add_mode)
         ELSE member_add_mode
+      END,
+      member_link_mode = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.memberLinkModeObserved} = TRUE
+          THEN VALUES(member_link_mode)
+        ELSE member_link_mode
       END,
       join_approval_mode = CASE
         WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)

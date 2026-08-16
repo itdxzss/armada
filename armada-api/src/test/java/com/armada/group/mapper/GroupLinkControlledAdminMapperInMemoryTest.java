@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.dto.GroupLinkQuery;
+import com.armada.group.model.enums.GroupListType;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -42,6 +43,9 @@ class GroupLinkControlledAdminMapperInMemoryTest {
     @Autowired
     private GroupLinkMapper mapper;
 
+    @Autowired
+    private GroupListCurrentMapper currentMapper;
+
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(TENANT_ID);
@@ -65,6 +69,24 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                     assertThat(row.getAdmin()).isEqualTo("1001, 1002");
                     assertThat(row.getAvailableAdminCount()).isZero();
                 });
+    }
+
+    @Test
+    void listCountsOnlineAdminsFromSnapshotWithoutMembershipAdminFlag() throws SQLException {
+        execute(
+                "UPDATE account SET protocol_account_id = 'acc-301' WHERE id = 301",
+                "UPDATE account SET protocol_account_id = 'acc-302' WHERE id = 302",
+                """
+                INSERT INTO account_state
+                  (tenant_id, account_id, login_state, account_state)
+                VALUES (7, 301, 1, 2), (7, 302, 1, 2)
+                """);
+
+        GroupLinkQuery query = pageQuery();
+        assertThat(mapper.selectPageByLabel(query))
+                .singleElement()
+                .extracting(row -> row.getAvailableAdminCount())
+                .isEqualTo(2);
     }
 
     @Test
@@ -96,6 +118,109 @@ class GroupLinkControlledAdminMapperInMemoryTest {
         assertThat(rows).filteredOn(row -> row.getId().equals(204L))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getGroupJid()).isNull());
+    }
+
+    @Test
+    void currentFactCountMatchesLegacyCountForCombinedFilters() throws SQLException {
+        execute(
+                """
+                INSERT INTO group_link
+                  (id, tenant_id, link_url, label_id, folder_id, import_batch_id,
+                   origin, membership_state, is_historical, is_post_control,
+                   created_at, updated_at)
+                VALUES (210, 7, 'wa://group/current-count@g.us', 11, 12, 13,
+                        5, 2, 1, 1, 100, 100),
+                       (211, 8, 'wa://group/other-tenant@g.us', NULL, NULL, NULL,
+                        5, 2, 0, 0, 500, 500)
+                """,
+                """
+                INSERT INTO group_link_preview
+                  (tenant_id, group_link_id, group_jid, invite_code, wa_subject,
+                   member_size, owner_phone, creator_country_iso2,
+                   creator_continent_code, group_created_at)
+                VALUES (7, 210, 'current-count@g.us', 'current-count-code',
+                        '当前模型筛选群', 5, '1002', 'PK', 'ASIA', 113600)
+                """,
+                """
+                INSERT INTO group_link_import_batch (id, tenant_id, source_file_name)
+                VALUES (13, 7, 'controlled.xlsx')
+                """,
+                """
+                INSERT INTO country (id, iso2, name_zh, flag, continent_code, deleted_at)
+                VALUES (21, 'PK', '巴基斯坦', '🇵🇰', 'ASIA', NULL)
+                """,
+                """
+                INSERT INTO group_link_health
+                  (tenant_id, group_link_id, health_status, is_banned, current_count)
+                VALUES (7, 210, 1, 0, 6)
+                """,
+                "UPDATE account SET protocol_account_id = 'acc-301' WHERE id = 301",
+                """
+                INSERT INTO account_state
+                  (tenant_id, account_id, login_state, account_state)
+                VALUES (7, 301, 1, 2)
+                """,
+                """
+                INSERT INTO account_group_membership
+                  (tenant_id, group_link_id, account_id, membership_status, is_admin, deleted_at)
+                VALUES (7, 210, 301, 1, 1, NULL)
+                """,
+                """
+                INSERT INTO wa_group
+                  (id, tenant_id, group_jid, folder_id, origin, created_at, updated_at)
+                VALUES (510, 7, 'current-count@g.us', 12, 5, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group_invite
+                  (id, tenant_id, group_id, invite_code, origin, health_status, banned,
+                   checked_member_count, created_at, updated_at)
+                VALUES (710, 7, 510, 'current-count-code', 5, 1, 0, 6, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group_profile
+                  (id, tenant_id, group_id, subject, member_count, wa_created_at,
+                   health_status, banned, current_invite_id, created_at, updated_at)
+                VALUES (610, 7, 510, '当前模型筛选群', 6, 113600000, 1, 0, 710, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, pn_jid, phone, phone_country_iso2,
+                   presence_status, role, created_at, updated_at)
+                VALUES
+                  (810, 7, 510, '1001@s.whatsapp.net', '1001', NULL, 1, 2, 100, 100),
+                  (811, 7, 510, '1002@s.whatsapp.net', '1002', 'PK', 1, 3, 100, 100)
+                """,
+                """
+                INSERT INTO wa_account_group_binding
+                  (id, tenant_id, account_id, group_id, participant_id, created_at, updated_at)
+                VALUES (910, 7, 301, 510, 810, 100, 100)
+                """);
+
+        GroupLinkQuery query = pageQuery();
+        query.setLabelId(11L);
+        query.setFolderId(12L);
+        query.setGroupType(GroupListType.BOTH);
+        query.setAvailableAdmin(true);
+        query.setMemberCountMin(6);
+        query.setMemberCountMax(6);
+        query.setCountryIso2("PK");
+        query.setContinentCode("ASIA");
+        query.setAgeDaysMin(1);
+        query.setAgeDaysMax(1);
+        query.setSourceFileName("controlled.xlsx");
+        query.setOrigin(5);
+        query.setMembershipState(2);
+        query.setStatus("AVAILABLE");
+        query.setKeyword("1002");
+        query.setNowSeconds(200_000L);
+
+        assertThat(currentMapper.count(TENANT_ID, query)).isEqualTo(mapper.countByLabel(query));
+        assertThat(currentMapper.count(TENANT_ID, query)).isEqualTo(1L);
+
+        GroupLinkQuery unfiltered = pageQuery();
+        assertThat(currentMapper.count(TENANT_ID, unfiltered))
+                .isEqualTo(mapper.countByLabel(unfiltered))
+                .isEqualTo(2L);
     }
 
     private static GroupLinkQuery pageQuery() {
@@ -196,7 +321,8 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 """,
                 """
                 CREATE TABLE country (
-                  id BIGINT PRIMARY KEY, iso2 VARCHAR(2), name_zh VARCHAR(64), flag VARCHAR(16), deleted_at BIGINT
+                  id BIGINT PRIMARY KEY, iso2 VARCHAR(2), name_zh VARCHAR(64), flag VARCHAR(16),
+                  continent_code VARCHAR(24), deleted_at BIGINT
                 )
                 """,
                 """
@@ -231,6 +357,52 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_link_id BIGINT NOT NULL,
                   status TINYINT, last_success_at BIGINT, last_error_message VARCHAR(512)
                 )
+                """,
+                """
+                CREATE TABLE wa_group (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_jid VARCHAR(128) NOT NULL,
+                  folder_id BIGINT, display_name VARCHAR(128), avatar_url VARCHAR(1024),
+                  remark VARCHAR(255), origin TINYINT NOT NULL, created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL, deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE wa_group_profile (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                  subject VARCHAR(255), member_count INT, checked_member_count INT,
+                  wa_created_at BIGINT,
+                  health_status TINYINT, banned TINYINT, last_checked_at BIGINT,
+                  last_error_code VARCHAR(64), failure_count INT DEFAULT 0,
+                  metadata_observed_at BIGINT, current_invite_id BIGINT,
+                  current_invite_observed_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE wa_group_invite (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT,
+                  invite_code VARCHAR(128) NOT NULL, label_id BIGINT, display_name VARCHAR(128),
+                  avatar_url VARCHAR(1024), remark VARCHAR(255), origin TINYINT NOT NULL,
+                  preview_subject VARCHAR(255), preview_observed_at BIGINT, health_status TINYINT,
+                  banned TINYINT, checked_member_count INT, last_checked_at BIGINT,
+                  last_error_code VARCHAR(64), created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL, deleted_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE wa_group_participant (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                  pn_jid VARCHAR(191), lid_jid VARCHAR(191), phone VARCHAR(32),
+                  phone_country_iso2 VARCHAR(2), presence_status TINYINT NOT NULL,
+                  role TINYINT NOT NULL, role_observed_at BIGINT,
+                  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE wa_account_group_binding (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, account_id BIGINT NOT NULL,
+                  group_id BIGINT NOT NULL, participant_id BIGINT NOT NULL,
+                  created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+                )
                 """);
     }
 
@@ -264,11 +436,14 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 MybatisPlusInterceptor interceptor) throws Exception {
             MybatisConfiguration configuration = new MybatisConfiguration();
             configuration.setMapUnderscoreToCamelCase(true);
+            configuration.setDatabaseId("h2");
             MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
             factory.setDataSource(dataSource);
             factory.setConfiguration(configuration);
             factory.setPlugins(interceptor);
-            factory.setMapperLocations(new ClassPathResource("mapper/group/GroupLinkMapper.xml"));
+            factory.setMapperLocations(
+                    new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupListCurrentMapper.xml"));
             return factory.getObject();
         }
 
@@ -280,6 +455,11 @@ class GroupLinkControlledAdminMapperInMemoryTest {
         @Bean
         GroupLinkMapper groupLinkMapper(SqlSessionTemplate template) {
             return template.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
+        GroupListCurrentMapper groupListCurrentMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupListCurrentMapper.class);
         }
     }
 }

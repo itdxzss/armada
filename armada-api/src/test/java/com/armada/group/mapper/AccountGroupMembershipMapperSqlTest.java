@@ -48,8 +48,8 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(xml.contains("<select id=\"selectGroupAdminExecutionAccounts\""));
         // 刷新群邀请链接必须由群管理员执行；只靠 ORDER BY 优先会在候选轮换时选中普通成员。
         assertTrue(
-                xml.contains("AND m.is_admin = 1"),
-                "group admin selection must filter on is_admin, not merely order by it");
+                xml.contains("AND self_participant.role IN (2, 3)"),
+                "group admin selection must filter on the canonical participant role");
     }
 
     @Test
@@ -58,12 +58,38 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(xml.contains("<select id=\"selectGroupExecutionAccounts\""));
         assertTrue(xml.contains("<select id=\"selectGroupExecutionAccountsByPhones\""));
         assertTrue(xml.contains("s.login_state = #{onlineLoginState}"));
-        assertTrue(xml.contains("m.deleted_at IS NULL"));
-        assertTrue(xml.contains("m.membership_status = 1"));
+        assertTrue(xml.contains("self_participant.presence_status = 1"));
         assertTrue(xml.contains("a.deleted_at IS NULL"));
-        assertTrue(xml.contains("ORDER BY COALESCE(m.is_admin, 0) DESC, COALESCE(m.last_seen_at, 0) DESC, m.id ASC"));
+        assertTrue(xml.contains("COALESCE(binding.last_observed_at, 0) DESC"));
         assertTrue(xml.contains("a.ws_phone IN"));
         assertTrue(xml.contains("LIMIT #{limit}"));
+        assertFalse(xml.substring(
+                xml.indexOf("<sql id=\"groupExecutionAccountColumnsAndJoins\""),
+                xml.indexOf("</sql>", xml.indexOf(
+                        "<sql id=\"groupExecutionAccountColumnsAndJoins\"")))
+                .contains("account_group_membership"));
+    }
+
+    @Test
+    void selectGroupOwnerExecutionAccountRequiresConfirmedOwnerAndExecutableState() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectGroupOwnerExecutionAccount\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+        int sharedStart = xml.indexOf("<sql id=\"groupExecutionAccountColumnsAndJoins\"");
+        int sharedEnd = xml.indexOf("</sql>", sharedStart);
+        assertTrue(sharedStart >= 0 && sharedEnd > sharedStart);
+        String sharedQuery = xml.substring(sharedStart, sharedEnd);
+
+        assertTrue(query.contains("<include refid=\"groupExecutionAccountColumnsAndJoins\"/>"));
+        assertTrue(query.contains("owner_preview.owner_phone IS NOT NULL"));
+        assertTrue(query.contains("SUBSTRING_INDEX(TRIM(a.ws_phone), '@', 1)"));
+        assertTrue(query.contains("SUBSTRING_INDEX(TRIM(owner_preview.owner_phone), '@', 1)"));
+        assertFalse(query.contains("self_participant.role IN (2, 3)"));
+        assertTrue(sharedQuery.contains("s.login_state = #{onlineLoginState}"));
+        assertTrue(sharedQuery.contains("s.account_state = #{normalAccountState}"));
+        assertTrue(sharedQuery.contains("self_participant.presence_status = 1"));
     }
 
     @Test
@@ -76,19 +102,20 @@ class AccountGroupMembershipMapperSqlTest {
         String query = xml.substring(start, end);
 
         assertTrue(query.contains("a.tenant_id = #{tenantId}"));
-        assertTrue(query.contains("m.group_jid = #{groupJid}"));
-        assertTrue(query.contains("m.membership_status = #{inGroupStatus}"));
-        assertTrue(query.contains("m.is_admin = 1"));
+        assertTrue(query.contains("current_group.group_jid = #{groupJid}"));
+        assertTrue(query.contains("self_participant.presence_status = 1"));
+        assertTrue(query.contains("self_participant.role IN (2, 3)"));
         assertTrue(query.contains("a.id &lt;&gt; #{managerAccountId}"));
         assertTrue(query.contains("a.protocol_id IS NOT NULL"));
         assertTrue(query.contains("s.login_state = #{onlineLoginState}"));
         assertTrue(query.contains("s.account_state = #{normalAccountState}"));
         assertTrue(query.contains("(s.risk_status IS NULL OR s.risk_status = 1)"));
         assertTrue(query.contains("s.mute_status IS NULL"));
-        assertTrue(query.contains("SUBSTRING_INDEX(p.owner_phone, '@', 1)"));
-        assertTrue(query.contains("COALESCE(m.last_seen_at, 0) DESC"));
+        assertTrue(query.contains("SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1)"));
+        assertTrue(query.contains("COALESCE(binding.last_observed_at, 0) DESC"));
         assertFalse(query.contains("account_group_id = #{accountGroupId}"));
         assertFalse(query.contains("LIMIT 1"));
+        assertFalse(query.contains("account_group_membership"));
     }
 
     @Test
@@ -101,8 +128,8 @@ class AccountGroupMembershipMapperSqlTest {
         String query = xml.substring(start, end);
 
         assertTrue(query.contains("a.tenant_id = #{tenantId}"));
-        assertTrue(query.contains("m.group_jid = #{groupJid}"));
-        assertTrue(query.contains("m.membership_status = #{inGroupStatus}"));
+        assertTrue(query.contains("current_group.group_jid = #{groupJid}"));
+        assertTrue(query.contains("self_participant.presence_status = 1"));
         assertTrue(query.contains("a.id &lt;&gt; #{managerAccountId}"));
         assertTrue(query.contains("s.login_state = #{onlineLoginState}"));
         assertTrue(query.contains("s.account_state = #{normalAccountState}"));
@@ -110,7 +137,8 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(query.contains("s.mute_status IS NULL"));
         assertTrue(query.contains("ORDER BY a.id ASC"));
         assertTrue(query.contains("LIMIT #{limit}"));
-        assertFalse(query.contains("m.is_admin = 1"));
+        assertFalse(query.contains("AND self_participant.role IN (2, 3)"));
+        assertFalse(query.contains("account_group_membership"));
     }
 
     @Test
@@ -118,6 +146,22 @@ class AccountGroupMembershipMapperSqlTest {
         String xml = mapperXml();
         assertTrue(xml.contains("<select id=\"selectSnapshotEstablishedGroupJids\""));
         assertTrue(xml.contains("COALESCE(status_source, '') &lt;&gt; 'WGP2_ADD'"));
+    }
+
+    @Test
+    void currentStatusBatchReadsCanonicalBindingAndParticipant() throws IOException {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectCurrentStatuses\"");
+        int end = xml.indexOf("</select>", start);
+        assertTrue(start >= 0 && end > start);
+        String query = xml.substring(start, end);
+
+        assertTrue(query.contains("FROM wa_account_group_binding binding"));
+        assertTrue(query.contains("INNER JOIN wa_group_participant self_participant"));
+        assertTrue(query.contains("CASE self_participant.presence_status"));
+        assertTrue(query.contains("WHEN 'REMOVED' THEN 3"));
+        assertTrue(query.contains("WHEN 'LEFT' THEN 4"));
+        assertFalse(query.contains("FROM account_group_membership"));
     }
 
     @Test

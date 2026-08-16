@@ -16,7 +16,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 在真实 MySQL 8.4 上验证 V117 可执行、可重入及关键物理约束。 */
+/** 在真实 MySQL 8.4 上验证 V120 可执行、可重入及关键物理约束。 */
 @Testcontainers
 class GroupDataModelFoundationMigrationMysqlTest {
 
@@ -88,7 +88,7 @@ class GroupDataModelFoundationMigrationMysqlTest {
     private void executeMigration() throws Exception {
         String sql;
         try (var stream = getClass().getResourceAsStream(
-                "/db/migration/V117__group_data_model_foundation.sql")) {
+                "/db/migration/V120__group_data_model_foundation.sql")) {
             assertThat(stream).isNotNull();
             sql = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }

@@ -76,16 +76,31 @@ class HttpGroupSettingsAdapterTest {
     }
 
     @Test
-    void inviteViaLinkFailsExplicitlyWithoutCallingHttp() {
+    void disablingMemberEditPostsLockedMode() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GroupSettingsPort port = new HttpGroupSettingsAdapter(
                 new ProtocolHttpExecutor(builder.build()));
 
-        assertThatThrownBy(() -> port.setInviteViaLinkAllowed(
-                "acc_7", "120363settings@g.us", true))
-                .isInstanceOf(ProtocolException.class)
-                .hasMessageContaining("未暴露通过链接邀请权限");
+        expectMode(server, "locked", "locked");
+
+        port.setEditGroupSettingsAllowed("acc_7", "120363settings@g.us", false);
+
+        server.verify();
+    }
+
+    @Test
+    void inviteViaLinkPostsIndependentMemberLinkMode() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupSettingsPort port = new HttpGroupSettingsAdapter(
+                new ProtocolHttpExecutor(builder.build()));
+
+        expectMode(server, "member-link-mode", "all_member_link");
+        expectMode(server, "member-link-mode", "admin_link");
+
+        port.setInviteViaLinkAllowed("acc_7", "120363settings@g.us", true);
+        port.setInviteViaLinkAllowed("acc_7", "120363settings@g.us", false);
 
         server.verify();
     }

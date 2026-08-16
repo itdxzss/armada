@@ -14,6 +14,7 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.GroupModelBackfillMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
@@ -26,6 +27,7 @@ import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
@@ -82,7 +84,9 @@ class GroupCurrentLocalWriteMySqlTest {
         dataSource.setPassword(MYSQL.getPassword());
         jdbc = new JdbcTemplate(dataSource);
         createLegacySchema();
-        GroupCurrentSnapshotMySqlTestSupport.executeV117(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV120(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV121(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV122(dataSource);
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         groupLinkMapper = session.getMapper(GroupLinkMapper.class);
         previewMapper = session.getMapper(GroupLinkPreviewMapper.class);
@@ -108,6 +112,7 @@ class GroupCurrentLocalWriteMySqlTest {
         jdbc.update("DELETE FROM wa_group");
         jdbc.update("DELETE FROM whatsapp_group_departed_member");
         jdbc.update("DELETE FROM whatsapp_group_member_join_fact");
+        jdbc.update("DELETE FROM whatsapp_group_member_snapshot");
         jdbc.update("DELETE FROM whatsapp_group_member_state");
         jdbc.update("DELETE FROM whatsapp_group_member_cache");
         jdbc.update("DELETE FROM account_group_membership");
@@ -144,6 +149,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, origin, created_at, updated_at
                 ) VALUES (7, 'LocalFields', 1, 100, 100)
                 """);
+        refreshCanonicalReferences();
 
         service().updateProfile(10L, new GroupLinkProfileDTO(
                 " 新名称 ", " 新备注 ", " https://cdn.example.test/new.jpg "));
@@ -171,6 +177,43 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
+    void updateProfileUsesStableGroupIdWhenLegacyPreviewIsStale() {
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES
+                  (7, 'current-profile@g.us', 5, 100, 100),
+                  (7, 'stale-preview@g.us', 5, 100, 100)
+                """);
+        Long currentGroupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'current-profile@g.us'
+                """, Long.class);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES (24, 7, ?, 'wa://group/current-profile@g.us', 5, 2, 100, 100)
+                """, currentGroupId);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (7, 24, 'stale-preview@g.us', 100, 100)
+                """);
+
+        service().updateProfile(24L, new GroupLinkProfileDTO("新模型名称", null, null));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT display_name FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'current-profile@g.us'
+                """, String.class)).isEqualTo("新模型名称");
+        assertThat(jdbc.queryForObject("""
+                SELECT display_name FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'stale-preview@g.us'
+                """, String.class)).isNull();
+    }
+
+    @Test
     void updateProfileAlsoWritesUnresolvedInviteLocalFields() {
         jdbc.update("""
                 INSERT INTO group_link (
@@ -189,6 +232,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, 'UnresolvedFields', 1, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
 
         service().updateProfile(11L, new GroupLinkProfileDTO(
                 " 邀请名称 ", " 邀请备注 ", " https://cdn.example.test/invite.jpg "));
@@ -225,6 +269,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, label_id, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, 'MoveLabel', 1, 1, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
         GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(9L);
@@ -260,6 +305,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, '120363-folder@g.us', 5, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
         GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
         GroupFolder folder = new GroupFolder();
         folder.setId(8L);
@@ -361,6 +407,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at
                 ) VALUES (7, '120363-alias@g.us', 1, 100, 100)
                 """);
+        refreshCanonicalReferences();
 
         service().batchDelete(java.util.List.of(17L));
         assertThat(jdbc.queryForObject("""
@@ -583,7 +630,8 @@ class GroupCurrentLocalWriteMySqlTest {
         assertThat(backfillMapper.backfillProfiles(500)).isZero();
         assertThat(backfillMapper.backfillInvites(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillInvites(500)).isZero();
-        assertThat(backfillMapper.backfillCurrentInvitePointers(500)).isEqualTo(1);
+        // MySQL 对 ON DUPLICATE KEY UPDATE 的单行实际更新返回 2 个 affected rows。
+        assertThat(backfillMapper.backfillCurrentInvitePointers(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillCurrentInvitePointers(500)).isZero();
 
         Long groupId = jdbc.queryForObject("""
@@ -595,16 +643,19 @@ class GroupCurrentLocalWriteMySqlTest {
                 WHERE tenant_id = 7 AND invite_code = 'ResolvedCode'
                 """, Long.class);
         assertThat(jdbc.queryForMap("""
-                SELECT subject, description, member_count, wa_created_at,
+                SELECT subject, description, member_count, checked_member_count, wa_created_at,
                        announce_only, admin_only_edit_info, member_add_mode,
                        join_approval_mode, ephemeral_duration_seconds,
-                       metadata_observed_at, current_invite_id, current_invite_observed_at
+                       metadata_observed_at, health_status, banned, last_checked_at,
+                       last_error_code, failure_count,
+                       current_invite_id, current_invite_observed_at
                 FROM wa_group_profile
                 WHERE tenant_id = 7 AND group_id = ?
                 """, groupId))
                 .containsEntry("subject", "WhatsApp群名")
                 .containsEntry("description", "群描述")
-                .containsEntry("member_count", 42)
+                .containsEntry("member_count", 41)
+                .containsEntry("checked_member_count", 42)
                 .containsEntry("wa_created_at", 123000L)
                 .containsEntry("announce_only", 1)
                 .containsEntry("admin_only_edit_info", 1)
@@ -612,6 +663,11 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("join_approval_mode", 0)
                 .containsEntry("ephemeral_duration_seconds", 86400)
                 .containsEntry("metadata_observed_at", 320L)
+                .containsEntry("health_status", 1)
+                .containsEntry("banned", 0)
+                .containsEntry("last_checked_at", 340L)
+                .containsEntry("last_error_code", null)
+                .containsEntry("failure_count", 0)
                 .containsEntry("current_invite_id", resolvedInviteId)
                 .containsEntry("current_invite_observed_at", 350L);
         assertThat(jdbc.queryForMap("""
@@ -627,10 +683,10 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("avatar_url", null)
                 .containsEntry("remark", null)
                 .containsEntry("preview_subject", null)
-                .containsEntry("health_status", 1)
-                .containsEntry("banned", 0)
-                .containsEntry("checked_member_count", 42)
-                .containsEntry("last_checked_at", 340L)
+                .containsEntry("health_status", null)
+                .containsEntry("banned", null)
+                .containsEntry("checked_member_count", null)
+                .containsEntry("last_checked_at", null)
                 .containsEntry("last_error_code", null)
                 .containsEntry("failure_count", 0);
         assertThat(jdbc.queryForMap("""
@@ -737,6 +793,15 @@ class GroupCurrentLocalWriteMySqlTest {
                 )
                 """);
         jdbc.update("""
+                INSERT INTO whatsapp_group_member_snapshot (
+                  tenant_id, group_link_id, group_jid, participant_jid, phone,
+                  role, is_admin, is_owner, snapshot_at, created_at, updated_at
+                ) VALUES (
+                  7, 61, '120363-current@g.us', '923300000096@s.whatsapp.net',
+                  '923300000096', 'ADMIN', 1, 0, 2400, 2400, 2400
+                )
+                """);
+        jdbc.update("""
                 INSERT INTO whatsapp_group_member_join_fact (
                   tenant_id, group_jid, participant_jid, phone,
                   joined_at, event_at, source_event_id, observer_account_id,
@@ -758,13 +823,20 @@ class GroupCurrentLocalWriteMySqlTest {
                 )
                 """);
 
-        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(2);
+        // 目标六表仍为空时，门禁只能校验旧来源，不能因目标尚未回填而自我阻断。
         assertThat(backfillMapper.countParticipantConflicts()).isZero();
         assertThat(backfillMapper.countBindingConflicts()).isZero();
+        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillProfiles(500)).isEqualTo(2);
-        assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isEqualTo(1);
+        // profile 已由前一阶段插入，这里是单行 ON DUPLICATE KEY UPDATE。
+        assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillProfileOwners(500)).isEqualTo(1);
-        assertThat(backfillMapper.backfillParticipants(500)).isEqualTo(1);
+        Long legacySnapshotEndId = backfillMapper.selectLegacyMemberSnapshotBatchEndId(0, 500);
+        assertThat(legacySnapshotEndId).isNotNull();
+        assertThat(backfillMapper.backfillLegacyMemberSnapshots(0, legacySnapshotEndId))
+                .isEqualTo(1);
+        // 群主阶段已插入同一成员，这里补 presence/role 时返回单行更新的 2。
+        assertThat(backfillMapper.backfillParticipants(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillAccountParticipants(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isEqualTo(1);
         assertThat(backfillMapper.backfillParticipantExitFacts(500)).isEqualTo(1);
@@ -773,6 +845,7 @@ class GroupCurrentLocalWriteMySqlTest {
 
         assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isZero();
         assertThat(backfillMapper.backfillProfileOwners(500)).isZero();
+        assertThat(backfillMapper.backfillLegacyMemberSnapshots(0, legacySnapshotEndId)).isZero();
         assertThat(backfillMapper.backfillParticipants(500)).isZero();
         assertThat(backfillMapper.backfillAccountParticipants(500)).isZero();
         assertThat(backfillMapper.backfillParticipantJoinFacts(500)).isZero();
@@ -826,6 +899,16 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("last_snapshot_version", "snapshot-v1")
                 .containsEntry("phone_country_iso2", "PK");
         assertThat(jdbc.queryForMap("""
+                SELECT presence_status, role, presence_source, role_source
+                FROM wa_group_participant
+                WHERE tenant_id = 7 AND group_id = ?
+                  AND pn_jid = '923300000096@s.whatsapp.net'
+                """, currentGroupId))
+                .containsEntry("presence_status", 1)
+                .containsEntry("role", 2)
+                .containsEntry("presence_source", "LEGACY_MEMBER_SNAPSHOT")
+                .containsEntry("role_source", "LEGACY_MEMBER_SNAPSHOT");
+        assertThat(jdbc.queryForMap("""
                 SELECT baseline_state, baseline_completeness,
                        baseline_captured_at, baseline_group_count,
                        last_sync_requested_at, last_reported_at
@@ -840,6 +923,184 @@ class GroupCurrentLocalWriteMySqlTest {
                 .containsEntry("last_reported_at", null);
     }
 
+    @Test
+    void capturedEmptyBaselineWithCaptureEvidenceBackfillsWithoutInventingPostControlFact() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, group_name, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES (
+                  62, 7, 'wa://group/120363-after-empty@g.us', '当前群', 5, 2,
+                  100, 100
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, wa_subject,
+                  created_at, updated_at
+                ) VALUES (
+                  7, 62, '120363-after-empty@g.us', '当前群', 100, 100
+                )
+                """);
+        jdbc.update("""
+                INSERT INTO account (
+                  id, tenant_id, ws_phone, group_baseline_state,
+                  created_at, updated_at
+                ) VALUES (101, 7, '923300000002', 2, 50, 1200)
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_baseline (
+                  tenant_id, account_id, baseline_group_jids,
+                  group_count, captured_at, created_at, updated_at
+                ) VALUES (7, 101, JSON_ARRAY(), 0, 1000, 1100, 1100)
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_membership (
+                  id, tenant_id, account_id, group_link_id, group_jid,
+                  membership_status, status_updated_at, joined_at,
+                  last_seen_at, created_at, updated_at
+                ) VALUES (
+                  201, 7, 101, 62, '120363-after-empty@g.us',
+                  1, 1200, 1200, 1200, 1200, 1200
+                )
+                """);
+
+        assertThat(backfillMapper.countBindingConflicts()).isZero();
+        assertThat(backfillMapper.backfillGroups(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillAccountParticipants(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillAccountGroupBindings(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillAccountGroupSyncStates(500)).isEqualTo(1);
+
+        assertThat(jdbc.queryForMap("""
+                SELECT binding.was_in_initial_baseline,
+                       binding.first_post_control_observed_at
+                FROM wa_account_group_binding binding
+                INNER JOIN wa_group resolved_group
+                  ON resolved_group.tenant_id = binding.tenant_id
+                 AND resolved_group.id = binding.group_id
+                WHERE binding.tenant_id = 7
+                  AND binding.account_id = 101
+                  AND resolved_group.group_jid = '120363-after-empty@g.us'
+                """))
+                .containsEntry("was_in_initial_baseline", null)
+                .containsEntry("first_post_control_observed_at", null);
+        assertThat(jdbc.queryForMap("""
+                SELECT baseline_state, baseline_completeness,
+                       baseline_captured_at, baseline_group_count
+                FROM account_group_sync_state
+                WHERE tenant_id = 7 AND account_id = 101
+                """))
+                .containsEntry("baseline_state", 2)
+                .containsEntry("baseline_completeness", 2)
+                .containsEntry("baseline_captured_at", 1000L)
+                .containsEntry("baseline_group_count", 0);
+    }
+
+    @Test
+    void capturedEmptyBaselineWithWatermarkPlaceholderShapeRemainsBlocked() {
+        jdbc.update("""
+                INSERT INTO account (
+                  id, tenant_id, ws_phone, group_baseline_state,
+                  created_at, updated_at
+                ) VALUES (102, 7, '923300000003', 2, 50, 1000)
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_baseline (
+                  tenant_id, account_id, baseline_group_jids,
+                  group_count, captured_at, last_group_sync_requested_at,
+                  created_at, updated_at
+                ) VALUES (7, 102, JSON_ARRAY(), 0, 1000, 1000, 1000, 1000)
+                """);
+
+        assertThat(backfillMapper.countBindingConflicts()).isEqualTo(1);
+    }
+
+    @Test
+    void invalidSourceGateIgnoresFailClosedTenantButStillBlocksBusinessTenantOrphan() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES (90, 7, 'wa://group/120363-normal@g.us', 5, 2, 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (-1, 90, '120363-normal@g.us', 100, 100)
+                """);
+
+        assertThat(backfillMapper.countInvalidGroupSources()).isZero();
+
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (7, 91, '120363-orphan@g.us', 100, 100)
+                """);
+
+        assertThat(backfillMapper.countInvalidGroupSources()).isEqualTo(1);
+    }
+
+    @Test
+    void participantGateAuditsIdentityButDoesNotBlockUnreachableMemberCache() {
+        jdbc.update("""
+                INSERT INTO whatsapp_group_member_state (
+                  tenant_id, group_jid, participant_jid, phone,
+                  is_admin, is_owner, role, is_in_group, state_source,
+                  state_updated_at, source_event_id, created_at, updated_at
+                ) VALUES (
+                  7, '120363-unreachable@g.us', '923300000090@s.whatsapp.net',
+                  '923300000090', 0, 0, 'member', 1, 'FULL_SNAPSHOT',
+                  100, 'unreachable-valid', 100, 100
+                )
+                """);
+
+        assertThat(backfillMapper.countParticipantConflicts()).isZero();
+
+        jdbc.update("""
+                UPDATE whatsapp_group_member_state
+                SET participant_jid = 'invalid-participant'
+                WHERE tenant_id = 7 AND source_event_id = 'unreachable-valid'
+                """);
+
+        assertThat(backfillMapper.countParticipantConflicts()).isEqualTo(1);
+    }
+
+    @Test
+    void bindingGateSkipsDeletedAccountMembershipButBlocksMissingAccount() {
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES (92, 7, 'wa://group/120363-deleted-account@g.us', 5, 2, 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (7, 92, '120363-deleted-account@g.us', 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO account (
+                  id, tenant_id, ws_phone, group_baseline_state,
+                  created_at, updated_at, deleted_at
+                ) VALUES (103, 7, '923300000004', 1, 50, 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO account_group_membership (
+                  id, tenant_id, account_id, group_link_id, group_jid,
+                  membership_status, status_updated_at, created_at, updated_at
+                ) VALUES (
+                  202, 7, 103, 92, '120363-deleted-account@g.us',
+                  1, 100, 100, 100
+                )
+                """);
+
+        assertThat(backfillMapper.countBindingConflicts()).isZero();
+
+        jdbc.update("DELETE FROM account WHERE tenant_id = 7 AND id = 103");
+
+        assertThat(backfillMapper.countBindingConflicts()).isEqualTo(1);
+    }
+
     private static GroupLinkServiceImpl service() {
         return service(mock(GroupFolderMapper.class), mock(GroupLinkLabelMapper.class));
     }
@@ -849,6 +1110,7 @@ class GroupCurrentLocalWriteMySqlTest {
             GroupLinkLabelMapper labelMapper) {
         return new GroupLinkServiceImpl(
                 groupLinkMapper,
+                mock(GroupListCurrentMapper.class),
                 folderMapper,
                 previewMapper,
                 mock(GroupLinkHealthMapper.class),
@@ -857,7 +1119,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(AccountMapper.class),
                 mock(GroupPreviewPort.class),
                 mock(GroupProfilePort.class),
-                currentLocalPersistence);
+                currentLocalPersistence,
+                mock(GroupCurrentInvitePersistence.class));
     }
 
     private static GroupLinkLabelServiceImpl labelService() {
@@ -889,7 +1152,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(WhatsappGroupMemberSnapshotMapper.class),
                 mock(GroupMetadataSyncTaskService.class),
                 currentSnapshotPersistence,
-                currentLocalPersistence);
+                currentLocalPersistence,
+                mock(WhatsappGroupBusinessDepartureService.class));
     }
 
     private static GroupExecutionAccountSelector selector(long groupLinkId) {
@@ -917,6 +1181,25 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at
                 ) VALUES (7, ?, 5, 100, 100)
                 """, groupJid);
+        refreshCanonicalReferences();
+    }
+
+    private static void refreshCanonicalReferences() {
+        jdbc.update("""
+                UPDATE group_link handle
+                LEFT JOIN group_link_preview preview
+                  ON preview.tenant_id = handle.tenant_id
+                 AND preview.group_link_id = handle.id
+                LEFT JOIN wa_group current_group
+                  ON current_group.tenant_id = handle.tenant_id
+                 AND current_group.group_jid = LOWER(TRIM(preview.group_jid))
+                LEFT JOIN wa_group_invite current_invite
+                  ON current_invite.tenant_id = handle.tenant_id
+                 AND current_invite.invite_code = TRIM(preview.invite_code)
+                SET handle.group_id = current_group.id,
+                    handle.group_invite_id = current_invite.id
+                WHERE handle.tenant_id = 7
+                """);
     }
 
     private static void seedGroupAlias(long groupLinkId, String linkUrl, String groupJid) {
@@ -950,6 +1233,8 @@ class GroupCurrentLocalWriteMySqlTest {
         jdbc.execute("""
                 CREATE TABLE group_link (
                   id BIGINT NOT NULL,
+                  group_id BIGINT DEFAULT NULL,
+                  group_invite_id BIGINT DEFAULT NULL,
                   tenant_id BIGINT NOT NULL,
                   link_url VARCHAR(512) NOT NULL,
                   group_name VARCHAR(128) DEFAULT NULL,
@@ -1001,6 +1286,23 @@ class GroupCurrentLocalWriteMySqlTest {
                   updated_at BIGINT NOT NULL,
                   PRIMARY KEY (id),
                   UNIQUE KEY uq_member_cache (tenant_id, group_jid)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE whatsapp_group_member_snapshot (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_link_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL,
+                  participant_jid VARCHAR(191) NOT NULL,
+                  phone VARCHAR(32) DEFAULT NULL,
+                  role VARCHAR(32) DEFAULT NULL,
+                  is_admin TINYINT DEFAULT NULL,
+                  is_owner TINYINT DEFAULT NULL,
+                  snapshot_at BIGINT NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id)
                 ) ENGINE=InnoDB
                 """);
         jdbc.execute("""

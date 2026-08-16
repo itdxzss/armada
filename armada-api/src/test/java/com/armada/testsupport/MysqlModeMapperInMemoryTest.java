@@ -27,6 +27,7 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingAccountStat;
@@ -83,7 +84,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         inheritListeners = false)
-class MysqlModeMapperInMemoryTest {
+public class MysqlModeMapperInMemoryTest {
 
     private static final long CURRENT_TENANT_ID = 7L;
 
@@ -115,6 +116,9 @@ class MysqlModeMapperInMemoryTest {
     @BeforeEach
     void setUp() throws SQLException {
         executeSql("DROP ALL OBJECTS");
+        executeSql("CREATE ALIAS SUBSTRING_INDEX FOR '"
+                + MysqlModeMapperInMemoryTest.class.getName()
+                + ".substringIndex'");
         createSchema();
         TenantContext.set(CURRENT_TENANT_ID);
     }
@@ -140,6 +144,112 @@ class MysqlModeMapperInMemoryTest {
         assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupOwnerExecutionAccountQueryUsesConfirmedOwnerWithoutFallback() throws SQLException {
+        executeSql(
+                """
+                INSERT INTO group_link
+                    (id, tenant_id, group_id, link_url, group_name,
+                     origin, membership_state, created_at, updated_at)
+                VALUES
+                    (31, 7, 3101, 'wa://group/owner-current', 'owner-current', 5, 2, 1, 1),
+                    (32, 8, 3201, 'wa://group/owner-other', 'owner-other', 5, 2, 1, 1),
+                    (33, 7, 3301, 'wa://group/no-preview', 'no-preview', 5, 2, 1, 1)
+                """,
+                """
+                INSERT INTO group_link_preview
+                    (id, tenant_id, group_link_id, group_jid, owner_phone, created_at, updated_at)
+                VALUES
+                    (41, 7, 31, 'owner-current@g.us', '923310000021', 1, 1),
+                    (42, 8, 32, 'owner-other@g.us', '923310000021', 1, 1)
+                """,
+                """
+                INSERT INTO account
+                    (id, tenant_id, ws_phone, protocol_id, protocol_account_id, created_at)
+                VALUES
+                    (601, 7, '+923310000021@s.whatsapp.net', 'web', 'owner-601', 1),
+                    (602, 7, '923310000022', 'web', 'admin-602', 1),
+                    (603, 8, '923310000021', 'web', 'other-owner-603', 1),
+                    (604, 7, '923310000024', 'web', 'admin-no-preview-604', 1)
+                """,
+                """
+                INSERT INTO account_state
+                    (id, tenant_id, account_id, account_state, login_state)
+                VALUES
+                    (701, 7, 601, %d, %d),
+                    (702, 7, 602, %d, %d),
+                    (703, 8, 603, %d, %d),
+                    (704, 7, 604, %d, %d)
+                """.formatted(
+                        AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                        AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                        AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                        AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE),
+                """
+                INSERT INTO account_group_membership
+                    (id, tenant_id, account_id, group_link_id, group_jid, is_admin,
+                     membership_status, status_source, status_updated_at, last_seen_at,
+                     created_at, updated_at)
+                VALUES
+                    (801, 7, 601, 31, 'owner-current@g.us', FALSE,
+                     1, 'TEST_FIXTURE', 1, 1, 1, 1),
+                    (802, 7, 602, 31, 'owner-current@g.us', TRUE,
+                     1, 'TEST_FIXTURE', 2, 2, 1, 1),
+                    (803, 8, 603, 32, 'owner-other@g.us', TRUE,
+                     1, 'TEST_FIXTURE', 3, 3, 1, 1),
+                    (804, 7, 604, 33, 'no-preview@g.us', TRUE,
+                     1, 'TEST_FIXTURE', 4, 4, 1, 1)
+                """,
+                """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, presence_status, role)
+                VALUES
+                    (901, 7, 3101, 1, 1),
+                    (902, 7, 3101, 1, 2),
+                    (903, 8, 3201, 1, 3),
+                    (904, 7, 3301, 1, 2)
+                """,
+                """
+                INSERT INTO wa_account_group_binding
+                    (id, tenant_id, account_id, group_id, participant_id, last_observed_at)
+                VALUES
+                    (1001, 7, 601, 3101, 901, 1),
+                    (1002, 7, 602, 3101, 902, 2),
+                    (1003, 8, 603, 3201, 903, 3),
+                    (1004, 7, 604, 3301, 904, 4)
+                """);
+
+        GroupExecutionAccount owner = membershipMapper.selectGroupOwnerExecutionAccount(
+                31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL);
+
+        assertThat(owner).isNotNull();
+        assertThat(owner.accountId()).isEqualTo(601L);
+        assertThat(owner.protocolAccountId()).isEqualTo("owner-601");
+
+        assertThat(membershipMapper.selectGroupExecutionAccounts(
+                33L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 10))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(604L);
+        assertThat(membershipMapper.selectGroupAdminExecutionAccounts(
+                33L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 10))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(604L);
+
+        try {
+            TenantContext.set(8L);
+            assertThat(membershipMapper.selectGroupOwnerExecutionAccount(
+                    31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).isNull();
+        } finally {
+            TenantContext.set(CURRENT_TENANT_ID);
+        }
+
+        jdbcTemplate.update(
+                "UPDATE account_state SET login_state = ? WHERE tenant_id = 7 AND account_id = 601",
+                AccountLoginStateCode.OFFLINE);
+        assertThat(membershipMapper.selectGroupOwnerExecutionAccount(
+                31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).isNull();
     }
 
     @Test
@@ -1157,6 +1267,7 @@ class MysqlModeMapperInMemoryTest {
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    group_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
                     group_name VARCHAR(128),
                     label_id BIGINT,
@@ -1199,6 +1310,25 @@ class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     CONSTRAINT uq_group_link_preview UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    presence_status TINYINT NOT NULL,
+                    role TINYINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE wa_account_group_binding (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    participant_id BIGINT NOT NULL,
+                    last_observed_at BIGINT
                 )
                 """,
                 """
@@ -1513,6 +1643,15 @@ class MysqlModeMapperInMemoryTest {
             assertThat(result.next()).isTrue();
             return result.getLong(1);
         }
+    }
+
+    /** H2 测试别名：覆盖生产 MySQL 中提取 JID 手机号部分的 SUBSTRING_INDEX。 */
+    public static String substringIndex(String value, String delimiter, int count) {
+        if (value == null || delimiter == null || delimiter.isEmpty() || count != 1) {
+            return value;
+        }
+        int index = value.indexOf(delimiter);
+        return index < 0 ? value : value.substring(0, index);
     }
 
     private void executeSql(String... statements) throws SQLException {

@@ -160,6 +160,28 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
     }
 
     @Test
+    void mapsAndroidEditAndMemberLinkModesToUnifiedPermissions() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{
+                          "Subject":"权限群",
+                          "GroupId":"120363001@g.us",
+                          "Locked":true,
+                          "MemberLinkMode":"all_member_link",
+                          "Count":0,
+                          "Participants":[]
+                        },"Msg":"ok"}
+                        """));
+
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+
+        assertThat(result.restrict()).isTrue();
+        assertThat(result.inviteViaLink()).isTrue();
+        assertThat(result.inviteViaLinkSupported()).isTrue();
+        assertThat(result.inviteViaLinkUnsupportedReason()).isNull();
+    }
+
+    @Test
     void mapsAndroidGroupJoinStateOnToJoinApprovalEnabled() throws Exception {
         // Go 侧已把 <membership_approval_mode><group_join state=.../> 解析成 group_join_state，
         // 不接这个字段会让群详情页的回读确认永远拿到 null 而报状态不一致。

@@ -70,11 +70,15 @@ class MarketingTaskExportSqlContractTest {
                 .contains("CHAT_TERMINATED")
                 .contains("ACCOUNT_NOT_PARTICIPANT")
                 .contains("protocol.group_status_reason")
+                .contains("health.banned = 1")
                 .contains("health.health_status = 2")
                 .contains("health.health_status = 3")
                 .contains("sm.marketing_count AS marketingCount")
                 .doesNotContain("COUNT(DISTINCT sm.attempt_id) AS marketingCount")
-                .doesNotContain("MAX(membership.is_admin)");
+                .doesNotContain("MAX(membership.is_admin)")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link_health")
+                .doesNotContain("account_group_membership");
         assertThat(groupRows)
                 .contains("t.tenant_id = a.tenant_id")
                 .contains("mt.tenant_id = d.tenant_id")
@@ -90,18 +94,23 @@ class MarketingTaskExportSqlContractTest {
                 .contains("COUNT(DISTINCT NULLIF(REGEXP_REPLACE")
                 .contains("e.group_jid = COALESCE(")
                 .contains("NULLIF(TRIM(t.group_jid), '')")
-                .contains("NULLIF(TRIM(p.group_jid), '')")
+                .contains("NULLIF(TRIM(current_group.group_jid), '')")
                 .doesNotContain("e.marketing_target_id = t.id")
                 .contains("fixed.execution_group_invite_url")
                 .contains("fixed.target_group_link_url")
-                .contains("CONCAT('https://chat.whatsapp.com/', TRIM(preview.invite_code))")
+                .contains("CONCAT('https://chat.whatsapp.com/', TRIM(current_invite.invite_code))")
                 .contains("LOWER(TRIM(group_link.link_url))")
                 .contains("END) AS groupLink")
-                .contains("NULLIF(TRIM(preview.wa_subject), ''), '未命名群组') AS groupName")
+                .contains("NULLIF(TRIM(health.subject), ''), '未命名群组') AS groupName")
+                .contains("COALESCE(health.checked_member_count, health.member_count)")
+                .contains("self_participant.role IN (2, 3)")
                 .doesNotContain("group_link.link_url AS groupLink")
                 .doesNotContain("COALESCE(latest.group_jid, fixed.group_jid, d.group_key)) AS groupName")
                 .doesNotContain("GROUP BY mt.id, mt.task_name, mt.remark, target.id")
-                .doesNotContain("HAVING groupJid IS NOT NULL");
+                .doesNotContain("HAVING groupJid IS NOT NULL")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link_health")
+                .doesNotContain("account_group_membership");
     }
 
     @Test
@@ -121,15 +130,16 @@ class MarketingTaskExportSqlContractTest {
                 .contains("WHERE a.tenant_id = #{tenantId}\n              AND (CASE WHEN a.status = 3")
                 .contains("WHERE t.tenant_id = #{tenantId}\n              AND COALESCE(t.target_scope, 1) = 1");
         assertThat(memberRows)
-                .contains("membership.tenant_id = #{tenantId}")
-                .contains("member_account.tenant_id = membership.tenant_id")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 3 THEN '被移出群组'")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 4")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}\n"
-                        + "                          AND membership.last_exit_type = 5 THEN '退出原因未识别'")
-                .contains("membership.last_exited_at &lt;= #{snapshotAt}");
+                .contains("binding.tenant_id = #{tenantId}")
+                .contains("member_account.tenant_id = binding.tenant_id")
+                .contains("participant.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND participant.last_exit_type = 'REMOVED' THEN '被移出群组'")
+                .contains("participant.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND participant.last_exit_type = 'LEFT'")
+                .contains("participant.last_exited_at &lt;= #{snapshotAt}\n"
+                        + "                          AND participant.last_exit_type = 'UNKNOWN' THEN '退出原因未识别'")
+                .contains("binding.membership_active_since_at &lt;= #{snapshotAt}")
+                .doesNotContain("account_group_membership");
 
         assertTenantInterceptorIgnored("selectCountryEntryRows",
                 Long.class, List.class, long.class, ResultHandler.class);
@@ -164,8 +174,9 @@ class MarketingTaskExportSqlContractTest {
                 .doesNotContain("UPPER(TRIM(observer_account.protocol_id)) = 'ANDROID'")
                 .contains("observer_state.account_state = 2")
                 .contains("observer_state.login_state = 1")
-                .contains("observer_membership.membership_status = 1")
-                .contains("observer_membership.group_jid = source.groupJid");
+                .contains("observer_group.group_jid = source.groupJid")
+                .contains("observer_participant.presence_status = 1")
+                .doesNotContain("account_group_membership");
     }
 
     @Test

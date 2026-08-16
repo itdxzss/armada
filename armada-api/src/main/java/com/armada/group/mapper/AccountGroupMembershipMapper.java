@@ -325,6 +325,22 @@ public interface AccountGroupMembershipMapper {
             @Param("limit") int limit);
 
     /**
+     * 按群 metadata 已确认的群主号码选择当前在线、正常且仍在群内的执行账号。
+     *
+     * <p>群权限写操作必须由群主账号执行，不允许回退到其它管理员或普通成员。
+     * 本查询不依赖可能滞后的 {@code account_group_membership.is_admin} 标记。</p>
+     *
+     * @param groupLinkId 群链接 ID
+     * @param onlineLoginState 在线登录态码
+     * @param normalAccountState 正常账号态码
+     * @return 群主账号；群主身份未知、离线或不再在群时返回 null
+     */
+    GroupExecutionAccount selectGroupOwnerExecutionAccount(
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("normalAccountState") int normalAccountState);
+
+    /**
      * 选择一个当前在线、在群且群角色为管理员的账号,用于刷新群邀请链接等必须管理员权限的操作。
      *
      * <p>与 {@link #selectGroupExecutionAccounts} 的差别是 is_admin 参与过滤而非仅参与排序,

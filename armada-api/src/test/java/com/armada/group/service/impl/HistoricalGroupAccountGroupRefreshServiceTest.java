@@ -47,6 +47,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     @Mock private GroupInvitePort invitePort;
     @Mock private GroupParticipantPort participantPort;
     @Mock private AccountGroupMembershipSnapshotService snapshotService;
+    @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
     @Mock private GroupInviteLinkService inviteLinkService;
 
     private HistoricalGroupAccountGroupRefreshService service;
@@ -63,6 +64,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                         invitePort,
                         participantPort),
                 snapshotService,
+                currentSnapshotPersistence,
                 inviteLinkService);
     }
 
@@ -109,6 +111,12 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 eq("HISTORICAL_GROUP_MANUAL_REFRESH"),
                 org.mockito.ArgumentMatchers.any(ProtocolBackend.class));
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(1L), eq(groupsCaptor.getAllValues().get(0)), eq(true),
+                anyLong(), org.mockito.ArgumentMatchers.anyString());
+        verify(currentSnapshotPersistence).replaceVisibleGroups(
+                eq(2L), eq(groupsCaptor.getAllValues().get(1)), eq(true),
+                anyLong(), org.mockito.ArgumentMatchers.anyString());
         org.assertj.core.api.Assertions.assertThat(groupsCaptor.getAllValues().get(0))
                 .satisfiesExactly(
                         group -> {
@@ -227,6 +235,40 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 eq("HISTORICAL_GROUP_MANUAL_REFRESH"),
                 eq(ProtocolBackend.ANDROID));
         verify(invitePort, times(0)).getInvite(failed, "120363failed@g.us");
+    }
+
+    @Test
+    void keepsLegacyRefreshSuccessfulWhenCurrentModelShadowWriteFails() {
+        AccountGroup accountGroup = new AccountGroup();
+        accountGroup.setId(12L);
+        when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                1L, ProtocolBackend.WEB, "web-1", "8611");
+        when(accountLookupService.findOnlineNormalByGroupId(12L))
+                .thenReturn(List.of(account));
+        when(participatingGroups.listCurrent(account)).thenReturn(List.of(
+                new AccountParticipatingGroupResult.Group(
+                        "120363admin@g.us", "管理群", 10,
+                        "8611@s.whatsapp.net", "8611", OwnerIdentityKind.PN,
+                        true, false, 1720000000L)));
+        doThrow(new IllegalStateException("current model unavailable"))
+                .when(currentSnapshotPersistence)
+                .replaceVisibleGroups(
+                        eq(1L), org.mockito.ArgumentMatchers.anyList(), eq(true),
+                        anyLong(), org.mockito.ArgumentMatchers.anyString());
+        when(invitePort.getInvite(account, "120363admin@g.us"))
+                .thenReturn(new GroupInviteResult(
+                        "120363admin@g.us", "InviteCode", null));
+
+        service.refresh(12L);
+
+        verify(snapshotService).replaceVisibleGroups(
+                eq(1L), org.mockito.ArgumentMatchers.anyList(), eq(true),
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                eq("HISTORICAL_GROUP_MANUAL_REFRESH"), eq(ProtocolBackend.WEB));
+        verify(inviteLinkService).applyCurrentInvite(
+                org.mockito.ArgumentMatchers.argThat(observation ->
+                        "120363admin@g.us".equals(observation.groupJid())));
     }
 
     @Test

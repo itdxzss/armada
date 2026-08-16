@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -20,6 +21,7 @@ import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupDescriptionCommandDTO;
@@ -37,14 +39,19 @@ import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
 import com.armada.group.service.impl.GroupCurrentLocalPersistence;
+import com.armada.group.service.impl.GroupCurrentInvitePersistence;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.tenant.TenantContext;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,8 +66,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class GroupLinkServiceImplTest {
 
+    private static final Long TENANT_ID = 7L;
+
     @Mock
     private GroupLinkMapper groupLinkMapper;
+
+    @Mock
+    private GroupListCurrentMapper groupListCurrentMapper;
 
     @Mock
     private GroupFolderMapper folderMapper;
@@ -91,12 +103,49 @@ class GroupLinkServiceImplTest {
     @Mock
     private GroupCurrentLocalPersistence currentLocalPersistence;
 
+    @Mock
+    private GroupCurrentInvitePersistence currentInvitePersistence;
+
     @BeforeEach
     void setUp() {
+        TenantContext.set(TENANT_ID);
         service = new GroupLinkServiceImpl(
-                groupLinkMapper, folderMapper, previewMapper, healthMapper, labelMapper,
+                groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, healthMapper, labelMapper,
                 converter, accountMapper, groupPreviewPort, groupProfilePort,
-                currentLocalPersistence);
+                currentLocalPersistence, currentInvitePersistence);
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void findWhatsAppGroupNamesByIdsDeduplicatesIdsAndIgnoresBlankSubjects() {
+        GroupLinkPreview named = new GroupLinkPreview();
+        named.setGroupLinkId(11L);
+        named.setWaSubject("WhatsApp 真实群名");
+        GroupLinkPreview blank = new GroupLinkPreview();
+        blank.setGroupLinkId(12L);
+        blank.setWaSubject("   ");
+        GroupLinkPreview missing = new GroupLinkPreview();
+        missing.setGroupLinkId(13L);
+        when(previewMapper.selectByGroupLinkIds(List.of(11L, 12L, 13L)))
+                .thenReturn(List.of(named, blank, missing));
+
+        Map<Long, String> result = service.findWhatsAppGroupNamesByIds(
+                Arrays.asList(11L, null, 11L, 12L, 13L));
+
+        assertThat(result).containsExactly(Map.entry(11L, "WhatsApp 真实群名"));
+        verify(previewMapper).selectByGroupLinkIds(List.of(11L, 12L, 13L));
+    }
+
+    @Test
+    void findWhatsAppGroupNamesByIdsReturnsEmptyMapWithoutQueryForEmptyInput() {
+        assertThat(service.findWhatsAppGroupNamesByIds(null)).isEmpty();
+        assertThat(service.findWhatsAppGroupNamesByIds(List.of())).isEmpty();
+
+        verifyNoInteractions(previewMapper);
     }
 
     // ---- listByLabel ----
@@ -105,13 +154,14 @@ class GroupLinkServiceImplTest {
     void listByLabel_returnsEmptyPage_whenTotalZero() {
         GroupLinkQuery q = new GroupLinkQuery();
         q.setLabelId(1L);
-        when(groupLinkMapper.countByLabel(q)).thenReturn(0L);
+        when(groupListCurrentMapper.count(TENANT_ID, q)).thenReturn(0L);
 
         PageResult<GroupLinkVO> result = service.listByLabel(q);
 
         assertThat(result.total()).isEqualTo(0L);
         assertThat(result.list()).isEmpty();
-        verify(groupLinkMapper, never()).selectPageByLabel(any());
+        verify(groupListCurrentMapper, never()).selectPage(anyLong(), any());
+        verify(groupLinkMapper, never()).countByLabel(any());
     }
 
     @Test
@@ -120,14 +170,14 @@ class GroupLinkServiceImplTest {
         GroupLinkVoRow row = new GroupLinkVoRow();
         row.setId(11L);
         row.setSyncProtocolMask(3);
-        when(groupLinkMapper.countByLabel(query)).thenReturn(1L);
-        when(groupLinkMapper.selectPageByLabel(query)).thenReturn(List.of(row));
+        when(groupListCurrentMapper.count(TENANT_ID, query)).thenReturn(1L);
+        when(groupListCurrentMapper.selectPage(TENANT_ID, query)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of());
 
         service.listByLabel(query);
 
-        verify(groupLinkMapper).countByLabel(query);
-        verify(groupLinkMapper).selectPageByLabel(query);
+        verify(groupListCurrentMapper).count(TENANT_ID, query);
+        verify(groupListCurrentMapper).selectPage(TENANT_ID, query);
         verifyNoMoreInteractions(groupLinkMapper);
         verify(converter).toGroupLinkVOList(List.of(row));
     }
@@ -143,8 +193,8 @@ class GroupLinkServiceImplTest {
                 3, null, null, null, null, null, null, null, null, null, null, 1000L,
                 false, false, null, null, null, List.of(), false, 0,
                 null, null, null, null, null, null, null, null, null);
-        when(groupLinkMapper.countByLabel(q)).thenReturn(1L);
-        when(groupLinkMapper.selectPageByLabel(q)).thenReturn(List.of(row));
+        when(groupListCurrentMapper.count(TENANT_ID, q)).thenReturn(1L);
+        when(groupListCurrentMapper.selectPage(TENANT_ID, q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));
 
         PageResult<GroupLinkVO> result = service.listByLabel(q);
@@ -162,8 +212,8 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.listByLabel(q))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("status");
-        verify(groupLinkMapper, never()).countByLabel(any());
-        verify(groupLinkMapper, never()).selectPageByLabel(any());
+        verify(groupListCurrentMapper, never()).count(any(), any());
+        verify(groupListCurrentMapper, never()).selectPage(any(), any());
     }
 
     @Test
@@ -175,7 +225,7 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.listByLabel(query))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("folderId 与 withoutFolder 不能同时使用");
-        verify(groupLinkMapper, never()).countByLabel(any());
+        verify(groupListCurrentMapper, never()).count(any(), any());
     }
 
     @Test
@@ -183,14 +233,14 @@ class GroupLinkServiceImplTest {
         GroupLinkQuery query = new GroupLinkQuery();
         query.setCountryIso2(" in ");
         query.setContinentCode(" asia ");
-        when(groupLinkMapper.countByLabel(query)).thenReturn(0L);
+        when(groupListCurrentMapper.count(TENANT_ID, query)).thenReturn(0L);
 
         service.listByLabel(query);
 
         assertThat(query.getCountryIso2()).isEqualTo("IN");
         assertThat(query.getContinentCode()).isEqualTo("ASIA");
         assertThat(query.getNowSeconds()).isPositive();
-        verify(groupLinkMapper).countByLabel(query);
+        verify(groupListCurrentMapper).count(TENANT_ID, query);
     }
 
     @Test
@@ -202,7 +252,7 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.listByLabel(query))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("成员数");
-        verify(groupLinkMapper, never()).countByLabel(any());
+        verify(groupListCurrentMapper, never()).count(any(), any());
     }
 
     @Test
@@ -261,7 +311,7 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.listByLabel(query))
                 .isInstanceOf(BusinessException.class);
 
-        verify(groupLinkMapper, never()).countByLabel(any());
+        verify(groupListCurrentMapper, never()).count(any(), any());
     }
 
     // ---- updateProfile ----
@@ -540,6 +590,8 @@ class GroupLinkServiceImplTest {
         assertThat(healthCaptor.getValue().getCurrentCount()).isEqualTo(12);
         assertThat(healthCaptor.getValue().getLastHealthError()).isNull();
         assertThat(healthCaptor.getValue().getHealthFailureCount()).isZero();
+        verify(currentInvitePersistence).applyHealth(
+                "120363preview@g.us", healthCaptor.getValue());
     }
 
     @Test

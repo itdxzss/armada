@@ -47,7 +47,7 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     /** 历史群与上控后群固化分类服务。 */
     private final GroupClassificationService classificationService;
 
-    /** V117 新表精确关系事实写入入口。 */
+    /** V120 新表精确关系事实写入入口。 */
     private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
 
     /**
@@ -56,7 +56,7 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
      * @param membershipMapper 账号群关系 Mapper
      * @param groupLinkRegistryService 群组池登记服务
      * @param classificationService 历史群与上控后群分类服务
-     * @param currentPersistence V117 新表精确关系事实写入入口
+     * @param currentPersistence V120 新表精确关系事实写入入口
      */
     public AccountGroupMembershipStatusServiceImpl(AccountGroupMembershipMapper membershipMapper,
                                                    GroupLinkRegistryService groupLinkRegistryService,

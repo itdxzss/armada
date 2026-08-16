@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.GroupLinkPreview;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -69,6 +70,15 @@ public interface GroupLinkPreviewMapper {
     GroupLinkPreview selectByGroupLinkId(@Param("groupLinkId") Long groupLinkId);
 
     /**
+     * 批量查询有 WhatsApp 真实群名称的预览快照。
+     *
+     * @param groupLinkIds 群链接 ID；null 或空集合安全返回空列表
+     * @return 当前租户内群名非空白的预览快照，按群链接 ID 升序
+     */
+    List<GroupLinkPreview> selectByGroupLinkIds(
+            @Param("groupLinkIds") List<Long> groupLinkIds);
+
+    /**
      * 按当前邀请码查询仍活跃的原群入口，避免链接轮换后登记出重复群。
      *
      * @param inviteCode 当前邀请码
@@ -102,6 +112,11 @@ public interface GroupLinkPreviewMapper {
     int updateMemberAddMode(@Param("groupLinkId") Long groupLinkId,
                             @Param("memberAddMode") boolean memberAddMode,
                             @Param("updatedAt") long updatedAt);
+
+    /** 写入已由实时回读确认的普通成员链接邀请权限。 */
+    int updateMemberLinkMode(@Param("groupLinkId") Long groupLinkId,
+                             @Param("memberLinkMode") boolean memberLinkMode,
+                             @Param("updatedAt") long updatedAt);
 
     /** 写入已由实时回读确认的新成员审批权限。 */
     int updateJoinApprovalMode(@Param("groupLinkId") Long groupLinkId,

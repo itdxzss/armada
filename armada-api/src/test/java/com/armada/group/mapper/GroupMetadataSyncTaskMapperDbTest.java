@@ -185,11 +185,68 @@ class GroupMetadataSyncTaskMapperDbTest {
         assertThat(missingInvite.getInviteRequired()).isTrue();
 
         execute("UPDATE group_link_preview SET invite_code = 'INVITE-CODE'");
+        insertCurrentInvite(GROUP_LINK_ID, "INVITE-CODE");
 
         GroupMetadataSyncTask withInvite = mapper.selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(withInvite.getInviteRequired()).isFalse();
+    }
+
+    @Test
+    void dueCandidateUsesCurrentGroupJidInsteadOfStaleLegacyPreview() throws SQLException {
+        insertGroupLink("wa://group/current-group@g.us", 4,
+                "current-group@g.us", null);
+        execute("UPDATE group_link_preview SET group_jid = 'stale-group@g.us'");
+        mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BACKFILL, 1_000L),
+                GroupMetadataSyncStatus.RUNNING.code());
+
+        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
+
+        assertThat(due.getGroupJid()).isEqualTo("current-group@g.us");
+    }
+
+    @Test
+    void resumeDeferredUsesCurrentSelfPresenceInsteadOfStaleLegacyMembership()
+            throws SQLException {
+        insertGroupLink("wa://group/resume-current@g.us", 4,
+                "resume-current@g.us", null);
+        insertTask(TENANT_ID, storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L));
+        execute("""
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, presence_status)
+                VALUES (801, 7, 101, 1)
+                """);
+        execute("""
+                INSERT INTO wa_account_group_binding
+                  (tenant_id, account_id, group_id, participant_id)
+                VALUES (7, 501, 101, 801)
+                """);
+        execute("""
+                INSERT INTO account_group_membership
+                  (tenant_id, account_id, group_link_id, membership_status, deleted_at)
+                VALUES (7, 501, 101, 3, NULL)
+                """);
+
+        assertThat(mapper.resumeDeferredForAccount(
+                501L,
+                GroupMetadataSyncStatus.DEFERRED.code(),
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
+                2_000L)).isEqualTo(1);
+
+        execute("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 101");
+        execute("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 801");
+        execute("UPDATE account_group_membership SET membership_status = 1");
+
+        assertThat(mapper.resumeDeferredForAccount(
+                501L,
+                GroupMetadataSyncStatus.DEFERRED.code(),
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
+                3_000L)).isZero();
     }
 
     @Test
@@ -361,8 +418,9 @@ class GroupMetadataSyncTaskMapperDbTest {
             String inviteCode) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement link = connection.prepareStatement("""
-                     INSERT INTO group_link (id, tenant_id, link_url, origin, deleted_at)
-                     VALUES (?, ?, ?, ?, NULL)
+                     INSERT INTO group_link (
+                         id, tenant_id, group_id, group_invite_id, link_url, origin, deleted_at
+                     ) VALUES (?, ?, ?, ?, ?, ?, NULL)
                      """);
              PreparedStatement preview = connection.prepareStatement("""
                      INSERT INTO group_link_preview (
@@ -371,8 +429,14 @@ class GroupMetadataSyncTaskMapperDbTest {
                      """)) {
             link.setLong(1, groupLinkId);
             link.setLong(2, TENANT_ID);
-            link.setString(3, linkUrl);
-            link.setInt(4, origin);
+            link.setLong(3, groupLinkId);
+            if (inviteCode == null) {
+                link.setObject(4, null);
+            } else {
+                link.setLong(4, groupLinkId);
+            }
+            link.setString(5, linkUrl);
+            link.setInt(6, origin);
             link.executeUpdate();
             preview.setLong(1, TENANT_ID);
             preview.setLong(2, groupLinkId);
@@ -380,6 +444,25 @@ class GroupMetadataSyncTaskMapperDbTest {
             preview.setString(4, inviteCode);
             preview.executeUpdate();
         }
+        execute("INSERT INTO wa_group (id, tenant_id, group_jid) VALUES ("
+                + groupLinkId + ", " + TENANT_ID + ", '" + groupJid + "')");
+        execute("INSERT INTO wa_group_profile (tenant_id, group_id, current_invite_id) VALUES ("
+                + TENANT_ID + ", " + groupLinkId + ", "
+                + (inviteCode == null ? "NULL" : groupLinkId) + ")");
+        if (inviteCode != null) {
+            insertCurrentInvite(groupLinkId, inviteCode);
+        }
+    }
+
+    private void insertCurrentInvite(long groupLinkId, String inviteCode) throws SQLException {
+        execute("MERGE INTO wa_group_invite "
+                + "(id, tenant_id, group_id, invite_code) KEY(id) VALUES ("
+                + groupLinkId + ", " + TENANT_ID + ", " + groupLinkId + ", '"
+                + inviteCode + "')");
+        execute("UPDATE group_link SET group_invite_id = " + groupLinkId
+                + " WHERE tenant_id = " + TENANT_ID + " AND id = " + groupLinkId);
+        execute("UPDATE wa_group_profile SET current_invite_id = " + groupLinkId
+                + " WHERE tenant_id = " + TENANT_ID + " AND group_id = " + groupLinkId);
     }
 
     private void resetSchema() throws SQLException {
@@ -388,8 +471,60 @@ class GroupMetadataSyncTaskMapperDbTest {
                 CREATE TABLE group_link (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    group_id BIGINT,
+                    group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
                     origin TINYINT NOT NULL,
+                    deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_profile (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    current_invite_id BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_invite (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT,
+                    invite_code VARCHAR(128) NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    presence_status TINYINT NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_account_group_binding (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    participant_id BIGINT NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE account_group_membership (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    membership_status TINYINT NOT NULL,
                     deleted_at BIGINT
                 )
                 """);

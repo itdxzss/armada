@@ -238,33 +238,33 @@
                    a.round_no AS roundNo,
                    a.attempt_no AS attemptNo,
                    COALESCE(a.result_at, a.attempted_at, a.created_at) AS eventAt,
-                   COALESCE(a.group_link_id, p.group_link_id, t.group_link_id) AS groupLinkId,
+                   COALESCE(a.group_link_id, t.group_link_id) AS groupLinkId,
                    COALESCE(
                        NULLIF(TRIM(a.group_jid), ''),
-                       NULLIF(TRIM(p.group_jid), ''),
+                       NULLIF(TRIM(current_group.group_jid), ''),
                        NULLIF(TRIM(t.group_jid), '')
                    ) AS groupJid,
                    COALESCE(
                        NULLIF(TRIM(a.group_jid), ''),
-                       NULLIF(TRIM(p.group_jid), ''),
+                       NULLIF(TRIM(current_group.group_jid), ''),
                        NULLIF(TRIM(t.group_jid), ''),
-                       CONCAT('link:', COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)),
+                       CONCAT('link:', COALESCE(a.group_link_id, t.group_link_id)),
                        CONCAT('target:', t.id)
                    ) AS groupKey,
                    COALESCE(g.link_url, t.group_link_url) AS groupLinkUrl,
                    COALESCE(
                        NULLIF(TRIM(a.group_name), ''),
                        NULLIF(TRIM(g.group_name), ''),
-                       NULLIF(TRIM(p.wa_subject), ''),
+                       NULLIF(TRIM(current_profile.subject), ''),
                        NULLIF(TRIM(t.group_name), ''),
                        COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''))
                    ) AS groupName
             FROM marketing_task_target t
             JOIN marketing_task_send_attempt a ON a.target_id = t.id
                                               AND a.marketing_task_id = t.marketing_task_id
-            LEFT JOIN group_link_preview p ON p.group_link_id = COALESCE(a.group_link_id, t.group_link_id)
-                                          AND (a.group_jid IS NULL OR p.group_jid = a.group_jid)
-            LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id, t.group_link_id)
+            LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, t.group_link_id)
+            LEFT JOIN wa_group current_group ON current_group.id = g.group_id
+            LEFT JOIN wa_group_profile current_profile ON current_profile.group_id = current_group.id
             WHERE t.marketing_task_id = #{taskId}
               AND a.marketing_task_id = #{taskId}
               AND a.status IN (0, 1, 2, 3)
@@ -275,24 +275,25 @@
                    MAX(t.account_phone) AS accountPhone,
                    COALESCE(
                        NULLIF(TRIM(t.group_jid), ''),
-                       NULLIF(TRIM(p.group_jid), ''),
+                       NULLIF(TRIM(current_group.group_jid), ''),
                        CONCAT('link:', t.group_link_id),
                        CONCAT('target:', t.id)
                    ) AS groupKey,
                    MAX(t.group_link_id) AS groupLinkId,
-                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''))) AS groupJid,
+                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''),
+                                NULLIF(TRIM(current_group.group_jid), ''))) AS groupJid,
                    MAX(COALESCE(g.link_url, t.group_link_url)) AS groupLinkUrl,
                    MAX(COALESCE(
                        NULLIF(TRIM(t.group_name), ''),
                        NULLIF(TRIM(g.group_name), ''),
-                       NULLIF(TRIM(p.wa_subject), ''),
+                       NULLIF(TRIM(current_profile.subject), ''),
                        NULLIF(TRIM(t.group_jid), ''),
-                       NULLIF(TRIM(p.group_jid), '')
+                       NULLIF(TRIM(current_group.group_jid), '')
                    )) AS groupName
             FROM marketing_task_target t
             LEFT JOIN group_link g ON g.id = t.group_link_id
-            LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
-                                          AND (t.group_jid IS NULL OR p.group_jid = t.group_jid)
+            LEFT JOIN wa_group current_group ON current_group.id = g.group_id
+            LEFT JOIN wa_group_profile current_profile ON current_profile.group_id = current_group.id
             WHERE t.marketing_task_id = #{taskId}
               AND COALESCE(t.target_scope, 1) = 1
             GROUP BY t.tenant_id, t.account_id, groupKey
@@ -391,7 +392,16 @@
                COALESCE(a.groupJid, f.groupJid) AS groupJid,
                COALESCE(a.groupLinkUrl, f.groupLinkUrl) AS groupLinkUrl,
                COALESCE(a.groupName, f.groupName) AS groupName,
-               m.membership_status AS membershipStatus,
+               CASE self_participant.presence_status
+                 WHEN 1 THEN 1
+                 WHEN 0 THEN 2
+                 WHEN 2 THEN CASE self_participant.last_exit_type
+                   WHEN 'REMOVED' THEN 3
+                   WHEN 'LEFT' THEN 4
+                   ELSE 5
+                 END
+                 ELSE NULL
+               END AS membershipStatus,
                protocol.attemptStatus AS latestAttemptStatus,
                protocol.reasonCode AS reasonCode,
                protocol.reasonMessage AS reasonMessage,
@@ -425,11 +435,17 @@
           ON ended.tenant_id = d.tenant_id
          AND ended.accountId = d.accountId
          AND ended.groupKey = d.groupKey
-        LEFT JOIN account_group_membership m
-          ON m.tenant_id = d.tenant_id
-         AND m.account_id = d.accountId
-         AND m.group_jid = COALESCE(a.groupJid, f.groupJid)
-         AND m.deleted_at IS NULL
+        LEFT JOIN wa_group current_group
+          ON current_group.tenant_id = d.tenant_id
+         AND current_group.group_jid = COALESCE(a.groupJid, f.groupJid)
+        LEFT JOIN wa_account_group_binding binding
+          ON binding.tenant_id = d.tenant_id
+         AND binding.account_id = d.accountId
+         AND binding.group_id = current_group.id
+        LEFT JOIN wa_group_participant self_participant
+          ON self_participant.tenant_id = d.tenant_id
+         AND self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
         ORDER BY d.accountId ASC,
                  COALESCE(a.lastAttemptAt, 0) DESC,
                  d.groupKey ASC
@@ -1031,20 +1047,35 @@
         SELECT a.id AS accountId,
                a.ws_phone AS accountPhone,
                g.id AS groupLinkId,
-               m.group_jid AS groupJid,
+               current_group.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
-               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject, m.group_jid) AS groupName,
-               m.membership_status AS membershipStatus,
-               m.status_updated_at AS statusUpdatedAt
+               COALESCE(NULLIF(TRIM(g.group_name), ''), current_profile.subject,
+                        current_group.group_jid) AS groupName,
+               CASE self_participant.presence_status
+                 WHEN 1 THEN 1
+                 WHEN 0 THEN 2
+                 WHEN 2 THEN CASE self_participant.last_exit_type
+                   WHEN 'REMOVED' THEN 3
+                   WHEN 'LEFT' THEN 4
+                   ELSE 5
+                 END
+                 ELSE 2
+               END AS membershipStatus,
+               COALESCE(self_participant.presence_observed_at,
+                        binding.last_observed_at) AS statusUpdatedAt
         FROM account a
         JOIN account_state s ON s.account_id = a.id
-        JOIN account_group_membership m ON m.account_id = a.id
-                                       AND m.group_link_id = #{groupLinkId}
-                                       AND m.deleted_at IS NULL
-        JOIN group_link g ON g.id = m.group_link_id
+        JOIN group_link g ON g.id = #{groupLinkId}
                          AND g.deleted_at IS NULL
-        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
-                                      AND p.group_jid = m.group_jid
+        JOIN wa_group current_group ON current_group.id = g.group_id
+                                   AND current_group.deleted_at IS NULL
+        JOIN wa_account_group_binding binding ON binding.account_id = a.id
+                                             AND binding.group_id = current_group.id
+        JOIN wa_group_participant self_participant
+          ON self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+        LEFT JOIN wa_group_profile current_profile
+          ON current_profile.group_id = current_group.id
         WHERE a.id = #{accountId}
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
@@ -1062,8 +1093,6 @@
           AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
-          AND m.group_jid IS NOT NULL
-          AND TRIM(m.group_jid) &lt;&gt; ''
         LIMIT 1
     </select>
 
@@ -1095,47 +1124,74 @@
     <select id="selectDynamicTargetGroups" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
         SELECT a.id AS accountId,
                a.ws_phone AS accountPhone,
-               m.group_link_id AS groupLinkId,
-               m.group_jid AS groupJid,
+               g.id AS groupLinkId,
+               current_group.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
-               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject, m.group_jid) AS groupName,
-               m.membership_status AS membershipStatus,
-               m.status_updated_at AS statusUpdatedAt
+               COALESCE(NULLIF(TRIM(g.group_name), ''), current_profile.subject,
+                        current_group.group_jid) AS groupName,
+               CASE self_participant.presence_status
+                 WHEN 1 THEN 1
+                 WHEN 0 THEN 2
+                 WHEN 2 THEN CASE self_participant.last_exit_type
+                   WHEN 'REMOVED' THEN 3
+                   WHEN 'LEFT' THEN 4
+                   ELSE 5
+                 END
+                 ELSE 2
+               END AS membershipStatus,
+               COALESCE(self_participant.presence_observed_at,
+                        binding.last_observed_at) AS statusUpdatedAt
         FROM account a
-        JOIN account_group_membership m ON m.account_id = a.id
-        LEFT JOIN group_link g ON g.id = m.group_link_id
-        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
-                                      AND p.group_jid = m.group_jid
+        JOIN wa_account_group_binding binding ON binding.account_id = a.id
+        JOIN wa_group current_group ON current_group.id = binding.group_id
+        JOIN wa_group_participant self_participant
+          ON self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+        LEFT JOIN group_link g ON g.group_id = binding.group_id
+        LEFT JOIN wa_group_profile current_profile
+          ON current_profile.group_id = current_group.id
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND m.deleted_at IS NULL
-          AND (#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})
-          AND m.group_jid IS NOT NULL
-          AND TRIM(m.group_jid) &lt;&gt; ''
-        ORDER BY m.group_link_id ASC
+          AND (#{accountGroupSendAt} IS NULL
+               OR binding.membership_active_since_at &gt;= #{accountGroupSendAt})
+        ORDER BY g.id ASC
     </select>
 
     <select id="selectCurrentTargetGroup" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
         SELECT a.id AS accountId,
                a.ws_phone AS accountPhone,
-               m.group_link_id AS groupLinkId,
-               m.group_jid AS groupJid,
+               g.id AS groupLinkId,
+               current_group.group_jid AS groupJid,
                g.link_url AS groupLinkUrl,
-               COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName
+               COALESCE(NULLIF(TRIM(g.group_name), ''), current_profile.subject) AS groupName,
+               CASE self_participant.presence_status
+                 WHEN 1 THEN 1
+                 WHEN 0 THEN 2
+                 WHEN 2 THEN CASE self_participant.last_exit_type
+                   WHEN 'REMOVED' THEN 3
+                   WHEN 'LEFT' THEN 4
+                   ELSE 5
+                 END
+                 ELSE 2
+               END AS membershipStatus,
+               COALESCE(self_participant.presence_observed_at,
+                        binding.last_observed_at) AS statusUpdatedAt
         FROM account a
         JOIN account_state s ON s.account_id = a.id
-        JOIN account_group_membership m ON m.account_id = a.id
-                                       AND m.group_link_id = #{groupLinkId}
-        JOIN group_link g ON g.id = m.group_link_id
+        JOIN group_link g ON g.id = #{groupLinkId}
                          AND g.deleted_at IS NULL
                          AND g.membership_state IN (2, 3)
-        LEFT JOIN group_link_preview p ON p.group_link_id = g.id
-                                      AND p.group_jid = m.group_jid
-        LEFT JOIN group_link_health h ON h.group_link_id = g.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
-                                           AND a.group_baseline_state = 2
+        JOIN wa_group current_group ON current_group.id = g.group_id
+                                   AND current_group.deleted_at IS NULL
+        JOIN wa_account_group_binding binding ON binding.account_id = a.id
+                                             AND binding.group_id = current_group.id
+        JOIN wa_group_participant self_participant
+          ON self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+        LEFT JOIN wa_group_profile current_profile
+          ON current_profile.group_id = current_group.id
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL
           AND s.login_state = 1
@@ -1145,15 +1201,15 @@
           AND a.group_baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
-          AND m.deleted_at IS NULL
-          AND m.membership_status IN (1, 2)
-          AND m.group_jid IS NOT NULL
-          AND TRIM(m.group_jid) &lt;&gt; ''
-          AND (h.id IS NULL OR (COALESCE(h.is_banned, 0) = 0 AND (h.health_status IS NULL OR h.health_status = 1)))
+          AND self_participant.presence_status IN (0, 1)
+          AND (current_profile.id IS NULL
+               OR (COALESCE(current_profile.banned, 0) = 0
+                   AND (current_profile.health_status IS NULL
+                        OR current_profile.health_status = 1)))
           AND (
               a.group_baseline_state &lt;&gt; 2
-              OR b.id IS NULL
-              OR COALESCE(JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(m.group_jid)), 0) = 0
+              OR binding.was_in_initial_baseline IS NULL
+              OR binding.was_in_initial_baseline = 0
           )
         LIMIT 1
     </select>
@@ -1163,7 +1219,7 @@
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
                a.group_baseline_state AS groupBaselineState,
-               b.baseline_group_jids AS baselineGroupJidsJson,
+               NULL AS baselineGroupJidsJson,
                s.account_state AS accountState,
                s.login_state AS loginState,
                s.risk_status AS riskStatus,
@@ -1171,15 +1227,11 @@
                COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
         LEFT JOIN account_state s ON s.account_id = a.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
         LEFT JOIN (
-            SELECT m.account_id,
+            SELECT binding.account_id,
                    COUNT(*) AS groupCount
-            FROM account_group_membership m
-            WHERE m.deleted_at IS NULL
-              AND m.group_jid IS NOT NULL
-              AND TRIM(m.group_jid) &lt;&gt; ''
-            GROUP BY m.account_id
+            FROM wa_account_group_binding binding
+            GROUP BY binding.account_id
         ) gm ON gm.account_id = a.id
         WHERE a.account_group_id = #{groupId}
           AND a.deleted_at IS NULL
@@ -1192,7 +1244,7 @@
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
                a.group_baseline_state AS groupBaselineState,
-               b.baseline_group_jids AS baselineGroupJidsJson,
+               NULL AS baselineGroupJidsJson,
                s.account_state AS accountState,
                s.login_state AS loginState,
                s.risk_status AS riskStatus,
@@ -1200,15 +1252,11 @@
                COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
         LEFT JOIN account_state s ON s.account_id = a.id
-        LEFT JOIN account_group_baseline b ON b.account_id = a.id
         LEFT JOIN (
-            SELECT m.account_id,
+            SELECT binding.account_id,
                    COUNT(*) AS groupCount
-            FROM account_group_membership m
-            WHERE m.deleted_at IS NULL
-              AND m.group_jid IS NOT NULL
-              AND TRIM(m.group_jid) &lt;&gt; ''
-            GROUP BY m.account_id
+            FROM wa_account_group_binding binding
+            GROUP BY binding.account_id
         ) gm ON gm.account_id = a.id
         WHERE a.id = #{accountId}
           AND a.deleted_at IS NULL

@@ -2,79 +2,44 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper">
 
-  <!--
-    MySQL 先展开同租户 baseline JSON 并按 JID 去重，避免每条当前群关系扫描全部 JSON。
-    H2 不支持 JSON_TABLE，真实 Mapper 测试保留等价的 JSON_CONTAINS 集合构造。
-  -->
-  <sql id="historicalBaselineGroups">
-    <choose>
-      <when test="_databaseId == 'h2'">
-        SELECT b0.tenant_id,
-               baseline_relation.group_jid
-        FROM account_group_baseline b0
-        INNER JOIN (
-          SELECT DISTINCT tenant_id, group_jid
-          FROM account_group_membership
-          WHERE tenant_id = #{tenantId}
-        ) baseline_relation
-          ON baseline_relation.tenant_id = b0.tenant_id
-         AND JSON_CONTAINS(
-               b0.baseline_group_jids,
-               JSON_QUOTE(baseline_relation.group_jid)
-             ) = 1
-        WHERE b0.tenant_id = #{tenantId}
-        GROUP BY b0.tenant_id, baseline_relation.group_jid
-      </when>
-      <otherwise>
-        SELECT b0.tenant_id,
-               MIN(baseline_group.group_jid) AS group_jid
-        FROM account_group_baseline b0
-        INNER JOIN JSON_TABLE(
-          b0.baseline_group_jids,
-          '$[*]' COLUMNS (group_jid VARCHAR(512) PATH '$')
-        ) baseline_group
-        WHERE b0.tenant_id = #{tenantId}
-        GROUP BY b0.tenant_id, BINARY baseline_group.group_jid
-      </otherwise>
-    </choose>
-  </sql>
-
   <sql id="candidateFacts">
-    SELECT MAX(COALESCE(m.group_link_id, p.group_link_id)) AS groupLinkId,
-           m.group_jid AS groupJid,
-           COALESCE(MAX(NULLIF(TRIM(p.wa_subject), '')),
-                    MAX(NULLIF(TRIM(g.group_name), ''))) AS groupName,
-           MAX(NULLIF(TRIM(p.owner_phone), '')) AS ownerPhone,
-           MAX(p.group_created_at) AS groupCreatedAt,
-           COALESCE(MAX(h.current_count), MAX(p.member_size)) AS memberSize,
-           MAX(p.announce_only) AS announceOnly,
-           MAX(p.avatar_url) AS avatarUrl,
-           GREATEST(COALESCE(MAX(p.last_preview_at), 0),
-                    COALESCE(MAX(h.last_check_at), 0),
-                    COALESCE(MAX(m.last_seen_at), 0)) AS lastSyncedAt,
-           MAX(h.health_status) AS healthStatus,
-           MAX(h.is_banned) AS banned,
-           MAX(NULLIF(TRIM(h.last_health_error), '')) AS healthError,
-           MAX(CASE WHEN history.group_jid IS NOT NULL THEN 1 ELSE 0 END) AS historical,
+    SELECT MAX(handle.id) AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           COALESCE(MAX(NULLIF(TRIM(current_profile.subject), '')),
+                    MAX(NULLIF(TRIM(current_group.display_name), ''))) AS groupName,
+           MAX(NULLIF(TRIM(legacy_preview.owner_phone), '')) AS ownerPhone,
+           MAX(CASE WHEN current_profile.wa_created_at IS NULL THEN NULL
+                    ELSE FLOOR(current_profile.wa_created_at / 1000) END) AS groupCreatedAt,
+           COALESCE(MAX(current_profile.checked_member_count),
+                    MAX(current_profile.member_count)) AS memberSize,
+           MAX(current_profile.announce_only) AS announceOnly,
+           MAX(current_group.avatar_url) AS avatarUrl,
+           GREATEST(COALESCE(MAX(current_profile.metadata_observed_at), 0),
+                    COALESCE(MAX(current_profile.last_checked_at), 0),
+                    COALESCE(MAX(binding.last_observed_at), 0)) AS lastSyncedAt,
+           MAX(current_profile.health_status) AS healthStatus,
+           MAX(current_profile.banned) AS banned,
+           MAX(NULLIF(TRIM(current_profile.last_error_code), '')) AS healthError,
+           MAX(CASE WHEN handle.is_historical = 1 THEN 1 ELSE 0 END) AS historical,
            MAX(CASE WHEN jr.id IS NOT NULL THEN 1 ELSE 0 END) AS selfCollected,
            COUNT(DISTINCT CASE
-             WHEN m.is_admin = 1
+             WHEN self_participant.role IN (2, 3)
                OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
              THEN a.id
            END) AS adminRelationCount,
            COUNT(DISTINCT CASE
              WHEN s.account_state = 2
-              AND (m.is_admin = 1
+              AND (self_participant.role IN (2, 3)
                 OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                   = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
+                   = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
              THEN a.id
            END) AS eligibleAccountCount,
            COUNT(DISTINCT CASE
              WHEN s.account_state = 2 AND s.login_state = 1
-              AND (m.is_admin = 1
+              AND (self_participant.role IN (2, 3)
                 OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                   = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
+                   = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
              THEN a.id
            END) AS onlineAccountCount,
            MAX(jr.join_task_id) AS sourceJoinTaskId,
@@ -88,36 +53,33 @@
            MAX(o.created_by) AS occupiedBy,
            MAX(o.last_validated_at) AS lastValidatedAt,
            MAX(o.last_validation_reason) AS lastValidationReason
-    FROM account_group_membership m
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+     AND current_group.deleted_at IS NULL
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
     INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
      AND a.deleted_at IS NULL
     LEFT JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = m.tenant_id
-     AND p.group_jid = m.group_jid
-    LEFT JOIN group_link g
-      ON g.tenant_id = m.tenant_id
-     AND g.id = COALESCE(m.group_link_id, p.group_link_id)
-     AND g.deleted_at IS NULL
-    LEFT JOIN group_link_health h
-      ON h.tenant_id = m.tenant_id
-     AND h.group_link_id = COALESCE(m.group_link_id, p.group_link_id)
-    LEFT JOIN (
-      <include refid="historicalBaselineGroups"/>
-    ) history
-      ON history.tenant_id = m.tenant_id
-    <choose>
-      <when test="_databaseId == 'h2'">
-       AND history.group_jid = m.group_jid
-      </when>
-      <otherwise>
-       AND BINARY history.group_jid = BINARY m.group_jid
-      </otherwise>
-    </choose>
+    INNER JOIN group_link handle
+      ON handle.tenant_id = binding.tenant_id
+     AND handle.group_id = binding.group_id
+     AND handle.deleted_at IS NULL
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = binding.tenant_id
+     AND current_profile.group_id = binding.group_id
     LEFT JOIN (
       SELECT ranked.tenant_id,
              ranked.group_jid,
@@ -149,39 +111,44 @@
       ) ranked
       WHERE ranked.source_rank = 1
     ) jr
-      ON jr.tenant_id = m.tenant_id
-     AND jr.group_jid = m.group_jid
+      ON jr.tenant_id = binding.tenant_id
+     AND jr.group_jid = current_group.group_jid
     LEFT JOIN pull_task_group_marketing_group_occupancy o
-      ON o.tenant_id = m.tenant_id
-     AND o.group_jid = m.group_jid
+      ON o.tenant_id = binding.tenant_id
+     AND o.group_jid = current_group.group_jid
      AND o.released_at IS NULL
-    WHERE m.tenant_id = #{tenantId}
-      AND m.deleted_at IS NULL
-      AND m.membership_status = 1
-      AND (history.group_jid IS NOT NULL OR jr.id IS NOT NULL)
+    WHERE binding.tenant_id = #{tenantId}
+      AND (handle.is_historical = 1 OR jr.id IS NOT NULL)
     <if test="_parameter.containsKey('query') and query != null
               and (query.managerPhone != null or query.accountGroupId != null)">
       AND EXISTS (
         SELECT 1
-        FROM account_group_membership fm
+        FROM wa_account_group_binding filter_binding
+        INNER JOIN wa_group_participant filter_participant
+          ON filter_participant.tenant_id = filter_binding.tenant_id
+         AND filter_participant.group_id = filter_binding.group_id
+         AND filter_participant.id = filter_binding.participant_id
+         AND filter_participant.presence_status = 1
         INNER JOIN account fa
-          ON fa.tenant_id = fm.tenant_id
-         AND fa.id = fm.account_id
+          ON fa.tenant_id = filter_binding.tenant_id
+         AND fa.id = filter_binding.account_id
          AND fa.deleted_at IS NULL
         INNER JOIN account_state fs
           ON fs.tenant_id = fa.tenant_id
          AND fs.account_id = fa.id
          AND fs.account_state = 2
-        LEFT JOIN group_link_preview fp
-          ON fp.tenant_id = fm.tenant_id
-         AND fp.group_jid = fm.group_jid
-        WHERE fm.tenant_id = m.tenant_id
-          AND fm.group_jid = m.group_jid
-          AND fm.deleted_at IS NULL
-          AND fm.membership_status = 1
-          AND (fm.is_admin = 1
+        INNER JOIN group_link filter_handle
+          ON filter_handle.tenant_id = filter_binding.tenant_id
+         AND filter_handle.group_id = filter_binding.group_id
+         AND filter_handle.deleted_at IS NULL
+        LEFT JOIN group_link_preview filter_preview
+          ON filter_preview.tenant_id = filter_handle.tenant_id
+         AND filter_preview.group_link_id = filter_handle.id
+        WHERE filter_binding.tenant_id = binding.tenant_id
+          AND filter_binding.group_id = binding.group_id
+          AND (filter_participant.role IN (2, 3)
             OR REPLACE(SUBSTRING_INDEX(fa.ws_phone, '@', 1), '+', '')
-               = REPLACE(SUBSTRING_INDEX(fp.owner_phone, '@', 1), '+', ''))
+               = REPLACE(SUBSTRING_INDEX(filter_preview.owner_phone, '@', 1), '+', ''))
         <if test="query.managerPhone != null">
           AND fa.ws_phone LIKE CONCAT('%', #{query.managerPhone}, '%')
         </if>
@@ -190,7 +157,7 @@
         </if>
       )
     </if>
-    GROUP BY m.group_jid
+    GROUP BY current_group.group_jid
   </sql>
 
   <sql id="candidateFilter">
@@ -249,41 +216,52 @@
 
   <select id="selectAccountsByGroupJids"
           resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateAccountRow">
-    SELECT m.group_jid AS groupJid,
+    SELECT current_group.group_jid AS groupJid,
            a.id AS accountId,
            a.ws_phone AS accountPhone,
            CASE
              WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
              THEN 'CREATOR' ELSE 'ADMIN'
            END AS groupRole,
            s.login_state AS loginState,
            s.account_state AS accountState,
-           m.last_seen_at AS lastSeenAt
-    FROM account_group_membership m
+           binding.last_observed_at AS lastSeenAt
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+     AND current_group.deleted_at IS NULL
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
     INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
      AND a.deleted_at IS NULL
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
      AND s.account_state = 2
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = m.tenant_id
-     AND p.group_jid = m.group_jid
-    WHERE m.deleted_at IS NULL
-      AND m.membership_status = 1
-      AND m.group_jid IN
+    INNER JOIN group_link handle
+      ON handle.tenant_id = binding.tenant_id
+     AND handle.group_id = binding.group_id
+     AND handle.deleted_at IS NULL
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
+    WHERE current_group.group_jid IN
       <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
         #{groupJid}
       </foreach>
-      AND (m.is_admin = 1
+      AND (self_participant.role IN (2, 3)
         OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-           = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', ''))
-    ORDER BY m.group_jid ASC,
+           = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
+    ORDER BY current_group.group_jid ASC,
              CASE WHEN s.login_state = 1 THEN 0 ELSE 1 END,
-             COALESCE(m.last_seen_at, 0) DESC,
+             COALESCE(binding.last_observed_at, 0) DESC,
              a.id ASC
   </select>
 

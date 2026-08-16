@@ -44,6 +44,15 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
 
+    /**
+     * 仅为尚未绑定的旧数值句柄回写已解析的新群 ID，供旧 API 和任务稳定寻址。
+     * 已绑定的 canonical 引用不可在快照重放时改写，避免重复锁定兼容句柄。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int updateLegacyGroupReferences(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJids") List<String> groupJids);
+
     int upsertProfiles(@Param("rows") List<Write> rows);
 
     int upsertParticipants(@Param("rows") List<Write> rows);

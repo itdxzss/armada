@@ -26,6 +26,7 @@ class GroupModelBackfillDryRunSqlTest {
                 .contains("unresolved_binding_target")
                 .contains("unresolved_member_group")
                 .contains("invalid_participant_jid")
+                .contains("FROM whatsapp_group_member_snapshot")
                 .contains("invalid_binding_account_phone")
                 .contains("ambiguous_empty_baseline")
                 .contains("baseline_count_mismatch")

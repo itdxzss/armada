@@ -55,6 +55,12 @@ public class GroupLinkPreview {
     /** 本次响应是否明确观察到添加成员权限；仅供 Mapper 三态更新。 */
     private Boolean memberAddModeObserved;
 
+    /** 是否允许普通成员访问并分享群邀请链接。 */
+    private Boolean memberLinkMode;
+
+    /** 本次响应是否明确观察到链接邀请权限；仅供 Mapper 三态更新。 */
+    private Boolean memberLinkModeObserved;
+
     /** 是否开启新成员入群审批。 */
     private Boolean joinApprovalMode;
 
@@ -236,6 +242,22 @@ public class GroupLinkPreview {
 
     public void setMemberAddModeObserved(Boolean memberAddModeObserved) {
         this.memberAddModeObserved = memberAddModeObserved;
+    }
+
+    public Boolean getMemberLinkMode() {
+        return memberLinkMode;
+    }
+
+    public void setMemberLinkMode(Boolean memberLinkMode) {
+        this.memberLinkMode = memberLinkMode;
+    }
+
+    public Boolean getMemberLinkModeObserved() {
+        return memberLinkModeObserved;
+    }
+
+    public void setMemberLinkModeObserved(Boolean memberLinkModeObserved) {
+        this.memberLinkModeObserved = memberLinkModeObserved;
     }
 
     public Boolean getJoinApprovalMode() {

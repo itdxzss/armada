@@ -23,7 +23,7 @@ import org.springframework.stereotype.Service;
  * 营销任务账号树查库服务。
  *
  * <p>账号和群列表都读取 Armada 本地库。协议层通过 account.groups_reported 异步刷新
- * account_group_membership,本服务不再在用户点击账号时调用协议实时查群。</p>
+ * 当前账号群关系和成员事实表,本服务不再在用户点击账号时调用协议实时查群。</p>
  */
 @Service
 public class MarketingAccountTreeRealtimeService {

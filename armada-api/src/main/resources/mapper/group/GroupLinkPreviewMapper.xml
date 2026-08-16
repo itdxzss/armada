@@ -34,13 +34,15 @@
   <insert id="upsertMetadataSnapshot" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_link_preview (
       group_link_id, group_jid, wa_subject, wa_description, member_size,
-      owner_phone, announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
+      owner_phone, announce_only, admin_only_edit_info, member_add_mode, member_link_mode,
+      join_approval_mode,
       ephemeral_duration_seconds, group_created_at, creator_country_iso2,
       creator_continent_code, avatar_url, last_preview_at, metadata_observed_at,
       created_at, updated_at
     ) VALUES (
       #{groupLinkId}, #{groupJid}, #{waSubject}, #{waDescription}, #{memberSize},
-      #{ownerPhone}, #{announceOnly}, #{adminOnlyEditInfo}, #{memberAddMode}, #{joinApprovalMode},
+      #{ownerPhone}, #{announceOnly}, #{adminOnlyEditInfo}, #{memberAddMode}, #{memberLinkMode},
+      #{joinApprovalMode},
       #{ephemeralDurationSeconds}, #{groupCreatedAt}, #{creatorCountryIso2},
       #{creatorContinentCode}, #{avatarUrl}, #{lastPreviewAt}, #{metadataObservedAt},
       #{createdAt}, #{updatedAt}
@@ -90,6 +92,12 @@
           AND #{memberAddModeObserved} = TRUE
           THEN VALUES(member_add_mode)
         ELSE member_add_mode
+      END,
+      member_link_mode = CASE
+        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
+          AND #{memberLinkModeObserved} = TRUE
+          THEN VALUES(member_link_mode)
+        ELSE member_link_mode
       END,
       join_approval_mode = CASE
         WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
@@ -214,6 +222,25 @@
     LIMIT 1
   </select>
 
+  <select id="selectByGroupLinkIds" resultType="com.armada.group.model.entity.GroupLinkPreview">
+    SELECT group_link_id, wa_subject
+    FROM group_link_preview
+    WHERE wa_subject IS NOT NULL
+      AND TRIM(wa_subject) &lt;&gt; ''
+    <choose>
+      <when test="groupLinkIds != null and groupLinkIds.size() > 0">
+        AND group_link_id IN
+        <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+          #{groupLinkId}
+        </foreach>
+      </when>
+      <otherwise>
+        AND 1 = 0
+      </otherwise>
+    </choose>
+    ORDER BY group_link_id ASC
+  </select>
+
   <select id="selectActiveGroupLinkIdByInviteCode" resultType="long">
     SELECT p.group_link_id
     FROM group_link_preview p
@@ -245,6 +272,14 @@
   <update id="updateMemberAddMode">
     UPDATE group_link_preview
     SET member_add_mode = #{memberAddMode},
+        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
+        updated_at = GREATEST(updated_at, #{updatedAt})
+    WHERE group_link_id = #{groupLinkId}
+  </update>
+
+  <update id="updateMemberLinkMode">
+    UPDATE group_link_preview
+    SET member_link_mode = #{memberLinkMode},
         metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
         updated_at = GREATEST(updated_at, #{updatedAt})
     WHERE group_link_id = #{groupLinkId}

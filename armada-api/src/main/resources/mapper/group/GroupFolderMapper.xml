@@ -9,6 +9,20 @@
     </if>
   </sql>
 
+  <sql id="currentHealthStatus">
+    CASE WHEN current_group.id IS NOT NULL
+      THEN current_profile.health_status ELSE input_invite.health_status END
+  </sql>
+
+  <sql id="currentBanned">
+    CASE WHEN current_group.id IS NOT NULL
+      THEN current_profile.banned ELSE input_invite.banned END
+  </sql>
+
+  <sql id="currentInviteCode">
+    COALESCE(current_invite.invite_code, input_invite.invite_code)
+  </sql>
+
   <select id="countPage" resultType="long">
     SELECT COUNT(*)
     FROM group_folder f
@@ -22,9 +36,9 @@
              WHEN g.id IS NOT NULL
               AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
               AND (g.link_url NOT LIKE 'wa://group/%'
-                   OR NULLIF(TRIM(p.invite_code), '') IS NOT NULL)
-              AND h.health_status = 1
-              AND COALESCE(h.is_banned, 0) = 0
+                   OR NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL)
+              AND <include refid="currentHealthStatus"/> = 1
+              AND COALESCE(<include refid="currentBanned"/>, 0) = 0
              THEN 1
            END) AS groupCount,
            f.created_at AS createdAt,
@@ -34,12 +48,18 @@
       ON g.tenant_id = f.tenant_id
      AND g.folder_id = f.id
      AND g.deleted_at IS NULL
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = g.tenant_id
-     AND p.group_link_id = g.id
-    LEFT JOIN group_link_health h
-      ON h.tenant_id = g.tenant_id
-     AND h.group_link_id = g.id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = g.tenant_id
+     AND current_group.id = g.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = g.tenant_id
+     AND input_invite.id = g.group_invite_id
     WHERE <include refid="activeFolderFilter"/>
     GROUP BY f.id, f.name, f.created_at, f.updated_at
     ORDER BY f.created_at DESC, f.id DESC
@@ -133,24 +153,32 @@
 
   <select id="selectUsableLinks" resultType="string">
     SELECT CASE
-             WHEN NULLIF(TRIM(p.invite_code), '') IS NOT NULL
-               THEN CONCAT('chat.whatsapp.com/', TRIM(p.invite_code))
+             WHEN NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL
+               THEN CONCAT(
+                 'chat.whatsapp.com/', TRIM(<include refid="currentInviteCode"/>)
+               )
              ELSE g.link_url
            END
     FROM group_link g
-    INNER JOIN group_link_health h
-      ON h.tenant_id = g.tenant_id
-     AND h.group_link_id = g.id
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = g.tenant_id
-     AND p.group_link_id = g.id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = g.tenant_id
+     AND current_group.id = g.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = g.tenant_id
+     AND input_invite.id = g.group_invite_id
     WHERE g.deleted_at IS NULL
       AND g.folder_id = #{folderId}
       AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
       AND (g.link_url NOT LIKE 'wa://group/%'
-           OR NULLIF(TRIM(p.invite_code), '') IS NOT NULL)
-      AND h.health_status = 1
-      AND COALESCE(h.is_banned, 0) = 0
+           OR NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL)
+      AND <include refid="currentHealthStatus"/> = 1
+      AND COALESCE(<include refid="currentBanned"/>, 0) = 0
     ORDER BY g.id ASC
   </select>
 

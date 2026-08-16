@@ -4,9 +4,9 @@
 
   <update id="updateResolvedGroupProfile">
     UPDATE wa_group wa_group
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = wa_group.tenant_id
-     AND preview.group_jid = wa_group.group_jid
+    INNER JOIN group_link handle
+      ON handle.tenant_id = wa_group.tenant_id
+     AND handle.group_id = wa_group.id
     SET wa_group.display_name = CASE
           WHEN #{row.displayNameObserved} THEN #{row.displayName}
           ELSE wa_group.display_name
@@ -22,14 +22,14 @@
         wa_group.deleted_at = NULL,
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{row.updatedAt})
     WHERE wa_group.tenant_id = #{tenantId}
-      AND preview.group_link_id = #{row.groupLinkId}
+      AND handle.id = #{row.groupLinkId}
   </update>
 
   <update id="updateUnresolvedInviteProfile">
     UPDATE wa_group_invite invite
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = invite.tenant_id
-     AND preview.invite_code = invite.invite_code
+    INNER JOIN group_link handle
+      ON handle.tenant_id = invite.tenant_id
+     AND handle.group_invite_id = invite.id
     SET invite.display_name = CASE
           WHEN #{row.displayNameObserved} THEN #{row.displayName}
           ELSE invite.display_name
@@ -46,25 +46,20 @@
         invite.updated_at = GREATEST(invite.updated_at, #{row.updatedAt})
     WHERE invite.tenant_id = #{tenantId}
       AND invite.group_id IS NULL
-      AND preview.group_link_id = #{row.groupLinkId}
-      AND NOT EXISTS (
-        SELECT 1
-        FROM wa_group resolved_group
-        WHERE resolved_group.tenant_id = invite.tenant_id
-          AND resolved_group.group_jid = preview.group_jid
-      )
+      AND handle.group_id IS NULL
+      AND handle.id = #{row.groupLinkId}
   </update>
 
   <update id="updateInviteLabel">
     UPDATE wa_group_invite invite
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = invite.tenant_id
-     AND preview.invite_code = invite.invite_code
+    INNER JOIN group_link handle
+      ON handle.tenant_id = invite.tenant_id
+     AND handle.group_invite_id = invite.id
     SET invite.label_id = #{labelId},
         invite.deleted_at = NULL,
         invite.updated_at = GREATEST(invite.updated_at, #{updatedAt})
     WHERE invite.tenant_id = #{tenantId}
-      AND preview.group_link_id IN
+      AND handle.id IN
     <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
       #{groupLinkId}
     </foreach>
@@ -72,14 +67,14 @@
 
   <update id="updateGroupFolder">
     UPDATE wa_group wa_group
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = wa_group.tenant_id
-     AND preview.group_jid = wa_group.group_jid
+    INNER JOIN group_link handle
+      ON handle.tenant_id = wa_group.tenant_id
+     AND handle.group_id = wa_group.id
     SET wa_group.folder_id = #{folderId},
         wa_group.deleted_at = NULL,
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{updatedAt})
     WHERE wa_group.tenant_id = #{tenantId}
-      AND preview.group_link_id IN
+      AND handle.id IN
     <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
       #{groupLinkId}
     </foreach>
@@ -88,17 +83,17 @@
   <update id="softDeleteGroupsWithoutActiveAlias">
     UPDATE wa_group wa_group
     INNER JOIN (
-      SELECT DISTINCT preview.tenant_id, preview.group_jid
-      FROM group_link_preview preview
-      WHERE preview.tenant_id = #{tenantId}
-        AND preview.group_link_id IN
+      SELECT DISTINCT deleted_link.tenant_id, deleted_link.group_id
+      FROM group_link deleted_link
+      WHERE deleted_link.tenant_id = #{tenantId}
+        AND deleted_link.id IN
       <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
         #{groupLinkId}
       </foreach>
-        AND preview.group_jid IS NOT NULL
+        AND deleted_link.group_id IS NOT NULL
     ) deleted_alias
       ON deleted_alias.tenant_id = wa_group.tenant_id
-     AND deleted_alias.group_jid = wa_group.group_jid
+     AND deleted_alias.group_id = wa_group.id
     SET wa_group.deleted_at = #{deletedAt},
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{deletedAt})
     WHERE wa_group.tenant_id = #{tenantId}
@@ -106,32 +101,26 @@
       AND NOT EXISTS (
         SELECT 1
         FROM group_link active_link
-        INNER JOIN group_link_preview active_preview
-          ON active_preview.tenant_id = active_link.tenant_id
-         AND active_preview.group_link_id = active_link.id
         WHERE active_link.tenant_id = wa_group.tenant_id
           AND active_link.deleted_at IS NULL
-          AND active_preview.group_jid = wa_group.group_jid
+          AND active_link.group_id = wa_group.id
       )
   </update>
 
   <update id="softDeleteGroupsWithoutActiveAliasByLabel">
     UPDATE wa_group wa_group
     INNER JOIN (
-      SELECT DISTINCT deleted_link.tenant_id, preview.group_jid
+      SELECT DISTINCT deleted_link.tenant_id, deleted_link.group_id
       FROM group_link deleted_link
-      INNER JOIN group_link_preview preview
-        ON preview.tenant_id = deleted_link.tenant_id
-       AND preview.group_link_id = deleted_link.id
       WHERE deleted_link.tenant_id = #{tenantId}
         AND deleted_link.label_id IN
       <foreach collection="labelIds" item="labelId" open="(" separator="," close=")">
         #{labelId}
       </foreach>
-        AND preview.group_jid IS NOT NULL
+        AND deleted_link.group_id IS NOT NULL
     ) deleted_alias
       ON deleted_alias.tenant_id = wa_group.tenant_id
-     AND deleted_alias.group_jid = wa_group.group_jid
+     AND deleted_alias.group_id = wa_group.id
     SET wa_group.deleted_at = #{deletedAt},
         wa_group.updated_at = GREATEST(wa_group.updated_at, #{deletedAt})
     WHERE wa_group.tenant_id = #{tenantId}
@@ -139,12 +128,9 @@
       AND NOT EXISTS (
         SELECT 1
         FROM group_link active_link
-        INNER JOIN group_link_preview active_preview
-          ON active_preview.tenant_id = active_link.tenant_id
-         AND active_preview.group_link_id = active_link.id
         WHERE active_link.tenant_id = wa_group.tenant_id
           AND active_link.deleted_at IS NULL
-          AND active_preview.group_jid = wa_group.group_jid
+          AND active_link.group_id = wa_group.id
       )
   </update>
 

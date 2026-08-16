@@ -8,6 +8,12 @@ public class GroupLink {
     /** 主键。 */
     private Long id;
 
+    /** 兼容句柄关联的新模型群 ID。 */
+    private Long groupId;
+
+    /** 兼容句柄关联的新模型邀请 ID。 */
+    private Long groupInviteId;
+
     /** 租户 ID(拦截器注入,不手写)。 */
     private Long tenantId;
 
@@ -62,6 +68,22 @@ public class GroupLink {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getGroupId() {
+        return groupId;
+    }
+
+    public void setGroupId(Long groupId) {
+        this.groupId = groupId;
+    }
+
+    public Long getGroupInviteId() {
+        return groupInviteId;
+    }
+
+    public void setGroupInviteId(Long groupInviteId) {
+        this.groupInviteId = groupInviteId;
     }
 
     public Long getTenantId() {

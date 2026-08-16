@@ -211,7 +211,8 @@ erDiagram
 | subject | VARCHAR(255) | NULL | WhatsApp 当前真实群名；不再保留 group_name 镜像 |
 | description | VARCHAR(1024) | NULL | WhatsApp 群描述 |
 | avatar_url | VARCHAR(1024) | NULL | 最近确认头像 URL |
-| member_count | INT | NULL | 最新被接受来源观察到的群成员数 |
+| member_count | INT | NULL | metadata 或完整成员快照观察到的群成员数 |
+| checked_member_count | INT | NULL | 链接健康检测最近一次成功观察到的人数；只按健康检测水位更新 |
 | wa_created_at | BIGINT | NULL | WhatsApp 建群时间，统一 epoch 毫秒 |
 | group_status | TINYINT | NOT NULL, 0 | 0未知 1正常 2SUSPENDED 3TERMINATED |
 | announce_only | TINYINT | NULL | NULL未知 0所有成员可发言 1仅管理员 |
@@ -267,7 +268,7 @@ Java Reducer 把 FactVersion 编成可按 unsigned byte lexicographic 比较的 
 | idx_wa_group_profile_created | tenant_id, wa_created_at, group_id | 群龄筛选 |
 | uq_wa_group_profile_invite | tenant_id, current_invite_id | 同一非空 invite 最多被一个 profile 指为当前；MySQL 允许多 NULL |
 
-群主不是 profile.owner_phone。群主由 wa_group_participant 在 `presence=IN_GROUP AND role_membership_epoch=membership_epoch AND role=OWNER` 下派生；国家和大洲由其已确认 PN 手机号的可重建 country 投影派生。
+六表内部的当前群主事实不放在 profile，而由 wa_group_participant 的在群 OWNER 角色表示。但本期 v1 列表的 `creatorPhone`、创建者国家和大洲不是“当前群主”字段，仍严格沿用 `group_link_preview.owner_phone/creator_country_*`；不得在影子查询中改用当前 OWNER participant。把 v1 创建者改成当前群主属于独立业务变更。
 
 Reducer 更新 current invite 前必须锁 profile，先比较 current_invite_version_key，再校验目标 invite 与 profile 的 tenant_id / group_id 相同且未软删。增加 CHECK：state=PRESENT 时 pointer 必须非空，state=UNKNOWN/EXPLICIT_NONE 时 pointer 必须为空。指针为空时版本仍不能倒退；这条 group-level watermark 是晚到旧 code 无法复活的最终边界。
 
@@ -503,11 +504,13 @@ presence 与 role 分列，解决物理字段混用；但初始回填和实时 A
 
 新列表 SQL 通过 G/P/I/M/B/S 与保留过程表重建相同 VO。不能因为新表把群、邀请、账号关系拆开，就顺便采用新的状态机、OWNER/JOINED/TARGET 优先级、exact-owner 算法、国家 resolver、管理员隐私范围或文案。上述任何语义修正都需要独立需求。
 
+本期明确兼容口径：`creatorPhone`、创建者国家和大洲读取旧 preview；管理员文本仍是当前在群管理员/群主集合；可用账号仍是“账号在线正常 + 当前在群 + 管理员/群主”的原谓词。新模型事实比旧投影更新时允许结果不同，但必须能证明为同一谓词下的更新事实，不能用旧陈旧值反向覆盖，也不能借此改变谓词。
+
 历史群和上控后事实内部放在 B/S，但 v1 输出和营销资格继续调用现有业务 Service 的兼容实现。迁移期唯一额外安全规则是：旧 `account_group_membership.joined_at` 不是“上控后首次加入”，不得迁入 `first_post_control_observed_at`，迁移来源不得生成即时营销副作用。实时事件的 baseline、历史/上控分类和营销触发仍保持当前逻辑，已知缺陷另列风险。
 
 前端字段名与时间单位保持：继续返回 `creatorPhone`；v1 `groupCreatedAt` 继续返回当前秒值；管理员文案和筛选范围不改。内部可使用毫秒和规范化事实，但兼容 VO 必须转换回当前合同。
 
-硬门禁是同一数据快照、同一请求参数下，旧查询与新查询的行数、顺序、字段值、筛选命中和动作资格逐项相等，不设置 expected API/business diff。行展开区删除只属于前端 DOM 差异，不得被拿来豁免后端字段值差异。
+硬门禁是同一数据快照、同一请求参数下，静态字段、行数、顺序、筛选命中和动作资格逐项相等。成员字段若因新模型保存了更晚的明确 role/presence 事实而不同，必须逐成员证明来源和时间，业务谓词保持不变并登记为事实新旧差异；迁移丢失、缺 binding/participant 不得按 expected diff 放过。行展开区删除只属于前端 DOM 差异，另允许 test1 已登记的 1 条不可见 Unicode 名称/subject 归一化例外。
 
 ## 7. 事件归并和乱序规则
 
@@ -602,6 +605,7 @@ SUSPENDED / TERMINATED 是终态保护：普通“仍能看到群”不能恢复
 - add / join：只更新目标 participant 的 presence=IN_GROUP 和最近进群事实。
 - leave / remove：先按 JID 定位或创建 participant，再更新 presence 和最近退出事实；不得先把群或账号关系写成“已加入”。
 - promote / demote：只更新 role；没有 presence 证据时保持原 presence。
+- 现有角色事件或定点成员查询命中受控账号时，同时保证该账号到当前 participant 的 binding 存在；这类观察不得写 `last_joined_at`、`membership_active_since_at`、baseline 或 first-post，也不得触发新群营销。
 - owner 变化：更新事件中明确涉及成员的 role，不在 profile 再存 owner_phone；若缺少旧 owner 身份，记录 OWNER_REFRESH_REQUIRED 并调度完整刷新，不能自行挑选或清除其他 OWNER。
 - 一个事件有多个参与者时允许共享 eventId；幂等键是 tenant + group + participant + 事实族 + eventId。
 
@@ -706,11 +710,11 @@ I-only、同 JID 多 legacy 行、sourceFileName、labelId、status 和所有 nu
 | preview.wa_subject / description / settings | profile | 仅已解析群；未解析才留 invite.preview |
 | preview.avatar_url | G/I 本地展示覆盖；P 需可靠 metadata 重建 | 存量无本地/WA 来源标记，不能直接宣称是 WhatsApp 当前头像 |
 | preview.member_size | profile.member_count 候选 | 与其他人数按事实时间比较 |
-| preview.owner_phone | participant OWNER 候选 | 只有确认 PN 才迁 |
+| preview.owner_phone | handle/兼容投影；可作为 participant OWNER 回填候选 | v1 `creatorPhone` 继续返回该旧字段，不从当前 OWNER participant 重算 |
 | preview.group_created_at | profile.wa_created_at | 秒转毫秒 |
 | preview.creator_country_* | handle/兼容投影 | v1 列表、历史和导出按当前值/算法返回，不在本期统一重算 |
 | preview.metadata_observed_at | profile 字段版本 | 作为各非空 metadata 初始 observedAt |
-| health.current_count | profile.member_count 候选 | 用 last_check_at 与其他来源比较 |
+| health.current_count | profile.checked_member_count | 与 metadata/member snapshot 的 member_count 分开保存；列表继续按现有 `currentCount ?? memberSize` 回退 |
 | health.health_status=LINK_INVALID | I/P 内部状态 + handle 兼容值 | 当前 status/filter 与批量门禁结果不变 |
 | health.is_banned=1 | P 内部状态 + handle 兼容值 | 当前 BANNED 显示/筛选不因重新解释 error domain 改变 |
 | health.last_check/error/failure | I/P 或保留 task + handle 兼容值 | 当前 DTO、状态和调度退避保持；错误分域治理另立需求 |
@@ -731,7 +735,11 @@ I-only、同 JID 多 legacy 行、sourceFileName、labelId、status 和所有 nu
 | account.group_baseline_state | sync_state.baseline_filter_enabled / baseline_state | state=3 是过滤策略关闭，不代表账号未绑定；迁后从 account 删除 |
 | account_group_baseline.last_group_sync_requested_at | sync_state.last_sync_requested_at | 迁值后随 Phase 6 删除 account_group_baseline |
 
+软删账号遗留的未软删 membership 不属于当前账号关系，影子回填按现有账号过滤跳过并记录审计；账号行真正缺失、未删除账号无法解析群入口或账号手机号非法仍是硬冲突。
+
 迁移以 account.group_baseline_state 为主值，不能以 account_group_baseline row 是否存在判断 CAPTURED。现有 markGroupSyncRequested 会为没有 baseline row 的 state=2/3 账号插入 `JSON_ARRAY()/count=0/captured_at=requestedAt` 只为保存同步水位，而且后续请求只更新 last_group_sync_requested_at/updated_at；因此时间相等式只能提示 placeholder，不能永久、确定地区分“真实空 baseline”。WATERMARK_ONLY 必须有创建版本、审计/binlog或调用链证据；state=2 的空数组若无正向 provenance 一律记 AMBIGUOUS_EMPTY_BASELINE，人工签字，不能自动当真实空集合。确定性矩阵如下：
+
+本期影子回填只接受一种现有调用链可解释的空集合证据：账号未删除、state=2、JSON 为合法空数组、`last_group_sync_requested_at IS NULL`，且协议捕获时间 `captured_at` 与落库 `created_at` 不同。它对应 `capturePendingAccountGroupBaseline(syncAt, now)` 的真实捕获形态；水位占位路径会同时写请求时间且两个时间相等。该证据只允许写 `CAPTURED/LEGACY_UNKNOWN/count=0`，不创建 baseline binding、不写 first-post，也不代表最终 writer/read cut 已获批准；不满足该形态的空集合继续阻断。
 
 现有 `AccountGroupMembershipSnapshotServiceImpl.membershipRow` 每次都把本次 `syncAt` 赋给 `joined_at`；`AccountGroupMembershipMapper.xml` 又会在新行、旧值为 NULL，或退群后再回到在群时改写它。所以该列是“快照首次建行/最近回群观察时间”的混合值，不是 WhatsApp 首次入群事实，也无法单独证明发生在 baseline 之后。该值仅原样迁入 `membership_active_since_at` 以保持现有营销截止和导出；本期输入集的 was 只可能是 1/NULL，first-post 实际回填一律 NULL。不允许用 `COALESCE`、行存在性或“JSON 未列出”推导 was=0。
 
@@ -762,6 +770,8 @@ state=3 的非空 JSON 进入异常报告并在 drop 前导出 / 签字处置，
 | whatsapp_group_member_state | participant | 旧表只有共享 state_updated_at，不能假装存在两个独立时钟；按下述 source 白名单拆维度 |
 | whatsapp_group_member_join_fact | participant.last_join_* | 每成员现有最新事实可无损折叠 |
 | whatsapp_group_departed_member | participant.last_exit_* | 每成员现有最新事实可无损折叠 |
+
+旧成员事实若没有任何旧群入口、账号关系或 baseline 引用，则不属于旧列表可达数据：只进入迁移审计，六表影子回填按内连接跳过，不能凭成员缓存凭空创建一个运营群。
 
 `whatsapp_group_member_state` 的 presence/role 虽拆到不同列，回填值必须复现旧表当前可见结果；不能把旧 promote/demote 顺带形成的 `is_in_group` 在迁移时擅自改成 UNKNOWN。`state_source/source_event_id` 只用于冲突报告和以后治理，本期 golden/shadow parity 优先；迁移时间不得使用 now() 覆盖实时事实。
 
@@ -910,7 +920,7 @@ member_count 的迁移必须先按当前列表/详情使用的优先级得到兼
 
 ### Phase 1：只扩展，不切流
 
-当前已批准的首个实施切片仅为 `V117__group_data_model_foundation.sql` 中六张表的最小字段集。本文其余 `field_version_keys`、`*_version_key`、`membership_epoch`、`pool_hidden_at`、`group_status`、新 outbox 等候选设计均不进入本切片，也不得据此补入 V117；只有后续代码出现当前字段无法承载的可复现问题时，才单独举证评审。
+当前已批准的首个实施切片仅为 `V120__group_data_model_foundation.sql` 中六张表的最小字段集。本文其余 `field_version_keys`、`*_version_key`、`membership_epoch`、`pool_hidden_at`、`group_status`、新 outbox 等候选设计均不进入本切片，也不得据此补入 V120；只有后续代码出现当前字段无法承载的可复现问题时，才单独举证评审。test1 对账已举证：已解析群即使没有当前邀请码也会产生群健康事实，而 V120 只在邀请表保存健康字段，导致约 9768 条已解析群状态丢失。因此 V121 仅给 `wa_group_profile` 增加现有兼容列表所需的 `health_status`、`banned`、`last_checked_at`、`last_error_code`、`failure_count`；已解析群写 profile，未解析邀请仍写 invite，不增加表、协议字段或新业务状态。
 
 - 用一组按部署边界拆开的 additive Flyway 版本创建六表、约束、索引和兼容列；不把数据回填塞进 migration。
 - 增加六表内部 canonical ID、Reducer/Mapper、只读对账服务、legacy handle 和仅供账号快照使用的 `group_snapshot_effect_outbox`。把仍会创建/修改 account_group_baseline 的旧入口登记到 writer 清单；不修改 account 绑定模型，不建设 V2 admission、binding history 或新生命周期 Service。
@@ -1039,7 +1049,7 @@ WhatsApp 命令已产生的建群、进退群、升降权、revoke 等外部副�
 
 ### 15.4 列表响应
 
-- 同一固定数据水位下，旧/new `/api/group-links` 的 total、行顺序、每个字段、筛选命中和 null fallback 完全相等。
+- 同一固定数据水位下，旧/new `/api/group-links` 的 total、静态字段、行顺序、筛选命中和 null fallback 完全相等；管理员/可用账号差异只接受已逐成员证明的新模型更新事实，不接受迁移缺行或关联断裂。
 - count 与 page 使用同一谓词；最后一页无重复/漏行。
 - 若只变 key，除 key 外所有值和行为仍相等，且前端只把 key 当 opaque 值。
 

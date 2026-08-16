@@ -35,6 +35,7 @@ public class HistoricalGroupAccountGroupRefreshService {
     private final AccountProtocolLookupService accountLookupService;
     private final HistoricalGroupProtocolPorts protocolPorts;
     private final AccountGroupMembershipSnapshotService snapshotService;
+    private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
     private final GroupInviteLinkService inviteLinkService;
 
     /**
@@ -44,6 +45,7 @@ public class HistoricalGroupAccountGroupRefreshService {
      * @param accountLookupService 账号协议身份查询服务
      * @param protocolPorts 历史群协议能力集合
      * @param snapshotService 账号群快照写入服务
+     * @param currentSnapshotPersistence 新群模型账号快照持久化服务
      * @param inviteLinkService 当前群邀请链接事实服务
      */
     public HistoricalGroupAccountGroupRefreshService(
@@ -51,11 +53,13 @@ public class HistoricalGroupAccountGroupRefreshService {
             AccountProtocolLookupService accountLookupService,
             HistoricalGroupProtocolPorts protocolPorts,
             AccountGroupMembershipSnapshotService snapshotService,
+            AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
             GroupInviteLinkService inviteLinkService) {
         this.accountGroupMapper = accountGroupMapper;
         this.accountLookupService = accountLookupService;
         this.protocolPorts = protocolPorts;
         this.snapshotService = snapshotService;
+        this.currentSnapshotPersistence = currentSnapshotPersistence;
         this.inviteLinkService = inviteLinkService;
     }
 
@@ -78,14 +82,26 @@ public class HistoricalGroupAccountGroupRefreshService {
                 List<AccountParticipatingGroupResult.Group> groups = completeGroups(
                         account,
                         protocolPorts.participatingGroups().listCurrent(account));
+                List<AccountGroupsReportedEvent.Group> reportedGroups = toReportedGroups(groups);
+                String eventId = "historical-group-manual-"
+                        + account.armadaAccountId() + "-" + syncAt;
                 snapshotService.replaceVisibleGroups(
                         account.armadaAccountId(),
-                        toReportedGroups(groups),
+                        reportedGroups,
                         true,
                         syncAt,
-                        "historical-group-manual-" + account.armadaAccountId() + "-" + syncAt,
+                        eventId,
                         SOURCE,
                         account.backend());
+                try {
+                    currentSnapshotPersistence.replaceVisibleGroups(
+                            account.armadaAccountId(), reportedGroups, true, syncAt, eventId);
+                } catch (RuntimeException ex) {
+                    log.warn("历史群新模型影子写入失败 accountGroupId={} accountId={} errorType={}",
+                            accountGroupId,
+                            account.armadaAccountId(),
+                            ex.getClass().getSimpleName());
+                }
                 for (AccountParticipatingGroupResult.Group group : groups) {
                     if (group != null
                             && Boolean.TRUE.equals(group.admin())

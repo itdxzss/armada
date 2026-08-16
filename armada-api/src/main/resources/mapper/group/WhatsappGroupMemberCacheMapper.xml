@@ -130,7 +130,8 @@
                role,
                is_in_group AS inGroup,
                state_source AS stateSource,
-               state_updated_at AS stateUpdatedAt
+               state_updated_at AS stateUpdatedAt,
+               source_event_id AS sourceEventId
         FROM whatsapp_group_member_state
         WHERE tenant_id = #{tenantId}
           AND group_jid = #{groupJid}

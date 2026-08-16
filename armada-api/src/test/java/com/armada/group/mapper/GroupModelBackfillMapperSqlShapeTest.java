@@ -39,7 +39,8 @@ class GroupModelBackfillMapperSqlShapeTest {
                 .contains("<insert id=\"backfillProfiles\"")
                 .contains("INSERT INTO wa_group_profile")
                 .contains("preview.group_created_at * 1000")
-                .contains("COALESCE(health.current_count, preview.member_size)")
+                .contains("preview.member_size AS member_count")
+                .contains("health.current_count AS checked_member_count")
                 .contains("WHEN VALUES(metadata_observed_at) IS NULL")
                 .contains("<insert id=\"backfillMemberSnapshotHeaders\"")
                 .contains("cache.snapshot_version AS member_snapshot_version")
@@ -47,6 +48,13 @@ class GroupModelBackfillMapperSqlShapeTest {
                 .contains("INSERT INTO wa_group_invite")
                 .contains("WHEN VALUES(last_checked_at) IS NULL")
                 .contains("<insert id=\"backfillCurrentInvitePointers\"")
+                .contains("<insert id=\"backfillLegacyMemberSnapshots\"")
+                .contains("FROM whatsapp_group_member_snapshot snapshot")
+                .contains("<select id=\"selectLegacyMemberSnapshotBatchEndId\"")
+                .contains("WHERE snapshot.id &gt; #{afterId}")
+                .contains("AND snapshot.id &lt;= #{endId}")
+                .doesNotContain("LEFT JOIN wa_group_participant target_pn")
+                .doesNotContain("LEFT JOIN wa_group_participant target_lid")
                 .contains("<insert id=\"backfillParticipants\"")
                 .contains("INSERT INTO wa_group_participant")
                 .contains("state.tenant_id = resolved_group.tenant_id")
@@ -75,5 +83,23 @@ class GroupModelBackfillMapperSqlShapeTest {
         assertThat(bindingSql)
                 .contains("membership.joined_at AS membership_active_since_at")
                 .doesNotContain("first_post_control_observed_at");
+
+        String participantPreflightSql = xml.substring(
+                xml.indexOf("<select id=\"countParticipantConflicts\""),
+                xml.indexOf("<select id=\"countBindingConflicts\""));
+        assertThat(participantPreflightSql)
+                .contains("LOWER(TRIM(snapshot.group_jid)) NOT LIKE '%@g.us'")
+                .contains("LOWER(TRIM(state.group_jid)) NOT LIKE '%@g.us'")
+                .contains("LOWER(TRIM(join_fact.group_jid)) NOT LIKE '%@g.us'")
+                .contains("LOWER(TRIM(exit_fact.group_jid)) NOT LIKE '%@g.us'")
+                .doesNotContain("JOIN group_link_preview", "JOIN group_link source_link");
+
+        String preflightSql = xml.substring(
+                xml.indexOf("<select id=\"countBindingConflicts\""),
+                xml.indexOf("<insert id=\"backfillGroups\""));
+        assertThat(preflightSql)
+                .contains("LEFT JOIN group_link_preview source_preview")
+                .contains("LEFT JOIN group_link source_link")
+                .doesNotContain("LEFT JOIN wa_group resolved_group");
     }
 }

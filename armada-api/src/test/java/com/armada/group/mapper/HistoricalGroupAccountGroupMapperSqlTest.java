@@ -21,16 +21,23 @@ class HistoricalGroupAccountGroupMapperSqlTest {
             "src/main/resources/mapper/group/AccountGroupMembershipMapper.xml");
 
     @Test
-    void accountGroupHistoryExpandsBaselineAndPaginatesInSql() throws Exception {
+    void accountGroupHistoryUsesMigratedBaselineBindingsAndPaginatesInSql() throws Exception {
         String xml = Files.readString(MAPPER, StandardCharsets.UTF_8);
 
         assertThat(xml)
                 .contains("countHistoricalGroupsByTenantAndAccountGroup")
                 .contains("selectHistoricalGroupPageByTenantAndAccountGroup")
-                .contains("JSON_TABLE")
+                .contains("baseline_binding.was_in_initial_baseline = 1")
+                .contains("FROM wa_account_group_binding current_binding")
                 .contains("a.account_group_id = #{accountGroupId}")
                 .contains("a.tenant_id = #{tenantId}")
-                .contains("LIMIT #{offset}, #{pageSize}");
+                .contains("LIMIT #{offset}, #{pageSize}")
+                .doesNotContain("JSON_TABLE");
+
+        String aggregation = xml.substring(
+                xml.indexOf("<sql id=\"historicalGroupAggregated\">") ,
+                xml.indexOf("</sql>", xml.indexOf("<sql id=\"historicalGroupAggregated\">")));
+        assertThat(aggregation).doesNotContain("account_group_baseline");
     }
 
     @Test
@@ -43,12 +50,14 @@ class HistoricalGroupAccountGroupMapperSqlTest {
         assertThat(aggregation)
                 .contains("a0.account_group_id = #{accountGroupId}")
                 .contains("a1.account_group_id = #{accountGroupId}")
-                .contains("relation.group_jid = history.group_jid")
+                .contains("relation.group_id = history.group_id")
+                .contains("participant.presence_status")
+                .contains("participant.role")
                 .doesNotContain("JSON_CONTAINS");
         assertThat(xml)
                 .contains("selectHistoricalGroupAccountPhonesByTenantAndAccountGroup")
-                .contains("baseline_phone.group_jid")
-                .contains("current_phone.group_jid");
+                .contains("baseline_group.group_jid")
+                .contains("current_group.group_jid");
     }
 
     @Test
@@ -69,10 +78,11 @@ class HistoricalGroupAccountGroupMapperSqlTest {
                 .contains("existsHistoricalGroupByTenantAndAccountGroup")
                 .contains("selectHistoricalGroupExecutionAccountByTenant")
                 .contains("a.account_group_id = #{accountGroupId}")
-                .contains("m.is_admin = 1")
-                .contains("m.membership_status = #{inGroupStatus}")
+                .contains("self_participant.presence_status = 1")
+                .contains("self_participant.role IN (2, 3)")
                 .contains("s.login_state = #{onlineLoginState}")
-                .contains("s.account_state = #{normalAccountState}");
+                .contains("s.account_state = #{normalAccountState}")
+                .doesNotContain("JSON_CONTAINS");
     }
 
     @Test
@@ -102,7 +112,11 @@ class HistoricalGroupAccountGroupMapperSqlTest {
                                 + "selectHistoricalGroupAccountPhonesByTenantAndAccountGroup")
                 .getBoundSql(parameters);
 
-        assertThat(pageSql.getSql()).contains("relation.membership_status = ?");
-        assertThat(phoneSql.getSql()).contains("current_phone.membership_status = ?");
+        assertThat(pageSql.getSql())
+                .contains("relation.presence_status = 1")
+                .contains("relation.role IN (2, 3)");
+        assertThat(phoneSql.getSql())
+                .contains("self_participant.presence_status = 1")
+                .doesNotContain("account_group_membership");
     }
 }

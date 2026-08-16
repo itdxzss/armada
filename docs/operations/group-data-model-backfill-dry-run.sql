@@ -86,10 +86,14 @@ LEFT JOIN wa_group wa_group
  AND wa_group.group_jid = LOWER(TRIM(membership.group_jid))
 WHERE wa_group.id IS NULL;
 
+-- 没有旧群入口的孤立成员缓存不属于列表可达数据，回填会跳过，只记录审计数量。
 SELECT 'unresolved_member_group' AS gate_name,
-       COUNT(*) AS violation_count,
-       0 AS expected_count
+       COUNT(*) AS observed_count,
+       'information_only' AS expected_count
 FROM (
+    SELECT snapshot.tenant_id, snapshot.group_jid
+    FROM whatsapp_group_member_snapshot snapshot
+    UNION ALL
     SELECT state.tenant_id, state.group_jid
     FROM whatsapp_group_member_state state
     UNION ALL
@@ -108,6 +112,8 @@ SELECT 'invalid_participant_jid' AS gate_name,
        COUNT(*) AS violation_count,
        0 AS expected_count
 FROM (
+    SELECT participant_jid FROM whatsapp_group_member_snapshot
+    UNION ALL
     SELECT participant_jid FROM whatsapp_group_member_state
     UNION ALL
     SELECT participant_jid FROM whatsapp_group_member_join_fact
@@ -134,6 +140,8 @@ WHERE account.deleted_at IS NULL
     )
   );
 
+-- 空集合只有符合现有真实捕获路径（无同步水位，且协议时间不同于落库时间）才可影子回填。
+-- 其他空集合继续阻断；即使通过，本项也不能作为最终 writer/read cut 的充分条件。
 SELECT 'ambiguous_empty_baseline' AS gate_name,
        COUNT(*) AS violation_count,
        0 AS expected_count
@@ -141,10 +149,17 @@ FROM account account
 LEFT JOIN account_group_baseline baseline
   ON baseline.tenant_id = account.tenant_id
  AND baseline.account_id = account.id
-WHERE account.group_baseline_state = 2
+WHERE account.deleted_at IS NULL
+  AND account.group_baseline_state = 2
   AND (
       baseline.id IS NULL
-      OR JSON_LENGTH(baseline.baseline_group_jids) = 0
+      OR (
+        JSON_LENGTH(baseline.baseline_group_jids) = 0
+        AND (
+          baseline.last_group_sync_requested_at IS NOT NULL
+          OR baseline.captured_at = baseline.created_at
+        )
+      )
   );
 
 SELECT 'baseline_count_mismatch' AS gate_name,
@@ -159,7 +174,7 @@ WHERE account.group_baseline_state = 2
       JSON_TYPE(baseline.baseline_group_jids) <> 'ARRAY'
       OR baseline.group_count <> JSON_LENGTH(baseline.baseline_group_jids)
       OR baseline.captured_at IS NULL
-      OR baseline.captured_at &lt; 0
+      OR baseline.captured_at < 0
   );
 
 SELECT 'unresolved_baseline_target' AS gate_name,
@@ -202,7 +217,7 @@ FROM (
       AND account.group_baseline_state = 2
     GROUP BY account.tenant_id, account.id,
              LOWER(TRIM(baseline_group.group_jid))
-    HAVING COUNT(*) &gt; 1
+    HAVING COUNT(*) > 1
 ) duplicate_baseline;
 
 SELECT 'pending_with_baseline_data' AS gate_name,

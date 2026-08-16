@@ -402,31 +402,6 @@
       AND group_baseline_state = 1
   </update>
 
-  <select id="selectSendableGroupJids" resultType="java.lang.String">
-    SELECT group_jid
-    FROM account_group_membership
-    WHERE account_id = #{accountId}
-      AND deleted_at IS NULL
-      AND membership_status IN
-      <foreach collection="sendableStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
-      AND group_jid IS NOT NULL
-      AND TRIM(group_jid) &lt;&gt; ''
-    ORDER BY id ASC
-  </select>
-
-  <select id="selectSnapshotEstablishedGroupJids" resultType="java.lang.String">
-    SELECT group_jid
-    FROM account_group_membership
-    WHERE account_id = #{accountId}
-      AND deleted_at IS NULL
-      AND membership_status IN
-      <foreach collection="sendableStatuses" item="status" open="(" separator="," close=")">#{status}</foreach>
-      AND COALESCE(status_source, '') &lt;&gt; 'WGP2_ADD'
-      AND group_jid IS NOT NULL
-      AND TRIM(group_jid) &lt;&gt; ''
-    ORDER BY id ASC
-  </select>
-
   <select id="selectCurrentStatuses"
           resultType="com.armada.group.model.vo.AccountGroupMembershipStatusRow">
     SELECT binding.account_id AS accountId,

@@ -35,6 +35,10 @@ public final class AccountGroupCurrentSnapshotRows {
     public record GroupId(String groupJid, Long groupId) {
     }
 
+    /** 旧 API 本次已经选中的群入口到新模型群主键。 */
+    public record LegacyGroupReference(Long groupLinkId, Long groupId) {
+    }
+
     /** 精确进退群事实写入成员当前状态时使用的行模型。 */
     public record ParticipantPresenceWrite(
             Long groupId,

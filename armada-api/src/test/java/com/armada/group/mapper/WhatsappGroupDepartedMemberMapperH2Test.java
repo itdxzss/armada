@@ -57,20 +57,37 @@ class WhatsappGroupDepartedMemberMapperH2Test {
                     updated_at BIGINT NOT NULL,
                     CONSTRAINT uq_departed UNIQUE (tenant_id, group_jid, participant_jid)
                 )
+                """, """
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """, """
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                    pn_jid VARCHAR(191), lid_jid VARCHAR(191), phone VARCHAR(32),
+                    last_exited_at BIGINT, last_exit_type VARCHAR(16),
+                    last_exit_source_type VARCHAR(32)
+                )
                 """);
     }
 
     @Test
     void selectByGroupJidsIsTenantIsolated() throws SQLException {
         executeSql("""
-                INSERT INTO whatsapp_group_departed_member
-                    (tenant_id, group_jid, participant_jid, phone, exited_at, exit_type,
-                     event_at, source_event_id, source_type, created_at, updated_at)
+                INSERT INTO wa_group (id, tenant_id, group_jid)
+                VALUES (71, 7, '120363-test@g.us'), (81, 8, '120363-test@g.us')
+                """, """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, pn_jid, phone, last_exited_at,
+                     last_exit_type, last_exit_source_type)
                 VALUES
-                    (7, '120363-test@g.us', '15550000001@s.whatsapp.net', '15550000001',
-                     100, 'LEFT', 100, 'history-100', 'HISTORY_SYNC', 1000, 1000),
-                    (8, '120363-test@g.us', '15550000002@s.whatsapp.net', '15550000002',
-                     300, 'REMOVED', 300, 'other-tenant', 'HISTORY_SYNC', 1200, 1200)
+                    (711, 7, 71, '15550000001@s.whatsapp.net', '15550000001',
+                     100, 'LEFT', 'HISTORY_SYNC'),
+                    (712, 7, 71, '15550000003@s.whatsapp.net', '15550000003',
+                     200, 'LEFT', NULL),
+                    (811, 8, 81, '15550000002@s.whatsapp.net', '15550000002',
+                     300, 'REMOVED', 'HISTORY_SYNC')
                 """);
 
         assertThat(mapper.selectByGroupJids(7L, java.util.List.of("120363-test@g.us")))
@@ -105,7 +122,7 @@ class WhatsappGroupDepartedMemberMapperH2Test {
                 .contains("<update id=\"updateIfNewer\">")
                 .contains("AND participant_jid = #{fact.participantJid}")
                 .doesNotContain("VALUES(event_at)")
-                .contains("WHERE tenant_id = #{tenantId}");
+                .contains("WHERE current_group.tenant_id = #{tenantId}");
     }
 
     private void executeSql(String... statements) throws SQLException {

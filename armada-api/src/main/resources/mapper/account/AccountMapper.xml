@@ -445,11 +445,14 @@
       ON country_master.name_zh = COALESCE(s.proxy_country, p.region)
       AND country_master.deleted_at IS NULL
     LEFT JOIN (
-      SELECT tenant_id, account_id, COUNT(*) AS groups_num
-      FROM account_group_membership
-      WHERE deleted_at IS NULL
-        AND membership_status IN (1, 2)
-      GROUP BY tenant_id, account_id
+      SELECT binding.tenant_id, binding.account_id, COUNT(*) AS groups_num
+      FROM wa_account_group_binding binding
+      INNER JOIN wa_group_participant self_participant
+        ON self_participant.tenant_id = binding.tenant_id
+       AND self_participant.id = binding.participant_id
+       AND self_participant.group_id = binding.group_id
+      WHERE self_participant.presence_status IN (0, 1)
+      GROUP BY binding.tenant_id, binding.account_id
     ) gm ON gm.tenant_id = a.tenant_id AND gm.account_id = a.id
     WHERE <include refid="filter"/>
     ORDER BY a.created_at DESC

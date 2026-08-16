@@ -54,6 +54,15 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(snapshotService.replaceVisibleGroups(
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyList(),
+                        org.mockito.ArgumentMatchers.anyBoolean(),
+                        org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(ProtocolBackend.class)))
+                .thenReturn(List.of());
         service = new HistoricalGroupAccountGroupRefreshService(
                 accountGroupMapper,
                 accountLookupService,
@@ -113,10 +122,12 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 org.mockito.ArgumentMatchers.any(ProtocolBackend.class));
         verify(currentSnapshotPersistence).replaceVisibleGroups(
                 eq(1L), eq(groupsCaptor.getAllValues().get(0)), eq(true),
-                anyLong(), org.mockito.ArgumentMatchers.anyString());
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyList());
         verify(currentSnapshotPersistence).replaceVisibleGroups(
                 eq(2L), eq(groupsCaptor.getAllValues().get(1)), eq(true),
-                anyLong(), org.mockito.ArgumentMatchers.anyString());
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyList());
         org.assertj.core.api.Assertions.assertThat(groupsCaptor.getAllValues().get(0))
                 .satisfiesExactly(
                         group -> {
@@ -255,7 +266,8 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 .when(currentSnapshotPersistence)
                 .replaceVisibleGroups(
                         eq(1L), org.mockito.ArgumentMatchers.anyList(), eq(true),
-                        anyLong(), org.mockito.ArgumentMatchers.anyString());
+                        anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyList());
         when(invitePort.getInvite(account, "120363admin@g.us"))
                 .thenReturn(new GroupInviteResult(
                         "120363admin@g.us", "InviteCode", null));

@@ -12,7 +12,6 @@ import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
-import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
@@ -90,11 +89,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     }
 
     @Test
-    void replaceVisibleGroups_returnsOnlyGroupsMissingBeforeRefreshAsAdded() {
-        when(membershipMapper.selectSnapshotEstablishedGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of("120363old@g.us"));
-        when(membershipMapper.selectSendableGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of("120363old@g.us", "120363new@g.us"));
+    void replaceVisibleGroupsReturnsCurrentGroupsButLeavesAddedDecisionToCurrentModel() {
         when(registryService.registerAccountObservedGroup(
                 org.mockito.ArgumentMatchers.eq("120363old@g.us"),
                 org.mockito.ArgumentMatchers.eq("旧群"),
@@ -106,7 +101,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(12L);
 
-        AccountGroupMembershipChangeSet result = service.replaceVisibleGroups(
+        List<AccountGroupMembershipSnapshot> result = service.replaceVisibleGroups(
                 10L,
                 List.of(
                         group("120363old@g.us", "旧群"),
@@ -118,12 +113,9 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 "wa_groups_dirty",
                 OBSERVED_BACKEND);
 
-        org.assertj.core.api.Assertions.assertThat(result.currentGroups())
+        org.assertj.core.api.Assertions.assertThat(result)
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
                 .containsExactly("120363new@g.us", "120363old@g.us");
-        org.assertj.core.api.Assertions.assertThat(result.addedGroups())
-                .extracting(AccountGroupMembershipSnapshot::groupJid)
-                .containsExactly("120363new@g.us");
         Mockito.verify(classificationService).classifyVisibleGroups(
                 Mockito.eq(10L),
                 Mockito.argThat(groups -> groups.equals(List.of(
@@ -153,7 +145,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         when(membershipMapper.selectExistingActiveGroupJids(
                 10L, List.of(firstJid, secondJid))).thenReturn(List.of());
 
-        AccountGroupMembershipChangeSet result = service.replaceVisibleGroups(
+        List<AccountGroupMembershipSnapshot> result = service.replaceVisibleGroups(
                 10L,
                 List.of(group(secondJid, "B群"), group(firstJid, "A群")),
                 false,
@@ -183,7 +175,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         verifyHealthPersist(inOrder, 20L);
         verifyMembershipPersist(inOrder, firstJid);
         verifyMembershipPersist(inOrder, secondJid);
-        org.assertj.core.api.Assertions.assertThat(result.currentGroups())
+        org.assertj.core.api.Assertions.assertThat(result)
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
                 .containsExactly(firstJid, secondJid);
     }
@@ -277,19 +269,15 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     }
 
     @Test
-    void staleSnapshotDoesNotReportExitedRelationshipAsAddedWhenStatusUpsertWasRejected() {
+    void staleSnapshotStillReturnsResolvedGroupForCurrentModelWrite() {
         String groupJid = "120363kicked@g.us";
-        when(membershipMapper.selectSnapshotEstablishedGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of());
-        when(membershipMapper.selectSendableGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of());
         when(registryService.registerAccountObservedGroup(
                 org.mockito.ArgumentMatchers.eq(groupJid),
                 org.mockito.ArgumentMatchers.eq("旧快照群"),
                 org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(13L);
 
-        AccountGroupMembershipChangeSet result = service.replaceVisibleGroups(
+        List<AccountGroupMembershipSnapshot> result = service.replaceVisibleGroups(
                 10L,
                 List.of(group(groupJid, "旧快照群")),
                 false,
@@ -298,23 +286,21 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 "android_groups_dirty",
                 OBSERVED_BACKEND);
 
-        org.assertj.core.api.Assertions.assertThat(result.addedGroups()).isEmpty();
+        org.assertj.core.api.Assertions.assertThat(result)
+                .extracting(AccountGroupMembershipSnapshot::groupJid)
+                .containsExactly(groupJid);
     }
 
     @Test
-    void firstSnapshotAfterPreciseAddStillReportsGroupAsAddedForImmediateMarketing() {
+    void firstSnapshotAfterPreciseAddStillReturnsResolvedGroupForCurrentModelWrite() {
         String groupJid = "120363precise-add@g.us";
-        when(membershipMapper.selectSnapshotEstablishedGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of());
-        when(membershipMapper.selectSendableGroupJids(10L, List.of(1, 2)))
-                .thenReturn(List.of(groupJid));
         when(registryService.registerAccountObservedGroup(
                 org.mockito.ArgumentMatchers.eq(groupJid),
                 org.mockito.ArgumentMatchers.eq("精确新增群"),
                 org.mockito.ArgumentMatchers.eq(OBSERVED_BACKEND),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(14L);
 
-        AccountGroupMembershipChangeSet result = service.replaceVisibleGroups(
+        List<AccountGroupMembershipSnapshot> result = service.replaceVisibleGroups(
                 10L,
                 List.of(group(groupJid, "精确新增群")),
                 true,
@@ -323,7 +309,7 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 "android_group_participant_self",
                 OBSERVED_BACKEND);
 
-        org.assertj.core.api.Assertions.assertThat(result.addedGroups())
+        org.assertj.core.api.Assertions.assertThat(result)
                 .extracting(AccountGroupMembershipSnapshot::groupJid)
                 .containsExactly(groupJid);
     }

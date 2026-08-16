@@ -5,14 +5,18 @@ import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
@@ -71,12 +75,25 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      * 替换单账号当前可见群。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void replaceVisibleGroups(
+    public AccountGroupMembershipChangeSet replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
             boolean snapshotComplete,
             long syncAt,
             String eventId) {
+        return replaceVisibleGroups(
+                accountId, groups, snapshotComplete, syncAt, eventId, List.of());
+    }
+
+    /** 替换单账号当前可见群，并回写旧流程本次已经选中的群入口。 */
+    @Transactional(rollbackFor = Exception.class)
+    public AccountGroupMembershipChangeSet replaceVisibleGroups(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
+            long syncAt,
+            String eventId,
+            List<AccountGroupMembershipSnapshot> legacyGroups) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新群模型快照缺少 accountId");
         }
@@ -108,6 +125,13 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                         Function.identity(),
                         (left, right) -> left,
                         LinkedHashMap::new));
+        Set<String> snapshotEstablishedBefore = existingRows.stream()
+                .filter(row -> visible.containsKey(row.groupJid()))
+                .filter(row -> row.bindingId() != null)
+                .filter(row -> sendablePresence(row.presenceStatus()))
+                .filter(row -> !"WGP2_ADD".equals(row.presenceSource()))
+                .map(Existing::groupJid)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
         List<Write> rows = new ArrayList<>(visible.size());
@@ -157,7 +181,24 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             if (groupIds.size() != rows.size()) {
                 throw new BusinessException(ErrorCode.CONFLICT, "新群模型批量解析 groupId 不完整");
             }
-            mapper.updateLegacyGroupReferences(tenantId, visibleJids);
+            Map<Long, LegacyGroupReference> referencesByHandleId = new TreeMap<>();
+            if (legacyGroups != null) {
+                for (AccountGroupMembershipSnapshot legacyGroup : legacyGroups) {
+                    if (legacyGroup == null || legacyGroup.groupLinkId() == null) {
+                        continue;
+                    }
+                    Long groupId = groupIds.get(normalizeJid(legacyGroup.groupJid()));
+                    if (groupId != null) {
+                        referencesByHandleId.putIfAbsent(
+                                legacyGroup.groupLinkId(),
+                                new LegacyGroupReference(legacyGroup.groupLinkId(), groupId));
+                    }
+                }
+            }
+            if (!referencesByHandleId.isEmpty()) {
+                mapper.updateSelectedLegacyGroupReferences(
+                        tenantId, List.copyOf(referencesByHandleId.values()));
+            }
             rows = rows.stream()
                     .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
                     .sorted(Comparator.comparing(Write::groupId).thenComparing(Write::groupJid))
@@ -187,6 +228,17 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         }
 
         mapper.upsertSyncState(syncState(context, baseline, snapshotComplete, syncAt, now));
+
+        List<AccountGroupMembershipSnapshot> currentGroups = legacyGroups == null
+                ? List.of()
+                : legacyGroups.stream().filter(Objects::nonNull).toList();
+        List<AccountGroupMembershipSnapshot> addedGroups = currentGroups.stream()
+                .filter(group -> visible.containsKey(normalizeJid(group.groupJid())))
+                .filter(group -> !snapshotEstablishedBefore.contains(normalizeJid(group.groupJid())))
+                .filter(group -> sendableAfterSnapshot(
+                        existingByJid.get(normalizeJid(group.groupJid())), syncAt))
+                .toList();
+        return new AccountGroupMembershipChangeSet(currentGroups, addedGroups);
     }
 
     /**
@@ -443,6 +495,21 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             null,
                             null);
                 })
+                .toList();
+        persistParticipantFacts(tenantId, rows);
+    }
+
+    /** 将现有成员角色/定点查询观察同步到成员当前事实，不创建账号群关系。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyParticipantObservations(List<GroupParticipantObservation> observations) {
+        if (observations == null || observations.isEmpty()) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        List<ParticipantPresenceWrite> rows = observations.stream()
+                .filter(Objects::nonNull)
+                .map(observation -> participantObservation(tenantId, observation, now))
                 .toList();
         persistParticipantFacts(tenantId, rows);
     }
@@ -717,6 +784,15 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         return presenceWins(existing, syncAt, SNAPSHOT_SOURCE);
     }
 
+    private static boolean sendableAfterSnapshot(Existing existing, long syncAt) {
+        return snapshotWins(existing, syncAt)
+                || existing != null && sendablePresence(existing.presenceStatus());
+    }
+
+    private static boolean sendablePresence(Integer presenceStatus) {
+        return presenceStatus != null && (presenceStatus == 0 || presenceStatus == 1);
+    }
+
     private static boolean presenceWins(Existing existing, long observedAt, String source) {
         if (existing == null || existing.presenceObservedAt() == null) {
             return true;
@@ -811,6 +887,55 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             return new ParticipantIdentity(null, participantJid);
         }
         throw new BusinessException(ErrorCode.VALIDATION, "群成员事件 participantJid 非法");
+    }
+
+    private static ParticipantPresenceWrite participantObservation(
+            Long tenantId,
+            GroupParticipantObservation observation,
+            long now) {
+        validateParticipantFactTenant(tenantId, observation.tenantId());
+        String participantJid = blankToNull(observation.participantJid()) == null
+                ? observation.targetJid() : observation.participantJid();
+        ParticipantIdentity identity = participantIdentity(participantJid);
+        if (observation.source() == null || observation.observedAt() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员观察来源或事实时间非法");
+        }
+        String source = participantObservationSource(observation);
+        return new ParticipantPresenceWrite(
+                null,
+                participantGroupJid(observation.groupJid()),
+                identity.pnJid(),
+                identity.lidJid(),
+                blankToNull(observation.phone()),
+                observation.inGroup() ? 1 : 2,
+                source,
+                clamp(blankToNull(observation.sourceEventId()), EVENT_ID_MAX_LENGTH),
+                observation.observedAt(),
+                now,
+                null,
+                null,
+                null,
+                null,
+                observation.inGroup() ? (observation.admin() ? 2 : 1) : null,
+                observation.inGroup() ? source : null,
+                observation.inGroup() ? observation.observedAt() : null,
+                observation.inGroup()
+                        ? clamp(blankToNull(observation.sourceEventId()), EVENT_ID_MAX_LENGTH)
+                        : null,
+                null,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    private static String participantObservationSource(
+            GroupParticipantObservation observation) {
+        return switch (observation.source()) {
+            case ROLE_EVENT -> observation.admin() ? "WGP2_PROMOTE" : "WGP2_DEMOTE";
+            case MEMBER_QUERY -> "GROUP_MEMBER_QUERY";
+            default -> observation.source().name();
+        };
     }
 
     private static long requiredFactTime(Long value) {

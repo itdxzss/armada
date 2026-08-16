@@ -40,16 +40,21 @@
 
     <select id="selectByGroupJids"
             resultType="com.armada.group.model.vo.WhatsappGroupJoinFactVO">
-        SELECT group_jid AS groupJid,
-               participant_jid AS participantJid,
-               phone,
-               joined_at AS joinedAt
-        FROM whatsapp_group_member_join_fact
-        WHERE tenant_id = #{tenantId}
-          AND group_jid IN
+        SELECT current_group.group_jid AS groupJid,
+               COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+               participant.phone,
+               participant.last_joined_at AS joinedAt
+        FROM wa_group current_group
+        INNER JOIN wa_group_participant participant
+          ON participant.tenant_id = current_group.tenant_id
+         AND participant.group_id = current_group.id
+         AND participant.last_joined_at IS NOT NULL
+        WHERE current_group.tenant_id = #{tenantId}
+          AND current_group.group_jid IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
             #{groupJid}
         </foreach>
-        ORDER BY group_jid ASC, joined_at ASC, participant_jid ASC
+        ORDER BY current_group.group_jid ASC, participant.last_joined_at ASC,
+                 COALESCE(participant.pn_jid, participant.lid_jid) ASC
     </select>
 </mapper>

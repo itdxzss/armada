@@ -97,6 +97,9 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             memberStateMapper.upsertStates(
                     writes.subList(start, Math.min(start + WRITE_BATCH_SIZE, writes.size())), now);
         }
+        currentSnapshotPersistence.applyParticipantObservations(observations.stream()
+                .map(GroupParticipantObservationServiceImpl::currentObservation)
+                .toList());
         List<String> participantJids = writes.stream()
                 .map(WhatsappGroupMemberStateWrite::participantJid)
                 .distinct()
@@ -283,6 +286,15 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
                 value.admin(), false, value.admin() ? "admin" : "member", value.inGroup(),
                 value.stateSource(), value.observedAt(), value.sourceEventId(), null,
                 value.observerAccountId());
+    }
+
+    private static GroupParticipantObservation currentObservation(NormalizedObservation value) {
+        return new GroupParticipantObservation(
+                value.tenantId(), value.observerAccountId(), value.groupJid(),
+                value.participantJid(), value.participantJid(), value.phone(),
+                value.inGroup(), value.admin(),
+                WhatsappGroupMemberStateSource.valueOf(value.stateSource()),
+                value.observedAt(), value.sourceEventId());
     }
 
     private static NormalizedObservation normalize(GroupParticipantObservation value) {

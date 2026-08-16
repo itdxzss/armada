@@ -7,7 +7,6 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
@@ -28,9 +27,6 @@ class GroupDetailSnapshotReaderImplTest {
     private GroupListCurrentMapper currentMapper;
 
     @Mock
-    private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
-
-    @Mock
     private GroupMetadataSyncTaskMapper taskMapper;
 
     @AfterEach
@@ -43,15 +39,15 @@ class GroupDetailSnapshotReaderImplTest {
         TenantContext.set(TENANT_ID);
         WhatsappGroupMemberSnapshot member = new WhatsappGroupMemberSnapshot();
         member.setParticipantJid("1001@s.whatsapp.net");
-        when(memberSnapshotMapper.selectByGroupLinkId(GROUP_LINK_ID))
+        when(currentMapper.selectGroupDetailMembers(TENANT_ID, GROUP_LINK_ID))
                 .thenReturn(List.of(member));
         GroupDetailSnapshotReaderImpl reader = new GroupDetailSnapshotReaderImpl(
-                currentMapper, memberSnapshotMapper, taskMapper);
+                currentMapper, taskMapper);
 
         assertThat(reader.members(GROUP_LINK_ID))
                 .extracting(WhatsappGroupMemberSnapshot::getParticipantJid)
                 .containsExactly("1001@s.whatsapp.net");
-        verify(memberSnapshotMapper).selectByGroupLinkId(GROUP_LINK_ID);
-        verifyNoInteractions(currentMapper);
+        verify(currentMapper).selectGroupDetailMembers(TENANT_ID, GROUP_LINK_ID);
+        verifyNoInteractions(taskMapper);
     }
 }

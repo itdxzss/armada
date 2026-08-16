@@ -50,6 +50,9 @@ public interface GroupModelBackfillMapper {
     /** 从已完成的旧成员缓存回填一批完整成员快照头。 */
     int backfillMemberSnapshotHeaders(@Param("limit") int limit);
 
+    /** 从群详情旧完整快照回填一批最新快照头。 */
+    int backfillLegacyMemberSnapshotHeaders(@Param("limit") int limit);
+
     /** 按租户和邀请码顺序回填一批邀请。 */
     int backfillInvites(@Param("limit") int limit);
 

@@ -73,37 +73,78 @@ class WhatsappGroupMemberCacheMapperH2Test {
                     updated_at BIGINT NOT NULL,
                     CONSTRAINT uq_state UNIQUE (tenant_id, group_jid, participant_jid)
                 )
+                """, """
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """, """
+                CREATE TABLE wa_group_profile (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    subject VARCHAR(255),
+                    announce_only TINYINT,
+                    member_snapshot_at BIGINT,
+                    member_snapshot_version VARCHAR(64)
+                )
+                """, """
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    pn_jid VARCHAR(191),
+                    lid_jid VARCHAR(191),
+                    phone VARCHAR(32),
+                    presence_status TINYINT NOT NULL,
+                    presence_source VARCHAR(32),
+                    presence_observed_at BIGINT,
+                    role TINYINT NOT NULL,
+                    role_source VARCHAR(32),
+                    last_snapshot_version VARCHAR(64),
+                    last_joined_at BIGINT,
+                    last_exit_source_type VARCHAR(32)
+                )
                 """);
     }
 
     @Test
     void selectByGroupJidsReturnsHeaderAndAllKnownMemberStatesForOneTenant() throws SQLException {
         executeSql("""
-                INSERT INTO whatsapp_group_member_cache
-                    (tenant_id, group_jid, subject, announce_only, snapshot_at, snapshot_version,
-                     observer_account_id, created_at, updated_at)
-                VALUES
-                    (7, '120363-test@g.us', 'tenant-7', 1, 1000, 'v1', 10, 1000, 1000),
-                    (8, '120363-test@g.us', 'tenant-8', 0, 1000, 'v1', 11, 1000, 1000)
+                INSERT INTO wa_group (id, tenant_id, group_jid)
+                VALUES (71, 7, '120363-test@g.us'), (81, 8, '120363-test@g.us')
                 """, """
-                INSERT INTO whatsapp_group_member_state
-                    (tenant_id, group_jid, participant_jid, phone, is_admin, is_owner, role,
-                     is_in_group, state_source, state_updated_at, source_event_id,
-                     snapshot_version, observer_account_id, created_at, updated_at)
+                INSERT INTO wa_group_profile
+                    (id, tenant_id, group_id, subject, announce_only,
+                     member_snapshot_at, member_snapshot_version)
                 VALUES
-                    (7, '120363-test@g.us', '15550000001@s.whatsapp.net', '15550000001',
-                     1, 0, 'admin', 1, 'FULL_SNAPSHOT', 1000, 'snapshot-1', 'v1', 10, 1000, 1000),
-                    (7, '120363-test@g.us', '15550000002@s.whatsapp.net', '15550000002',
-                     0, 0, '', 0, 'LEAVE_EVENT', 1100, 'leave-1', 'v1', 10, 1100, 1100),
-                    (8, '120363-test@g.us', '15550000003@s.whatsapp.net', '15550000003',
-                     0, 0, '', 1, 'FULL_SNAPSHOT', 1000, 'other-tenant', 'v1', 11, 1000, 1000)
+                    (701, 7, 71, 'tenant-7', 1, 1000, 'v1'),
+                    (801, 8, 81, 'tenant-8', 0, 1000, 'v1')
+                """, """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, pn_jid, phone, presence_status,
+                     presence_source, presence_observed_at, role,
+                     role_source, last_snapshot_version, last_joined_at,
+                     last_exit_source_type)
+                VALUES
+                    (711, 7, 71, '15550000001@s.whatsapp.net', '15550000001',
+                     1, 'FULL_SNAPSHOT', 1000, 2, 'FULL_SNAPSHOT', 'v1', NULL, NULL),
+                    (712, 7, 71, '15550000002@s.whatsapp.net', '15550000002',
+                     2, 'LEAVE_EVENT', 1100, 1, NULL, NULL, NULL, 'HISTORY_SYNC'),
+                    (713, 7, 71, '15550000004@s.whatsapp.net', '15550000004',
+                     1, 'GROUP_SNAPSHOT', 1200, 1, 'GROUP_SNAPSHOT', NULL, NULL, NULL),
+                    (714, 7, 71, '15550000005@s.whatsapp.net', '15550000005',
+                     1, 'WGP2_PROMOTE', 1300, 2, 'WGP2_PROMOTE', NULL, NULL, NULL),
+                    (811, 8, 81, '15550000003@s.whatsapp.net', '15550000003',
+                     1, 'FULL_SNAPSHOT', 1000, 1, 'FULL_SNAPSHOT', 'v1', NULL, NULL)
                 """);
 
         assertThat(mapper.selectByGroupJids(7L, java.util.List.of("120363-test@g.us")))
-                .hasSize(2)
+                .hasSize(3)
                 .allSatisfy(row -> assertThat(row.subject()).isEqualTo("tenant-7"))
                 .extracting(row -> row.phone())
-                .containsExactly("15550000001", "15550000002");
+                .containsExactly("15550000001", "15550000002", "15550000005");
     }
 
     @Test
@@ -154,7 +195,7 @@ class WhatsappGroupMemberCacheMapperH2Test {
                 .contains("state_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')")
                 .contains("CAST(#{snapshotVersion} AS BINARY)")
                 .contains("<select id=\"selectStatesByParticipantJids\"")
-                .contains("WHERE cache.tenant_id = #{tenantId}");
+                .contains("WHERE current_group.tenant_id = #{tenantId}");
         assertThat(xml.indexOf("source_event_id = IF"))
                 .isLessThan(xml.indexOf("state_source = IF"));
         assertThat(xml.indexOf("state_source = IF"))

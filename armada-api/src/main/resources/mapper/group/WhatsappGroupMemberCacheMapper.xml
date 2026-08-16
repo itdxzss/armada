@@ -44,29 +44,46 @@
 
     <select id="selectByGroupJids"
             resultType="com.armada.group.model.vo.WhatsappGroupMemberCacheRow">
-        SELECT cache.group_jid AS groupJid,
-               cache.subject,
-               cache.announce_only AS announce,
-               cache.snapshot_at AS snapshotAt,
-               cache.observer_account_id AS observerAccountId,
-               state.participant_jid AS participantJid,
-               state.phone,
-               state.is_admin AS admin,
-               state.is_owner AS owner,
-               state.role,
-               state.is_in_group AS inGroup,
-               state.state_source AS stateSource,
-               state.state_updated_at AS stateUpdatedAt
-        FROM whatsapp_group_member_cache cache
-        LEFT JOIN whatsapp_group_member_state state
-          ON state.tenant_id = cache.tenant_id
-         AND state.group_jid = cache.group_jid
-        WHERE cache.tenant_id = #{tenantId}
-          AND cache.group_jid IN
+        SELECT current_group.group_jid AS groupJid,
+               profile.subject,
+               profile.announce_only AS announce,
+               profile.member_snapshot_at AS snapshotAt,
+               NULL AS observerAccountId,
+               COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+               participant.phone,
+               CASE WHEN participant.role IN (2, 3) THEN 1 ELSE 0 END AS admin,
+               CASE WHEN participant.role = 3 THEN 1 ELSE 0 END AS owner,
+               CASE participant.role
+                   WHEN 3 THEN 'owner'
+                   WHEN 2 THEN 'admin'
+                   ELSE 'member'
+               END AS role,
+               CASE WHEN participant.presence_status = 1 THEN 1 ELSE 0 END AS inGroup,
+               participant.presence_source AS stateSource,
+               participant.presence_observed_at AS stateUpdatedAt
+        FROM wa_group current_group
+        INNER JOIN wa_group_profile profile
+          ON profile.tenant_id = current_group.tenant_id
+         AND profile.group_id = current_group.id
+         AND profile.member_snapshot_version IS NOT NULL
+        LEFT JOIN wa_group_participant participant
+          ON participant.tenant_id = current_group.tenant_id
+         AND participant.group_id = current_group.id
+         AND (
+           participant.last_snapshot_version IS NOT NULL
+           OR participant.last_joined_at IS NOT NULL
+           OR participant.last_exit_source_type IS NOT NULL
+           OR participant.role_source IN (
+             'WGP2_PROMOTE', 'WGP2_DEMOTE', 'GROUP_MEMBER_QUERY'
+           )
+         )
+        WHERE current_group.tenant_id = #{tenantId}
+          AND current_group.group_jid IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
             #{groupJid}
         </foreach>
-        ORDER BY cache.group_jid ASC, state.participant_jid ASC
+        ORDER BY current_group.group_jid ASC,
+                 COALESCE(participant.pn_jid, participant.lid_jid) ASC
     </select>
 
     <insert id="upsertStates">

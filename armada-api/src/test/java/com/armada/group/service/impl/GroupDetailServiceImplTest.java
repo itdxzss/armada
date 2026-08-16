@@ -20,7 +20,9 @@ import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.dto.GroupTimedMessageCommandDTO;
 import com.armada.group.model.dto.GroupSettingCommandDTO;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
+import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.enums.GroupPermissionKey;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.enums.GroupTimedMessageMode;
 import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
@@ -647,6 +649,16 @@ class GroupDetailServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(List.of("admin-a@s.whatsapp.net")),
                 org.mockito.ArgumentMatchers.eq(false),
                 org.mockito.ArgumentMatchers.anyLong());
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<GroupParticipantObservation>> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(currentSnapshotPersistence).applyParticipantObservations(currentCaptor.capture());
+        assertThat(currentCaptor.getValue()).singleElement().satisfies(observation -> {
+            assertThat(observation.groupJid()).isEqualTo("120363detail@g.us");
+            assertThat(observation.participantJid()).isEqualTo("admin-a@s.whatsapp.net");
+            assertThat(observation.admin()).isFalse();
+            assertThat(observation.source()).isEqualTo(WhatsappGroupMemberStateSource.ROLE_EVENT);
+        });
         verify(selector).require(10L);
     }
 

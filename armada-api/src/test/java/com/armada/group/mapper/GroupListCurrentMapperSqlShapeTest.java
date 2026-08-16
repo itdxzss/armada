@@ -52,6 +52,10 @@ class GroupListCurrentMapperSqlShapeTest {
 
         String countSql = statement(xml, "select", "count");
         assertThat(countSql).doesNotContain("GROUP_CONCAT", "page_ids");
+        String detailMemberSql = statement(xml, "select", "selectGroupDetailMembers");
+        assertThat(detailMemberSql)
+                .contains("participant.last_snapshot_version = current_profile.member_snapshot_version")
+                .contains("participant.presence_status = 1");
     }
 
     @Test

@@ -44,6 +44,8 @@ class GroupLinkCanonicalReferenceMigrationSqlTest {
         assertThat(xml)
                 .contains("<update id=\"updateLegacyGroupReferences\">")
                 .contains("AND handle.group_id IS NULL")
+                .contains("<update id=\"updateSelectedLegacyGroupReferences\">")
+                .contains("ORDER BY id ASC")
                 .doesNotContain("handle.group_id IS NULL OR handle.group_id &lt;&gt; current_group.id");
     }
 }

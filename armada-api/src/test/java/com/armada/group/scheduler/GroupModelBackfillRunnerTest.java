@@ -120,6 +120,7 @@ class GroupModelBackfillRunnerTest {
         when(mapper.backfillInvites(50_000)).thenReturn(10);
         when(mapper.backfillCurrentInvitePointers(50_000)).thenReturn(8);
         when(mapper.backfillProfileOwners(50_000)).thenReturn(1);
+        when(mapper.backfillLegacyMemberSnapshotHeaders(50_000)).thenReturn(7);
         when(mapper.selectLegacyMemberSnapshotBatchEndId(0, 5_000))
                 .thenReturn(40_000L);
         when(mapper.selectLegacyMemberSnapshotBatchEndId(40_000, 5_000))
@@ -138,8 +139,8 @@ class GroupModelBackfillRunnerTest {
                 GroupModelBackfillRunner.BackfillStage.ACCOUNT_GROUP_SYNC_STATES);
 
         assertThat(runner).isInstanceOf(ApplicationRunner.class);
-        assertThat(result.batches()).isEqualTo(14);
-        assertThat(result.affectedRows()).isEqualTo(50_168);
+        assertThat(result.batches()).isEqualTo(15);
+        assertThat(result.affectedRows()).isEqualTo(50_175);
         verify(mapper, times(2)).countInvalidGroupSources();
         verify(mapper, times(2)).countDuplicateGroupJids();
         verify(mapper, times(2)).countInviteConflicts();
@@ -151,6 +152,7 @@ class GroupModelBackfillRunnerTest {
         verify(mapper).backfillInvites(50_000);
         verify(mapper).backfillCurrentInvitePointers(50_000);
         verify(mapper).backfillProfileOwners(50_000);
+        verify(mapper).backfillLegacyMemberSnapshotHeaders(50_000);
         verify(mapper).backfillLegacyMemberSnapshots(0, 40_000);
         verify(mapper).backfillParticipants(50_000);
         verify(mapper).backfillAccountParticipants(50_000);

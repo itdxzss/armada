@@ -206,25 +206,6 @@ public interface AccountGroupMembershipMapper {
                                     @Param("now") long now);
 
     /**
-     * 查询账号刷新前仍可发送的群 JID。
-     *
-     * @param accountId 账号 ID
-     * @param sendableStatuses 可发送关系状态码
-     * @return 当前可发送群 JID，按关系创建顺序排列
-     */
-    List<String> selectSendableGroupJids(@Param("accountId") Long accountId,
-                                         @Param("sendableStatuses") List<Integer> sendableStatuses);
-
-    /**
-     * 查询快照刷新前已经由快照或其它稳定来源确认的可发送群。
-     *
-     * <p>精确 WGP2 add 暂不算快照已建立关系，使随后首次完整快照仍能触发现有新增群即时营销。</p>
-     */
-    List<String> selectSnapshotEstablishedGroupJids(
-            @Param("accountId") Long accountId,
-            @Param("sendableStatuses") List<Integer> sendableStatuses);
-
-    /**
      * 批量查询当前租户内账号群关系状态。
      *
      * @param lookups 账号 ID 与群 JID 复合键

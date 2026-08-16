@@ -75,7 +75,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     }
 
     @Test
-    void accountListAndMarketingTreeKeepDifferentMembershipCountSemantics() {
+    void accountListReadsCurrentBindingWhileMarketingTreeKeepsItsOwnCountSemantics() {
         AccountQuery accountQuery = new AccountQuery();
         accountQuery.setPhone("923300000501");
         accountQuery.setPage(1);
@@ -83,7 +83,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
 
         assertThat(accountMapper.selectPage(accountQuery))
                 .singleElement()
-                .satisfies(row -> assertThat(row.getGroupsNum()).isEqualTo(3));
+                .satisfies(row -> assertThat(row.getGroupsNum()).isEqualTo(1));
         assertThat(marketingTaskMapper.selectAccountTreeAccounts(11L))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getGroupCount()).isEqualTo(5));

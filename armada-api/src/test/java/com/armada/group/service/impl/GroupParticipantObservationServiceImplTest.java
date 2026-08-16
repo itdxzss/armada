@@ -97,6 +97,15 @@ class GroupParticipantObservationServiceImplTest {
         verify(currentSnapshotPersistence).applyControlledParticipantObservation(
                 77L, "120363-test@g.us", true, true,
                 1_000L, "event-1", "WGP2_PROMOTE");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupParticipantObservation>> currentCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(currentSnapshotPersistence).applyParticipantObservations(currentCaptor.capture());
+        assertThat(currentCaptor.getValue()).singleElement().satisfies(observation -> {
+            assertThat(observation.groupJid()).isEqualTo("120363-test@g.us");
+            assertThat(observation.participantJid()).isEqualTo("123456789012345@lid");
+            assertThat(observation.source()).isEqualTo(WhatsappGroupMemberStateSource.ROLE_EVENT);
+        });
         assertThat(TenantContext.get()).isNull();
     }
 

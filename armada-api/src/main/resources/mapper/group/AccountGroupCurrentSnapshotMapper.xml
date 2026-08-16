@@ -149,6 +149,23 @@
       AND handle.group_id IS NULL
   </update>
 
+  <update id="updateSelectedLegacyGroupReferences">
+    UPDATE group_link
+    SET group_id = CASE id
+    <foreach collection="rows" item="row">
+      WHEN #{row.groupLinkId} THEN #{row.groupId}
+    </foreach>
+      ELSE group_id
+    END
+    WHERE tenant_id = #{tenantId}
+      AND group_id IS NULL
+      AND id IN
+    <foreach collection="rows" item="row" open="(" separator="," close=")">
+      #{row.groupLinkId}
+    </foreach>
+    ORDER BY id ASC
+  </update>
+
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
       group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,

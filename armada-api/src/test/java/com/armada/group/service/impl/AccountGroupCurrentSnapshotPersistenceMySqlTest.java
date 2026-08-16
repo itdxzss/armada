@@ -12,6 +12,8 @@ import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
+import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -77,6 +79,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV120(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV121(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV122(rawDataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV124(rawDataSource);
 
         recordingDataSource = new RecordingDataSource(rawDataSource);
         DataSourceTransactionManager transactionManager =
@@ -130,6 +133,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                   group_link_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) DEFAULT NULL,
                   invite_code VARCHAR(128) DEFAULT NULL,
+                  member_add_mode TINYINT DEFAULT NULL,
                   PRIMARY KEY (id)
                 ) ENGINE=InnoDB
                 """);
@@ -198,15 +202,20 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         jdbc.update("""
                 INSERT INTO group_link
                   (id, tenant_id, link_url, created_at, updated_at)
-                VALUES (920, 7, 'wa://group/120363-snapshot-020@g.us', 100, 100)
+                VALUES
+                  (920, 7, 'wa://group/120363-snapshot-020@g.us', 100, 100),
+                  (922, 7, 'https://chat.whatsapp.com/SameGroupAlias', 100, 100)
                 """);
         jdbc.update("""
                 INSERT INTO group_link_preview
                   (tenant_id, group_link_id, group_jid)
-                VALUES (7, 920, ?)
-                """, groupJid);
+                VALUES (7, 920, ?), (7, 922, ?)
+                """, groupJid, groupJid);
 
-        writeSnapshot(120L, groups(20, 1), true, 2_000L, "snapshot-handle");
+        writeSnapshot(
+                120L, groups(20, 1), true, 2_000L, "snapshot-handle",
+                List.of(new AccountGroupMembershipSnapshot(
+                        920L, groupJid, null, "wa://group/" + groupJid, false)));
 
         assertThat(jdbc.queryForMap("""
                 SELECT handle.group_id, current_group.group_jid
@@ -215,6 +224,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 WHERE handle.id = 920
                 """))
                 .containsEntry("group_jid", groupJid);
+        assertThat(jdbc.queryForObject(
+                "SELECT group_id FROM group_link WHERE id = 922", Long.class)).isNull();
     }
 
     @Test
@@ -356,6 +367,34 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 .containsEntry("last_exited_at", 3_000L)
                 .containsEntry("was_in_initial_baseline", 0)
                 .containsEntry("first_post_control_observed_at", 2_000L);
+    }
+
+    @Test
+    void addedGroupDecisionUsesCurrentParticipantFactAndOnlyFiresOnce() throws Exception {
+        seedCapturedAccount(117L, "923300000117", List.of());
+        String groupJid = groupJid(17);
+        AccountGroupMembershipSnapshot current = new AccountGroupMembershipSnapshot(
+                917L, groupJid, "新群", "wa://group/" + groupJid, false);
+
+        writeSelfMembership(
+                117L, groupJid, AccountGroupMembershipStatus.IN_GROUP,
+                2_000L, "wgp2-add", "WGP2_ADD");
+        AccountGroupMembershipChangeSet first = replaceSnapshot(
+                117L, groups(17, 1), true, 2_100L, "snapshot-after-add", List.of(current));
+        AccountGroupMembershipChangeSet replay = replaceSnapshot(
+                117L, groups(17, 1), true, 2_200L, "snapshot-replay", List.of(current));
+
+        assertThat(first.addedGroups())
+                .extracting(AccountGroupMembershipSnapshot::groupJid)
+                .containsExactly(groupJid);
+        assertThat(replay.addedGroups()).isEmpty();
+
+        writeSelfMembership(
+                117L, groupJid, AccountGroupMembershipStatus.NOT_IN_GROUP,
+                4_000L, "wgp2-remove", "WGP2_REMOVE");
+        AccountGroupMembershipChangeSet stale = replaceSnapshot(
+                117L, groups(17, 1), false, 3_000L, "stale-snapshot", List.of(current));
+        assertThat(stale.addedGroups()).isEmpty();
     }
 
     @Test
@@ -808,10 +847,36 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             boolean complete,
             long syncAt,
             String eventId) {
+        writeSnapshot(accountId, groups, complete, syncAt, eventId, List.of());
+    }
+
+    private static AccountGroupMembershipChangeSet replaceSnapshot(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean complete,
+            long syncAt,
+            String eventId,
+            List<AccountGroupMembershipSnapshot> legacyGroups) {
+        TenantContext.set(TENANT_ID);
+        try {
+            return transactionTemplate.execute(status -> persistence.replaceVisibleGroups(
+                    accountId, groups, complete, syncAt, eventId, legacyGroups));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeSnapshot(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean complete,
+            long syncAt,
+            String eventId,
+            List<AccountGroupMembershipSnapshot> legacyGroups) {
         TenantContext.set(TENANT_ID);
         try {
             transactionTemplate.executeWithoutResult(status -> persistence.replaceVisibleGroups(
-                    accountId, groups, complete, syncAt, eventId));
+                    accountId, groups, complete, syncAt, eventId, legacyGroups));
         } finally {
             TenantContext.clear();
         }

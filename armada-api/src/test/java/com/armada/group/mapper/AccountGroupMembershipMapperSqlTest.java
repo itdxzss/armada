@@ -142,10 +142,10 @@ class AccountGroupMembershipMapperSqlTest {
     }
 
     @Test
-    void snapshotEstablishedGroupsExcludePendingPreciseAddSource() throws IOException {
+    void legacyAddedGroupDecisionQueriesAreRemoved() throws IOException {
         String xml = mapperXml();
-        assertTrue(xml.contains("<select id=\"selectSnapshotEstablishedGroupJids\""));
-        assertTrue(xml.contains("COALESCE(status_source, '') &lt;&gt; 'WGP2_ADD'"));
+        assertFalse(xml.contains("<select id=\"selectSnapshotEstablishedGroupJids\""));
+        assertFalse(xml.contains("<select id=\"selectSendableGroupJids\""));
     }
 
     @Test

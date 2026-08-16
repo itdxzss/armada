@@ -148,9 +148,11 @@ public class GroupModelBackfillRunner implements ApplicationRunner {
 
     /** 旧成员快照按源表主键只扫描一次；每个主键区间独立提交。 */
     private BackfillResult backfillLegacyMemberSnapshots() {
+        BackfillResult headers = backfillStage(
+                () -> mapper.backfillLegacyMemberSnapshotHeaders(BATCH_SIZE));
         long afterId = 0;
-        int batches = 0;
-        long affectedRows = 0;
+        int batches = headers.batches();
+        long affectedRows = headers.affectedRows();
         while (true) {
             long batchStartId = afterId;
             LegacyMemberSnapshotBatch batch = transactions.execute(status -> {

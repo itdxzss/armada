@@ -10,7 +10,6 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
-import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
@@ -23,7 +22,6 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -80,7 +78,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public AccountGroupMembershipChangeSet replaceVisibleGroups(
+    public List<AccountGroupMembershipSnapshot> replaceVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
             boolean snapshotComplete,
@@ -92,11 +90,6 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
         long now = System.currentTimeMillis();
-        List<String> activeGroupJids = membershipMapper.selectSnapshotEstablishedGroupJids(
-                accountId,
-                List.of(AccountGroupMembershipStatus.IN_GROUP.code(),
-                        AccountGroupMembershipStatus.UNCONFIRMED.code()));
-        Set<String> previousActive = normalizeJids(activeGroupJids);
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
         List<ResolvedGroup> resolvedGroups = resolveGroups(visibleGroups, observedBackend, now);
         classificationService.classifyVisibleGroups(
@@ -155,33 +148,12 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                         missingMembershipIds, missingState, preservedStatuses);
             }
         }
-        Set<String> currentSendable = snapshots.isEmpty()
-                ? Set.of()
-                : normalizeJids(membershipMapper.selectSendableGroupJids(
-                        accountId,
-                        List.of(AccountGroupMembershipStatus.IN_GROUP.code(),
-                                AccountGroupMembershipStatus.UNCONFIRMED.code())));
-        List<AccountGroupMembershipSnapshot> added = snapshots.stream()
-                .filter(snapshot -> !previousActive.contains(snapshot.groupJid()))
-                .filter(snapshot -> currentSendable.contains(snapshot.groupJid()))
-                .toList();
         log.info("账号可见群关系快照已刷新 eventId={} source={} accountId={} visibleGroups={} "
-                        + "addedGroups={} addedGroupJidSample={} visibleGroupJidSample={} snapshotComplete={} "
+                        + "visibleGroupJidSample={} snapshotComplete={} "
                         + "markedMissing={} syncAt={}",
-                eventId, source, accountId, visibleGroups.size(), added.size(), jidSample(
-                        added.stream().map(AccountGroupMembershipSnapshot::groupJid).toList()),
+                eventId, source, accountId, visibleGroups.size(),
                 jidSample(visibleGroups.keySet()), snapshotComplete, markedMissing, syncAt);
-        return new AccountGroupMembershipChangeSet(snapshots, added);
-    }
-
-    private static Set<String> normalizeJids(List<String> groupJids) {
-        if (groupJids == null || groupJids.isEmpty()) {
-            return Set.of();
-        }
-        return groupJids.stream()
-                .map(AccountGroupMembershipSnapshotServiceImpl::normalizeJid)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        return snapshots;
     }
 
     private static <T> Set<T> nonNullSet(List<T> values) {

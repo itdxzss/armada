@@ -72,6 +72,7 @@ class GroupCurrentLocalWriteMySqlTest {
     private static GroupLinkMapper groupLinkMapper;
     private static GroupLinkPreviewMapper previewMapper;
     private static GroupModelBackfillMapper backfillMapper;
+    private static GroupListCurrentMapper currentListMapper;
     private static GroupCurrentLocalPersistence currentLocalPersistence;
     private static AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
@@ -87,10 +88,12 @@ class GroupCurrentLocalWriteMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV120(dataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV121(dataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV122(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV124(dataSource);
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         groupLinkMapper = session.getMapper(GroupLinkMapper.class);
         previewMapper = session.getMapper(GroupLinkPreviewMapper.class);
         backfillMapper = session.getMapper(GroupModelBackfillMapper.class);
+        currentListMapper = session.getMapper(GroupListCurrentMapper.class);
         currentLocalPersistence = new GroupCurrentLocalPersistence(
                 session.getMapper(GroupCurrentLocalMapper.class));
         currentSnapshotPersistence = new AccountGroupCurrentSnapshotPersistenceImpl(
@@ -845,6 +848,7 @@ class GroupCurrentLocalWriteMySqlTest {
         // profile 已由前一阶段插入，这里是单行 ON DUPLICATE KEY UPDATE。
         assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isEqualTo(2);
         assertThat(backfillMapper.backfillProfileOwners(500)).isEqualTo(1);
+        assertThat(backfillMapper.backfillLegacyMemberSnapshotHeaders(500)).isZero();
         Long legacySnapshotEndId = backfillMapper.selectLegacyMemberSnapshotBatchEndId(0, 500);
         assertThat(legacySnapshotEndId).isNotNull();
         assertThat(backfillMapper.backfillLegacyMemberSnapshots(0, legacySnapshotEndId))
@@ -858,6 +862,7 @@ class GroupCurrentLocalWriteMySqlTest {
         assertThat(backfillMapper.backfillAccountGroupSyncStates(500)).isEqualTo(1);
 
         assertThat(backfillMapper.backfillMemberSnapshotHeaders(500)).isZero();
+        assertThat(backfillMapper.backfillLegacyMemberSnapshotHeaders(500)).isZero();
         assertThat(backfillMapper.backfillProfileOwners(500)).isZero();
         assertThat(backfillMapper.backfillLegacyMemberSnapshots(0, legacySnapshotEndId)).isZero();
         assertThat(backfillMapper.backfillParticipants(500)).isZero();
@@ -1153,6 +1158,11 @@ class GroupCurrentLocalWriteMySqlTest {
     private static GroupDetailServiceImpl detailService(
             GroupProfilePort profilePort,
             GroupExecutionAccountSelector selector) {
+        GroupDetailSnapshotReader snapshotReader = mock(GroupDetailSnapshotReader.class);
+        org.mockito.Mockito.when(snapshotReader.profile(
+                        org.mockito.ArgumentMatchers.anyLong()))
+                .thenAnswer(invocation -> currentListMapper.selectGroupDetail(
+                        TENANT_ID, invocation.getArgument(0)));
         return new GroupDetailServiceImpl(
                 groupLinkMapper,
                 previewMapper,
@@ -1162,7 +1172,7 @@ class GroupCurrentLocalWriteMySqlTest {
                         profilePort,
                         mock(GroupSettingsPort.class),
                         mock(GroupParticipantPort.class)),
-                mock(GroupDetailSnapshotReader.class),
+                snapshotReader,
                 mock(WhatsappGroupMemberSnapshotMapper.class),
                 mock(GroupMetadataSyncTaskService.class),
                 currentSnapshotPersistence,
@@ -1444,7 +1454,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"),
                 new ClassPathResource("mapper/group/GroupCurrentLocalMapper.xml"),
                 new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"),
-                new ClassPathResource("mapper/group/GroupModelBackfillMapper.xml"));
+                new ClassPathResource("mapper/group/GroupModelBackfillMapper.xml"),
+                new ClassPathResource("mapper/group/GroupListCurrentMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("无法创建本地字段双写测试 SqlSessionFactory");

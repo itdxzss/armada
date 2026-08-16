@@ -438,4 +438,41 @@
     LIMIT 1
   </select>
 
+  <select id="selectGroupDetailMembers"
+          resultType="com.armada.group.model.entity.WhatsappGroupMemberSnapshot">
+    SELECT participant.id,
+           participant.tenant_id AS tenantId,
+           handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+           participant.phone,
+           CASE participant.role
+             WHEN 3 THEN 'OWNER'
+             WHEN 2 THEN 'ADMIN'
+             ELSE 'MEMBER'
+           END AS role,
+           CASE WHEN participant.role IN (2, 3) THEN 1 ELSE 0 END AS isAdmin,
+           CASE WHEN participant.role = 3 THEN 1 ELSE 0 END AS isOwner,
+           current_profile.member_snapshot_at AS snapshotAt,
+           participant.created_at AS createdAt,
+           participant.updated_at AS updatedAt
+    FROM group_link handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    INNER JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+     AND current_profile.member_snapshot_version IS NOT NULL
+    INNER JOIN wa_group_participant participant
+     ON participant.tenant_id = current_group.tenant_id
+     AND participant.group_id = current_group.id
+     AND participant.last_snapshot_version = current_profile.member_snapshot_version
+     AND participant.presence_status = 1
+    WHERE handle.tenant_id = #{tenantId}
+      AND handle.id = #{groupLinkId}
+      AND handle.deleted_at IS NULL
+    ORDER BY isOwner DESC, isAdmin DESC, participantJid ASC, participant.id ASC
+  </select>
+
 </mapper>

@@ -55,20 +55,31 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
                     updated_at BIGINT NOT NULL,
                     CONSTRAINT uq_join UNIQUE (tenant_id, group_jid, participant_jid)
                 )
+                """, """
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """, """
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                    pn_jid VARCHAR(191), lid_jid VARCHAR(191), phone VARCHAR(32),
+                    last_joined_at BIGINT
+                )
                 """);
     }
 
     @Test
     void selectByGroupJidsIsTenantIsolated() throws SQLException {
         executeSql("""
-                INSERT INTO whatsapp_group_member_join_fact
-                    (tenant_id, group_jid, participant_jid, phone, joined_at, event_at,
-                     source_event_id, observer_account_id, created_at, updated_at)
+                INSERT INTO wa_group (id, tenant_id, group_jid)
+                VALUES (71, 7, '120363-test@g.us'), (81, 8, '120363-test@g.us')
+                """, """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, pn_jid, phone, last_joined_at)
                 VALUES
-                    (7, '120363-test@g.us', '15550000001@s.whatsapp.net', '15550000001',
-                     100, 100, 'add-100', 10, 1000, 1000),
-                    (8, '120363-test@g.us', '15550000002@s.whatsapp.net', '15550000002',
-                     300, 300, 'other-tenant', 11, 1200, 1200)
+                    (711, 7, 71, '15550000001@s.whatsapp.net', '15550000001', 100),
+                    (811, 8, 81, '15550000002@s.whatsapp.net', '15550000002', 300)
                 """);
 
         assertThat(mapper.selectByGroupJids(7L, java.util.List.of("120363-test@g.us")))
@@ -94,7 +105,7 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
                 .contains("CAST(incoming.source_event_id AS BINARY)")
                 .contains("NULLIF(TRIM(whatsapp_group_member_join_fact.phone), '') IS NULL")
                 .contains("COALESCE(NULLIF(TRIM(whatsapp_group_member_join_fact.phone), ''),")
-                .contains("WHERE tenant_id = #{tenantId}");
+                .contains("WHERE current_group.tenant_id = #{tenantId}");
         assertThat(xml.indexOf("updated_at = IF"))
                 .isLessThan(xml.indexOf("phone = IF"));
         assertThat(xml.indexOf("source_event_id = IF"))

@@ -63,6 +63,7 @@ class GroupListCurrentMapperMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV122(dataSource);
         insertFixtures(jdbc);
         GroupCurrentSnapshotMySqlTestSupport.executeV123(dataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV124(dataSource);
 
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         legacyMapper = session.getMapper(GroupLinkMapper.class);
@@ -152,6 +153,27 @@ class GroupListCurrentMapperMySqlTest {
             jdbc.update("UPDATE wa_group_participant SET presence_status = 1 WHERE id = 801");
             jdbc.update("UPDATE group_metadata_sync_task SET status = 2 WHERE group_link_id = 201");
         }
+    }
+
+    @Test
+    void groupDetailMembersReturnOnlyLatestCompleteSnapshotVersion() {
+        jdbc.update("UPDATE wa_group_profile SET member_snapshot_at = 500, "
+                + "member_snapshot_version = 'snapshot-v2' WHERE id = 601");
+        jdbc.update("UPDATE wa_group_participant SET last_snapshot_version = 'snapshot-v2' "
+                + "WHERE id IN (801, 802)");
+        jdbc.update("UPDATE wa_group_participant SET last_snapshot_version = 'snapshot-v1' "
+                + "WHERE id = 803");
+        jdbc.update("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 802");
+
+        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 201L))
+                .extracting(member -> member.getParticipantJid())
+                .containsExactly("1001@s.whatsapp.net");
+        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 201L))
+                .allSatisfy(member -> {
+                    assertThat(member.getGroupLinkId()).isEqualTo(201L);
+                    assertThat(member.getSnapshotAt()).isEqualTo(500L);
+                    assertThat(member.getRole()).isEqualTo("ADMIN");
+                });
     }
 
     private static void assertSameCountAndRows(GroupLinkQuery query) {
@@ -330,6 +352,7 @@ class GroupListCurrentMapperMySqlTest {
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL, group_jid VARCHAR(128),
                   invite_code VARCHAR(128), wa_subject VARCHAR(255), member_size INT,
+                  member_add_mode TINYINT DEFAULT NULL,
                   owner_phone VARCHAR(32), avatar_url VARCHAR(1024), last_preview_at BIGINT,
                   creator_country_iso2 VARCHAR(2), creator_continent_code VARCHAR(24),
                   group_created_at BIGINT

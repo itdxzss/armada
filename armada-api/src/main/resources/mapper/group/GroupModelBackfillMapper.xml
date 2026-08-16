@@ -644,6 +644,89 @@
       updated_at = GREATEST(wa_group_profile.updated_at, VALUES(updated_at))
   </insert>
 
+  <insert id="backfillLegacyMemberSnapshotHeaders">
+    INSERT INTO wa_group_profile (
+      tenant_id, group_id, member_count, member_snapshot_at,
+      member_snapshot_version, created_at, updated_at
+    )
+    SELECT latest.tenant_id,
+           resolved_group.id,
+           latest.member_count,
+           latest.snapshot_at,
+           latest.snapshot_version,
+           latest.created_at,
+           latest.updated_at
+    FROM (
+      SELECT ranked.tenant_id,
+             ranked.group_jid,
+             ranked.member_count,
+             ranked.snapshot_at,
+             CONCAT('legacy:', ranked.group_link_id, ':', ranked.snapshot_at)
+               AS snapshot_version,
+             ranked.created_at,
+             ranked.updated_at
+      FROM (
+        SELECT grouped.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY grouped.tenant_id, grouped.group_jid
+                 ORDER BY grouped.snapshot_at DESC, grouped.group_link_id DESC
+               ) AS snapshot_rank
+        FROM (
+          SELECT snapshot.tenant_id,
+                 LOWER(TRIM(snapshot.group_jid)) AS group_jid,
+                 snapshot.group_link_id,
+                 snapshot.snapshot_at,
+                 COUNT(*) AS member_count,
+                 MIN(snapshot.created_at) AS created_at,
+                 MAX(snapshot.updated_at) AS updated_at
+          FROM whatsapp_group_member_snapshot snapshot
+          GROUP BY snapshot.tenant_id, LOWER(TRIM(snapshot.group_jid)),
+                   snapshot.group_link_id, snapshot.snapshot_at
+        ) grouped
+      ) ranked
+      WHERE ranked.snapshot_rank = 1
+    ) latest
+    INNER JOIN wa_group resolved_group
+      ON resolved_group.tenant_id = latest.tenant_id
+     AND resolved_group.group_jid = latest.group_jid
+    LEFT JOIN wa_group_profile target
+      ON target.tenant_id = latest.tenant_id
+     AND target.group_id = resolved_group.id
+    WHERE target.id IS NULL
+       OR latest.snapshot_at &gt; COALESCE(target.member_snapshot_at, -1)
+       OR (
+         latest.snapshot_at = target.member_snapshot_at
+         AND latest.updated_at &gt;= target.updated_at
+         AND NOT (target.member_snapshot_version &lt;=&gt; latest.snapshot_version)
+       )
+    ORDER BY latest.tenant_id ASC, resolved_group.id ASC
+    LIMIT #{limit}
+    ON DUPLICATE KEY UPDATE
+      member_count = COALESCE(wa_group_profile.member_count, VALUES(member_count)),
+      member_snapshot_version = CASE
+        WHEN VALUES(member_snapshot_at)
+               &gt; COALESCE(wa_group_profile.member_snapshot_at, -1)
+          OR (
+            VALUES(member_snapshot_at) = wa_group_profile.member_snapshot_at
+            AND VALUES(updated_at) &gt;= wa_group_profile.updated_at
+          )
+          THEN VALUES(member_snapshot_version)
+        ELSE wa_group_profile.member_snapshot_version
+      END,
+      member_snapshot_at = CASE
+        WHEN VALUES(member_snapshot_at)
+               &gt; COALESCE(wa_group_profile.member_snapshot_at, -1)
+          OR (
+            VALUES(member_snapshot_at) = wa_group_profile.member_snapshot_at
+            AND VALUES(updated_at) &gt;= wa_group_profile.updated_at
+          )
+          THEN VALUES(member_snapshot_at)
+        ELSE wa_group_profile.member_snapshot_at
+      END,
+      created_at = LEAST(wa_group_profile.created_at, VALUES(created_at)),
+      updated_at = GREATEST(wa_group_profile.updated_at, VALUES(updated_at))
+  </insert>
+
   <insert id="backfillInvites">
     INSERT INTO wa_group_invite (
       tenant_id, group_id, invite_code, label_id, display_name, avatar_url, remark,
@@ -909,12 +992,14 @@
       tenant_id, group_id, pn_jid, lid_jid, phone,
       presence_status, presence_source, presence_observed_at, presence_event_id,
       role, role_source, role_observed_at, role_event_id,
+      last_snapshot_version,
       created_at, updated_at
     )
     SELECT source.tenant_id, source.group_id, source.pn_jid, source.lid_jid,
            source.phone, 1, 'LEGACY_MEMBER_SNAPSHOT', source.snapshot_at,
            source.event_id, source.role, 'LEGACY_MEMBER_SNAPSHOT',
-           source.snapshot_at, source.event_id, source.created_at, source.updated_at
+           source.snapshot_at, source.event_id, source.last_snapshot_version,
+           source.created_at, source.updated_at
     FROM (
       SELECT snapshot.tenant_id,
              resolved_group.id AS group_id,
@@ -935,15 +1020,39 @@
              END AS role,
              snapshot.snapshot_at,
              CONCAT('legacy-member-snapshot:', snapshot.id) AS event_id,
+             CASE
+               WHEN current_profile.member_snapshot_version =
+                    CONCAT('legacy:', snapshot.group_link_id, ':', snapshot.snapshot_at)
+                 THEN current_profile.member_snapshot_version
+               ELSE NULL
+             END AS last_snapshot_version,
              snapshot.created_at,
              snapshot.updated_at
       FROM whatsapp_group_member_snapshot snapshot
       INNER JOIN wa_group resolved_group
         ON resolved_group.tenant_id = snapshot.tenant_id
        AND resolved_group.group_jid = LOWER(TRIM(snapshot.group_jid))
+      LEFT JOIN wa_group_profile current_profile
+        ON current_profile.tenant_id = resolved_group.tenant_id
+       AND current_profile.group_id = resolved_group.id
       WHERE snapshot.id &gt; #{afterId}
         AND snapshot.id &lt;= #{endId}
     ) source
+    LEFT JOIN wa_group_participant target
+      ON target.tenant_id = source.tenant_id
+     AND target.group_id = source.group_id
+     AND (
+       (source.pn_jid IS NOT NULL AND target.pn_jid = source.pn_jid)
+       OR (source.lid_jid IS NOT NULL AND target.lid_jid = source.lid_jid)
+     )
+    WHERE target.id IS NULL
+       OR (target.phone IS NULL AND source.phone IS NOT NULL)
+       OR source.snapshot_at &gt; COALESCE(target.presence_observed_at, -1)
+       OR source.snapshot_at &gt; COALESCE(target.role_observed_at, -1)
+       OR (source.last_snapshot_version IS NOT NULL
+           AND NOT (target.last_snapshot_version &lt;=&gt; source.last_snapshot_version))
+       OR source.created_at &lt; target.created_at
+       OR source.updated_at &gt; target.updated_at
     ON DUPLICATE KEY UPDATE
       phone = COALESCE(wa_group_participant.phone, VALUES(phone)),
       presence_status = CASE
@@ -992,6 +1101,11 @@
       role_observed_at = CASE
         WHEN wa_group_participant.role_observed_at IS NULL THEN VALUES(role_observed_at)
         ELSE GREATEST(wa_group_participant.role_observed_at, VALUES(role_observed_at))
+      END,
+      last_snapshot_version = CASE
+        WHEN VALUES(last_snapshot_version) IS NOT NULL
+          THEN VALUES(last_snapshot_version)
+        ELSE wa_group_participant.last_snapshot_version
       END,
       created_at = LEAST(wa_group_participant.created_at, VALUES(created_at)),
       updated_at = GREATEST(wa_group_participant.updated_at, VALUES(updated_at))

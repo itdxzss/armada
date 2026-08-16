@@ -2,6 +2,7 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
@@ -40,6 +41,11 @@ public interface GroupListCurrentMapper {
 
     /** 读取群详情当前资料；沿用现有详情投影，避免改变业务层字段语义。 */
     GroupLinkPreview selectGroupDetail(
+            @Param("tenantId") Long tenantId,
+            @Param("groupLinkId") Long groupLinkId);
+
+    /** 读取群详情最近一次完整成员快照，不混入完整快照后的增量状态。 */
+    List<WhatsappGroupMemberSnapshot> selectGroupDetailMembers(
             @Param("tenantId") Long tenantId,
             @Param("groupLinkId") Long groupLinkId);
 

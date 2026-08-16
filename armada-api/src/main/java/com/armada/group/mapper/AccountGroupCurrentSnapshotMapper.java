@@ -3,6 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
@@ -52,6 +53,12 @@ public interface AccountGroupCurrentSnapshotMapper {
     int updateLegacyGroupReferences(
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
+
+    /** 按旧流程已锁定的群入口 ID 顺序补 canonical 引用，避免在热事务里扩锁同群别名。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int updateSelectedLegacyGroupReferences(
+            @Param("tenantId") Long tenantId,
+            @Param("rows") List<LegacyGroupReference> rows);
 
     int upsertProfiles(@Param("rows") List<Write> rows);
 

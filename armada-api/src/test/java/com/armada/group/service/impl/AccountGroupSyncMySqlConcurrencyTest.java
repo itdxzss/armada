@@ -628,6 +628,7 @@ class AccountGroupSyncMySqlConcurrencyTest {
         template.execute("""
                 CREATE TABLE group_link (
                   id BIGINT NOT NULL AUTO_INCREMENT,
+                  group_id BIGINT DEFAULT NULL,
                   tenant_id BIGINT NOT NULL,
                   link_url VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
                   group_name VARCHAR(128) DEFAULT NULL,
@@ -643,6 +644,15 @@ class AccountGroupSyncMySqlConcurrencyTest {
                   deleted_at BIGINT DEFAULT NULL,
                   PRIMARY KEY (id),
                   UNIQUE KEY uq_url (tenant_id, link_url)
+                ) ENGINE=InnoDB
+                """);
+        template.execute("""
+                CREATE TABLE wa_group (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+                  PRIMARY KEY (id),
+                  UNIQUE KEY uq_wa_group_jid (tenant_id, group_jid)
                 ) ENGINE=InnoDB
                 """);
         template.execute("""

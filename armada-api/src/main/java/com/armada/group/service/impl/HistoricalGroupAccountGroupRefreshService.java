@@ -85,7 +85,7 @@ public class HistoricalGroupAccountGroupRefreshService {
                 List<AccountGroupsReportedEvent.Group> reportedGroups = toReportedGroups(groups);
                 String eventId = "historical-group-manual-"
                         + account.armadaAccountId() + "-" + syncAt;
-                snapshotService.replaceVisibleGroups(
+                var currentGroups = snapshotService.replaceVisibleGroups(
                         account.armadaAccountId(),
                         reportedGroups,
                         true,
@@ -95,7 +95,8 @@ public class HistoricalGroupAccountGroupRefreshService {
                         account.backend());
                 try {
                     currentSnapshotPersistence.replaceVisibleGroups(
-                            account.armadaAccountId(), reportedGroups, true, syncAt, eventId);
+                            account.armadaAccountId(), reportedGroups, true, syncAt, eventId,
+                            currentGroups);
                 } catch (RuntimeException ex) {
                     log.warn("历史群新模型影子写入失败 accountGroupId={} accountId={} errorType={}",
                             accountGroupId,

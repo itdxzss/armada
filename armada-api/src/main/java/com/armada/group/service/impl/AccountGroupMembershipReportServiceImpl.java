@@ -5,6 +5,7 @@ import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
+import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.AccountGroupMembershipReportService;
@@ -76,7 +77,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
      * 应用协议层 {@code account.groups_reported} 回报事件。
      *
      * <p>待拍账号先保存首次 baseline，随后按同一完整性判断写入旧表与新的群组当前事实表；
-     * 只有确认完整的快照才会校准缺失关系，旧表结果继续决定当前营销行为。</p>
+     * 只有确认完整的快照才会校准缺失关系；新增群资格由新模型当前事实决定。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -104,7 +105,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                 capturePendingBaseline(event, observedBackend, syncAt, now);
             }
             boolean snapshotComplete = completeSnapshot(event, baselineRow);
-            AccountGroupMembershipChangeSet changes = snapshotService.replaceVisibleGroups(
+            List<AccountGroupMembershipSnapshot> legacyGroups =
+                    snapshotService.replaceVisibleGroups(
                     event.accountId(),
                     event.groups(),
                     snapshotComplete,
@@ -112,8 +114,9 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
                     event.eventId(),
                     event.source(),
                     observedBackend);
-            currentSnapshotPersistence.replaceVisibleGroups(
-                    event.accountId(), event.groups(), snapshotComplete, syncAt, event.eventId());
+            AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
+                    event.accountId(), event.groups(), snapshotComplete, syncAt, event.eventId(),
+                    legacyGroups);
             if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
                 List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
                         .map(group -> new MarketingNewGroupDTO(

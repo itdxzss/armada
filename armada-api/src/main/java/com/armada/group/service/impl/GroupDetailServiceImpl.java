@@ -5,10 +5,12 @@ import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
+import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.GroupSettingCommandDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.dto.GroupTimedMessageCommandDTO;
 import com.armada.group.model.enums.GroupPermissionKey;
+import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
@@ -749,8 +751,20 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (admin == null) {
             return;
         }
+        long observedAt = System.currentTimeMillis();
+        currentSnapshotPersistence.applyParticipantObservations(successfulJids.stream()
+                .map(jid -> {
+                    GroupParticipantResult before = membersBefore.get(jid);
+                    return new GroupParticipantObservation(
+                            TenantContext.get(), null, groupJid, jid, jid,
+                            before == null ? null : before.phone(), true, admin,
+                            WhatsappGroupMemberStateSource.ROLE_EVENT,
+                            observedAt,
+                            "group-detail-role:" + groupLinkId + ":" + observedAt + ":" + jid);
+                })
+                .toList());
         int updated = memberSnapshotMapper.updateAdminRole(
-                groupLinkId, successfulJids, admin, System.currentTimeMillis());
+                groupLinkId, successfulJids, admin, observedAt);
         if (updated < successfulJids.size()) {
             log.warn("管理员角色已确认但本地快照未全部更新 groupLinkId={} action={} "
                             + "targetCount={} updatedCount={}",

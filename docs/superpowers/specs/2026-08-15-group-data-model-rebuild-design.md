@@ -409,7 +409,7 @@ PN/LID 同时保存是为了适配 Web/Android 当前寻址差异，不能拿 LI
 
 presence 与 role 分列，解决物理字段混用；但初始回填和实时 Adapter 必须复现当前 member state/cache/snapshot 与 Consumer 的可见结果。`membership_epoch`/version 字段只用于防止同一存储内部旧角色复活，不能据此改变当前列表管理员、成员详情、动作目标和导出。
 
-现有群详情成员接口的业务口径是“最后一次完整成员快照”，不是“当前仍在群的成员”。`wa_group_participant` 会被完整快照之后的成员事件持续更新，当前六表不能重建该历史截面的明细。因此切换期详情头可读取 `wa_group/wa_group_profile`，成员列表必须继续读取 `whatsapp_group_member_snapshot`；不得直接用 `presence_status=1` 替代。只有新模型能够保存并验证同一完整快照明细后，才允许另行切换。
+现有群详情成员接口的业务口径是“最后一次完整成员快照”，不是把所有 participant 当前态直接列出。现有六表通过 `wa_group_profile.member_snapshot_version` 保存已提交快照头，通过 `wa_group_participant.last_snapshot_version` 标识属于该完整快照的成员；详情只读版本相等且 `presence_status=1` 的行。这样完整快照之后的新成员不会凭普通观察混入，已确认踢人仍会像旧实现一样立即移除，升降管理员仍在原快照成员上即时更新角色。旧详情快照必须先补齐这两个现有版本字段并通过对账，才能切换读取；不得只按 `presence_status=1` 扫全体成员。
 
 现有 API 继续提交/返回当前 participantJid/JID 参数。`participant.id` 只是后端内部关联键，本期不新增 participantId API，也不让前端选择 PN/LID。
 
@@ -777,7 +777,7 @@ state=3 的非空 JSON 进入异常报告并在 drop 前导出 / 签字处置，
 
 `whatsapp_group_member_state` 的 presence/role 虽拆到不同列，回填值必须复现旧表当前可见结果；不能把旧 promote/demote 顺带形成的 `is_in_group` 在迁移时擅自改成 UNKNOWN。`state_source/source_event_id` 只用于冲突报告和以后治理，本期 golden/shadow parity 优先；迁移时间不得使用 now() 覆盖实时事实。
 
-旧 snapshot 只有在 legacy cache/header 的 `snapshotVersion`、观察账号、完成时间与该批成员行一致，且行数/完成标记可证明整批完整时，才初始化 P.member_snapshot header 并具有 SNAPSHOT_ABSENT 权限；该 legacy 值迁入 member_snapshot_id。缺 header、版本截断、数量不一致的成员行只能作为逐人 FILL_ONLY 观察并进入刷新队列，不能因“表名叫 snapshot”就断言未出现成员已离群。
+`whatsapp_group_member_snapshot` 本身是旧详情成功后整体替换的完整快照。迁移按租户和规范群 JID 选最新 `snapshot_at`（同时间按 `group_link_id` 确定），生成稳定的 `legacy:<group_link_id>:<snapshot_at>` 版本，同时写 profile 快照头和对应成员的 `last_snapshot_version`。如果新模型已经有时间更晚的完整缓存快照，旧详情快照不得覆盖；普通成员当前态、进退群事实仍按各自事实水位合并，不能用迁移时间覆盖实时事件。
 
 若业务未来需要完整的 append-only 进退群审计，应另立事件审计需求；当前旧表本身也只保留每成员最近一次，不应假装它们是完整历史。
 

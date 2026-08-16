@@ -38,8 +38,8 @@ public class ParsedEntry {
     private String wid;
 
     /**
-     * 原始 JSON 解析为树节点,供后续导入循环(1.2.3)按需读取字段。
-     * SIX 格式无此字段。
+     * 规范化后的运行时凭据树节点。JSON 格式保留原凭据对象；SIX 以及 PARAMS
+     * 转 Android 的结果均为六段对象。原始导入内容只保存在 {@link #rawPayload}。
      */
     private JsonNode data;
 

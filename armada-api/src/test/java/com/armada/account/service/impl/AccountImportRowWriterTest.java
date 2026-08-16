@@ -89,6 +89,34 @@ class AccountImportRowWriterTest {
                 .isEqualTo(ImportFormat.JSON.getCode());
     }
 
+    @Test
+    void writeOne_normalizesParamsImportToAndroidSixCredential() {
+        when(accountMapper.insert(any(Account.class))).thenAnswer(invocation -> {
+            Account account = invocation.getArgument(0);
+            account.setId(125L);
+            return 1;
+        });
+        when(stateMapper.insert(any())).thenReturn(1);
+        when(credentialMapper.insert(any())).thenReturn(1);
+        AccountImportRowWriter writer = new AccountImportRowWriter(
+                accountMapper, stateMapper, credentialMapper);
+
+        writer.writeOne("5210000000001", sixEntry(), 9L,
+                new AccountImportDTO(9L, ImportFormat.PARAMS.getCode(), 2, 1,
+                        "MX", null, null, "params.txt"));
+
+        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
+        ArgumentCaptor<AccountCredential> credentialCaptor =
+                ArgumentCaptor.forClass(AccountCredential.class);
+        verify(accountMapper).insert(accountCaptor.capture());
+        verify(credentialMapper).insert(credentialCaptor.capture());
+        assertThat(accountCaptor.getValue().getProtocolId())
+                .isEqualTo(ProtocolBackend.ANDROID.name());
+        assertThat(accountCaptor.getValue().getDeviceOs()).isEqualTo(2);
+        assertThat(credentialCaptor.getValue().getCredFormat())
+                .isEqualTo(ImportFormat.SIX.getCode());
+    }
+
     private static ParsedEntry sixEntry() {
         ParsedEntry entry = new ParsedEntry();
         ObjectMapper mapper = new ObjectMapper();

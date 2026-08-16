@@ -108,6 +108,35 @@ class AccountImportServiceImplDbTest extends DbTestBase {
     }
 
     @Test
+    void import_fullParamsStoresAndroidSixAndPreservesOriginalRows() throws Exception {
+        String first = fullParams("5210000000101");
+        String second = fullParams("5210000000102").replace(
+                "\"phoneUUID\":\"phone-uuid-test\",", "");
+        var meta = new AccountImportDTO(null, 3, 2, 1, "墨西哥", null, null, "mx-params.txt");
+
+        AccountImportBatchVO batch = service.importAccounts(
+                meta, (first + "\n" + second).getBytes(StandardCharsets.UTF_8), null);
+
+        assertThat(batch.totalRows()).isEqualTo(2);
+        assertThat(batch.importedRows()).isEqualTo(1);
+        assertThat(batch.formatErrorRows()).isEqualTo(1);
+        Account account = accountMapper.selectActiveByWsPhone("5210000000101");
+        assertThat(account.getProtocolId()).isEqualTo("ANDROID");
+        assertThat(account.getDeviceOs()).isEqualTo(2);
+        AccountCredential credential = credentialMapper.selectByAccountId(account.getId());
+        assertThat(credential.getCredFormat()).isEqualTo(1);
+        JsonNode storedCredential = new ObjectMapper().readTree(credential.getCredsJson());
+        assertThat(storedCredential).hasSize(6);
+        assertThat(storedCredential.path("phone").asText()).isEqualTo("5210000000101");
+        assertThat(storedCredential.has("signPreKeyID")).isFalse();
+        List<String> rawPayloads = jdbcTemplate.query(
+                "SELECT raw_payload FROM account_import_detail WHERE batch_id = ? ORDER BY line_no",
+                (rs, rowNum) -> rs.getString("raw_payload"),
+                batch.id());
+        assertThat(rawPayloads).containsExactly(first, second);
+    }
+
+    @Test
     void import_persistsIpAllocationModeOnBatch() {
         String json = "[{\"wid\":\"8613851000001\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}]";
         var meta = new AccountImportDTO(null, 2, 1, 2, null, "mixed", "ip-mode-test", null);
@@ -259,6 +288,22 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         Account a = accountMapper.selectActiveByWsPhone("8613833333333");
         assertThat(a).isNotNull();
         assertThat(a.getDeviceOs()).isNull();   // device_os 列 DEFAULT NULL,允许 null
+    }
+
+    private static String fullParams(String phone) {
+        return "{"
+                + "\"cc\":\"52\","
+                + "\"in\":\"" + phone.substring(2) + "\","
+                + "\"jid\":\"" + phone + "\","
+                + "\"phone\":\"" + phone + "\","
+                + "\"clientStaticPublicKey\":\"static-pub-test\","
+                + "\"clientStaticPrivateKey\":\"static-pri-test\","
+                + "\"identityPublicKey\":\"identity-pub-test\","
+                + "\"identityPrivateKey\":\"identity-pri-test\","
+                + "\"phoneUUID\":\"phone-uuid-test\","
+                + "\"registrationID\":77,"
+                + "\"signPreKeyID\":78"
+                + "}";
     }
 
     @Test

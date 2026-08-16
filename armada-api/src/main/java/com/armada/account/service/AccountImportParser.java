@@ -1,5 +1,6 @@
 package com.armada.account.service;
 
+import com.armada.account.converter.FullParamsToSixConverter;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
 import com.armada.shared.exception.BusinessException;
@@ -43,6 +44,9 @@ public class AccountImportParser {
      */
     private final ObjectMapper mapper = new ObjectMapper();
 
+    /** 全参到 Android 六段的纯转换器。 */
+    private final FullParamsToSixConverter fullParamsConverter = new FullParamsToSixConverter();
+
     /**
      * Wheel 在用的 Baileys 裸 creds 必须包含的顶层字段集合。
      * 缺少其中任何一个即凭据不全,导入明细标记 parseError。
@@ -71,7 +75,7 @@ public class AccountImportParser {
      *
      * <p>text 与 fileBytes 二选一:text 非空则优先用 text;否则解 fileBytes。
      * JSON 格式支持:.zip 压缩包(一号一文件)、单对象、数组。
-     * PARAMS 格式支持:单对象、数组。
+     * PARAMS 格式支持:TXT/粘贴文本中每个非空行一个 JSON 对象。
      * SIX 格式支持:每行五列或六列 Android 凭据;
      * 五列为 {@code phone,staticPub,staticPri,identityPub,identityPri},
      * 六列追加 {@code phoneId}。</p>
@@ -274,57 +278,55 @@ public class AccountImportParser {
     // ---- PARAMS 格式 ----
 
     /**
-     * 解析 PARAMS 格式:优先 text,其次 fileBytes;支持单对象和数组。
+     * 解析 PARAMS 格式:优先 text,其次 fileBytes;每个非空行独立解析和转换。
      */
     private List<ParsedEntry> parseParams(byte[] fileBytes, String text) {
         String src = (text != null && !text.isEmpty()) ? text
                 : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
-        if (src.isEmpty()) {
+        if (src.isBlank()) {
             return makeErrorEntry("", "输入内容为空");
         }
-        try {
-            JsonNode root = mapper.readTree(src);
-            if (root.isArray()) {
-                return parseParamsArray(root);
+        String[] lines = src.split("\\R", -1);
+        List<ParsedEntry> result = new ArrayList<>(lines.length);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isBlank()) {
+                continue;
             }
-            if (root.isObject()) {
-                return List.of(parseParamsNode(root, "params-input[0]"));
-            }
-            return List.of(makeErrorEntry("params-input", "PARAMS 格式不支持:既不是对象也不是数组", src));
-        } catch (IOException e) {
-            log.warn("[AccountImportParser] PARAMS JSON 解析失败 error={}", e.getMessage());
-            return List.of(makeErrorEntry("params-input", "JSON 解析失败: " + e.getMessage(), src));
+            String source = "params-input[" + (i + 1) + "]";
+            result.add(parseParamsLine(line, source, i + 1));
         }
+        return result.isEmpty() ? makeErrorEntry("", "输入内容为空") : result;
     }
 
-    private List<ParsedEntry> parseParamsArray(JsonNode array) {
-        List<ParsedEntry> result = new ArrayList<>(array.size());
-        for (int i = 0; i < array.size(); i++) {
-            result.add(parseParamsNode(array.get(i), "params-input[" + i + "]"));
+    private ParsedEntry parseParamsLine(String line, String source, int lineNo) {
+        try {
+            JsonNode node = mapper.readTree(line);
+            if (!node.isObject()) {
+                return makeErrorEntry(source, "全参必须为 JSON 对象", line);
+            }
+            return parseParamsNode(node, source, line);
+        } catch (IOException e) {
+            log.warn("[AccountImportParser] PARAMS JSON 解析失败 lineNo={}", lineNo);
+            return makeErrorEntry(source, "JSON 解析失败", line);
         }
-        return result;
     }
 
     /**
-     * 解析单个 PARAMS 节点:校验 wid 存在且为合法手机号。
+     * 解析并转换单个全参对象，错误消息只包含字段名，不回显凭据值。
      */
-    private ParsedEntry parseParamsNode(JsonNode node, String source) {
+    private ParsedEntry parseParamsNode(JsonNode node, String source, String rawPayload) {
         ParsedEntry entry = new ParsedEntry();
         entry.setRaw(source);
-        entry.setRawPayload(compactJson(node));
+        entry.setRawPayload(rawPayload);
         entry.setSourceEntryName(source);
-        entry.setData(node);
-        JsonNode widNode = node.get("wid");
-        if (widNode == null || widNode.isNull() || widNode.asText().isEmpty()) {
-            entry.setParseError("wid 缺失");
+        FullParamsToSixConverter.Result converted = fullParamsConverter.convert(node);
+        if (!converted.isSuccess()) {
+            entry.setParseError(converted.error());
             return entry;
         }
-        String wid = widNode.asText();
-        if (!WID_PATTERN.matcher(wid).matches()) {
-            entry.setParseError("wid 不合法: " + wid);
-            return entry;
-        }
-        entry.setWid(wid);
+        entry.setWid(converted.phone());
+        entry.setData(converted.credential());
         return entry;
     }
 

@@ -85,7 +85,8 @@ public class AccountImportRowWriter {
 
         // 步骤 ③:插入 account_credential(creds_json 由 data 序列化;日志只打 maskPhone+长度)
         String credsJson = serializeCredsJson(entry, wid);
-        AccountCredential credential = buildCredential(accountId, wid, meta.importFormat(), credsJson, now);
+        AccountCredential credential = buildCredential(
+                accountId, wid, runtimeCredentialFormat(meta.importFormat()), credsJson, now);
         credentialMapper.insert(credential);
 
         log.info("[AccountImportRowWriter] 三步写成功 maskPhone={}*** accountId={} credsLen={}",
@@ -109,7 +110,8 @@ public class AccountImportRowWriter {
         a.setOwnership(OWNERSHIP_SELF);
         a.setPriority(DEFAULT_PRIORITY);
         a.setAccountGroupId(accountGroupId);
-        if (importFormat == ImportFormat.SIX.getCode()) {
+        if (importFormat == ImportFormat.SIX.getCode()
+                || importFormat == ImportFormat.PARAMS.getCode()) {
             a.setProtocolId(ProtocolBackend.ANDROID.name());
         } else if (importFormat == ImportFormat.JSON.getCode()) {
             a.setProtocolId(ProtocolBackend.WEB.name());
@@ -118,6 +120,12 @@ public class AccountImportRowWriter {
         a.setCreatedAt(now);
         a.setUpdatedAt(now);
         return a;
+    }
+
+    private int runtimeCredentialFormat(int importFormat) {
+        return importFormat == ImportFormat.PARAMS.getCode()
+                ? ImportFormat.SIX.getCode()
+                : importFormat;
     }
 
     private AccountState buildAccountState(Long accountId, long now) {

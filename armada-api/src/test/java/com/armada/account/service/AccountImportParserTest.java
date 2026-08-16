@@ -322,41 +322,58 @@ class AccountImportParserTest {
     // ---- PARAMS 格式 ----
 
     @Test
-    void params_validWid_parsesOk() {
-        String json = "[{\"wid\":\"8613800138000\"}]";
-        List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
-        assertThat(entries).hasSize(1);
-        assertThat(entries.get(0).getParseError()).isNull();
-        assertThat(entries.get(0).getWid()).isEqualTo("8613800138000");
-    }
+    void params_ndjsonConvertsEachFullParamsRowToSix() {
+        String first = fullParams("5210000000001");
+        String second = fullParams("5210000000002");
+        String json = first + "\n\n" + second;
 
-    @Test
-    void params_arrayTextPreservesRawPayloadAndEntryName() {
-        List<ParsedEntry> entries = parser.parse(
-                ImportFormat.PARAMS,
-                null,
-                "[{\"wid\":\"8613800138201\"},{\"wid\":\"8613800138202\"}]");
+        List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
 
         assertThat(entries).hasSize(2);
-        assertThat(entries.get(0).getRawPayload()).contains("\"8613800138201\"");
-        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("params-input[0]");
-        assertThat(entries.get(1).getRawPayload()).contains("\"8613800138202\"");
-        assertThat(entries.get(1).getSourceEntryName()).isEqualTo("params-input[1]");
+        assertThat(entries.get(0).getParseError()).isNull();
+        assertThat(entries.get(0).getWid()).isEqualTo("5210000000001");
+        assertThat(entries.get(0).getRawPayload()).isEqualTo(first);
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("params-input[1]");
+        assertThat(entries.get(0).getData().path("phone").asText()).isEqualTo("5210000000001");
+        assertThat(entries.get(0).getData().path("static_pub_key").asText()).isEqualTo("static-pub-test");
+        assertThat(entries.get(0).getData()).hasSize(6);
+        assertThat(entries.get(1).getWid()).isEqualTo("5210000000002");
+        assertThat(entries.get(1).getSourceEntryName()).isEqualTo("params-input[3]");
     }
 
     @Test
-    void params_missingWid_marksError() {
-        String json = "[{\"phone\":\"8613800138000\"}]";
+    void params_invalidLineDoesNotBlockAdjacentValidRows() {
+        String json = fullParams("5210000000011") + "\n{not-json}\n" + fullParams("5210000000012");
+
         List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
-        assertThat(entries.get(0).getParseError()).isNotNull().contains("wid");
+
+        assertThat(entries).hasSize(3);
+        assertThat(entries.get(0).getParseError()).isNull();
+        assertThat(entries.get(1).getParseError()).contains("JSON 解析失败");
+        assertThat(entries.get(1).getRawPayload()).isEqualTo("{not-json}");
+        assertThat(entries.get(2).getParseError()).isNull();
     }
 
     @Test
-    void params_invalidWid_marksError() {
-        // wid 不是合法手机号
-        String json = "[{\"wid\":\"abc\"}]";
+    void params_missingAndroidField_marksCredentialIncomplete() {
+        String json = fullParams("5210000000021").replace(
+                "\"phoneUUID\":\"phone-uuid-test\",", "");
+
         List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
-        assertThat(entries.get(0).getParseError()).isNotNull().contains("wid");
+
+        assertThat(entries.get(0).getParseError())
+                .contains("凭据不全")
+                .contains("phoneUUID");
+    }
+
+    @Test
+    void params_arrayContainer_isRejectedPerLine() {
+        String json = "[" + fullParams("5210000000031") + "]";
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, null, json);
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.get(0).getParseError()).contains("全参必须为 JSON 对象");
     }
 
     // ---- 非法 JSON ----
@@ -417,5 +434,21 @@ class AccountImportParserTest {
     private static String nakedCredsObject(String wid) {
         return "{\"wid\":\"" + wid
                 + "\",\"registrationId\":1,\"noiseKey\":{},\"signedIdentityKey\":{},\"signedPreKey\":{}}";
+    }
+
+    private static String fullParams(String phone) {
+        return "{"
+                + "\"cc\":\"52\","
+                + "\"in\":\"" + phone.substring(2) + "\","
+                + "\"jid\":\"" + phone + "\","
+                + "\"phone\":\"" + phone + "\","
+                + "\"clientStaticPublicKey\":\"static-pub-test\","
+                + "\"clientStaticPrivateKey\":\"static-pri-test\","
+                + "\"identityPublicKey\":\"identity-pub-test\","
+                + "\"identityPrivateKey\":\"identity-pri-test\","
+                + "\"phoneUUID\":\"phone-uuid-test\","
+                + "\"registrationID\":77,"
+                + "\"signPreKeyID\":78"
+                + "}";
     }
 }

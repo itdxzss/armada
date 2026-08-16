@@ -25,8 +25,8 @@ public enum ImportFormat {
     JSON(2),
 
     /**
-     * Params 键值 JSON 格式:扁平键值对象,必须含 {@code wid} 等必需字段。
-     * 支持单对象和 JSON 数组两种封装方式。
+     * 全参账号格式:TXT 或粘贴文本中每个非空行一个 JSON 对象。
+     * 导入时转换为 Android 六段运行时凭据，批次仍保留 PARAMS 来源格式。
      */
     PARAMS(3);
 

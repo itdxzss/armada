@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.GroupLinkPreview;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -67,6 +68,15 @@ public interface GroupLinkPreviewMapper {
      * @return 预览快照;不存在时返回 null
      */
     GroupLinkPreview selectByGroupLinkId(@Param("groupLinkId") Long groupLinkId);
+
+    /**
+     * 批量查询有 WhatsApp 真实群名称的预览快照。
+     *
+     * @param groupLinkIds 群链接 ID；null 或空集合安全返回空列表
+     * @return 当前租户内群名非空白的预览快照，按群链接 ID 升序
+     */
+    List<GroupLinkPreview> selectByGroupLinkIds(
+            @Param("groupLinkIds") List<Long> groupLinkIds);
 
     /**
      * 按当前邀请码查询仍活跃的原群入口，避免链接轮换后登记出重复群。

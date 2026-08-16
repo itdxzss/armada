@@ -214,6 +214,25 @@
     LIMIT 1
   </select>
 
+  <select id="selectByGroupLinkIds" resultType="com.armada.group.model.entity.GroupLinkPreview">
+    SELECT group_link_id, wa_subject
+    FROM group_link_preview
+    WHERE wa_subject IS NOT NULL
+      AND TRIM(wa_subject) &lt;&gt; ''
+    <choose>
+      <when test="groupLinkIds != null and groupLinkIds.size() > 0">
+        AND group_link_id IN
+        <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+          #{groupLinkId}
+        </foreach>
+      </when>
+      <otherwise>
+        AND 1 = 0
+      </otherwise>
+    </choose>
+    ORDER BY group_link_id ASC
+  </select>
+
   <select id="selectActiveGroupLinkIdByInviteCode" resultType="long">
     SELECT p.group_link_id
     FROM group_link_preview p

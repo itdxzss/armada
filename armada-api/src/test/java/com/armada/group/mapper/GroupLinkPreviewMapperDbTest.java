@@ -2,20 +2,86 @@ package com.armada.group.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
-import com.armada.testsupport.DbTestBase;
+import com.armada.shared.tenant.TenantContext;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.List;
+import javax.sql.DataSource;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.h2.jdbcx.JdbcDataSource;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
-/** GroupLinkPreviewMapper 真库测试:验 upsert 和按 group_link_id 查询。 */
-class GroupLinkPreviewMapperDbTest extends DbTestBase {
+/** GroupLinkPreviewMapper 的 H2 MySQL 模式测试，加载真实 XML 和租户拦截器。 */
+@SpringJUnitConfig(GroupLinkPreviewMapperDbTest.TestConfig.class)
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        inheritListeners = false)
+class GroupLinkPreviewMapperDbTest {
+
+    private static final long TENANT_ID = 7L;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Autowired
     private GroupLinkMapper groupLinkMapper;
 
     @Autowired
     private GroupLinkPreviewMapper previewMapper;
+
+    @BeforeEach
+    void setUp() throws SQLException {
+        TenantContext.set(TENANT_ID);
+        resetSchema();
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void selectByGroupLinkIdsReturnsNamedRowsOnlyWithinCurrentTenant() throws SQLException {
+        execute("""
+                INSERT INTO group_link_preview (
+                    tenant_id, group_link_id, wa_subject, created_at, updated_at
+                ) VALUES
+                    (7, 101, '当前租户群 A', 1, 1),
+                    (7, 102, '   ', 1, 1),
+                    (7, 103, '当前租户群 B', 1, 1),
+                    (8, 101, '其他租户群', 1, 1)
+                """);
+
+        assertThat(previewMapper.selectByGroupLinkIds(List.of())).isEmpty();
+        assertThat(previewMapper.selectByGroupLinkIds(List.of(101L, 102L, 103L)))
+                .satisfiesExactly(
+                        row -> {
+                            assertThat(row.getGroupLinkId()).isEqualTo(101L);
+                            assertThat(row.getWaSubject()).isEqualTo("当前租户群 A");
+                        },
+                        row -> {
+                            assertThat(row.getGroupLinkId()).isEqualTo(103L);
+                            assertThat(row.getWaSubject()).isEqualTo("当前租户群 B");
+                        });
+    }
 
     @Test
     void upsert_insertsAndUpdatesUniquePreviewRow() {
@@ -165,5 +231,110 @@ class GroupLinkPreviewMapperDbTest extends DbTestBase {
         link.setUpdatedAt(now);
         groupLinkMapper.insert(link);
         return link;
+    }
+
+    private void resetSchema() throws SQLException {
+        execute("DROP ALL OBJECTS");
+        execute("""
+                CREATE TABLE group_link (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    link_url VARCHAR(255) NOT NULL,
+                    group_name VARCHAR(128),
+                    label_id BIGINT,
+                    import_batch_id BIGINT,
+                    origin TINYINT NOT NULL DEFAULT 1,
+                    membership_state TINYINT NOT NULL DEFAULT 1,
+                    remark VARCHAR(255),
+                    created_by BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    deleted_at BIGINT,
+                    CONSTRAINT uq_group_link_url UNIQUE (tenant_id, link_url)
+                )
+                """);
+        execute("""
+                CREATE TABLE group_link_preview (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_link_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128),
+                    invite_code VARCHAR(64),
+                    invite_code_observed_at BIGINT,
+                    wa_subject VARCHAR(255),
+                    wa_description VARCHAR(1024),
+                    member_size INT,
+                    owner_phone VARCHAR(32),
+                    announce_only TINYINT,
+                    admin_only_edit_info TINYINT,
+                    member_add_mode TINYINT,
+                    join_approval_mode TINYINT,
+                    ephemeral_duration_seconds INT,
+                    group_created_at BIGINT,
+                    creator_country_iso2 VARCHAR(2),
+                    creator_continent_code VARCHAR(24),
+                    avatar_url VARCHAR(512),
+                    last_preview_at BIGINT,
+                    metadata_observed_at BIGINT,
+                    created_at BIGINT NOT NULL,
+                    updated_at BIGINT NOT NULL,
+                    CONSTRAINT uq_group_link_preview_link UNIQUE (tenant_id, group_link_id)
+                )
+                """);
+    }
+
+    private void execute(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    /** 本测试所需的最小 MyBatis 与租户拦截器配置。 */
+    @Configuration(proxyBeanMethods = false)
+    @Import(MyBatisConfig.class)
+    static class TestConfig {
+
+        @Bean
+        DataSource dataSource() {
+            JdbcDataSource dataSource = new JdbcDataSource();
+            dataSource.setURL("jdbc:h2:mem:group_link_preview_mapper_test;"
+                    + "MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
+            dataSource.setUser("sa");
+            dataSource.setPassword("");
+            return dataSource;
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(
+                DataSource dataSource,
+                MybatisPlusInterceptor interceptor) throws Exception {
+            MybatisConfiguration configuration = new MybatisConfiguration();
+            configuration.setMapUnderscoreToCamelCase(true);
+            configuration.setUseGeneratedKeys(true);
+            MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setConfiguration(configuration);
+            factory.setPlugins(interceptor);
+            factory.setMapperLocations(
+                    new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkPreviewMapper.xml"));
+            return factory.getObject();
+        }
+
+        @Bean
+        SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory sqlSessionFactory) {
+            return new SqlSessionTemplate(sqlSessionFactory);
+        }
+
+        @Bean
+        GroupLinkMapper groupLinkMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
+        GroupLinkPreviewMapper groupLinkPreviewMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupLinkPreviewMapper.class);
+        }
     }
 }

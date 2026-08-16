@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -49,7 +50,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 从 6 张普通群链接事实表组装任务聚合、分页工作台和可追溯执行详情。 */
+/** 从普通群链接任务事实表和群域预览组装任务聚合、分页工作台及可追溯执行详情。 */
 @Service
 public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadService {
 
@@ -60,13 +61,20 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardReadResources resources;
+    private final GroupLinkService groupLinkService;
 
-    /** @param taskMapper 任务主表入口 @param resources 普通群链接全部读事实入口 */
+    /**
+     * @param taskMapper 任务主表入口
+     * @param resources 普通群链接全部读事实入口
+     * @param groupLinkService 群域 WhatsApp 真实群名读取入口
+     */
     public PullTaskStandardReadServiceImpl(
             PullTaskMapper taskMapper,
-            PullTaskStandardReadResources resources) {
+            PullTaskStandardReadResources resources,
+            GroupLinkService groupLinkService) {
         this.taskMapper = taskMapper;
         this.resources = resources;
+        this.groupLinkService = groupLinkService;
     }
 
     @Override
@@ -106,8 +114,10 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         List<PullTaskGroupExecution> rows = resources.readMapper().selectExecutionPage(
                 filter, safeQuery.getOffset(), safeQuery.getPageSize());
         Map<Long, PullTaskStandardExecutionAggregate> aggregates = aggregateExecutions(rows);
+        Map<Long, String> groupNames = groupNames(rows);
         List<PullTaskStandardExecutionSummaryVO> result = rows.stream()
-                .map(row -> summary(row, aggregates.get(row.getId())))
+                .map(row -> summary(
+                        row, aggregates.get(row.getId()), groupName(groupNames, row)))
                 .toList();
         return PageResult.of(
                 result, safeQuery.getPage(), safeQuery.getPageSize(), total);
@@ -119,9 +129,10 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         PullTaskGroupExecution execution = requireExecution(taskId, executionId);
         PullTaskStandardExecutionAggregate aggregate = aggregateExecutions(List.of(execution))
                 .get(executionId);
+        Map<Long, String> groupNames = groupNames(List.of(execution));
         PullTaskStandardReadFactMappers facts = resources.facts();
         return new PullTaskStandardExecutionDetailVO(
-                summary(execution, aggregate), roles(executionId),
+                summary(execution, aggregate, groupName(groupNames, execution)), roles(executionId),
                 facts.callMapper().selectByExecution(executionId).stream()
                         .map(PullTaskStandardReadServiceImpl::call).toList(),
                 facts.actionMapper().selectByExecutionAndStatuses(
@@ -173,6 +184,19 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                         PullTaskStandardExecutionAggregate::getExecutionId, Function.identity()));
     }
 
+    private Map<Long, String> groupNames(List<PullTaskGroupExecution> rows) {
+        return groupLinkService.findWhatsAppGroupNamesByIds(
+                rows.stream().map(PullTaskGroupExecution::getGroupLinkId).toList());
+    }
+
+    private static String groupName(
+            Map<Long, String> groupNames,
+            PullTaskGroupExecution execution) {
+        return execution.getGroupLinkId() == null
+                ? null
+                : groupNames.get(execution.getGroupLinkId());
+    }
+
     private List<PullTaskStandardRoleVO> roles(long executionId) {
         List<PullTaskStandardRoleVO> result = new ArrayList<>();
         for (PullTaskGroupAccountRole role : PullTaskGroupAccountRole.values()) {
@@ -185,10 +209,12 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardExecutionSummaryVO summary(
             PullTaskGroupExecution row,
-            PullTaskStandardExecutionAggregate aggregate) {
+            PullTaskStandardExecutionAggregate aggregate,
+            String groupName) {
         return new PullTaskStandardExecutionSummaryVO(
                 row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
-                row.getSourceFileName(), value(row.getExecutionStatus()), value(row.getStage()),
+                groupName, row.getSourceFileName(),
+                value(row.getExecutionStatus()), value(row.getStage()),
                 Integer.valueOf(1).equals(row.getManualPaused()),
                 row.getWaitResourceType(),
                 value(row.getValidMemberCount()), row.getReasonCode(), row.getReasonMessage(),

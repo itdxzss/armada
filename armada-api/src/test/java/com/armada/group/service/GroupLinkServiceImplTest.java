@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -44,7 +45,9 @@ import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -97,6 +100,34 @@ class GroupLinkServiceImplTest {
                 groupLinkMapper, folderMapper, previewMapper, healthMapper, labelMapper,
                 converter, accountMapper, groupPreviewPort, groupProfilePort,
                 currentLocalPersistence);
+    }
+
+    @Test
+    void findWhatsAppGroupNamesByIdsDeduplicatesIdsAndIgnoresBlankSubjects() {
+        GroupLinkPreview named = new GroupLinkPreview();
+        named.setGroupLinkId(11L);
+        named.setWaSubject("WhatsApp 真实群名");
+        GroupLinkPreview blank = new GroupLinkPreview();
+        blank.setGroupLinkId(12L);
+        blank.setWaSubject("   ");
+        GroupLinkPreview missing = new GroupLinkPreview();
+        missing.setGroupLinkId(13L);
+        when(previewMapper.selectByGroupLinkIds(List.of(11L, 12L, 13L)))
+                .thenReturn(List.of(named, blank, missing));
+
+        Map<Long, String> result = service.findWhatsAppGroupNamesByIds(
+                Arrays.asList(11L, null, 11L, 12L, 13L));
+
+        assertThat(result).containsExactly(Map.entry(11L, "WhatsApp 真实群名"));
+        verify(previewMapper).selectByGroupLinkIds(List.of(11L, 12L, 13L));
+    }
+
+    @Test
+    void findWhatsAppGroupNamesByIdsReturnsEmptyMapWithoutQueryForEmptyInput() {
+        assertThat(service.findWhatsAppGroupNamesByIds(null)).isEmpty();
+        assertThat(service.findWhatsAppGroupNamesByIds(List.of())).isEmpty();
+
+        verifyNoInteractions(previewMapper);
     }
 
     // ---- listByLabel ----

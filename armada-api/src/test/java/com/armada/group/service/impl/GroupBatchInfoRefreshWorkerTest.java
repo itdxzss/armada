@@ -9,12 +9,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupMetadataSnapshotRequest;
 import com.armada.group.model.entity.GroupBatchTaskItem;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupBatchAccountThrottle;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotService;
@@ -41,7 +41,7 @@ class GroupBatchInfoRefreshWorkerTest {
     private GroupExecutionAccountSelector selector;
 
     @Mock
-    private GroupLinkPreviewMapper previewMapper;
+    private GroupLinkMapper groupLinkMapper;
 
     @Mock
     private GroupBatchAccountThrottle throttle;
@@ -80,7 +80,7 @@ class GroupBatchInfoRefreshWorkerTest {
     @Test
     void missingGroupJidFailsTheItemBeforeTheProtocolCall() {
         stubAccount();
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(null);
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID)).thenReturn(null);
 
         worker().execute(item(), 6_000L);
 
@@ -173,10 +173,8 @@ class GroupBatchInfoRefreshWorkerTest {
     }
 
     private void stubPreview() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(GROUP_LINK_ID);
-        preview.setGroupJid(GROUP_JID);
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview);
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID))
+                .thenReturn(new GroupCurrentIdentity(GROUP_LINK_ID, GROUP_JID, null));
     }
 
     private GroupBatchTaskItem settled() {
@@ -197,7 +195,7 @@ class GroupBatchInfoRefreshWorkerTest {
 
     private GroupBatchInfoRefreshWorker worker() {
         return new GroupBatchInfoRefreshWorker(
-                new GroupBatchRefreshSupport(selector, previewMapper, throttle, settlement),
+                new GroupBatchRefreshSupport(selector, groupLinkMapper, throttle, settlement),
                 snapshotService);
     }
 }

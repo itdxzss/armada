@@ -866,16 +866,20 @@
     <!-- 普通一致性读解析群快照，不在共享群表上持有 UPDATE 锁。 -->
     <select id="selectTargetResultSnapshot"
             resultType="com.armada.marketing.model.support.MarketingTargetResultSnapshot">
-        SELECT COALESCE(a.group_link_id, p.group_link_id, #{target.groupLinkId}) AS groupLinkId,
-               COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(p.group_jid), ''),
+        SELECT COALESCE(a.group_link_id, resolved_handle.id,
+                        #{target.groupLinkId}) AS groupLinkId,
+               COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                        NULLIF(TRIM(effective_group.group_jid), ''),
+                        NULLIF(TRIM(jid_group.group_jid), ''),
                         #{target.groupJid}) AS groupJid,
                COALESCE(
                    CASE WHEN LOWER(TRIM(#{target.groupLinkUrl})) LIKE 'https://chat.whatsapp.com/%'
-                              AND COALESCE(a.group_link_id, p.group_link_id,
+                              AND COALESCE(a.group_link_id, resolved_handle.id,
                                            #{target.groupLinkId}, -1)
                                   = COALESCE(#{target.groupLinkId}, -1)
                               AND COALESCE(NULLIF(TRIM(a.group_jid), ''),
-                                           NULLIF(TRIM(p.group_jid), ''),
+                                           NULLIF(TRIM(effective_group.group_jid), ''),
+                                           NULLIF(TRIM(jid_group.group_jid), ''),
                                            NULLIF(TRIM(#{target.groupJid}), ''), '')
                                   = COALESCE(NULLIF(TRIM(#{target.groupJid}), ''), '')
                         THEN TRIM(#{target.groupLinkUrl}) END,
@@ -883,15 +887,27 @@
                         THEN TRIM(g.link_url) END,
                    '') AS groupLinkUrl,
                COALESCE(NULLIF(TRIM(a.group_name), ''), NULLIF(TRIM(g.group_name), ''),
-                        p.wa_subject, #{target.groupName}) AS groupName
+                        current_profile.subject, #{target.groupName}) AS groupName
         FROM marketing_task_send_attempt a
-        LEFT JOIN group_link_preview p ON p.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''),
-                                                                 NULLIF(TRIM(#{target.groupJid}), ''))
-        LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, p.group_link_id,
-                                                   #{target.groupLinkId})
+        LEFT JOIN wa_group jid_group
+          ON jid_group.group_jid = COALESCE(NULLIF(TRIM(a.group_jid), ''),
+                                            NULLIF(TRIM(#{target.groupJid}), ''))
+        LEFT JOIN group_link resolved_handle
+          ON resolved_handle.tenant_id = jid_group.tenant_id
+         AND resolved_handle.group_id = jid_group.id
+        LEFT JOIN group_link g
+          ON g.id = COALESCE(a.group_link_id, resolved_handle.id,
+                             #{target.groupLinkId})
+        LEFT JOIN wa_group effective_group
+          ON effective_group.tenant_id = g.tenant_id
+         AND effective_group.id = g.group_id
+        LEFT JOIN wa_group_profile current_profile
+          ON current_profile.tenant_id = COALESCE(
+               effective_group.tenant_id, jid_group.tenant_id)
+         AND current_profile.group_id = COALESCE(effective_group.id, jid_group.id)
         WHERE a.id = #{attemptId}
           AND a.target_id = #{target.id}
-        ORDER BY p.group_link_id ASC
+        ORDER BY resolved_handle.id ASC
         LIMIT 1
     </select>
 

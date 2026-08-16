@@ -55,34 +55,68 @@ class GroupLinkHealthRefreshBlockMapperDbTest {
 
     @Test
     void blockedIdsCoverBannedAndUnavailableButKeepLinkInvalidRefreshable() throws SQLException {
-        seed(101L, 1, null);   // 封禁
-        seed(102L, 0, 3);      // 不可用
-        seed(103L, 0, 1);      // 可用
-        seed(104L, 0, 2);      // 链接失效——恰恰最需要刷新链接，必须放行
+        execute("""
+                INSERT INTO group_link
+                  (id, tenant_id, group_id, group_invite_id, deleted_at)
+                VALUES
+                  (101, 7, 1001, NULL, NULL),
+                  (102, 7, NULL, 2002, NULL),
+                  (103, 7, 1003, NULL, NULL),
+                  (104, 7, NULL, 2004, NULL),
+                  (105, 8, 1005, NULL, NULL)
+                """);
+        execute("""
+                INSERT INTO wa_group (id, tenant_id, group_jid)
+                VALUES
+                  (1001, 7, 'banned@g.us'),
+                  (1003, 7, 'available@g.us'),
+                  (1005, 8, 'other@g.us')
+                """);
+        execute("""
+                INSERT INTO wa_group_profile
+                  (id, tenant_id, group_id, banned, health_status)
+                VALUES
+                  (3001, 7, 1001, 1, NULL),
+                  (3003, 7, 1003, 0, 1),
+                  (3005, 8, 1005, 1, 3)
+                """);
+        execute("""
+                INSERT INTO wa_group_invite
+                  (id, tenant_id, invite_code, banned, health_status)
+                VALUES
+                  (2002, 7, 'unavailable', 0, 3),
+                  (2004, 7, 'invalid', 0, 2)
+                """);
 
-        assertThat(mapper.selectLinkRefreshBlockedIds(List.of(101L, 102L, 103L, 104L)))
+        assertThat(mapper.selectLinkRefreshBlockedIds(
+                        List.of(101L, 102L, 103L, 104L, 105L)))
                 .containsExactly(101L, 102L);
-    }
-
-    private void seed(long groupLinkId, int banned, Integer healthStatus) throws SQLException {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.executeUpdate(
-                    "INSERT INTO group_link_health (tenant_id, group_link_id, is_banned, health_status)"
-                            + " VALUES (" + TENANT_ID + ", " + groupLinkId + ", " + banned + ", "
-                            + (healthStatus == null ? "NULL" : healthStatus) + ")");
-        }
     }
 
     private void resetSchema() throws SQLException {
         execute("DROP ALL OBJECTS");
         execute("""
-                CREATE TABLE group_link_health (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL,
-                    group_link_id BIGINT NOT NULL,
-                    is_banned TINYINT,
-                    health_status TINYINT
+                CREATE TABLE group_link (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_id BIGINT, group_invite_id BIGINT, deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_profile (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL, banned TINYINT, health_status TINYINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_invite (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    invite_code VARCHAR(128) NOT NULL, banned TINYINT, health_status TINYINT
                 )
                 """);
     }

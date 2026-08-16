@@ -188,7 +188,7 @@ public interface AccountMapper {
      * 跨租户扫描账号当前群同步候选。
      *
      * <p>调度线程没有 HTTP 租户上下文,因此关闭租户拦截器并在 SQL 内显式按 tenant_id
-     * 连接 account/account_state/account_group_baseline。已拍 baseline 的在线正常账号按 baseline 做差集;
+     * 连接 account/account_state/account_group_sync_state。已拍 baseline 的在线正常账号按同步水位轮转;
      * 不启用 baseline 的在线正常账号直接同步。待拍账号由营销账号树实时捕获 baseline,不由定时任务抢拍。</p>
      *
      * @param limit                 本轮最大候选数
@@ -232,6 +232,13 @@ public interface AccountMapper {
      */
     int markGroupSyncRequested(@Param("accountIds") List<Long> accountIds,
                                @Param("requestedAt") long requestedAt);
+
+    /** 同步更新六表模型中的账号群同步水位，不回退既有时间。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int markCurrentGroupSyncRequested(
+            @Param("tenantId") Long tenantId,
+            @Param("accountIds") List<Long> accountIds,
+            @Param("requestedAt") long requestedAt);
 
     /**
      * 按筛选条件统计账号总数(SQL 下推,与 selectPage 共享 filter 片段)。

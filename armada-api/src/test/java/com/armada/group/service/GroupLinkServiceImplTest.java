@@ -35,6 +35,7 @@ import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
@@ -122,22 +123,24 @@ class GroupLinkServiceImplTest {
 
     @Test
     void findWhatsAppGroupNamesByIdsDeduplicatesIdsAndIgnoresBlankSubjects() {
-        GroupLinkPreview named = new GroupLinkPreview();
-        named.setGroupLinkId(11L);
+        GroupLinkVoRow named = new GroupLinkVoRow();
+        named.setId(11L);
         named.setWaSubject("WhatsApp 真实群名");
-        GroupLinkPreview blank = new GroupLinkPreview();
-        blank.setGroupLinkId(12L);
+        GroupLinkVoRow blank = new GroupLinkVoRow();
+        blank.setId(12L);
         blank.setWaSubject("   ");
-        GroupLinkPreview missing = new GroupLinkPreview();
-        missing.setGroupLinkId(13L);
-        when(previewMapper.selectByGroupLinkIds(List.of(11L, 12L, 13L)))
+        GroupLinkVoRow missing = new GroupLinkVoRow();
+        missing.setId(13L);
+        when(groupListCurrentMapper.selectWhatsAppGroupNames(
+                TENANT_ID, List.of(11L, 12L, 13L)))
                 .thenReturn(List.of(named, blank, missing));
 
         Map<Long, String> result = service.findWhatsAppGroupNamesByIds(
                 Arrays.asList(11L, null, 11L, 12L, 13L));
 
         assertThat(result).containsExactly(Map.entry(11L, "WhatsApp 真实群名"));
-        verify(previewMapper).selectByGroupLinkIds(List.of(11L, 12L, 13L));
+        verify(groupListCurrentMapper).selectWhatsAppGroupNames(
+                TENANT_ID, List.of(11L, 12L, 13L));
     }
 
     @Test
@@ -145,7 +148,7 @@ class GroupLinkServiceImplTest {
         assertThat(service.findWhatsAppGroupNamesByIds(null)).isEmpty();
         assertThat(service.findWhatsAppGroupNamesByIds(List.of())).isEmpty();
 
-        verifyNoInteractions(previewMapper);
+        verifyNoInteractions(groupListCurrentMapper);
     }
 
     // ---- listByLabel ----
@@ -382,7 +385,8 @@ class GroupLinkServiceImplTest {
     @Test
     void updateDescription_callsProtocolWithoutLocalProfileUpdate() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+                new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));
@@ -397,7 +401,8 @@ class GroupLinkServiceImplTest {
     @Test
     void updateAnnouncementText_callsProtocolWithoutLocalProfileUpdate() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+                new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));
@@ -412,7 +417,8 @@ class GroupLinkServiceImplTest {
     @Test
     void updatePicture_callsProtocolAndPersistsAvatarUrl() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363profile@g.us"));
+        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+                new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
                 .thenReturn(List.of(7L));

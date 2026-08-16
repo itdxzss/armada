@@ -458,12 +458,15 @@
   </select>
 
   <select id="selectGroupLinkIdByGroupJidIncludingDeleted" resultType="long">
-    SELECT g.id
-    FROM group_link_preview p
-    INNER JOIN group_link g ON g.id = p.group_link_id
-    WHERE p.group_jid = #{groupJid}
-    ORDER BY CASE WHEN g.deleted_at IS NULL THEN 0 ELSE 1 END,
-             g.id ASC
+    SELECT group_handle.id
+    FROM group_link group_handle
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = group_handle.tenant_id
+     AND current_group.id = group_handle.group_id
+    WHERE current_group.group_jid = #{groupJid}
+       OR group_handle.link_url = CONCAT('wa://group/', #{groupJid})
+    ORDER BY CASE WHEN group_handle.deleted_at IS NULL THEN 0 ELSE 1 END,
+             group_handle.id ASC
     LIMIT 1
   </select>
 
@@ -844,18 +847,26 @@
   <select id="selectControlledMembershipsByGroupLinkId"
           resultType="com.armada.group.model.entity.AccountGroupMembership">
     SELECT controlled_account.id AS accountId,
-           member.group_link_id AS groupLinkId,
-           member.group_jid AS groupJid,
-           MAX(member.is_admin) AS admin
-    FROM whatsapp_group_member_snapshot member
+           group_handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           MAX(CASE WHEN member.role IN (2, 3) THEN TRUE ELSE FALSE END) AS admin
+    FROM group_link group_handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = group_handle.tenant_id
+     AND current_group.id = group_handle.group_id
+    INNER JOIN wa_group_participant member
+      ON member.tenant_id = current_group.tenant_id
+     AND member.group_id = current_group.id
+     AND member.presence_status = 1
     INNER JOIN account controlled_account
-      ON controlled_account.tenant_id = member.tenant_id
+      ON controlled_account.tenant_id = current_group.tenant_id
      AND controlled_account.ws_phone = member.phone
      AND controlled_account.deleted_at IS NULL
-    WHERE member.group_link_id = #{groupLinkId}
+    WHERE group_handle.id = #{groupLinkId}
+      AND group_handle.deleted_at IS NULL
       AND member.phone IS NOT NULL
       AND TRIM(member.phone) &lt;&gt; ''
-    GROUP BY controlled_account.id, member.group_link_id, member.group_jid
+    GROUP BY controlled_account.id, group_handle.id, current_group.group_jid
     ORDER BY controlled_account.id ASC
   </select>
 

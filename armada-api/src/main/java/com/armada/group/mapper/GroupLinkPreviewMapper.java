@@ -79,7 +79,7 @@ public interface GroupLinkPreviewMapper {
             @Param("groupLinkIds") List<Long> groupLinkIds);
 
     /**
-     * 按当前邀请码查询仍活跃的原群入口，避免链接轮换后登记出重复群。
+     * 按新模型当前邀请码引用查询仍活跃的原群入口，避免链接轮换后登记出重复群。
      *
      * @param inviteCode 当前邀请码
      * @return 原群入口 ID；未匹配时返回 null

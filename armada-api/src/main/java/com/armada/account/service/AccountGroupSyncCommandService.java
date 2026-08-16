@@ -114,6 +114,13 @@ public class AccountGroupSyncCommandService {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "账号群同步水位更新数量不一致: expected=" + accountIds.size() + ", updated=" + updated);
         }
+        int currentUpdated = accountMapper.markCurrentGroupSyncRequested(
+                TenantContext.get(), accountIds, requestedAt);
+        if (currentUpdated < accountIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "新账号群同步水位更新数量不一致: expected=" + accountIds.size()
+                            + ", updated=" + currentUpdated);
+        }
     }
 
     private static List<Long> accountIds(List<ProtocolAccountGroupSyncCommandRequest> commands) {

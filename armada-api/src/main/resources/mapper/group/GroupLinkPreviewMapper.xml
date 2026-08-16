@@ -242,14 +242,15 @@
   </select>
 
   <select id="selectActiveGroupLinkIdByInviteCode" resultType="long">
-    SELECT p.group_link_id
-    FROM group_link_preview p
-    INNER JOIN group_link g
-      ON g.tenant_id = p.tenant_id
-     AND g.id = p.group_link_id
-     AND g.deleted_at IS NULL
-    WHERE p.invite_code = #{inviteCode}
-    ORDER BY COALESCE(p.invite_code_observed_at, 0) DESC, p.id DESC
+    SELECT handle.id
+    FROM wa_group_invite current_invite
+    INNER JOIN group_link handle
+      ON handle.tenant_id = current_invite.tenant_id
+     AND handle.group_invite_id = current_invite.id
+     AND handle.deleted_at IS NULL
+    WHERE current_invite.invite_code = #{inviteCode}
+      AND current_invite.deleted_at IS NULL
+    ORDER BY current_invite.updated_at DESC, handle.id ASC
     LIMIT 1
   </select>
 

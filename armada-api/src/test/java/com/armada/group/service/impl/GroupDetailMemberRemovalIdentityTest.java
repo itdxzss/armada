@@ -239,7 +239,7 @@ class GroupDetailMemberRemovalIdentityTest {
         GroupLinkPreview preview = new GroupLinkPreview();
         preview.setGroupJid(GROUP_JID);
         preview.setWaSubject("群名");
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview);
+        when(snapshotReader.profile(GROUP_LINK_ID)).thenReturn(preview);
     }
 
     private static GroupMetadataResult metadata(

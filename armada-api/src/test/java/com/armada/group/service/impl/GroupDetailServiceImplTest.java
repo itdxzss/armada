@@ -133,7 +133,7 @@ class GroupDetailServiceImplTest {
         preview.setMemberLinkMode(true);
         preview.setJoinApprovalMode(true);
         preview.setEphemeralDurationSeconds(604_800);
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview);
+        when(snapshotReader.profile(10L)).thenReturn(preview);
         when(snapshotReader.members(10L)).thenReturn(List.of(snapshotMember()));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.SUCCEEDED));
 
@@ -160,7 +160,7 @@ class GroupDetailServiceImplTest {
     @Test
     void detailWithoutCompletedSnapshotReturnsPendingState() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.PENDING));
 
         GroupDetailVO result = service.detail(10L);
@@ -176,7 +176,7 @@ class GroupDetailServiceImplTest {
     @Test
     void requestMetadataSyncOnlyEnqueuesDurableTask() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
 
         var result = service.requestMetadataSync(10L);
 
@@ -195,7 +195,7 @@ class GroupDetailServiceImplTest {
         GroupLinkPreview preview = preview("120363detail@g.us");
         preview.setMetadataObservedAt(1_722_470_400_000L);
         preview.setEphemeralDurationSeconds(123);
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview);
+        when(snapshotReader.profile(10L)).thenReturn(preview);
         when(snapshotReader.members(10L)).thenReturn(List.of());
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.SUCCEEDED));
 
@@ -208,7 +208,7 @@ class GroupDetailServiceImplTest {
     @Test
     void membersRejectsUnavailablePersistedSnapshot() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.DEFERRED));
 
         assertThatThrownBy(() -> service.members(10L))
@@ -219,7 +219,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSubjectUsesSelectedAccountAndWritesMirrorAfterProtocolSuccess() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", "备注"));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupLinkMapper.updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
@@ -243,7 +243,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSubjectPreservesSelectedAndroidProtocolReference() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupLinkMapper.updateGroupName(
@@ -260,7 +260,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSubjectTimeoutConfirmedBySameAccountWritesMirror() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
@@ -284,7 +284,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSubjectTimeoutUnconfirmedThrowsDedicatedError() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
@@ -321,7 +321,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateTimedMessageUsesSelectedAccountAndConfirmsMetadata() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 604_800));
@@ -339,7 +339,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateTimedMessageTimeoutConfirmedBySameAccountSucceeds() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
@@ -357,7 +357,7 @@ class GroupDetailServiceImplTest {
     @Test
     void updateTimedMessageUnconfirmedThrowsDedicatedError() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 86_400));
@@ -793,7 +793,7 @@ class GroupDetailServiceImplTest {
         byte[] bytes = "avatar-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         MockMultipartFile file = new MockMultipartFile("file", "avatar.jpg", "image/jpeg", bytes);
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
                 webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(bytes)))
@@ -818,7 +818,7 @@ class GroupDetailServiceImplTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
                 webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
@@ -838,7 +838,7 @@ class GroupDetailServiceImplTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
                 webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
@@ -864,7 +864,7 @@ class GroupDetailServiceImplTest {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
                 webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(new byte[]{1, 2, 3})))
@@ -921,7 +921,7 @@ class GroupDetailServiceImplTest {
 
     private void givenLiveTarget() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview("120363detail@g.us"));
+        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
     }
 
     private static GroupMetadataResult metadata(

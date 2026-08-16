@@ -395,6 +395,31 @@
     LIMIT 1
   </select>
 
+  <select id="selectCurrentIdentity"
+          resultType="com.armada.group.model.vo.GroupCurrentIdentity">
+    SELECT handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           COALESCE(current_invite.invite_code, input_invite.invite_code) AS inviteCode
+    FROM group_link handle
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+     AND current_invite.deleted_at IS NULL
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = handle.tenant_id
+     AND input_invite.id = handle.group_invite_id
+     AND input_invite.deleted_at IS NULL
+    WHERE handle.id = #{id}
+      AND handle.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
   <select id="selectActiveIdByGroupJid" resultType="long">
     SELECT link.id
     FROM group_link link

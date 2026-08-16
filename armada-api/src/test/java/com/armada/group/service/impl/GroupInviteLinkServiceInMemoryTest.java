@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -70,6 +71,32 @@ class GroupInviteLinkServiceInMemoryTest {
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     link_url VARCHAR(255) NOT NULL,
+                    group_id BIGINT,
+                    group_invite_id BIGINT,
+                    deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_profile (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    current_invite_id BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_invite (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    invite_code VARCHAR(128) NOT NULL,
+                    updated_at BIGINT NOT NULL,
                     deleted_at BIGINT
                 )
                 """);
@@ -177,6 +204,10 @@ class GroupInviteLinkServiceInMemoryTest {
         service.applyCurrentInvite(new GroupInviteLinkObservation(
                 "evt-current-code", GROUP_LINK_ID, "120363group@g.us", "CurrentCode",
                 ProtocolBackend.ANDROID, "ACTIVE_QUERY", 2_000L));
+        execute("INSERT INTO wa_group_invite "
+                + "(id, tenant_id, invite_code, updated_at, deleted_at) "
+                + "VALUES (61, 7, 'CurrentCode', 2000, NULL)");
+        execute("UPDATE group_link SET group_invite_id = 61 WHERE id = 51");
 
         assertThat(previewMapper.selectActiveGroupLinkIdByInviteCode("CurrentCode"))
                 .isEqualTo(GROUP_LINK_ID);
@@ -236,6 +267,11 @@ class GroupInviteLinkServiceInMemoryTest {
         }
 
         @Bean
+        GroupLinkMapper groupLinkMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupLinkMapper.class);
+        }
+
+        @Bean
         GroupLinkRegistryService groupLinkRegistryService() {
             GroupLinkRegistryService registry = mock(GroupLinkRegistryService.class);
             when(registry.registerAccountObservedGroup(
@@ -248,12 +284,13 @@ class GroupInviteLinkServiceInMemoryTest {
         GroupInviteLinkService groupInviteLinkService(
                 GroupLinkRegistryService registry,
                 GroupLinkPreviewMapper previewMapper,
+                GroupLinkMapper groupLinkMapper,
                 GroupLinkHealthMapper healthMapper,
                 GroupExecutionAccountSelector accountSelector,
                 GroupInvitePort invitePort,
                 GroupCurrentInvitePersistence currentInvitePersistence) {
             return new GroupInviteLinkServiceImpl(
-                    registry, previewMapper, healthMapper, accountSelector,
+                    registry, previewMapper, groupLinkMapper, healthMapper, accountSelector,
                     invitePort, currentInvitePersistence);
         }
 

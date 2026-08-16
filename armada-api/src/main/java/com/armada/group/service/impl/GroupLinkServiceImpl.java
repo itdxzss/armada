@@ -24,6 +24,8 @@ import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupLinkVO;
+import com.armada.group.model.vo.GroupLinkVoRow;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupLinkService;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -163,11 +165,13 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             return Map.of();
         }
         Map<Long, String> groupNames = new HashMap<>();
-        for (GroupLinkPreview preview : previewMapper.selectByGroupLinkIds(distinctIds)) {
-            if (preview.getGroupLinkId() != null
-                    && preview.getWaSubject() != null
-                    && !preview.getWaSubject().isBlank()) {
-                groupNames.put(preview.getGroupLinkId(), preview.getWaSubject());
+        Long tenantId = TenantContext.get();
+        for (GroupLinkVoRow row
+                : groupListCurrentMapper.selectWhatsAppGroupNames(tenantId, distinctIds)) {
+            if (row.getId() != null
+                    && row.getWaSubject() != null
+                    && !row.getWaSubject().isBlank()) {
+                groupNames.put(row.getId(), row.getWaSubject());
             }
         }
         return Map.copyOf(groupNames);
@@ -377,12 +381,12 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
         // groupJid 是协议层真实操作群的唯一寻址字段;导入链接刚入池时可能还没有解析出来。
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(id);
-        if (preview == null || preview.getGroupJid() == null || preview.getGroupJid().isBlank()) {
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(id);
+        if (identity == null || identity.groupJid() == null || identity.groupJid().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接尚未解析群 JID,请先预览或等待账号群同步");
         }
         return new GroupProfileTarget(
-                preview.getGroupJid().trim(),
+                identity.groupJid().trim(),
                 accountId,
                 resolveOnlineProtocolAccount(accountId));
     }
@@ -624,7 +628,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * 持久化一次成功的实时预览。
      *
-     * <p>group_link_preview 保存协议层解析出的群资料;group_link_health 保存运营列表的健康口径。
+     * <p>预览仍写旧镜像保证兼容，同时由统一持久化入口写入当前群资料和健康事实。
      * 预览成功即可认为链接当前可用,因此失败原因和连续失败次数都会被清空。</p>
      */
     private void persistSuccessfulPreview(
@@ -634,7 +638,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             long previewAt) {
         long now = System.currentTimeMillis();
 
-        // 预览快照是群资料的事实来源:列表页群名、JID、人数、群主、发言模式都来自这里。
+        // 旧预览镜像仍需双写；列表和详情读取已使用当前群事实表。
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(link.getId());
         row.setGroupJid(preview.groupJid());

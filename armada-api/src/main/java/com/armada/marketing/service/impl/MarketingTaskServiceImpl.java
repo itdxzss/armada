@@ -58,7 +58,7 @@ import org.springframework.util.StringUtils;
  * 五态生命周期，真实轮次发送由营销调度器处理。</p>
  *
  * <p>跨域事实来源保持单一:营销模板仍读 {@code marketing_template};账号/群事实在建目标时
- * 从 {@code account}、{@code group_link}、{@code group_link_preview} 拼快照,不在任务表复制更多运行态。</p>
+ * 从账号表、群入口和当前群事实表拼快照,不在任务表复制更多运行态。</p>
  */
 @Service
 public class MarketingTaskServiceImpl implements MarketingTaskService {

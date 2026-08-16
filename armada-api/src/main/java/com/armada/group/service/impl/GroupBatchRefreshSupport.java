@@ -1,7 +1,7 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupBatchAccountThrottle;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import org.springframework.stereotype.Component;
@@ -13,14 +13,14 @@ import org.springframework.stereotype.Component;
  * 账号并发闸门与逐项结算完全一致,合成一个组合避免两处漂移。</p>
  *
  * @param selector 执行账号选择器
- * @param previewMapper 群快照读取
+ * @param groupLinkMapper 当前群身份读取
  * @param throttle 按账号并发闸门
  * @param settlement 逐项独立事务结算
  */
 @Component
 public record GroupBatchRefreshSupport(
         GroupExecutionAccountSelector selector,
-        GroupLinkPreviewMapper previewMapper,
+        GroupLinkMapper groupLinkMapper,
         GroupBatchAccountThrottle throttle,
         GroupBatchTaskSettlement settlement) {
 
@@ -33,8 +33,8 @@ public record GroupBatchRefreshSupport(
      * @return 规范化后的群 JID;未知时为 null
      */
     public String groupJid(Long groupLinkId) {
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(groupLinkId);
-        String groupJid = preview == null ? null : preview.getGroupJid();
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        String groupJid = identity == null ? null : identity.groupJid();
         return groupJid == null || groupJid.isBlank() ? null : groupJid.trim();
     }
 }

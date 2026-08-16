@@ -5,6 +5,7 @@ import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.model.vo.GroupClassificationBackfillCandidate;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -150,6 +151,9 @@ public interface GroupLinkMapper {
      * @return 活跃行;不存在或已软删时返回 null
      */
     GroupLink selectActiveById(@Param("id") Long id);
+
+    /** 按稳定群入口 ID 读取新模型当前群 JID 和邀请码。 */
+    GroupCurrentIdentity selectCurrentIdentity(@Param("id") Long id);
 
     /** 按群 JID 查询当前租户活动群入口 ID。 */
     Long selectActiveIdByGroupJid(@Param("groupJid") String groupJid);

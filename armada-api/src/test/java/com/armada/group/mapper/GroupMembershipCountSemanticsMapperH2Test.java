@@ -14,6 +14,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
@@ -53,6 +54,9 @@ public class GroupMembershipCountSemanticsMapperH2Test {
 
     @Autowired
     private AccountGroupMembershipMapper accountGroupMembershipMapper;
+
+    @Autowired
+    private GroupLinkMapper groupLinkMapper;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -193,6 +197,55 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 .containsExactly(501L);
     }
 
+    @Test
+    void accountGroupSyncRotationAndWatermarkUseCurrentSyncState() throws SQLException {
+        assertThat(accountMapper.selectGroupSyncCandidates(1, 1, 2, 2))
+                .extracting(row -> row.accountId())
+                .containsExactly(501L);
+
+        assertThat(accountMapper.markCurrentGroupSyncRequested(
+                TENANT_ID, List.of(501L), 1_000L)).isGreaterThanOrEqualTo(1);
+        assertThat(queryLong("""
+                SELECT last_sync_requested_at
+                FROM account_group_sync_state
+                WHERE tenant_id = 7 AND account_id = 501
+                """)).isEqualTo(1_000L);
+
+        accountMapper.markCurrentGroupSyncRequested(TENANT_ID, List.of(501L), 900L);
+        assertThat(queryLong("""
+                SELECT last_sync_requested_at
+                FROM account_group_sync_state
+                WHERE tenant_id = 7 AND account_id = 501
+                """)).isEqualTo(1_000L);
+    }
+
+    @Test
+    void groupJidHandleLookupPrefersActiveCanonicalReference() throws SQLException {
+        execute("""
+                INSERT INTO group_link
+                  (id, tenant_id, group_id, link_url, group_name, membership_state, deleted_at)
+                VALUES
+                  (2002, 7, 1001, 'wa://group/archived-alias', 'archived', 2, 900)
+                """);
+
+        assertThat(accountGroupMembershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(
+                "in-group@g.us")).isEqualTo(2001L);
+
+        execute("UPDATE group_link SET deleted_at = 901 WHERE id = 2001");
+        assertThat(accountGroupMembershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(
+                "in-group@g.us")).isEqualTo(2001L);
+    }
+
+    @Test
+    void currentGroupIdentityReadsCanonicalGroupAndInviteReferences() {
+        assertThat(groupLinkMapper.selectCurrentIdentity(2001L))
+                .satisfies(identity -> {
+                    assertThat(identity.groupLinkId()).isEqualTo(2001L);
+                    assertThat(identity.groupJid()).isEqualTo("in-group@g.us");
+                    assertThat(identity.inviteCode()).isEqualTo("invite-code");
+                });
+    }
+
     private void createSchema() throws SQLException {
         execute("""
                 CREATE TABLE account (
@@ -200,7 +253,8 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                   account_type TINYINT NOT NULL, device_os TINYINT, number_source TINYINT,
                   channel_name VARCHAR(128), protocol_id VARCHAR(32), protocol_account_id VARCHAR(64),
                   group_baseline_state TINYINT NOT NULL, account_group_id BIGINT, ownership TINYINT NOT NULL,
-                  lease_until BIGINT, dispatched_at BIGINT, created_at BIGINT NOT NULL, deleted_at BIGINT
+                  lease_until BIGINT, dispatched_at BIGINT, created_at BIGINT NOT NULL,
+                  updated_at BIGINT, deleted_at BIGINT
                 )
                 """, """
                 CREATE TABLE account_state (
@@ -235,7 +289,19 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 """, """
                 CREATE TABLE account_group_baseline (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  account_id BIGINT NOT NULL, baseline_group_jids VARCHAR(1024)
+                  account_id BIGINT NOT NULL, baseline_group_jids VARCHAR(1024),
+                  group_count INT, captured_at BIGINT, last_group_sync_requested_at BIGINT,
+                  created_at BIGINT, updated_at BIGINT
+                )
+                """, """
+                CREATE TABLE account_group_sync_state (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL, baseline_state TINYINT NOT NULL,
+                  baseline_completeness TINYINT NOT NULL, baseline_captured_at BIGINT,
+                  baseline_group_count INT, last_sync_requested_at BIGINT,
+                  last_reported_at BIGINT, last_snapshot_complete TINYINT NOT NULL,
+                  last_complete_at BIGINT, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+                  CONSTRAINT uq_group_sync UNIQUE (tenant_id, account_id)
                 )
                 """, """
                 CREATE TABLE account_group_membership (
@@ -271,7 +337,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 """, """
                 CREATE TABLE wa_group_invite (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  invite_code VARCHAR(128) NOT NULL
+                  invite_code VARCHAR(128) NOT NULL, deleted_at BIGINT
                 )
                 """, """
                 CREATE TABLE group_link (
@@ -297,13 +363,29 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                    group_baseline_state, account_group_id, created_at, deleted_at)
                 VALUES
                   (501, 7, '923300000501', 1, 1, 'wa-web', 'acc_501', 3, 11, 100, NULL),
+                  (502, 7, '923300000502', 1, 1, 'wa-web', 'acc_502', 3, NULL, 100, NULL),
                   (601, 8, '923300000601', 1, 1, 'wa-web', 'acc_601', 3, 11, 100, NULL)
                 """,
                 """
                 INSERT INTO account_state
                   (tenant_id, account_id, account_state, login_state,
                    risk_status, mute_status)
-                VALUES (7, 501, 2, 1, 1, NULL)
+                VALUES (7, 501, 2, 1, 1, NULL),
+                       (7, 502, 2, 1, 1, NULL)
+                """,
+                """
+                INSERT INTO account_group_baseline
+                  (tenant_id, account_id, baseline_group_jids, group_count,
+                   captured_at, last_group_sync_requested_at, created_at, updated_at)
+                VALUES
+                  (7, 501, '[]', 0, 100, 9000, 100, 100),
+                  (7, 502, '[]', 0, 100, 0, 100, 100)
+                """,
+                """
+                INSERT INTO account_group_sync_state
+                  (tenant_id, account_id, baseline_state, baseline_completeness,
+                   last_sync_requested_at, last_snapshot_complete, created_at, updated_at)
+                VALUES (7, 502, 1, 0, 500, 0, 100, 100)
                 """,
                 """
                 INSERT INTO account_group_membership
@@ -385,6 +467,15 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         }
     }
 
+    private long queryLong(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery(sql)) {
+            assertThat(result.next()).isTrue();
+            return result.getLong(1);
+        }
+    }
+
     /** 本测试只加载两份真实 Mapper XML，并启用生产租户拦截器。 */
     @Configuration(proxyBeanMethods = false)
     @Import(MyBatisConfig.class)
@@ -413,6 +504,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
             factory.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountMapper.xml"),
                     new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
                     new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
             return factory.getObject();
         }
@@ -435,6 +527,11 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         @Bean
         AccountGroupMembershipMapper accountGroupMembershipMapper(SqlSessionTemplate template) {
             return template.getMapper(AccountGroupMembershipMapper.class);
+        }
+
+        @Bean
+        GroupLinkMapper groupLinkMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupLinkMapper.class);
         }
     }
 }

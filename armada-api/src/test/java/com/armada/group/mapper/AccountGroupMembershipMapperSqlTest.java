@@ -168,7 +168,9 @@ class AccountGroupMembershipMapperSqlTest {
     void groupLinkLookupByJidPrefersActiveButCanReviveArchivedEntry() throws IOException {
         String xml = mapperXml();
         assertTrue(xml.contains("<select id=\"selectGroupLinkIdByGroupJidIncludingDeleted\""));
-        assertTrue(xml.contains("ORDER BY CASE WHEN g.deleted_at IS NULL THEN 0 ELSE 1 END, g.id ASC"));
+        assertTrue(xml.contains(
+                "ORDER BY CASE WHEN group_handle.deleted_at IS NULL THEN 0 ELSE 1 END, "
+                        + "group_handle.id ASC"));
     }
 
     @Test

@@ -62,7 +62,7 @@ public interface GroupLinkHealthMapper {
     /**
      * 批量查询不允许刷新群邀请链接的群入口 ID。
      *
-     * <p>与群组列表"群状态"列共用口径：封禁(is_banned=1)和不可用(health_status=3)均拦截；
+     * <p>直接读取新群资料/邀请健康事实，与群组列表"群状态"列共用口径：封禁和不可用均拦截；
      * 链接失效(health_status=2)恰恰最需要刷新链接，必须放行。保证前端置灰的群与后端拒绝的群一致。</p>
      *
      * @param groupLinkIds 群入口 ID

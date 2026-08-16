@@ -28,7 +28,7 @@ public interface GroupLinkService {
     /**
      * 批量读取 WhatsApp 真实群名称。
      *
-     * <p>名称严格来自 {@code group_link_preview.wa_subject}；不存在预览或群名为空白的群链接
+     * <p>名称严格来自 {@code wa_group_profile.subject}；不存在当前资料或群名为空白的群链接
      * 不进入返回映射。</p>
      *
      * @param groupLinkIds 群链接 ID，可包含重复值或 null

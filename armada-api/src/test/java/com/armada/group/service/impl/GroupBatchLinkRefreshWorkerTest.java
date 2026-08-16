@@ -7,11 +7,11 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.GroupLinkPreviewMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.entity.GroupBatchTaskItem;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupBatchAccountThrottle;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupInviteLinkService;
@@ -46,7 +46,7 @@ class GroupBatchLinkRefreshWorkerTest {
     private GroupInviteLinkService inviteLinkService;
 
     @Mock
-    private GroupLinkPreviewMapper previewMapper;
+    private GroupLinkMapper groupLinkMapper;
 
     @Mock
     private GroupBatchAccountThrottle throttle;
@@ -78,7 +78,7 @@ class GroupBatchLinkRefreshWorkerTest {
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 77L, "WEB", "acc_77", "923310000001", true);
         when(selector.findAdmin(GROUP_LINK_ID)).thenReturn(Optional.of(admin));
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview());
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID)).thenReturn(identity());
         when(invitePort.getInvite(any(), org.mockito.ArgumentMatchers.eq(GROUP_JID)))
                 .thenReturn(new GroupInviteResult(
                         GROUP_JID, "NEWCODE", "https://chat.whatsapp.com/NEWCODE"));
@@ -98,7 +98,7 @@ class GroupBatchLinkRefreshWorkerTest {
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 77L, "WEB", "acc_77", "923310000001", true);
         when(selector.findAdmin(GROUP_LINK_ID)).thenReturn(Optional.of(admin));
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(null);
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID)).thenReturn(null);
 
         worker().execute(item(), 7_000L);
 
@@ -111,7 +111,7 @@ class GroupBatchLinkRefreshWorkerTest {
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 77L, "WEB", "acc_77", "923310000001", true);
         when(selector.findAdmin(GROUP_LINK_ID)).thenReturn(Optional.of(admin));
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview());
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID)).thenReturn(identity());
         when(invitePort.getInvite(any(), anyString()))
                 .thenThrow(new IllegalStateException("boom"));
 
@@ -131,11 +131,8 @@ class GroupBatchLinkRefreshWorkerTest {
         return captor.getValue();
     }
 
-    private static GroupLinkPreview preview() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(GROUP_LINK_ID);
-        preview.setGroupJid(GROUP_JID);
-        return preview;
+    private static GroupCurrentIdentity identity() {
+        return new GroupCurrentIdentity(GROUP_LINK_ID, GROUP_JID, null);
     }
 
     private static GroupBatchTaskItem item() {
@@ -149,7 +146,7 @@ class GroupBatchLinkRefreshWorkerTest {
 
     private GroupBatchLinkRefreshWorker worker() {
         return new GroupBatchLinkRefreshWorker(
-                new GroupBatchRefreshSupport(selector, previewMapper, throttle, settlement),
+                new GroupBatchRefreshSupport(selector, groupLinkMapper, throttle, settlement),
                 invitePort,
                 inviteLinkService);
     }
@@ -159,7 +156,7 @@ class GroupBatchLinkRefreshWorkerTest {
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 77L, "WEB", "acc_77", "923310000001", true);
         when(selector.findAdmin(GROUP_LINK_ID)).thenReturn(Optional.of(admin));
-        when(previewMapper.selectByGroupLinkId(GROUP_LINK_ID)).thenReturn(preview());
+        when(groupLinkMapper.selectCurrentIdentity(GROUP_LINK_ID)).thenReturn(identity());
 
         worker().execute(item(), 6_000L);
 

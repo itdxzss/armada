@@ -319,11 +319,12 @@ public class MysqlModeMapperInMemoryTest {
                 "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
                         + "VALUES (102, 8, '其他租户组', 100, 100)",
                 "INSERT INTO group_link "
-                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
-                        + "VALUES (201, 7, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)",
-                "INSERT INTO group_link_health "
-                        + "(id, tenant_id, group_link_id, health_status, is_banned, created_at, updated_at) "
-                        + "VALUES (301, 7, 201, 1, FALSE, 100, 100)");
+                        + "(id, tenant_id, group_invite_id, link_url, folder_id, origin, "
+                        + "membership_state, created_at, updated_at) "
+                        + "VALUES (201, 7, 401, 'chat.whatsapp.com/FolderA', 101, 1, 1, 100, 100)",
+                "INSERT INTO wa_group_invite "
+                        + "(id, tenant_id, invite_code, health_status, banned, updated_at) "
+                        + "VALUES (401, 7, 'FolderA', 1, FALSE, 100)");
 
         GroupFolderQuery query = new GroupFolderQuery();
         query.setPage(1);
@@ -1268,6 +1269,7 @@ public class MysqlModeMapperInMemoryTest {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     group_id BIGINT,
+                    group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
                     group_name VARCHAR(128),
                     label_id BIGINT,
@@ -1292,6 +1294,7 @@ public class MysqlModeMapperInMemoryTest {
                     group_link_id BIGINT NOT NULL,
                     group_jid VARCHAR(64),
                     invite_code VARCHAR(128),
+                    invite_code_observed_at BIGINT,
                     wa_subject VARCHAR(255),
                     wa_description VARCHAR(1024),
                     member_size INT,
@@ -1310,6 +1313,40 @@ public class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     CONSTRAINT uq_group_link_preview UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE wa_group_profile (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    current_invite_id BIGINT,
+                    subject VARCHAR(255),
+                    health_status TINYINT,
+                    banned BOOLEAN,
+                    last_checked_at BIGINT,
+                    created_at BIGINT,
+                    updated_at BIGINT
+                )
+                """,
+                """
+                CREATE TABLE wa_group_invite (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    invite_code VARCHAR(128) NOT NULL,
+                    health_status TINYINT,
+                    banned BOOLEAN,
+                    deleted_at BIGINT,
+                    updated_at BIGINT NOT NULL
                 )
                 """,
                 """
@@ -1446,21 +1483,31 @@ public class MysqlModeMapperInMemoryTest {
         executeSql(
                 """
                 INSERT INTO group_link
-                    (id, tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
+                    (id, tenant_id, group_id, link_url, group_name,
+                     origin, membership_state, created_at, updated_at)
                 VALUES
-                    (99, 8, 'https://chat.whatsapp.com/cross-tenant', 'cross-tenant', 5, 2, 1, 1),
-                    (101, 7, 'https://chat.whatsapp.com/success', 'link-success', 5, 2, 1, 1),
-                    (102, 7, 'https://chat.whatsapp.com/failed', 'link-failed', 5, 2, 1, 1),
-                    (103, 8, 'https://chat.whatsapp.com/other', 'link-other', 5, 2, 1, 1)
+                    (99, 8, 1099, 'https://chat.whatsapp.com/cross-tenant', 'cross-tenant', 5, 2, 1, 1),
+                    (101, 7, 1101, 'https://chat.whatsapp.com/success', 'link-success', 5, 2, 1, 1),
+                    (102, 7, 1102, 'https://chat.whatsapp.com/failed', 'link-failed', 5, 2, 1, 1),
+                    (103, 8, 1103, 'https://chat.whatsapp.com/other', 'link-other', 5, 2, 1, 1)
                 """,
                 """
-                INSERT INTO group_link_preview
-                    (tenant_id, group_link_id, group_jid, wa_subject)
+                INSERT INTO wa_group
+                    (id, tenant_id, group_jid, created_at, updated_at)
                 VALUES
-                    (8, 99, '120363success@g.us', 'cross-tenant-preview'),
-                    (7, 101, '120363success@g.us', 'preview-success'),
-                    (7, 102, '120363failed@g.us', 'preview-failed'),
-                    (8, 103, '120363other@g.us', 'preview-other')
+                    (1099, 8, '120363success@g.us', 1, 1),
+                    (1101, 7, '120363success@g.us', 1, 1),
+                    (1102, 7, '120363failed@g.us', 1, 1),
+                    (1103, 8, '120363other@g.us', 1, 1)
+                """,
+                """
+                INSERT INTO wa_group_profile
+                    (tenant_id, group_id, subject, created_at, updated_at)
+                VALUES
+                    (8, 1099, 'cross-tenant-preview', 1, 1),
+                    (7, 1101, 'preview-success', 1, 1),
+                    (7, 1102, 'preview-failed', 1, 1),
+                    (8, 1103, 'preview-other', 1, 1)
                 """,
                 """
                 INSERT INTO marketing_task_target

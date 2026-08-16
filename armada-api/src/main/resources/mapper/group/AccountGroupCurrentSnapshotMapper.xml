@@ -11,7 +11,7 @@
            b.baseline_group_subjects AS baselineGroupSubjectsJson,
            b.group_count AS baselineGroupCount,
            b.captured_at AS baselineCapturedAt,
-           b.last_group_sync_requested_at AS lastSyncRequestedAt,
+           s.last_sync_requested_at AS lastSyncRequestedAt,
            s.baseline_completeness AS targetBaselineCompleteness
     FROM account a
     LEFT JOIN account_group_baseline b

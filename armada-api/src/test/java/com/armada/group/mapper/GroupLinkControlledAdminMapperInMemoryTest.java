@@ -125,12 +125,13 @@ class GroupLinkControlledAdminMapperInMemoryTest {
         execute(
                 """
                 INSERT INTO group_link
-                  (id, tenant_id, link_url, label_id, folder_id, import_batch_id,
+                  (id, tenant_id, group_id, group_invite_id,
+                   link_url, label_id, folder_id, import_batch_id,
                    origin, membership_state, is_historical, is_post_control,
                    created_at, updated_at)
-                VALUES (210, 7, 'wa://group/current-count@g.us', 11, 12, 13,
+                VALUES (210, 7, 510, 710, 'wa://group/current-count@g.us', 11, 12, 13,
                         5, 2, 1, 1, 100, 100),
-                       (211, 8, 'wa://group/other-tenant@g.us', NULL, NULL, NULL,
+                       (211, 8, NULL, NULL, 'wa://group/other-tenant@g.us', NULL, NULL, NULL,
                         5, 2, 0, 0, 500, 500)
                 """,
                 """
@@ -159,6 +160,16 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 INSERT INTO account_state
                   (tenant_id, account_id, login_state, account_state)
                 VALUES (7, 301, 1, 2)
+                """,
+                """
+                INSERT INTO whatsapp_group_member_snapshot
+                  (tenant_id, group_link_id, group_jid, participant_jid, phone,
+                   role, is_admin, is_owner, snapshot_at, created_at, updated_at)
+                VALUES
+                  (7, 210, 'current-count@g.us', '1001@s.whatsapp.net', '1001',
+                   'ADMIN', 1, 0, 100, 100, 100),
+                  (7, 210, 'current-count@g.us', '1002@s.whatsapp.net', '1002',
+                   'OWNER', 1, 1, 100, 100, 100)
                 """,
                 """
                 INSERT INTO account_group_membership
@@ -221,6 +232,102 @@ class GroupLinkControlledAdminMapperInMemoryTest {
         assertThat(currentMapper.count(TENANT_ID, unfiltered))
                 .isEqualTo(mapper.countByLabel(unfiltered))
                 .isEqualTo(2L);
+    }
+
+    @Test
+    void whatsappGroupNamesComeFromCurrentProfile() throws SQLException {
+        execute(
+                """
+                INSERT INTO group_link
+                  (id, tenant_id, group_id, link_url, origin, membership_state,
+                   created_at, updated_at)
+                VALUES
+                  (220, 7, 520, 'wa://group/current-name@g.us', 5, 2, 100, 100),
+                  (221, 7, 521, 'wa://group/blank-name@g.us', 5, 2, 100, 100),
+                  (222, 8, 522, 'wa://group/other-name@g.us', 5, 2, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group
+                  (id, tenant_id, group_jid, origin, created_at, updated_at)
+                VALUES
+                  (520, 7, 'current-name@g.us', 5, 100, 100),
+                  (521, 7, 'blank-name@g.us', 5, 100, 100),
+                  (522, 8, 'other-name@g.us', 5, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group_profile
+                  (id, tenant_id, group_id, subject, created_at, updated_at)
+                VALUES
+                  (620, 7, 520, '新模型群名', 100, 100),
+                  (621, 7, 521, '   ', 100, 100),
+                  (622, 8, 522, '其他租户群名', 100, 100)
+                """);
+
+        assertThat(currentMapper.selectWhatsAppGroupNames(
+                        TENANT_ID, java.util.List.of(220L, 221L, 222L)))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getId()).isEqualTo(220L);
+                    assertThat(row.getWaSubject()).isEqualTo("新模型群名");
+                });
+    }
+
+    @Test
+    void groupDetailAndMembersComeFromCurrentFacts() throws SQLException {
+        execute(
+                """
+                INSERT INTO group_link
+                  (id, tenant_id, group_id, link_url, origin, membership_state,
+                   remark, created_at, updated_at)
+                VALUES (230, 7, 530, 'wa://group/current-detail@g.us', 5, 2,
+                        '本地备注', 100, 100)
+                """,
+                """
+                INSERT INTO wa_group
+                  (id, tenant_id, group_jid, avatar_url, origin, created_at, updated_at)
+                VALUES (530, 7, 'current-detail@g.us', 'https://current/avatar.jpg',
+                        5, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group_profile
+                  (id, tenant_id, group_id, subject, description, member_count,
+                   wa_created_at, announce_only, admin_only_edit_info, member_add_mode,
+                   member_link_mode, join_approval_mode, ephemeral_duration_seconds,
+                   metadata_observed_at, created_at, updated_at)
+                VALUES (630, 7, 530, '当前详情群名', '当前群公告', 2,
+                        113600000, 1, 0, 1, 1, 0, 604800,
+                        200, 100, 200)
+                """,
+                """
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, pn_jid, phone, presence_status,
+                   presence_observed_at, role, created_at, updated_at)
+                VALUES
+                  (830, 7, 530, '1001@s.whatsapp.net', '1001', 1, 200, 1, 100, 200),
+                  (831, 7, 530, '1002@s.whatsapp.net', '1002', 1, 200, 3, 100, 200),
+                  (832, 7, 530, '1003@s.whatsapp.net', '1003', 2, 200, 2, 100, 200)
+                """);
+
+        assertThat(currentMapper.selectGroupDetail(TENANT_ID, 230L))
+                .satisfies(detail -> {
+                    assertThat(detail.getGroupJid()).isEqualTo("current-detail@g.us");
+                    assertThat(detail.getWaSubject()).isEqualTo("当前详情群名");
+                    assertThat(detail.getAvatarUrl()).isEqualTo("https://current/avatar.jpg");
+                    assertThat(detail.getMetadataObservedAt()).isEqualTo(200L);
+                    assertThat(detail.getEphemeralDurationSeconds()).isEqualTo(604800);
+                    assertThat(detail.getAnnounceOnly()).isTrue();
+                    assertThat(detail.getAdminOnlyEditInfo()).isFalse();
+                });
+        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 230L))
+                .extracting(member -> member.getParticipantJid(),
+                        member -> member.getRole(),
+                        member -> member.getIsAdmin(),
+                        member -> member.getIsOwner())
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                "1002@s.whatsapp.net", "OWNER", true, true),
+                        org.assertj.core.groups.Tuple.tuple(
+                                "1001@s.whatsapp.net", "MEMBER", false, false));
     }
 
     private static GroupLinkQuery pageQuery() {
@@ -287,6 +394,7 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 """
                 CREATE TABLE group_link (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, link_url VARCHAR(255) NOT NULL,
+                  group_id BIGINT, group_invite_id BIGINT,
                   group_name VARCHAR(128), label_id BIGINT, folder_id BIGINT, import_batch_id BIGINT,
                   origin TINYINT NOT NULL, membership_state TINYINT NOT NULL,
                   is_historical TINYINT DEFAULT 0, is_post_control TINYINT DEFAULT 0,
@@ -369,8 +477,12 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                 """
                 CREATE TABLE wa_group_profile (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
-                  subject VARCHAR(255), member_count INT, checked_member_count INT,
+                  subject VARCHAR(255), description VARCHAR(1024),
+                  member_count INT, checked_member_count INT,
                   wa_created_at BIGINT,
+                  announce_only TINYINT, admin_only_edit_info TINYINT,
+                  member_add_mode TINYINT, member_link_mode TINYINT,
+                  join_approval_mode TINYINT, ephemeral_duration_seconds INT,
                   health_status TINYINT, banned TINYINT, last_checked_at BIGINT,
                   last_error_code VARCHAR(64), failure_count INT DEFAULT 0,
                   metadata_observed_at BIGINT, current_invite_id BIGINT,
@@ -393,7 +505,7 @@ class GroupLinkControlledAdminMapperInMemoryTest {
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
                   pn_jid VARCHAR(191), lid_jid VARCHAR(191), phone VARCHAR(32),
                   phone_country_iso2 VARCHAR(2), presence_status TINYINT NOT NULL,
-                  role TINYINT NOT NULL, role_observed_at BIGINT,
+                  presence_observed_at BIGINT, role TINYINT NOT NULL, role_observed_at BIGINT,
                   created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
                 )
                 """,

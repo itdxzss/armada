@@ -378,4 +378,94 @@
     ORDER BY handle.created_at DESC, handle.id DESC
   </select>
 
+  <select id="selectWhatsAppGroupNames"
+          resultType="com.armada.group.model.vo.GroupLinkVoRow">
+    SELECT handle.id,
+           current_profile.subject AS waSubject
+    FROM group_link handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    INNER JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    WHERE handle.tenant_id = #{tenantId}
+      AND handle.deleted_at IS NULL
+      AND current_profile.subject IS NOT NULL
+      AND TRIM(current_profile.subject) &lt;&gt; ''
+      AND handle.id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+    ORDER BY handle.id ASC
+  </select>
+
+  <select id="selectGroupDetail"
+          resultType="com.armada.group.model.entity.GroupLinkPreview">
+    SELECT current_profile.id,
+           handle.tenant_id AS tenantId,
+           handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           current_profile.subject AS waSubject,
+           current_profile.description AS waDescription,
+           current_profile.member_count AS memberSize,
+           current_profile.announce_only AS announceOnly,
+           current_profile.admin_only_edit_info AS adminOnlyEditInfo,
+           current_profile.member_add_mode AS memberAddMode,
+           current_profile.member_link_mode AS memberLinkMode,
+           current_profile.join_approval_mode AS joinApprovalMode,
+           current_profile.ephemeral_duration_seconds AS ephemeralDurationSeconds,
+           CASE WHEN current_profile.wa_created_at IS NULL THEN NULL
+             ELSE FLOOR(current_profile.wa_created_at / 1000) END AS groupCreatedAt,
+           current_group.avatar_url AS avatarUrl,
+           current_profile.metadata_observed_at AS metadataObservedAt,
+           current_profile.created_at AS createdAt,
+           current_profile.updated_at AS updatedAt
+    FROM group_link handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    WHERE handle.tenant_id = #{tenantId}
+      AND handle.id = #{groupLinkId}
+      AND handle.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <select id="selectGroupDetailMembers"
+          resultType="com.armada.group.model.entity.WhatsappGroupMemberSnapshot">
+    SELECT participant.id,
+           participant.tenant_id AS tenantId,
+           handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
+           COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+           participant.phone,
+           CASE participant.role
+             WHEN 3 THEN 'OWNER'
+             WHEN 2 THEN 'ADMIN'
+             ELSE 'MEMBER'
+           END AS role,
+           CASE WHEN participant.role IN (2, 3) THEN 1 ELSE 0 END AS isAdmin,
+           CASE WHEN participant.role = 3 THEN 1 ELSE 0 END AS isOwner,
+           participant.presence_observed_at AS snapshotAt,
+           participant.created_at AS createdAt,
+           participant.updated_at AS updatedAt
+    FROM group_link handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = current_group.tenant_id
+     AND participant.group_id = current_group.id
+     AND participant.presence_status = 1
+    WHERE handle.tenant_id = #{tenantId}
+      AND handle.id = #{groupLinkId}
+      AND handle.deleted_at IS NULL
+    ORDER BY participant.role DESC,
+             COALESCE(participant.pn_jid, participant.lid_jid) ASC,
+             participant.id ASC
+  </select>
+
 </mapper>

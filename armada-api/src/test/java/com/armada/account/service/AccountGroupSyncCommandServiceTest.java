@@ -53,6 +53,13 @@ class AccountGroupSyncCommandServiceTest {
             List<Long> accountIds = inv.getArgument(0, List.class);
             return accountIds.size();
         });
+        when(accountMapper.markCurrentGroupSyncRequested(
+                Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong())).thenAnswer(inv -> {
+            tenantContextDuringWatermarkUpdates.add(TenantContext.get());
+            @SuppressWarnings("unchecked")
+            List<Long> accountIds = inv.getArgument(1, List.class);
+            return accountIds.size();
+        });
 
         AccountGroupSyncCommandService.EnqueueResult result = service.enqueueDueSyncCommands(50);
 
@@ -60,7 +67,7 @@ class AccountGroupSyncCommandServiceTest {
         assertThat(result.enqueued()).isEqualTo(3);
         assertThat(result.tenantBatches()).isEqualTo(2);
         assertThat(tenantContextDuringOutboxCalls).containsExactly(1L, 2L);
-        assertThat(tenantContextDuringWatermarkUpdates).containsExactly(1L, 2L);
+        assertThat(tenantContextDuringWatermarkUpdates).containsExactly(1L, 1L, 2L, 2L);
         assertThat(TenantContext.get()).isNull();
 
         @SuppressWarnings("unchecked")
@@ -69,6 +76,10 @@ class AccountGroupSyncCommandServiceTest {
         verify(outboxService, Mockito.times(2)).enqueueAccountGroupSyncCommands(captor.capture());
         verify(accountMapper).markGroupSyncRequested(Mockito.eq(List.of(101L, 102L)), Mockito.anyLong());
         verify(accountMapper).markGroupSyncRequested(Mockito.eq(List.of(201L)), Mockito.anyLong());
+        verify(accountMapper).markCurrentGroupSyncRequested(
+                Mockito.eq(1L), Mockito.eq(List.of(101L, 102L)), Mockito.anyLong());
+        verify(accountMapper).markCurrentGroupSyncRequested(
+                Mockito.eq(2L), Mockito.eq(List.of(201L)), Mockito.anyLong());
         assertThat(captor.getAllValues().get(0))
                 .extracting(ProtocolAccountGroupSyncCommandRequest::accountId)
                 .containsExactly(101L, 102L);

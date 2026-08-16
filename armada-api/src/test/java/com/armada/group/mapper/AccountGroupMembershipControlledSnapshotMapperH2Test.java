@@ -114,7 +114,13 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                 """, """
                 CREATE TABLE wa_group_participant (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  group_id BIGINT NOT NULL, presence_status TINYINT NOT NULL
+                  group_id BIGINT NOT NULL, phone VARCHAR(32),
+                  presence_status TINYINT NOT NULL, role TINYINT NOT NULL
+                )
+                """, """
+                CREATE TABLE wa_group (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL
                 )
                 """, """
                 CREATE TABLE whatsapp_group_member_snapshot (
@@ -147,6 +153,19 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                 INSERT INTO group_link (id, tenant_id, group_id, deleted_at) VALUES
                   (201, 7, 1001, NULL),
                   (202, 8, 1002, NULL)
+                """, """
+                INSERT INTO wa_group (id, tenant_id, group_jid) VALUES
+                  (1001, 7, '120363snapshot@g.us'),
+                  (1002, 8, '120363other@g.us')
+                """, """
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, phone, presence_status, role)
+                VALUES
+                  (5001, 7, 1001, '1001', 1, 2),
+                  (5002, 7, 1001, '1002', 1, 1),
+                  (5003, 7, 1001, '1003', 1, 2),
+                  (5004, 7, 1001, '9999', 1, 2),
+                  (5005, 8, 1002, '1004', 1, 2)
                 """, """
                 INSERT INTO whatsapp_group_member_snapshot
                   (tenant_id, group_link_id, group_jid, participant_jid, phone, is_admin)

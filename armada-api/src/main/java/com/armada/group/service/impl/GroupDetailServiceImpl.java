@@ -59,7 +59,7 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 群详情抽屉业务的默认编排实现。
  *
- * <p>详情 GET 只读取 Armada 本地最后成功 metadata 与完整成员快照，不在页面加载时调用协议层。
+ * <p>详情 GET 只读取当前群资料与成员事实，不在页面加载时调用协议层。
  * 尚无完整快照时明确返回待同步状态，避免把空成员数组误认为群内无人。</p>
  *
  * <p>群资料、限时消息、权限和成员写操作均由后端自动选号。协议调用超时时不会换号重试，
@@ -111,7 +111,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 群链接本地资料 Mapper。 */
     private final GroupLinkMapper groupLinkMapper;
 
-    /** 群 JID、WhatsApp subject 和头像镜像 Mapper。 */
+    /** 旧群资料镜像双写 Mapper。 */
     private final GroupLinkPreviewMapper previewMapper;
 
     /** 写操作所用的在线、在群且优先管理员执行账号选择器。 */
@@ -120,7 +120,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 群详情业务使用的四类协议能力端口。 */
     private final GroupDetailProtocolPorts protocolPorts;
 
-    /** 最后成功 metadata 和完整成员快照读取器。 */
+    /** 当前群资料、成员和同步任务读取器。 */
     private final GroupDetailSnapshotReader snapshotReader;
 
     /** 群成员最后成功快照 Mapper。 */
@@ -142,7 +142,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      * 创建群详情业务服务。
      *
      * @param groupLinkMapper 群链接本地资料 Mapper
-     * @param previewMapper   群预览和实时标识镜像 Mapper
+     * @param previewMapper   旧群资料镜像双写 Mapper
      * @param selector        群操作执行账号选择器
      * @param protocolPorts   群元数据、资料、设置和成员协议端口集合
      */
@@ -170,11 +170,10 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 聚合 Armada 本地群资料和最后成功的 WhatsApp metadata 快照。
+     * 聚合 Armada 本地群资料和当前 WhatsApp 群事实。
      *
-     * <p>先读取本地群链接与预览镜像，再用自动选出的在群账号读取一次 metadata。
-     * 群 JID 未解析、没有可执行账号或协议读取失败时，返回 {@code liveStateAvailable=false}
-     * 的降级详情而不是让整个抽屉加载失败；本地备注和头像仍然保留。</p>
+     * <p>只读取本地当前事实。群 JID 或 metadata 尚未落库时返回
+     * {@code liveStateAvailable=false} 的降级详情；本地备注和头像仍然保留。</p>
      *
      * @param id 群链接 ID
      * @return 包含本地资料、实时权限、限时消息和成员快照的群详情
@@ -1092,12 +1091,12 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 加载一个未删除群链接及其可选预览镜像。
+     * 加载一个未删除群链接及其可选当前资料。
      *
-     * <p>groupJid 只来源于已落库的预览数据；链接尚未预览时允许为空，供详情读取走降级路径。</p>
+     * <p>groupJid 只来源于已解析的当前群身份；尚未解析时允许为空，供详情读取走降级路径。</p>
      *
      * @param id 群链接 ID
-     * @return 本地群链接、预览镜像和归一化群 JID
+     * @return 本地群链接、当前资料和归一化群 JID
      * @throws BusinessException 当 ID 无效或群链接不存在时抛出
      */
     private GroupTarget target(Long id) {
@@ -1108,7 +1107,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (link == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(id);
+        GroupLinkPreview preview = snapshotReader.profile(id);
         String groupJid = preview == null || preview.getGroupJid() == null
                 || preview.getGroupJid().isBlank()
                 ? null
@@ -1498,7 +1497,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      * 群详情编排使用的本地目标快照。
      *
      * @param link     活跃群链接
-     * @param preview  可选群预览镜像
+     * @param preview  可选当前群资料投影
      * @param groupJid 已归一化群 JID，尚未解析时为空
      */
     private record GroupTarget(GroupLink link, GroupLinkPreview preview, String groupJid) {

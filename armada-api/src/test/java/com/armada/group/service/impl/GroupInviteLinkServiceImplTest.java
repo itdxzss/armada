@@ -7,11 +7,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -26,6 +28,7 @@ class GroupInviteLinkServiceImplTest {
 
     private final GroupLinkRegistryService registry = mock(GroupLinkRegistryService.class);
     private final GroupLinkPreviewMapper previewMapper = mock(GroupLinkPreviewMapper.class);
+    private final GroupLinkMapper groupLinkMapper = mock(GroupLinkMapper.class);
     private final GroupLinkHealthMapper healthMapper = mock(GroupLinkHealthMapper.class);
     private final GroupExecutionAccountSelector accountSelector =
             mock(GroupExecutionAccountSelector.class);
@@ -34,7 +37,7 @@ class GroupInviteLinkServiceImplTest {
             mock(GroupCurrentInvitePersistence.class);
     private final GroupInviteLinkServiceImpl service =
             new GroupInviteLinkServiceImpl(
-                    registry, previewMapper, healthMapper, accountSelector,
+                    registry, previewMapper, groupLinkMapper, healthMapper, accountSelector,
                     invitePort, currentInvitePersistence);
 
     @Test
@@ -69,10 +72,9 @@ class GroupInviteLinkServiceImplTest {
     }
 
     @Test
-    void resolveCurrentInviteCodeUsesPreviewAndFallsBackToFrozenCode() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setInviteCode("NewInviteCode_2026");
-        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+    void resolveCurrentInviteCodeUsesCurrentIdentityAndFallsBackToFrozenCode() {
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, "120363group@g.us", "NewInviteCode_2026"));
 
         assertThat(service.resolveCurrentInviteCode(51L, "FrozenCode"))
                 .isEqualTo("NewInviteCode_2026");
@@ -82,9 +84,8 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void refreshUsesAnAlreadyObservedReplacementWithoutQueryingWhatsapp() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setInviteCode("PassiveReplacement_2026");
-        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, "120363group@g.us", "PassiveReplacement_2026"));
 
         assertThat(service.refreshCurrentInviteCode(
                 51L, "120363group@g.us", "FrozenCode"))
@@ -94,10 +95,8 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void refreshQueriesAnOnlineGroupAdminAndStoresTheReplacementOnTheOriginalGroup() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupJid("120363group@g.us");
-        preview.setInviteCode("FrozenCode");
-        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, "120363group@g.us", "FrozenCode"));
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 901L, "web", "acc-901", "8613800000901", true);
         when(accountSelector.findCandidates(51L)).thenReturn(List.of(admin));
@@ -150,9 +149,8 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void bindingGroupJidAlsoBindsThePreviouslyObservedInvite() {
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setInviteCode("ObservedBeforeJoin_2026");
-        when(previewMapper.selectByGroupLinkId(51L)).thenReturn(preview);
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, null, "ObservedBeforeJoin_2026"));
 
         service.bindGroupJid(51L, "120363joined@g.us", 4_000L);
 

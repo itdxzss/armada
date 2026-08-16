@@ -249,7 +249,7 @@
 
   <!--
     账号当前群同步候选:跨租户扫描在线正常账号。
-    已拍 baseline 的账号按 baseline 做差集;不启用 baseline 的账号直接同步。
+    已拍 baseline 的账号按当前模型同步水位轮转;不启用 baseline 的账号直接同步。
     待拍账号必须由营销账号树的实时协议查询捕获 baseline,避免定时任务晚到后把新进群误拍进旧群 JSON。
     调度线程没有租户上下文,所以 mapper 方法关闭租户拦截器,这里显式按 tenant_id 连接。
   -->
@@ -261,9 +261,9 @@
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
-    LEFT JOIN account_group_baseline b
-      ON b.tenant_id = a.tenant_id
-     AND b.account_id = a.id
+    LEFT JOIN account_group_sync_state current_sync
+      ON current_sync.tenant_id = a.tenant_id
+     AND current_sync.account_id = a.id
     WHERE a.deleted_at IS NULL
       AND a.group_baseline_state IN (#{baselineCapturedState}, 3)
       AND a.protocol_account_id IS NOT NULL
@@ -272,7 +272,7 @@
       AND s.account_state = #{normalAccountState}
       AND (s.risk_status IS NULL OR s.risk_status = 1)
       AND s.mute_status IS NULL
-    ORDER BY COALESCE(b.last_group_sync_requested_at, 0) ASC,
+    ORDER BY COALESCE(current_sync.last_sync_requested_at, 0) ASC,
              COALESCE(s.last_state_sync_time, a.updated_at, a.created_at, 0) ASC,
              a.id ASC
     LIMIT #{limit}
@@ -311,6 +311,21 @@
     ON DUPLICATE KEY UPDATE
       last_group_sync_requested_at = VALUES(last_group_sync_requested_at),
       updated_at = VALUES(updated_at)
+  </insert>
+
+  <insert id="markCurrentGroupSyncRequested">
+    INSERT INTO account_group_sync_state (
+      tenant_id, account_id, baseline_state, baseline_completeness,
+      last_sync_requested_at, last_snapshot_complete, created_at, updated_at
+    ) VALUES
+    <foreach collection="accountIds" item="accountId" separator=",">
+      (#{tenantId}, #{accountId}, 1, 0, #{requestedAt}, 0, #{requestedAt}, #{requestedAt})
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      last_sync_requested_at = GREATEST(
+        COALESCE(last_sync_requested_at, 0), VALUES(last_sync_requested_at)
+      ),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
   <!--

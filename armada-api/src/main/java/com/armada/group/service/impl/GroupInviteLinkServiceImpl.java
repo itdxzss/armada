@@ -1,12 +1,14 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkHealthMapper;
+import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupInviteLinkService;
@@ -29,6 +31,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
 
     private final GroupLinkRegistryService registryService;
     private final GroupLinkPreviewMapper previewMapper;
+    private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkHealthMapper healthMapper;
     private final GroupExecutionAccountSelector accountSelector;
     private final GroupInvitePort invitePort;
@@ -47,12 +50,14 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
     public GroupInviteLinkServiceImpl(
             GroupLinkRegistryService registryService,
             GroupLinkPreviewMapper previewMapper,
+            GroupLinkMapper groupLinkMapper,
             GroupLinkHealthMapper healthMapper,
             GroupExecutionAccountSelector accountSelector,
             GroupInvitePort invitePort,
             GroupCurrentInvitePersistence currentInvitePersistence) {
         this.registryService = registryService;
         this.previewMapper = previewMapper;
+        this.groupLinkMapper = groupLinkMapper;
         this.healthMapper = healthMapper;
         this.accountSelector = accountSelector;
         this.invitePort = invitePort;
@@ -76,8 +81,8 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         currentInvitePersistence.apply(observation.groupJid(), inviteCode, observedAt);
         String resolvedGroupJid = trimToNull(observation.groupJid());
         if (resolvedGroupJid == null) {
-            GroupLinkPreview current = previewMapper.selectByGroupLinkId(groupLinkId);
-            resolvedGroupJid = current == null ? null : trimToNull(current.getGroupJid());
+            GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+            resolvedGroupJid = current == null ? null : trimToNull(current.groupJid());
         }
         if (resolvedGroupJid != null && health != null) {
             currentInvitePersistence.applyHealth(resolvedGroupJid, health);
@@ -102,10 +107,10 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
         previewMapper.upsertGroupJidBinding(row);
-        GroupLinkPreview current = previewMapper.selectByGroupLinkId(groupLinkId);
-        if (current != null && hasText(current.getInviteCode())) {
+        GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        if (current != null && hasText(current.inviteCode())) {
             currentInvitePersistence.apply(
-                    groupJid, current.getInviteCode().trim(), observedAt);
+                    groupJid, current.inviteCode().trim(), observedAt);
         }
     }
 
@@ -148,9 +153,9 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
     @Override
     public String resolveCurrentInviteCode(Long groupLinkId, String frozenInviteCode) {
         if (groupLinkId != null) {
-            GroupLinkPreview preview = previewMapper.selectByGroupLinkId(groupLinkId);
-            if (preview != null && hasText(preview.getInviteCode())) {
-                return preview.getInviteCode().trim();
+            GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+            if (identity != null && hasText(identity.inviteCode())) {
+                return identity.inviteCode().trim();
             }
         }
         if (!hasText(frozenInviteCode)) {
@@ -166,25 +171,25 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         if (groupLinkId == null) {
             return Optional.empty();
         }
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(groupLinkId);
-        if (preview == null || !hasText(preview.getInviteCode())) {
-            return queryCurrentInvite(groupLinkId, groupJid, attemptedInviteCode, preview);
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        if (identity == null || !hasText(identity.inviteCode())) {
+            return queryCurrentInvite(groupLinkId, groupJid, attemptedInviteCode, identity);
         }
-        String currentInviteCode = preview.getInviteCode().trim();
+        String currentInviteCode = identity.inviteCode().trim();
         if (!currentInviteCode.equals(trimToEmpty(attemptedInviteCode))) {
             return Optional.of(currentInviteCode);
         }
-        return queryCurrentInvite(groupLinkId, groupJid, attemptedInviteCode, preview);
+        return queryCurrentInvite(groupLinkId, groupJid, attemptedInviteCode, identity);
     }
 
     private Optional<String> queryCurrentInvite(
             Long groupLinkId,
             String groupJid,
             String attemptedInviteCode,
-            GroupLinkPreview preview) {
+            GroupCurrentIdentity identity) {
         String resolvedGroupJid = hasText(groupJid)
                 ? groupJid.trim()
-                : preview == null ? null : trimToNull(preview.getGroupJid());
+                : identity == null ? null : trimToNull(identity.groupJid());
         if (resolvedGroupJid == null) {
             return Optional.empty();
         }

@@ -89,15 +89,30 @@
   </select>
 
   <select id="selectLinkRefreshBlockedIds" resultType="long">
-    SELECT group_link_id
-    FROM group_link_health
+    SELECT handle.id
+    FROM group_link handle
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = handle.tenant_id
+     AND input_invite.id = handle.group_invite_id
     <!-- 3=不可用。链接失效(2)不拦截：那正是最需要刷新邀请链接的场景。 -->
-    WHERE (is_banned = 1 OR health_status = 3)
-      AND group_link_id IN
+    WHERE handle.deleted_at IS NULL
+      AND (
+        CASE WHEN current_group.id IS NOT NULL
+          THEN current_profile.banned ELSE input_invite.banned END = 1
+        OR CASE WHEN current_group.id IS NOT NULL
+          THEN current_profile.health_status ELSE input_invite.health_status END = 3
+      )
+      AND handle.id IN
     <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
       #{groupLinkId}
     </foreach>
-    ORDER BY group_link_id ASC
+    ORDER BY handle.id ASC
   </select>
 
   <update id="updateFromAccountGroupSync">

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class GroupMemberLinkModeMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V123__group_member_link_mode.sql");
+            "src/main/resources/db/migration/V124__group_member_link_mode.sql");
 
     @Test
     void migrationAddsIndependentModeToLegacyAndCurrentSnapshots() throws IOException {

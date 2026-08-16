@@ -96,6 +96,7 @@ class HttpGroupMetadataAdapterTest {
 
         assertThat(result.participants()).isEmpty();
         assertThat(result.participantsComplete()).isFalse();
+        assertThat(result.joinApprovalMode()).isNull();
         server.verify();
     }
 }

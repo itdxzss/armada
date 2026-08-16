@@ -401,12 +401,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 修改一项 WhatsApp 群权限并回读确认。
      *
-     * <p>权限写操作先使用在线且仍在群内的账号读取一次实时 metadata，再从实时确认的管理员
-     * 手机号中选择在线正常账号；不以可能滞后的本地管理员角色快照作为唯一依据，也不会把
-     * 普通成员直接用于权限写操作。
-     * 权限 key 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，协议未明确返回该能力时
-     * 直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
-     * 仍由同一账号回读对应 metadata 字段确认。</p>
+     * <p>从本地快照选择在线、正常、仍在群内的管理员或群主，直接调用对应权限设置接口，
+     * 随后只用同一账号读取一次 metadata 确认结果。五个权限 key 共享同一执行流程，
+     * 不在写入前额外读取 metadata 或切换执行账号。</p>
      *
      * @param id  群链接 ID
      * @param dto 权限 key 和期望开关状态
@@ -418,19 +415,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             throw new BusinessException(ErrorCode.VALIDATION, "群权限设置不能为空");
         }
         GroupTarget target = requireLiveTarget(id);
-        GroupExecutionAccount readAccount = selector.require(id);
-        GroupMetadataResult metadata;
-        try {
-            metadata = protocolPorts.metadata().getMetadata(
-                    readAccount.protocolRef(), target.groupJid());
-        } catch (ProtocolException ex) {
-            log.warn("群权限设置前读取元数据失败 groupLinkId={} accountId={} code={}",
-                    id, readAccount.accountId(), ex.errorCode());
-            throw groupBusinessException(ex);
-        }
-        GroupExecutionAccount account = requireCurrentAdministrator(
-                id, readAccount, metadata, List.of());
-        ensureSupportedSetting(account, target.groupJid(), dto.key());
+        GroupExecutionAccount account = selector.requireAdmin(id);
         try {
             applySetting(account, target.groupJid(), dto);
         } catch (ProtocolException ex) {
@@ -1255,41 +1240,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         throw new BusinessException(
                 ErrorCode.GROUP_PROTOCOL_TIMEOUT,
                 "限时消息设置结果待确认，请刷新");
-    }
-
-    /**
-     * 在写入前验证需要能力声明的群设置。
-     *
-     * <p>“通过链接邀请”必须先读取 metadata capability；协议没有返回 member_link_mode 时
-     * 立即失败，禁止误用添加成员或入群审批设置。</p>
-     *
-     * @param account  执行账号
-     * @param groupJid WhatsApp 群 JID
-     * @param key      权限设置 key
-     * @throws BusinessException 当 capability 不支持或读取失败时抛出
-     */
-    private void ensureSupportedSetting(
-            GroupExecutionAccount account,
-            String groupJid,
-            GroupPermissionKey key) {
-        if (key != GroupPermissionKey.INVITE_VIA_LINK) {
-            return;
-        }
-        GroupMetadataResult metadata;
-        try {
-            metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolRef(), groupJid);
-        } catch (ProtocolException ex) {
-            throw groupBusinessException(ex);
-        }
-        if (!metadata.inviteViaLinkSupported()) {
-            log.info("群权限能力不支持 accountId={} key={}", account.accountId(), key);
-            throw new BusinessException(
-                    ErrorCode.GROUP_CAPABILITY_UNSUPPORTED,
-                    firstText(
-                            metadata.inviteViaLinkUnsupportedReason(),
-                            ErrorCode.GROUP_CAPABILITY_UNSUPPORTED.defaultMessage()));
-        }
     }
 
     /**

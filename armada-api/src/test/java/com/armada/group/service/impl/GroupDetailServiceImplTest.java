@@ -387,7 +387,8 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSettingUsesSelectedAccountAndConfirmsMetadata() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
         when(previewMapper.updateMemberAddMode(
@@ -411,13 +412,44 @@ class GroupDetailServiceImplTest {
         assertThat(currentCaptor.getValue().getGroupJid()).isEqualTo("120363detail@g.us");
         assertThat(currentCaptor.getValue().getMemberAddMode()).isTrue();
         assertThat(currentCaptor.getValue().getMemberAddModeObserved()).isTrue();
-        verify(selector).require(10L);
+        verify(selector).requireOwner(10L);
+    }
+
+    @Test
+    void disablingMemberEditUsesOwnerAndPersistsAdminOnlyMode() {
+        givenLiveTarget();
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
+                .thenReturn(metadata("群名", false, false, true, false, 0));
+        when(previewMapper.updateAdminOnlyEditInfo(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        service.updateSetting(10L, new GroupSettingCommandDTO(
+                GroupPermissionKey.EDIT_GROUP_SETTINGS, false));
+
+        verify(selector).requireOwner(10L);
+        verify(groupSettingsPort).setEditGroupSettingsAllowed(
+                webAccount(), "120363detail@g.us", false);
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
+        verify(previewMapper).updateAdminOnlyEditInfo(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
+        assertThat(currentCaptor.getValue().getGroupJid()).isEqualTo("120363detail@g.us");
+        assertThat(currentCaptor.getValue().getAdminOnlyEditInfo()).isTrue();
+        assertThat(currentCaptor.getValue().getAdminOnlyEditInfoObserved()).isTrue();
     }
 
     @Test
     void updateSendMessagesPersistsConfirmedSnapshotWithoutUiRebound() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
+        when(selector.requireOwner(10L)).thenReturn(new GroupExecutionAccount(
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, true, false, false, 0));
@@ -440,7 +472,8 @@ class GroupDetailServiceImplTest {
     @Test
     void updateSettingMapsProtocolPermissionDeniedToBusinessError() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(
                 ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
                 .when(groupSettingsPort)
@@ -452,13 +485,35 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode())
                                 .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code()));
 
-        verify(selector).require(10L);
+        verify(selector).requireOwner(10L);
+    }
+
+    @Test
+    void updateSettingPreservesPermissionDeniedFromSameOwnerMetadataConfirmation() {
+        givenLiveTarget();
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        doThrow(new ProtocolException(
+                ProtocolErrorCode.GROUP_PERMISSION_DENIED, "not admin"))
+                .when(groupMetadataPort)
+                .getMetadata(webAccount(), "120363detail@g.us");
+
+        assertThatThrownBy(() -> service.updateSetting(10L, new GroupSettingCommandDTO(
+                GroupPermissionKey.SEND_MESSAGES, false)))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode())
+                                .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code()));
+
+        verify(groupSettingsPort).setSendMessagesAllowed(
+                webAccount(), "120363detail@g.us", false);
+        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
     void updateSettingTimeoutConfirmedBySameAccountSucceeds() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
                 .setEditGroupSettingsAllowed(webAccount(), "120363detail@g.us", true);
@@ -468,14 +523,15 @@ class GroupDetailServiceImplTest {
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.EDIT_GROUP_SETTINGS, true));
 
-        verify(selector).require(10L);
+        verify(selector).requireOwner(10L);
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
     }
 
     @Test
     void updateSettingUnconfirmedThrowsDedicatedError() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 
@@ -485,13 +541,14 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode())
                                 .isEqualTo(ErrorCode.GROUP_PROTOCOL_TIMEOUT.code()));
 
-        verify(selector).require(10L);
+        verify(selector).requireOwner(10L);
     }
 
     @Test
     void updateSettingRejectsUnsupportedInviteViaLinkBeforeMutation() {
         givenLiveTarget();
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, false, false, 0));
 

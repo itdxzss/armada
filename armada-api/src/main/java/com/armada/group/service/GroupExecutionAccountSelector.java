@@ -125,6 +125,31 @@ public final class GroupExecutionAccountSelector {
     }
 
     /**
+     * 要求目标群已确认的群主账号当前在线、正常且仍在群内。
+     *
+     * <p>群权限设置不能回退到其它管理员或普通成员，避免本地角色快照滞后时把写操作
+     * 发给不具备真实权限的账号。</p>
+     *
+     * @param groupLinkId 群链接 ID
+     * @return 对应 WhatsApp 群的群主账号
+     * @throws BusinessException 群主身份未知或群主账号当前不可执行时抛出
+     */
+    public GroupExecutionAccount requireOwner(Long groupLinkId) {
+        GroupExecutionAccount owner = groupLinkId == null
+                ? null
+                : mapper.selectGroupOwnerExecutionAccount(
+                        groupLinkId,
+                        AccountLoginStateCode.ONLINE,
+                        AccountStateCode.NORMAL);
+        if (owner == null) {
+            throw new BusinessException(
+                    ErrorCode.GROUP_EXECUTOR_UNAVAILABLE,
+                    "没有在线且仍在该群内的群主账号");
+        }
+        return owner;
+    }
+
+    /**
      * 查询可为普通拉群任务管理员提权的当前租户群管理员候选。
      *
      * @param tenantId 当前租户 ID

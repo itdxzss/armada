@@ -706,6 +706,9 @@
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
      AND s.account_state = #{normalAccountState}
+    LEFT JOIN group_link_preview p
+      ON p.tenant_id = m.tenant_id
+     AND p.group_link_id = m.group_link_id
     WHERE m.group_link_id = #{groupLinkId}
       AND m.deleted_at IS NULL
       AND m.membership_status = 1
@@ -718,6 +721,18 @@
              COALESCE(m.last_seen_at, 0) DESC,
              m.id ASC
     LIMIT #{limit}
+  </select>
+
+  <select id="selectGroupOwnerExecutionAccount"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <include refid="groupExecutionAccountColumnsAndJoins"/>
+      AND p.owner_phone IS NOT NULL
+      AND TRIM(p.owner_phone) &lt;&gt; ''
+      AND REPLACE(SUBSTRING_INDEX(TRIM(a.ws_phone), '@', 1), '+', '')
+          = REPLACE(SUBSTRING_INDEX(TRIM(p.owner_phone), '@', 1), '+', '')
+    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
+             m.id ASC
+    LIMIT 1
   </select>
 
   <select id="selectGroupAdminExecutionAccounts"

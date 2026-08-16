@@ -410,12 +410,12 @@
   <select id="selectActiveIdByGroupJid" resultType="long">
     SELECT link.id
     FROM group_link link
-    LEFT JOIN group_link_preview preview
-      ON preview.tenant_id = link.tenant_id
-     AND preview.group_link_id = link.id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = link.tenant_id
+     AND current_group.id = link.group_id
     WHERE link.deleted_at IS NULL
       AND (
-        preview.group_jid = #{groupJid}
+        current_group.group_jid = #{groupJid}
         OR link.link_url = CONCAT('wa://group/', #{groupJid})
       )
     ORDER BY link.id ASC
@@ -442,7 +442,7 @@
   <!--
     群链接健康检查候选:跨租户扫描已解析 group_jid 的活动链接,并选择一个在线在群账号执行 metadata。
     规则:
-      1. group_jid 来自 group_link_preview,无 jid 不进入 Kafka 检测;
+      1. group_jid 来自 group_link.group_id 关联的 wa_group,无稳定引用不进入 Kafka 检测;
       2. 操作账号来自 join_task_result 成功进群记录,并要求 account_state.login_state=ONLINE;
       3. 同一群链接多个在线账号时管理员优先,否则按 join_task_result.id 取最早一条,避免重复命令。
   -->
@@ -451,21 +451,24 @@
     FROM (
       SELECT g.tenant_id AS tenantId,
              g.id AS groupLinkId,
-             p.group_jid AS groupJid,
+             current_group.group_jid AS groupJid,
              a.id AS accountId,
              a.protocol_account_id AS protocolAccountId,
-             h.last_check_at AS lastCheckAt,
+             current_profile.last_checked_at AS lastCheckAt,
              ROW_NUMBER() OVER (
                PARTITION BY g.tenant_id, g.id
                ORDER BY r.is_admin DESC, r.id ASC
              ) AS rowNo
       FROM group_link g
-      INNER JOIN group_link_preview p
-        ON p.tenant_id = g.tenant_id
-       AND p.group_link_id = g.id
+      INNER JOIN wa_group current_group
+        ON current_group.tenant_id = g.tenant_id
+       AND current_group.id = g.group_id
+      LEFT JOIN wa_group_profile current_profile
+        ON current_profile.tenant_id = current_group.tenant_id
+       AND current_profile.group_id = current_group.id
       INNER JOIN join_task_result r
         ON r.tenant_id = g.tenant_id
-       AND r.group_jid = p.group_jid
+       AND r.group_jid = current_group.group_jid
        AND r.status = 'SUCCESS'
        AND r.account_id IS NOT NULL
       INNER JOIN account a
@@ -478,13 +481,10 @@
         ON s.tenant_id = a.tenant_id
        AND s.account_id = a.id
        AND s.login_state = #{onlineLoginState}
-      LEFT JOIN group_link_health h
-        ON h.tenant_id = g.tenant_id
-       AND h.group_link_id = g.id
       WHERE g.deleted_at IS NULL
-        AND p.group_jid IS NOT NULL
-        AND p.group_jid != ''
-        AND (h.is_banned IS NULL OR h.is_banned = 0)
+        AND current_group.group_jid IS NOT NULL
+        AND current_group.group_jid != ''
+        AND (current_profile.banned IS NULL OR current_profile.banned = 0)
     ) ranked
     WHERE rowNo = 1
     ORDER BY COALESCE(lastCheckAt, 0) ASC, groupLinkId ASC

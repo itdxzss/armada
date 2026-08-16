@@ -173,6 +173,12 @@ class MarketingRoundMapperDbTest extends DbTestBase {
                 SET deleted_at = ?, updated_at = ?
                 WHERE account_id = ? AND group_jid = ? AND deleted_at IS NULL
                 """, now, now, accountId, groupJid);
+        jdbc.update("""
+                DELETE binding
+                FROM wa_account_group_binding binding
+                JOIN group_link handle ON handle.group_id = binding.group_id
+                WHERE binding.account_id = ? AND handle.id = ?
+                """, accountId, groupId);
 
         assertThat(mapper.selectDynamicTargetGroups(accountId, null)).isEmpty();
     }
@@ -224,15 +230,31 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         long groupId = insertGroup("fixed-kicked", groupJid);
         insertMembership(accountId, groupId, groupJid);
         long now = System.currentTimeMillis();
+        setCurrentPresence(accountId, groupId, 2, "REMOVED", now);
+
+        MarketingTargetCandidateRow row = mapper.selectCurrentTargetGroup(accountId, groupId);
+
+        assertThat(row).isNull();
+    }
+
+    @Test
+    void selectCurrentTargetGroupUsesCurrentFactsWhenLegacyMembershipIsStale() {
+        long accountGroupId = insertAccountGroup("fixed-current-facts");
+        long accountId = insertAccount(accountGroupId, "923900000010", 2);
+        String groupJid = "120363fixed-current-facts@g.us";
+        long groupId = insertGroup("fixed-current-facts", groupJid);
+        insertMembership(accountId, groupId, groupJid);
+        long now = System.currentTimeMillis();
         jdbc.update("""
                 UPDATE account_group_membership
-                SET membership_status = 3, status_source = 'TEST_KICKED', status_updated_at = ?
+                SET membership_status = 3, status_source = 'STALE_LEGACY', status_updated_at = ?
                 WHERE account_id = ? AND group_link_id = ? AND deleted_at IS NULL
                 """, now, accountId, groupId);
 
         MarketingTargetCandidateRow row = mapper.selectCurrentTargetGroup(accountId, groupId);
 
-        assertThat(row).isNull();
+        assertThat(row).isNotNull();
+        assertThat(row.getMembershipStatus()).isEqualTo(1);
     }
 
     private Long insertTask(String suffix, int status, long nextRoundAt) {
@@ -322,16 +344,35 @@ class MarketingRoundMapperDbTest extends DbTestBase {
 
     private Long insertGroup(String suffix, String groupJid) {
         long now = System.currentTimeMillis();
-        Long groupLinkId = insertAndReturnId("""
-                INSERT INTO group_link
-                    (tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
-                VALUES (?, ?, ?, 5, 2, ?, ?)
+        Long currentGroupId = insertAndReturnId("""
+                INSERT INTO wa_group
+                    (tenant_id, group_jid, display_name, origin, created_at, updated_at)
+                VALUES (?, ?, ?, 5, ?, ?)
                 """, ps -> {
             ps.setLong(1, TEST_TENANT_ID);
-            ps.setString(2, "https://chat.whatsapp.com/round-" + suffix);
+            ps.setString(2, groupJid);
             ps.setString(3, "round-group-" + suffix);
             ps.setLong(4, now);
             ps.setLong(5, now);
+        });
+        jdbc.update("""
+                INSERT INTO wa_group_profile
+                    (tenant_id, group_id, subject, announce_only, health_status, banned,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, 0, 1, 0, ?, ?)
+                """, TEST_TENANT_ID, currentGroupId, "WA-round-" + suffix, now, now);
+        Long groupLinkId = insertAndReturnId("""
+                INSERT INTO group_link
+                    (tenant_id, group_id, link_url, group_name, origin,
+                     membership_state, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 5, 2, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setLong(2, currentGroupId);
+            ps.setString(3, "https://chat.whatsapp.com/round-" + suffix);
+            ps.setString(4, "round-group-" + suffix);
+            ps.setLong(5, now);
+            ps.setLong(6, now);
         });
         jdbc.update("""
                 INSERT INTO group_link_preview
@@ -369,6 +410,61 @@ class MarketingRoundMapperDbTest extends DbTestBase {
                      joined_at, last_seen_at, created_at, updated_at)
                 VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, now, joinedAt, now, now, now);
+        Long currentGroupId = jdbc.queryForObject(
+                "SELECT group_id FROM group_link WHERE id = ?", Long.class, groupLinkId);
+        String phone = jdbc.queryForObject(
+                "SELECT ws_phone FROM account WHERE id = ?", String.class, accountId);
+        Long participantId = insertAndReturnId("""
+                INSERT INTO wa_group_participant
+                    (tenant_id, group_id, pn_jid, phone, presence_status, presence_source,
+                     presence_observed_at, role, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, 'TEST_FIXTURE', ?, 1, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setLong(2, currentGroupId);
+            ps.setString(3, phone + "@s.whatsapp.net");
+            ps.setString(4, phone);
+            ps.setLong(5, now);
+            ps.setLong(6, now);
+            ps.setLong(7, now);
+        });
+        Integer wasInInitialBaseline = jdbc.query("""
+                SELECT 1
+                FROM account_group_baseline
+                WHERE account_id = ?
+                  AND JSON_CONTAINS(baseline_group_jids, JSON_QUOTE(?)) = 1
+                LIMIT 1
+                """, rs -> rs.next() ? 1 : null, accountId, groupJid);
+        jdbc.update("""
+                INSERT INTO wa_account_group_binding
+                    (tenant_id, account_id, group_id, participant_id,
+                     was_in_initial_baseline, membership_active_since_at,
+                     last_observed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, currentGroupId, participantId,
+                wasInInitialBaseline, joinedAt, now, now, now);
+    }
+
+    private void setCurrentPresence(Long accountId, Long groupLinkId, int presenceStatus,
+                                    String exitType, long observedAt) {
+        jdbc.update("""
+                UPDATE wa_group_participant participant
+                JOIN wa_account_group_binding binding
+                  ON binding.tenant_id = participant.tenant_id
+                 AND binding.participant_id = participant.id
+                JOIN group_link handle
+                  ON handle.tenant_id = binding.tenant_id
+                 AND handle.group_id = binding.group_id
+                SET participant.presence_status = ?,
+                    participant.presence_source = 'TEST_FIXTURE',
+                    participant.presence_observed_at = ?,
+                    participant.last_exit_type = ?,
+                    participant.last_exited_at = ?,
+                    participant.updated_at = ?
+                WHERE binding.account_id = ?
+                  AND handle.id = ?
+                """, presenceStatus, observedAt, exitType, observedAt, observedAt,
+                accountId, groupLinkId);
     }
 
     private Long insertAndReturnId(String sql, SqlBinder binder) {

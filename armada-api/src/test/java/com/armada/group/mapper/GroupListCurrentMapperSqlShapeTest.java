@@ -36,6 +36,9 @@ class GroupListCurrentMapperSqlShapeTest {
                 .contains("wa_group_invite current_invite")
                 .contains("wa_group_participant participant")
                 .contains("wa_account_group_binding binding")
+                .contains("current_group.id = handle.group_id")
+                .contains("input_invite.id = handle.group_invite_id")
+                .contains("current_group.id = page_handle.group_id")
                 .contains("handle.tenant_id = #{tenantId}")
                 .contains("participant.tenant_id = page_group.tenant_id")
                 .contains("EXISTS (")
@@ -110,9 +113,8 @@ class GroupListCurrentMapperSqlShapeTest {
                 .contains("LIMIT ?, ?")
                 .contains("FROM page_groups page_group")
                 .contains("STRAIGHT_JOIN wa_group_participant participant")
-                .contains("CHAR CHARACTER SET ascii")
-                .contains("COLLATE ascii_bin")
-                .contains("GROUP_CONCAT");
+                .contains("GROUP_CONCAT")
+                .doesNotContain("page_preview.group_jid");
     }
 
     @Test

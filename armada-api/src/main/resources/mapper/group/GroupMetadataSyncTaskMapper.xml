@@ -76,7 +76,7 @@
            task.rerun_requested, task.last_started_at, task.last_success_at,
            task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
            COALESCE(
-             NULLIF(TRIM(preview.group_jid), ''),
+             NULLIF(TRIM(current_group.group_jid), ''),
              CASE
                WHEN link.link_url LIKE 'wa://group/%'
                  THEN SUBSTRING(link.link_url, CHAR_LENGTH('wa://group/') + 1)
@@ -86,7 +86,9 @@
            CASE
              WHEN link.origin = 4
                AND link.link_url LIKE 'wa://group/%'
-               AND NULLIF(TRIM(preview.invite_code), '') IS NULL
+               AND NULLIF(TRIM(COALESCE(
+                 current_invite.invite_code, input_invite.invite_code
+               )), '') IS NULL
                THEN TRUE
              ELSE FALSE
            END AS inviteRequired
@@ -95,9 +97,18 @@
       ON link.tenant_id = task.tenant_id
      AND link.id = task.group_link_id
      AND link.deleted_at IS NULL
-    LEFT JOIN group_link_preview preview
-      ON preview.tenant_id = task.tenant_id
-     AND preview.group_link_id = task.group_link_id
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = link.tenant_id
+     AND current_group.id = link.group_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = link.tenant_id
+     AND input_invite.id = link.group_invite_id
     WHERE task.status IN
       <foreach collection="statuses" item="status" open="(" separator="," close=")">
         #{status}
@@ -200,16 +211,6 @@
 
   <update id="resumeDeferredForAccount">
     UPDATE group_metadata_sync_task task
-    INNER JOIN group_link link
-      ON link.tenant_id = task.tenant_id
-     AND link.id = task.group_link_id
-     AND link.deleted_at IS NULL
-    INNER JOIN account_group_membership membership
-      ON membership.tenant_id = task.tenant_id
-     AND membership.group_link_id = task.group_link_id
-     AND membership.account_id = #{accountId}
-     AND membership.deleted_at IS NULL
-     AND membership.membership_status = 1
     SET task.status = #{pendingStatus},
         task.trigger_source = #{triggerSource},
         task.next_run_at = #{now},
@@ -218,6 +219,22 @@
         task.last_error_message = NULL,
         task.updated_at = #{now}
     WHERE task.status = #{deferredStatus}
+      AND EXISTS (
+        SELECT 1
+        FROM group_link link
+        INNER JOIN wa_account_group_binding binding
+          ON binding.tenant_id = link.tenant_id
+         AND binding.group_id = link.group_id
+         AND binding.account_id = #{accountId}
+        INNER JOIN wa_group_participant self_participant
+          ON self_participant.tenant_id = binding.tenant_id
+         AND self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+         AND self_participant.presence_status = 1
+        WHERE link.tenant_id = task.tenant_id
+          AND link.id = task.group_link_id
+          AND link.deleted_at IS NULL
+      )
   </update>
 
 </mapper>

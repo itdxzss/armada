@@ -129,6 +129,26 @@
     ORDER BY group_jid ASC
   </select>
 
+  <update id="updateLegacyGroupReferences">
+    UPDATE group_link handle
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = handle.tenant_id
+     AND preview.group_link_id = handle.id
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.group_jid =
+       CAST(LOWER(TRIM(preview.group_jid)) AS CHAR CHARACTER SET ascii)
+         COLLATE ascii_bin
+    SET handle.group_id = current_group.id
+    WHERE handle.tenant_id = #{tenantId}
+      AND current_group.group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+      <!-- canonical 引用一经建立即稳定；快照重放只认领空句柄，缩短兼容表写锁范围。 -->
+      AND handle.group_id IS NULL
+  </update>
+
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
       group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,

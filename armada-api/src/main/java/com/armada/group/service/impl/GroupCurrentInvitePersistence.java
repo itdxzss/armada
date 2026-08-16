@@ -44,6 +44,8 @@ public class GroupCurrentInvitePersistence {
         if (inviteId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析当前邀请码");
         }
+        mapper.updateLegacyGroupAndInviteReferences(
+                tenantId, normalizedGroupJid, code, groupId, inviteId);
         mapper.updateCurrentInvite(tenantId, groupId, inviteId, observedAt, now);
     }
 
@@ -75,6 +77,12 @@ public class GroupCurrentInvitePersistence {
             throw new BusinessException(ErrorCode.VALIDATION, "公开邀请页资料不完整");
         }
         mapper.upsertPublicPreview(tenantId, preview, labelId, System.currentTimeMillis());
+        Long inviteId = mapper.selectInviteIdForUpdate(tenantId, preview.getInviteCode().trim());
+        if (inviteId == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析公开预览邀请");
+        }
+        mapper.updateLegacyInviteReference(
+                tenantId, preview.getGroupLinkId(), inviteId);
     }
 
     private Long resolveGroupId(Long tenantId, String groupJid, long now) {

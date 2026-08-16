@@ -115,6 +115,42 @@ class GroupLinkMapperSqlShapeTest {
     }
 
     @Test
+    void activeGroupJidLookupUsesCanonicalGroupReference() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int start = xml.indexOf("<select id=\"selectActiveIdByGroupJid\"");
+        int end = xml.indexOf("</select>", start);
+        String selectSql = xml.substring(start, end);
+
+        assertThat(selectSql)
+                .contains("LEFT JOIN wa_group current_group")
+                .contains("current_group.id = link.group_id")
+                .contains("current_group.group_jid = #{groupJid}")
+                .contains("link.link_url = CONCAT('wa://group/', #{groupJid})")
+                .doesNotContain("group_link_preview");
+    }
+
+    @Test
+    void healthCheckCandidatesUseCurrentGroupAndProfileFacts() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        int start = xml.indexOf("<select id=\"selectHealthCheckCandidates\"");
+        int end = xml.indexOf("</select>", start);
+        String selectSql = xml.substring(start, end);
+
+        assertThat(selectSql)
+                .contains("INNER JOIN wa_group current_group")
+                .contains("current_group.id = g.group_id")
+                .contains("r.group_jid = current_group.group_jid")
+                .contains("current_profile.last_checked_at AS lastCheckAt")
+                .contains("current_profile.banned IS NULL OR current_profile.banned = 0")
+                .doesNotContain("group_link_preview")
+                .doesNotContain("group_link_health");
+    }
+
+    @Test
     void groupListDynamicSqlRendersCombinedFiltersForCountAndPage() throws IOException {
         Configuration configuration = new Configuration();
         try (InputStream input = getClass().getResourceAsStream(MAPPER_XML)) {

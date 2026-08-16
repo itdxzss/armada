@@ -151,11 +151,12 @@ public class MysqlModeMapperInMemoryTest {
         executeSql(
                 """
                 INSERT INTO group_link
-                    (id, tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
+                    (id, tenant_id, group_id, link_url, group_name,
+                     origin, membership_state, created_at, updated_at)
                 VALUES
-                    (31, 7, 'wa://group/owner-current', 'owner-current', 5, 2, 1, 1),
-                    (32, 8, 'wa://group/owner-other', 'owner-other', 5, 2, 1, 1),
-                    (33, 7, 'wa://group/no-preview', 'no-preview', 5, 2, 1, 1)
+                    (31, 7, 3101, 'wa://group/owner-current', 'owner-current', 5, 2, 1, 1),
+                    (32, 8, 3201, 'wa://group/owner-other', 'owner-other', 5, 2, 1, 1),
+                    (33, 7, 3301, 'wa://group/no-preview', 'no-preview', 5, 2, 1, 1)
                 """,
                 """
                 INSERT INTO group_link_preview
@@ -200,6 +201,24 @@ public class MysqlModeMapperInMemoryTest {
                      1, 'TEST_FIXTURE', 3, 3, 1, 1),
                     (804, 7, 604, 33, 'no-preview@g.us', TRUE,
                      1, 'TEST_FIXTURE', 4, 4, 1, 1)
+                """,
+                """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, presence_status, role)
+                VALUES
+                    (901, 7, 3101, 1, 1),
+                    (902, 7, 3101, 1, 2),
+                    (903, 8, 3201, 1, 3),
+                    (904, 7, 3301, 1, 2)
+                """,
+                """
+                INSERT INTO wa_account_group_binding
+                    (id, tenant_id, account_id, group_id, participant_id, last_observed_at)
+                VALUES
+                    (1001, 7, 601, 3101, 901, 1),
+                    (1002, 7, 602, 3101, 902, 2),
+                    (1003, 8, 603, 3201, 903, 3),
+                    (1004, 7, 604, 3301, 904, 4)
                 """);
 
         GroupExecutionAccount owner = membershipMapper.selectGroupOwnerExecutionAccount(
@@ -1248,6 +1267,7 @@ public class MysqlModeMapperInMemoryTest {
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    group_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
                     group_name VARCHAR(128),
                     label_id BIGINT,
@@ -1290,6 +1310,25 @@ public class MysqlModeMapperInMemoryTest {
                     created_at BIGINT,
                     updated_at BIGINT,
                     CONSTRAINT uq_group_link_preview UNIQUE (tenant_id, group_link_id)
+                )
+                """,
+                """
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    presence_status TINYINT NOT NULL,
+                    role TINYINT NOT NULL
+                )
+                """,
+                """
+                CREATE TABLE wa_account_group_binding (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    account_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    participant_id BIGINT NOT NULL,
+                    last_observed_at BIGINT
                 )
                 """,
                 """

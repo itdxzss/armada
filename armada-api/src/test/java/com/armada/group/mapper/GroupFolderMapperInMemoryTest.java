@@ -81,6 +81,22 @@ class GroupFolderMapperInMemoryTest {
     }
 
     @Test
+    void folderQueriesUseCurrentFactsInsteadOfStaleLegacyHealth() throws SQLException {
+        GroupFolder folder = folder("新模型健康", 100L);
+        mapper.insert(folder);
+        insertLink(1L, 7L, folder.getId(), "chat.whatsapp.com/CURRENT", null);
+        insertHealth(1L, 7L, 1L, 1, 0);
+        execute("UPDATE group_link_health SET health_status = 2 WHERE group_link_id = 1");
+
+        GroupFolderQuery query = new GroupFolderQuery();
+
+        assertThat(mapper.selectPage(query)).singleElement()
+                .satisfies(row -> assertThat(row.groupCount()).isEqualTo(1));
+        assertThat(mapper.selectUsableLinks(folder.getId()))
+                .containsExactly("chat.whatsapp.com/CURRENT");
+    }
+
+    @Test
     void usableLinksConvertInternalGroupEntryToInviteLink() throws SQLException {
         GroupFolder folder = folder("内部群", 100L);
         mapper.insert(folder);
@@ -180,9 +196,40 @@ class GroupFolderMapperInMemoryTest {
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    group_id BIGINT,
+                    group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
                     folder_id BIGINT,
                     updated_at BIGINT NOT NULL,
+                    deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    folder_id BIGINT,
+                    deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_profile (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL,
+                    current_invite_id BIGINT,
+                    health_status TINYINT,
+                    banned TINYINT,
+                    CONSTRAINT uq_test_group_profile UNIQUE (tenant_id, group_id)
+                )
+                """);
+        execute("""
+                CREATE TABLE wa_group_invite (
+                    id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    invite_code VARCHAR(128) NOT NULL,
+                    health_status TINYINT,
+                    banned TINYINT,
                     deleted_at BIGINT
                 )
                 """);
@@ -212,10 +259,28 @@ class GroupFolderMapperInMemoryTest {
 
     private void insertLink(long id, long tenantId, long folderId,
                             String link, Long deletedAt) throws SQLException {
+        boolean internalGroup = link.startsWith("wa://group/");
+        Long groupId = internalGroup ? id : null;
+        Long inviteId = internalGroup ? null : id;
         execute("INSERT INTO group_link "
-                + "(id, tenant_id, link_url, folder_id, updated_at, deleted_at) VALUES ("
-                + id + ", " + tenantId + ", '" + link + "', " + folderId + ", 100, "
+                + "(id, tenant_id, group_id, group_invite_id, link_url, folder_id, updated_at, "
+                + "deleted_at) VALUES ("
+                + id + ", " + tenantId + ", " + sqlLong(groupId) + ", " + sqlLong(inviteId)
+                + ", '" + link + "', " + folderId + ", 100, "
                 + (deletedAt == null ? "NULL" : deletedAt) + ")");
+        if (internalGroup) {
+            execute("INSERT INTO wa_group (id, tenant_id, folder_id, deleted_at) VALUES ("
+                    + id + ", " + tenantId + ", " + folderId + ", "
+                    + sqlLong(deletedAt) + ")");
+            execute("INSERT INTO wa_group_profile (tenant_id, group_id) VALUES ("
+                    + tenantId + ", " + id + ")");
+        } else {
+            String inviteCode = link.substring(link.lastIndexOf('/') + 1);
+            execute("INSERT INTO wa_group_invite "
+                    + "(id, tenant_id, invite_code, deleted_at) VALUES ("
+                    + id + ", " + tenantId + ", '" + inviteCode + "', "
+                    + sqlLong(deletedAt) + ")");
+        }
     }
 
     private void insertHealth(long id, long tenantId, long groupLinkId,
@@ -224,6 +289,10 @@ class GroupFolderMapperInMemoryTest {
                 + "(id, tenant_id, group_link_id, health_status, is_banned, created_at, updated_at) "
                 + "VALUES (" + id + ", " + tenantId + ", " + groupLinkId + ", "
                 + status + ", " + banned + ", 100, 100)");
+        execute("UPDATE wa_group_profile SET health_status = " + status + ", banned = " + banned
+                + " WHERE tenant_id = " + tenantId + " AND group_id = " + groupLinkId);
+        execute("UPDATE wa_group_invite SET health_status = " + status + ", banned = " + banned
+                + " WHERE tenant_id = " + tenantId + " AND id = " + groupLinkId);
     }
 
     private void insertPreview(long id, long tenantId, long groupLinkId,
@@ -233,6 +302,19 @@ class GroupFolderMapperInMemoryTest {
                 + "(id, tenant_id, group_link_id, invite_code, created_at, updated_at) "
                 + "VALUES (" + id + ", " + tenantId + ", " + groupLinkId + ", "
                 + storedInviteCode + ", 100, 100)");
+        if (inviteCode != null) {
+            execute("MERGE INTO wa_group_invite "
+                    + "(id, tenant_id, invite_code, health_status, banned, deleted_at) KEY(id) "
+                    + "VALUES (" + id + ", " + tenantId + ", '" + inviteCode
+                    + "', NULL, NULL, NULL)");
+            execute("UPDATE group_link SET group_invite_id = " + id + " WHERE id = " + groupLinkId);
+            execute("UPDATE wa_group_profile SET current_invite_id = " + id
+                    + " WHERE tenant_id = " + tenantId + " AND group_id = " + groupLinkId);
+        }
+    }
+
+    private String sqlLong(Long value) {
+        return value == null ? "NULL" : value.toString();
     }
 
     private long count(String sql) throws SQLException {

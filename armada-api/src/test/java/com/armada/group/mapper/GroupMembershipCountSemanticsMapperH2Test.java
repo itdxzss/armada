@@ -6,6 +6,9 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -13,6 +16,7 @@ import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -34,7 +38,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         inheritListeners = false)
-class GroupMembershipCountSemanticsMapperH2Test {
+public class GroupMembershipCountSemanticsMapperH2Test {
 
     private static final long TENANT_ID = 7L;
 
@@ -47,10 +51,16 @@ class GroupMembershipCountSemanticsMapperH2Test {
     @Autowired
     private MarketingTaskMapper marketingTaskMapper;
 
+    @Autowired
+    private AccountGroupMembershipMapper accountGroupMembershipMapper;
+
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(TENANT_ID);
         execute("DROP ALL OBJECTS");
+        execute("CREATE ALIAS SUBSTRING_INDEX FOR '"
+                + GroupMembershipCountSemanticsMapperH2Test.class.getName()
+                + ".substringIndex'");
         createSchema();
         insertFixtures();
     }
@@ -73,6 +83,114 @@ class GroupMembershipCountSemanticsMapperH2Test {
         assertThat(marketingTaskMapper.selectAccountTreeAccounts(11L))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getGroupCount()).isEqualTo(5));
+    }
+
+    @Test
+    void marketingTargetsReadCurrentBindingAndParticipantFacts() throws SQLException {
+        MarketingTargetCandidateRow current =
+                marketingTaskMapper.selectCurrentTargetGroup(501L, 2001L);
+
+        assertThat(current).isNotNull();
+        assertThat(current.getGroupJid()).isEqualTo("in-group@g.us");
+        assertThat(current.getMembershipStatus()).isEqualTo(1);
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(501L, 100L))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+
+        execute("""
+                UPDATE wa_group_participant
+                SET presence_status = 2, last_exit_type = 'REMOVED',
+                    presence_observed_at = 200
+                WHERE id = 3001
+                """);
+
+        assertThat(marketingTaskMapper.selectCurrentTargetGroup(501L, 2001L)).isNull();
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(501L, null))
+                .singleElement()
+                .satisfies(row -> assertThat(row.getMembershipStatus()).isEqualTo(3));
+    }
+
+    @Test
+    void sendTimeStatusBatchReadsCurrentParticipantFact() throws SQLException {
+        List<AccountGroupMembershipLookup> lookups = List.of(
+                new AccountGroupMembershipLookup(501L, "in-group@g.us"));
+
+        assertThat(accountGroupMembershipMapper.selectCurrentStatuses(lookups))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.membershipStatus()).isEqualTo(1);
+                    assertThat(row.statusUpdatedAt()).isEqualTo(100L);
+                });
+
+        execute("""
+                UPDATE wa_group_participant
+                SET presence_status = 2, last_exit_type = 'LEFT',
+                    presence_observed_at = 250
+                WHERE id = 3001
+                """);
+
+        assertThat(accountGroupMembershipMapper.selectCurrentStatuses(lookups))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.membershipStatus()).isEqualTo(4);
+                    assertThat(row.statusUpdatedAt()).isEqualTo(250L);
+                });
+    }
+
+    @Test
+    void historyAndExecutionAccountQueriesReadCanonicalGroupFacts() {
+        assertThat(accountGroupMembershipMapper.countHistoricalGroupsByAccountGroup(11L))
+                .isEqualTo(1);
+
+        assertThat(accountGroupMembershipMapper.selectHistoricalGroupPageByAccountGroup(
+                        11L, 0, 20))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getGroupJid()).isEqualTo("in-group@g.us");
+                    assertThat(row.getSubject()).isEqualTo("current subject");
+                    assertThat(row.getKnownMembershipCount()).isEqualTo(1);
+                    assertThat(row.getInGroupCount()).isEqualTo(1);
+                    assertThat(row.getAdminInGroup()).isTrue();
+                    assertThat(row.getOperable()).isTrue();
+                });
+        assertThat(accountGroupMembershipMapper.existsHistoricalGroupByAccountGroup(
+                11L, "in-group@g.us")).isTrue();
+
+        GroupExecutionAccount executionAccount =
+                accountGroupMembershipMapper.selectHistoricalGroupExecutionAccount(
+                        11L, "in-group@g.us");
+        assertThat(executionAccount).isNotNull();
+        assertThat(executionAccount.accountId()).isEqualTo(501L);
+        assertThat(executionAccount.groupAdmin()).isTrue();
+
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                        TENANT_ID, "in-group@g.us", 999L))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(501L);
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                        TENANT_ID, "in-group@g.us", 999L, 10))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(501L);
+    }
+
+    @Test
+    void groupHandleExecutionQueriesReadCanonicalBindingAndParticipant() {
+        assertThat(accountGroupMembershipMapper.selectGroupExecutionAccounts(
+                        2001L, 1, 2, 10))
+                .containsExactly(new GroupExecutionAccount(
+                        501L, "wa-web", "acc_501", "923300000501", true));
+        assertThat(accountGroupMembershipMapper.selectGroupAdminExecutionAccounts(
+                        2001L, 1, 2, 10))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(501L);
+        assertThat(accountGroupMembershipMapper.selectGroupOwnerExecutionAccount(
+                        2001L, 1, 2))
+                .extracting(GroupExecutionAccount::accountId)
+                .isEqualTo(501L);
+        assertThat(accountGroupMembershipMapper.selectGroupExecutionAccountsByPhones(
+                        2001L, List.of("923300000501"), 1, 2, 10))
+                .extracting(GroupExecutionAccount::accountId)
+                .containsExactly(501L);
     }
 
     private void createSchema() throws SQLException {
@@ -124,6 +242,49 @@ class GroupMembershipCountSemanticsMapperH2Test {
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, account_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) NOT NULL, membership_status TINYINT NOT NULL, deleted_at BIGINT
                 )
+                """, """
+                CREATE TABLE wa_account_group_binding (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                  participant_id BIGINT NOT NULL, was_in_initial_baseline TINYINT,
+                  baseline_subject_snapshot VARCHAR(255),
+                  membership_active_since_at BIGINT, last_observed_at BIGINT
+                )
+                """, """
+                CREATE TABLE wa_group (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL, display_name VARCHAR(128), deleted_at BIGINT
+                )
+                """, """
+                CREATE TABLE wa_group_participant (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                  presence_status TINYINT NOT NULL, presence_observed_at BIGINT,
+                  last_exit_type VARCHAR(16), role TINYINT NOT NULL
+                )
+                """, """
+                CREATE TABLE wa_group_profile (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                  subject VARCHAR(255), member_count INT, checked_member_count INT,
+                  wa_created_at BIGINT, announce_only TINYINT, current_invite_id BIGINT,
+                  health_status TINYINT, banned TINYINT
+                )
+                """, """
+                CREATE TABLE wa_group_invite (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  invite_code VARCHAR(128) NOT NULL
+                )
+                """, """
+                CREATE TABLE group_link (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT,
+                  group_invite_id BIGINT,
+                  link_url VARCHAR(255), group_name VARCHAR(128), membership_state TINYINT,
+                  deleted_at BIGINT
+                )
+                """, """
+                CREATE TABLE group_link_preview (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  group_link_id BIGINT NOT NULL, owner_phone VARCHAR(32)
+                )
                 """);
     }
 
@@ -132,11 +293,17 @@ class GroupMembershipCountSemanticsMapperH2Test {
                 "INSERT INTO account_group (id, tenant_id, name, deleted_at) VALUES (11, 7, '当前租户组', NULL)",
                 """
                 INSERT INTO account
-                  (id, tenant_id, ws_phone, account_type, ownership, protocol_account_id,
+                  (id, tenant_id, ws_phone, account_type, ownership, protocol_id, protocol_account_id,
                    group_baseline_state, account_group_id, created_at, deleted_at)
                 VALUES
-                  (501, 7, '923300000501', 1, 1, 'acc_501', 3, 11, 100, NULL),
-                  (601, 8, '923300000601', 1, 1, 'acc_601', 3, 11, 100, NULL)
+                  (501, 7, '923300000501', 1, 1, 'wa-web', 'acc_501', 3, 11, 100, NULL),
+                  (601, 8, '923300000601', 1, 1, 'wa-web', 'acc_601', 3, 11, 100, NULL)
+                """,
+                """
+                INSERT INTO account_state
+                  (tenant_id, account_id, account_state, login_state,
+                   risk_status, mute_status)
+                VALUES (7, 501, 2, 1, 1, NULL)
                 """,
                 """
                 INSERT INTO account_group_membership
@@ -150,7 +317,63 @@ class GroupMembershipCountSemanticsMapperH2Test {
                   (6, 7, 501, 'deleted@g.us', 1, 999),
                   (7, 7, 501, '   ', 1, NULL),
                   (8, 8, 601, 'other-tenant@g.us', 1, NULL)
+                """,
+                """
+                INSERT INTO wa_account_group_binding
+                  (id, tenant_id, account_id, group_id, participant_id,
+                   was_in_initial_baseline, baseline_subject_snapshot,
+                   membership_active_since_at, last_observed_at)
+                VALUES
+                  (101, 7, 501, 1001, 3001, 1, 'baseline subject', 100, 100),
+                  (102, 7, 501, 1002, 3002, 0, NULL, 100, 100),
+                  (103, 7, 501, 1003, 3003, 0, NULL, 100, 100),
+                  (104, 7, 501, 1004, 3004, 0, NULL, 100, 100),
+                  (105, 7, 501, 1005, 3005, 0, NULL, 100, 100),
+                  (108, 8, 601, 1008, 3008, 0, NULL, 100, 100)
+                """,
+                """
+                INSERT INTO wa_group (id, tenant_id, group_jid, display_name, deleted_at)
+                VALUES (1001, 7, 'in-group@g.us', 'current group', NULL)
+                """,
+                """
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, presence_status, presence_observed_at,
+                   last_exit_type, role)
+                VALUES (3001, 7, 1001, 1, 100, NULL, 2)
+                """,
+                """
+                INSERT INTO wa_group_profile
+                  (id, tenant_id, group_id, subject, member_count, checked_member_count,
+                   wa_created_at, announce_only, current_invite_id, health_status, banned)
+                VALUES (4001, 7, 1001, 'current subject', 30, 31,
+                        100000, 0, 5001, 1, 0)
+                """,
+                """
+                INSERT INTO wa_group_invite (id, tenant_id, invite_code)
+                VALUES (5001, 7, 'invite-code')
+                """,
+                """
+                INSERT INTO group_link
+                  (id, tenant_id, group_id, group_invite_id,
+                   link_url, group_name, membership_state, deleted_at)
+                VALUES
+                  (2001, 7, 1001, 5001, 'https://chat.whatsapp.com/current',
+                   'current handle', 2, NULL)
+                """,
+                """
+                INSERT INTO group_link_preview
+                  (tenant_id, group_link_id, owner_phone)
+                VALUES (7, 2001, '923300000501')
                 """);
+    }
+
+    /** H2 测试别名：覆盖生产 MySQL 中提取账号号码的 SUBSTRING_INDEX。 */
+    public static String substringIndex(String value, String delimiter, int count) {
+        if (value == null || delimiter == null || delimiter.isEmpty() || count != 1) {
+            return value;
+        }
+        int index = value.indexOf(delimiter);
+        return index < 0 ? value : value.substring(0, index);
     }
 
     private void execute(String... statements) throws SQLException {
@@ -189,6 +412,7 @@ class GroupMembershipCountSemanticsMapperH2Test {
             factory.setPlugins(interceptor);
             factory.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountMapper.xml"),
+                    new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
                     new ClassPathResource("mapper/marketing/MarketingTaskMapper.xml"));
             return factory.getObject();
         }
@@ -206,6 +430,11 @@ class GroupMembershipCountSemanticsMapperH2Test {
         @Bean
         MarketingTaskMapper marketingTaskMapper(SqlSessionTemplate template) {
             return template.getMapper(MarketingTaskMapper.class);
+        }
+
+        @Bean
+        AccountGroupMembershipMapper accountGroupMembershipMapper(SqlSessionTemplate template) {
+            return template.getMapper(AccountGroupMembershipMapper.class);
         }
     }
 }

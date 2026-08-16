@@ -6,8 +6,12 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
+import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.enums.GroupListType;
+import com.armada.group.model.enums.GroupMetadataSyncStatus;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
+import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -42,6 +46,8 @@ class GroupListCurrentMapperMySqlTest {
 
     private static GroupLinkMapper legacyMapper;
     private static GroupListCurrentMapper currentMapper;
+    private static GroupMetadataSyncTaskMapper metadataTaskMapper;
+    private static JdbcTemplate jdbc;
 
     @BeforeAll
     static void configureDatabaseAndMappers() throws Exception {
@@ -50,16 +56,18 @@ class GroupListCurrentMapperMySqlTest {
         dataSource.setUrl(MYSQL.getJdbcUrl());
         dataSource.setUsername(MYSQL.getUsername());
         dataSource.setPassword(MYSQL.getPassword());
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc = new JdbcTemplate(dataSource);
         createLegacySchema(jdbc);
         GroupCurrentSnapshotMySqlTestSupport.executeV120(dataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV121(dataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV122(dataSource);
         insertFixtures(jdbc);
+        GroupCurrentSnapshotMySqlTestSupport.executeV123(dataSource);
 
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         legacyMapper = session.getMapper(GroupLinkMapper.class);
         currentMapper = session.getMapper(GroupListCurrentMapper.class);
+        metadataTaskMapper = session.getMapper(GroupMetadataSyncTaskMapper.class);
     }
 
     @AfterAll
@@ -103,6 +111,43 @@ class GroupListCurrentMapperMySqlTest {
 
         assertSameCountAndRows(filtered);
         assertThat(currentMapper.count(TENANT_ID, filtered)).isEqualTo(1L);
+    }
+
+    @Test
+    void healthCheckCandidateUsesCurrentProfileInsteadOfStaleLegacyBan() {
+        jdbc.update("UPDATE group_link_health SET is_banned = 1 WHERE group_link_id = 201");
+        try {
+            assertThat(legacyMapper.selectHealthCheckCandidates(10, 1))
+                    .extracting(GroupLinkHealthCheckCandidate::groupLinkId)
+                    .contains(201L);
+        } finally {
+            jdbc.update("UPDATE group_link_health SET is_banned = 0 WHERE group_link_id = 201");
+        }
+    }
+
+    @Test
+    void deferredTaskResumeUsesCurrentSelfPresence() {
+        jdbc.update("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 201");
+        try {
+            assertThat(metadataTaskMapper.resumeDeferredForAccount(
+                    301L,
+                    GroupMetadataSyncStatus.DEFERRED.code(),
+                    GroupMetadataSyncStatus.PENDING.code(),
+                    GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
+                    500L)).isEqualTo(1);
+
+            jdbc.update("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 201");
+            jdbc.update("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 801");
+            assertThat(metadataTaskMapper.resumeDeferredForAccount(
+                    301L,
+                    GroupMetadataSyncStatus.DEFERRED.code(),
+                    GroupMetadataSyncStatus.PENDING.code(),
+                    GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
+                    600L)).isZero();
+        } finally {
+            jdbc.update("UPDATE wa_group_participant SET presence_status = 1 WHERE id = 801");
+            jdbc.update("UPDATE group_metadata_sync_task SET status = 2 WHERE group_link_id = 201");
+        }
     }
 
     private static void assertSameCountAndRows(GroupLinkQuery query) {
@@ -193,6 +238,11 @@ class GroupListCurrentMapperMySqlTest {
                 INSERT INTO account_group_membership
                   (tenant_id, group_link_id, account_id, membership_status, is_admin, deleted_at)
                 VALUES (7, 201, 301, 1, 1, NULL)
+                """);
+        jdbc.update("""
+                INSERT INTO join_task_result
+                  (id, tenant_id, group_jid, status, account_id, is_admin)
+                VALUES (1001, 7, 'resolved@g.us', 'SUCCESS', 301, 1)
                 """);
         jdbc.update("""
                 INSERT INTO whatsapp_group_member_snapshot
@@ -329,10 +379,19 @@ class GroupListCurrentMapperMySqlTest {
                 ) ENGINE=InnoDB
                 """);
         jdbc.execute("""
+                CREATE TABLE join_task_result (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128), status VARCHAR(32),
+                  account_id BIGINT, is_admin TINYINT
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
                 CREATE TABLE group_metadata_sync_task (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  group_link_id BIGINT NOT NULL, status TINYINT,
-                  last_success_at BIGINT, last_error_message VARCHAR(512)
+                  group_link_id BIGINT NOT NULL, status TINYINT, trigger_source TINYINT,
+                  next_run_at BIGINT, rerun_requested TINYINT DEFAULT 0,
+                  last_success_at BIGINT, last_error_code VARCHAR(64),
+                  last_error_message VARCHAR(512), updated_at BIGINT
                 ) ENGINE=InnoDB
                 """);
     }
@@ -351,7 +410,8 @@ class GroupListCurrentMapperMySqlTest {
         factoryBean.setPlugins(interceptor);
         factoryBean.setMapperLocations(
                 new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
-                new ClassPathResource("mapper/group/GroupListCurrentMapper.xml"));
+                new ClassPathResource("mapper/group/GroupListCurrentMapper.xml"),
+                new ClassPathResource("mapper/group/GroupMetadataSyncTaskMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("无法创建群列表对账测试 SqlSessionFactory");

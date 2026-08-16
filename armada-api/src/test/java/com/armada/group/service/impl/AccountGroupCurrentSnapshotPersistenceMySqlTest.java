@@ -73,6 +73,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         rawDataSource.setPassword(MYSQL.getPassword());
         jdbc = new JdbcTemplate(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.createLegacyContextSchema(jdbc);
+        createLegacyHandleSchema();
         GroupCurrentSnapshotMySqlTestSupport.executeV120(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV121(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV122(rawDataSource);
@@ -104,7 +105,34 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         jdbc.update("DELETE FROM wa_group");
         jdbc.update("DELETE FROM account_group_baseline");
         jdbc.update("DELETE FROM account");
+        jdbc.update("DELETE FROM group_link_preview");
+        jdbc.update("DELETE FROM group_link");
         recordingDataSource.reset();
+    }
+
+    private static void createLegacyHandleSchema() {
+        jdbc.execute("""
+                CREATE TABLE group_link (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  group_id BIGINT DEFAULT NULL,
+                  group_invite_id BIGINT DEFAULT NULL,
+                  tenant_id BIGINT NOT NULL,
+                  link_url VARCHAR(512) NOT NULL,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  PRIMARY KEY (id)
+                ) ENGINE=InnoDB
+                """);
+        jdbc.execute("""
+                CREATE TABLE group_link_preview (
+                  id BIGINT NOT NULL AUTO_INCREMENT,
+                  tenant_id BIGINT NOT NULL,
+                  group_link_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) DEFAULT NULL,
+                  invite_code VARCHAR(128) DEFAULT NULL,
+                  PRIMARY KEY (id)
+                ) ENGINE=InnoDB
+                """);
     }
 
     @Test
@@ -161,6 +189,32 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         + "JOIN wa_group g ON g.id = p.group_id "
                         + "WHERE g.group_jid = '120363-snapshot-000@g.us'",
                 Long.class)).isEqualTo(1_000_000L);
+    }
+
+    @Test
+    void snapshotLinksExistingLegacyHandleToResolvedGroupId() throws Exception {
+        String groupJid = groupJid(20);
+        seedCapturedAccount(120L, "923300000120", List.of());
+        jdbc.update("""
+                INSERT INTO group_link
+                  (id, tenant_id, link_url, created_at, updated_at)
+                VALUES (920, 7, 'wa://group/120363-snapshot-020@g.us', 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview
+                  (tenant_id, group_link_id, group_jid)
+                VALUES (7, 920, ?)
+                """, groupJid);
+
+        writeSnapshot(120L, groups(20, 1), true, 2_000L, "snapshot-handle");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT handle.group_id, current_group.group_jid
+                FROM group_link handle
+                JOIN wa_group current_group ON current_group.id = handle.group_id
+                WHERE handle.id = 920
+                """))
+                .containsEntry("group_jid", groupJid);
     }
 
     @Test
@@ -667,10 +721,21 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     @Test
     void publicPreviewStaysOnInviteAndResolvedHealthUpdatesGroupProfile() {
         GroupLinkPreview publicPreview = metadataPreview(null, 900L, 900L);
+        publicPreview.setGroupLinkId(921L);
         publicPreview.setInviteCode("invite-health");
         publicPreview.setWaSubject("公开群名");
         publicPreview.setAvatarUrl("https://cdn.example/public.jpg");
         publicPreview.setLastPreviewAt(900L);
+        jdbc.update("""
+                INSERT INTO group_link
+                  (id, tenant_id, link_url, created_at, updated_at)
+                VALUES (921, 7, 'https://chat.whatsapp.com/invite-health', 100, 100)
+                """);
+        jdbc.update("""
+                INSERT INTO group_link_preview
+                  (tenant_id, group_link_id, invite_code)
+                VALUES (7, 921, 'invite-health')
+                """);
         TenantContext.set(TENANT_ID);
         try {
             transactionTemplate.executeWithoutResult(transaction -> {
@@ -691,6 +756,13 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         Map.entry("failure_count", 0)));
         assertThat(jdbc.queryForMap("SELECT banned FROM wa_group_invite"))
                 .containsEntry("banned", null);
+        assertThat(jdbc.queryForMap("""
+                SELECT handle.group_id, handle.group_invite_id
+                FROM group_link handle
+                WHERE handle.id = 921
+                """))
+                .doesNotContainEntry("group_id", null)
+                .doesNotContainEntry("group_invite_id", null);
         assertThat(jdbc.queryForMap("""
                 SELECT member_add_mode, metadata_observed_at, member_count, checked_member_count,
                        health_status, banned, last_checked_at, last_error_code, failure_count

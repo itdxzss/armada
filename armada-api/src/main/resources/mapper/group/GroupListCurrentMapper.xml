@@ -24,28 +24,25 @@
     <bind name="needsInputInvite"
           value="query.memberCountMin != null or query.memberCountMax != null
               or hasStatus or hasKeyword"/>
+    <bind name="needsLegacyPreview"
+          value="(query.countryIso2 != null and query.countryIso2 != '')
+              or (query.continentCode != null and query.continentCode != '')
+              or hasKeyword"/>
     FROM group_link handle
     <if test="query.sourceFileName != null and query.sourceFileName != ''">
       LEFT JOIN group_link_import_batch source_batch
         ON source_batch.tenant_id = handle.tenant_id
        AND source_batch.id = handle.import_batch_id
     </if>
-    <if test="needsCurrentGroup">
+    <if test="needsLegacyPreview">
       LEFT JOIN group_link_preview legacy_preview
         ON legacy_preview.tenant_id = handle.tenant_id
        AND legacy_preview.group_link_id = handle.id
+    </if>
+    <if test="needsCurrentGroup">
       LEFT JOIN wa_group current_group
         ON current_group.tenant_id = handle.tenant_id
-       AND current_group.group_jid =
-       <choose>
-         <when test="_databaseId == 'h2'">
-           LOWER(TRIM(legacy_preview.group_jid))
-         </when>
-         <otherwise>
-           CAST(LOWER(TRIM(legacy_preview.group_jid)) AS CHAR CHARACTER SET ascii)
-             COLLATE ascii_bin
-         </otherwise>
-       </choose>
+       AND current_group.id = handle.group_id
     </if>
     <if test="needsProfile">
       LEFT JOIN wa_group_profile current_profile
@@ -60,7 +57,7 @@
     <if test="needsInputInvite">
       LEFT JOIN wa_group_invite input_invite
         ON input_invite.tenant_id = handle.tenant_id
-       AND input_invite.invite_code = TRIM(legacy_preview.invite_code)
+       AND input_invite.id = handle.group_invite_id
     </if>
   </sql>
 
@@ -261,21 +258,9 @@
       INNER JOIN group_link page_handle
         ON page_handle.tenant_id = page.tenant_id
        AND page_handle.id = page.id
-      INNER JOIN group_link_preview page_preview
-        ON page_preview.tenant_id = page_handle.tenant_id
-       AND page_preview.group_link_id = page_handle.id
       INNER JOIN wa_group current_group
-        ON current_group.tenant_id = page_preview.tenant_id
-       AND current_group.group_jid =
-       <choose>
-         <when test="_databaseId == 'h2'">
-           LOWER(TRIM(page_preview.group_jid))
-         </when>
-         <otherwise>
-           CAST(LOWER(TRIM(page_preview.group_jid)) AS CHAR CHARACTER SET ascii)
-             COLLATE ascii_bin
-         </otherwise>
-       </choose>
+        ON current_group.tenant_id = page_handle.tenant_id
+       AND current_group.id = page_handle.group_id
     ),
     admins AS (
       SELECT participant.tenant_id,
@@ -392,16 +377,7 @@
      AND source_batch.id = handle.import_batch_id
     LEFT JOIN wa_group current_group
       ON current_group.tenant_id = handle.tenant_id
-     AND current_group.group_jid =
-     <choose>
-       <when test="_databaseId == 'h2'">
-         LOWER(TRIM(legacy_preview.group_jid))
-       </when>
-       <otherwise>
-         CAST(LOWER(TRIM(legacy_preview.group_jid)) AS CHAR CHARACTER SET ascii)
-           COLLATE ascii_bin
-       </otherwise>
-     </choose>
+     AND current_group.id = handle.group_id
     LEFT JOIN wa_group_profile current_profile
       ON current_profile.tenant_id = current_group.tenant_id
      AND current_profile.group_id = current_group.id
@@ -410,7 +386,7 @@
      AND current_invite.id = current_profile.current_invite_id
     LEFT JOIN wa_group_invite input_invite
       ON input_invite.tenant_id = handle.tenant_id
-     AND input_invite.invite_code = TRIM(legacy_preview.invite_code)
+     AND input_invite.id = handle.group_invite_id
     LEFT JOIN admins
       ON admins.tenant_id = current_group.tenant_id
      AND admins.group_id = current_group.id

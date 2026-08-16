@@ -149,6 +149,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, origin, created_at, updated_at
                 ) VALUES (7, 'LocalFields', 1, 100, 100)
                 """);
+        refreshCanonicalReferences();
 
         service().updateProfile(10L, new GroupLinkProfileDTO(
                 " 新名称 ", " 新备注 ", " https://cdn.example.test/new.jpg "));
@@ -176,6 +177,43 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
+    void updateProfileUsesStableGroupIdWhenLegacyPreviewIsStale() {
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES
+                  (7, 'current-profile@g.us', 5, 100, 100),
+                  (7, 'stale-preview@g.us', 5, 100, 100)
+                """);
+        Long currentGroupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'current-profile@g.us'
+                """, Long.class);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, origin, membership_state,
+                  created_at, updated_at
+                ) VALUES (24, 7, ?, 'wa://group/current-profile@g.us', 5, 2, 100, 100)
+                """, currentGroupId);
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, group_jid, created_at, updated_at
+                ) VALUES (7, 24, 'stale-preview@g.us', 100, 100)
+                """);
+
+        service().updateProfile(24L, new GroupLinkProfileDTO("新模型名称", null, null));
+
+        assertThat(jdbc.queryForObject("""
+                SELECT display_name FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'current-profile@g.us'
+                """, String.class)).isEqualTo("新模型名称");
+        assertThat(jdbc.queryForObject("""
+                SELECT display_name FROM wa_group
+                WHERE tenant_id = 7 AND group_jid = 'stale-preview@g.us'
+                """, String.class)).isNull();
+    }
+
+    @Test
     void updateProfileAlsoWritesUnresolvedInviteLocalFields() {
         jdbc.update("""
                 INSERT INTO group_link (
@@ -194,6 +232,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, 'UnresolvedFields', 1, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
 
         service().updateProfile(11L, new GroupLinkProfileDTO(
                 " 邀请名称 ", " 邀请备注 ", " https://cdn.example.test/invite.jpg "));
@@ -230,6 +269,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, invite_code, label_id, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, 'MoveLabel', 1, 1, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
         GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(9L);
@@ -265,6 +305,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at, deleted_at
                 ) VALUES (7, '120363-folder@g.us', 5, 100, 100, 150)
                 """);
+        refreshCanonicalReferences();
         GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
         GroupFolder folder = new GroupFolder();
         folder.setId(8L);
@@ -366,6 +407,7 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at
                 ) VALUES (7, '120363-alias@g.us', 1, 100, 100)
                 """);
+        refreshCanonicalReferences();
 
         service().batchDelete(java.util.List.of(17L));
         assertThat(jdbc.queryForObject("""
@@ -1139,6 +1181,25 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_jid, origin, created_at, updated_at
                 ) VALUES (7, ?, 5, 100, 100)
                 """, groupJid);
+        refreshCanonicalReferences();
+    }
+
+    private static void refreshCanonicalReferences() {
+        jdbc.update("""
+                UPDATE group_link handle
+                LEFT JOIN group_link_preview preview
+                  ON preview.tenant_id = handle.tenant_id
+                 AND preview.group_link_id = handle.id
+                LEFT JOIN wa_group current_group
+                  ON current_group.tenant_id = handle.tenant_id
+                 AND current_group.group_jid = LOWER(TRIM(preview.group_jid))
+                LEFT JOIN wa_group_invite current_invite
+                  ON current_invite.tenant_id = handle.tenant_id
+                 AND current_invite.invite_code = TRIM(preview.invite_code)
+                SET handle.group_id = current_group.id,
+                    handle.group_invite_id = current_invite.id
+                WHERE handle.tenant_id = 7
+                """);
     }
 
     private static void seedGroupAlias(long groupLinkId, String linkUrl, String groupJid) {
@@ -1172,6 +1233,8 @@ class GroupCurrentLocalWriteMySqlTest {
         jdbc.execute("""
                 CREATE TABLE group_link (
                   id BIGINT NOT NULL,
+                  group_id BIGINT DEFAULT NULL,
+                  group_invite_id BIGINT DEFAULT NULL,
                   tenant_id BIGINT NOT NULL,
                   link_url VARCHAR(512) NOT NULL,
                   group_name VARCHAR(128) DEFAULT NULL,

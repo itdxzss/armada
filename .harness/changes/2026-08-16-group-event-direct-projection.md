@@ -3,7 +3,8 @@
 - 日期 / 分支 / worktree: 2026-08-16 / `1.0.3-group` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源: 用户确认普通成员加入/退出与群名、描述、群设置事件不应再次查询 metadata
 - 设计文档: `docs/superpowers/specs/2026-08-16-group-event-direct-projection-design.md`
-- 状态: 进行中（方案待评审，尚未实施）
+- 实施计划: `docs/superpowers/plans/2026-08-16-group-event-direct-projection-implementation.md`
+- 状态: 进行中（方案和实施计划待评审，尚未实施）
 
 ## 目标（一句话）
 
@@ -15,6 +16,7 @@
 - [x] 对账 Android WGP2 已支持/缺失的群事件
 - [x] 对账 Armada Kafka consumer、成员事实、账号群关系和群资料写入口
 - [x] 形成统一成员增量与群资料 fieldMask 契约
+- [x] 拆分三仓实施任务、依赖、验证门禁和发布/回滚顺序
 - [ ] 评审并确认 Android 群资料 WGP2 脱敏 fixtures
 - [ ] 评审 `wa_group_profile` 逐字段版本水位落地方式
 - [ ] Armada 先行接入 consumer 和 reducer

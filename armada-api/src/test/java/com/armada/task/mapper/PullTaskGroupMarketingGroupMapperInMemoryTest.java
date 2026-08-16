@@ -134,6 +134,25 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     }
 
     @Test
+    void currentBindingsOverrideStaleLegacyMembershipForCandidateEligibility()
+            throws SQLException {
+        executeSql("""
+                UPDATE account_group_membership
+                SET membership_status = 3, is_admin = 0
+                WHERE id IN (1, 2)
+                """);
+
+        PullTaskGroupMarketingCandidateQuery query = query(false, null);
+
+        assertThat(candidateMapper.selectPage(query, 0, 10))
+                .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
+                .contains("120363001@g.us");
+        assertThat(candidateMapper.selectAccountsByGroupJids(List.of("120363001@g.us")))
+                .extracting(PullTaskGroupMarketingCandidateAccountRow::getAccountId)
+                .containsExactly(101L, 102L);
+    }
+
+    @Test
     void showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible() {
         PullTaskGroupMarketingCandidateQuery hidden = query(false, null);
         assertThat(candidateMapper.selectPage(hidden, 0, 10))
@@ -430,7 +449,8 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                     deleted_at BIGINT
                 );
                 CREATE TABLE group_link (
-                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_name VARCHAR(128),
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT,
+                    group_name VARCHAR(128), is_historical TINYINT DEFAULT 0,
                     deleted_at BIGINT
                 );
                 CREATE TABLE group_link_preview (
@@ -443,6 +463,27 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                     id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_link_id BIGINT,
                     health_status INT, is_banned TINYINT, current_count INT,
                     last_check_at BIGINT, last_health_error VARCHAR(64)
+                );
+                CREATE TABLE wa_group (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128) NOT NULL, display_name VARCHAR(128),
+                    avatar_url VARCHAR(512), deleted_at BIGINT
+                );
+                CREATE TABLE wa_group_profile (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                    subject VARCHAR(255), member_count INT, checked_member_count INT,
+                    announce_only TINYINT, wa_created_at BIGINT,
+                    metadata_observed_at BIGINT, health_status INT, banned TINYINT,
+                    last_checked_at BIGINT, last_error_code VARCHAR(64)
+                );
+                CREATE TABLE wa_group_participant (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
+                    phone VARCHAR(32), presence_status TINYINT NOT NULL, role TINYINT NOT NULL
+                );
+                CREATE TABLE wa_account_group_binding (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, account_id BIGINT NOT NULL,
+                    group_id BIGINT NOT NULL, participant_id BIGINT NOT NULL,
+                    was_in_initial_baseline TINYINT, last_observed_at BIGINT
                 );
                 CREATE TABLE join_task (
                     id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, name VARCHAR(128),
@@ -489,8 +530,10 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                   (2, 7, 103, '[\"120363002@g.us\"]'),
                   (9, 8, 901, '[\"120363901@g.us\"]');
                 INSERT INTO group_link VALUES
-                  (1001, 7, '运营群一', NULL), (1002, 7, '普通成员群', NULL),
-                  (1003, 7, '自收群三', NULL), (9001, 8, '巴西群', NULL);
+                  (1001, 7, 2001, '运营群一', 1, NULL),
+                  (1002, 7, 2002, '普通成员群', 1, NULL),
+                  (1003, 7, 2003, '自收群三', 0, NULL),
+                  (9001, 8, 2901, '巴西群', 1, NULL);
                 INSERT INTO group_link_preview VALUES
                   (1, 7, 1001, '120363001@g.us', '印度群一', 120, '919900000001', 0, 1700000000, NULL, 4000),
                   (2, 7, 1002, '120363002@g.us', '印度群二', 80, '919900000099', 0, 1700000100, NULL, 4000),
@@ -501,6 +544,34 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                   (2, 7, 1002, 1, 0, 80, 4100, NULL),
                   (3, 7, 1003, 1, 0, 90, 4100, NULL),
                   (9, 8, 9001, 1, 0, 60, 4100, NULL);
+                INSERT INTO wa_group VALUES
+                  (2001, 7, '120363001@g.us', '运营群一', NULL, NULL),
+                  (2002, 7, '120363002@g.us', '普通成员群', NULL, NULL),
+                  (2003, 7, '120363003@g.us', '自收群三', NULL, NULL),
+                  (2901, 8, '120363901@g.us', '巴西群', NULL, NULL);
+                INSERT INTO wa_group_profile VALUES
+                  (3001, 7, 2001, '印度群一', 120, 121, 0, 1700000000000,
+                   4000, 1, 0, 4100, NULL),
+                  (3002, 7, 2002, '印度群二', 80, 80, 0, 1700000100000,
+                   4000, 1, 0, 4100, NULL),
+                  (3003, 7, 2003, '印度群三', 90, 90, 1, 1700000200000,
+                   4000, 1, 0, 4100, NULL),
+                  (3901, 8, 2901, '巴西群', 60, 60, 0, 1700000300000,
+                   4000, 1, 0, 4100, NULL);
+                INSERT INTO wa_group_participant VALUES
+                  (4001, 7, 2001, '919900000001', 1, 2),
+                  (4002, 7, 2001, '919900000002', 1, 2),
+                  (4003, 7, 2002, '919900000003', 1, 1),
+                  (4004, 7, 2003, '919900000004', 1, 2),
+                  (4005, 7, 2001, '919900000003', 1, 1),
+                  (4901, 8, 2901, '551100000001', 1, 2);
+                INSERT INTO wa_account_group_binding VALUES
+                  (5001, 7, 101, 2001, 4001, 1, 4100),
+                  (5002, 7, 102, 2001, 4002, 1, 4050),
+                  (5003, 7, 103, 2002, 4003, 1, 4000),
+                  (5004, 7, 104, 2003, 4004, 0, 4000),
+                  (5005, 7, 103, 2001, 4005, NULL, 4000),
+                  (5901, 8, 901, 2901, 4901, 1, 4000);
                 INSERT INTO account_group_membership VALUES
                   (1, 7, 101, 1001, '120363001@g.us', 1, 1, 3000, 4100, NULL),
                   (2, 7, 102, 1001, '120363001@g.us', 1, 1, 3100, 4050, NULL),

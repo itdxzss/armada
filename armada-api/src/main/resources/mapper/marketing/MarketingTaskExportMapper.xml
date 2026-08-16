@@ -216,7 +216,7 @@
                  OR UPPER(TRIM(COALESCE(protocol.group_status, ''))) = 'NORMAL'
                  OR UPPER(TRIM(COALESCE(protocol.group_status_reason, ''))) = 'GROUP_SEND_ALLOWED'
                 THEN '正常'
-            WHEN health.is_banned = 1 THEN '已封禁'
+            WHEN health.banned = 1 THEN '已封禁'
             WHEN health.health_status = 1 THEN '正常'
             WHEN health.health_status = 2 THEN '链接失效'
             WHEN health.health_status = 3 THEN '不可用'
@@ -322,13 +322,13 @@
                REGEXP_REPLACE(
                    COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
                    '[^0-9]', '') AS actualPhone,
-               COALESCE(sm.group_name, NULLIF(TRIM(preview.wa_subject), ''), sm.group_jid) AS groupName,
+               COALESCE(sm.group_name, NULLIF(TRIM(health.subject), ''), sm.group_jid) AS groupName,
                group_link_data.link_url AS groupLink,
                <include refid="ExportGroupStatusCase"/> AS groupStatus,
-               CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+               CASE WHEN health.announce_only = 1 AND self_participant.role IN (2, 3)
                         THEN '仅管理员可发言（发送账号可发言）'
-                    WHEN preview.announce_only = 1 THEN '无发言权限'
-                    WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                    WHEN health.announce_only = 1 THEN '无发言权限'
+                    WHEN health.announce_only = 0 THEN '所有成员可发言'
                     ELSE '未确认' END AS speechPermission,
                sm.sender_phone AS senderPhone,
                sm.marketing_count AS marketingCount
@@ -344,30 +344,32 @@
         LEFT JOIN account joined_account ON joined_account.id = jtr.account_id
                                         AND joined_account.tenant_id = jtr.tenant_id
                                         AND joined_account.deleted_at IS NULL
-        LEFT JOIN group_link_preview preview ON preview.group_link_id = sm.group_link_id
-                                            AND preview.tenant_id = sm.tenant_id
-                                            AND (preview.group_jid IS NULL OR preview.group_jid = sm.group_jid)
-        LEFT JOIN group_link_health health ON health.group_link_id = sm.group_link_id
-                                          AND health.tenant_id = sm.tenant_id
         LEFT JOIN group_link group_link_data ON group_link_data.id = sm.group_link_id
                                              AND group_link_data.tenant_id = sm.tenant_id
+        LEFT JOIN wa_group current_group ON current_group.id = group_link_data.group_id
+                                        AND current_group.tenant_id = sm.tenant_id
+        LEFT JOIN wa_group_profile health ON health.group_id = current_group.id
+                                         AND health.tenant_id = sm.tenant_id
         LEFT JOIN latest_group_status protocol ON protocol.tenant_id = sm.tenant_id
                                               AND protocol.marketing_task_id = sm.marketing_task_id
                                               AND protocol.group_jid = sm.group_jid
-        LEFT JOIN account_group_membership membership
-               ON membership.tenant_id = sm.tenant_id
-              AND membership.account_id = sm.sender_account_id
-              AND membership.group_jid = sm.group_jid
-              AND membership.deleted_at IS NULL
+        LEFT JOIN wa_account_group_binding sender_binding
+               ON sender_binding.tenant_id = sm.tenant_id
+              AND sender_binding.account_id = sm.sender_account_id
+              AND sender_binding.group_id = current_group.id
+        LEFT JOIN wa_group_participant self_participant
+               ON self_participant.tenant_id = sm.tenant_id
+              AND self_participant.group_id = sender_binding.group_id
+              AND self_participant.id = sender_binding.participant_id
         GROUP BY mt.id, mt.task_name,
                  REGEXP_REPLACE(
                      COALESCE(NULLIF(TRIM(joined_account.ws_phone), ''), NULLIF(TRIM(jtr.account), '')),
                      '[^0-9]', ''),
-                 sm.group_jid, sm.group_name, preview.wa_subject, group_link_data.link_url,
-                 health.is_banned, health.health_status,
+                 sm.group_jid, sm.group_name, health.subject, group_link_data.link_url,
+                 health.banned, health.health_status,
                  protocol.projected_status, protocol.reason_code,
                  protocol.group_status, protocol.group_status_reason,
-                 preview.announce_only, membership.is_admin,
+                 health.announce_only, self_participant.role,
                  sm.sender_phone, sm.marketing_count
         HAVING actualPhone IS NOT NULL AND actualPhone &lt;&gt; ''
         ORDER BY mt.id ASC, sm.group_jid ASC, actualPhone ASC
@@ -457,13 +459,15 @@
         fixed_target_groups AS (
             SELECT t.tenant_id,
                    t.marketing_task_id,
-                   COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''),
+                   COALESCE(NULLIF(TRIM(t.group_jid), ''),
+                            NULLIF(TRIM(current_group.group_jid), ''),
                             CONCAT('link:', t.group_link_id), CONCAT('target:', t.id)) AS group_key,
                    MIN(t.created_at) AS joined_task_at,
                    MAX(t.group_link_id) AS group_link_id,
-                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''), NULLIF(TRIM(p.group_jid), ''))) AS group_jid,
+                   MAX(COALESCE(NULLIF(TRIM(t.group_jid), ''),
+                                NULLIF(TRIM(current_group.group_jid), ''))) AS group_jid,
                    MAX(COALESCE(NULLIF(TRIM(t.group_name), ''), NULLIF(TRIM(g.group_name), ''),
-                                NULLIF(TRIM(p.wa_subject), ''))) AS group_name,
+                                NULLIF(TRIM(current_profile.subject), ''))) AS group_name,
                    MAX(NULLIF(TRIM(e.group_invite_url), '')) AS execution_group_invite_url,
                    SUBSTRING_INDEX(GROUP_CONCAT(
                        NULLIF(TRIM(t.group_link_url), '')
@@ -477,12 +481,15 @@
                        AS sender_phone
             FROM marketing_task_target t
             LEFT JOIN group_link g ON g.id = t.group_link_id AND g.tenant_id = t.tenant_id
-            LEFT JOIN group_link_preview p ON p.group_link_id = t.group_link_id
-                                          AND p.tenant_id = t.tenant_id
+            LEFT JOIN wa_group current_group ON current_group.id = g.group_id
+                                            AND current_group.tenant_id = t.tenant_id
+            LEFT JOIN wa_group_profile current_profile
+              ON current_profile.group_id = current_group.id
+             AND current_profile.tenant_id = t.tenant_id
             LEFT JOIN group_pull_marketing_execution e ON e.tenant_id = t.tenant_id
                                                        AND e.group_jid = COALESCE(
                                                            NULLIF(TRIM(t.group_jid), ''),
-                                                           NULLIF(TRIM(p.group_jid), ''))
+                                                           NULLIF(TRIM(current_group.group_jid), ''))
             WHERE t.tenant_id = #{tenantId}
               AND COALESCE(t.target_scope, 1) = 1
               AND t.created_at &lt;= #{snapshotAt}
@@ -600,7 +607,7 @@
                    mt.id AS taskId,
                    mt.task_name AS taskName,
                    COALESCE(NULLIF(TRIM(latest.group_name), ''), NULLIF(TRIM(fixed.group_name), ''),
-                            NULLIF(TRIM(preview.wa_subject), ''), '未命名群组') AS groupName,
+                            NULLIF(TRIM(health.subject), ''), '未命名群组') AS groupName,
                     COALESCE(latest.group_jid, fixed.group_jid) AS groupJid,
                    COALESCE(
                        CASE WHEN LOWER(TRIM(fixed.execution_group_invite_url))
@@ -617,9 +624,9 @@
                                    TRIM(fixed.target_group_link_url),
                                    CHAR_LENGTH('https://chat.whatsapp.com/') + 1), '?', 1), '#', 1), '/', 1), ''))
                        END,
-                       CASE WHEN TRIM(COALESCE(preview.invite_code, ''))
+                       CASE WHEN TRIM(COALESCE(current_invite.invite_code, ''))
                                       REGEXP '^[A-Za-z0-9_-]+$' THEN
-                           CONCAT('https://chat.whatsapp.com/', TRIM(preview.invite_code))
+                           CONCAT('https://chat.whatsapp.com/', TRIM(current_invite.invite_code))
                        END,
                        CASE WHEN LOWER(TRIM(group_link.link_url))
                                       LIKE 'https://chat.whatsapp.com/%' THEN
@@ -630,12 +637,12 @@
                        END) AS groupLink,
                    d.group_key AS groupKey,
                    <include refid="ExportGroupStatusCase"/> AS groupStatus,
-                   CASE WHEN preview.announce_only = 1 AND membership.is_admin = 1
+                   CASE WHEN health.announce_only = 1 AND self_participant.role IN (2, 3)
                             THEN '仅管理员可发言（发送账号可发言）'
-                        WHEN preview.announce_only = 1 THEN '无发言权限'
-                        WHEN preview.announce_only = 0 THEN '所有成员可发言'
+                        WHEN health.announce_only = 1 THEN '无发言权限'
+                        WHEN health.announce_only = 0 THEN '所有成员可发言'
                         ELSE '未确认' END AS speechPermission,
-                   COALESCE(health.current_count, preview.member_size) AS groupMemberCount,
+                   COALESCE(health.checked_member_count, health.member_count) AS groupMemberCount,
                    COALESCE(joined.joined_count, 0) AS joinedPhoneCount,
                    COALESCE(attempts.planned_count, 0) AS plannedCount,
                    COALESCE(attempts.success_count, 0) AS successCount,
@@ -705,23 +712,30 @@
               ON failures.tenant_id = d.tenant_id
              AND failures.marketing_task_id = d.marketing_task_id
              AND failures.group_key = d.group_key
-            LEFT JOIN group_link_preview preview
-              ON preview.tenant_id = d.tenant_id
-             AND preview.group_link_id = COALESCE(latest.group_link_id, fixed.group_link_id)
-            LEFT JOIN group_link_health health
-              ON health.tenant_id = d.tenant_id
-             AND health.group_link_id = COALESCE(latest.group_link_id, fixed.group_link_id)
             LEFT JOIN group_link
               ON group_link.tenant_id = d.tenant_id
              AND group_link.id = COALESCE(latest.group_link_id, fixed.group_link_id)
+            LEFT JOIN wa_group current_group
+              ON current_group.tenant_id = d.tenant_id
+             AND current_group.id = group_link.group_id
+            LEFT JOIN wa_group_profile health
+              ON health.tenant_id = d.tenant_id
+             AND health.group_id = current_group.id
+            LEFT JOIN wa_group_invite current_invite
+              ON current_invite.tenant_id = d.tenant_id
+             AND current_invite.id = COALESCE(
+                   group_link.group_invite_id, health.current_invite_id)
             LEFT JOIN joined_counts joined
               ON joined.tenant_id = d.tenant_id
              AND joined.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
-            LEFT JOIN account_group_membership membership
-              ON membership.tenant_id = d.tenant_id
-             AND membership.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
-             AND membership.group_jid = COALESCE(latest.group_jid, fixed.group_jid)
-             AND membership.deleted_at IS NULL
+            LEFT JOIN wa_account_group_binding sender_binding
+              ON sender_binding.tenant_id = d.tenant_id
+             AND sender_binding.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
+             AND sender_binding.group_id = current_group.id
+            LEFT JOIN wa_group_participant self_participant
+              ON self_participant.tenant_id = d.tenant_id
+             AND self_participant.group_id = sender_binding.group_id
+             AND self_participant.id = sender_binding.participant_id
             LEFT JOIN account_state account_state
               ON account_state.tenant_id = d.tenant_id
              AND account_state.account_id = COALESCE(latest.account_id, fixed.sender_account_id)
@@ -780,12 +794,18 @@
              AND observer_state.account_id = observer_account.id
              AND observer_state.account_state = 2
              AND observer_state.login_state = 1
-            JOIN account_group_membership observer_membership
-              ON observer_membership.tenant_id = observer_account.tenant_id
-             AND observer_membership.account_id = observer_account.id
-             AND observer_membership.group_jid = source.groupJid
-             AND observer_membership.deleted_at IS NULL
-             AND observer_membership.membership_status = 1
+            JOIN wa_group observer_group
+              ON observer_group.tenant_id = observer_account.tenant_id
+             AND observer_group.group_jid = source.groupJid
+            JOIN wa_account_group_binding observer_binding
+              ON observer_binding.tenant_id = observer_account.tenant_id
+             AND observer_binding.account_id = observer_account.id
+             AND observer_binding.group_id = observer_group.id
+            JOIN wa_group_participant observer_participant
+              ON observer_participant.tenant_id = observer_account.tenant_id
+             AND observer_participant.group_id = observer_binding.group_id
+             AND observer_participant.id = observer_binding.participant_id
+             AND observer_participant.presence_status = 1
         ),
         observer_account_ranked AS (
             SELECT source.*,
@@ -851,30 +871,30 @@
                group_data.groupStatus,
                group_data.groupMemberCount,
                member_account.ws_phone AS memberPhone,
-               CASE WHEN membership.is_admin = 1 THEN '管理员'
-                    WHEN membership.is_admin = 0 THEN '群成员'
+               CASE WHEN participant.role IN (2, 3) THEN '管理员'
+                    WHEN participant.role = 1 THEN '群成员'
                     ELSE '未知' END AS role,
                NULL AS countryName,
-               CASE WHEN membership.membership_status = 1 THEN '是'
-                    WHEN membership.membership_status IN (3, 4, 5) THEN '否'
+               CASE WHEN participant.presence_status = 1 THEN '是'
+                    WHEN participant.presence_status = 2 THEN '否'
                     ELSE '未知' END AS inGroup,
-               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 3 THEN '被移出群组'
-                    WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 4 THEN '主动退群'
-                    WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                          AND membership.last_exit_type = 5 THEN '退出原因未识别'
+               CASE WHEN participant.last_exited_at &lt;= #{snapshotAt}
+                          AND participant.last_exit_type = 'REMOVED' THEN '被移出群组'
+                    WHEN participant.last_exited_at &lt;= #{snapshotAt}
+                          AND participant.last_exit_type = 'LEFT' THEN '主动退群'
+                    WHEN participant.last_exited_at &lt;= #{snapshotAt}
+                          AND participant.last_exit_type = 'UNKNOWN' THEN '退出原因未识别'
                     ELSE '' END AS exitType,
-               CASE WHEN membership.joined_at &lt;= #{snapshotAt}
-                    THEN membership.joined_at END AS joinedAt,
-               CASE WHEN membership.last_exited_at &lt;= #{snapshotAt}
-                    THEN membership.last_exited_at END AS exitedAt,
+               CASE WHEN binding.membership_active_since_at &lt;= #{snapshotAt}
+                    THEN binding.membership_active_since_at END AS joinedAt,
+               CASE WHEN participant.last_exited_at &lt;= #{snapshotAt}
+                    THEN participant.last_exited_at END AS exitedAt,
                CASE WHEN EXISTS (
                    SELECT 1
                    FROM join_task_result member_join
                    WHERE member_join.tenant_id = #{tenantId}
                      AND member_join.group_jid = group_data.groupJid
-                     AND member_join.account_id = membership.account_id
+                     AND member_join.account_id = binding.account_id
                      AND member_join.status = 'SUCCESS'
                      AND COALESCE(member_join.joined_at,
                                   member_join.updated_at,
@@ -883,17 +903,23 @@
                ) THEN '本任务成功进群'
                  ELSE '原群成员' END AS taskJoinStatus
         FROM group_rows group_data
-        JOIN account_group_membership membership
-          ON membership.tenant_id = #{tenantId}
-         AND membership.group_jid = group_data.groupJid
-         AND membership.deleted_at IS NULL
-         AND membership.created_at &lt;= #{snapshotAt}
+        JOIN wa_group current_group
+          ON current_group.tenant_id = #{tenantId}
+         AND current_group.group_jid = group_data.groupJid
+        JOIN wa_account_group_binding binding
+          ON binding.tenant_id = #{tenantId}
+         AND binding.group_id = current_group.id
+         AND binding.created_at &lt;= #{snapshotAt}
+        JOIN wa_group_participant participant
+          ON participant.tenant_id = #{tenantId}
+         AND participant.group_id = binding.group_id
+         AND participant.id = binding.participant_id
         JOIN account member_account
-          ON member_account.tenant_id = membership.tenant_id
-         AND member_account.id = membership.account_id
+          ON member_account.tenant_id = binding.tenant_id
+         AND member_account.id = binding.account_id
          AND member_account.deleted_at IS NULL
         WHERE group_data.groupJid IS NOT NULL
           AND TRIM(group_data.groupJid) &lt;&gt; ''
-        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, membership.account_id ASC
+        ORDER BY group_data.taskId ASC, group_data.groupKey ASC, binding.account_id ASC
     </select>
 </mapper>

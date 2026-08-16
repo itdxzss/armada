@@ -174,6 +174,8 @@
 - test1 修复后固定一致性读对账覆盖 11,392 条默认列表行：静态筛选 ID 集合、唯一排序、页大小 1/20/100 的首页/中页/末页均一致，无重复或漏行；87 条未解析邀请继续走兼容路径，1 条不可见 Unicode 名称/主题为已知例外。管理员、群主和可用账号剩余差异均来自新模型已保存的更新成员事实，不是缺映射、缺关系或缺成员。
 - 群组列表读取入口已在本地切到 `GroupListCurrentMapper`；原接口、查询参数、转换器、排序分页和业务谓词未改，旧 `GroupLinkMapper` 仍服务其他写操作。`GroupLinkControllerTest`、`GroupLinkServiceImplTest`、`GroupListCurrentMapperSqlShapeTest`、`GroupLinkControlledAdminMapperInMemoryTest` 和真实 MySQL 8.4.8 的 `GroupListCurrentMapperMySqlTest` 通过，`mvn -q -DskipTests package`、Mapper XML 校验及 `git diff --check` 通过。
 - 群组列表读取切换已通过同一项目部署脚本再次只部署 test1 后端。远端新镜像构建及容器替换成功；容器为 `running`、`RestartCount=0`，Kafka 分区正常重新分配，`/api/group-links` 未登录探针按现有合同返回 40104，未见新列表 SQL、Mapper 或 Spring 启动错误。重启消化账号群事件时旧 `AccountGroupMembershipMapper.xml` 出现 4 次 lock-wait 消费重试，无死锁；最近 60 秒 lock-wait、死锁和列表 SQL 错误均为 0，同时成功刷新账号群快照 22 次。脚本最终检查仍只被既有 Android base URL 环境档案差异阻断。
+- test1 历史群筛选专项只读一致性快照：历史群总数新旧均为 4,419，六个群龄快捷区间、五个成员数快捷区间、亚洲、印度及“亚洲+印度+8～30 天+0～200 人”组合共 15 个场景，数量、ID 集合和 `created_at DESC,id DESC` 排序差异全部为 0。真实执行计划中历史群 count 为 1.65ms、首页 20 行为 0.038ms，均使用 `idx_group_link_historical`；前端历史筛选参数/抽屉 4 个测试通过。专项查询期间新列表 SQL 错误为 0。
+- 后续持续观察中，账号群快照积压并发写旧 `AccountGroupMembershipMapper.xml` 时仍出现死锁重试；堆栈明确落在旧 `account_group_membership` 更新，不是历史群筛选或新列表查询，容器未重启且快照随后继续成功。该旧写路径锁竞争需作为独立问题处理，不能记成列表切读回归。
 
 此前聚焦验证：
 
@@ -216,6 +218,12 @@
 
 ## 剩余门禁
 
+- 本地 V123 已按既定兼容方案给 `group_link` 增加 nullable `group_id/group_invite_id`，按租户 + 群 JID/邀请码回填；列表已改为通过这两个 ID 连接 `wa_group/wa_group_invite`，账号群快照和邀请写入口同步维护引用。`group_link.id`、前端合同和业务判断不变，六张新表仍是当前群事实的唯一主表；尚未提交或部署。
+- V123 后的首批低风险读取迁移已在本地完成：运营分组数量/可用链接改读新资料和邀请健康事实，元数据同步候选改从 `wa_group`/当前邀请读取 JID 与邀请码，按群 JID 查兼容 handle 改走 `group_link.group_id -> wa_group.id` 并保留 `wa://group/` fallback。未修改调度状态机、营销、历史群分类或账号群关系。
+- 第二批本地切换已完成：健康检测候选从 `wa_group/wa_group_profile` 读取 JID、封禁和最近检测时间；本地名称/备注/头像/分组/alias 删除通过 handle 的 canonical ID 直连新表，不再连接旧 preview；账号上线恢复延期 metadata 任务改用 `wa_account_group_binding + self participant presence_status=1`，管理员优先、在线账号选择、任务状态机和重试规则不变。相关 H2、SQL 形态及 MySQL 8 聚焦回归通过，尚未提交或部署。
+- 拉群任务的群营销候选、管理员账号选择和等待池复核已改读 `wa_account_group_binding/wa_group_participant/wa_group/wa_group_profile`；历史来源只认已迁移的 `group_link.is_historical`，不再扫描 baseline JSON，也不使用 `joined_at` 推断上控后新群。创建者手机号仍保留旧 preview 兼容口径，避免当前群主变化改写既有业务含义。
+- 普通营销的固定目标校验、账号动态群、发送前当前群复核、账号树群数量和任务详情当前成员状态已改读新当前事实；旧 `joined_at` 的发送时间边界一对一映射为 `membership_active_since_at`，初始历史群通过 `was_in_initial_baseline=1` 拦截，未把 legacy 迁移关系写成 `first_post_control_observed_at`。H2 真实 Mapper SQL、租户改写、边界和退群拦截回归通过；本地真库当前不可连接，新增 MySQL 聚焦用例尚待数据库恢复后执行。本批未提交、未部署。
+- 营销轮次发送前的批量成员状态复核已改读新 binding 和 self participant，仍映射为旧的五个业务状态码；保留快照事务内部的旧差集读取，因为当前调用顺序是先完成旧快照写入再写新表，直接切换会让新群即时营销漏发。该路径必须随写入顺序一起迁移，本批不硬改。
 - 当前 test1 无多 alias/属性冲突，迁移期继续保留旧 `group_link` 作为外部 ID 兼容；不新增 alias 业务表，后续若门禁发现冲突则停止迁移并重新评审。
 - 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已接新表双写；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。本地 MySQL 恢复、可重复读并发和 test1 默认列表执行计划门禁已通过；本轮不新增重试框架。
 - 兼容口径已明确：创建者/国家/洲严格沿用旧 preview；管理员和可用账号沿用旧业务谓词，但读取新模型的更新成员事实，不复制旧表陈旧结果。固定水位保留 1 条不可见 Unicode subject/名称已知例外，87 条未解析邀请继续走兼容路径。列表切读已部署 test1，进入观察期；尚未删除旧列表 SQL 或旧事实表。

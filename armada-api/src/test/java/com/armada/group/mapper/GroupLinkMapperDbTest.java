@@ -354,6 +354,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         GroupLink eligible = buildLink("chat.whatsapp.com/HealthCheckEligible", null, null);
         mapper.insert(eligible);
         upsertPreview(eligible.getId(), "1203630healthcheck@g.us");
+        upsertLegacyHealth(eligible.getId(), true);
 
         Account member = insertAccount("8613000001001", "acc_member", AccountLoginStateCode.ONLINE);
         Account admin = insertAccount("8613000001002", "acc_admin", AccountLoginStateCode.ONLINE);
@@ -419,6 +420,37 @@ class GroupLinkMapperDbTest extends DbTestBase {
         preview.setCreatedAt(now);
         preview.setUpdatedAt(now);
         previewMapper.upsert(preview);
+        if (groupJid == null) {
+            return;
+        }
+        jdbc.update("""
+                INSERT INTO wa_group (
+                    tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, groupJid, GroupLinkOrigin.ACCOUNT_SYNC.code(), now, now);
+        Long groupId = jdbc.queryForObject("""
+                SELECT id FROM wa_group WHERE tenant_id = ? AND group_jid = ?
+                """, Long.class, TEST_TENANT_ID, groupJid);
+        jdbc.update("""
+                INSERT INTO wa_group_profile (
+                    tenant_id, group_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?)
+                """, TEST_TENANT_ID, groupId, now, now);
+        jdbc.update("""
+                UPDATE group_link SET group_id = ? WHERE tenant_id = ? AND id = ?
+                """, groupId, TEST_TENANT_ID, groupLinkId);
+    }
+
+    private void upsertLegacyHealth(Long groupLinkId, boolean banned) {
+        long now = System.currentTimeMillis();
+        GroupLinkHealth health = new GroupLinkHealth();
+        health.setGroupLinkId(groupLinkId);
+        health.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
+        health.setBanned(banned);
+        health.setHealthFailureCount(0);
+        health.setCreatedAt(now);
+        health.setUpdatedAt(now);
+        healthMapper.upsert(health);
     }
 
     private Account insertAccount(String phone, String protocolAccountId, int loginState) {

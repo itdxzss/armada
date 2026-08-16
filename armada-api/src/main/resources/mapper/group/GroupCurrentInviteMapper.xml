@@ -103,6 +103,27 @@
       AND group_id = #{groupId}
   </update>
 
+  <update id="updateLegacyGroupAndInviteReferences">
+    UPDATE group_link handle
+    INNER JOIN group_link_preview preview
+      ON preview.tenant_id = handle.tenant_id
+     AND preview.group_link_id = handle.id
+    SET handle.group_id = #{groupId},
+        handle.group_invite_id = #{inviteId}
+    WHERE handle.tenant_id = #{tenantId}
+      AND (
+        LOWER(TRIM(preview.group_jid)) = #{groupJid}
+        OR TRIM(preview.invite_code) = #{inviteCode}
+      )
+  </update>
+
+  <update id="updateLegacyInviteReference">
+    UPDATE group_link
+    SET group_invite_id = #{inviteId}
+    WHERE tenant_id = #{tenantId}
+      AND id = #{groupLinkId}
+  </update>
+
   <update id="updateGroupHealth">
     UPDATE wa_group_profile profile
     INNER JOIN wa_group wa_group

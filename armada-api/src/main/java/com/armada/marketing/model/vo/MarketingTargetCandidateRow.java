@@ -1,7 +1,7 @@
 package com.armada.marketing.model.vo;
 
 /**
- * 建营销任务时从账号、群链接和群预览表拼出来的目标候选行。
+ * 建营销任务时从账号、群入口和当前群事实拼出来的目标候选行。
  */
 public class MarketingTargetCandidateRow {
 

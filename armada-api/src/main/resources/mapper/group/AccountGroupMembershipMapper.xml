@@ -5,74 +5,76 @@
   <sql id="historicalGroupAggregated">
     SELECT history.group_jid AS groupJid,
            COALESCE(
-             MAX(NULLIF(TRIM(p.wa_subject), '')),
-             MAX(NULLIF(TRIM(g.group_name), '')),
+             MAX(NULLIF(TRIM(current_profile.subject), '')),
+             MAX(NULLIF(TRIM(handle.group_name), '')),
              MAX(history.baseline_subject)
            ) AS subject,
-           MAX(NULLIF(TRIM(p.invite_code), '')) AS inviteCode,
-           MAX(NULLIF(TRIM(p.owner_phone), '')) AS ownerPhone,
-           MAX(p.group_created_at) AS groupCreatedAt,
+           MAX(NULLIF(TRIM(current_invite.invite_code), '')) AS inviteCode,
+           MAX(NULLIF(TRIM(legacy_preview.owner_phone), '')) AS ownerPhone,
+           MAX(CASE WHEN current_profile.wa_created_at IS NULL THEN NULL
+                    ELSE FLOOR(current_profile.wa_created_at / 1000) END) AS groupCreatedAt,
            COUNT(DISTINCT CASE
-             WHEN relation.membership_status &lt;&gt; #{unconfirmedStatus} THEN relation.id
+             WHEN relation.presence_status &lt;&gt; 0 THEN relation.id
            END) AS knownMembershipCount,
            COUNT(DISTINCT CASE
-             WHEN relation.membership_status = #{inGroupStatus} THEN relation.id
+             WHEN relation.presence_status = 1 THEN relation.id
            END) AS inGroupCount,
            MAX(CASE
-             WHEN relation.membership_status = #{inGroupStatus}
-              AND relation.is_admin = 1
+             WHEN relation.presence_status = 1
+              AND relation.role IN (2, 3)
              THEN 1
              ELSE 0
            END) AS adminInGroup,
            MAX(CASE
-             WHEN relation.membership_status = #{inGroupStatus}
+             WHEN relation.presence_status = 1
               AND REPLACE(SUBSTRING_INDEX(relation.ws_phone, '@', 1), '+', '')
-                  = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+                  = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
              THEN 1 ELSE 0
            END) AS ownerInGroup,
-           MAX(p.announce_only) AS announceOnly,
-           MAX(p.member_size) AS memberSize,
+           MAX(current_profile.announce_only) AS announceOnly,
+           COALESCE(MAX(current_profile.checked_member_count),
+                    MAX(current_profile.member_count)) AS memberSize,
            MAX(CASE
-             WHEN relation.membership_status = #{inGroupStatus}
-              AND relation.is_admin = 1
+             WHEN relation.presence_status = 1
+              AND relation.role IN (2, 3)
               AND relation.login_state = #{onlineLoginState}
               AND relation.account_state = #{normalAccountState}
              THEN 1 ELSE 0
            END) AS operable
     FROM (
-      SELECT baseline_group.group_jid,
-             MAX(NULLIF(TRIM(JSON_UNQUOTE(JSON_EXTRACT(
-               b0.baseline_group_subjects,
-               CONCAT('$.&quot;', REPLACE(baseline_group.group_jid, '&quot;', '\\&quot;'), '&quot;')
-             ))), '')) AS baseline_subject
+      SELECT baseline_group.id AS group_id,
+             baseline_group.group_jid,
+             MAX(NULLIF(TRIM(baseline_binding.baseline_subject_snapshot), ''))
+               AS baseline_subject
       FROM account a0
-      INNER JOIN account_group_baseline b0
-        ON b0.tenant_id = a0.tenant_id
-       AND b0.account_id = a0.id
-      INNER JOIN JSON_TABLE(
-        b0.baseline_group_jids,
-        '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
-      ) baseline_group
+      INNER JOIN wa_account_group_binding baseline_binding
+        ON baseline_binding.tenant_id = a0.tenant_id
+       AND baseline_binding.account_id = a0.id
+       AND baseline_binding.was_in_initial_baseline = 1
+      INNER JOIN wa_group baseline_group
+        ON baseline_group.tenant_id = baseline_binding.tenant_id
+       AND baseline_group.id = baseline_binding.group_id
       WHERE a0.tenant_id = #{tenantId}
         AND a0.account_group_id = #{accountGroupId}
         AND a0.deleted_at IS NULL
-        AND baseline_group.group_jid IS NOT NULL
-        AND TRIM(baseline_group.group_jid) &lt;&gt; ''
-      GROUP BY baseline_group.group_jid
+      GROUP BY baseline_group.id, baseline_group.group_jid
     ) history
     LEFT JOIN (
-      SELECT m.id,
-             m.group_jid,
-             m.membership_status,
-             m.is_admin,
+      SELECT binding.id,
+             binding.group_id,
+             participant.presence_status,
+             participant.role,
              a1.ws_phone,
              s1.login_state,
              s1.account_state
       FROM account a1
-      INNER JOIN account_group_membership m
-        ON m.tenant_id = a1.tenant_id
-       AND m.account_id = a1.id
-       AND m.deleted_at IS NULL
+      INNER JOIN wa_account_group_binding binding
+        ON binding.tenant_id = a1.tenant_id
+       AND binding.account_id = a1.id
+      INNER JOIN wa_group_participant participant
+        ON participant.tenant_id = binding.tenant_id
+       AND participant.group_id = binding.group_id
+       AND participant.id = binding.participant_id
       LEFT JOIN account_state s1
         ON s1.tenant_id = a1.tenant_id
        AND s1.account_id = a1.id
@@ -80,22 +82,25 @@
         AND a1.account_group_id = #{accountGroupId}
         AND a1.deleted_at IS NULL
     ) relation
-      ON relation.group_jid = history.group_jid
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = #{tenantId}
-     AND p.group_jid = history.group_jid
-    LEFT JOIN group_link g
-      ON g.tenant_id = #{tenantId}
-     AND g.id = p.group_link_id
-     AND g.deleted_at IS NULL
-    GROUP BY history.group_jid
+      ON relation.group_id = history.group_id
+    LEFT JOIN group_link handle
+      ON handle.tenant_id = #{tenantId}
+     AND handle.group_id = history.group_id
+     AND handle.deleted_at IS NULL
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = #{tenantId}
+     AND legacy_preview.group_link_id = handle.id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = #{tenantId}
+     AND current_profile.group_id = history.group_id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = #{tenantId}
+     AND current_invite.id = COALESCE(
+           handle.group_invite_id, current_profile.current_invite_id)
+    GROUP BY history.group_id, history.group_jid
   </sql>
 
   <select id="countHistoricalGroupsByTenantAndAccountGroup" resultType="long">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
-    <bind name="unconfirmedStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@UNCONFIRMED.code()"/>
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
     <bind name="normalAccountState"
@@ -109,10 +114,6 @@
 
   <select id="selectHistoricalGroupPageByTenantAndAccountGroup"
           resultType="com.armada.group.model.vo.HistoricalGroupPageRow">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
-    <bind name="unconfirmedStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@UNCONFIRMED.code()"/>
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
     <bind name="normalAccountState"
@@ -128,50 +129,54 @@
 
   <select id="selectHistoricalGroupAccountPhonesByTenantAndAccountGroup"
           resultType="com.armada.group.model.vo.HistoricalGroupAccountPhoneRow">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
     SELECT phone.groupJid,
            phone.accountPhone,
            MAX(phone.currentRelation) AS currentRelation
     FROM (
-      SELECT baseline_phone.group_jid AS groupJid,
+      SELECT baseline_group.group_jid AS groupJid,
              a.id AS accountId,
              a.ws_phone AS accountPhone,
              0 AS currentRelation
       FROM account a
-      INNER JOIN account_group_baseline b
-        ON b.tenant_id = a.tenant_id
-       AND b.account_id = a.id
-      INNER JOIN JSON_TABLE(
-        b.baseline_group_jids,
-        '$[*]' COLUMNS (group_jid VARCHAR(128) PATH '$')
-      ) baseline_phone
+      INNER JOIN wa_account_group_binding baseline_binding
+        ON baseline_binding.tenant_id = a.tenant_id
+       AND baseline_binding.account_id = a.id
+       AND baseline_binding.was_in_initial_baseline = 1
+      INNER JOIN wa_group baseline_group
+        ON baseline_group.tenant_id = baseline_binding.tenant_id
+       AND baseline_group.id = baseline_binding.group_id
       WHERE a.tenant_id = #{tenantId}
         AND a.account_group_id = #{accountGroupId}
         AND a.deleted_at IS NULL
         AND a.ws_phone IS NOT NULL
         AND TRIM(a.ws_phone) &lt;&gt; ''
-        AND baseline_phone.group_jid IN
+        AND baseline_group.group_jid IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
           #{groupJid}
         </foreach>
       UNION ALL
-      SELECT current_phone.group_jid AS groupJid,
+      SELECT current_group.group_jid AS groupJid,
              a.id AS accountId,
              a.ws_phone AS accountPhone,
              1 AS currentRelation
-      FROM account_group_membership current_phone
+      FROM wa_account_group_binding current_binding
       INNER JOIN account a
-        ON a.tenant_id = current_phone.tenant_id
-       AND a.id = current_phone.account_id
+        ON a.tenant_id = current_binding.tenant_id
+       AND a.id = current_binding.account_id
+      INNER JOIN wa_group current_group
+        ON current_group.tenant_id = current_binding.tenant_id
+       AND current_group.id = current_binding.group_id
+      INNER JOIN wa_group_participant self_participant
+        ON self_participant.tenant_id = current_binding.tenant_id
+       AND self_participant.group_id = current_binding.group_id
+       AND self_participant.id = current_binding.participant_id
+       AND self_participant.presence_status = 1
       WHERE a.tenant_id = #{tenantId}
         AND a.account_group_id = #{accountGroupId}
         AND a.deleted_at IS NULL
         AND a.ws_phone IS NOT NULL
         AND TRIM(a.ws_phone) &lt;&gt; ''
-        AND current_phone.deleted_at IS NULL
-        AND current_phone.membership_status = #{inGroupStatus}
-        AND current_phone.group_jid IN
+        AND current_group.group_jid IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
           #{groupJid}
         </foreach>
@@ -186,66 +191,22 @@
     SELECT EXISTS(
       SELECT 1
       FROM account a
-      INNER JOIN account_group_baseline b
-        ON b.tenant_id = a.tenant_id
-       AND b.account_id = a.id
+      INNER JOIN wa_account_group_binding binding
+        ON binding.tenant_id = a.tenant_id
+       AND binding.account_id = a.id
+       AND binding.was_in_initial_baseline = 1
+      INNER JOIN wa_group current_group
+        ON current_group.tenant_id = binding.tenant_id
+       AND current_group.id = binding.group_id
       WHERE a.tenant_id = #{tenantId}
         AND a.account_group_id = #{accountGroupId}
         AND a.deleted_at IS NULL
-        AND JSON_CONTAINS(b.baseline_group_jids, JSON_QUOTE(#{groupJid})) = 1
+        AND current_group.group_jid = #{groupJid}
     )
   </select>
 
   <select id="selectHistoricalGroupExecutionAccountByTenant"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
-    <bind name="onlineLoginState"
-          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
-    SELECT a.id AS accountId,
-           a.protocol_id AS protocolId,
-           a.protocol_account_id AS protocolAccountId,
-           a.ws_phone AS wsPhone,
-           COALESCE(m.is_admin, 0) AS groupAdmin
-    FROM account_group_membership m
-    INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
-    INNER JOIN account_state s
-      ON s.tenant_id = a.tenant_id
-     AND s.account_id = a.id
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = m.tenant_id
-     AND p.group_jid = m.group_jid
-    WHERE a.tenant_id = #{tenantId}
-      AND a.account_group_id = #{accountGroupId}
-      AND a.deleted_at IS NULL
-      AND a.protocol_account_id IS NOT NULL
-      AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND a.ws_phone IS NOT NULL
-      AND TRIM(a.ws_phone) &lt;&gt; ''
-      AND m.deleted_at IS NULL
-      AND m.group_jid = #{groupJid}
-      AND m.is_admin = 1
-      AND m.membership_status = #{inGroupStatus}
-      AND s.login_state = #{onlineLoginState}
-      AND s.account_state = #{normalAccountState}
-    ORDER BY CASE
-               WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                    = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
-               THEN 0 ELSE 1
-             END,
-             COALESCE(m.last_seen_at, 0) DESC,
-             a.id ASC
-    LIMIT 1
-  </select>
-
-  <select id="selectPullTaskAdminPromoterCandidatesByTenant"
-          resultType="com.armada.group.model.vo.GroupExecutionAccount">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
     <bind name="normalAccountState"
@@ -255,21 +216,85 @@
            a.protocol_account_id AS protocolAccountId,
            a.ws_phone AS wsPhone,
            TRUE AS groupAdmin
-    FROM account_group_membership m
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
+     AND self_participant.role IN (2, 3)
     INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = m.tenant_id
-     AND p.group_jid = m.group_jid
+    LEFT JOIN group_link handle
+      ON handle.tenant_id = binding.tenant_id
+     AND handle.group_id = binding.group_id
+     AND handle.deleted_at IS NULL
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
     WHERE a.tenant_id = #{tenantId}
-      AND m.group_jid = #{groupJid}
-      AND m.deleted_at IS NULL
-      AND m.membership_status = #{inGroupStatus}
-      AND m.is_admin = 1
+      AND a.account_group_id = #{accountGroupId}
+      AND a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND current_group.group_jid = #{groupJid}
+      AND s.login_state = #{onlineLoginState}
+      AND s.account_state = #{normalAccountState}
+    ORDER BY CASE
+               WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
+                    = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
+               THEN 0 ELSE 1
+             END,
+             COALESCE(binding.last_observed_at, 0) DESC,
+             a.id ASC
+    LIMIT 1
+  </select>
+
+  <select id="selectPullTaskAdminPromoterCandidatesByTenant"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="normalAccountState"
+          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone,
+           TRUE AS groupAdmin
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
+     AND self_participant.role IN (2, 3)
+    INNER JOIN account a
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    LEFT JOIN group_link handle
+      ON handle.tenant_id = binding.tenant_id
+     AND handle.group_id = binding.group_id
+     AND handle.deleted_at IS NULL
+    LEFT JOIN group_link_preview legacy_preview
+      ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.group_link_id = handle.id
+    WHERE a.tenant_id = #{tenantId}
+      AND current_group.group_jid = #{groupJid}
       AND a.deleted_at IS NULL
       AND a.id &lt;&gt; #{managerAccountId}
       AND a.protocol_id IS NOT NULL
@@ -284,17 +309,15 @@
       AND s.mute_status IS NULL
     ORDER BY CASE
                WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
-                    = REPLACE(SUBSTRING_INDEX(p.owner_phone, '@', 1), '+', '')
+                    = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
                THEN 0 ELSE 1
              END,
-             COALESCE(m.last_seen_at, 0) DESC,
+             COALESCE(binding.last_observed_at, 0) DESC,
              a.id ASC
   </select>
 
   <select id="selectPullTaskAdminDiscoveryCandidatesByTenant"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
-    <bind name="inGroupStatus"
-          value="@com.armada.group.model.enums.AccountGroupMembershipStatus@IN_GROUP.code()"/>
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
     <bind name="normalAccountState"
@@ -303,18 +326,24 @@
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
            a.ws_phone AS wsPhone,
-           COALESCE(m.is_admin, 0) AS groupAdmin
-    FROM account_group_membership m
+           CASE WHEN self_participant.role IN (2, 3) THEN TRUE ELSE FALSE END AS groupAdmin
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
     INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
     WHERE a.tenant_id = #{tenantId}
-      AND m.group_jid = #{groupJid}
-      AND m.deleted_at IS NULL
-      AND m.membership_status = #{inGroupStatus}
+      AND current_group.group_jid = #{groupJid}
       AND a.deleted_at IS NULL
       AND a.id &lt;&gt; #{managerAccountId}
       AND a.protocol_id IS NOT NULL
@@ -400,13 +429,29 @@
 
   <select id="selectCurrentStatuses"
           resultType="com.armada.group.model.vo.AccountGroupMembershipStatusRow">
-    SELECT account_id AS accountId,
-           group_jid AS groupJid,
-           membership_status AS membershipStatus,
-           status_updated_at AS statusUpdatedAt
-    FROM account_group_membership
-    WHERE deleted_at IS NULL
-      AND (account_id, group_jid) IN
+    SELECT binding.account_id AS accountId,
+           current_group.group_jid AS groupJid,
+           CASE self_participant.presence_status
+             WHEN 1 THEN 1
+             WHEN 0 THEN 2
+             WHEN 2 THEN CASE self_participant.last_exit_type
+               WHEN 'REMOVED' THEN 3
+               WHEN 'LEFT' THEN 4
+               ELSE 5
+             END
+             ELSE 2
+           END AS membershipStatus,
+           COALESCE(self_participant.presence_observed_at,
+                    binding.last_observed_at) AS statusUpdatedAt
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+    WHERE (binding.account_id, current_group.group_jid) IN
       <foreach collection="lookups" item="lookup" open="(" separator="," close=")">
         (#{lookup.accountId}, #{lookup.groupJid})
       </foreach>
@@ -691,11 +736,20 @@
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
            a.ws_phone AS wsPhone,
-           COALESCE(m.is_admin, 0) AS groupAdmin
-    FROM account_group_membership m
+           CASE WHEN self_participant.role IN (2, 3)
+                THEN TRUE ELSE FALSE END AS groupAdmin
+    FROM group_link group_handle
+    INNER JOIN wa_account_group_binding binding
+      ON binding.tenant_id = group_handle.tenant_id
+     AND binding.group_id = group_handle.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
     INNER JOIN account a
-      ON a.tenant_id = m.tenant_id
-     AND a.id = m.account_id
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
      AND a.deleted_at IS NULL
      AND a.protocol_account_id IS NOT NULL
      AND a.protocol_account_id != ''
@@ -706,41 +760,40 @@
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
      AND s.account_state = #{normalAccountState}
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = m.tenant_id
-     AND p.group_link_id = m.group_link_id
-    WHERE m.group_link_id = #{groupLinkId}
-      AND m.deleted_at IS NULL
-      AND m.membership_status = 1
+    LEFT JOIN group_link_preview owner_preview
+      ON owner_preview.tenant_id = group_handle.tenant_id
+     AND owner_preview.group_link_id = group_handle.id
+    WHERE group_handle.id = #{groupLinkId}
+      AND group_handle.deleted_at IS NULL
   </sql>
 
   <select id="selectGroupExecutionAccounts"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <include refid="groupExecutionAccountColumnsAndJoins"/>
-    ORDER BY COALESCE(m.is_admin, 0) DESC,
-             COALESCE(m.last_seen_at, 0) DESC,
-             m.id ASC
+    ORDER BY CASE WHEN self_participant.role IN (2, 3) THEN 1 ELSE 0 END DESC,
+             COALESCE(binding.last_observed_at, 0) DESC,
+             binding.id ASC
     LIMIT #{limit}
   </select>
 
   <select id="selectGroupOwnerExecutionAccount"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <include refid="groupExecutionAccountColumnsAndJoins"/>
-      AND p.owner_phone IS NOT NULL
-      AND TRIM(p.owner_phone) &lt;&gt; ''
+      AND owner_preview.owner_phone IS NOT NULL
+      AND TRIM(owner_preview.owner_phone) &lt;&gt; ''
       AND REPLACE(SUBSTRING_INDEX(TRIM(a.ws_phone), '@', 1), '+', '')
-          = REPLACE(SUBSTRING_INDEX(TRIM(p.owner_phone), '@', 1), '+', '')
-    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
-             m.id ASC
+          = REPLACE(SUBSTRING_INDEX(TRIM(owner_preview.owner_phone), '@', 1), '+', '')
+    ORDER BY COALESCE(binding.last_observed_at, 0) DESC,
+             binding.id ASC
     LIMIT 1
   </select>
 
   <select id="selectGroupAdminExecutionAccounts"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <include refid="groupExecutionAccountColumnsAndJoins"/>
-      AND m.is_admin = 1
-    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
-             m.id ASC
+      AND self_participant.role IN (2, 3)
+    ORDER BY COALESCE(binding.last_observed_at, 0) DESC,
+             binding.id ASC
     LIMIT #{limit}
   </select>
 
@@ -751,9 +804,9 @@
            a.protocol_account_id AS protocolAccountId,
            a.ws_phone AS wsPhone,
            TRUE AS groupAdmin
-    FROM group_link g
+    FROM group_link group_handle
     INNER JOIN account a
-      ON a.tenant_id = g.tenant_id
+      ON a.tenant_id = group_handle.tenant_id
      AND a.deleted_at IS NULL
      AND a.protocol_account_id IS NOT NULL
      AND a.protocol_account_id != ''
@@ -764,19 +817,26 @@
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
      AND s.account_state = #{normalAccountState}
-    LEFT JOIN account_group_membership m
-      ON m.tenant_id = g.tenant_id
-     AND m.group_link_id = g.id
-     AND m.account_id = a.id
-     AND m.deleted_at IS NULL
-     AND m.membership_status = 1
-    WHERE g.id = #{groupLinkId}
-      AND g.deleted_at IS NULL
+    LEFT JOIN wa_account_group_binding binding
+      ON binding.tenant_id = group_handle.tenant_id
+     AND binding.group_id = group_handle.group_id
+     AND binding.account_id = a.id
+    LEFT JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
+    WHERE group_handle.id = #{groupLinkId}
+      AND group_handle.deleted_at IS NULL
       AND a.ws_phone IN
       <foreach collection="phones" item="phone" open="(" separator="," close=")">
         #{phone}
       </foreach>
-    ORDER BY COALESCE(m.last_seen_at, 0) DESC,
+    ORDER BY COALESCE(
+               CASE WHEN self_participant.id IS NOT NULL
+                    THEN binding.last_observed_at END,
+               0
+             ) DESC,
              a.id ASC
     LIMIT #{limit}
   </select>

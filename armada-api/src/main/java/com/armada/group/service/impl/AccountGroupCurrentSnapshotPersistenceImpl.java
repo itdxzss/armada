@@ -157,6 +157,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             if (groupIds.size() != rows.size()) {
                 throw new BusinessException(ErrorCode.CONFLICT, "新群模型批量解析 groupId 不完整");
             }
+            mapper.updateLegacyGroupReferences(tenantId, visibleJids);
             rows = rows.stream()
                     .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
                     .sorted(Comparator.comparing(Write::groupId).thenComparing(Write::groupJid))
@@ -280,6 +281,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             }
             row = row.withGroupId(groupIds.get(0).groupId());
         }
+        mapper.updateLegacyGroupReferences(tenantId, List.of(normalizedGroupJid));
         mapper.upsertParticipantFacts(List.of(row));
         mapper.upsertSelfBinding(tenantId, accountId, row);
     }
@@ -355,6 +357,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             }
             row = row.withGroupId(groupIds.get(0).groupId());
         }
+        mapper.updateLegacyGroupReferences(tenantId, List.of(normalizedGroupJid));
         mapper.upsertParticipantFacts(List.of(row));
         mapper.upsertSelfBinding(tenantId, accountId, row);
     }
@@ -579,6 +582,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (groupIds.size() != groupJids.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员事件的 groupId");
         }
+        mapper.updateLegacyGroupReferences(tenantId, groupJids);
         return groupIds;
     }
 

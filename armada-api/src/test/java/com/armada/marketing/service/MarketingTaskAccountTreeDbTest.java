@@ -248,16 +248,36 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
 
     private long seedGroup(String suffix, String groupJid, Integer healthStatus, Integer banned) {
         long now = System.currentTimeMillis();
-        long groupLinkId = insertAndReturnId("""
-                INSERT INTO group_link
-                    (tenant_id, link_url, group_name, origin, membership_state, created_at, updated_at)
-                VALUES (?, ?, ?, 2, 2, ?, ?)
+        long currentGroupId = insertAndReturnId("""
+                INSERT INTO wa_group
+                    (tenant_id, group_jid, display_name, origin, created_at, updated_at)
+                VALUES (?, ?, ?, 2, ?, ?)
                 """, ps -> {
             ps.setLong(1, TEST_TENANT_ID);
-            ps.setString(2, "https://chat.whatsapp.com/" + suffix);
+            ps.setString(2, groupJid);
             ps.setString(3, "营销群-" + suffix);
             ps.setLong(4, now);
             ps.setLong(5, now);
+        });
+        jdbc.update("""
+                INSERT INTO wa_group_profile
+                    (tenant_id, group_id, subject, announce_only, health_status, banned,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, currentGroupId, "WA群-" + suffix,
+                healthStatus, banned, now, now);
+        long groupLinkId = insertAndReturnId("""
+                INSERT INTO group_link
+                    (tenant_id, group_id, link_url, group_name, origin,
+                     membership_state, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 2, 2, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setLong(2, currentGroupId);
+            ps.setString(3, "https://chat.whatsapp.com/" + suffix);
+            ps.setString(4, "营销群-" + suffix);
+            ps.setLong(5, now);
+            ps.setLong(6, now);
         });
         jdbc.update("""
                 INSERT INTO group_link_preview
@@ -285,6 +305,45 @@ class MarketingTaskAccountTreeDbTest extends DbTestBase {
                      last_seen_at, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 'TEST_FIXTURE', ?, ?, ?, ?)
                 """, TEST_TENANT_ID, accountId, groupLinkId, groupJid, membershipStatus,
+                now, now, now, now);
+        long currentGroupId = jdbc.queryForObject(
+                "SELECT group_id FROM group_link WHERE id = ?", Long.class, groupLinkId);
+        String phone = jdbc.queryForObject(
+                "SELECT ws_phone FROM account WHERE id = ?", String.class, accountId);
+        int presenceStatus = switch (membershipStatus) {
+            case 1 -> 1;
+            case 2 -> 0;
+            default -> 2;
+        };
+        String exitType = switch (membershipStatus) {
+            case 3 -> "REMOVED";
+            case 4 -> "LEFT";
+            case 5 -> "UNKNOWN";
+            default -> null;
+        };
+        long participantId = insertAndReturnId("""
+                INSERT INTO wa_group_participant
+                    (tenant_id, group_id, pn_jid, phone, presence_status,
+                     presence_source, presence_observed_at, last_exit_type,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'TEST_FIXTURE', ?, ?, ?, ?)
+                """, ps -> {
+            ps.setLong(1, TEST_TENANT_ID);
+            ps.setLong(2, currentGroupId);
+            ps.setString(3, phone + "@s.whatsapp.net");
+            ps.setString(4, phone);
+            ps.setInt(5, presenceStatus);
+            ps.setLong(6, now);
+            ps.setString(7, exitType);
+            ps.setLong(8, now);
+            ps.setLong(9, now);
+        });
+        jdbc.update("""
+                INSERT INTO wa_account_group_binding
+                    (tenant_id, account_id, group_id, participant_id,
+                     membership_active_since_at, last_observed_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId, currentGroupId, participantId,
                 now, now, now, now);
     }
 

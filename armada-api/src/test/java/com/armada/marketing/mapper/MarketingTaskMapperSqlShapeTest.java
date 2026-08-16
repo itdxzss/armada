@@ -135,7 +135,7 @@ class MarketingTaskMapperSqlShapeTest {
     }
 
     @Test
-    void marketingAccountSelectionUsesSnapshotForFixedTargetsAndMembershipForDynamicTargets() throws IOException {
+    void marketingAccountSelectionUsesCurrentGroupFacts() throws IOException {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);
@@ -147,41 +147,44 @@ class MarketingTaskMapperSqlShapeTest {
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
 
         assertThat(candidateSql)
-                .contains("JOIN account_group_membership m ON m.account_id = a.id")
-                .contains("m.group_jid AS groupJid")
-                .contains("m.membership_status AS membershipStatus")
+                .contains("JOIN wa_account_group_binding binding ON binding.account_id = a.id")
+                .contains("current_group.group_jid AS groupJid")
+                .contains("self_participant.presence_status")
                 .contains("a.account_group_id = #{accountGroupId}");
         assertThat(candidateSql)
                 .contains("collection=\"selectableAccountStates\"")
                 .doesNotContain("s.account_state = 2")
                 .doesNotContain("group_link_health")
-                .doesNotContain("account_group_baseline");
+                .doesNotContain("account_group_baseline")
+                .doesNotContain("account_group_membership");
         assertThat(accountCandidateSql)
                 .contains("collection=\"selectableAccountStates\"")
                 .doesNotContain("s.account_state = 2");
         assertThat(dynamicTargetSql)
-                .contains("JOIN account_group_membership m")
-                .contains("m.group_jid AS groupJid")
-                .contains("m.deleted_at IS NULL")
-                .contains("TRIM(m.group_jid) &lt;&gt; ''")
-                .contains("LEFT JOIN group_link g")
-                .contains("(#{accountGroupSendAt} IS NULL OR m.joined_at &gt;= #{accountGroupSendAt})")
+                .contains("JOIN wa_account_group_binding binding")
+                .contains("current_group.group_jid AS groupJid")
+                .contains("LEFT JOIN group_link g ON g.group_id = binding.group_id")
+                .contains("binding.membership_active_since_at &gt;= #{accountGroupSendAt}")
                 .doesNotContain("account_group_baseline")
+                .doesNotContain("account_group_membership")
                 .doesNotContain("account_state")
                 .doesNotContain("group_link_health")
                 .doesNotContain("membership_state");
         assertThat(currentTargetSql)
-                .contains("JOIN account_group_membership m")
-                .contains("m.group_link_id = #{groupLinkId}")
-                .contains("m.membership_status IN (1, 2)")
+                .contains("JOIN wa_account_group_binding binding")
+                .contains("g.id = #{groupLinkId}")
+                .contains("self_participant.presence_status IN (0, 1)")
+                .contains("binding.was_in_initial_baseline")
+                .doesNotContain("account_group_membership")
+                .doesNotContain("account_group_baseline")
                 .contains("WHERE a.id = #{accountId}");
         assertThat(treeAccountSql).contains("a.protocol_account_id AS protocolAccountId");
         assertThat(treeAccountSql)
-                .contains("account_group_membership")
+                .contains("wa_account_group_binding")
                 .contains("COALESCE(gm.groupCount, 0) AS groupCount")
-                .contains("s.login_state AS loginState");
-        assertThat(treeAccountSql.replaceAll("\\s+", " "))
-                .doesNotContain("FROM account_group_membership m FROM account_group_membership m");
+                .contains("s.login_state AS loginState")
+                .doesNotContain("account_group_membership")
+                .doesNotContain("account_group_baseline");
     }
 
     @Test
@@ -528,7 +531,8 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("FROM attempt_facts WHERE tenant_id = 7")
                 .contains("protocol.tenant_id = 7")
                 .contains("ended.tenant_id = 7")
-                .contains("m.tenant_id = 7")
+                .contains("binding.tenant_id = 7")
+                .contains("self_participant.tenant_id = 7")
                 .contains("d.tenant_id = 7");
     }
 

@@ -23,28 +23,35 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
             "com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper.";
 
     @Test
-    void mysqlCandidateQueryExpandsAndDeduplicatesHistoricalJidsBeforeJoining()
+    void candidateQueryUsesCurrentBindingsAndMigratedHistoricalFlag()
             throws Exception {
         BoundSql sql = boundSql(null, "countPageByTenant");
 
         assertThat(sql.getSql())
-                .contains("JSON_TABLE")
-                .contains("b0.tenant_id = ?")
-                .contains("m.tenant_id = ?")
-                .contains("MIN(baseline_group.group_jid) AS group_jid")
-                .contains("BINARY baseline_group.group_jid")
-                .contains("BINARY history.group_jid = BINARY m.group_jid")
-                .doesNotContain("JSON_CONTAINS");
+                .contains("FROM wa_account_group_binding binding")
+                .contains("INNER JOIN wa_group_participant self_participant")
+                .contains("self_participant.presence_status = 1")
+                .contains("handle.is_historical = 1")
+                .contains("LEFT JOIN wa_group_profile current_profile")
+                .doesNotContain("account_group_membership")
+                .doesNotContain("account_group_baseline")
+                .doesNotContain("JSON_TABLE")
+                .doesNotContain("JSON_CONTAINS")
+                .doesNotContain("group_link_health");
     }
 
     @Test
-    void h2CandidateQueryKeepsEquivalentJsonContainsFallbackForRealMapperTests()
+    void candidateAccountsUseCurrentPresenceAndKeepLegacyCreatorCompatibility()
             throws Exception {
-        BoundSql sql = boundSql("h2", "countPageByTenant");
+        BoundSql sql = boundSql(null, "selectAccountsByGroupJids");
 
         assertThat(sql.getSql())
-                .contains("JSON_CONTAINS")
-                .doesNotContain("JSON_TABLE");
+                .contains("FROM wa_account_group_binding binding")
+                .contains("self_participant.presence_status = 1")
+                .contains("self_participant.role IN (2, 3)")
+                .contains("legacy_preview.owner_phone")
+                .contains("binding.last_observed_at")
+                .doesNotContain("account_group_membership");
     }
 
     private static BoundSql boundSql(String databaseId, String statementId)

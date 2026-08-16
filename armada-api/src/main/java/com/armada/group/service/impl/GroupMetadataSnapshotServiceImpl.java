@@ -192,6 +192,8 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         row.setAdminOnlyEditInfoObserved(metadata.restrict() != null);
         row.setMemberAddMode(metadata.memberAddMode());
         row.setMemberAddModeObserved(metadata.memberAddMode() != null);
+        row.setMemberLinkMode(metadata.inviteViaLink());
+        row.setMemberLinkModeObserved(metadata.inviteViaLink() != null);
         row.setJoinApprovalMode(metadata.joinApprovalMode());
         row.setJoinApprovalModeObserved(metadata.joinApprovalMode() != null);
         row.setEphemeralDurationSeconds(metadata.ephemeralDurationSeconds());

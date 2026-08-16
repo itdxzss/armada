@@ -18,6 +18,24 @@ import org.springframework.web.client.RestClient;
 class AndroidNativeGroupSettingsAdapterTest {
 
     @Test
+    void editsGroupAndMemberLinkPermissionsThroughAndroidNativeContract() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://android.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupSettingsPort port = new AndroidNativeGroupSettingsAdapter(
+                new HttpAndroidNativeClient(new ProtocolHttpExecutor(builder.build())),
+                new AndroidResponseDecoder(),
+                new AndroidGroupOperationErrorMapper());
+
+        expectPermission(server, "lock", true);
+        expectPermission(server, "member-link-mode", false);
+
+        port.setEditGroupSettingsAllowed(account(), "120363001@g.us", true);
+        port.setInviteViaLinkAllowed(account(), "120363001@g.us", false);
+
+        server.verify();
+    }
+
+    @Test
     void enablesAllMembersToAddThroughAndroidNativeContract() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://android.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -96,5 +114,19 @@ class AndroidNativeGroupSettingsAdapterTest {
                 ProtocolBackend.ANDROID,
                 "android_7",
                 "919000000001");
+    }
+
+    private static void expectPermission(
+            MockRestServiceServer server, String path, boolean state) {
+        server.expect(requestTo(
+                        "http://android.internal/ws/v1/groups/settings/"
+                                + path + "/919000000001"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"group_id":"120363001@g.us","state":%s}
+                        """.formatted(state)))
+                .andRespond(withSuccess(
+                        "{\"Code\":0,\"Data\":\"\",\"Msg\":\"\"}",
+                        MediaType.APPLICATION_JSON));
     }
 }

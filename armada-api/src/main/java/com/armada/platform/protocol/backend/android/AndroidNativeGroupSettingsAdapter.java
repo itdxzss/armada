@@ -43,7 +43,12 @@ public final class AndroidNativeGroupSettingsAdapter implements GroupSettingsBac
 
     @Override
     public void setEditGroupSettingsAllowed(ProtocolAccountRef account, String groupJid, boolean enabled) {
-        throw unsupported(account, "edit");
+        requireAccount(account);
+        AndroidDecodedResponse response = decoder.decode(
+                client.setGroupEditAllowed(account.wsPhone(), requireGroup(groupJid), enabled));
+        if (!response.success()) {
+            throw errorMapper.toException(response, account, "group.settings.edit", null);
+        }
     }
 
     @Override
@@ -60,7 +65,14 @@ public final class AndroidNativeGroupSettingsAdapter implements GroupSettingsBac
 
     @Override
     public void setInviteViaLinkAllowed(ProtocolAccountRef account, String groupJid, boolean enabled) {
-        throw unsupported(account, "invite-link");
+        requireAccount(account);
+        AndroidDecodedResponse response = decoder.decode(
+                client.setGroupMemberLinkMode(
+                        account.wsPhone(), requireGroup(groupJid), enabled));
+        if (!response.success()) {
+            throw errorMapper.toException(
+                    response, account, "group.settings.invite-link", null);
+        }
     }
 
     @Override

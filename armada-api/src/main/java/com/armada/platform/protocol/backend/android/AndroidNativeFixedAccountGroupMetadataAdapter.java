@@ -18,8 +18,6 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         implements FixedAccountGroupMetadataBackend {
 
     private static final String OPERATION = "group.metadata.get";
-    private static final String INVITE_SETTING_UNSUPPORTED =
-            "Android 当前不支持读取 inviteViaLink 设置状态";
 
     private final AndroidNativeClient client;
     private final AndroidResponseDecoder decoder;
@@ -101,6 +99,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 || count.intValue() != participants.size()) {
             throw unrecognized("Android 群成员响应 Count 与 Participants 不一致");
         }
+        Boolean inviteViaLink = memberLinkMode(data);
         return new GroupMetadataResult(
                 responseGroupJid,
                 text(data.get("Subject")),
@@ -109,13 +108,15 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 positiveLong(data.get("Creation")),
                 true,
                 booleanValue(data.get("Announce")),
-                null,
+                booleanValue(data.get("Locked"), "Locked"),
                 memberAddMode(data),
                 joinApprovalMode(data),
                 null,
-                null,
-                false,
-                INVITE_SETTING_UNSUPPORTED,
+                inviteViaLink,
+                inviteViaLink != null,
+                inviteViaLink == null
+                        ? "Android metadata 未返回 member_link_mode"
+                        : null,
                 false,
                 true,
                 participants);
@@ -160,7 +161,27 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         };
     }
 
+    private static Boolean memberLinkMode(JsonNode data) {
+        JsonNode node = data.get("MemberLinkMode");
+        if (node == null) {
+            node = data.get("member_link_mode");
+        }
+        String value = text(node);
+        if (value == null) {
+            return null;
+        }
+        return switch (value) {
+            case "all_member_link" -> true;
+            case "admin_link" -> false;
+            default -> throw unrecognized("Android 群成员响应 MemberLinkMode 无效");
+        };
+    }
+
     private static Boolean booleanValue(JsonNode node) {
+        return booleanValue(node, "Announce");
+    }
+
+    private static Boolean booleanValue(JsonNode node, String field) {
         if (node == null || node.isNull()) {
             return null;
         }
@@ -177,7 +198,7 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         if ("false".equalsIgnoreCase(value) || "0".equals(value)) {
             return false;
         }
-        throw unrecognized("Android 群成员响应 Announce 无效");
+        throw unrecognized("Android 群成员响应 " + field + " 无效");
     }
 
     private static Long positiveLong(JsonNode node) {

@@ -332,7 +332,8 @@
     INSERT INTO wa_group_profile (
       tenant_id, group_id, subject, description, member_count, checked_member_count,
       wa_created_at,
-      announce_only, admin_only_edit_info, member_add_mode, join_approval_mode,
+      announce_only, admin_only_edit_info, member_add_mode, member_link_mode,
+      join_approval_mode,
       ephemeral_duration_seconds, metadata_observed_at,
       health_status, banned, last_checked_at, last_error_code, failure_count,
       created_at, updated_at
@@ -340,7 +341,7 @@
       SELECT source.tenant_id, source.group_id, source.subject, source.description,
            source.member_count, source.checked_member_count, source.wa_created_at,
            source.announce_only,
-           source.admin_only_edit_info, source.member_add_mode,
+           source.admin_only_edit_info, source.member_add_mode, source.member_link_mode,
            source.join_approval_mode, source.ephemeral_duration_seconds,
            source.metadata_observed_at, source.health_status, source.banned,
            source.last_checked_at, source.last_error_code, source.failure_count,
@@ -359,6 +360,7 @@
              preview.announce_only,
              preview.admin_only_edit_info,
              preview.member_add_mode,
+             preview.member_link_mode,
              preview.join_approval_mode,
              preview.ephemeral_duration_seconds,
              COALESCE(preview.metadata_observed_at, preview.last_preview_at)
@@ -399,7 +401,8 @@
            OR (target.announce_only IS NULL AND source.announce_only IS NOT NULL)
            OR (target.admin_only_edit_info IS NULL
                AND source.admin_only_edit_info IS NOT NULL)
-           OR (target.member_add_mode IS NULL AND source.member_add_mode IS NOT NULL)
+            OR (target.member_add_mode IS NULL AND source.member_add_mode IS NOT NULL)
+            OR (target.member_link_mode IS NULL AND source.member_link_mode IS NOT NULL)
            OR (target.join_approval_mode IS NULL
                AND source.join_approval_mode IS NOT NULL)
            OR (target.ephemeral_duration_seconds IS NULL
@@ -415,8 +418,10 @@
                AND NOT (target.announce_only &lt;=&gt; source.announce_only))
            OR (source.admin_only_edit_info IS NOT NULL
                AND NOT (target.admin_only_edit_info &lt;=&gt; source.admin_only_edit_info))
-           OR (source.member_add_mode IS NOT NULL
-               AND NOT (target.member_add_mode &lt;=&gt; source.member_add_mode))
+            OR (source.member_add_mode IS NOT NULL
+                AND NOT (target.member_add_mode &lt;=&gt; source.member_add_mode))
+            OR (source.member_link_mode IS NOT NULL
+                AND NOT (target.member_link_mode &lt;=&gt; source.member_link_mode))
            OR (source.join_approval_mode IS NOT NULL
                AND NOT (target.join_approval_mode &lt;=&gt; source.join_approval_mode))
            OR (source.ephemeral_duration_seconds IS NOT NULL
@@ -486,6 +491,13 @@
           OR wa_group_profile.member_add_mode IS NULL
           THEN COALESCE(VALUES(member_add_mode), wa_group_profile.member_add_mode)
         ELSE wa_group_profile.member_add_mode
+      END,
+      member_link_mode = CASE
+        WHEN COALESCE(VALUES(metadata_observed_at), 0)
+               &gt;= COALESCE(wa_group_profile.metadata_observed_at, 0)
+          OR wa_group_profile.member_link_mode IS NULL
+          THEN COALESCE(VALUES(member_link_mode), wa_group_profile.member_link_mode)
+        ELSE wa_group_profile.member_link_mode
       END,
       join_approval_mode = CASE
         WHEN COALESCE(VALUES(metadata_observed_at), 0)

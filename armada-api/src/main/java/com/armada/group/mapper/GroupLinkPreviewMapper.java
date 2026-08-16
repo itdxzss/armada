@@ -113,6 +113,11 @@ public interface GroupLinkPreviewMapper {
                             @Param("memberAddMode") boolean memberAddMode,
                             @Param("updatedAt") long updatedAt);
 
+    /** 写入已由实时回读确认的普通成员链接邀请权限。 */
+    int updateMemberLinkMode(@Param("groupLinkId") Long groupLinkId,
+                             @Param("memberLinkMode") boolean memberLinkMode,
+                             @Param("updatedAt") long updatedAt);
+
     /** 写入已由实时回读确认的新成员审批权限。 */
     int updateJoinApprovalMode(@Param("groupLinkId") Long groupLinkId,
                                @Param("joinApprovalMode") boolean joinApprovalMode,

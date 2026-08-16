@@ -48,6 +48,9 @@ public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
     /** 普通成员添加成员权限接口路径后缀。 */
     private static final String ADD_MEMBERS_PATH = "/settings/member-add-mode";
 
+    /** 普通成员访问群邀请链接权限接口路径后缀。 */
+    private static final String INVITE_VIA_LINK_PATH = "/settings/member-link-mode";
+
     /** 新成员入群审批接口路径后缀。 */
     private static final String JOIN_APPROVAL_PATH = "/settings/join-approval";
 
@@ -80,6 +83,12 @@ public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
 
     /** 仅管理员可以添加其他成员的协议 mode。 */
     private static final String MODE_ADMIN_ADD = "admin_add";
+
+    /** 所有成员可访问和分享邀请链接。 */
+    private static final String MODE_ALL_MEMBER_LINK = "all_member_link";
+
+    /** 仅群主和管理员可访问邀请链接。 */
+    private static final String MODE_ADMIN_LINK = "admin_link";
 
     /** 开启新成员入群审批的协议 mode。 */
     private static final String MODE_ON = "on";
@@ -197,9 +206,8 @@ public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
     @Override
     public void setInviteViaLinkAllowed(
             ProtocolAccountRef account, String groupJid, boolean enabled) {
-        throw new ProtocolException(
-                ProtocolErrorCode.GROUP_CAPABILITY_UNSUPPORTED,
-                "当前协议版本未暴露通过链接邀请权限");
+        postMode(account, groupJid, INVITE_VIA_LINK_PATH,
+                enabled ? MODE_ALL_MEMBER_LINK : MODE_ADMIN_LINK);
     }
 
     /**

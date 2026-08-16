@@ -211,11 +211,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                         invert(preview.getAdminOnlyEditInfo()),
                         invert(preview.getAnnounceOnly()),
                         preview.getMemberAddMode(),
-                        null,
+                        preview.getMemberLinkMode(),
                         preview.getJoinApprovalMode()),
                 new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(
-                        false,
-                        "本地快照不包含实时协议能力声明")),
+                        preview.getMemberLinkMode() != null,
+                        preview.getMemberLinkMode() == null
+                                ? "本地快照尚未观察到 member_link_mode"
+                                : null)),
                 true,
                 null,
                 members,
@@ -401,8 +403,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      * 修改一项 WhatsApp 群权限并回读确认。
      *
      * <p>权限写操作固定选择 metadata 已确认的群主账号，禁止回退到其它群成员。权限 key
-     * 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，当前协议版本
-     * 不支持时直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
+     * 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，协议未明确返回该能力时
+     * 直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
      * 仍由同一账号回读对应 metadata 字段确认。</p>
      *
      * @param id  群链接 ID
@@ -453,9 +455,10 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     groupLinkId, enabled, now);
             case ADMIN_APPROVE_NEW_MEMBERS -> previewMapper.updateJoinApprovalMode(
                     groupLinkId, enabled, now);
-            case INVITE_VIA_LINK -> 0;
+            case INVITE_VIA_LINK -> previewMapper.updateMemberLinkMode(
+                    groupLinkId, enabled, now);
         };
-        if (updated == 0 && key != GroupPermissionKey.INVITE_VIA_LINK) {
+        if (updated == 0) {
             log.warn("群权限已确认但本地快照未更新 groupLinkId={} key={}", groupLinkId, key);
         }
         GroupLinkPreview current = confirmedSetting(groupJid, key, enabled, now);
@@ -485,7 +488,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 preview.setJoinApprovalModeObserved(true);
             }
             case INVITE_VIA_LINK -> {
-                return null;
+                preview.setMemberLinkMode(enabled);
+                preview.setMemberLinkModeObserved(true);
             }
         }
         return preview;
@@ -1212,8 +1216,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 在写入前验证需要能力声明的群设置。
      *
-     * <p>目前只有“通过链接邀请”没有稳定协议写能力，因此必须先读取 metadata capability。
-     * 不支持时立即失败，禁止误用添加成员或入群审批设置。</p>
+     * <p>“通过链接邀请”必须先读取 metadata capability；协议没有返回 member_link_mode 时
+     * 立即失败，禁止误用添加成员或入群审批设置。</p>
      *
      * @param account  执行账号
      * @param groupJid WhatsApp 群 JID

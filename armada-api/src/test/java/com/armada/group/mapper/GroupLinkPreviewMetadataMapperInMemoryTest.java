@@ -61,6 +61,7 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
                     announce_only TINYINT,
                     admin_only_edit_info TINYINT,
                     member_add_mode TINYINT,
+                    member_link_mode TINYINT,
                     join_approval_mode TINYINT,
                     ephemeral_duration_seconds INT,
                     group_created_at BIGINT,
@@ -92,6 +93,8 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         newest.setAdminOnlyEditInfoObserved(true);
         newest.setMemberAddMode(false);
         newest.setMemberAddModeObserved(true);
+        newest.setMemberLinkMode(true);
+        newest.setMemberLinkModeObserved(true);
         newest.setJoinApprovalMode(true);
         newest.setJoinApprovalModeObserved(true);
         newest.setEphemeralDurationSeconds(86_400);
@@ -128,6 +131,7 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         assertThat(updated.getCreatorCountryIso2()).isNull();
         assertThat(updated.getCreatorContinentCode()).isNull();
         assertThat(updated.getAnnounceOnly()).isTrue();
+        assertThat(updated.getMemberLinkMode()).isTrue();
         assertThat(updated.getEphemeralDurationSeconds()).isEqualTo(86_400);
         assertThat(updated.getGroupCreatedAt()).isEqualTo(1_700_000_000L);
         assertThat(updated.getMetadataObservedAt()).isEqualTo(3_000L);
@@ -158,14 +162,18 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         initial.setAnnounceOnlyObserved(true);
         initial.setMemberAddMode(true);
         initial.setMemberAddModeObserved(true);
+        initial.setMemberLinkMode(false);
+        initial.setMemberLinkModeObserved(true);
         mapper.upsertMetadataSnapshot(initial);
 
         mapper.updateAnnounceOnly(GROUP_LINK_ID, true, 2_000L);
         mapper.updateMemberAddMode(GROUP_LINK_ID, false, 2_000L);
+        mapper.updateMemberLinkMode(GROUP_LINK_ID, true, 2_000L);
 
         GroupLinkPreview immediatelyVisible = mapper.selectByGroupLinkId(GROUP_LINK_ID);
         assertThat(immediatelyVisible.getAnnounceOnly()).isTrue();
         assertThat(immediatelyVisible.getMemberAddMode()).isFalse();
+        assertThat(immediatelyVisible.getMemberLinkMode()).isTrue();
         assertThat(immediatelyVisible.getMetadataObservedAt()).isEqualTo(2_000L);
 
         GroupLinkPreview stale = metadata("旧任务", null, 1_500L);
@@ -173,11 +181,14 @@ class GroupLinkPreviewMetadataMapperInMemoryTest {
         stale.setAnnounceOnlyObserved(true);
         stale.setMemberAddMode(true);
         stale.setMemberAddModeObserved(true);
+        stale.setMemberLinkMode(false);
+        stale.setMemberLinkModeObserved(true);
         mapper.upsertMetadataSnapshot(stale);
 
         GroupLinkPreview afterStale = mapper.selectByGroupLinkId(GROUP_LINK_ID);
         assertThat(afterStale.getAnnounceOnly()).isTrue();
         assertThat(afterStale.getMemberAddMode()).isFalse();
+        assertThat(afterStale.getMemberLinkMode()).isTrue();
     }
 
     private static GroupLinkPreview metadata(String subject, String description, long observedAt) {

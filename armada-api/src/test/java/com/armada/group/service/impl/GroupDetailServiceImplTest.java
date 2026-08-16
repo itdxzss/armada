@@ -130,6 +130,7 @@ class GroupDetailServiceImplTest {
         preview.setAdminOnlyEditInfo(false);
         preview.setAnnounceOnly(true);
         preview.setMemberAddMode(true);
+        preview.setMemberLinkMode(true);
         preview.setJoinApprovalMode(true);
         preview.setEphemeralDurationSeconds(604_800);
         when(previewMapper.selectByGroupLinkId(10L)).thenReturn(preview);
@@ -145,6 +146,8 @@ class GroupDetailServiceImplTest {
         assertThat(result.permissions().editGroupSettings()).isTrue();
         assertThat(result.permissions().sendMessages()).isFalse();
         assertThat(result.permissions().addMembers()).isTrue();
+        assertThat(result.permissions().inviteViaLink()).isTrue();
+        assertThat(result.capabilities().inviteViaLink().supported()).isTrue();
         assertThat(result.permissions().adminApproveNewMembers()).isTrue();
         assertThat(result.timedMessageMode()).isEqualTo("7d");
         assertThat(result.members()).hasSize(1);
@@ -562,6 +565,37 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
+    void updateInviteViaLinkUsesOwnerAndPersistsBothSnapshots() {
+        givenLiveTarget();
+        when(selector.requireOwner(10L)).thenReturn(
+                new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
+        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
+                .thenReturn(metadataWithInviteViaLink(true));
+        when(previewMapper.updateMemberLinkMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
+
+        service.updateSetting(10L, new GroupSettingCommandDTO(
+                GroupPermissionKey.INVITE_VIA_LINK, true));
+
+        verify(selector).requireOwner(10L);
+        verify(groupSettingsPort).setInviteViaLinkAllowed(
+                webAccount(), "120363detail@g.us", true);
+        verify(groupMetadataPort, org.mockito.Mockito.times(2))
+                .getMetadata(webAccount(), "120363detail@g.us");
+        verify(previewMapper).updateMemberLinkMode(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.eq(true),
+                org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
+        assertThat(currentCaptor.getValue().getMemberLinkMode()).isTrue();
+        assertThat(currentCaptor.getValue().getMemberLinkModeObserved()).isTrue();
+    }
+
+    @Test
     void demoteMembersProtectsOwnerAndFillsMissingProtocolResults() {
         givenLiveTarget();
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
@@ -942,6 +976,32 @@ class GroupDetailServiceImplTest {
                 false,
                 true,
                 participants);
+    }
+
+    private static GroupMetadataResult metadataWithInviteViaLink(boolean enabled) {
+        return new GroupMetadataResult(
+                "120363detail@g.us",
+                "群名",
+                null,
+                null,
+                null,
+                true,
+                false,
+                false,
+                false,
+                false,
+                0,
+                enabled,
+                true,
+                null,
+                false,
+                true,
+                List.of(new GroupParticipantResult(
+                        "8613800000000@s.whatsapp.net",
+                        "8613800000000",
+                        true,
+                        true,
+                        "superadmin")));
     }
 
     private static GroupParticipantResult participant(

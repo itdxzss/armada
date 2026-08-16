@@ -424,13 +424,13 @@
   <insert id="upsertGroupMetadata">
     INSERT INTO wa_group_profile (
       group_id, subject, description, member_count, wa_created_at,
-      announce_only, admin_only_edit_info, member_add_mode,
+      announce_only, admin_only_edit_info, member_add_mode, member_link_mode,
       join_approval_mode, ephemeral_duration_seconds,
       metadata_observed_at, created_at, updated_at
     ) VALUES (
       #{groupId}, NULLIF(TRIM(#{row.waSubject}), ''), #{row.waDescription},
       #{row.memberSize}, #{waCreatedAt}, #{row.announceOnly},
-      #{row.adminOnlyEditInfo}, #{row.memberAddMode}, #{row.joinApprovalMode},
+      #{row.adminOnlyEditInfo}, #{row.memberAddMode}, #{row.memberLinkMode}, #{row.joinApprovalMode},
       #{row.ephemeralDurationSeconds}, #{metadataObservedAt}, #{now}, #{now}
     )
     ON DUPLICATE KEY UPDATE
@@ -479,6 +479,12 @@
          AND #{row.memberAddModeObserved} = TRUE
           THEN VALUES(member_add_mode)
         ELSE member_add_mode
+      END,
+      member_link_mode = CASE
+        WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+         AND #{row.memberLinkModeObserved} = TRUE
+          THEN VALUES(member_link_mode)
+        ELSE member_link_mode
       END,
       join_approval_mode = CASE
         WHEN VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)

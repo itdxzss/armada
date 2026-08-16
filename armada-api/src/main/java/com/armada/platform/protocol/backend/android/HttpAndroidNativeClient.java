@@ -20,6 +20,10 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
             "/ws/v1/groups/settings/sendmessage/";
     private static final String GROUP_MEMBER_ADD_MODE_URI_PREFIX =
             "/ws/v1/groups/settings/join-mode/";
+    private static final String GROUP_EDIT_URI_PREFIX =
+            "/ws/v1/groups/settings/lock/";
+    private static final String GROUP_MEMBER_LINK_MODE_URI_PREFIX =
+            "/ws/v1/groups/settings/member-link-mode/";
     private static final String GROUP_JOIN_APPROVAL_URI_PREFIX =
             "/ws/v1/groups/settings/approval/";
     private static final String GROUP_NAME_URI_PREFIX = "/ws/v1/groups/settings/name/";
@@ -180,6 +184,27 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     }
 
     @Override
+    public AndroidResponseEnvelope setGroupEditAllowed(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanEdit) {
+        return postGroupPermission(
+                GROUP_EDIT_URI_PREFIX, wsPhone, groupJid, membersCanEdit);
+    }
+
+    @Override
+    public AndroidResponseEnvelope setGroupMemberLinkMode(
+            String wsPhone,
+            String groupJid,
+            boolean membersCanInviteViaLink) {
+        return postGroupPermission(
+                GROUP_MEMBER_LINK_MODE_URI_PREFIX,
+                wsPhone,
+                groupJid,
+                membersCanInviteViaLink);
+    }
+
+    @Override
     public AndroidResponseEnvelope setGroupJoinApproval(
             String wsPhone,
             String groupJid,
@@ -268,6 +293,14 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         return httpExecutor.postTyped(
                 uriPrefix + requireDigits(wsPhone),
                 new GroupRequest(requireText(groupJid, GROUP_JID_FIELD)),
+                AndroidResponseEnvelope.class);
+    }
+
+    private AndroidResponseEnvelope postGroupPermission(
+            String uriPrefix, String wsPhone, String groupJid, boolean enabled) {
+        return httpExecutor.postTyped(
+                uriPrefix + requireDigits(wsPhone),
+                new GroupPermissionRequest(requireText(groupJid, GROUP_JID_FIELD), enabled),
                 AndroidResponseEnvelope.class);
     }
 

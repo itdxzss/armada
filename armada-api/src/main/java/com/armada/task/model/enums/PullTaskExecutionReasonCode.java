@@ -33,6 +33,15 @@ public enum PullTaskExecutionReasonCode {
     /** 当前管理账号没有修改普通成员添加群成员权限的管理员权限。 */
     GROUP_MEMBER_ADD_PERMISSION_DENIED("管理员账号无权开启普通成员添加群成员权限"),
 
+    /**
+     * 关闭群进群审核失败。
+     *
+     * <p>只写入群设置动作行的 {@code reason_code} 供排查与统计，不写入执行行、不阻断阶段推进，
+     * 也不重试。拉手与料子由管理员 add 进群，不受进群审批门控；该设置只影响踩链接自主进群的
+     * 补充管理员。</p>
+     */
+    GROUP_JOIN_APPROVAL_CLOSE_FAILED("关闭进群审核失败"),
+
     /** WhatsApp 明确通知目标群已暂停或终止。 */
     GROUP_BANNED("群已被封禁"),
 

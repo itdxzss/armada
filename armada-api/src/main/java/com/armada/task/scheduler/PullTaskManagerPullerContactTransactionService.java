@@ -8,7 +8,6 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
-import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -45,6 +44,11 @@ public class PullTaskManagerPullerContactTransactionService {
     private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
+    /** 允许提交新一轮加人权限命令的动作状态：首次为 PENDING，重发为失败或结果未知。 */
+    private static final List<Integer> MEMBER_ADD_SUBMITTABLE = List.of(
+            PullTaskActionStatus.PENDING.code(),
+            PullTaskActionStatus.FAILED.code(),
+            PullTaskActionStatus.UNKNOWN.code());
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -107,16 +111,17 @@ public class PullTaskManagerPullerContactTransactionService {
     }
 
     /**
-     * 在短事务内复核租约并解析用于设置普通成员添加权限的任务管理员。
+     * 在短事务内确认加人权限，未确认则提交群设置命令并等待协议回调。
      *
-     * <p>该方法不占用拉手，也不创建联系人动作；协议读写由事务外 Processor 执行。</p>
+     * <p>本方法不做任何协议调用：命令写入 outbox 后由 dispatcher 事务外发布，结果由
+     * {@code PullTaskGroupSettingsResultService} 收敛并唤醒执行行。加人权限确认之前
+     * 绝不占用拉手。</p>
      */
     @Transactional(rollbackFor = Exception.class)
-    public PullTaskMemberAddPermissionPreparation prepareMemberAddPermission(
+    public PullTaskGroupSettingsGate ensureGroupSettings(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
         if (!hasIdentity(candidate)) {
-            return PullTaskMemberAddPermissionPreparation.completed(
-                    PullTaskExecutionDispatchResult.LOST);
+            return PullTaskGroupSettingsGate.waiting(PullTaskExecutionDispatchResult.LOST);
         }
         Long previousTenant = TenantContext.get();
         TenantContext.set(candidate.getTenantId());
@@ -124,66 +129,112 @@ public class PullTaskManagerPullerContactTransactionService {
             PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
             if (!isDispatchable(parent, candidate, lockOwner)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
-                return PullTaskMemberAddPermissionPreparation.completed(
-                        PullTaskExecutionDispatchResult.LOST);
+                return PullTaskGroupSettingsGate.waiting(PullTaskExecutionDispatchResult.LOST);
             }
-            List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
-            if (managers.isEmpty()) {
-                return PullTaskMemberAddPermissionPreparation.completed(
-                        waitForManager(candidate, now));
+            // 管理员轮换会让本执行行留下多行加人权限动作（唯一键含 actor），因此按整个集合判断：
+            // 任一行成功即视为权限已放开，任一行在途即等待，都不成立才提交新一轮。
+            List<PullTaskAccountAction> memberAddActions =
+                    actionMapper.selectByExecutionAndType(
+                            candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+            if (memberAddActions.stream().anyMatch(row -> Objects.equals(
+                    row.getActionStatus(), PullTaskActionStatus.SUCCESS.code()))) {
+                return PullTaskGroupSettingsGate.open();
             }
-            Map<Long, ProtocolAccountRef> accounts = accountMap(managers);
-            ProtocolAccountRef manager = managers.stream()
-                    .map(PullTaskGroupAccount::getAccountId)
-                    .map(accounts::get)
-                    .filter(Objects::nonNull)
-                    .findFirst()
-                    .orElse(null);
-            if (manager == null) {
-                return PullTaskMemberAddPermissionPreparation.completed(
-                        waitForManager(candidate, now));
-            }
-            if (candidate.getGroupJid() == null || candidate.getGroupJid().isBlank()) {
-                return PullTaskMemberAddPermissionPreparation.completed(
-                        deferMemberAddPermission(
-                                candidate,
+            if (memberAddActions.stream().anyMatch(
+                    PullTaskManagerPullerContactTransactionService::awaitingResult)) {
+                // 命令已在途，等回调唤醒；此处重复提交会产生两条并发的同义命令。
+                return PullTaskGroupSettingsGate.waiting(
+                        deferGroupSettings(candidate,
                                 PullTaskExecutionReasonCode
-                                        .GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
-                                now));
+                                        .GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now));
             }
-            return PullTaskMemberAddPermissionPreparation.ready(
-                    new PullTaskMemberAddPermissionWork(
-                            candidate.getTenantId(),
-                            candidate.getId(),
-                            candidate.getVersion(),
-                            lockOwner,
-                            candidate.getGroupJid(),
-                            manager));
+            return PullTaskGroupSettingsGate.waiting(
+                    submitMemberAddCommand(candidate, memberAddActions, now));
         } finally {
             restoreTenant(previousTenant);
         }
     }
 
-    /** 延迟尚未确认的普通成员添加权限并释放当前执行租约。 */
-    @Transactional(rollbackFor = Exception.class)
-    public PullTaskExecutionDispatchResult deferMemberAddPermission(
-            PullTaskMemberAddPermissionWork work,
-            PullTaskExecutionReasonCode reason,
+    /** 写入或复用加人权限动作行，并在同事务内提交 outbox 命令。 */
+    private PullTaskExecutionDispatchResult submitMemberAddCommand(
+            PullTaskGroupExecution candidate,
+            List<PullTaskAccountAction> existingActions,
             long now) {
-        Long previousTenant = TenantContext.get();
-        TenantContext.set(work.tenantId());
-        try {
-            PullTaskGroupExecution candidate = new PullTaskGroupExecution();
-            candidate.setId(work.executionId());
-            candidate.setVersion(work.expectedVersion());
-            candidate.setLockOwner(work.lockOwner());
-            return deferMemberAddPermission(candidate, reason, now);
-        } finally {
-            restoreTenant(previousTenant);
+        List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
+        if (managers.isEmpty()) {
+            return waitForManager(candidate, now);
         }
+        Map<Long, ProtocolAccountRef> accounts = accountMap(managers);
+        PullTaskGroupAccount managerRole = managers.stream()
+                .filter(row -> accounts.containsKey(row.getAccountId()))
+                .findFirst()
+                .orElse(null);
+        if (managerRole == null) {
+            return waitForManager(candidate, now);
+        }
+        if (candidate.getGroupJid() == null || candidate.getGroupJid().isBlank()) {
+            return deferGroupSettings(candidate,
+                    PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now);
+        }
+        // 动作行必须与本轮真正执行的管理员对齐：hydrator 按 actor 补出号码，outbox 按选定管理员
+        // 路由。复用上一轮别人的动作行会让二者指向不同账号，动作行记的执行人是假的。
+        Long actionId = existingActions.stream()
+                .filter(row -> Objects.equals(
+                        row.getActorGroupAccountId(), managerRole.getId()))
+                .map(PullTaskAccountAction::getId)
+                .findFirst()
+                .orElseGet(() -> insertMemberAddAction(candidate, managerRole, now));
+        if (actionId == null) {
+            return deferGroupSettings(candidate,
+                    PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now);
+        }
+        ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
+                .enqueuePullTaskGroupSettingsCommands(List.of(
+                        new com.armada.platform.protocol.model.command
+                                .ProtocolPullTaskGroupSettingsCommandRequest(
+                                candidate.getTenantId(), candidate.getTaskId(),
+                                candidate.getId(), actionId,
+                                accounts.get(managerRole.getAccountId()))));
+        // submitAttempt 而非 markSubmitted：后者只接受 PENDING，FAILED/UNKNOWN 重发会写不进去。
+        // 它同时递增 attempt_no 并清空上一轮原因，使新旧尝试在动作行上可区分。
+        if (enqueued.commandIds().size() != 1
+                || actionMapper.submitAttempt(
+                actionId, MEMBER_ADD_SUBMITTABLE, enqueued.commandIds().get(0), now) != 1) {
+            throw new IllegalStateException("加人权限命令提交状态写入不完整");
+        }
+        return deferGroupSettings(candidate,
+                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED, now);
     }
 
-    private PullTaskExecutionDispatchResult deferMemberAddPermission(
+    /** 群设置没有对象账号，actor 与 target 同为管理员角色行本身。 */
+    private Long insertMemberAddAction(
+            PullTaskGroupExecution candidate,
+            PullTaskGroupAccount managerRole,
+            long now) {
+        PullTaskAccountAction row = new PullTaskAccountAction();
+        row.setTenantId(candidate.getTenantId());
+        row.setTaskId(candidate.getTaskId());
+        row.setGroupExecutionId(candidate.getId());
+        row.setActionType(PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        row.setActorGroupAccountId(managerRole.getId());
+        row.setTargetGroupAccountId(managerRole.getId());
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return actionMapper.insertIfAbsent(row) == 1 ? row.getId() : null;
+    }
+
+    /**
+     * 只有 SUBMITTED 才算命令在途。
+     *
+     * <p>UNKNOWN 表示协议层无法确认结果。群设置没有可观察的快照可兜底——回读已随异步化去掉，
+     * Android 的群元数据本来也不报 joinApprovalMode——因此唯一出路是重发，两条 IQ 都幂等。
+     * 把 UNKNOWN 当成在途会让执行行永远退避空转。</p>
+     */
+    private static boolean awaitingResult(PullTaskAccountAction action) {
+        return Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code());
+    }
+
+    private PullTaskExecutionDispatchResult deferGroupSettings(
             PullTaskGroupExecution candidate,
             PullTaskExecutionReasonCode reason,
             long now) {

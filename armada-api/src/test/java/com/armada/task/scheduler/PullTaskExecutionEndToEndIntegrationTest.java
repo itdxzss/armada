@@ -71,6 +71,10 @@ import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.service.PullTaskContactSaveResultService;
 import com.armada.task.service.PullTaskManagerJoinResultService;
+import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
+import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
+import com.armada.task.service.PullTaskGroupSettingsResultService;
+import com.armada.task.service.impl.PullTaskGroupSettingsResultServiceImpl;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
@@ -127,6 +131,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     @Autowired private PullTaskExecutionDispatchCoordinator coordinator;
     @Autowired private PullTaskManagerJoinResultService managerJoinResultService;
     @Autowired private PullTaskManagerAdminResultService managerAdminResultService;
+    @Autowired private PullTaskGroupSettingsResultService groupSettingsResultService;
     @Autowired private PullTaskContactSaveResultService contactSaveResultService;
     @Autowired private PullTaskPullerInviteResultService pullerInviteResultService;
     @Autowired private PullTaskProtocolResultCallbackService protocolResultCallbackService;
@@ -170,6 +175,17 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     return new ProtocolCommandOutboxEnqueueResult(
                             "pull-task:100", commandIds, commandIds.size());
                 });
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList()))
+                .thenAnswer(invocation -> {
+                    List<com.armada.platform.protocol.model.command
+                            .ProtocolPullTaskGroupSettingsCommandRequest> requests =
+                            invocation.getArgument(0);
+                    List<String> commandIds = requests.stream()
+                            .map(request -> "cmd-group-settings-" + request.actionId())
+                            .toList();
+                    return new ProtocolCommandOutboxEnqueueResult(
+                            "pull-task:100", commandIds, commandIds.size());
+                });
         when(outboxService.enqueuePullTaskBatchAddCommands(anyList()))
                 .thenAnswer(invocation -> {
                     List<ProtocolPullTaskBatchAddCommandRequest> requests =
@@ -207,6 +223,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
             coordinator.dispatchOnce(now);
             applyManagerJoinCallbackIfSubmitted(now + 100L);
             applyManagerAdminCallbackIfSubmitted(now + 150L);
+            applyGroupSettingsCallbacksIfSubmitted(now + 175L);
             applyContactCallbacksIfSubmitted(now + 200L);
             applyPullerInviteCallbacksIfSubmitted(now + 300L);
             applyBatchCallbacksIfSubmitted(now + 400L);
@@ -279,6 +296,29 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 null, null, false, occurredAt));
         if (applied) {
             MANAGER_PROMOTED.set(true);
+        }
+    }
+
+    /** 群设置改为异步命令后，加人权限是阶段推进条件，关闭审核在其成功之后才入队。 */
+    private void applyGroupSettingsCallbacksIfSubmitted(long occurredAt) {
+        applyGroupSettingsCallback(PullTaskAccountActionType.OPEN_MEMBER_ADD, occurredAt);
+        applyGroupSettingsCallback(PullTaskAccountActionType.CLOSE_JOIN_APPROVAL, occurredAt + 10L);
+    }
+
+    private void applyGroupSettingsCallback(
+            PullTaskAccountActionType actionType, long occurredAt) {
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        for (PullTaskAccountAction action : actionMapper.selectByExecutionAndType(
+                execution.getId(), actionType.code())) {
+            if (action.getActionStatus() != PullTaskActionStatus.SUBMITTED.code()) {
+                continue;
+            }
+            PullTaskGroupAccount actor = accountMapper.selectById(action.getActorGroupAccountId());
+            groupSettingsResultService.apply(new PullTaskGroupSettingsCallback(
+                    7L, 100L, execution.getId(), action.getId(), actor.getAccountId(),
+                    "account-" + actor.getAccountId(), action.getCommandId(),
+                    action.getAttemptNo(),
+                    PullTaskGroupSettingsProtocolOutcome.SUCCESS, null, null, occurredAt));
         }
     }
 
@@ -641,6 +681,18 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     actionMapper, accountMapper, executionMapper, properties, delayPolicy);
         }
 
+        @Bean PullTaskGroupSettingsResultService groupSettingsResultService(
+                PullTaskAccountActionMapper actionMapper,
+                PullTaskGroupAccountMapper accountMapper,
+                PullTaskGroupExecutionMapper executionMapper,
+                com.armada.account.service.AccountProtocolLookupService accountLookup,
+                com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
+                PullTaskExecutionDispatchProperties properties) {
+            return new PullTaskGroupSettingsResultServiceImpl(
+                    actionMapper, accountMapper, executionMapper, accountLookup,
+                    outboxService, properties);
+        }
+
         @Bean PullTaskContactSaveResultService contactSaveResultService(
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupAccountMapper accountMapper,
@@ -670,16 +722,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerPullerContactTransactionService transactions =
                     new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
-            FixedAccountGroupMetadataPort metadataPort =
-                    mock(FixedAccountGroupMetadataPort.class);
-            GroupMetadataResult metadata = mock(GroupMetadataResult.class);
-            when(metadata.memberAddMode()).thenReturn(true);
-            when(metadataPort.getMetadata(any(), any())).thenReturn(metadata);
+            // 群设置改为异步命令后本阶段不再有事务外协议调用，无需再注入元数据与设置端口。
             return new PullTaskManagerPullerContactProcessor(
                     transactions,
-                    mock(PullTaskSupplementPullerProcessor.class),
-                    metadataPort,
-                    mock(GroupSettingsPort.class));
+                    mock(PullTaskSupplementPullerProcessor.class));
         }
 
         @Bean PullTaskPullerInviteProcessor pullerInviteProcessor(

@@ -171,7 +171,7 @@ class PullTaskPullWavePlanningIntegrationTest {
             throws SQLException {
         PullTaskPullWave wave = preparedWave();
         List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
-        mutate(attempts.get(0), new AttemptFact(3, "FAILED", "STARTED", "PRIVACY", 1));
+        mutate(attempts.get(0), new AttemptFact(3, "FAILED", "STARTED", "TIMEOUT", 1));
         mutate(attempts.get(1), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
         mutate(attempts.get(2), new AttemptFact(
                 4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
@@ -205,6 +205,43 @@ class PullTaskPullWavePlanningIntegrationTest {
                                 attempts.get(0).getParticipantRefId(),
                                 attempts.get(1).getParticipantRefId(),
                                 attempts.get(2).getParticipantRefId()));
+    }
+
+    @Test
+    void deterministicFailureReasonsNeverEnterARetryWave() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
+        // 目标号码自身导致的确定性失败：换拉手重拉也不会成功，不再浪费波次名额。
+        mutate(attempts.get(0), new AttemptFact(3, "FAILED", "STARTED", "PRIVACY_BLOCKED", 0));
+        mutate(attempts.get(1), new AttemptFact(3, "FAILED", "STARTED", "GROUP_FULL", 0));
+        mutate(attempts.get(2), new AttemptFact(3, "FAILED", "STARTED", "GROUP_JOIN_REJECTED", 0));
+        // 协议层未来新增的未知原因码同样默认不重试，与协议侧判定保持同向。
+        mutate(attempts.get(3), new AttemptFact(3, "FAILED", "STARTED", "SOME_NEW_CODE", 0));
+        // 超时属于暂时性失败，仍然重试。
+        mutate(attempts.get(4), new AttemptFact(3, "FAILED", "STARTED", "TIMEOUT", 0));
+
+        assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L))
+                .extracting(PullTaskPullWaveCandidate::participantRefId)
+                .containsExactly(attempts.get(4).getParticipantRefId());
+    }
+
+    @Test
+    void rateLimitedAndReachoutRestrictedStillRetryBecauseTheyBelongToThePuller()
+            throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
+        // 限流与账号受限走 UNKNOWN + UNCERTAIN，归属拉手而非目标号码，
+        // 不受明确失败白名单约束：换个拉手就能成功，必须继续重试。
+        mutate(attempts.get(0), new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "RATE_LIMITED", 0));
+        mutate(attempts.get(1), new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "ACCOUNT_REACHOUT_RESTRICTED", 0));
+
+        assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L))
+                .extracting(PullTaskPullWaveCandidate::participantRefId)
+                .containsExactly(
+                        attempts.get(0).getParticipantRefId(),
+                        attempts.get(1).getParticipantRefId());
     }
 
     @Test

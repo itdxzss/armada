@@ -1,5 +1,6 @@
 package com.armada.task.mapper;
 
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskPullWaveCandidate;
 import com.armada.task.model.dto.PullTaskPlannedCallPullerBinding;
@@ -65,10 +66,37 @@ public interface PullTaskPullCallMemberAttemptMapper {
                 now);
     }
 
-    /** 从指定已结算波次读取明确失败或已释放的可重试参与者。 */
-    List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
+    /**
+     * 从指定已结算波次读取明确失败或已释放的可重试参与者。
+     *
+     * <p>明确失败按原因码白名单筛选：Web 与 Android 两端协议对逐成员结果的判定都是
+     * "明确失败中只有 TIMEOUT 可重试"，其余（PRIVACY_BLOCKED、GROUP_FULL、
+     * GROUP_JOIN_REJECTED 等）属于确定性终态，换拉手重试也不会成功。白名单让协议层
+     * 未来新增的未知原因码默认不重试，与协议侧判定保持同向。</p>
+     *
+     * <p>限流与账号受限走 UNKNOWN + UNCERTAIN 分支，不受本白名单约束：那类失败归属于
+     * 拉手账号而非目标号码，换个拉手就能成功，必须继续重试。</p>
+     */
+    default List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
+            long pullWaveId, long maxFailureCount) {
+        return selectRetryCandidatesByWaveInternal(
+                pullWaveId,
+                maxFailureCount,
+                List.of(ProtocolErrorCode.TIMEOUT.name()));
+    }
+
+    /**
+     * 可重试候选查询的底层入口；业务原因码由 Java 参数传入，不写死在 XML。
+     *
+     * @param pullWaveId                 已结算波次 ID
+     * @param maxFailureCount            单参与者累计明确失败次数上限
+     * @param retryableFailureReasonCodes 明确失败中仍允许重试的原因码
+     * @return 可进入下一波次的参与者
+     */
+    List<PullTaskPullWaveCandidate> selectRetryCandidatesByWaveInternal(
             @Param("pullWaveId") long pullWaveId,
-            @Param("maxFailureCount") long maxFailureCount);
+            @Param("maxFailureCount") long maxFailureCount,
+            @Param("retryableFailureReasonCodes") List<String> retryableFailureReasonCodes);
 
     /** 统计波次内仍未关闭、释放或取消的 attempt。 */
     int countOpenByWave(

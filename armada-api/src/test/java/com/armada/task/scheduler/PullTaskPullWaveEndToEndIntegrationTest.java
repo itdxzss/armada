@@ -203,8 +203,10 @@ class PullTaskPullWaveEndToEndIntegrationTest {
                         "SUCCESS", "STARTED", null,
                         PullTaskMaterialPullStatus.SUCCESS.code(), 0L, false);
             } else if (index < 23) {
+                // 明确失败只有可重试原因码才进下一波；确定性失败由
+                // deterministicFailureReasonsNeverEnterARetryWave 单独覆盖。
                 writeAttempt(attempt, PullTaskParticipantAttemptStatus.CLOSED.code(),
-                        "FAILED", "STARTED", "PRIVACY",
+                        "FAILED", "STARTED", "TIMEOUT",
                         PullTaskMaterialPullStatus.UNCONSUMED.code(), 1L, true);
                 retryable.add(attempt.getParticipantRefId());
             } else if (index < 25) {

@@ -65,7 +65,14 @@ public final class AndroidNativeGroupSettingsAdapter implements GroupSettingsBac
 
     @Override
     public void setJoinApprovalEnabled(ProtocolAccountRef account, String groupJid, boolean enabled) {
-        throw unsupported(account, "join-approval");
+        requireAccount(account);
+        AndroidDecodedResponse response = decoder.decode(
+                client.setGroupJoinApproval(
+                        account.wsPhone(), requireGroup(groupJid), enabled));
+        if (!response.success()) {
+            throw errorMapper.toException(
+                    response, account, "group.settings.join-approval", null);
+        }
     }
 
     private static ProtocolException unsupported(ProtocolAccountRef account, String capability) {

@@ -4,12 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
@@ -21,7 +24,6 @@ import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
-import com.armada.task.model.dto.PullTaskMemberAddPermissionWork;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -46,6 +48,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -172,38 +175,151 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
-    void permissionPreparationResolvesManagerWithoutAllocatingPuller() {
+    void groupSettingsGateSubmitsMemberAddCommandWithoutAllocatingPuller() {
         ProtocolAccountRef manager = new ProtocolAccountRef(
                 901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
         when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-1"), 1));
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
 
-        PullTaskMemberAddPermissionPreparation preparation =
-                service.prepareMemberAddPermission(candidate, "worker-1", 610L);
+        PullTaskGroupSettingsGate gate =
+                service.ensureGroupSettings(candidate, "worker-1", 610L);
 
-        assertThat(preparation.ready()).isTrue();
-        assertThat(preparation.work().manager()).isEqualTo(manager);
-        assertThat(preparation.work().groupJid()).isEqualTo("120363group@g.us");
+        // 加人权限尚未确认，门必须关着：拉手与联系人动作一个都不能提前产生。
+        assertThat(gate.satisfied()).isFalse();
         TenantContext.set(7L);
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code())).isEmpty();
         assertThat(actionMapper.selectByExecutionAndType(
                 candidate.getId(), PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+        List<PullTaskAccountAction> memberAdd = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        assertThat(memberAdd).hasSize(1);
+        assertThat(memberAdd.get(0).getCommandId()).isEqualTo("cmd-member-add-1");
+        assertThat(memberAdd.get(0).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
     }
 
     @Test
-    void unconfirmedPermissionDefersCurrentStageWithoutAllocatingPuller() {
+    void groupSettingsGateResubmitsAfterUnknownResult() throws SQLException {
+        // UNKNOWN 表示协议层无法确认结果。群设置没有可观察的快照可兜底（回读已去掉，
+        // Android 本来也不报 joinApprovalMode），唯一出路是重发；两条 IQ 都幂等。
+        // 把 UNKNOWN 当成"命令还在途"会让执行行永远退避空转。
+        assertResubmitsFrom(PullTaskActionStatus.UNKNOWN.code(), "cmd-member-add-retry-1");
+    }
+
+    @Test
+    void groupSettingsGateResubmitsAfterFailedResult() throws SQLException {
+        assertResubmitsFrom(PullTaskActionStatus.FAILED.code(), "cmd-member-add-retry-2");
+    }
+
+    private void assertResubmitsFrom(int stuckStatus, String newCommandId) throws SQLException {
         ProtocolAccountRef manager = new ProtocolAccountRef(
                 901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
         when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-first"), 1),
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of(newCommandId), 1));
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
-        PullTaskMemberAddPermissionWork work = service.prepareMemberAddPermission(
-                candidate, "worker-1", 610L).work();
+        service.ensureGroupSettings(candidate, "worker-1", 610L);
 
-        PullTaskExecutionDispatchResult result = service.deferMemberAddPermission(
-                work,
-                PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED,
-                620L);
+        TenantContext.set(7L);
+        PullTaskAccountAction submitted = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code()).get(0);
+        int firstAttempt = submitted.getAttemptNo();
+        execute("UPDATE pull_task_account_action SET action_status=" + stuckStatus
+                + " WHERE id=" + submitted.getId());
+
+        // 首次提交把执行行退避到 610 + retryDelay，重试必须发生在退避到期之后。
+        PullTaskGroupExecution retryCandidate = claim("worker-1", 40_000L, 50_000L);
+        PullTaskGroupSettingsGate gate =
+                service.ensureGroupSettings(retryCandidate, "worker-1", 40_010L);
+
+        assertThat(gate.satisfied()).isFalse();
+        TenantContext.set(7L);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        // 复用同一行动作，不插第二行；唯一键本就只允许一行。
+        assertThat(actions).hasSize(1);
+        assertThat(actions.get(0).getCommandId()).isEqualTo(newCommandId);
+        assertThat(actions.get(0).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+        // attemptNo 必须递增，否则新旧两次尝试在动作行上无法区分。
+        assertThat(actions.get(0).getAttemptNo()).isGreaterThan(firstAttempt);
+    }
+
+    @Test
+    void groupSettingsRetryKeepsCommandRoutingAlignedWithActionActor() throws SQLException {
+        // 首轮管理员 901 提交后失效，次轮换成 902。命令的路由账号必须与动作行的 actor 一致，
+        // 否则 hydrator 按 actor 补出 901 的号码，outbox 却把命令路由到 902 的 worker，
+        // 动作行记的执行人和真正执行的账号对不上。
+        PullTaskGroupAccount second = manager(executionId());
+        second.setAccountId(902L);
+        second.setAccountPhone("8613800000902");
+        second.setRoleSeq(2);
+        groupAccountMapper.insert(second);
+        groupAccountMapper.updateMembership(second.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        groupAccountMapper.transitionAdminStatus(second.getId(),
+                List.of(PullTaskGroupAccountAdminStatus.PENDING.code()),
+                PullTaskGroupAccountAdminStatus.SUCCESS.code(), 550L);
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
+                new ProtocolAccountRef(901L, ProtocolBackend.ANDROID, "manager-901", "919000000001"),
+                new ProtocolAccountRef(902L, ProtocolBackend.ANDROID, "manager-902", "919000000002")));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-1"), 1),
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-2"), 1));
+
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        service.ensureGroupSettings(candidate, "worker-1", 610L);
+
+        TenantContext.set(7L);
+        PullTaskAccountAction first = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code()).get(0);
+        execute("UPDATE pull_task_account_action SET action_status="
+                + PullTaskActionStatus.FAILED.code() + " WHERE id=" + first.getId());
+        // 首轮管理员退出可用集合，迫使次轮换号。
+        execute("UPDATE pull_task_group_account SET availability_status="
+                + PullTaskGroupAccountAvailability.REMOVED.code()
+                + " WHERE id=" + first.getActorGroupAccountId());
+
+        PullTaskGroupExecution retry = claim("worker-1", 40_000L, 50_000L);
+        service.ensureGroupSettings(retry, "worker-1", 40_010L);
+
+        TenantContext.set(7L);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
+        PullTaskAccountAction submitted = actions.stream()
+                .filter(row -> PullTaskActionStatus.SUBMITTED.code() == row.getActionStatus())
+                .findFirst()
+                .orElseThrow();
+        ArgumentCaptor<List<ProtocolPullTaskGroupSettingsCommandRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService, times(2)).enqueuePullTaskGroupSettingsCommands(captor.capture());
+        ProtocolPullTaskGroupSettingsCommandRequest lastRequest =
+                captor.getAllValues().get(1).get(0);
+        PullTaskGroupAccount actor =
+                groupAccountMapper.selectById(submitted.getActorGroupAccountId());
+        assertThat(lastRequest.actionId()).isEqualTo(submitted.getId());
+        assertThat(lastRequest.manager().armadaAccountId()).isEqualTo(actor.getAccountId());
+    }
+
+    @Test
+    void groupSettingsGateDefersCurrentStageWithoutAllocatingPuller() {
+        ProtocolAccountRef manager = new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "manager-901", "919000000001");
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(manager));
+        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-member-add-2"), 1));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+
+        PullTaskExecutionDispatchResult result =
+                service.ensureGroupSettings(candidate, "worker-1", 620L).result();
 
         assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         TenantContext.set(7L);

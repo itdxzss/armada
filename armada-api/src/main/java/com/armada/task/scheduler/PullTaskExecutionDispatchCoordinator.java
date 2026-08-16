@@ -76,51 +76,113 @@ public class PullTaskExecutionDispatchCoordinator {
      * @return 单轮统计
      */
     public PullTaskExecutionDispatchStats dispatchOnce(long now) {
+        long startedAt = System.currentTimeMillis();
         long lockExpiresAt = Math.addExact(now, properties.getLeaseMs());
-        executionMapper.claimDue(claimCriteria(now, lockExpiresAt));
+        int batchSize = properties.getBatchSize();
+        // 分两池抢占：待启动行的 next_run_at 恒为 0，与执行中行放在同一次
+        // ORDER BY next_run_at 里会把后者永久挤出窗口，导致并发槽位填满后整个任务停止推进。
+        // 因此先让已开始的行吃满整批，待启动行只使用剩余名额。
+        PullTaskExecutionClaimCriteria advancingCriteria =
+                claimCriteria(advancingStates(), batchSize, now, lockExpiresAt);
+        int advancing = executionMapper.claimDue(advancingCriteria);
+        int startingLimit = batchSize - advancing;
+        PullTaskExecutionClaimCriteria startingCriteria = startingLimit > 0
+                ? claimCriteria(startingStates(), startingLimit, now, lockExpiresAt)
+                : null;
+        int starting = startingCriteria == null
+                ? 0
+                : executionMapper.claimDue(startingCriteria);
+        int backlog = backlogDepth(
+                advancingCriteria, advancing, batchSize, startingCriteria, starting, startingLimit);
         List<PullTaskGroupExecution> claimed = executionMapper.selectClaimed(lockOwner, now);
         PullTaskExecutionDispatchStats stats =
                 PullTaskExecutionDispatchStats.empty().withClaimed(claimed.size());
         for (PullTaskGroupExecution candidate : claimed) {
             stats = process(candidate, now, stats);
         }
-        log.info("普通拉群执行调度完成 claimed={} started={} advanced={} failed={} deferred={} skipped={}",
+        log.info("普通拉群执行调度完成 claimed={} started={} advanced={} failed={} deferred={} "
+                        + "skipped={} backlog={} costMs={}",
                 stats.claimed(), stats.started(), stats.advanced(), stats.failed(),
-                stats.deferred(), stats.skipped());
+                stats.deferred(), stats.skipped(), backlog,
+                System.currentTimeMillis() - startedAt);
         return stats;
     }
 
-    private PullTaskExecutionClaimCriteria claimCriteria(long now, long lockExpiresAt) {
+    /**
+     * 统计本轮抢占之后仍然到期未处理的行数。
+     *
+     * <p>只有对应的池把整批吃满时才可能有剩余，此时才付出一次计数查询；
+     * 没吃满说明该池已经取空，积压按 0 计，空闲时不产生任何额外开销。</p>
+     *
+     * @param advancingCriteria 推进池扫描条件
+     * @param advancing         推进池本轮实际抢到的行数
+     * @param batchSize         本轮批量上限
+     * @param startingCriteria  启动池扫描条件；本轮没有剩余名额时为 {@code null}
+     * @param starting          启动池本轮实际抢到的行数
+     * @param startingLimit     启动池本轮可用名额
+     * @return 两池合计的积压深度
+     */
+    private int backlogDepth(
+            PullTaskExecutionClaimCriteria advancingCriteria,
+            int advancing,
+            int batchSize,
+            PullTaskExecutionClaimCriteria startingCriteria,
+            int starting,
+            int startingLimit) {
+        int backlog = 0;
+        if (advancing >= batchSize) {
+            backlog += executionMapper.countDue(advancingCriteria);
+        }
+        if (startingCriteria != null && starting >= startingLimit) {
+            backlog += executionMapper.countDue(startingCriteria);
+        }
+        return backlog;
+    }
+
+    /** 已开始的执行行：本轮优先推进，可以吃满整批。 */
+    private static List<PullTaskExecutionClaimState> advancingStates() {
+        return List.of(
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.EXECUTING.code(),
+                        List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                                PullTaskExecutionStage.MATERIAL_ADMIN.code(),
+                                PullTaskExecutionStage.CLOSING.code())),
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code(),
+                        List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
+                                PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.PULL_EXECUTION.code(),
+                                PullTaskExecutionStage.MATERIAL_ADMIN.code()),
+                        List.of(
+                                PullTaskWaitResourceType.MANAGER.code(),
+                                PullTaskWaitResourceType.PULLER.code(),
+                                PullTaskWaitResourceType.STATION.code())));
+    }
+
+    /** 尚未启动的执行行：只使用第一池剩余的名额。 */
+    private static List<PullTaskExecutionClaimState> startingStates() {
+        return List.of(
+                new PullTaskExecutionClaimState(
+                        PullTaskExecutionStatus.WAIT_START.code(),
+                        List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                PullTaskExecutionStage.MANAGER_JOIN.code())));
+    }
+
+    private PullTaskExecutionClaimCriteria claimCriteria(
+            List<PullTaskExecutionClaimState> eligibleStates,
+            int limit,
+            long now,
+            long lockExpiresAt) {
         return new PullTaskExecutionClaimCriteria(
-                new PullTaskExecutionClaimCriteria.Lease(
-                        properties.getBatchSize(), now, lockOwner, lockExpiresAt),
-                List.of(
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.WAIT_START.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.EXECUTING.code(),
-                                List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code(),
-                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
-                                        PullTaskExecutionStage.PULLER_INVITE.code(),
-                                        PullTaskExecutionStage.PULL_EXECUTION.code(),
-                                        PullTaskExecutionStage.MATERIAL_ADMIN.code(),
-                                        PullTaskExecutionStage.CLOSING.code())),
-                        new PullTaskExecutionClaimState(
-                                PullTaskExecutionStatus.WAIT_RESOURCE.code(),
-                                List.of(PullTaskExecutionStage.MANAGER_JOIN.code(),
-                                        PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                                        PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
-                                        PullTaskExecutionStage.PULLER_INVITE.code(),
-                                        PullTaskExecutionStage.PULL_EXECUTION.code(),
-                                        PullTaskExecutionStage.MATERIAL_ADMIN.code()),
-                                List.of(
-                                        PullTaskWaitResourceType.MANAGER.code(),
-                                        PullTaskWaitResourceType.PULLER.code(),
-                                        PullTaskWaitResourceType.STATION.code()))),
+                new PullTaskExecutionClaimCriteria.Lease(limit, now, lockOwner, lockExpiresAt),
+                eligibleStates,
                 new PullTaskExecutionClaimCriteria.Parent(
                         PullTaskType.STANDARD.name(), NORMAL_LINK_MODE,
                         PullTaskStandardStatus.EXECUTING.name()),

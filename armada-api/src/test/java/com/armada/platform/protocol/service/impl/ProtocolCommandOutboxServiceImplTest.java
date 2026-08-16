@@ -27,6 +27,7 @@ import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
@@ -404,6 +405,82 @@ class ProtocolCommandOutboxServiceImplTest {
                     .doesNotContain("participants")
                     .doesNotContain("wsPhone")
                     .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskGroupSettingsCommandsPersistsOnlyReferencesAndRoutesByManagerBackend()
+            throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-settings-web", "cmd-settings-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskGroupSettingsCommands(List.of(
+                            new ProtocolPullTaskGroupSettingsCommandRequest(
+                                    1L, 9L, 11L, 811L,
+                                    new ProtocolAccountRef(
+                                            392L, ProtocolBackend.WEB, "manager-web", "933")),
+                            new ProtocolPullTaskGroupSettingsCommandRequest(
+                                    1L, 9L, 12L, 812L,
+                                    new ProtocolAccountRef(
+                                            393L, ProtocolBackend.ANDROID, "manager-android", "944"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.settings.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                    .containsOnly("PULL_TASK_ACCOUNT_ACTION");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsExactly(811L, 812L);
+            // 与 promote、邀请、批量 add 同路由：Web 进 master，Android 进 group-action。
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            // key 为管理员协议账号，保证 promote 与群设置命令同分区且严格保序。
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("manager-web", "manager-android");
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(0).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 11,
+                    "actionId", 811,
+                    "source", "pull_task_group_settings"));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueuePullTaskGroupSettingsCommandsKeepsGroupAndAccountFactsOutOfOutbox()
+            throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-settings-web"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(1L);
+        try {
+            service.enqueuePullTaskGroupSettingsCommands(List.of(
+                    new ProtocolPullTaskGroupSettingsCommandRequest(
+                            1L, 9L, 11L, 811L,
+                            new ProtocolAccountRef(
+                                    392L, ProtocolBackend.WEB, "manager-web", "933"))));
+
+            // Outbox 只存轻量引用，群 JID、号码和设置项都由发布时的 hydrator 补全。
+            // 设置项按 JSON 键断言：source 值里含 "settings" 子串，裸子串匹配会误判。
+            assertThat(capturedRows().get(0).getPayloadJson())
+                    .doesNotContain("groupJid")
+                    .doesNotContain("wsPhone")
+                    .doesNotContain("accountPhone")
+                    .doesNotContain("\"setting\":")
+                    .doesNotContain("\"enabled\":");
         } finally {
             TenantContext.clear();
         }

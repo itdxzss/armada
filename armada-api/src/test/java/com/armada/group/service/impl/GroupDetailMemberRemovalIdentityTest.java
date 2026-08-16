@@ -100,6 +100,27 @@ class GroupDetailMemberRemovalIdentityTest {
     }
 
     @Test
+    void kickMatchesPnRequestToLidMetadataByPhone() {
+        when(groupMetadataPort.getMetadata(account.protocolRef(), GROUP_JID))
+                .thenReturn(
+                        metadata(List.of(participant(LID_JID, PHONE))),
+                        metadata(List.of()));
+        givenProtocolSuccess();
+
+        GroupMemberBatchResultVO result = kickRequestedMember();
+
+        assertThat(result.ok()).isTrue();
+        assertThat(result.results()).singleElement().satisfies(item -> {
+            assertThat(item.jid()).isEqualTo(REQUESTED_JID);
+            assertThat(item.status()).isEqualTo("OK");
+        });
+        verify(businessDepartureService).recordConfirmedRemovals(
+                eq(7L), eq(GROUP_JID), anyMap(), anyLong(), startsWith("group-detail:10:"));
+        verify(memberSnapshotMapper).deleteParticipants(
+                GROUP_LINK_ID, List.of(REQUESTED_JID));
+    }
+
+    @Test
     void reportedRemovalWithPnToLidIdentityChangeRemainsUnknown() {
         when(groupMetadataPort.getMetadata(account.protocolRef(), GROUP_JID))
                 .thenReturn(

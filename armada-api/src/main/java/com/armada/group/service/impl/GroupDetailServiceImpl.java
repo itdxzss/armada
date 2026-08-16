@@ -577,10 +577,11 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupExecutionAccount account = requireCurrentAdministrator(
                 id, readAccount, metadata, requestedJids);
         Map<String, GroupParticipantResult> currentMembers = membersByJid(metadata);
+        Map<String, GroupParticipantResult> membersBefore = new LinkedHashMap<>();
         Map<String, GroupMemberOperationResultVO> fixedResults = new LinkedHashMap<>();
         List<String> actionable = new ArrayList<>();
         for (String jid : requestedJids) {
-            GroupParticipantResult member = currentMembers.get(jid);
+            GroupParticipantResult member = matchingParticipant(currentMembers, jid);
             if (member == null) {
                 fixedResults.put(jid, memberResult(
                         jid,
@@ -592,6 +593,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                         MEMBER_STATUS_OWNER_PROTECTED,
                         ErrorCode.GROUP_OWNER_PROTECTED.defaultMessage()));
             } else {
+                membersBefore.put(jid, member);
                 actionable.add(jid);
             }
         }
@@ -611,7 +613,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                             target.groupJid(),
                             actionable,
                             mutationResults,
-                            currentMembers);
+                            membersBefore);
                 }
             } catch (ProtocolException ex) {
                 if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
@@ -622,7 +624,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 log.warn("群成员协议操作超时，开始同账号回读 groupLinkId={} accountId={} action={} targetCount={}",
                         id, account.accountId(), action, actionable.size());
                 mutationResults = confirmTimedOutMembers(
-                        account, target.groupJid(), actionable, action, currentMembers);
+                        account, target.groupJid(), actionable, action, membersBefore);
             }
             fixedResults.putAll(mutationResults);
         }
@@ -634,7 +636,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         long successCount = successfulJids.size();
         if (successCount > 0) {
             persistConfirmedMemberChanges(
-                    id, target.groupJid(), action, successfulJids, currentMembers);
+                    id, target.groupJid(), action, successfulJids, membersBefore);
             // REMOVE 已由同账号实时回读确认并即时双写，禁止再排队可能回灌旧视图的全量刷新。
             if (action != GroupParticipantAction.REMOVE) {
                 enqueueMetadataRefresh(id);
@@ -932,6 +934,39 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         return results;
     }
 
+    /**
+     * 按请求 JID 查找当前成员，兼容同一号码在 PN 与 LID 之间切换。
+     *
+     * <p>请求通常来自本地成员快照，实时 metadata 可能返回另一种 JID；只有两者都能
+     * 归一化为同一手机号时才允许按手机号匹配，避免把不可比较的 LID 猜成手机号。</p>
+     *
+     * @param members 当前 metadata 成员索引
+     * @param requestedJid 请求中的成员 JID
+     * @return 匹配到的成员，未匹配时返回 null
+     */
+    private static GroupParticipantResult matchingParticipant(
+            Map<String, GroupParticipantResult> members,
+            String requestedJid) {
+        if (members == null || requestedJid == null) {
+            return null;
+        }
+        GroupParticipantResult exactJid = members.values().stream()
+                .filter(current -> sameJid(requestedJid, current.jid()))
+                .findFirst()
+                .orElse(null);
+        if (exactJid != null) {
+            return exactJid;
+        }
+        String requestedPhone = normalizedPhone(requestedJid);
+        if (requestedPhone == null) {
+            return null;
+        }
+        return members.values().stream()
+                .filter(current -> requestedPhone.equals(stableParticipantPhone(current)))
+                .findFirst()
+                .orElse(null);
+    }
+
     /** 按精确 JID、再按明确手机号查找操作前后的同一逻辑成员。 */
     private static GroupParticipantResult matchingParticipant(
             Map<String, GroupParticipantResult> members,
@@ -939,10 +974,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (members == null || expected == null) {
             return null;
         }
-        GroupParticipantResult exactJid = members.values().stream()
-                .filter(current -> sameJid(expected.jid(), current.jid()))
-                .findFirst()
-                .orElse(null);
+        GroupParticipantResult exactJid = matchingParticipant(members, expected.jid());
         if (exactJid != null) {
             return exactJid;
         }

@@ -14,6 +14,10 @@ FROM (
       AND TRIM(preview.group_jid) <> ''
     GROUP BY preview.tenant_id, LOWER(TRIM(preview.group_jid))
     HAVING COUNT(*) > 1
+       AND (
+         COUNT(link.group_id) <> COUNT(*)
+         OR COUNT(DISTINCT link.group_id) > 1
+       )
 ) duplicate_groups;
 
 SELECT 'duplicate_invite_code' AS gate_name,

@@ -114,6 +114,7 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
                 ? preview.getUpdatedAt()
                 : preview.getMetadataObservedAt();
         long writtenAt = preview.getUpdatedAt() == null ? observedAt : preview.getUpdatedAt();
+        String eventId = "metadata:" + preview.getGroupLinkId() + ":" + observedAt;
         for (AccountGroupMembership membership
                 : membershipMapper.selectControlledMembershipsByGroupLinkId(
                         preview.getGroupLinkId())) {
@@ -125,6 +126,10 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
             membership.setCreatedAt(writtenAt);
             membership.setUpdatedAt(writtenAt);
             membershipMapper.upsertMembership(membership);
+            currentSnapshotPersistence.applyControlledParticipantObservation(
+                    membership.getAccountId(), membership.getGroupJid(), true,
+                    Boolean.TRUE.equals(membership.getAdmin()), observedAt,
+                    eventId, SNAPSHOT_STATUS_SOURCE);
         }
     }
 

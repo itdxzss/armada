@@ -7,6 +7,10 @@ import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEve
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedSink;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.shared.tenant.TenantContext;
+import java.util.concurrent.Executor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 /**
@@ -14,13 +18,19 @@ import org.springframework.stereotype.Service;
  *
  * <p>Kafka consumer 位于 platform.kafka,不直接依赖账号域实现细节。
  * 本 adapter 由 account 域实现 platform 定义的 sink 接口,把平台层事件转换为账号域入参。</p>
+ *
+ * <p>账号状态落库是主链；ONLINE 后恢复群详情同步任务会投递到独立线程池，
+ * 附属动作缓慢或失败都不得阻塞 Kafka 账号状态消费。</p>
  */
 @Service
 public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChangedSink {
 
+    private static final Logger log = LoggerFactory.getLogger(AccountStateChangedSinkAdapter.class);
+
     private final AccountStateEventService service;
     private final ProxyFailedRecoveryCoordinator recoveryCoordinator;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
+    private final Executor metadataRecoveryExecutor;
 
     /**
      * 创建账号状态变更 adapter。
@@ -28,13 +38,17 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
      * @param service             账号状态事件落库服务
      * @param recoveryCoordinator 状态提交后的代理失败恢复编排器
      * @param metadataSyncTaskService 群详情同步任务服务
+     * @param metadataRecoveryExecutor 群元数据恢复后台执行器
      */
     public AccountStateChangedSinkAdapter(AccountStateEventService service,
                                           ProxyFailedRecoveryCoordinator recoveryCoordinator,
-                                          GroupMetadataSyncTaskService metadataSyncTaskService) {
+                                          GroupMetadataSyncTaskService metadataSyncTaskService,
+                                          @Qualifier("accountStateMetadataRecoveryExecutor")
+                                          Executor metadataRecoveryExecutor) {
         this.service = service;
         this.recoveryCoordinator = recoveryCoordinator;
         this.metadataSyncTaskService = metadataSyncTaskService;
+        this.metadataRecoveryExecutor = metadataRecoveryExecutor;
     }
 
     /**
@@ -60,7 +74,19 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
                     event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
         }
         if (applied && "ONLINE".equalsIgnoreCase(event.to())) {
-            resumeDeferredMetadataTasks(event);
+            submitDeferredMetadataResume(event);
+        }
+    }
+
+    private void submitDeferredMetadataResume(ProtocolAccountStateChangedEvent event) {
+        try {
+            metadataRecoveryExecutor.execute(() -> resumeDeferredMetadataTasks(event));
+        } catch (RuntimeException ex) {
+            // 后台队列饱和或停机时仅记录；不能让附属任务反向触发账号状态事件重试。
+            log.warn("账号上线后群元数据恢复任务投递失败,账号状态事件继续完成 tenantId={} accountId={} "
+                            + "occurredAt={} errorType={}",
+                    event.tenantId(), event.accountId(), event.occurredAt(),
+                    ex.getClass().getSimpleName(), ex);
         }
     }
 
@@ -69,6 +95,12 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
         try {
             TenantContext.set(event.tenantId());
             metadataSyncTaskService.resumeDeferredForAccount(event.accountId(), event.occurredAt());
+        } catch (RuntimeException ex) {
+            // 群详情同步是 ONLINE 后的补充任务，失败不能反向阻塞关键账号状态 Kafka 分区。
+            log.warn("账号上线后恢复群元数据任务失败,账号状态事件继续完成 tenantId={} accountId={} "
+                            + "occurredAt={} errorType={}",
+                    event.tenantId(), event.accountId(), event.occurredAt(),
+                    ex.getClass().getSimpleName(), ex);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

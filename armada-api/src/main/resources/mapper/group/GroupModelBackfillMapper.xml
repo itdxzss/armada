@@ -30,6 +30,10 @@
         AND TRIM(preview.group_jid) &lt;&gt; ''
       GROUP BY preview.tenant_id, LOWER(TRIM(preview.group_jid))
       HAVING COUNT(*) &gt; 1
+         AND (
+           COUNT(link.group_id) &lt;&gt; COUNT(*)
+           OR COUNT(DISTINCT link.group_id) &gt; 1
+         )
     ) duplicate_group
   </select>
 

@@ -37,6 +37,9 @@ class GroupLinkRegistryPullTaskTargetTest {
     @Mock
     private GroupLinkPreviewMapper previewMapper;
 
+    @Mock
+    private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
     @Test
     void insertsNewLinkAsPullTaskTargetAndReturnsGeneratedId() {
         when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(null);
@@ -126,7 +129,8 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     private GroupLinkRegistryServiceImpl service() {
         return new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, membershipMapper, previewMapper);
+                groupLinkMapper, membershipMapper, previewMapper,
+                currentSnapshotPersistence);
     }
 
     private static GroupLink activeLink(long id) {

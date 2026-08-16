@@ -111,6 +111,10 @@ class GroupListCurrentMapperMySqlTest {
 
         assertSameCountAndRows(filtered);
         assertThat(currentMapper.count(TENANT_ID, filtered)).isEqualTo(1L);
+
+        GroupLinkQuery chineseKeyword = pageQuery(1, 10);
+        chineseKeyword.setKeyword("群");
+        assertSameCountAndRows(chineseKeyword);
     }
 
     @Test

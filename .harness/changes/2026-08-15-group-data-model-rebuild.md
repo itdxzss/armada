@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：V120～V122、人工回填、定向补齐、baseline/first-post 硬门禁、test1 全部筛选/排序/分页对账和群列表切读均已完成。V123 canonical 引用以及历史群、执行账号、营销、导出、健康、群名、同步水位、群详情和成员列表等业务读取已在本地分批切换，尚未提交或部署；旧表继续双写，并仅保留明确的写入兼容、迁移和旧创建者口径。固定水位保留 87 条未解析邀请和 1 条不可见 Unicode 名称例外；管理员、群主和可用账号差异均已证明是新模型中较新的成员事实，不是漏迁
+- 状态：V120～V123、人工回填、增量补齐、baseline/first-post 硬门禁、test1 全部筛选/排序/分页对账、群列表及相关业务读取切换均已部署 test1；尚未提交或部署生产。成员列表继续读取旧的最后一次完整快照，旧表继续双写。固定水位保留 87 条未解析邀请和 1 条不可见 Unicode 名称例外；管理员、群主和可用账号差异均已证明是新模型中较新的成员事实，不是漏迁
 
 ## 目标
 
@@ -172,6 +172,7 @@
 - test1 后端通过项目现有 `armada-deploy/deploy-test.sh --env test1 --be -y` 部署实时角色双写修复；脚本因既有 Android base URL 环境档案差异返回非零，但远端容器为 running、未重启且启动后持续正常消费 Kafka 和响应接口。未部署前端、协议层或生产。
 - test1 对 3 条已确认的 `WGP2_PROMOTE` 缺口执行严格定点事务，补入 3 条成员当前事实和 3 条账号群关系；未写加入时间、baseline、first-post 或营销资格。修复后缺群映射、缺账号群关系、关系缺成员均为 0，`baseline=1 AND first-post IS NOT NULL` 安全门禁为 0。
 - test1 修复后固定一致性读对账覆盖 11,392 条默认列表行：静态筛选 ID 集合、唯一排序、页大小 1/20/100 的首页/中页/末页均一致，无重复或漏行；87 条未解析邀请继续走兼容路径，1 条不可见 Unicode 名称/主题为已知例外。管理员、群主和可用账号剩余差异均来自新模型已保存的更新成员事实，不是缺映射、缺关系或缺成员。
+- 2026-08-16 增量修复允许同租户同群 JID 的多个 legacy handle 在都指向同一 canonical group 时通过回填门禁；先补齐 participant 1,056 行、binding 998 行，并修复 metadata 快照及拉群/自建群登记的关系双写。新版本部署后使用 canonical `group_id` 短写入屏障最终补齐 participant 630 行、binding 630 行；随后缺 binding、缺 self participant、历史 baseline 误写 first-post、binding 孤儿成员、canonical 群冲突和未解析 membership 群六项门禁均为 0，持续处理新账号群快照后缺口仍为 0。
 - 群组列表读取入口已在本地切到 `GroupListCurrentMapper`；原接口、查询参数、转换器、排序分页和业务谓词未改，旧 `GroupLinkMapper` 仍服务其他写操作。`GroupLinkControllerTest`、`GroupLinkServiceImplTest`、`GroupListCurrentMapperSqlShapeTest`、`GroupLinkControlledAdminMapperInMemoryTest` 和真实 MySQL 8.4.8 的 `GroupListCurrentMapperMySqlTest` 通过，`mvn -q -DskipTests package`、Mapper XML 校验及 `git diff --check` 通过。
 - 群组列表读取切换已通过同一项目部署脚本再次只部署 test1 后端。远端新镜像构建及容器替换成功；容器为 `running`、`RestartCount=0`，Kafka 分区正常重新分配，`/api/group-links` 未登录探针按现有合同返回 40104，未见新列表 SQL、Mapper 或 Spring 启动错误。重启消化账号群事件时旧 `AccountGroupMembershipMapper.xml` 出现 4 次 lock-wait 消费重试，无死锁；最近 60 秒 lock-wait、死锁和列表 SQL 错误均为 0，同时成功刷新账号群快照 22 次。脚本最终检查仍只被既有 Android base URL 环境档案差异阻断。
 - test1 历史群筛选专项只读一致性快照：历史群总数新旧均为 4,419，六个群龄快捷区间、五个成员数快捷区间、亚洲、印度及“亚洲+印度+8～30 天+0～200 人”组合共 15 个场景，数量、ID 集合和 `created_at DESC,id DESC` 排序差异全部为 0。真实执行计划中历史群 count 为 1.65ms、首页 20 行为 0.038ms，均使用 `idx_group_link_historical`；前端历史筛选参数/抽屉 4 个测试通过。专项查询期间新列表 SQL 错误为 0。
@@ -218,13 +219,13 @@
 
 ## 剩余门禁
 
-- 本地 V123 已按既定兼容方案给 `group_link` 增加 nullable `group_id/group_invite_id`，按租户 + 群 JID/邀请码回填；列表已改为通过这两个 ID 连接 `wa_group/wa_group_invite`，账号群快照和邀请写入口同步维护引用。`group_link.id`、前端合同和业务判断不变，六张新表仍是当前群事实的唯一主表；尚未提交或部署。
+- V123 已按既定兼容方案给 `group_link` 增加 nullable `group_id/group_invite_id`，按租户 + 群 JID/邀请码回填；列表通过这两个 ID 连接 `wa_group/wa_group_invite`，账号群快照和邀请写入口同步维护引用。`group_link.id`、前端合同和业务判断不变，六张新表仍是当前群事实的唯一主表；已部署 test1，尚未提交或部署生产。
 - V123 后的首批低风险读取迁移已在本地完成：运营分组数量/可用链接改读新资料和邀请健康事实，元数据同步候选改从 `wa_group`/当前邀请读取 JID 与邀请码，按群 JID 查兼容 handle 改走 `group_link.group_id -> wa_group.id` 并保留 `wa://group/` fallback。未修改调度状态机、营销、历史群分类或账号群关系。
 - 第二批本地切换已完成：健康检测候选从 `wa_group/wa_group_profile` 读取 JID、封禁和最近检测时间；本地名称/备注/头像/分组/alias 删除通过 handle 的 canonical ID 直连新表，不再连接旧 preview；账号上线恢复延期 metadata 任务改用 `wa_account_group_binding + self participant presence_status=1`，管理员优先、在线账号选择、任务状态机和重试规则不变。相关 H2、SQL 形态及 MySQL 8 聚焦回归通过，尚未提交或部署。
 - 拉群任务的群营销候选、管理员账号选择和等待池复核已改读 `wa_account_group_binding/wa_group_participant/wa_group/wa_group_profile`；历史来源只认已迁移的 `group_link.is_historical`，不再扫描 baseline JSON，也不使用 `joined_at` 推断上控后新群。创建者手机号仍保留旧 preview 兼容口径，避免当前群主变化改写既有业务含义。
 - 普通营销的固定目标校验、账号动态群、发送前当前群复核、账号树群数量和任务详情当前成员状态已改读新当前事实；旧 `joined_at` 的发送时间边界一对一映射为 `membership_active_since_at`，初始历史群通过 `was_in_initial_baseline=1` 拦截，未把 legacy 迁移关系写成 `first_post_control_observed_at`。H2 真实 Mapper SQL、租户改写、边界和退群拦截回归通过；本地真库当前不可连接，新增 MySQL 聚焦用例尚待数据库恢复后执行。本批未提交、未部署。
 - 营销轮次发送前的批量成员状态复核已改读新 binding 和 self participant，仍映射为旧的五个业务状态码；保留快照事务内部的旧差集读取，因为当前调用顺序是先完成旧快照写入再写新表，直接切换会让新群即时营销漏发。该路径必须随写入顺序一起迁移，本批不硬改。
-- 群详情头和成员列表已改读 `wa_group`、`wa_group_profile`、`wa_group_participant`；详情 API、降级状态、权限字段、成员排序和操作逻辑保持不变，旧 preview/member snapshot 只继续承担双写和事件兼容写路径。
+- 群详情头已改读 `wa_group`、`wa_group_profile`；成员列表仍读取 `whatsapp_group_member_snapshot`，保持“最后一次完整成员快照”口径。`wa_group_participant` 是会被后续成员事件更新的当前事实，不能替代该历史截面；详情 API、降级状态、权限字段、成员排序和操作逻辑保持不变。
 - 仍保留的旧业务读取已逐项限定：账号列表 `groupsNum` 继续使用原 `membership_status IN (1,2)` 口径（聚焦用例固定为旧 3、新当前关系 5，不能偷换含义）；baseline JSON 继续承担首次基线分类；账号快照事务内旧差集读取继续驱动即时营销；创建者手机号/国家/洲继续兼容旧 preview。其余命中均为人工回填、旧列表 parity SQL 或双写状态计算，不能在本批直接删除。
 - 当前 test1 无多 alias/属性冲突，迁移期继续保留旧 `group_link` 作为外部 ID 兼容；不新增 alias 业务表，后续若门禁发现冲突则停止迁移并重新评审。
 - 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已接新表双写；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。本地 MySQL 恢复、可重复读并发和 test1 默认列表执行计划门禁已通过；本轮不新增重试框架。

@@ -122,7 +122,8 @@ class AccountGroupSyncMySqlConcurrencyTest {
                 sqlSessionTemplate.getMapper(com.armada.group.mapper.GroupLinkPreviewMapper.class);
         GroupLinkRegistryServiceImpl registryService =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, membershipMapper, previewMapper);
+                        groupLinkMapper, membershipMapper, previewMapper,
+                        Mockito.mock(AccountGroupCurrentSnapshotPersistenceImpl.class));
         snapshotService = new AccountGroupMembershipSnapshotServiceImpl(
                 membershipMapper, groupLinkMapper, healthMapper, registryService,
                 Mockito.mock(GroupClassificationService.class));

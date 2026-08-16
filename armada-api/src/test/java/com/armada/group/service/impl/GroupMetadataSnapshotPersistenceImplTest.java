@@ -162,6 +162,12 @@ class GroupMetadataSnapshotPersistenceImplTest {
                         "1001@s.whatsapp.net", "1001", true, false, null)),
                 2_100L,
                 "metadata:10:2100");
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                301L, "120363history@g.us", true, true,
+                2_000L, "metadata:10:2000", "GROUP_SNAPSHOT");
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                302L, "120363history@g.us", true, false,
+                2_000L, "metadata:10:2000", "GROUP_SNAPSHOT");
     }
 
     private GroupMetadataSnapshotPersistenceImpl service() {

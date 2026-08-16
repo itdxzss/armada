@@ -26,6 +26,8 @@ class GroupModelBackfillMapperSqlShapeTest {
                 .contains("<select id=\"countBindingConflicts\"")
                 .contains("GROUP BY preview.tenant_id, LOWER(TRIM(preview.group_jid))")
                 .contains("HAVING COUNT(*) &gt; 1")
+                .contains("COUNT(link.group_id) &lt;&gt; COUNT(*)")
+                .contains("COUNT(DISTINCT link.group_id) &gt; 1")
                 .contains("<insert id=\"backfillGroups\"")
                 .contains("INSERT INTO wa_group")
                 .contains("preview.tenant_id = link.tenant_id")

@@ -401,8 +401,9 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 修改一项 WhatsApp 群权限并回读确认。
      *
-     * <p>权限写操作只选择在线、正常且仍在群内的管理员或群主，不要求必须由群主执行，
-     * 也不会回退到普通成员。
+     * <p>权限写操作先使用在线且仍在群内的账号读取一次实时 metadata，再从实时确认的管理员
+     * 手机号中选择在线正常账号；不以可能滞后的本地管理员角色快照作为唯一依据，也不会把
+     * 普通成员直接用于权限写操作。
      * 权限 key 使用固定枚举映射协议能力。通过链接邀请会先读取 capability，协议未明确返回该能力时
      * 直接返回明确业务错误，不借用添加成员或入群审批接口。协议写入超时时不换号，
      * 仍由同一账号回读对应 metadata 字段确认。</p>
@@ -417,7 +418,18 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             throw new BusinessException(ErrorCode.VALIDATION, "群权限设置不能为空");
         }
         GroupTarget target = requireLiveTarget(id);
-        GroupExecutionAccount account = selector.requireAdmin(id);
+        GroupExecutionAccount readAccount = selector.require(id);
+        GroupMetadataResult metadata;
+        try {
+            metadata = protocolPorts.metadata().getMetadata(
+                    readAccount.protocolRef(), target.groupJid());
+        } catch (ProtocolException ex) {
+            log.warn("群权限设置前读取元数据失败 groupLinkId={} accountId={} code={}",
+                    id, readAccount.accountId(), ex.errorCode());
+            throw groupBusinessException(ex);
+        }
+        GroupExecutionAccount account = requireCurrentAdministrator(
+                id, readAccount, metadata, List.of());
         ensureSupportedSetting(account, target.groupJid(), dto.key());
         try {
             applySetting(account, target.groupJid(), dto);

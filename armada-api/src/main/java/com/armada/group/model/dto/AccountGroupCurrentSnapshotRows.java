@@ -99,7 +99,14 @@ public final class AccountGroupCurrentSnapshotRows {
             Long membershipActiveSinceAt,
             Long firstPostControlObservedAt,
             Boolean adminOnlyEditInfo,
-            Boolean memberAddMode) {
+            Boolean memberAddMode,
+            /*
+             * 已归约的群描述：null 表示本次未观察到（保留库中旧值），空串表示明确观察到空描述。
+             * 观察语义在 service 层用 descriptionObserved 归约完毕，批量 SQL 只需区分 null 与空串。
+             */
+            String description,
+            Boolean joinApprovalMode,
+            Integer ephemeralDurationSeconds) {
 
         public Write withGroupId(Long resolvedGroupId) {
             return new Write(
@@ -107,7 +114,8 @@ public final class AccountGroupCurrentSnapshotRows {
                     subject, memberCount, waCreatedAt, announceOnly, pnJid, phone,
                     role, eventId, syncAt, now, wasInInitialBaseline,
                     baselineSubjectSnapshot, membershipActiveSinceAt,
-                    firstPostControlObservedAt, adminOnlyEditInfo, memberAddMode);
+                    firstPostControlObservedAt, adminOnlyEditInfo, memberAddMode,
+                    description, joinApprovalMode, ephemeralDurationSeconds);
         }
     }
 

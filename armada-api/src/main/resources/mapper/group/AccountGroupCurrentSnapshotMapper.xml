@@ -168,22 +168,33 @@
 
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
-      group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,
-      admin_only_edit_info, member_add_mode,
+      group_id, subject, description, member_count, checked_member_count,
+      wa_created_at, announce_only,
+      admin_only_edit_info, member_add_mode, join_approval_mode, ephemeral_duration_seconds,
       metadata_observed_at, health_status, banned, last_checked_at,
       last_error_code, failure_count, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.memberCount},
+        #{row.groupId}, #{row.subject}, #{row.description},
+        #{row.memberCount}, #{row.memberCount},
         #{row.waCreatedAt},
         #{row.announceOnly}, #{row.adminOnlyEditInfo}, #{row.memberAddMode},
+        #{row.joinApprovalMode}, #{row.ephemeralDurationSeconds},
         #{row.syncAt}, 1, 0, #{row.syncAt},
         NULL, 0, #{row.now}, #{row.now}
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
       subject = COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject),
+      <!--
+        描述用 null 与空串区分观察语义，不能像单行 upsertGroupMetadata 那样另传 observed 标记：
+        批量 upsert 的 ON DUPLICATE KEY 段在 foreach 之外，引用不到单行参数。
+        service 层已归约为 null=本次未观察（保留旧值）、空串=明确观察到空描述（写入）。
+        这里刻意不套 NULLIF(TRIM(...), '')，否则空描述永远写不进去——与 subject 不同，
+        群描述为空是合法状态。
+      -->
+      description = COALESCE(VALUES(description), description),
       member_count = COALESCE(VALUES(member_count), member_count),
       checked_member_count = COALESCE(
         VALUES(checked_member_count), checked_member_count
@@ -203,6 +214,11 @@
         VALUES(admin_only_edit_info), admin_only_edit_info
       ),
       member_add_mode = COALESCE(VALUES(member_add_mode), member_add_mode),
+      join_approval_mode = COALESCE(VALUES(join_approval_mode), join_approval_mode),
+      <!-- 0 是"明确关闭限时消息"，必须落库；只有 NULL 才表示未观察、保留旧值。 -->
+      ephemeral_duration_seconds = COALESCE(
+        VALUES(ephemeral_duration_seconds), ephemeral_duration_seconds
+      ),
       metadata_observed_at = VALUES(metadata_observed_at),
       updated_at = VALUES(updated_at)
   </insert>

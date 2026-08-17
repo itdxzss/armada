@@ -48,6 +48,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             AccountGroupCurrentSnapshotPersistenceImpl.class);
 
     private static final int SUBJECT_MAX_LENGTH = 255;
+    private static final int DESCRIPTION_MAX_LENGTH = 1024;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
     private static final int SNAPSHOT_VERSION_MAX_LENGTH = 64;
@@ -156,7 +157,14 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     activeSince,
                     classification.firstPostControlObservedAt(),
                     group.adminOnlyEditInfo(),
-                    group.memberAddMode()));
+                    group.memberAddMode(),
+                    // 把观察语义归约成 null / 空串：未观察传 null 让 SQL 保留旧值，观察到才传值
+                    // （含明确观察到的空描述）。批量 upsert 的 ON DUPLICATE KEY 段引用不到单行
+                    // 参数，无法像单行 upsertGroupMetadata 那样另传 observed 标记。
+                    group.descriptionObserved()
+                            ? clamp(group.description(), DESCRIPTION_MAX_LENGTH) : null,
+                    group.joinApprovalMode(),
+                    group.ephemeralDurationSeconds()));
         }
 
         if (!rows.isEmpty()) {
@@ -317,7 +325,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, normalizedEventId, occurredAt, now, null, null, null, null, null, null)));
+                    0, normalizedEventId, occurredAt, now, null, null, null, null, null, null,
+                    null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -393,7 +402,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, row.eventId(), observedAt, now, null, null, null, null, null, null)));
+                    0, row.eventId(), observedAt, now, null, null, null, null, null, null,
+                    null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -634,7 +644,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     .map(groupJid -> new Write(
                             null, groupJid, null,
                             null, null, null, null, null, null, 0, null,
-                            now, now, null, null, null, null, null, null))
+                            now, now, null, null, null, null, null, null,
+                            null, null, null))
                     .toList();
             mapper.insertMissingGroups(tenantId, missingGroups);
             mapper.selectGroupIds(tenantId, missingGroupJids)

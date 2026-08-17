@@ -185,7 +185,13 @@ public class HistoricalGroupAccountGroupRefreshService {
                         group.announceOnly(),
                         null,
                         group.createdAt(),
-                        // 人工刷新走的完整 metadata 结果暂未带出这两项群设置，留空以保留已知事实。
+                        // AccountParticipatingGroupResult 只带回 subject/announceOnly，
+                        // 协议 HTTP adapter 尚未返回其余群设置与描述，一律留空以保留已知事实：
+                        // descriptionObserved=false 表示本次没观察到描述，不得覆盖库里的值。
+                        null,
+                        null,
+                        null,
+                        false,
                         null,
                         null))
                 .toList();

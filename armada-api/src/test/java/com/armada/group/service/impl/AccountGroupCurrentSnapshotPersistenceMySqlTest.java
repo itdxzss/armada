@@ -80,6 +80,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV121(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV122(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV124(rawDataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV127(rawDataSource);
 
         recordingDataSource = new RecordingDataSource(rawDataSource);
         DataSourceTransactionManager transactionManager =
@@ -1052,7 +1053,11 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 (index & 1) == 1,
                 "https://cdn.example/group-" + index + ".jpg",
                 1_000L + index,
-                // 账号群报告的这两项群设置本用例不涉及，保持未观察。
+                // 账号群报告的群设置与描述本用例不涉及，保持未观察。
+                null,
+                null,
+                null,
+                false,
                 null,
                 null);
     }
@@ -1166,7 +1171,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             Boolean memberAddMode) {
         return new AccountGroupsReportedEvent.Group(
                 groupJid, "Settings", 5, null, null, true,
-                announceOnly, null, null, adminOnlyEditInfo, memberAddMode);
+                announceOnly, null, null, adminOnlyEditInfo, memberAddMode,
+                null, false, null, null);
     }
 
     /** 按群 JID 读取 wa_group_profile 的单个群设置列，TINYINT 以 0/1 返回。 */
@@ -1176,6 +1182,64 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         + "JOIN wa_group current_group ON current_group.id = profile.group_id "
                         + "WHERE current_group.group_jid = ?",
                 Integer.class, groupJid);
+    }
+
+    /**
+     * 锁定群描述、入群审批与限时消息三项的观察语义。
+     *
+     * <p>描述用独立的 observed 标记而非 null 判断：快照无法区分"群没有描述"与"协议没返回
+     * 描述"，靠 null 判断会让空描述永远写不进去，或者让未观察抹掉已知描述。限时消息的 0
+     * 是合法值（明确关闭），必须与 null（未观察）区分开真正落库。</p>
+     */
+    @Test
+    void snapshotPersistsDescriptionApprovalAndEphemeralWithObservationSemantics()
+            throws Exception {
+        seedCapturedAccount(170L, "923300000170", List.of());
+        String groupJid = groupJid(70);
+
+        writeSnapshot(170L, List.of(profileGroup(groupJid, "Hello", true, true, 86_400)),
+                true, 2_000L, "profile-observed");
+
+        assertThat(profileText(groupJid, "description")).isEqualTo("Hello");
+        assertThat(profileSetting(groupJid, "join_approval_mode")).isEqualTo(1);
+        assertThat(profileSetting(groupJid, "ephemeral_duration_seconds")).isEqualTo(86_400);
+
+        // 描述未观察必须保留已知值；入群审批明确 false 必须落库覆盖。
+        writeSnapshot(170L, List.of(profileGroup(groupJid, null, false, false, null)),
+                true, 3_000L, "profile-partially-unobserved");
+
+        assertThat(profileText(groupJid, "description")).isEqualTo("Hello");
+        assertThat(profileSetting(groupJid, "join_approval_mode")).isEqualTo(0);
+        assertThat(profileSetting(groupJid, "ephemeral_duration_seconds")).isEqualTo(86_400);
+
+        // 明确观察到空描述要写成空串；限时消息明确关闭要落 0，都不能被当成未观察。
+        writeSnapshot(170L, List.of(profileGroup(groupJid, "", true, false, 0)),
+                true, 4_000L, "profile-cleared");
+
+        assertThat(profileText(groupJid, "description")).isEmpty();
+        assertThat(profileSetting(groupJid, "ephemeral_duration_seconds")).isZero();
+    }
+
+    /** 构造只关心描述、入群审批与限时消息的上报群。 */
+    private static AccountGroupsReportedEvent.Group profileGroup(
+            String groupJid,
+            String description,
+            boolean descriptionObserved,
+            Boolean joinApprovalMode,
+            Integer ephemeralDurationSeconds) {
+        return new AccountGroupsReportedEvent.Group(
+                groupJid, "Profile", 5, null, null, true,
+                null, null, null, null, null,
+                description, descriptionObserved, joinApprovalMode, ephemeralDurationSeconds);
+    }
+
+    /** 按群 JID 读取 wa_group_profile 的单个文本列。 */
+    private static String profileText(String groupJid, String column) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM wa_group_profile profile "
+                        + "JOIN wa_group current_group ON current_group.id = profile.group_id "
+                        + "WHERE current_group.group_jid = ?",
+                String.class, groupJid);
     }
 
 }

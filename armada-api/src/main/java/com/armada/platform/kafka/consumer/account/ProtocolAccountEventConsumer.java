@@ -570,7 +570,14 @@ public class ProtocolAccountEventConsumer {
                     // 该路径的协议事件不携带 creation，沿用既有兼容语义留空。
                     null,
                     boolAny(node, "adminOnlyEditInfo", "restrict", "locked"),
-                    boolAny(node, "memberAddMode")));
+                    boolAny(node, "memberAddMode"),
+                    anyText(node, "description", "desc"),
+                    // 用字段存在性而非 null 表达"本次观察到描述"：快照区分不了"群没有描述"
+                    // 与"协议没返回描述"，靠 null 判断会让空描述永远写不进去。明确清空留给
+                    // group.metadata_updated 的 fieldMask 机制。
+                    node.hasNonNull("description") || node.hasNonNull("desc"),
+                    boolAny(node, "joinApprovalMode"),
+                    integerAny(node, "ephemeralDurationSeconds", "ephemeralDuration")));
         }
         return groups;
     }

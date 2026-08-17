@@ -49,6 +49,10 @@ public record ProtocolAccountGroupsReportedEvent(
      * @param creation          WhatsApp 群创建时间,Unix 秒;可空
      * @param adminOnlyEditInfo 是否仅管理员可编辑群资料,可空
      * @param memberAddMode     普通成员是否可添加成员,可空
+     * @param description       群描述,可空;是否采纳由 descriptionObserved 决定
+     * @param descriptionObserved 本次是否观察到群描述字段
+     * @param joinApprovalMode  是否开启入群审批,可空
+     * @param ephemeralDurationSeconds 限时消息秒数,0 表示明确关闭;可空表示未观察
      */
     public record Group(
             String groupJid,
@@ -61,7 +65,11 @@ public record ProtocolAccountGroupsReportedEvent(
             String avatarUrl,
             Long creation,
             Boolean adminOnlyEditInfo,
-            Boolean memberAddMode
+            Boolean memberAddMode,
+            String description,
+            boolean descriptionObserved,
+            Boolean joinApprovalMode,
+            Integer ephemeralDurationSeconds
     ) {
 
         /** 兼容旧协议事件不带 creation 与群设置的构造方式。 */
@@ -75,7 +83,8 @@ public record ProtocolAccountGroupsReportedEvent(
                 Boolean announceOnly,
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
-                    admin, announceOnly, avatarUrl, null, null, null);
+                    admin, announceOnly, avatarUrl, null, null, null,
+                    null, false, null, null);
         }
     }
 }

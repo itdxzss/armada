@@ -23,6 +23,7 @@ public class HttpGroupMetadataAdapter
     private static final String ROLE_ADMIN = "admin";
     private static final String ROLE_SUPERADMIN = "superadmin";
     private static final String CAPABILITY_NOT_DECLARED = "协议未返回能力声明";
+    private static final String PN_JID_SUFFIX = "@s.whatsapp.net";
 
     private final ProtocolHttpExecutor httpExecutor;
 
@@ -100,10 +101,29 @@ public class HttpGroupMetadataAdapter
         String phoneSource = blankToNull(response.phoneNumber());
         return new GroupParticipantResult(
                 jid,
+                pnJid(jid, phoneSource),
                 phone(phoneSource == null ? jid : phoneSource),
                 ROLE_ADMIN.equals(role) || ROLE_SUPERADMIN.equals(role),
                 ROLE_SUPERADMIN.equals(role),
                 role);
+    }
+
+    /**
+     * 还原成员的 PN 形式 JID。
+     *
+     * <p>Web 群成员的主标识 {@code id} 可能已经是 LID,但协议仍在 {@code phoneNumber}
+     * 给出 PN JID;据此还原可让同一个人的 PN 与 LID 身份落在同一行成员记录上。
+     * LID 数字与手机号之间没有对应关系,拿不到可信号码来源时必须留空,不得由 LID 反推。</p>
+     *
+     * @param jid         协议返回的成员主标识,可能是 PN 或 LID 形式
+     * @param phoneNumber 协议返回的号码字段,Web 侧为完整 PN JID
+     * @return PN 形式 JID;没有可信来源时返回 null
+     */
+    private static String pnJid(String jid, String phoneNumber) {
+        if (phoneNumber != null) {
+            return phone(phoneNumber) + PN_JID_SUFFIX;
+        }
+        return jid != null && jid.endsWith(PN_JID_SUFFIX) ? phone(jid) + PN_JID_SUFFIX : null;
     }
 
     private static String phone(String jid) {

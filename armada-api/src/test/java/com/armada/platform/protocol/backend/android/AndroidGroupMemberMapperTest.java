@@ -139,6 +139,27 @@ class AndroidGroupMemberMapperTest {
         });
     }
 
+    @Test
+    void restoresPnJidFromPhoneWhenIdentityIsLidOnly() throws Exception {
+        // test1 实测的真实报文形态：主标识是 LID，号码另在 phone 字段给出。
+        JsonNode data = objectMapper.readTree("""
+                {"Participants":[
+                  {"jid":"238959900762347@lid","phone":"919725073917","type":"admin"},
+                  {"jid":"113834467586188@lid","type":"participant"}
+                ]}
+                """);
+
+        List<GroupParticipantResult> result = mapper.map(data);
+
+        assertThat(result.get(0).jid()).isEqualTo("238959900762347@lid");
+        assertThat(result.get(0).pnJid())
+                .as("协议给出号码时应还原 PN 身份，使其与 LID 落在同一行成员记录")
+                .isEqualTo("919725073917@s.whatsapp.net");
+        assertThat(result.get(1).pnJid())
+                .as("只有 LID 没有号码时必须留空，禁止由 LID 数字反推手机号")
+                .isNull();
+    }
+
     private void assertUnrecognized(JsonNode data) {
         assertThatThrownBy(() -> mapper.map(data))
                 .isInstanceOfSatisfying(ProtocolException.class,

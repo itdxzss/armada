@@ -88,6 +88,8 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         List<GroupParticipantResult> participants = snapshotMembers.stream()
                 .map(member -> new GroupParticipantResult(
                         member.getParticipantJid(),
+                        // 由本地快照行重建，不是协议观察，缺少可信 PN 来源时不猜身份。
+                        null,
                         member.getPhone(),
                         member.getIsAdmin(),
                         member.getIsOwner(),

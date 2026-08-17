@@ -530,10 +530,10 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
 
         writeParticipantSnapshot(groupJid(9), List.of(
                 new GroupParticipantResult(
-                        "15550000010:3@s.whatsapp.net", "+1 555 000 0010",
+"15550000010:3@s.whatsapp.net", null, "+1 555 000 0010",
                         true, false, "admin"),
                 new GroupParticipantResult(
-                        "123456789012349@lid", null,
+"123456789012349@lid", null, null,
                         true, true, "superadmin")),
                 2_000L, "member-snapshot-2000");
 
@@ -577,13 +577,13 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     @Test
     void olderCompleteSnapshotCannotRollBackNewerHeaderOrExplicitDeparture() {
         writeParticipantSnapshot(groupJid(10), List.of(new GroupParticipantResult(
-                "15550000011@s.whatsapp.net", "15550000011",
+"15550000011@s.whatsapp.net", null, "15550000011",
                 false, false, "member")), 2_000L, "member-snapshot-2000");
         writeParticipantDepartures(List.of(new WhatsappGroupDepartureFact(
                 TENANT_ID, groupJid(10), "15550000011@s.whatsapp.net", "15550000011",
                 3_000L, "LEFT", 3_000L, "left-3000", "WGP2_NOTIFICATION")));
         writeParticipantSnapshot(groupJid(10), List.of(new GroupParticipantResult(
-                "15550000011@s.whatsapp.net", "15550000011",
+"15550000011@s.whatsapp.net", null, "15550000011",
                 true, true, "superadmin")), 2_500L, "member-snapshot-2500");
         writeParticipantSnapshot(
                 groupJid(10), List.of(), 1_500L, "member-snapshot-1500");
@@ -618,14 +618,14 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         TENANT_ID, groupJid(11), "15550000013@s.whatsapp.net", "15550000013",
                         1_000L, 1_000L, "join-13", 104L)));
         writeParticipantSnapshot(groupJid(11), List.of(new GroupParticipantResult(
-                "15550000012@s.whatsapp.net", "15550000012",
+"15550000012@s.whatsapp.net", null, "15550000012",
                 false, false, "member")), 2_000L, "member-snapshot-a");
         writeParticipantSnapshot(groupJid(11), List.of(
                 new GroupParticipantResult(
-                        "15550000012@s.whatsapp.net", "15550000012",
+"15550000012@s.whatsapp.net", null, "15550000012",
                         true, true, "superadmin"),
                 new GroupParticipantResult(
-                        "15550000013@s.whatsapp.net", "15550000013",
+"15550000013@s.whatsapp.net", null, "15550000013",
                         true, false, "admin")),
                 2_000L, "member-snapshot-z");
 
@@ -656,7 +656,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     @Test
     void completeMetadataSnapshotUpdatesOnlyAcceptedProfileFields() {
         List<GroupParticipantResult> participants = List.of(new GroupParticipantResult(
-                "15550000014@s.whatsapp.net", "15550000014",
+"15550000014@s.whatsapp.net", null, "15550000014",
                 false, false, "member"));
         GroupLinkPreview first = metadataPreview(groupJid(12), 2_000L, 2_100L);
         first.setWaSubject("当前群名");
@@ -1051,7 +1051,10 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 (index & 1) == 0,
                 (index & 1) == 1,
                 "https://cdn.example/group-" + index + ".jpg",
-                1_000L + index);
+                1_000L + index,
+                // 账号群报告的这两项群设置本用例不涉及，保持未观察。
+                null,
+                null);
     }
 
     private static List<String> groupJids(int start, int count) {
@@ -1117,6 +1120,62 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             throw new IllegalStateException("无法创建账号群新模型测试 SqlSessionFactory");
         }
         return new SqlSessionTemplate(factory);
+    }
+
+    /**
+     * 锁定群设置字段的三种语义：明确开启、明确关闭、未观察到。
+     *
+     * <p>未观察到必须保留上次事实而不是清空，否则协议层一次不带设置的快照就会把控端
+     * 已知的群设置抹成未知；明确的 false 又必须真正落库，否则控端只看得到设置开启、
+     * 永远看不到关闭。</p>
+     */
+    @Test
+    void snapshotPersistsObservedGroupSettingsAndKeepsUnobservedValues() throws Exception {
+        seedCapturedAccount(160L, "923300000160", List.of());
+        String groupJid = groupJid(60);
+
+        writeSnapshot(160L, List.of(settingsGroup(groupJid, true, true, false)),
+                true, 2_000L, "settings-observed");
+
+        assertThat(profileSetting(groupJid, "announce_only")).isEqualTo(1);
+        assertThat(profileSetting(groupJid, "admin_only_edit_info")).isEqualTo(1);
+        assertThat(profileSetting(groupJid, "member_add_mode")).isEqualTo(0);
+
+        // 协议未观察到设置时字段为 null，COALESCE 必须保留上一次的已知事实。
+        writeSnapshot(160L, List.of(settingsGroup(groupJid, null, null, null)),
+                true, 3_000L, "settings-unobserved");
+
+        assertThat(profileSetting(groupJid, "announce_only")).isEqualTo(1);
+        assertThat(profileSetting(groupJid, "admin_only_edit_info")).isEqualTo(1);
+        assertThat(profileSetting(groupJid, "member_add_mode")).isEqualTo(0);
+
+        // 明确关闭与"未观察到"必须区分开：false 要真正写进库，把 1 覆盖回 0。
+        writeSnapshot(160L, List.of(settingsGroup(groupJid, false, false, true)),
+                true, 4_000L, "settings-disabled");
+
+        assertThat(profileSetting(groupJid, "announce_only")).isEqualTo(0);
+        assertThat(profileSetting(groupJid, "admin_only_edit_info")).isEqualTo(0);
+        assertThat(profileSetting(groupJid, "member_add_mode")).isEqualTo(1);
+    }
+
+    /** 构造只关心群设置三字段的上报群，其余字段取不影响本用例的最小值。 */
+    private static AccountGroupsReportedEvent.Group settingsGroup(
+            String groupJid,
+            Boolean announceOnly,
+            Boolean adminOnlyEditInfo,
+            Boolean memberAddMode) {
+        return new AccountGroupsReportedEvent.Group(
+                groupJid, "Settings", 5, null, null, true,
+                announceOnly, null, null, adminOnlyEditInfo, memberAddMode);
+    }
+
+    /** 按群 JID 读取 wa_group_profile 的单个群设置列，TINYINT 以 0/1 返回。 */
+    private static Integer profileSetting(String groupJid, String column) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM wa_group_profile profile "
+                        + "JOIN wa_group current_group ON current_group.id = profile.group_id "
+                        + "WHERE current_group.group_jid = ?",
+                Integer.class, groupJid);
     }
 
 }

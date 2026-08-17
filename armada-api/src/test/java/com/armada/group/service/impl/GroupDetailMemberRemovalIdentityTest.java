@@ -271,6 +271,7 @@ class GroupDetailMemberRemovalIdentityTest {
     }
 
     private static GroupParticipantResult participant(String jid, String phone) {
-        return new GroupParticipantResult(jid, phone, false, false, null);
+        return new GroupParticipantResult(
+jid, null, phone, false, false, null);
     }
 }

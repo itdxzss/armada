@@ -154,7 +154,9 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     classification.wasInInitialBaseline(),
                     classification.baselineSubjectSnapshot(),
                     activeSince,
-                    classification.firstPostControlObservedAt()));
+                    classification.firstPostControlObservedAt(),
+                    group.adminOnlyEditInfo(),
+                    group.memberAddMode()));
         }
 
         if (!rows.isEmpty()) {
@@ -315,7 +317,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, normalizedEventId, occurredAt, now, null, null, null, null)));
+                    0, normalizedEventId, occurredAt, now, null, null, null, null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -391,7 +393,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, row.eventId(), observedAt, now, null, null, null, null)));
+                    0, row.eventId(), observedAt, now, null, null, null, null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -632,7 +634,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     .map(groupJid -> new Write(
                             null, groupJid, null,
                             null, null, null, null, null, null, 0, null,
-                            now, now, null, null, null, null))
+                            now, now, null, null, null, null, null, null))
                     .toList();
             mapper.insertMissingGroups(tenantId, missingGroups);
             mapper.selectGroupIds(tenantId, missingGroupJids)

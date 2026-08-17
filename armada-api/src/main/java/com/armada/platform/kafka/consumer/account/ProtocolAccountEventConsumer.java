@@ -566,7 +566,11 @@ public class ProtocolAccountEventConsumer {
                     anyText(node, "ownerPhone"),
                     boolAny(node, "isAdmin", "admin"),
                     boolAny(node, "announceOnly", "announce"),
-                    anyText(node, "avatarUrl", "pictureUrl")));
+                    anyText(node, "avatarUrl", "pictureUrl"),
+                    // 该路径的协议事件不携带 creation，沿用既有兼容语义留空。
+                    null,
+                    boolAny(node, "adminOnlyEditInfo", "restrict", "locked"),
+                    boolAny(node, "memberAddMode")));
         }
         return groups;
     }

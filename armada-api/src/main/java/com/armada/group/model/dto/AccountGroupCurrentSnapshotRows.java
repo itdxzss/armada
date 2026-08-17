@@ -97,7 +97,9 @@ public final class AccountGroupCurrentSnapshotRows {
             Integer wasInInitialBaseline,
             String baselineSubjectSnapshot,
             Long membershipActiveSinceAt,
-            Long firstPostControlObservedAt) {
+            Long firstPostControlObservedAt,
+            Boolean adminOnlyEditInfo,
+            Boolean memberAddMode) {
 
         public Write withGroupId(Long resolvedGroupId) {
             return new Write(
@@ -105,7 +107,7 @@ public final class AccountGroupCurrentSnapshotRows {
                     subject, memberCount, waCreatedAt, announceOnly, pnJid, phone,
                     role, eventId, syncAt, now, wasInInitialBaseline,
                     baselineSubjectSnapshot, membershipActiveSinceAt,
-                    firstPostControlObservedAt);
+                    firstPostControlObservedAt, adminOnlyEditInfo, memberAddMode);
         }
     }
 

@@ -169,6 +169,7 @@
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
       group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,
+      admin_only_edit_info, member_add_mode,
       metadata_observed_at, health_status, banned, last_checked_at,
       last_error_code, failure_count, created_at, updated_at
     ) VALUES
@@ -176,7 +177,8 @@
       (
         #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.memberCount},
         #{row.waCreatedAt},
-        #{row.announceOnly}, #{row.syncAt}, 1, 0, #{row.syncAt},
+        #{row.announceOnly}, #{row.adminOnlyEditInfo}, #{row.memberAddMode},
+        #{row.syncAt}, 1, 0, #{row.syncAt},
         NULL, 0, #{row.now}, #{row.now}
       )
     </foreach>
@@ -197,6 +199,10 @@
         THEN failure_count ELSE VALUES(failure_count) END,
       wa_created_at = COALESCE(VALUES(wa_created_at), wa_created_at),
       announce_only = COALESCE(VALUES(announce_only), announce_only),
+      admin_only_edit_info = COALESCE(
+        VALUES(admin_only_edit_info), admin_only_edit_info
+      ),
+      member_add_mode = COALESCE(VALUES(member_add_mode), member_add_mode),
       metadata_observed_at = VALUES(metadata_observed_at),
       updated_at = VALUES(updated_at)
   </insert>

@@ -559,7 +559,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     participant(PULLER, false),
                     participant(STATION, false),
                     new GroupParticipantResult(
-                            "8613900000001@s.whatsapp.net", "8613900000001",
+"8613900000001@s.whatsapp.net", null, "8613900000001",
                             true, false, "admin")));
             return port;
         }
@@ -610,7 +610,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
         private static GroupParticipantResult participant(
                 ProtocolAccountRef account, boolean admin) {
             return new GroupParticipantResult(
-                    account.wsPhone() + "@s.whatsapp.net", account.wsPhone(),
+                    account.wsPhone() + "@s.whatsapp.net", account.wsPhone() + "@s.whatsapp.net",
+                    account.wsPhone(),
                     admin, false, admin ? "admin" : null);
         }
 

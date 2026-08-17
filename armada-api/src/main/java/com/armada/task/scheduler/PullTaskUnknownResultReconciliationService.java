@@ -614,7 +614,8 @@ public class PullTaskUnknownResultReconciliationService {
                             String memberPhone = fact.phoneNumber() == null
                                     ? fact.targetJid() : fact.phoneNumber();
                             members.putIfAbsent(phone(fact.targetJid()), new GroupParticipantResult(
-                                    jid, memberPhone, fact.admin(), false,
+                                    // 由拉群执行事实重建，不是协议成员观察，不推断 PN 身份。
+                                    jid, null, memberPhone, fact.admin(), false,
                                     fact.admin() ? "admin" : null));
                         });
             }

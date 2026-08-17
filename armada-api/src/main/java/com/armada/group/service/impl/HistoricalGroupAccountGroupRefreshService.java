@@ -184,7 +184,10 @@ public class HistoricalGroupAccountGroupRefreshService {
                         group.admin(),
                         group.announceOnly(),
                         null,
-                        group.createdAt()))
+                        group.createdAt(),
+                        // 人工刷新走的完整 metadata 结果暂未带出这两项群设置，留空以保留已知事实。
+                        null,
+                        null))
                 .toList();
     }
 

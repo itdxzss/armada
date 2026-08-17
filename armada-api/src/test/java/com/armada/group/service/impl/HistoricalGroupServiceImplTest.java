@@ -239,13 +239,13 @@ class HistoricalGroupServiceImplTest {
                 true,
                 List.of(
                         new GroupParticipantResult(
-                                "919000000001@s.whatsapp.net",
+"919000000001@s.whatsapp.net", null,
                                 "919000000001",
                                 true,
                                 false,
                                 "admin"),
                         new GroupParticipantResult(
-                                "919000000002@s.whatsapp.net",
+"919000000002@s.whatsapp.net", null,
                                 "919000000002",
                                 false,
                                 false,
@@ -592,7 +592,8 @@ class HistoricalGroupServiceImplTest {
             boolean owner,
             String role) {
         String phone = jid.substring(0, jid.indexOf('@'));
-        return new GroupParticipantResult(jid, phone, admin, owner, role);
+        return new GroupParticipantResult(
+jid, null, phone, admin, owner, role);
     }
 
     private static GroupParticipantBatchResult batch(GroupParticipantBatchResult.Item... items) {

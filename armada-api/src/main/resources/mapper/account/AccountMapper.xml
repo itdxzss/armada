@@ -248,19 +248,38 @@
   </select>
 
   <!--
+    协议后端判定口径:凭证格式是唯一可靠依据(1=六段安卓,2/3=Web),凭证缺失才回退导入时的 protocol_id。
+    列表页与命令分流必须共用同一口径,否则会出现页面显示安卓、命令却发去 Web 的分叉。
+  -->
+  <sql id="protocolBackendCase">
+    CASE
+      WHEN c.cred_format = 1 THEN 'ANDROID'
+      WHEN c.cred_format IN (2, 3) THEN 'WEB'
+      WHEN UPPER(a.protocol_id) = 'ANDROID' THEN 'ANDROID'
+      ELSE 'WEB'
+    END
+  </sql>
+
+  <!--
     账号当前群同步候选:跨租户扫描在线正常账号。
     已拍 baseline 的账号按当前模型同步水位轮转;不启用 baseline 的账号直接同步。
     待拍账号必须由营销账号树的实时协议查询捕获 baseline,避免定时任务晚到后把新进群误拍进旧群 JSON。
     调度线程没有租户上下文,所以 mapper 方法关闭租户拦截器,这里显式按 tenant_id 连接。
+    protocolBackend 决定命令发往哪个 topic:安卓号的命令若发去 master topic,
+    Web master 查不到 owner 只会记一条 warn 就丢,该号的群列表将永远得不到定时刷新。
   -->
   <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
     SELECT a.tenant_id AS tenantId,
            a.id AS accountId,
-           a.protocol_account_id AS protocolAccountId
+           a.protocol_account_id AS protocolAccountId,
+           <include refid="protocolBackendCase"/> AS protocolBackend
     FROM account a
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
+    LEFT JOIN account_credential c
+      ON c.tenant_id = a.tenant_id
+     AND c.account_id = a.id
     LEFT JOIN account_group_sync_state current_sync
       ON current_sync.tenant_id = a.tenant_id
      AND current_sync.account_id = a.id
@@ -399,12 +418,7 @@
            a.account_type AS accountType, a.device_os AS deviceOs,
            a.number_source AS numberSource, a.channel_name AS channelName,
            a.protocol_id AS protocolId,
-           CASE
-             WHEN c.cred_format = 1 THEN 'ANDROID'
-             WHEN c.cred_format IN (2, 3) THEN 'WEB'
-             WHEN UPPER(a.protocol_id) = 'ANDROID' THEN 'ANDROID'
-             ELSE 'WEB'
-           END AS protocolBackend,
+           <include refid="protocolBackendCase"/> AS protocolBackend,
            a.account_group_id AS accountGroupId, g.name AS groupName,
            g.marketing_occupancy_type AS marketingOccupancyType,
            g.marketing_occupancy_task_id AS marketingOccupancyTaskId,

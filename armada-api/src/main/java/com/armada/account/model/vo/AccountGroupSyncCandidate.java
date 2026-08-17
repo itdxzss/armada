@@ -6,10 +6,12 @@ package com.armada.account.model.vo;
  * @param tenantId          租户 ID
  * @param accountId         Armada 本地账号 ID
  * @param protocolAccountId 协议层账号句柄
+ * @param protocolBackend   协议后端 WEB 或 ANDROID，决定同步命令发往哪个 topic
  */
 public record AccountGroupSyncCandidate(
         Long tenantId,
         Long accountId,
-        String protocolAccountId
+        String protocolAccountId,
+        String protocolBackend
 ) {
 }

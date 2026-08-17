@@ -689,8 +689,7 @@ class ProtocolCommandOutboxServiceImplTest {
         service.enqueueOnlineCommands(List.of(command));
 
         ProtocolCommandOutbox row = capturedRows().get(0);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.test");
-        assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
+                assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload)
@@ -854,8 +853,7 @@ class ProtocolCommandOutboxServiceImplTest {
         service.enqueueOfflineCommands(List.of(command));
 
         ProtocolCommandOutbox row = capturedRows().get(0);
-        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.test");
-        assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
+                assertThat(row.getProtocolBackend()).isEqualTo(ProtocolBackend.ANDROID.name());
         Map<String, Object> payload = objectMapper.readValue(row.getPayloadJson(), new TypeReference<>() {
         });
         assertThat(payload)
@@ -985,6 +983,23 @@ class ProtocolCommandOutboxServiceImplTest {
                 .doesNotContain("username")
                 .doesNotContain("proxyHost");
         verify(dispatchTrigger).dispatchAfterCommit(rows);
+    }
+
+    @Test
+    void enqueueAccountGroupSyncCommands_androidAccount_routesToAndroidLifecycleTopic() {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-android-groups"), List.of());
+        ProtocolAccountGroupSyncCommandRequest command = accountGroupSyncCommand(
+                1L, 100L, "acc_100", ProtocolBackend.ANDROID);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+        service.enqueueAccountGroupSyncCommands(List.of(command));
+
+        // 发去 master topic 不会报错,只会在 Web master 侧查无 owner 被静默丢掉,
+        // 安卓号的群列表因此永远得不到定时刷新。
+        ProtocolCommandOutbox row = capturedRows().get(0);
+        assertThat(row.getKafkaTopic()).isEqualTo("protocol.android.lifecycle.commands.v1");
+        assertThat(row.getProtocolBackend()).isEqualTo("ANDROID");
+        assertThat(row.getKafkaKey()).isEqualTo("acc_100");
     }
 
     @Test
@@ -1292,10 +1307,18 @@ class ProtocolCommandOutboxServiceImplTest {
     private static ProtocolAccountGroupSyncCommandRequest accountGroupSyncCommand(Long tenantId,
                                                                                   Long accountId,
                                                                                   String protocolAccountId) {
+        return accountGroupSyncCommand(tenantId, accountId, protocolAccountId, ProtocolBackend.WEB);
+    }
+
+    private static ProtocolAccountGroupSyncCommandRequest accountGroupSyncCommand(Long tenantId,
+                                                                                  Long accountId,
+                                                                                  String protocolAccountId,
+                                                                                  ProtocolBackend backend) {
         return new ProtocolAccountGroupSyncCommandRequest(
                 tenantId,
                 accountId,
                 protocolAccountId,
+                backend,
                 "scheduled_account_group_sync");
     }
 

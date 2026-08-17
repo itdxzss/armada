@@ -781,6 +781,13 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return row;
     }
 
+    /**
+     * 把账号群列表同步命令转换为待发送 outbox 行。
+     *
+     * <p>topic 必须按后端分流,与上线命令同一口径:Web 走 master 由其按 owner 路由 worker,
+     * 安卓走安卓生命周期 topic 由持号的 fleet 节点执行。发错 topic 不会报错,
+     * 只会在 Web master 侧记一条查无 owner 的 warn,该号的群列表从此不再刷新。</p>
+     */
     private ProtocolCommandOutbox toAccountGroupSyncOutboxRow(ProtocolAccountGroupSyncCommandRequest command,
                                                               String commandId,
                                                               String batchId,
@@ -792,10 +799,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setCommandType(COMMAND_TYPE_ACCOUNT_GROUPS_SYNC_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_ACCOUNT);
         row.setAggregateId(command.accountId());
-        row.setKafkaTopic(masterCommandProperties.getTopic());
+        row.setKafkaTopic(accountGroupSyncCommandTopic(command.protocolBackend()));
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
-        row.setProtocolBackend(ProtocolBackend.WEB.name());
+        row.setProtocolBackend(command.protocolBackend().name());
         row.setPayloadJson(payloadJson(command));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -1782,6 +1789,19 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return protocolBackend == ProtocolBackend.ANDROID
                 ? androidCommandProperties.getLifecycleTopic()
                 : accountCommandProperties.getTopic();
+    }
+
+    /**
+     * 群列表同步命令的 topic 分流。
+     *
+     * <p>不能复用 {@link #onlineCommandTopic}：Web 上线命令走 account topic，而群列表同步一直走
+     * master topic 由 master 按 owner 路由 worker，两者不是同一个 topic。安卓侧直投生命周期 topic，
+     * 由持号的 fleet 节点执行。</p>
+     */
+    private String accountGroupSyncCommandTopic(ProtocolBackend protocolBackend) {
+        return protocolBackend == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getLifecycleTopic()
+                : masterCommandProperties.getTopic();
     }
 
     private String offlineCommandTopic(ProtocolBackend protocolBackend) {

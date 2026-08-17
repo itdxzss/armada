@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
@@ -33,9 +34,9 @@ class AccountGroupSyncCommandServiceTest {
     @Test
     void enqueueDueSyncCommands_groupsCandidatesByTenantAndRestoresTenantContextForOutboxInsert() {
         List<AccountGroupSyncCandidate> candidates = List.of(
-                new AccountGroupSyncCandidate(1L, 101L, "acc_101"),
-                new AccountGroupSyncCandidate(1L, 102L, "acc_102"),
-                new AccountGroupSyncCandidate(2L, 201L, "acc_201"));
+                new AccountGroupSyncCandidate(1L, 101L, "acc_101", "WEB"),
+                new AccountGroupSyncCandidate(1L, 102L, "acc_102", "ANDROID"),
+                new AccountGroupSyncCandidate(2L, 201L, "acc_201", null));
         when(accountMapper.selectGroupSyncCandidates(50, 1, 2, 2)).thenReturn(candidates);
         List<Long> tenantContextDuringOutboxCalls = new ArrayList<>();
         List<Long> tenantContextDuringWatermarkUpdates = new ArrayList<>();
@@ -78,6 +79,14 @@ class AccountGroupSyncCommandServiceTest {
         assertThat(captor.getAllValues().get(0))
                 .extracting(ProtocolAccountGroupSyncCommandRequest::source)
                 .containsOnly("scheduled_account_group_sync");
+        // 后端决定命令发哪个 topic：判错会让该号的群列表永远得不到定时刷新。
+        assertThat(captor.getAllValues().get(0))
+                .extracting(ProtocolAccountGroupSyncCommandRequest::protocolBackend)
+                .containsExactly(ProtocolBackend.WEB, ProtocolBackend.ANDROID);
+        // 后端缺失按 WEB 兜底：抛异常会让整批候选都入不了队。
+        assertThat(captor.getAllValues().get(1))
+                .extracting(ProtocolAccountGroupSyncCommandRequest::protocolBackend)
+                .containsExactly(ProtocolBackend.WEB);
         assertThat(captor.getAllValues().get(1))
                 .extracting(ProtocolAccountGroupSyncCommandRequest::tenantId,
                         ProtocolAccountGroupSyncCommandRequest::accountId,

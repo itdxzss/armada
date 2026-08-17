@@ -6,6 +6,7 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
@@ -14,6 +15,7 @@ import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,9 +103,31 @@ public class AccountGroupSyncCommandService {
                             candidate.tenantId(),
                             candidate.accountId(),
                             candidate.protocolAccountId(),
+                            protocolBackend(candidate.protocolBackend()),
                             SOURCE_SCHEDULED_ACCOUNT_GROUP_SYNC));
         }
         return byTenant;
+    }
+
+    /**
+     * 解析候选的协议后端。
+     *
+     * <p>缺失或非法时按 WEB 处理:Web 是历史默认,判错的代价只是这一轮命令在 master 侧查无 owner
+     * 被丢掉、下一轮重来;抛异常则会让整批候选都入不了队。</p>
+     *
+     * @param value 候选查询给出的后端名
+     * @return 协议后端,无法识别时为 WEB
+     */
+    private static ProtocolBackend protocolBackend(String value) {
+        if (value == null || value.isBlank()) {
+            return ProtocolBackend.WEB;
+        }
+        try {
+            return ProtocolBackend.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            log.warn("账号群同步候选协议后端非法,按 WEB 处理 protocolBackend={}", value);
+            return ProtocolBackend.WEB;
+        }
     }
 
     private void markRequested(List<ProtocolAccountGroupSyncCommandRequest> commands) {

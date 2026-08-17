@@ -1081,6 +1081,7 @@
                         binding.last_observed_at) AS statusUpdatedAt
         FROM account a
         JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
         JOIN group_link g ON g.id = #{groupLinkId}
                          AND g.deleted_at IS NULL
         JOIN wa_group current_group ON current_group.id = g.group_id
@@ -1106,7 +1107,7 @@
           </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND a.group_baseline_state IN (2, 3)
+          AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
         LIMIT 1
@@ -1117,6 +1118,7 @@
                a.ws_phone AS accountPhone
         FROM account a
         JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
         WHERE a.id = #{accountId}
           AND a.account_group_id = #{accountGroupId}
           AND a.deleted_at IS NULL
@@ -1131,7 +1133,7 @@
           </foreach>
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND a.group_baseline_state IN (2, 3)
+          AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
         LIMIT 1
@@ -1196,6 +1198,7 @@
                         binding.last_observed_at) AS statusUpdatedAt
         FROM account a
         JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
         JOIN group_link g ON g.id = #{groupLinkId}
                          AND g.deleted_at IS NULL
                          AND g.membership_state IN (2, 3)
@@ -1214,7 +1217,7 @@
           AND s.account_state = 2
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND a.group_baseline_state IN (2, 3)
+          AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
           AND s.mute_status IS NULL
           AND self_participant.presence_status IN (0, 1)
@@ -1223,7 +1226,7 @@
                    AND (current_profile.health_status IS NULL
                         OR current_profile.health_status = 1)))
           AND (
-              a.group_baseline_state &lt;&gt; 2
+              group_sync.baseline_state &lt;&gt; 2
               OR binding.was_in_initial_baseline IS NULL
               OR binding.was_in_initial_baseline = 0
           )
@@ -1234,7 +1237,7 @@
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
-               a.group_baseline_state AS groupBaselineState,
+               group_sync.baseline_state AS groupBaselineState,
                NULL AS baselineGroupJidsJson,
                s.account_state AS accountState,
                s.login_state AS loginState,
@@ -1243,6 +1246,7 @@
                COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
         LEFT JOIN account_state s ON s.account_id = a.id
+        LEFT JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
         LEFT JOIN (
             SELECT binding.account_id,
                    COUNT(*) AS groupCount
@@ -1259,7 +1263,7 @@
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,
                a.protocol_account_id AS protocolAccountId,
-               a.group_baseline_state AS groupBaselineState,
+               group_sync.baseline_state AS groupBaselineState,
                NULL AS baselineGroupJidsJson,
                s.account_state AS accountState,
                s.login_state AS loginState,
@@ -1268,6 +1272,7 @@
                COALESCE(gm.groupCount, 0) AS groupCount
         FROM account a
         LEFT JOIN account_state s ON s.account_id = a.id
+        LEFT JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
         LEFT JOIN (
             SELECT binding.account_id,
                    COUNT(*) AS groupCount

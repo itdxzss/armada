@@ -5,7 +5,6 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupFolderMapper;
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
@@ -77,7 +76,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /** group_link.remark 列长度。 */
     private static final int REMARK_MAX_LENGTH = 255;
 
-    /** group_link_preview.avatar_url 列长度。 */
+    /** 当前群头像 URL 的业务长度上限。 */
     private static final int AVATAR_URL_MAX_LENGTH = 512;
 
     /** 群组列表状态筛选白名单。空值表示不筛选状态。 */
@@ -92,7 +91,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupListCurrentMapper groupListCurrentMapper;
     private final GroupFolderMapper folderMapper;
     private final GroupLinkPreviewMapper previewMapper;
-    private final GroupLinkHealthMapper healthMapper;
     private final GroupLinkLabelMapper labelMapper;
     private final GroupConverter converter;
     private final AccountMapper accountMapper;
@@ -105,7 +103,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupListCurrentMapper groupListCurrentMapper,
                                 GroupFolderMapper folderMapper,
                                 GroupLinkPreviewMapper previewMapper,
-                                GroupLinkHealthMapper healthMapper,
                                 GroupLinkLabelMapper labelMapper,
                                 GroupConverter converter,
                                 AccountMapper accountMapper,
@@ -117,7 +114,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.groupListCurrentMapper = groupListCurrentMapper;
         this.folderMapper = folderMapper;
         this.previewMapper = previewMapper;
-        this.healthMapper = healthMapper;
         this.labelMapper = labelMapper;
         this.converter = converter;
         this.accountMapper = accountMapper;
@@ -180,8 +176,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:只改 Armada 本地展示资料。群名称/备注落到 {@code group_link},头像落到
-     * {@code group_link_preview.avatar_url};这里不调用协议层修改 WhatsApp 真实群资料。</p>
+     * <p>实现要点:只改 Armada 本地展示资料。群名称、备注和头像写入当前模型；
+     * 这里不调用协议层修改 WhatsApp 真实群资料。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -215,9 +211,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         int updated = groupLinkMapper.updateProfile(id, groupName, remark, now);
         if (updated == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
-        }
-        if (dto.avatarUrl() != null) {
-            previewMapper.upsertAvatarUrl(id, avatarUrl, now);
         }
         currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
                 id,
@@ -275,8 +268,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * 修改 WhatsApp 真实群头像。
      *
-     * <p>请求支持 URL 或 base64 二选一。URL 形态可作为列表头像展示镜像写入
-     * {@code group_link_preview.avatar_url};base64 没有可复用的公开 URL,因此只调用协议层,不落本地头像。</p>
+     * <p>请求支持 URL 或 base64 二选一。URL 形态可作为列表头像展示镜像写入当前模型；
+     * base64 没有可复用的公开 URL,因此只调用协议层,不落本地头像。</p>
      */
     @Override
     public void updatePicture(Long id, GroupPictureCommandDTO dto) {
@@ -290,7 +283,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         groupProfilePort.updatePicture(target.account(), target.groupJid(), picture.url(), picture.base64());
         if (picture.url() != null) {
             long now = System.currentTimeMillis();
-            previewMapper.upsertAvatarUrl(id, picture.url(), now);
             currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
                     id, null, false, null, false, picture.url(), true, now));
         }
@@ -628,7 +620,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * 持久化一次成功的实时预览。
      *
-     * <p>预览仍写旧镜像保证兼容，同时由统一持久化入口写入当前群资料和健康事实。
+     * <p>旧预览表只保留创建者手机号兼容字段；群资料、邀请码和健康事实写入当前模型。
      * 预览成功即可认为链接当前可用,因此失败原因和连续失败次数都会被清空。</p>
      */
     private void persistSuccessfulPreview(
@@ -638,22 +630,29 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             long previewAt) {
         long now = System.currentTimeMillis();
 
-        // 旧预览镜像仍需双写；列表和详情读取已使用当前群事实表。
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(link.getId());
-        row.setGroupJid(preview.groupJid());
-        row.setInviteCode(preview.inviteCode());
-        row.setWaSubject(preview.subject());
-        row.setMemberSize(preview.memberCount());
         row.setOwnerPhone(owner.ownerPhone());
         row.setOwnerPhoneObserved(owner.kind() != OwnerIdentityKind.UNKNOWN);
-        row.setAnnounceOnly(preview.announce());
+        row.setCreatorCountryObserved(false);
         row.setLastPreviewAt(previewAt);
+        row.setMetadataObservedAt(previewAt);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
-        previewMapper.upsert(row);
+        if (Boolean.TRUE.equals(row.getOwnerPhoneObserved())) {
+            previewMapper.upsertCreatorCompatibility(List.of(row));
+        }
 
-        // 健康表用于状态筛选;预览成功后收敛到 AVAILABLE,避免旧失败状态继续展示。
+        if (preview.inviteCode() == null || preview.inviteCode().isBlank()) {
+            currentInvitePersistence.bindGroup(link.getId(), preview.groupJid(), previewAt);
+        } else {
+            currentInvitePersistence.apply(
+                    link.getId(), preview.groupJid(), preview.inviteCode(), previewAt);
+        }
+        currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
+                link.getId(), preview.subject(), preview.subject() != null,
+                null, false, null, false, now));
+
         GroupLinkHealth health = new GroupLinkHealth();
         health.setGroupLinkId(link.getId());
         health.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
@@ -664,7 +663,6 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         health.setHealthFailureCount(0);
         health.setCreatedAt(now);
         health.setUpdatedAt(now);
-        healthMapper.upsert(health);
         currentInvitePersistence.applyHealth(preview.groupJid(), health);
     }
 

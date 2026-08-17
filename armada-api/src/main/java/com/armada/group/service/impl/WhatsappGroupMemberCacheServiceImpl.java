@@ -3,17 +3,13 @@ package com.armada.group.service.impl;
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
-import com.armada.group.model.dto.WhatsappGroupMemberCacheHeaderWrite;
-import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
-import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheRow;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheSnapshotVO;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
-import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -27,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberCacheService {
 
     private static final int QUERY_BATCH_SIZE = 500;
-    private static final int WRITE_BATCH_SIZE = 200;
 
     private final WhatsappGroupMemberCacheMapper mapper;
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
@@ -87,26 +82,14 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         }
         String normalizedGroupJid = canonicalGroupJid(groupJid);
         String snapshotVersion = UUID.randomUUID().toString();
-        long now = System.currentTimeMillis();
-        mapper.upsertHeader(new WhatsappGroupMemberCacheHeaderWrite(
-                tenantId, normalizedGroupJid, metadata.subject(), metadata.announce(), snapshotAt,
-                snapshotVersion, observerAccountId), now);
-        String winningVersion = mapper.selectSnapshotVersionForUpdate(tenantId, normalizedGroupJid);
-        if (!snapshotVersion.equals(winningVersion)) {
-            return findByGroupJids(tenantId, List.of(normalizedGroupJid)).get(normalizedGroupJid);
-        }
-        List<WhatsappGroupMemberStateWrite> states = metadata.participants().stream()
-                .map(participant -> snapshotState(
-                        tenantId, observerAccountId, normalizedGroupJid,
-                        snapshotVersion, snapshotAt, participant))
-                .sorted(Comparator.comparing(WhatsappGroupMemberStateWrite::participantJid))
-                .toList();
-        upsertInBatches(states);
-        mapper.markSnapshotMissing(
-                tenantId, normalizedGroupJid, snapshotVersion, snapshotAt,
-                "snapshot:" + snapshotVersion + ":absent", observerAccountId, now);
-        currentSnapshotPersistence.replaceCompleteParticipantSnapshot(
-                normalizedGroupJid, metadata.participants(), snapshotAt, snapshotVersion);
+        GroupLinkPreview profile = new GroupLinkPreview();
+        profile.setGroupJid(normalizedGroupJid);
+        profile.setWaSubject(metadata.subject());
+        profile.setAnnounceOnly(metadata.announce());
+        profile.setMetadataObservedAt(snapshotAt);
+        profile.setUpdatedAt(snapshotAt);
+        currentSnapshotPersistence.replaceCompleteGroupMetadataSnapshot(
+                profile, metadata.participants(), snapshotAt, snapshotVersion);
         return findByGroupJids(tenantId, List.of(normalizedGroupJid)).get(normalizedGroupJid);
     }
 
@@ -116,16 +99,7 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         if (facts == null || facts.isEmpty()) {
             return;
         }
-        List<WhatsappGroupMemberStateWrite> states = facts.stream()
-                .map(fact -> new WhatsappGroupMemberStateWrite(
-                        fact.tenantId(), canonicalGroupJid(fact.groupJid()),
-                        canonicalParticipantJid(fact.participantJid(), fact.phone()),
-                        normalizedPhone(fact.phone()), false, false, "member", true,
-                        WhatsappGroupMemberStateSource.ADD_EVENT.name(), fact.eventAt(),
-                        fact.sourceEventId(), null, fact.observerAccountId()))
-                .sorted(stateComparator())
-                .toList();
-        upsertInBatches(states);
+        currentSnapshotPersistence.applyParticipantJoins(facts);
     }
 
     @Override
@@ -134,60 +108,7 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         if (facts == null || facts.isEmpty()) {
             return;
         }
-        List<WhatsappGroupMemberStateWrite> states = facts.stream()
-                .map(fact -> new WhatsappGroupMemberStateWrite(
-                        fact.tenantId(), canonicalGroupJid(fact.groupJid()),
-                        canonicalParticipantJid(fact.participantJid(), fact.phone()),
-                        normalizedPhone(fact.phone()), null, null, null, false,
-                        departureSource(fact.sourceType(), fact.exitType()).name(), fact.eventAt(),
-                        fact.sourceEventId(), null, null))
-                .sorted(stateComparator())
-                .toList();
-        upsertInBatches(states);
-    }
-
-    private void upsertInBatches(List<WhatsappGroupMemberStateWrite> states) {
-        long now = System.currentTimeMillis();
-        for (int start = 0; start < states.size(); start += WRITE_BATCH_SIZE) {
-            mapper.upsertStates(states.subList(
-                    start, Math.min(start + WRITE_BATCH_SIZE, states.size())), now);
-        }
-    }
-
-    private static WhatsappGroupMemberStateWrite snapshotState(
-            Long tenantId,
-            Long observerAccountId,
-            String groupJid,
-            String snapshotVersion,
-            long snapshotAt,
-            GroupParticipantResult participant) {
-        String phone = normalizedPhone(participant.phone());
-        String participantJid = canonicalParticipantJid(participant.jid(), phone);
-        return new WhatsappGroupMemberStateWrite(
-                tenantId, groupJid, participantJid, phone,
-                participant.admin(), participant.owner(), participant.role(), true,
-                WhatsappGroupMemberStateSource.FULL_SNAPSHOT.name(), snapshotAt,
-                "snapshot:" + snapshotVersion + ":" + participantJid,
-                snapshotVersion, observerAccountId);
-    }
-
-    private static Comparator<WhatsappGroupMemberStateWrite> stateComparator() {
-        return Comparator.comparing(WhatsappGroupMemberStateWrite::groupJid)
-                .thenComparing(WhatsappGroupMemberStateWrite::participantJid);
-    }
-
-    private static WhatsappGroupMemberStateSource departureSource(String sourceType, String exitType) {
-        if ("WGP2_NOTIFICATION".equalsIgnoreCase(sourceType)
-                && "REMOVED".equalsIgnoreCase(exitType)) {
-            return WhatsappGroupMemberStateSource.UNKNOWN_EXIT_EVENT;
-        }
-        if ("REMOVED".equalsIgnoreCase(exitType)) {
-            return WhatsappGroupMemberStateSource.REMOVE_EVENT;
-        }
-        if ("LEFT".equalsIgnoreCase(exitType)) {
-            return WhatsappGroupMemberStateSource.LEAVE_EVENT;
-        }
-        return WhatsappGroupMemberStateSource.UNKNOWN_EXIT_EVENT;
+        currentSnapshotPersistence.applyParticipantDepartures(facts);
     }
 
     private static List<String> normalizeGroupJids(List<String> groupJids) {
@@ -208,36 +129,6 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
         }
         String normalized = groupJid.trim().toLowerCase(Locale.ROOT);
         return normalized.contains("@") ? normalized : normalized + "@g.us";
-    }
-
-    private static String canonicalParticipantJid(String participantJid, String phone) {
-        String jid = participantJid == null
-                ? null : participantJid.trim().toLowerCase(Locale.ROOT);
-        if (jid != null && !jid.isBlank()) {
-            int at = jid.indexOf('@');
-            int device = jid.indexOf(':');
-            if (device >= 0 && at > device) {
-                jid = jid.substring(0, device) + jid.substring(at);
-            }
-            if (jid.endsWith("@lid") || jid.endsWith("@s.whatsapp.net")) {
-                return jid;
-            }
-        }
-        if (phone != null) {
-            return phone + "@s.whatsapp.net";
-        }
-        if (jid == null || jid.isBlank()) {
-            throw new IllegalArgumentException("群成员JID不能为空");
-        }
-        return jid;
-    }
-
-    private static String normalizedPhone(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String digits = value.replaceAll("[^0-9]", "");
-        return digits.isEmpty() ? null : digits;
     }
 
     private static final class SnapshotBuilder {

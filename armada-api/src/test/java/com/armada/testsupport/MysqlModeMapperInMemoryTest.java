@@ -19,7 +19,6 @@ import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
-import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLink;
@@ -402,36 +401,6 @@ public class MysqlModeMapperInMemoryTest {
     }
 
     @Test
-    void groupListFiltersByFolderAndProjectsFolderName() throws SQLException {
-        executeSql(
-                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
-                        + "VALUES (101, 7, '印度组', 100, 100)",
-                "INSERT INTO group_link "
-                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
-                        + "VALUES (201, 7, 'chat.whatsapp.com/Assigned', 101, 1, 1, 100, 100)",
-                "INSERT INTO group_link "
-                        + "(id, tenant_id, link_url, folder_id, origin, membership_state, created_at, updated_at) "
-                        + "VALUES (202, 7, 'chat.whatsapp.com/Unassigned', NULL, 1, 1, 100, 100)");
-
-        GroupLinkQuery assigned = new GroupLinkQuery();
-        assigned.setFolderId(101L);
-        assertThat(groupLinkMapper.countByLabel(assigned)).isEqualTo(1L);
-        assertThat(groupLinkMapper.selectPageByLabel(assigned))
-                .singleElement()
-                .satisfies(row -> {
-                    assertThat(row.getFolderId()).isEqualTo(101L);
-                    assertThat(row.getFolderName()).isEqualTo("印度组");
-                });
-
-        GroupLinkQuery unassigned = new GroupLinkQuery();
-        unassigned.setWithoutFolder(true);
-        assertThat(groupLinkMapper.countByLabel(unassigned)).isEqualTo(1L);
-        assertThat(groupLinkMapper.selectPageByLabel(unassigned))
-                .singleElement()
-                .satisfies(row -> assertThat(row.getFolderId()).isNull());
-    }
-
-    @Test
     void groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups() throws SQLException {
         executeSql(
                 "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
@@ -774,153 +743,6 @@ public class MysqlModeMapperInMemoryTest {
             start.countDown();
             executor.shutdownNow();
         }
-    }
-
-    @Test
-    void groupSnapshotExistingReadsAndUpdatesExecuteWithTenantBoundary() throws SQLException {
-        insertGroupSnapshotFixtures();
-
-        transactionTemplate.executeWithoutResult(status -> {
-            assertThat(membershipMapper.selectExistingPreviewGroupLinkIds(List.of(21L, 22L)))
-                    .containsExactly(21L);
-            assertThat(healthMapper.selectExistingGroupLinkIds(List.of(21L, 22L)))
-                    .containsExactly(21L);
-            assertThat(membershipMapper.selectExistingActiveGroupJids(
-                    501L, List.of("current@g.us", "other@g.us")))
-                    .containsExactly("current@g.us");
-
-            assertThat(membershipMapper.updatePreviewFromAccountSync(previewUpdate())).isEqualTo(1);
-            assertThat(healthMapper.updateFromAccountGroupSync(healthUpdate())).isEqualTo(1);
-            assertThat(membershipMapper.updateActiveMembership(membershipUpdate())).isEqualTo(1);
-        });
-
-        assertThat(queryOne("SELECT wa_subject, member_size, updated_at "
-                + "FROM group_link_preview WHERE tenant_id = 7 AND group_link_id = 21"))
-                .containsEntry("wa_subject", "新群名")
-                .containsEntry("member_size", 128)
-                .containsEntry("updated_at", 2_000L);
-        assertThat(queryOne("SELECT current_count, updated_at "
-                + "FROM group_link_health WHERE tenant_id = 7 AND group_link_id = 21"))
-                .containsEntry("current_count", 128)
-                .containsEntry("updated_at", 2_000L);
-        assertThat(queryOne("SELECT membership_status, status_source, status_updated_at, updated_at "
-                + "FROM account_group_membership WHERE tenant_id = 7 AND account_id = 501"))
-                .containsEntry("membership_status", 1)
-                .containsEntry("status_source", "GROUP_SNAPSHOT")
-                .containsEntry("status_updated_at", 2_000L)
-                .containsEntry("updated_at", 2_000L);
-        assertThat(queryOne("SELECT wa_subject, updated_at "
-                + "FROM group_link_preview WHERE tenant_id = 8 AND group_link_id = 22"))
-                .containsEntry("wa_subject", "其他租户旧群名")
-                .containsEntry("updated_at", 1L);
-    }
-
-    @Test
-    void accountGroupSyncPreservesExistingBanAcrossUpdateAndUpsert() throws SQLException {
-        insertGroupSnapshotFixtures();
-        executeSql("""
-                UPDATE group_link_health
-                SET health_status = 3,
-                    is_banned = TRUE,
-                    last_health_error = 'CHAT_SUSPENDED',
-                    health_failure_count = 4
-                WHERE tenant_id = 7 AND group_link_id = 21
-                """);
-
-        transactionTemplate.executeWithoutResult(status -> {
-            assertThat(healthMapper.updateFromAccountGroupSync(healthUpdate())).isEqualTo(1);
-            GroupLinkHealth upsert = healthUpdate();
-            upsert.setCurrentCount(129);
-            upsert.setLastCheckAt(3_000L);
-            upsert.setUpdatedAt(3_000L);
-            assertThat(healthMapper.upsertFromAccountGroupSync(upsert)).isGreaterThan(0);
-        });
-
-        assertThat(queryOne("SELECT health_status, is_banned, current_count, last_check_at, "
-                + "last_health_error, health_failure_count, updated_at "
-                + "FROM group_link_health WHERE tenant_id = 7 AND group_link_id = 21"))
-                .containsEntry("health_status", 3)
-                .containsEntry("is_banned", true)
-                .containsEntry("current_count", 129)
-                .containsEntry("last_check_at", 3_000L)
-                .containsEntry("last_health_error", "CHAT_SUSPENDED")
-                .containsEntry("health_failure_count", 4)
-                .containsEntry("updated_at", 3_000L);
-    }
-
-    @Test
-    void groupSnapshotUpdateAppliesOwnerPhoneObservationThreeState() throws SQLException {
-        insertGroupSnapshotFixtures();
-
-        GroupLinkPreview unknown = previewUpdate();
-        unknown.setOwnerPhone(null);
-        unknown.setOwnerPhoneObserved(false);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.updatePreviewFromAccountSync(unknown));
-        assertOwnerPhone("8613800000000");
-
-        GroupLinkPreview lid = previewUpdate();
-        lid.setOwnerPhone(null);
-        lid.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.updatePreviewFromAccountSync(lid));
-        assertOwnerPhone(null);
-
-        GroupLinkPreview pn = previewUpdate();
-        pn.setOwnerPhone("51943333070");
-        pn.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.updatePreviewFromAccountSync(pn));
-        assertOwnerPhone("51943333070");
-    }
-
-    @Test
-    void groupSnapshotUpsertAppliesOwnerPhoneObservationThreeState() throws SQLException {
-        insertGroupSnapshotFixtures();
-
-        GroupLinkPreview unknown = previewUpdate();
-        unknown.setOwnerPhone(null);
-        unknown.setOwnerPhoneObserved(false);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.upsertPreviewFromAccountSync(unknown));
-        assertOwnerPhone("8613800000000");
-
-        GroupLinkPreview lid = previewUpdate();
-        lid.setOwnerPhone(null);
-        lid.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.upsertPreviewFromAccountSync(lid));
-        assertOwnerPhone(null);
-
-        GroupLinkPreview pn = previewUpdate();
-        pn.setOwnerPhone("51943333070");
-        pn.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(
-                status -> membershipMapper.upsertPreviewFromAccountSync(pn));
-        assertOwnerPhone("51943333070");
-    }
-
-    @Test
-    void groupPreviewUpsertAppliesOwnerPhoneObservationThreeState() throws SQLException {
-        insertGroupSnapshotFixtures();
-
-        GroupLinkPreview unknown = previewUpdate();
-        unknown.setOwnerPhone(null);
-        unknown.setOwnerPhoneObserved(false);
-        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(unknown));
-        assertOwnerPhone("8613800000000");
-
-        GroupLinkPreview lid = previewUpdate();
-        lid.setOwnerPhone(null);
-        lid.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(lid));
-        assertOwnerPhone(null);
-
-        GroupLinkPreview pn = previewUpdate();
-        pn.setOwnerPhone("51943333070");
-        pn.setOwnerPhoneObserved(true);
-        transactionTemplate.executeWithoutResult(status -> previewMapper.upsert(pn));
-        assertOwnerPhone("51943333070");
     }
 
     @Test

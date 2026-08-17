@@ -3,13 +3,11 @@ package com.armada.group.service.impl;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
-import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -24,7 +22,6 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     private static final String SNAPSHOT_STATUS_SOURCE = "GROUP_SNAPSHOT";
 
     private final GroupLinkPreviewMapper previewMapper;
-    private final WhatsappGroupMemberSnapshotMapper memberMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final AccountGroupMembershipMapper membershipMapper;
     private final GroupInviteLinkService inviteLinkService;
@@ -35,7 +32,6 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
      * 创建快照持久化实现。
      *
      * @param previewMapper 群预览数据访问
-     * @param memberMapper 群成员快照数据访问
      * @param groupLinkMapper 群入口数据访问
      * @param membershipMapper 账号群关系数据访问
      * @param inviteLinkService 当前群邀请链接事实服务
@@ -43,14 +39,12 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
      */
     public GroupMetadataSnapshotPersistenceImpl(
             GroupLinkPreviewMapper previewMapper,
-            WhatsappGroupMemberSnapshotMapper memberMapper,
             GroupLinkMapper groupLinkMapper,
             AccountGroupMembershipMapper membershipMapper,
             GroupInviteLinkService inviteLinkService,
             AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
             GroupCurrentLocalPersistence currentLocalPersistence) {
         this.previewMapper = previewMapper;
-        this.memberMapper = memberMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
         this.inviteLinkService = inviteLinkService;
@@ -61,8 +55,9 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     @Override
     @Transactional
     public boolean persist(GroupLinkPreview preview, List<WhatsappGroupMemberSnapshot> members) {
-        if (previewMapper.upsertMetadataSnapshot(preview) <= 0) {
-            return false;
+        if (Boolean.TRUE.equals(preview.getOwnerPhoneObserved())
+                || Boolean.TRUE.equals(preview.getCreatorCountryObserved())) {
+            previewMapper.upsertCreatorCompatibility(List.of(preview));
         }
         applyCurrentInvite(preview);
         String subject = preview.getWaSubject();
@@ -77,10 +72,6 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
             currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
                     preview.getGroupLinkId(), subject, subjectObserved,
                     null, false, avatarUrl, avatarObserved, preview.getUpdatedAt()));
-        }
-        memberMapper.deleteByGroupLinkId(preview.getGroupLinkId());
-        if (members != null && !members.isEmpty()) {
-            memberMapper.insertBatch(members);
         }
         writeCurrentGroupSnapshot(preview, members);
         reconcileControlledMemberships(preview);
@@ -113,19 +104,10 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         long observedAt = preview.getMetadataObservedAt() == null
                 ? preview.getUpdatedAt()
                 : preview.getMetadataObservedAt();
-        long writtenAt = preview.getUpdatedAt() == null ? observedAt : preview.getUpdatedAt();
         String eventId = "metadata:" + preview.getGroupLinkId() + ":" + observedAt;
         for (AccountGroupMembership membership
                 : membershipMapper.selectControlledMembershipsByGroupLinkId(
                         preview.getGroupLinkId())) {
-            membership.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
-            membership.setStatusSource(SNAPSHOT_STATUS_SOURCE);
-            membership.setStatusUpdatedAt(observedAt);
-            membership.setJoinedAt(observedAt);
-            membership.setLastSeenAt(observedAt);
-            membership.setCreatedAt(writtenAt);
-            membership.setUpdatedAt(writtenAt);
-            membershipMapper.upsertMembership(membership);
             currentSnapshotPersistence.applyControlledParticipantObservation(
                     membership.getAccountId(), membership.getGroupJid(), true,
                     Boolean.TRUE.equals(membership.getAdmin()), observedAt,

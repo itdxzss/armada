@@ -5,7 +5,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
@@ -26,9 +25,6 @@ class GroupLinkRegistryServiceImplUnitTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
-    private AccountGroupMembershipMapper membershipMapper;
-
-    @Mock
     private GroupLinkPreviewMapper previewMapper;
 
     @Mock
@@ -38,16 +34,16 @@ class GroupLinkRegistryServiceImplUnitTest {
     void registerAccountObservedGroupRevivesArchivedGroupLinkMatchedByJid() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, membershipMapper, previewMapper,
+                        groupLinkMapper, previewMapper,
                         currentSnapshotPersistence);
-        when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363001@g.us"))
+        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363001@g.us"))
                 .thenReturn(88L);
 
         Long result = service.registerAccountObservedGroup(
                 "120363001@g.us", "测试群", ProtocolBackend.ANDROID, 1000L);
 
         assertThat(result).isEqualTo(88L);
-        verify(membershipMapper).touchGroupLinkFromAccountSync(88L, "测试群", 2, 1000L);
+        verify(groupLinkMapper).touchAccountObservedGroup(88L, "测试群", 2, 1000L);
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
     }
 
@@ -55,9 +51,9 @@ class GroupLinkRegistryServiceImplUnitTest {
     void registerAccountObservedGroupAtomicallyCreatesOrReusesDerivedLink() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, membershipMapper, previewMapper,
+                        groupLinkMapper, previewMapper,
                         currentSnapshotPersistence);
-        when(membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted("120363002@g.us"))
+        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363002@g.us"))
                 .thenReturn(null);
         org.mockito.Mockito.doReturn(1).when(groupLinkMapper).upsertAccountObservedGroup(
                 org.mockito.ArgumentMatchers.any(GroupLink.class),
@@ -81,7 +77,7 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(rowCaptor.getValue().getSyncProtocolMask()).isEqualTo(2);
         verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us");
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
-        verify(membershipMapper, never()).touchGroupLinkFromAccountSync(
+        verify(groupLinkMapper, never()).touchAccountObservedGroup(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt(),
@@ -91,7 +87,7 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Test
     void knownMarketingMembershipIsWrittenToCurrentModel() {
         GroupLinkRegistryServiceImpl service = new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, membershipMapper, previewMapper,
+                groupLinkMapper, previewMapper,
                 currentSnapshotPersistence);
 
         service.registerKnownMembership(

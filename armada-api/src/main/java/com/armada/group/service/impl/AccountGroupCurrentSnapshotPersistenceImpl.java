@@ -23,9 +23,6 @@ import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -50,10 +47,6 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private static final Logger log = LoggerFactory.getLogger(
             AccountGroupCurrentSnapshotPersistenceImpl.class);
 
-    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {
-    };
-    private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
-    };
     private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
@@ -62,13 +55,9 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private static final int PRESENCE_IN_GROUP = 1;
     private static final String SNAPSHOT_SOURCE = "GROUP_SNAPSHOT";
     private final AccountGroupCurrentSnapshotMapper mapper;
-    private final ObjectMapper objectMapper;
 
-    public AccountGroupCurrentSnapshotPersistenceImpl(
-            AccountGroupCurrentSnapshotMapper mapper,
-            ObjectMapper objectMapper) {
+    public AccountGroupCurrentSnapshotPersistenceImpl(AccountGroupCurrentSnapshotMapper mapper) {
         this.mapper = mapper;
-        this.objectMapper = objectMapper;
     }
 
     /**
@@ -116,6 +105,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         Map<String, AccountGroupsReportedEvent.Group> visible = normalizedGroups(groups);
         List<String> visibleJids = List.copyOf(visible.keySet());
         BaselineEvidence baseline = baselineEvidence(context);
+        boolean capturingBaseline = baseline.state() == AccountGroupBaselineStateCode.PENDING;
         List<Existing> existingRows = mapper.selectExisting(
                 accountId, self.ownerJid(), visibleJids);
         Map<String, Existing> existingByJid = existingRows.stream()
@@ -138,8 +128,9 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visible.entrySet()) {
             Existing existing = existingByJid.get(entry.getKey());
             boolean acceptedPresence = snapshotWins(existing, syncAt);
-            Classification classification = classification(
-                    entry.getKey(), baseline, acceptedPresence, syncAt);
+            Classification classification = snapshotClassification(
+                    entry.getKey(), blankToNull(entry.getValue().subject()), existing,
+                    baseline, capturingBaseline, acceptedPresence, syncAt);
             AccountGroupsReportedEvent.Group group = entry.getValue();
             String subject = clamp(blankToNull(group.subject()), SUBJECT_MAX_LENGTH);
             Long activeSince = acceptedPresence
@@ -227,7 +218,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.upsertBindings(tenantId, accountId, rows);
         }
 
-        mapper.upsertSyncState(syncState(context, baseline, snapshotComplete, syncAt, now));
+        mapper.upsertSyncState(syncState(
+                context, baseline, capturingBaseline, visible.size(), snapshotComplete, syncAt, now));
 
         List<AccountGroupMembershipSnapshot> currentGroups = legacyGroups == null
                 ? List.of()
@@ -242,7 +234,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     /**
-     * 双写账号自身的精确进群、离群或不在群事实。
+     * 写入账号自身的精确进群、离群或不在群事实。
      *
      * <p>调用方已经完成租户、账号协议句柄和动作校验。本方法只更新新模型，不产生营销等业务副作用。</p>
      */
@@ -285,7 +277,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         boolean accepted = presenceWins(existing, occurredAt, normalizedSource);
         BaselineEvidence baseline = baselineEvidenceForPreciseEvent(context);
         Classification classification = inGroup
-                ? classification(normalizedGroupJid, baseline, accepted, occurredAt)
+                ? preciseEventClassification(existing, baseline, accepted, occurredAt)
                 : Classification.unknown();
         Long activeSince = accepted && inGroup
                 && (existing == null || existing.presenceStatus() == null
@@ -339,7 +331,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     /**
-     * 双写受控账号的成员当前状态和角色观察，不把角色或查询时间解释成进群时间。
+     * 写入受控账号的成员当前状态和角色观察，不把角色或查询时间解释成进群时间。
      */
     @Transactional(rollbackFor = Exception.class)
     public void applyControlledParticipantObservation(
@@ -414,7 +406,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         mapper.upsertSelfBinding(tenantId, accountId, row);
     }
 
-    /** 双写现有普通成员进群事实，不创建账号群关系。 */
+    /** 写入普通成员进群事实，不创建账号群关系。 */
     @Transactional(rollbackFor = Exception.class)
     public void applyParticipantJoins(List<WhatsappGroupJoinFact> facts) {
         if (facts == null || facts.isEmpty()) {
@@ -456,7 +448,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         persistParticipantFacts(tenantId, rows);
     }
 
-    /** 双写现有普通成员退群事实，不创建账号群关系。 */
+    /** 写入普通成员退群事实，不创建账号群关系。 */
     @Transactional(rollbackFor = Exception.class)
     public void applyParticipantDepartures(List<WhatsappGroupDepartureFact> facts) {
         if (facts == null || facts.isEmpty()) {
@@ -671,8 +663,6 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     0,
                     null,
                     null,
-                    Set.of(),
-                    Map.of(),
                     false);
         }
     }
@@ -680,15 +670,17 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private SyncStateWrite syncState(
             Context context,
             BaselineEvidence baseline,
+            boolean capturingBaseline,
+            int visibleGroupCount,
             boolean snapshotComplete,
             long syncAt,
             long now) {
         return new SyncStateWrite(
                 context.accountId(),
-                baseline.state(),
-                baseline.completeness(),
-                baseline.capturedAt(),
-                baseline.groupCount(),
+                capturingBaseline ? AccountGroupBaselineStateCode.CAPTURED : baseline.state(),
+                capturingBaseline ? 1 : baseline.completeness(),
+                capturingBaseline ? syncAt : baseline.capturedAt(),
+                capturingBaseline ? visibleGroupCount : baseline.groupCount(),
                 context.lastSyncRequestedAt(),
                 syncAt,
                 snapshotComplete,
@@ -704,19 +696,14 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             default -> AccountGroupBaselineStateCode.PENDING;
         };
         if (state != AccountGroupBaselineStateCode.CAPTURED) {
-            return new BaselineEvidence(state, 0, null, null, Set.of(), Map.of(), false);
+            return new BaselineEvidence(state, 0, null, null, false);
         }
         if (context.baselineCapturedAt() == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "已拍 baseline 缺少 capturedAt");
         }
-        ParsedBaseline parsed = parseBaseline(context);
-        boolean previouslyProven = context.targetBaselineCompleteness() != null
-                && context.targetBaselineCompleteness() == 1;
-        int completeness = previouslyProven || (parsed.valid() && !parsed.groupJids().isEmpty())
-                ? 1 : 2;
-        Integer groupCount = completeness == 1
-                ? parsed.valid() ? parsed.groupJids().size() : context.baselineGroupCount()
-                : context.baselineGroupCount();
+        int completeness = context.baselineCompleteness() == null
+                ? 0 : context.baselineCompleteness();
+        Integer groupCount = context.baselineGroupCount();
         if (completeness == 1 && groupCount == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "完整 baseline 缺少群数量");
         }
@@ -725,59 +712,47 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 completeness,
                 context.baselineCapturedAt(),
                 groupCount,
-                parsed.groupJids(),
-                parsed.subjects(),
-                parsed.valid() && completeness == 1);
+                completeness == 1);
     }
 
-    private ParsedBaseline parseBaseline(Context context) {
-        if (context.baselineGroupJidsJson() == null) {
-            return new ParsedBaseline(Set.of(), Map.of(), false);
-        }
-        try {
-            List<String> rawJids = objectMapper.readValue(
-                    context.baselineGroupJidsJson(), STRING_LIST);
-            Set<String> groupJids = new LinkedHashSet<>();
-            for (String rawJid : rawJids) {
-                String groupJid = normalizeJid(rawJid);
-                if (groupJid != null) {
-                    groupJids.add(groupJid);
-                }
-            }
-            Map<String, String> subjects = new LinkedHashMap<>();
-            if (context.baselineGroupSubjectsJson() != null) {
-                Map<String, String> rawSubjects = objectMapper.readValue(
-                        context.baselineGroupSubjectsJson(), STRING_MAP);
-                rawSubjects.forEach((rawJid, rawSubject) -> {
-                    String groupJid = normalizeJid(rawJid);
-                    String subject = clamp(blankToNull(rawSubject), SUBJECT_MAX_LENGTH);
-                    if (groupJid != null && subject != null) {
-                        subjects.putIfAbsent(groupJid, subject);
-                    }
-                });
-            }
-            return new ParsedBaseline(Set.copyOf(groupJids), Map.copyOf(subjects), true);
-        } catch (JsonProcessingException | RuntimeException exception) {
-            log.warn("账号 baseline JSON 无法安全映射到新群模型 accountId={}", context.accountId());
-            return new ParsedBaseline(Set.of(), Map.of(), false);
-        }
-    }
-
-    private static Classification classification(
+    private static Classification snapshotClassification(
             String groupJid,
+            String subject,
+            Existing existing,
             BaselineEvidence baseline,
+            boolean capturingBaseline,
             boolean acceptedPresence,
             long syncAt) {
-        if (!acceptedPresence || !baseline.classifiable()) {
+        if (!acceptedPresence) {
             return Classification.unknown();
         }
-        if (baseline.groupJids().contains(groupJid)) {
-            return new Classification(1, baseline.subjects().get(groupJid), null);
+        if (capturingBaseline) {
+            return new Classification(1, clamp(subject, SUBJECT_MAX_LENGTH), null);
         }
-        if (baseline.capturedAt() != null && syncAt > baseline.capturedAt()) {
+        if (existing != null && existing.bindingId() != null) {
+            return Classification.unknown();
+        }
+        if (baseline.classifiable()
+                && baseline.capturedAt() != null
+                && syncAt > baseline.capturedAt()) {
             return new Classification(0, null, syncAt);
         }
         return Classification.unknown();
+    }
+
+    private static Classification preciseEventClassification(
+            Existing existing,
+            BaselineEvidence baseline,
+            boolean acceptedPresence,
+            long occurredAt) {
+        if (!acceptedPresence
+                || existing != null && existing.bindingId() != null
+                || !baseline.classifiable()
+                || baseline.capturedAt() == null
+                || occurredAt <= baseline.capturedAt()) {
+            return Classification.unknown();
+        }
+        return new Classification(0, null, occurredAt);
     }
 
     private static boolean snapshotWins(Existing existing, long syncAt) {
@@ -1041,19 +1016,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     private record ParticipantIdentity(String pnJid, String lidJid) {
     }
 
-    private record ParsedBaseline(
-            Set<String> groupJids,
-            Map<String, String> subjects,
-            boolean valid) {
-    }
-
     private record BaselineEvidence(
             int state,
             int completeness,
             Long capturedAt,
             Integer groupCount,
-            Set<String> groupJids,
-            Map<String, String> subjects,
             boolean classifiable) {
     }
 

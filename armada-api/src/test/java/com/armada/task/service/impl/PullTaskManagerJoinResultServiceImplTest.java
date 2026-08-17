@@ -226,6 +226,28 @@ class PullTaskManagerJoinResultServiceImplTest {
     }
 
     @Test
+    void managerExecutionCasFailureThrowsSoFactsCannotOutrunTheExecutionRow() {
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(manager());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        // 调度器正持有执行行租约时 lock_owner 不为空，CAS 必然落空。
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(0);
+
+        PullTaskManagerJoinCallback callback = new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L);
+
+        assertThatThrownBy(() -> service.apply(callback))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("管理员踩链接执行行");
+        verify(inviteLinkService, never()).bindGroupJid(anyLong(), any(), anyLong());
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
     void pullerLinkJoinWritesFactsAndWakesPullerInviteStage() {
         PullTaskAccountAction action = action();
         action.setActorGroupAccountId(502L);

@@ -6,16 +6,14 @@
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
     SELECT a.id AS accountId,
            a.ws_phone AS wsPhone,
-           a.group_baseline_state AS baselineState,
-           b.baseline_group_jids AS baselineGroupJidsJson,
-           b.baseline_group_subjects AS baselineGroupSubjectsJson,
-           b.group_count AS baselineGroupCount,
-           b.captured_at AS baselineCapturedAt,
-           s.last_sync_requested_at AS lastSyncRequestedAt,
-           s.baseline_completeness AS targetBaselineCompleteness
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           s.baseline_state AS baselineState,
+           s.baseline_completeness AS baselineCompleteness,
+           s.baseline_group_count AS baselineGroupCount,
+           s.baseline_captured_at AS baselineCapturedAt,
+           s.last_sync_requested_at AS lastSyncRequestedAt
     FROM account a
-    LEFT JOIN account_group_baseline b
-      ON b.account_id = a.id
     LEFT JOIN account_group_sync_state s
       ON s.account_id = a.id
     WHERE a.id = #{accountId}
@@ -36,6 +34,8 @@
            p.presence_source AS presenceSource,
            p.presence_observed_at AS presenceObservedAt,
            b.id AS bindingId,
+           b.was_in_initial_baseline AS wasInInitialBaseline,
+           b.first_post_control_observed_at AS firstPostControlObservedAt,
            g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
@@ -69,6 +69,8 @@
            p.presence_source AS presenceSource,
            p.presence_observed_at AS presenceObservedAt,
            b.id AS bindingId,
+           b.was_in_initial_baseline AS wasInInitialBaseline,
+           b.first_post_control_observed_at AS firstPostControlObservedAt,
            g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
@@ -131,14 +133,12 @@
 
   <update id="updateLegacyGroupReferences">
     UPDATE group_link handle
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = handle.tenant_id
-     AND preview.group_link_id = handle.id
     INNER JOIN wa_group current_group
       ON current_group.tenant_id = handle.tenant_id
-     AND current_group.group_jid =
-       CAST(LOWER(TRIM(preview.group_jid)) AS CHAR CHARACTER SET ascii)
-         COLLATE ascii_bin
+     AND (
+       current_group.id = handle.group_id
+       OR handle.link_url = CONCAT('wa://group/', current_group.group_jid)
+     )
     SET handle.group_id = current_group.id
     WHERE handle.tenant_id = #{tenantId}
       AND current_group.group_jid IN

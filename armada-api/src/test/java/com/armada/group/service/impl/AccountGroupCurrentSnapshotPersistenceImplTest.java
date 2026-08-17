@@ -15,7 +15,6 @@ import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.shared.tenant.TenantContext;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,7 +40,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
-        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper, new ObjectMapper());
+        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper);
         when(mapper.selectGroupIds(TENANT_ID, List.of(GROUP_JID)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
     }
@@ -103,18 +102,19 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
 
     private static Existing existing(int presenceStatus, String source, long observedAt) {
         return new Existing(
-                GROUP_JID, 100L, 200L, presenceStatus, source, observedAt, 300L, null);
+                GROUP_JID, 100L, 200L, presenceStatus, source, observedAt,
+                300L, 0, null, null);
     }
 
     private void stubSnapshotContext() {
         when(mapper.selectContext(ACCOUNT_ID)).thenReturn(new Context(
                 ACCOUNT_ID,
                 "923300000010",
+                "WEB",
+                "acc-10",
                 AccountGroupBaselineStateCode.DISABLED,
-                null,
-                null,
-                null,
-                null,
+                0,
+                0,
                 null,
                 null));
     }

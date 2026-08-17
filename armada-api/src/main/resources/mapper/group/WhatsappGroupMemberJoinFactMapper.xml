@@ -1,60 +1,25 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.WhatsappGroupMemberJoinFactMapper">
 
-    <sql id="incomingJoinIsNewer">
-        (incoming.event_at &gt; whatsapp_group_member_join_fact.event_at
-         OR (incoming.event_at = whatsapp_group_member_join_fact.event_at
-             AND CAST(incoming.source_event_id AS BINARY)
-                 &gt; CAST(whatsapp_group_member_join_fact.source_event_id AS BINARY)))
-    </sql>
+  <select id="selectByGroupJids"
+          resultType="com.armada.group.model.vo.WhatsappGroupJoinFactVO">
+    SELECT current_group.group_jid AS groupJid,
+           COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+           participant.phone,
+           participant.last_joined_at AS joinedAt
+    FROM wa_group current_group
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = current_group.tenant_id
+     AND participant.group_id = current_group.id
+     AND participant.last_joined_at IS NOT NULL
+    WHERE current_group.tenant_id = #{tenantId}
+      AND current_group.group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+    ORDER BY current_group.group_jid ASC, participant.last_joined_at ASC,
+             COALESCE(participant.pn_jid, participant.lid_jid) ASC
+  </select>
 
-    <insert id="upsertLatest">
-        INSERT INTO whatsapp_group_member_join_fact
-            (tenant_id, group_jid, participant_jid, phone, joined_at, event_at,
-             source_event_id, observer_account_id, created_at, updated_at)
-        VALUES
-            (#{fact.tenantId}, #{fact.groupJid}, #{fact.participantJid}, #{fact.phone},
-             #{fact.joinedAt}, #{fact.eventAt}, #{fact.sourceEventId},
-             #{fact.observerAccountId}, #{now}, #{now})
-        AS incoming
-        ON DUPLICATE KEY UPDATE
-            updated_at = IF(<include refid="incomingJoinIsNewer"/>
-                    OR (NULLIF(TRIM(whatsapp_group_member_join_fact.phone), '') IS NULL
-                        AND NULLIF(TRIM(incoming.phone), '') IS NOT NULL),
-                incoming.updated_at, whatsapp_group_member_join_fact.updated_at),
-            joined_at = IF(<include refid="incomingJoinIsNewer"/>,
-                incoming.joined_at, whatsapp_group_member_join_fact.joined_at),
-            observer_account_id = IF(<include refid="incomingJoinIsNewer"/>,
-                incoming.observer_account_id, whatsapp_group_member_join_fact.observer_account_id),
-            phone = IF(<include refid="incomingJoinIsNewer"/>,
-                COALESCE(NULLIF(TRIM(incoming.phone), ''), whatsapp_group_member_join_fact.phone),
-                COALESCE(NULLIF(TRIM(whatsapp_group_member_join_fact.phone), ''),
-                         NULLIF(TRIM(incoming.phone), ''))),
-            source_event_id = IF(<include refid="incomingJoinIsNewer"/>,
-                incoming.source_event_id, whatsapp_group_member_join_fact.source_event_id),
-            event_at = IF(<include refid="incomingJoinIsNewer"/>,
-                incoming.event_at, whatsapp_group_member_join_fact.event_at)
-    </insert>
-
-    <select id="selectByGroupJids"
-            resultType="com.armada.group.model.vo.WhatsappGroupJoinFactVO">
-        SELECT current_group.group_jid AS groupJid,
-               COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
-               participant.phone,
-               participant.last_joined_at AS joinedAt
-        FROM wa_group current_group
-        INNER JOIN wa_group_participant participant
-          ON participant.tenant_id = current_group.tenant_id
-         AND participant.group_id = current_group.id
-         AND participant.last_joined_at IS NOT NULL
-        WHERE current_group.tenant_id = #{tenantId}
-          AND current_group.group_jid IN
-        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
-            #{groupJid}
-        </foreach>
-        ORDER BY current_group.group_jid ASC, participant.last_joined_at ASC,
-                 COALESCE(participant.pn_jid, participant.lid_jid) ASC
-    </select>
 </mapper>

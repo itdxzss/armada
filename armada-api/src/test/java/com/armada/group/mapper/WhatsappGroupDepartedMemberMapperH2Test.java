@@ -42,22 +42,6 @@ class WhatsappGroupDepartedMemberMapperH2Test {
     @BeforeEach
     void setUp() throws SQLException {
         executeSql("DROP ALL OBJECTS", """
-                CREATE TABLE whatsapp_group_departed_member (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL,
-                    group_jid VARCHAR(128) NOT NULL,
-                    participant_jid VARCHAR(191) NOT NULL,
-                    phone VARCHAR(32),
-                    exited_at BIGINT NOT NULL,
-                    exit_type VARCHAR(16) NOT NULL,
-                    event_at BIGINT NOT NULL,
-                    source_event_id VARCHAR(255) NOT NULL,
-                    source_type VARCHAR(32) NOT NULL,
-                    created_at BIGINT NOT NULL,
-                    updated_at BIGINT NOT NULL,
-                    CONSTRAINT uq_departed UNIQUE (tenant_id, group_jid, participant_jid)
-                )
-                """, """
                 CREATE TABLE wa_group (
                     id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                     group_jid VARCHAR(128) NOT NULL
@@ -99,7 +83,7 @@ class WhatsappGroupDepartedMemberMapperH2Test {
     }
 
     @Test
-    void twoPhaseSqlKeepsOnlyNewestProtocolFactWithoutAssignmentOrderDrift() throws IOException {
+    void mapperOnlyReadsCurrentParticipantExitFacts() throws IOException {
         String xml;
         try (var input = getClass().getResourceAsStream(
                 "/mapper/group/WhatsappGroupDepartedMemberMapper.xml")) {
@@ -107,22 +91,13 @@ class WhatsappGroupDepartedMemberMapperH2Test {
         }
 
         assertThat(xml)
-                .contains("ON DUPLICATE KEY UPDATE")
-                .contains("AS incoming")
-                .contains("#{fact.eventAt} &gt; whatsapp_group_departed_member.event_at")
-                .contains("WHEN #{fact.exitType} = 'LEFT' THEN 1")
-                .contains("WHEN #{fact.sourceType} = 'HISTORY_SYNC'")
-                .contains("AND #{fact.exitType} = 'REMOVED' THEN 1")
-                .contains("WHEN whatsapp_group_departed_member.exit_type = 'LEFT' THEN 1")
-                .contains("WHEN whatsapp_group_departed_member.source_type = 'HISTORY_SYNC'")
-                .contains("WHEN 'WGP2_NOTIFICATION' THEN 2")
-                .contains("CAST(#{fact.sourceEventId} AS BINARY)")
-                .contains("CAST(whatsapp_group_departed_member.source_event_id AS BINARY)")
-                .contains("phone = COALESCE(")
-                .contains("<update id=\"updateIfNewer\">")
-                .contains("AND participant_jid = #{fact.participantJid}")
-                .doesNotContain("VALUES(event_at)")
-                .contains("WHERE current_group.tenant_id = #{tenantId}");
+                .contains("FROM wa_group current_group")
+                .contains("JOIN wa_group_participant participant")
+                .contains("participant.last_exited_at IS NOT NULL")
+                .contains("WHERE current_group.tenant_id = #{tenantId}")
+                .doesNotContain("whatsapp_group_departed_member")
+                .doesNotContain("<insert")
+                .doesNotContain("<update");
     }
 
     private void executeSql(String... statements) throws SQLException {

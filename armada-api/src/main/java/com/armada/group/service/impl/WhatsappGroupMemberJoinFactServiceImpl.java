@@ -30,11 +30,6 @@ public class WhatsappGroupMemberJoinFactServiceImpl implements WhatsappGroupMemb
         if (facts == null || facts.isEmpty()) {
             return;
         }
-        long now = System.currentTimeMillis();
-        facts.stream()
-                .sorted(Comparator.comparing(WhatsappGroupJoinFact::groupJid)
-                        .thenComparing(WhatsappGroupJoinFact::participantJid))
-                .forEach(fact -> mapper.upsertLatest(fact, now));
         currentPersistence.applyParticipantJoins(facts);
     }
 

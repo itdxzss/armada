@@ -1,114 +1,28 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
-        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.WhatsappGroupDepartedMemberMapper">
 
-    <sql id="parameterDepartureEvidencePriority">
-        CASE
-            WHEN #{fact.exitType} = 'LEFT' THEN 1
-            WHEN #{fact.sourceType} = 'HISTORY_SYNC'
-                 AND #{fact.exitType} = 'REMOVED' THEN 1
-            ELSE 0
-        END
-    </sql>
+  <select id="selectByGroupJids"
+          resultType="com.armada.group.model.vo.WhatsappGroupDepartedMemberVO">
+    SELECT current_group.group_jid AS groupJid,
+           COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+           participant.phone,
+           participant.last_exited_at AS exitedAt,
+           participant.last_exit_type AS exitType,
+           participant.last_exit_source_type AS sourceType
+    FROM wa_group current_group
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = current_group.tenant_id
+     AND participant.group_id = current_group.id
+     AND participant.last_exited_at IS NOT NULL
+     AND participant.last_exit_source_type IS NOT NULL
+    WHERE current_group.tenant_id = #{tenantId}
+      AND current_group.group_jid IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      #{groupJid}
+    </foreach>
+    ORDER BY current_group.group_jid ASC, participant.last_exited_at ASC,
+             COALESCE(participant.pn_jid, participant.lid_jid) ASC
+  </select>
 
-    <sql id="storedDepartureEvidencePriority">
-        CASE
-            WHEN whatsapp_group_departed_member.exit_type = 'LEFT' THEN 1
-            WHEN whatsapp_group_departed_member.source_type = 'HISTORY_SYNC'
-                 AND whatsapp_group_departed_member.exit_type = 'REMOVED' THEN 1
-            ELSE 0
-        END
-    </sql>
-
-    <sql id="parameterDepartureIsNewer">
-        (#{fact.eventAt} &gt; whatsapp_group_departed_member.event_at
-         OR (#{fact.eventAt} = whatsapp_group_departed_member.event_at
-             AND <include refid="parameterDepartureEvidencePriority"/>
-                 &gt; <include refid="storedDepartureEvidencePriority"/>)
-         OR (#{fact.eventAt} = whatsapp_group_departed_member.event_at
-             AND <include refid="parameterDepartureEvidencePriority"/>
-                 = <include refid="storedDepartureEvidencePriority"/>
-             AND CASE #{fact.sourceType}
-                     WHEN 'WGP2_NOTIFICATION' THEN 2
-                     WHEN 'HISTORY_SYNC' THEN 1
-                     ELSE 0
-                 END
-                 &gt; CASE whatsapp_group_departed_member.source_type
-                         WHEN 'WGP2_NOTIFICATION' THEN 2
-                         WHEN 'HISTORY_SYNC' THEN 1
-                         ELSE 0
-                     END)
-         OR (#{fact.eventAt} = whatsapp_group_departed_member.event_at
-             AND <include refid="parameterDepartureEvidencePriority"/>
-                 = <include refid="storedDepartureEvidencePriority"/>
-             AND CASE #{fact.sourceType}
-                     WHEN 'WGP2_NOTIFICATION' THEN 2
-                     WHEN 'HISTORY_SYNC' THEN 1
-                     ELSE 0
-                 END
-                 = CASE whatsapp_group_departed_member.source_type
-                       WHEN 'WGP2_NOTIFICATION' THEN 2
-                       WHEN 'HISTORY_SYNC' THEN 1
-                       ELSE 0
-                   END
-             AND CAST(#{fact.sourceEventId} AS BINARY)
-                 &gt; CAST(whatsapp_group_departed_member.source_event_id AS BINARY)))
-    </sql>
-
-    <insert id="upsertIdentity">
-        INSERT INTO whatsapp_group_departed_member
-            (tenant_id, group_jid, participant_jid, phone, exited_at, exit_type,
-             event_at, source_event_id, source_type, created_at, updated_at)
-        VALUES
-            (#{fact.tenantId}, #{fact.groupJid}, #{fact.participantJid}, #{fact.phone},
-             #{fact.exitedAt}, #{fact.exitType}, #{fact.eventAt}, #{fact.sourceEventId},
-             #{fact.sourceType}, #{now}, #{now})
-        AS incoming
-        ON DUPLICATE KEY UPDATE
-            updated_at = IF(
-                NULLIF(TRIM(whatsapp_group_departed_member.phone), '') IS NULL
-                AND NULLIF(TRIM(incoming.phone), '') IS NOT NULL,
-                incoming.updated_at, whatsapp_group_departed_member.updated_at),
-            phone = COALESCE(
-                NULLIF(TRIM(whatsapp_group_departed_member.phone), ''),
-                NULLIF(TRIM(incoming.phone), ''))
-    </insert>
-
-    <update id="updateIfNewer">
-        UPDATE whatsapp_group_departed_member
-        SET exited_at = #{fact.exitedAt},
-            exit_type = #{fact.exitType},
-            source_event_id = #{fact.sourceEventId},
-            source_type = #{fact.sourceType},
-            event_at = #{fact.eventAt},
-            updated_at = #{now}
-        WHERE tenant_id = #{fact.tenantId}
-          AND group_jid = #{fact.groupJid}
-          AND participant_jid = #{fact.participantJid}
-          AND <include refid="parameterDepartureIsNewer"/>
-    </update>
-
-    <select id="selectByGroupJids"
-            resultType="com.armada.group.model.vo.WhatsappGroupDepartedMemberVO">
-        SELECT current_group.group_jid AS groupJid,
-               COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
-               participant.phone,
-               participant.last_exited_at AS exitedAt,
-               participant.last_exit_type AS exitType,
-               participant.last_exit_source_type AS sourceType
-        FROM wa_group current_group
-        INNER JOIN wa_group_participant participant
-         ON participant.tenant_id = current_group.tenant_id
-         AND participant.group_id = current_group.id
-         AND participant.last_exited_at IS NOT NULL
-         AND participant.last_exit_source_type IS NOT NULL
-        WHERE current_group.tenant_id = #{tenantId}
-          AND current_group.group_jid IN
-        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
-            #{groupJid}
-        </foreach>
-        ORDER BY current_group.group_jid ASC, participant.last_exited_at ASC,
-                 COALESCE(participant.pn_jid, participant.lid_jid) ASC
-    </select>
 </mapper>

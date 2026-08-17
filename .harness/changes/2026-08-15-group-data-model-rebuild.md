@@ -4,7 +4,7 @@
 - 分支：`armada` 与 `wheel-saas-pure-web` 已从各自 `1.0.3-snapshot` 创建并推送 `1.0.3-group`，均已跟踪各自 `origin/1.0.3-group`
 - 需求来源：以六张权威表重建群组当前事实模型，完整排查群组依赖；仅删除已指定的列表展开详情，不改变主列表、业务逻辑或协议合同
 - 设计文档：`docs/superpowers/specs/2026-08-15-group-data-model-rebuild-design.md`
-- 状态：V120～V124、人工回填、增量补齐、baseline/first-post 硬门禁、test1 全部筛选/排序/分页对账、群列表及相关业务读取切换均已进入 `1.0.3-group` 并部署 test1，未部署生产。2026-08-17 本地完成剩余成员详情/导出、账号列表群数及新增群资格切读；没有新增模型或表，旧表暂时只保留双写和回滚证据。本轮代码未提交、未部署；正常服务发布前必须先用同一新构建物人工重跑 `LEGACY_MEMBER_SNAPSHOTS`，再做 test1 功能和运行观察
+- 状态：V120～V124、人工回填、增量补齐、baseline/first-post 硬门禁、test1 全部筛选/排序/分页对账、群列表及相关业务读取切换均已进入 `1.0.3-group` 并部署 test1，未部署生产。2026-08-17 剩余成员详情/导出、账号列表群数及新增群资格切读已随提交 `a3b28b9c` 推送并部署 test1；同版本构建物的 `LEGACY_MEMBER_SNAPSHOTS` 已补跑完成并通过数据对账。本地未提交代码已停止八张旧事实表的在线读写，保留 `group_link` 的旧数值 ID/87 条未解析邀请兼容，以及 `group_link_preview` 的创建者手机号、国家、洲兼容；没有删除旧表。test1 十张旧表/兼容表备份和隔离恢复演练已通过，待部署本轮代码后完成运行时零访问观察门禁
 
 ## 目标
 
@@ -65,9 +65,16 @@
 - [x] 用户已评审六表字段和迁移/切换方案
 - [x] test1 写入、部署和列表切读均已取得用户确认
 - [x] 账号列表群数改读 `wa_account_group_binding + self participant`，继续保持旧 `membership_status IN (1,2)` 的可发送口径
-- [x] 账号群完整快照的新增群资格改由新成员/关系当前事实决定；旧快照仍双写，但不再决定即时营销
+- [x] 账号群完整快照的新增群资格改由新成员/关系当前事实决定；迁移期旧快照曾保留双写，本轮退役代码已停止该写入
 - [x] 群详情成员、营销导出成员当前态及最近进退群事实改读六表；详情仍按 profile 快照版本读取最后一次完整快照，已确认踢人/角色动作继续即时反映
 - [x] 复用现有 `LEGACY_MEMBER_SNAPSHOTS` 人工阶段补迁旧详情快照头和成员版本；未增加表、字段、定时器或新阶段
+- [x] 停止八张旧事实表的在线读取和双写；保留旧表实体及人工回填 Mapper，不执行 `DROP`、`TRUNCATE` 或数据删除
+- [x] 保留 `group_link` 作为现有 `groupLinkId`、alias 和 87 条未解析邀请的兼容句柄，不改变 API ID
+- [x] 将 `group_link_preview` 在线兼容写收窄到创建者手机号、国家和洲；其他群资料、邀请、成员、健康事实只写六张新表
+- [x] 新增在线 Mapper 静态门禁，禁止八张旧事实表重新进入运行时 SQL，并限制 preview 兼容字段范围
+- [x] 完成 test1 十张旧表/兼容表备份、校验和核验及隔离 MySQL 全量恢复演练；源/恢复逐表行数一致
+- [ ] 部署本轮未提交代码后，观察正常流量并确认八张旧事实表运行时读写为 0
+- [ ] 旧表物理删除另立阶段，必须再次确认；本轮明确不删除
 
 ## 关键设计决策
 
@@ -120,7 +127,7 @@
 
 ### 数据库
 
-当前代码新增 V120 六表建表迁移、V121 profile 健康字段和 V122 独立的健康检测人数；资料人数与健康检测人数不再共用一个字段。账号群报告、用户手动历史群刷新、账号自身进退群、普通成员进退群、完整成员和群资料快照、当前邀请码、公开邀请预览、健康回报、已确认群名/权限、本地资料、分组及删除/恢复入口已接入新表双写。人工回填入口没有定时器；只允许在一个已确认的应用实例用 `--armada.group-model-backfill.run-once=true` 启动，其中旧成员详情快照继续复用 `LEGACY_MEMBER_SNAPSHOTS` 阶段，先补 profile 快照头，再按旧表主键每 5000 行补成员版本。旧事实表在切换、观察、备份和恢复演练完成，并再次取得用户确认后才允许独立删除。
+当前代码新增 V120 六表建表迁移、V121 profile 健康字段和 V122 独立的健康检测人数；资料人数与健康检测人数不再共用一个字段。本地本轮退役代码已把账号群关系、baseline、成员快照/缓存/进退群事实、健康及群资料等在线写入口收敛到六张当前事实表，不再双写八张旧事实表。`group_link` 继续保留外部数值 ID、alias 和未解析邀请；`group_link_preview` 只兼容创建者手机号、国家、洲。人工回填入口没有定时器，只能显式使用 `--armada.group-model-backfill.run-once=true` 启动。旧表结构和现存数据完整保留；物理删除必须另立阶段并再次取得用户确认。
 
 ### API / 前端
 
@@ -186,6 +193,9 @@
 - 收口同时补齐真实 MySQL 测试建库链的 V124，并给旧成员快照回填增加目标差异过滤；重复执行同一主键区间现在返回 0，不再发出无效 upsert。真实 MySQL 8.4.8 的列表 3 条、旧入口/新表双写 24 条、账号快照 17 条、并发 5 条均通过；聚焦业务测试、`mvn -q -DskipTests package`、三个 Mapper XML 校验和 `git diff --check` 通过。
 - 本地剩余切读收口：群详情只返回 `wa_group_profile.member_snapshot_version` 对应且当前仍在群的成员；成员导出排除仅由账号群快照产生的 self participant，同时保留完整快照、成员进退群和角色观察；最近进退群改读 participant 的对应事实列。旧详情快照迁移使用 `legacy:<group_link_id>:<snapshot_at>` 确定版本，较新的完整缓存快照不会被旧详情覆盖，也不会覆盖 profile 已有的列表成员数。账号列表群数和新增群营销资格均改读新关系事实；待拍 baseline 的禁止营销规则未变。
 - 本轮 Java 17 最终定向回归 114 个测试通过，覆盖成员详情 presence、成员导出来源隔离、普通角色观察、详情已确认角色动作、账号群数、新增群资格和人工回填；`mvn -DskipTests package` 与 Mapper XML 校验通过。两个 Testcontainers 真 MySQL 新用例因本机无 Docker 未执行，不能记作通过。
+- 旧事实表退役本地验证：八张旧事实表的在线 Mapper 静态门禁、当前关系/邀请/成员 Service 定向回归共 69 个测试通过；更新后的只读 Mapper H2 用例通过；`mvn -q -DskipTests compile`、`mvn -q -DskipTests test-compile`、Mapper XML 校验和 `git diff --check` 通过。
+- 使用 OrbStack 的真实 MySQL 8.4.8 执行完整 `GroupCurrentLocalWriteMySqlTest`，共 25 个测试通过，0 失败、0 错误、0 跳过；新增回归证明创建者兼容写只能更新手机号/国家/洲，不能覆盖旧 preview 中已退役的群名、成员数、邀请或头像字段，过期观察也不能覆盖新值。
+- 全量 `mvn test` 会进入项目既有的外部数据库集成测试，并因本机不可用的数据库连接持续等待；本轮没有把该环境阻断伪报为代码通过。退役范围已由上述聚焦测试、真实 MySQL 测试和静态 Mapper 门禁覆盖。
 
 此前聚焦验证：
 
@@ -219,6 +229,27 @@
 - 当前默认 count/page 约 1.38 秒/1.23 秒；去掉无条件成员聚合的基础查询约 32 毫秒，简单 count 约 5 毫秒。
 - 当前 400 群快照约 2400～3600 条 SQL；现有 MySQL 并发测试已记录 supremum 死锁和正确锁序。
 
+## 旧表退役阶段（保留不删除）
+
+本阶段不新增表，不改变 API、列表、营销判断或协议合同，也不物理删除旧表。六张新表保存群组当前事实；兼容表只保存仍被现有合同要求的兼容信息。
+
+### 在线访问边界
+
+- 以下八张旧事实表退出在线读写：`account_group_baseline`、`account_group_membership`、`group_link_health`、`whatsapp_group_member_snapshot`、`whatsapp_group_member_cache`、`whatsapp_group_member_state`、`whatsapp_group_member_join_fact`、`whatsapp_group_departed_member`。
+- `group_link` 继续承载现有 `groupLinkId`、同群 alias 和 87 条无法解析群 JID 的邀请。它不是当前群事实主表，不能反向覆盖六张新表。
+- `group_link_preview` 只保留 `owner_phone`、`creator_country_iso2`、`creator_continent_code` 及各自观察水位的兼容读写；群名、成员数、邀请、头像、健康、权限等字段不再由在线流程写入。
+- `GroupModelBackfillMapper` 仅供显式 `--armada.group-model-backfill.run-once=true` 人工迁移读取旧表，不是正常服务在线路径。静态门禁对正常 Mapper 禁止上述八张旧事实表，并限制 preview 兼容文件和字段。
+- 本地退役代码尚未部署 test1。部署前只能确认代码和 Mapper 已收敛；必须在部署后用正常流量观察窗口完成运行时零访问门禁，不能用旧版本日志代替。
+
+### test1 备份与恢复演练
+
+- 2026-08-17 在 test1 对八张旧事实表及两张兼容表 `group_link`、`group_link_preview` 做一致性备份。备份保存在服务器 `/home/app/armada-deploy/backups/group-model-retirement-20260817-1132-cst/legacy-group-tables.sql.gz`，大小 `12,677,668` 字节，SHA-256 为 `9089f08da4c38e4aff2de9e4e01a046f0f7e20bbf62691304bc1c17521a9a75d`，`gzip -t` 通过。
+- 源库快照行数：`account_group_baseline=1,207`、`account_group_membership=64,940`、`group_link=11,743`、`group_link_health=11,650`、`group_link_preview=11,683`、`whatsapp_group_departed_member=4,532`、`whatsapp_group_member_cache=2`、`whatsapp_group_member_join_fact=11,003`、`whatsapp_group_member_snapshot=470,195`、`whatsapp_group_member_state=12,775`。
+- 备份已恢复到隔离的临时 MySQL 数据库 `armada_rollback_drill`；十张表恢复行数逐表与上述源快照完全一致。演练完成后只移除了临时 MySQL 容器，业务数据库、正常后端和旧表均未停止、覆盖或删除；备份文件及源/恢复计数文件继续保留。
+- 当前已部署镜像另存为 `armada-backend:pre-legacy-fact-retirement-20260817`，镜像 ID 与当前运行版本一致，并完成不连接业务数据库的 Java 17 启动探针。若新版本异常，先回滚到该镜像；它仍读取六张新表并恢复旧事实双写，因此无需让旧表重新成为读取主表。
+- 若要求回滚到比上述镜像更旧、仍读取旧事实的版本，必须先补偿新版本运行期间只写入六张新表的数据差额并重新对账；禁止直接回滚造成事实倒退。
+- 本阶段没有执行 `DROP TABLE`、`TRUNCATE` 或旧数据删除。任何物理删除都必须另立变更、复核备份并再次取得用户确认。
+
 ## 部署
 
 - 本轮成员详情切读有明确前置顺序：先构建新版本；在旧正常服务仍提供旧成员读取时，用同一构建物单独运行 `--armada.group-model-backfill.run-once=true --armada.group-model-backfill.start-stage=LEGACY_MEMBER_SNAPSHOTS --armada.group-model-backfill.end-stage=LEGACY_MEMBER_SNAPSHOTS`；回填和成员版本对账通过后，再用现有 `armada-deploy/deploy-test.sh --env test1 --be -y` 发布正常服务。不能先发布正常服务再补迁，否则旧详情快照尚未带版本的群会短暂显示空成员。
@@ -226,6 +257,10 @@
 - test1 人工回填已于 2026-08-15 16:15:48 完成；慢阶段改为 50000 行批次，并从 `ACCOUNT_GROUP_BINDINGS` 安全续跑，续跑结果 `batches=2`、`affectedRows=3104`。最终计数为：`wa_group=11192`、`wa_group_profile=11192`、`wa_group_invite=1455`、`wa_group_participant=74885`、`wa_account_group_binding=51707`、`account_group_sync_state=383`。
 - 回填结束后的硬门禁 `was_in_initial_baseline=1 AND first_post_control_observed_at IS NOT NULL` 为 0；runner 的完整来源/冲突门禁通过，未出现死锁或锁等待。一次性容器已移除，原正常后端已恢复且 API 验活通过。
 - V121 修复版本已再次只部署 test1 后端；未部署前端、协议层或生产。旧成员快照 50000 行事务在 test1 会压满数据库，最终改为 5000 行主键游标小事务并完成全量回填；一次性容器及临时恢复守护均已退出，正常后端已恢复。部署脚本仍因 test1 远端 Android base URL 与本地环境档案不一致而在深检阶段返回非零，本次用容器状态、API、Flyway 和关键日志完成手工核验。
+- 2026-08-17 在 `a3b28b9c` 已部署后，使用同版本构建物仅人工执行 `LEGACY_MEMBER_SNAPSHOTS`，共 95 批、影响 836,348 行；一次性容器已移除，正常后端 `running`、`RestartCount=0`。4,597 个已解析最新群中，3,946 个存在旧完整快照且新表存储成员全部精确一致；651 个群均为新表快照头较新，不是缺资料或缺快照头。按当前在群口径比较时 3,847 个精确一致、99 个群少 1,075 行，这 1,075 行全部是旧快照之后观察到的退群事实，因此不是漏迁。旧快照存储成员 414,113 行、当前可见 413,038 行，无“旧快照非空但新表无成员”群。
+- 前两次废弃的一次性启动因未完全关闭既有调度，分别触发了正常保留策略清理 218 条已发送且过期的 outbox，以及一次普通拉群执行 244 的抢占后跳过；执行 244 的锁和租约均已释放、状态未成功推进。最终 95 批回填使用关闭既有调度的干净启动参数完成。
+- 回填完成后的正常流量观察中，后端未重启，未发现群列表、回填或模型迁移错误；但 02:06～02:29 的账号上线恢复群元数据任务持续发生 7 次死锁和 6 次锁等待超时，受害 SQL 均为 `GroupMetadataSyncTaskMapper.resumeDeferredForAccount` 的 `group_metadata_sync_task` 更新及新关系表存在性判断。账号状态事件会继续完成，但该群组锁竞争尚未收口，不能记为运行稳定门禁通过。数据库应用账号无 `performance_schema` 读取权限，因此本次未伪报服务端慢 SQL 摘要通过。
+- 账号列表群数新旧只读对账覆盖租户 1 的 421 个有效账号：260 个一致、161 个不一致，且全部为旧表计数大于新模型当前事实；旧表合计 56,329、新模型合计 52,725，单账号最大差 127。为避免继续给 test1 数据库加压，差异归因查询在 10 秒上限主动取消；该项目前不能记为“业务口径不变”通过。
 
 ## 剩余门禁
 
@@ -236,10 +271,10 @@
 - 第二批本地切换已完成：健康检测候选从 `wa_group/wa_group_profile` 读取 JID、封禁和最近检测时间；本地名称/备注/头像/分组/alias 删除通过 handle 的 canonical ID 直连新表，不再连接旧 preview；账号上线恢复延期 metadata 任务改用 `wa_account_group_binding + self participant presence_status=1`，管理员优先、在线账号选择、任务状态机和重试规则不变。相关 H2、SQL 形态及 MySQL 8 聚焦回归通过，尚未提交或部署。
 - 拉群任务的群营销候选、管理员账号选择和等待池复核已改读 `wa_account_group_binding/wa_group_participant/wa_group/wa_group_profile`；历史来源只认已迁移的 `group_link.is_historical`，不再扫描 baseline JSON，也不使用 `joined_at` 推断上控后新群。创建者手机号仍保留旧 preview 兼容口径，避免当前群主变化改写既有业务含义。
 - 普通营销的固定目标校验、账号动态群、发送前当前群复核、账号树群数量和任务详情当前成员状态已改读新当前事实；旧 `joined_at` 的发送时间边界一对一映射为 `membership_active_since_at`，初始历史群通过 `was_in_initial_baseline=1` 拦截，未把 legacy 迁移关系写成 `first_post_control_observed_at`。H2 真实 Mapper SQL、租户改写、边界和退群拦截回归通过；本地真库当前不可连接，新增 MySQL 聚焦用例尚待数据库恢复后执行。本批未提交、未部署。
-- 营销轮次发送前的批量成员状态复核继续读新 binding 和 self participant，并映射为旧的五个业务状态码；账号完整快照的新增群差集也已由同一次新模型写前事实决定。旧快照写仍保留，但不再拥有营销资格判断。
+- 营销轮次发送前的批量成员状态复核继续读新 binding 和 self participant，并映射为旧的五个业务状态码；账号完整快照的新增群差集也已由同一次新模型写前事实决定。旧账号群快照事实写已在本轮退役代码中停止。
 - 群详情头和成员列表均已改读新模型。profile 的 `member_snapshot_version` 是提交头，participant 的 `last_snapshot_version` 标识最后完整快照成员；查询同时要求 `presence_status=1`，因此旧逻辑已确认的踢人会立即消失，角色事件仍在原快照成员上更新。发布前必须先补迁旧详情快照版本。
-- 账号列表 `groupsNum` 已改读 binding 对应 self participant 的当前在群状态，等价保持旧 `membership_status IN (1,2)` 可发送口径。baseline JSON 继续承担首次基线证据；创建者手机号/国家/洲继续兼容旧 preview。其余旧表命中是人工回填、旧写双写、列表 parity 或 legacy handle，尚不能直接删除。
+- 账号列表 `groupsNum` 已改读 binding 对应 self participant 的当前在群状态，等价保持旧 `membership_status IN (1,2)` 可发送口径。首次基线证据改读 `account_group_sync_state`；创建者手机号/国家/洲继续兼容旧 preview。其余旧事实表仅允许人工回填证据读取，不再进入在线读写。
 - 当前 test1 无多 alias/属性冲突，迁移期继续保留旧 `group_link` 作为外部 ID 兼容；不新增 alias 业务表，后续若门禁发现冲突则停止迁移并重新评审。
-- 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已接新表双写；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。本地 MySQL 恢复、可重复读并发和 test1 默认列表执行计划门禁已通过；本轮不新增重试框架。
+- 账号群报告、账号自身及普通成员进退群、完整成员/群资料快照、当前邀请码、公开预览、健康回报、群名/权限命令回读、本地资料、详情/metadata 列表镜像、分组及真实群 alias 级删除/恢复入口已经六张新表为唯一当前事实写入目标；未解析邀请继续由兼容 alias 保持 UI 删除语义，不滥用邀请系统退役字段。本地 MySQL 恢复、可重复读并发和 test1 默认列表执行计划门禁已通过；本轮不新增重试框架。
 - 兼容口径已明确：创建者/国家/洲严格沿用旧 preview；管理员和可用账号沿用旧业务谓词，但读取新模型的更新成员事实，不复制旧表陈旧结果。固定水位保留 1 条不可见 Unicode subject/名称已知例外，87 条未解析邀请继续走兼容路径。列表切读已部署 test1，进入观察期；尚未删除旧列表 SQL 或旧事实表。
-- 旧表 drop 必须单独发布、恢复演练并再次取得用户确认。
+- 旧表物理删除不在本阶段；必须单独发布、复核现有恢复演练并再次取得用户确认。

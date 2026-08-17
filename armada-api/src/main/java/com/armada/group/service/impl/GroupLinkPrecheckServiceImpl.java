@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
  * 基于 WhatsApp 公开邀请页的群链接导入前预检测实现。
  *
  * <p>本服务面向“用户还没正式导入”的阶段,因此只依赖 raw link 本身能访问到的公开邀请页。
- * 这里刻意不写 {@code group_link} / {@code group_link_preview} / {@code group_link_health},
+ * 这里刻意不写任何群入口、群资料或健康事实，
  * 也不调用协议层 {@code batch-preview}:协议层预览需要在线账号和已入库的 group_link id,
  * 不适合作为导入弹窗里的轻量预检测第一步。</p>
  *

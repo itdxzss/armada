@@ -149,6 +149,13 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             int advanced = executionMapper.transitionManagerJoinResult(
                     executionTransition(execution, callback, kind, reasonMessage,
                             nextRunAt));
+            // 执行行 CAS 要求 lock_owner 为空，调度器持租约时必然落空。此时事实已写而执行行没推进，
+            // 必须整体回滚交给重试，否则 action=SUCCESS/membership=IN_GROUP 会永久领先于空 group_jid。
+            if (advanced != 1
+                    && (actionWrite == WriteResult.UPDATED
+                    || membershipWrite == WriteResult.UPDATED)) {
+                throw new IllegalStateException("管理员踩链接执行行结果 CAS 失败");
+            }
             if (advanced == 1 && kind == ResultKind.SUCCESS
                     && execution.getGroupLinkId() != null) {
                 inviteLinkService.bindGroupJid(

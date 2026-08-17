@@ -88,7 +88,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         SqlSessionTemplate sqlSessionTemplate = buildSqlSessionTemplate(recordingDataSource);
         AccountGroupCurrentSnapshotMapper mapper =
                 sqlSessionTemplate.getMapper(AccountGroupCurrentSnapshotMapper.class);
-        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper, OBJECT_MAPPER);
+        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper);
         currentInvitePersistence = new GroupCurrentInvitePersistence(
                 sqlSessionTemplate.getMapper(GroupCurrentInviteMapper.class));
     }
@@ -779,7 +779,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(transaction -> {
                 currentInvitePersistence.applyPublicPreview(publicPreview, 8L);
-                currentInvitePersistence.apply(groupJid(14), "invite-health", 1_000L);
+                currentInvitePersistence.apply(921L, groupJid(14), "invite-health", 1_000L);
                 currentInvitePersistence.applyHealth(groupJid(14), unavailableHealth());
                 persistence.applyConfirmedMetadata(confirmedMemberAddMode());
             });
@@ -986,7 +986,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         TenantContext.set(TENANT_ID);
         try {
             transactionTemplate.executeWithoutResult(transaction ->
-                    currentInvitePersistence.apply(groupJid, inviteCode, observedAt));
+                    currentInvitePersistence.apply(null, groupJid, inviteCode, observedAt));
         } finally {
             TenantContext.clear();
         }

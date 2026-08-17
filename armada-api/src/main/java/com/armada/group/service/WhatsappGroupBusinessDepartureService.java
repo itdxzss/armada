@@ -61,8 +61,7 @@ public class WhatsappGroupBusinessDepartureService {
     /**
      * 在踢人协议命令经同账号 metadata 回读确认后，批量落 REMOVED 事实。
      *
-     * <p>该入口同时驱动离群事实表、营销成员缓存和新群模型普通成员 presence，确保
-     * {@code 1.0.3-group} 双写期间不会出现旧详情已删除而新成员模型仍显示在群的分叉。</p>
+     * <p>该入口同时驱动退出事实与成员当前状态，两条服务最终都只写当前成员模型。</p>
      */
     @Transactional(rollbackFor = Exception.class)
     public void recordConfirmedRemovals(

@@ -41,21 +41,6 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
     @BeforeEach
     void setUp() throws SQLException {
         executeSql("DROP ALL OBJECTS", """
-                CREATE TABLE whatsapp_group_member_join_fact (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL,
-                    group_jid VARCHAR(128) NOT NULL,
-                    participant_jid VARCHAR(191) NOT NULL,
-                    phone VARCHAR(32),
-                    joined_at BIGINT NOT NULL,
-                    event_at BIGINT NOT NULL,
-                    source_event_id VARCHAR(255) NOT NULL,
-                    observer_account_id BIGINT NOT NULL,
-                    created_at BIGINT NOT NULL,
-                    updated_at BIGINT NOT NULL,
-                    CONSTRAINT uq_join UNIQUE (tenant_id, group_jid, participant_jid)
-                )
-                """, """
                 CREATE TABLE wa_group (
                     id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                     group_jid VARCHAR(128) NOT NULL
@@ -91,7 +76,7 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
     }
 
     @Test
-    void upsertSqlKeepsOnlyNewestProtocolFact() throws IOException {
+    void mapperOnlyReadsCurrentParticipantJoinFacts() throws IOException {
         String xml;
         try (var input = getClass().getResourceAsStream(
                 "/mapper/group/WhatsappGroupMemberJoinFactMapper.xml")) {
@@ -99,17 +84,13 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
         }
 
         assertThat(xml)
-                .contains("ON DUPLICATE KEY UPDATE")
-                .contains("AS incoming")
-                .contains("incoming.event_at &gt; whatsapp_group_member_join_fact.event_at")
-                .contains("CAST(incoming.source_event_id AS BINARY)")
-                .contains("NULLIF(TRIM(whatsapp_group_member_join_fact.phone), '') IS NULL")
-                .contains("COALESCE(NULLIF(TRIM(whatsapp_group_member_join_fact.phone), ''),")
-                .contains("WHERE current_group.tenant_id = #{tenantId}");
-        assertThat(xml.indexOf("updated_at = IF"))
-                .isLessThan(xml.indexOf("phone = IF"));
-        assertThat(xml.indexOf("source_event_id = IF"))
-                .isLessThan(xml.indexOf("event_at = IF"));
+                .contains("FROM wa_group current_group")
+                .contains("JOIN wa_group_participant participant")
+                .contains("participant.last_joined_at IS NOT NULL")
+                .contains("WHERE current_group.tenant_id = #{tenantId}")
+                .doesNotContain("whatsapp_group_member_join_fact")
+                .doesNotContain("<insert")
+                .doesNotContain("<update");
     }
 
     private void executeSql(String... statements) throws SQLException {

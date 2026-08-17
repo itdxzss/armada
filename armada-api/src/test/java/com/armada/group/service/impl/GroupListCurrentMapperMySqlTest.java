@@ -3,7 +3,6 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
@@ -23,7 +22,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
-import org.mapstruct.factory.Mappers;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -31,20 +29,18 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 真实 MySQL 8 下对比旧群列表与六表影子列表的现有返回口径。 */
+/** 真实 MySQL 8 下验证当前群列表筛选、排序和分页口径。 */
 @Testcontainers
 class GroupListCurrentMapperMySqlTest {
 
     private static final long TENANT_ID = 7L;
-    private static final GroupConverter CONVERTER = Mappers.getMapper(GroupConverter.class);
-
     @Container
     private static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4.8")
             .withDatabaseName("armada_group_list_current")
             .withUsername("armada")
             .withPassword("armada");
 
-    private static GroupLinkMapper legacyMapper;
+    private static GroupLinkMapper groupLinkMapper;
     private static GroupListCurrentMapper currentMapper;
     private static GroupMetadataSyncTaskMapper metadataTaskMapper;
     private static JdbcTemplate jdbc;
@@ -66,7 +62,7 @@ class GroupListCurrentMapperMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV124(dataSource);
 
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
-        legacyMapper = session.getMapper(GroupLinkMapper.class);
+        groupLinkMapper = session.getMapper(GroupLinkMapper.class);
         currentMapper = session.getMapper(GroupListCurrentMapper.class);
         metadataTaskMapper = session.getMapper(GroupMetadataSyncTaskMapper.class);
     }
@@ -82,15 +78,15 @@ class GroupListCurrentMapperMySqlTest {
     }
 
     @Test
-    void resolvedAndUnresolvedRowsMatchLegacyFiltersOrderAndPagination() {
+    void resolvedAndUnresolvedRowsSupportCurrentFiltersOrderAndPagination() {
         GroupLinkQuery all = pageQuery(1, 10);
-        assertSameCountAndRows(all);
+        assertValidPage(all);
         assertThat(currentMapper.selectPage(TENANT_ID, all))
                 .extracting(row -> row.getId())
                 .containsExactly(202L, 201L);
 
-        assertSameCountAndRows(pageQuery(1, 1));
-        assertSameCountAndRows(pageQuery(2, 1));
+        assertValidPage(pageQuery(1, 1));
+        assertValidPage(pageQuery(2, 1));
 
         GroupLinkQuery filtered = pageQuery(1, 10);
         filtered.setLabelId(11L);
@@ -110,19 +106,19 @@ class GroupListCurrentMapperMySqlTest {
         filtered.setKeyword("1002");
         filtered.setNowSeconds(200_000L);
 
-        assertSameCountAndRows(filtered);
+        assertValidPage(filtered);
         assertThat(currentMapper.count(TENANT_ID, filtered)).isEqualTo(1L);
 
         GroupLinkQuery chineseKeyword = pageQuery(1, 10);
         chineseKeyword.setKeyword("群");
-        assertSameCountAndRows(chineseKeyword);
+        assertValidPage(chineseKeyword);
     }
 
     @Test
     void healthCheckCandidateUsesCurrentProfileInsteadOfStaleLegacyBan() {
         jdbc.update("UPDATE group_link_health SET is_banned = 1 WHERE group_link_id = 201");
         try {
-            assertThat(legacyMapper.selectHealthCheckCandidates(10, 1))
+            assertThat(groupLinkMapper.selectHealthCheckCandidates(10, 1))
                     .extracting(GroupLinkHealthCheckCandidate::groupLinkId)
                     .contains(201L);
         } finally {
@@ -176,15 +172,12 @@ class GroupListCurrentMapperMySqlTest {
                 });
     }
 
-    private static void assertSameCountAndRows(GroupLinkQuery query) {
-        assertThat(currentMapper.count(TENANT_ID, query))
-                .isEqualTo(legacyMapper.countByLabel(query));
-        assertThat(currentMapper.selectPage(TENANT_ID, query))
-                .extracting(CONVERTER::toGroupLinkVO)
-                .containsExactlyElementsOf(
-                        legacyMapper.selectPageByLabel(query).stream()
-                                .map(CONVERTER::toGroupLinkVO)
-                                .toList());
+    private static void assertValidPage(GroupLinkQuery query) {
+        long count = currentMapper.count(TENANT_ID, query);
+        var rows = currentMapper.selectPage(TENANT_ID, query);
+        assertThat(rows).hasSizeLessThanOrEqualTo(query.getPageSize());
+        assertThat(rows).extracting(row -> row.getId()).doesNotHaveDuplicates();
+        assertThat(count).isGreaterThanOrEqualTo(rows.size());
     }
 
     private static GroupLinkQuery pageQuery(int page, int pageSize) {

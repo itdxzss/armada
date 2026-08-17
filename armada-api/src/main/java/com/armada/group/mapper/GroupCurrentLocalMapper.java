@@ -6,7 +6,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
-/** 旧群入口本地字段向新群模型双写的数据访问。 */
+/** 将兼容群入口上的本地操作写入当前群模型。 */
 @Mapper
 @InterceptorIgnore(tenantLine = "true")
 public interface GroupCurrentLocalMapper {

@@ -2,296 +2,71 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkPreviewMapper">
 
-  <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+  <!--
+    旧预览表退役期间只兼容创建者手机号、国家和洲。owner 与地区各自沿用原观察时间，
+    禁止把群名称、成员数、邀请、头像、设置等当前事实重新双写回旧表。
+  -->
+  <insert id="upsertCreatorCompatibility">
     INSERT INTO group_link_preview (
-      group_link_id, group_jid, invite_code, wa_subject, member_size, owner_phone,
-      announce_only, group_created_at, avatar_url, last_preview_at, created_at, updated_at
-    ) VALUES (
-      #{groupLinkId}, #{groupJid}, #{inviteCode}, #{waSubject}, #{memberSize}, #{ownerPhone},
-      #{announceOnly}, #{groupCreatedAt}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
-    )
+      group_link_id, owner_phone, creator_country_iso2, creator_continent_code,
+      last_preview_at, metadata_observed_at, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupLinkId}, #{row.ownerPhone}, #{row.creatorCountryIso2},
+        #{row.creatorContinentCode},
+        COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0),
+        CASE WHEN #{row.creatorCountryObserved} = TRUE
+          THEN COALESCE(#{row.metadataObservedAt}, 0) ELSE NULL END,
+        #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
     ON DUPLICATE KEY UPDATE
-      group_jid = VALUES(group_jid),
-      invite_code = CASE
-        WHEN invite_code_observed_at IS NULL
-          THEN COALESCE(NULLIF(TRIM(VALUES(invite_code)), ''), invite_code)
-        ELSE invite_code
-      END,
-      wa_subject = VALUES(wa_subject),
-      member_size = VALUES(member_size),
-      owner_phone = CASE
-        WHEN #{ownerPhoneObserved} = TRUE
-          THEN NULLIF(TRIM(VALUES(owner_phone)), '')
+      owner_phone = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.ownerPhoneObserved} = TRUE
+              AND VALUES(last_preview_at) &gt;= COALESCE(last_preview_at, 0)
+              THEN NULLIF(TRIM(VALUES(owner_phone)), '')
+            ELSE owner_phone
+          END
+        </foreach>
         ELSE owner_phone
       END,
-      announce_only = VALUES(announce_only),
-      group_created_at = COALESCE(VALUES(group_created_at), group_created_at),
-      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
-      last_preview_at = VALUES(last_preview_at),
-      updated_at = VALUES(updated_at)
-  </insert>
-
-  <insert id="upsertMetadataSnapshot" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link_preview (
-      group_link_id, group_jid, wa_subject, wa_description, member_size,
-      owner_phone, announce_only, admin_only_edit_info, member_add_mode, member_link_mode,
-      join_approval_mode,
-      ephemeral_duration_seconds, group_created_at, creator_country_iso2,
-      creator_continent_code, avatar_url, last_preview_at, metadata_observed_at,
-      created_at, updated_at
-    ) VALUES (
-      #{groupLinkId}, #{groupJid}, #{waSubject}, #{waDescription}, #{memberSize},
-      #{ownerPhone}, #{announceOnly}, #{adminOnlyEditInfo}, #{memberAddMode}, #{memberLinkMode},
-      #{joinApprovalMode},
-      #{ephemeralDurationSeconds}, #{groupCreatedAt}, #{creatorCountryIso2},
-      #{creatorContinentCode}, #{avatarUrl}, #{lastPreviewAt}, #{metadataObservedAt},
-      #{createdAt}, #{updatedAt}
-    )
-    ON DUPLICATE KEY UPDATE
-      group_jid = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid)
-        ELSE group_jid
-      END,
-      wa_subject = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject)
-        ELSE wa_subject
-      END,
-      wa_description = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{waDescriptionObserved} = TRUE
-          THEN VALUES(wa_description)
-        ELSE wa_description
-      END,
-      member_size = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN COALESCE(VALUES(member_size), member_size)
-        ELSE member_size
-      END,
-      owner_phone = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{ownerPhoneObserved} = TRUE
-          THEN NULLIF(TRIM(VALUES(owner_phone)), '')
-        ELSE owner_phone
-      END,
-      announce_only = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{announceOnlyObserved} = TRUE
-          THEN VALUES(announce_only)
-        ELSE announce_only
-      END,
-      admin_only_edit_info = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{adminOnlyEditInfoObserved} = TRUE
-          THEN VALUES(admin_only_edit_info)
-        ELSE admin_only_edit_info
-      END,
-      member_add_mode = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{memberAddModeObserved} = TRUE
-          THEN VALUES(member_add_mode)
-        ELSE member_add_mode
-      END,
-      member_link_mode = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{memberLinkModeObserved} = TRUE
-          THEN VALUES(member_link_mode)
-        ELSE member_link_mode
-      END,
-      join_approval_mode = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{joinApprovalModeObserved} = TRUE
-          THEN VALUES(join_approval_mode)
-        ELSE join_approval_mode
-      END,
-      ephemeral_duration_seconds = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{ephemeralDurationObserved} = TRUE
-          THEN VALUES(ephemeral_duration_seconds)
-        ELSE ephemeral_duration_seconds
-      END,
-      group_created_at = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{groupCreatedAt} &gt; 0
-          THEN VALUES(group_created_at)
-        ELSE group_created_at
-      END,
-      creator_country_iso2 = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{creatorCountryObserved} = TRUE
-          THEN VALUES(creator_country_iso2)
+      creator_country_iso2 = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.creatorCountryObserved} = TRUE
+              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+              THEN VALUES(creator_country_iso2)
+            ELSE creator_country_iso2
+          END
+        </foreach>
         ELSE creator_country_iso2
       END,
-      creator_continent_code = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          AND #{creatorCountryObserved} = TRUE
-          THEN VALUES(creator_continent_code)
+      creator_continent_code = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.creatorCountryObserved} = TRUE
+              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+              THEN VALUES(creator_continent_code)
+            ELSE creator_continent_code
+          END
+        </foreach>
         ELSE creator_continent_code
       END,
-      avatar_url = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url)
-        ELSE avatar_url
+      last_preview_at = GREATEST(COALESCE(last_preview_at, 0), VALUES(last_preview_at)),
+      metadata_observed_at = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.creatorCountryObserved} = TRUE
+              THEN GREATEST(COALESCE(metadata_observed_at, 0), VALUES(metadata_observed_at))
+            ELSE metadata_observed_at
+          END
+        </foreach>
+        ELSE metadata_observed_at
       END,
-      last_preview_at = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN VALUES(last_preview_at)
-        ELSE last_preview_at
-      END,
-      updated_at = CASE
-        WHEN #{metadataObservedAt} &gt;= COALESCE(metadata_observed_at, 0)
-          THEN VALUES(updated_at)
-        ELSE updated_at
-      END,
-      metadata_observed_at = GREATEST(
-        COALESCE(metadata_observed_at, 0),
-        #{metadataObservedAt}
-      )
-  </insert>
-
-  <insert id="upsertInvitePageMetadata">
-    INSERT INTO group_link_preview (
-      group_link_id, invite_code, wa_subject, avatar_url, last_preview_at, created_at, updated_at
-    ) VALUES (
-      #{groupLinkId}, #{inviteCode}, #{waSubject}, #{avatarUrl}, #{lastPreviewAt}, #{createdAt}, #{updatedAt}
-    )
-    ON DUPLICATE KEY UPDATE
-      invite_code = CASE
-        WHEN invite_code_observed_at IS NULL
-          THEN COALESCE(NULLIF(TRIM(VALUES(invite_code)), ''), invite_code)
-        ELSE invite_code
-      END,
-      wa_subject = COALESCE(NULLIF(TRIM(VALUES(wa_subject)), ''), wa_subject),
-      avatar_url = COALESCE(NULLIF(TRIM(VALUES(avatar_url)), ''), avatar_url),
-      last_preview_at = CASE
-        WHEN NULLIF(TRIM(VALUES(wa_subject)), '') IS NOT NULL
-          OR NULLIF(TRIM(VALUES(avatar_url)), '') IS NOT NULL
-        THEN VALUES(last_preview_at)
-        ELSE last_preview_at
-      END,
-      updated_at = VALUES(updated_at)
-  </insert>
-
-  <insert id="upsertInviteLinkChange">
-    INSERT INTO group_link_preview (
-      group_link_id, group_jid, invite_code, invite_code_observed_at,
-      created_at, updated_at
-    ) VALUES (
-      #{groupLinkId}, #{groupJid}, #{inviteCode}, #{inviteCodeObservedAt},
-      #{createdAt}, #{updatedAt}
-    )
-    ON DUPLICATE KEY UPDATE
-      group_jid = COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid),
-      invite_code = CASE
-        WHEN VALUES(invite_code_observed_at) &gt;= COALESCE(invite_code_observed_at, 0)
-          THEN VALUES(invite_code)
-        ELSE invite_code
-      END,
-      updated_at = CASE
-        WHEN VALUES(invite_code_observed_at) &gt;= COALESCE(invite_code_observed_at, 0)
-          THEN GREATEST(updated_at, VALUES(updated_at))
-        ELSE updated_at
-      END,
-      invite_code_observed_at = GREATEST(
-        COALESCE(invite_code_observed_at, 0),
-        VALUES(invite_code_observed_at)
-      )
-  </insert>
-
-  <insert id="upsertGroupJidBinding" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link_preview (group_link_id, group_jid, created_at, updated_at)
-    VALUES (#{groupLinkId}, #{groupJid}, #{createdAt}, #{updatedAt})
-    ON DUPLICATE KEY UPDATE
-      group_jid = COALESCE(NULLIF(TRIM(VALUES(group_jid)), ''), group_jid),
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
-
-  <insert id="upsertAvatarUrl">
-    INSERT INTO group_link_preview (group_link_id, avatar_url, created_at, updated_at)
-    VALUES (#{groupLinkId}, #{avatarUrl}, #{updatedAt}, #{updatedAt})
-    ON DUPLICATE KEY UPDATE
-      avatar_url = VALUES(avatar_url),
-      updated_at = VALUES(updated_at)
-  </insert>
-
-  <select id="selectByGroupLinkId" resultType="com.armada.group.model.entity.GroupLinkPreview">
-    SELECT *
-    FROM group_link_preview
-    WHERE group_link_id = #{groupLinkId}
-    LIMIT 1
-  </select>
-
-  <select id="selectByGroupLinkIds" resultType="com.armada.group.model.entity.GroupLinkPreview">
-    SELECT group_link_id, wa_subject
-    FROM group_link_preview
-    WHERE wa_subject IS NOT NULL
-      AND TRIM(wa_subject) &lt;&gt; ''
-    <choose>
-      <when test="groupLinkIds != null and groupLinkIds.size() > 0">
-        AND group_link_id IN
-        <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
-          #{groupLinkId}
-        </foreach>
-      </when>
-      <otherwise>
-        AND 1 = 0
-      </otherwise>
-    </choose>
-    ORDER BY group_link_id ASC
-  </select>
-
-  <select id="selectActiveGroupLinkIdByInviteCode" resultType="long">
-    SELECT handle.id
-    FROM wa_group_invite current_invite
-    INNER JOIN group_link handle
-      ON handle.tenant_id = current_invite.tenant_id
-     AND handle.group_invite_id = current_invite.id
-     AND handle.deleted_at IS NULL
-    WHERE current_invite.invite_code = #{inviteCode}
-      AND current_invite.deleted_at IS NULL
-    ORDER BY current_invite.updated_at DESC, handle.id ASC
-    LIMIT 1
-  </select>
-
-  <update id="updateAdminOnlyEditInfo">
-    UPDATE group_link_preview
-    SET admin_only_edit_info = #{adminOnly},
-        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE group_link_id = #{groupLinkId}
-  </update>
-
-  <update id="updateAnnounceOnly">
-    UPDATE group_link_preview
-    SET announce_only = #{announceOnly},
-        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE group_link_id = #{groupLinkId}
-  </update>
-
-  <update id="updateMemberAddMode">
-    UPDATE group_link_preview
-    SET member_add_mode = #{memberAddMode},
-        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE group_link_id = #{groupLinkId}
-  </update>
-
-  <update id="updateMemberLinkMode">
-    UPDATE group_link_preview
-    SET member_link_mode = #{memberLinkMode},
-        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE group_link_id = #{groupLinkId}
-  </update>
-
-  <update id="updateJoinApprovalMode">
-    UPDATE group_link_preview
-    SET join_approval_mode = #{joinApprovalMode},
-        metadata_observed_at = GREATEST(COALESCE(metadata_observed_at, 0), #{updatedAt}),
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE group_link_id = #{groupLinkId}
-  </update>
 
 </mapper>

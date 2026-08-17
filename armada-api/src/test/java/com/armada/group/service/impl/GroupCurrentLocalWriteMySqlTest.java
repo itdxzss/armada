@@ -17,11 +17,11 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.GroupModelBackfillMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupSubjectCommandDTO;
 import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLinkLabel;
+import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupDetailProtocolPorts;
 import com.armada.group.service.GroupDetailSnapshotReader;
@@ -56,7 +56,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-/** 真实 MySQL 下验证旧入口对新群模型本地字段的兼容双写。 */
+/** 真实 MySQL 下验证旧入口写入当前模型及窄兼容字段。 */
 @Testcontainers
 class GroupCurrentLocalWriteMySqlTest {
 
@@ -97,7 +97,7 @@ class GroupCurrentLocalWriteMySqlTest {
         currentLocalPersistence = new GroupCurrentLocalPersistence(
                 session.getMapper(GroupCurrentLocalMapper.class));
         currentSnapshotPersistence = new AccountGroupCurrentSnapshotPersistenceImpl(
-                session.getMapper(AccountGroupCurrentSnapshotMapper.class), new ObjectMapper());
+                session.getMapper(AccountGroupCurrentSnapshotMapper.class));
     }
 
     @AfterAll
@@ -125,6 +125,52 @@ class GroupCurrentLocalWriteMySqlTest {
         jdbc.update("DELETE FROM group_link_preview");
         jdbc.update("DELETE FROM group_link");
         TenantContext.set(TENANT_ID);
+    }
+
+    @Test
+    void creatorCompatibilityWriteCannotOverwriteRetiredPreviewFacts() {
+        jdbc.update("""
+                INSERT INTO group_link_preview (
+                  tenant_id, group_link_id, owner_phone, creator_country_iso2,
+                  creator_continent_code, wa_subject, member_size, invite_code, avatar_url,
+                  last_preview_at, metadata_observed_at, created_at, updated_at
+                ) VALUES (
+                  7, 101, 'old-owner', 'CN', 'ASIA', '旧群名', 20, 'old-code', 'old-avatar',
+                  2000, 2000, 1000, 2000
+                )
+                """);
+        GroupLinkPreview row = creatorCompatibility(
+                101L, 3_000L, "new-owner", "US", "NORTH_AMERICA");
+        row.setWaSubject("禁止写回的新群名");
+        row.setMemberSize(99);
+        row.setInviteCode("forbidden-code");
+        row.setAvatarUrl("forbidden-avatar");
+
+        previewMapper.upsertCreatorCompatibility(java.util.List.of(row));
+
+        assertThat(jdbc.queryForMap("""
+                SELECT owner_phone, creator_country_iso2, creator_continent_code,
+                       wa_subject, member_size, invite_code, avatar_url
+                FROM group_link_preview
+                WHERE tenant_id = 7 AND group_link_id = 101
+                """))
+                .containsEntry("owner_phone", "new-owner")
+                .containsEntry("creator_country_iso2", "US")
+                .containsEntry("creator_continent_code", "NORTH_AMERICA")
+                .containsEntry("wa_subject", "旧群名")
+                .containsEntry("member_size", 20)
+                .containsEntry("invite_code", "old-code")
+                .containsEntry("avatar_url", "old-avatar");
+
+        previewMapper.upsertCreatorCompatibility(java.util.List.of(
+                creatorCompatibility(101L, 1_000L, "stale-owner", "IN", "ASIA")));
+        assertThat(jdbc.queryForMap("""
+                SELECT owner_phone, creator_country_iso2
+                FROM group_link_preview
+                WHERE tenant_id = 7 AND group_link_id = 101
+                """))
+                .containsEntry("owner_phone", "new-owner")
+                .containsEntry("creator_country_iso2", "US");
     }
 
     @Test
@@ -369,7 +415,7 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
-    void metadataSnapshotAlsoWritesLegacyListNameAndAvatar() {
+    void metadataSnapshotWritesCurrentListNameAndAvatar() {
         seedResolvedGroup(16L, "120363-metadata-local@g.us", "MetadataLocal");
         GroupLinkPreviewMapper snapshotPreviewMapper = mock(GroupLinkPreviewMapper.class);
         com.armada.group.model.entity.GroupLinkPreview preview =
@@ -380,12 +426,8 @@ class GroupCurrentLocalWriteMySqlTest {
         preview.setAvatarUrl("https://pps.whatsapp.net/metadata-new.jpg");
         preview.setMetadataObservedAt(2_000L);
         preview.setUpdatedAt(2_000L);
-        org.mockito.Mockito.when(snapshotPreviewMapper.upsertMetadataSnapshot(preview))
-                .thenReturn(1);
-
         new GroupMetadataSnapshotPersistenceImpl(
                 snapshotPreviewMapper,
-                mock(WhatsappGroupMemberSnapshotMapper.class),
                 groupLinkMapper,
                 mock(AccountGroupMembershipMapper.class),
                 mock(GroupInviteLinkService.class),
@@ -1132,7 +1174,6 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(GroupListCurrentMapper.class),
                 folderMapper,
                 previewMapper,
-                mock(GroupLinkHealthMapper.class),
                 labelMapper,
                 mock(GroupConverter.class),
                 mock(AccountMapper.class),
@@ -1165,7 +1206,6 @@ class GroupCurrentLocalWriteMySqlTest {
                         TENANT_ID, invocation.getArgument(0)));
         return new GroupDetailServiceImpl(
                 groupLinkMapper,
-                previewMapper,
                 selector,
                 new GroupDetailProtocolPorts(
                         mock(FixedAccountGroupMetadataPort.class),
@@ -1173,7 +1213,6 @@ class GroupCurrentLocalWriteMySqlTest {
                         mock(GroupSettingsPort.class),
                         mock(GroupParticipantPort.class)),
                 snapshotReader,
-                mock(WhatsappGroupMemberSnapshotMapper.class),
                 mock(GroupMetadataSyncTaskService.class),
                 currentSnapshotPersistence,
                 currentLocalPersistence,
@@ -1250,6 +1289,26 @@ class GroupCurrentLocalWriteMySqlTest {
                   tenant_id, group_link_id, invite_code, created_at, updated_at
                 ) VALUES (7, ?, ?, 100, 100)
                 """, groupLinkId, inviteCode);
+    }
+
+    private static GroupLinkPreview creatorCompatibility(
+            long groupLinkId,
+            long observedAt,
+            String ownerPhone,
+            String country,
+            String continent) {
+        GroupLinkPreview row = new GroupLinkPreview();
+        row.setGroupLinkId(groupLinkId);
+        row.setOwnerPhone(ownerPhone);
+        row.setOwnerPhoneObserved(true);
+        row.setCreatorCountryIso2(country);
+        row.setCreatorContinentCode(continent);
+        row.setCreatorCountryObserved(true);
+        row.setLastPreviewAt(observedAt);
+        row.setMetadataObservedAt(observedAt);
+        row.setCreatedAt(observedAt);
+        row.setUpdatedAt(observedAt);
+        return row;
     }
 
     private static void createLegacySchema() {

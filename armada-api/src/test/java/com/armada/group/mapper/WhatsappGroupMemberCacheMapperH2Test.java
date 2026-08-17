@@ -40,40 +40,6 @@ class WhatsappGroupMemberCacheMapperH2Test {
     @BeforeEach
     void setUp() throws SQLException {
         executeSql("DROP ALL OBJECTS", """
-                CREATE TABLE whatsapp_group_member_cache (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL,
-                    group_jid VARCHAR(128) NOT NULL,
-                    subject VARCHAR(255),
-                    announce_only TINYINT,
-                    snapshot_at BIGINT NOT NULL,
-                    snapshot_version VARCHAR(64) NOT NULL,
-                    observer_account_id BIGINT NOT NULL,
-                    created_at BIGINT NOT NULL,
-                    updated_at BIGINT NOT NULL,
-                    CONSTRAINT uq_cache UNIQUE (tenant_id, group_jid)
-                )
-                """, """
-                CREATE TABLE whatsapp_group_member_state (
-                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    tenant_id BIGINT NOT NULL,
-                    group_jid VARCHAR(128) NOT NULL,
-                    participant_jid VARCHAR(191) NOT NULL,
-                    phone VARCHAR(32),
-                    is_admin TINYINT,
-                    is_owner TINYINT,
-                    role VARCHAR(32),
-                    is_in_group TINYINT NOT NULL,
-                    state_source VARCHAR(32) NOT NULL,
-                    state_updated_at BIGINT NOT NULL,
-                    source_event_id VARCHAR(255) NOT NULL,
-                    snapshot_version VARCHAR(64),
-                    observer_account_id BIGINT,
-                    created_at BIGINT NOT NULL,
-                    updated_at BIGINT NOT NULL,
-                    CONSTRAINT uq_state UNIQUE (tenant_id, group_jid, participant_jid)
-                )
-                """, """
                 CREATE TABLE wa_group (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
@@ -100,6 +66,7 @@ class WhatsappGroupMemberCacheMapperH2Test {
                     presence_status TINYINT NOT NULL,
                     presence_source VARCHAR(32),
                     presence_observed_at BIGINT,
+                    presence_event_id VARCHAR(255),
                     role TINYINT NOT NULL,
                     role_source VARCHAR(32),
                     last_snapshot_version VARCHAR(64),
@@ -150,15 +117,18 @@ class WhatsappGroupMemberCacheMapperH2Test {
     @Test
     void selectStatesByParticipantJidsDoesNotRequireCacheHeader() throws SQLException {
         executeSql("""
-                INSERT INTO whatsapp_group_member_state
-                    (tenant_id, group_jid, participant_jid, phone, is_admin, is_owner, role,
-                     is_in_group, state_source, state_updated_at, source_event_id,
-                     snapshot_version, observer_account_id, created_at, updated_at)
+                INSERT INTO wa_group (id, tenant_id, group_jid)
                 VALUES
-                    (7, '120363-test@g.us', '123456789012345@lid', '15550000001',
-                     1, 0, 'admin', 1, 'ROLE_EVENT', 2000, 'promote-1', NULL, 10, 2000, 2000),
-                    (8, '120363-test@g.us', '123456789012345@lid', '15550000002',
-                     0, 0, 'member', 1, 'ROLE_EVENT', 3000, 'other-tenant', NULL, 11, 3000, 3000)
+                    (71, 7, '120363-test@g.us'), (81, 8, '120363-test@g.us')
+                """, """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, lid_jid, phone, presence_status,
+                     presence_source, presence_observed_at, presence_event_id, role)
+                VALUES
+                    (711, 7, 71, '123456789012345@lid', '15550000001',
+                     1, 'WGP2_PROMOTE', 2000, 'promote-1', 2),
+                    (811, 8, 81, '123456789012345@lid', '15550000002',
+                     1, 'WGP2_PROMOTE', 3000, 'other-tenant', 1)
                 """);
 
         assertThat(mapper.selectStatesByParticipantJids(
@@ -174,7 +144,7 @@ class WhatsappGroupMemberCacheMapperH2Test {
     }
 
     @Test
-    void mysqlUpsertUsesEventOrderingAndSnapshotMissingGuard() throws Exception {
+    void mapperOnlyReadsCurrentParticipantFacts() throws Exception {
         String xml;
         try (var input = getClass().getResourceAsStream(
                 "/mapper/group/WhatsappGroupMemberCacheMapper.xml")) {
@@ -182,24 +152,14 @@ class WhatsappGroupMemberCacheMapperH2Test {
         }
 
         assertThat(xml)
-                .contains("ON DUPLICATE KEY UPDATE")
-                .contains("AS incoming")
-                .contains("WHEN 'ADD_EVENT' THEN 3")
-                .contains("WHEN 'LEAVE_EVENT' THEN 5")
-                .contains("WHEN 'UNKNOWN_EXIT_EVENT' THEN 5")
-                .contains("WHEN 'ROLE_EVENT' THEN 4")
-                .contains("WHEN 'MEMBER_QUERY' THEN 2")
-                .contains("WHEN 'SNAPSHOT_ABSENT' THEN 2")
-                .contains("NULLIF(TRIM(whatsapp_group_member_state.phone), '')")
-                .contains("NULLIF(TRIM(incoming.phone), '')")
-                .contains("state_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')")
-                .contains("CAST(#{snapshotVersion} AS BINARY)")
+                .contains("FROM wa_group current_group")
+                .contains("JOIN wa_group_participant participant")
                 .contains("<select id=\"selectStatesByParticipantJids\"")
-                .contains("WHERE current_group.tenant_id = #{tenantId}");
-        assertThat(xml.indexOf("source_event_id = IF"))
-                .isLessThan(xml.indexOf("state_source = IF"));
-        assertThat(xml.indexOf("state_source = IF"))
-                .isLessThan(xml.indexOf("state_updated_at = GREATEST"));
+                .contains("WHERE current_group.tenant_id = #{tenantId}")
+                .doesNotContain("whatsapp_group_member_cache")
+                .doesNotContain("whatsapp_group_member_state")
+                .doesNotContain("<insert")
+                .doesNotContain("<update");
     }
 
     private void executeSql(String... statements) throws SQLException {

@@ -1,12 +1,10 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.WhatsappGroupDepartedMemberMapper;
@@ -14,7 +12,6 @@ import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InOrder;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,7 +26,7 @@ class WhatsappGroupDepartedMemberServiceImplTest {
     private AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
 
     @Test
-    void saveLatestSortsLocksAndWritesEachFactIndependently() {
+    void saveLatestWritesOnlyCurrentParticipantFacts() {
         WhatsappGroupDepartureFact second = fact("group-b@g.us", "2@s.whatsapp.net");
         WhatsappGroupDepartureFact first = fact("group-a@g.us", "1@s.whatsapp.net");
         List<WhatsappGroupDepartureFact> facts = List.of(second, first);
@@ -38,12 +35,8 @@ class WhatsappGroupDepartedMemberServiceImplTest {
 
         service.saveLatest(facts);
 
-        InOrder order = inOrder(mapper, currentPersistence);
-        order.verify(mapper).upsertIdentity(eq(first), anyLong());
-        order.verify(mapper).updateIfNewer(eq(first), anyLong());
-        order.verify(mapper).upsertIdentity(eq(second), anyLong());
-        order.verify(mapper).updateIfNewer(eq(second), anyLong());
-        order.verify(currentPersistence).applyParticipantDepartures(facts);
+        verify(currentPersistence).applyParticipantDepartures(facts);
+        verifyNoInteractions(mapper);
     }
 
     @Test
@@ -53,8 +46,7 @@ class WhatsappGroupDepartedMemberServiceImplTest {
 
         service.saveLatest(List.of());
 
-        verify(mapper, never()).upsertIdentity(org.mockito.ArgumentMatchers.any(), anyLong());
-        verify(mapper, never()).updateIfNewer(org.mockito.ArgumentMatchers.any(), anyLong());
+        verifyNoInteractions(mapper, currentPersistence);
     }
 
     @Test

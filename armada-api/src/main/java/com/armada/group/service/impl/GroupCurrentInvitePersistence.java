@@ -21,7 +21,7 @@ public class GroupCurrentInvitePersistence {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void apply(String groupJid, String inviteCode, long observedAt) {
+    public void apply(Long groupLinkId, String groupJid, String inviteCode, long observedAt) {
         Long tenantId = TenantContext.get();
         if (tenantId == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
@@ -44,9 +44,29 @@ public class GroupCurrentInvitePersistence {
         if (inviteId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析当前邀请码");
         }
-        mapper.updateLegacyGroupAndInviteReferences(
-                tenantId, normalizedGroupJid, code, groupId, inviteId);
+        if (groupLinkId != null) {
+            mapper.updateLegacyGroupAndInviteReferences(
+                    tenantId, groupLinkId, groupId, inviteId);
+        }
         mapper.updateCurrentInvite(tenantId, groupId, inviteId, observedAt, now);
+    }
+
+    /** 将已确认的群 JID 绑定到保留的数字群入口，不要求当时已经存在邀请码。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void bindGroup(Long groupLinkId, String groupJid, long observedAt) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        if (groupLinkId == null || observedAt <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群入口与群 JID 绑定事实不完整");
+        }
+        String normalizedGroupJid = normalizeGroupJid(groupJid);
+        if (normalizedGroupJid == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群入口与群 JID 绑定事实不完整");
+        }
+        Long groupId = resolveGroupId(tenantId, normalizedGroupJid, System.currentTimeMillis());
+        mapper.updateGroupReference(tenantId, groupLinkId, groupId);
     }
 
     /** 将现有按群 JID 检测的健康结论同步到群资料，不依赖当前邀请码。 */
@@ -62,6 +82,18 @@ public class GroupCurrentInvitePersistence {
         }
         mapper.updateGroupHealth(
                 tenantId, normalizedGroupJid, health, System.currentTimeMillis());
+    }
+
+    /** 读取群资料中的当前健康投影，供失败次数和成员数续写。 */
+    @Transactional(readOnly = true)
+    public GroupLinkHealth findHealth(String groupJid) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        String normalizedGroupJid = normalizeGroupJid(groupJid);
+        return normalizedGroupJid == null
+                ? null : mapper.selectGroupHealth(tenantId, normalizedGroupJid);
     }
 
     /** 将已通过导入校验的公开邀请页资料同步到新邀请表。 */

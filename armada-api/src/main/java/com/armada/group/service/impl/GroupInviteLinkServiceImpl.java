@@ -1,8 +1,6 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -30,9 +28,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
     private static final Logger log = LoggerFactory.getLogger(GroupInviteLinkServiceImpl.class);
 
     private final GroupLinkRegistryService registryService;
-    private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkMapper groupLinkMapper;
-    private final GroupLinkHealthMapper healthMapper;
     private final GroupExecutionAccountSelector accountSelector;
     private final GroupInvitePort invitePort;
     private final GroupCurrentInvitePersistence currentInvitePersistence;
@@ -41,24 +37,18 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
      * 创建当前群邀请链接事实服务。
      *
      * @param registryService 群入口登记服务
-     * @param previewMapper 当前群预览数据访问
-     * @param healthMapper 群链接健康数据访问
      * @param accountSelector 群内执行账号选择器
      * @param invitePort 群邀请链接协议端口
      * @param currentInvitePersistence 新群模型当前邀请码写入
      */
     public GroupInviteLinkServiceImpl(
             GroupLinkRegistryService registryService,
-            GroupLinkPreviewMapper previewMapper,
             GroupLinkMapper groupLinkMapper,
-            GroupLinkHealthMapper healthMapper,
             GroupExecutionAccountSelector accountSelector,
             GroupInvitePort invitePort,
             GroupCurrentInvitePersistence currentInvitePersistence) {
         this.registryService = registryService;
-        this.previewMapper = previewMapper;
         this.groupLinkMapper = groupLinkMapper;
-        this.healthMapper = healthMapper;
         this.accountSelector = accountSelector;
         this.invitePort = invitePort;
         this.currentInvitePersistence = currentInvitePersistence;
@@ -75,10 +65,9 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
                         observation.groupJid().trim(), null,
                         observation.protocolBackend(), observedAt)
                 : observation.groupLinkId();
-        GroupLinkHealth health = storeCurrentInvite(
-                groupLinkId, observation.groupJid(), observation.inviteCode(), observedAt);
+        GroupLinkHealth health = restoreAvailableHealth(groupLinkId, observedAt);
         String inviteCode = observation.inviteCode().trim();
-        currentInvitePersistence.apply(observation.groupJid(), inviteCode, observedAt);
+        currentInvitePersistence.apply(groupLinkId, observation.groupJid(), inviteCode, observedAt);
         String resolvedGroupJid = trimToNull(observation.groupJid());
         if (resolvedGroupJid == null) {
             GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
@@ -101,16 +90,11 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         if (groupLinkId == null || !hasText(groupJid) || observedAt <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "群入口与群 JID 绑定事实不完整");
         }
-        GroupLinkPreview row = new GroupLinkPreview();
-        row.setGroupLinkId(groupLinkId);
-        row.setGroupJid(groupJid.trim());
-        row.setCreatedAt(observedAt);
-        row.setUpdatedAt(observedAt);
-        previewMapper.upsertGroupJidBinding(row);
         GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        currentInvitePersistence.bindGroup(groupLinkId, groupJid, observedAt);
         if (current != null && hasText(current.inviteCode())) {
             currentInvitePersistence.apply(
-                    groupJid, current.inviteCode().trim(), observedAt);
+                    groupLinkId, groupJid, current.inviteCode().trim(), observedAt);
         }
     }
 
@@ -132,21 +116,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         preview.setLastPreviewAt(observedAt);
         preview.setCreatedAt(observedAt);
         preview.setUpdatedAt(observedAt);
-        previewMapper.upsertInvitePageMetadata(preview);
         currentInvitePersistence.applyPublicPreview(preview, labelId);
-    }
-
-    private GroupLinkHealth storeCurrentInvite(
-            Long groupLinkId, String groupJid, String inviteCode, long observedAt) {
-        GroupLinkPreview row = new GroupLinkPreview();
-        row.setGroupLinkId(groupLinkId);
-        row.setGroupJid(hasText(groupJid) ? groupJid.trim() : null);
-        row.setInviteCode(inviteCode.trim());
-        row.setInviteCodeObservedAt(observedAt);
-        row.setCreatedAt(observedAt);
-        row.setUpdatedAt(observedAt);
-        previewMapper.upsertInviteLinkChange(row);
-        return restoreAvailableHealth(groupLinkId, observedAt);
     }
 
     /** {@inheritDoc} */
@@ -235,12 +205,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         row.setHealthFailureCount(0);
         row.setCreatedAt(observedAt);
         row.setUpdatedAt(observedAt);
-        if (healthMapper.updateAvailableFromInviteObservation(row) > 0) {
-            return row;
-        }
-        int inserted = healthMapper.insertAvailableFromInviteObservationIfAbsent(row);
-        int refreshed = healthMapper.updateAvailableFromInviteObservation(row);
-        return inserted > 0 || refreshed > 0 ? row : null;
+        return row;
     }
 
     private static boolean hasText(String value) {

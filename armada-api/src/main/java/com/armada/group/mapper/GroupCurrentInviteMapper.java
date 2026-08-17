@@ -49,10 +49,14 @@ public interface GroupCurrentInviteMapper {
 
     int updateLegacyGroupAndInviteReferences(
             @Param("tenantId") Long tenantId,
-            @Param("groupJid") String groupJid,
-            @Param("inviteCode") String inviteCode,
+            @Param("groupLinkId") Long groupLinkId,
             @Param("groupId") Long groupId,
             @Param("inviteId") Long inviteId);
+
+    int updateGroupReference(
+            @Param("tenantId") Long tenantId,
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("groupId") Long groupId);
 
     int updateLegacyInviteReference(
             @Param("tenantId") Long tenantId,
@@ -64,6 +68,10 @@ public interface GroupCurrentInviteMapper {
             @Param("groupJid") String groupJid,
             @Param("health") GroupLinkHealth health,
             @Param("now") long now);
+
+    GroupLinkHealth selectGroupHealth(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJid") String groupJid);
 
     int upsertPublicPreview(
             @Param("tenantId") Long tenantId,

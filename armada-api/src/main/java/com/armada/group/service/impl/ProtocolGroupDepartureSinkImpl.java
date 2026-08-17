@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 将 Android 退群事件转换为群域退群事实。 */
+/** 将 Web/Android 退群事件转换为群域退群事实。 */
 @Component
 public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSink {
 

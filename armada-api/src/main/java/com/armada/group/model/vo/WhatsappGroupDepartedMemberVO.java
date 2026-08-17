@@ -8,7 +8,7 @@ package com.armada.group.model.vo;
  * @param phone 可解析手机号
  * @param exitedAt 退群时间
  * @param exitType LEFT、REMOVED 或 UNKNOWN
- * @param sourceType 事实来源，HISTORY_SYNC、WGP2_NOTIFICATION 或 BUSINESS_COMMAND
+ * @param sourceType 事实来源，HISTORY_SYNC、WGP2_NOTIFICATION、WEB_NOTIFICATION 或 BUSINESS_COMMAND
  */
 public record WhatsappGroupDepartedMemberVO(
         String groupJid,

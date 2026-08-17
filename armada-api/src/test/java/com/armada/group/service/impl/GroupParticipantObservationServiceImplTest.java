@@ -88,6 +88,40 @@ class GroupParticipantObservationServiceImplTest {
                 org.mockito.ArgumentMatchers.anyString());
     }
 
+    @Test
+    void reconcileControlledMembershipsDedupesCandidatesAndUpdatesBinding() {
+        when(memberStateMapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us",
+                List.of("123456789012345@lid", "15550000001@s.whatsapp.net")))
+                .thenReturn(List.of(new WhatsappGroupMemberStateVO(
+                        "15550000001@s.whatsapp.net", "15550000001", false, false,
+                        "member", false, "REMOVE_EVENT", 2_000L, "event-remove")));
+        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+                .thenReturn(List.of(account(77L, "15550000001")));
+
+        service().reconcileControlledMemberships(7L, "120363-TEST@G.US", List.of(
+                "15550000001@s.whatsapp.net", "123456789012345@LID",
+                "123456789012345@lid", " "));
+
+        verify(currentSnapshotPersistence).applyControlledParticipantObservation(
+                77L, "120363-test@g.us", false, false,
+                2_000L, "event-remove", "WGP2_REMOVE");
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
+    void reconcileControlledMembershipsWithoutMatchingRowsDoesNothing() {
+        when(memberStateMapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us", List.of("123456789012345@lid")))
+                .thenReturn(List.of());
+
+        service().reconcileControlledMemberships(
+                7L, "120363-test@g.us", List.of("123456789012345@lid"));
+
+        verify(accountMapper, never()).selectActiveByWsPhones(
+                org.mockito.ArgumentMatchers.anyList());
+    }
+
     private GroupParticipantObservationServiceImpl service() {
         return new GroupParticipantObservationServiceImpl(
                 memberStateMapper, accountMapper, currentSnapshotPersistence);

@@ -50,7 +50,7 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群邀请链接变更事件类型。 */
     public static final String EVENT_GROUP_INVITE_LINK_CHANGED = "group.invite_link_changed";
 
-    /** Web/Android 统一群成员变化事件类型；当前只落 promote/demote 角色事实。 */
+    /** Web/Android 统一群成员变化事件类型；落 add/remove 在群事实与 promote/demote 角色事实。 */
     public static final String EVENT_GROUP_PARTICIPANT_CHANGED = "group.participant_changed";
 
     /** Web/Android 统一群资料字段级变更事件类型。 */
@@ -62,7 +62,7 @@ public class ProtocolGroupEventConsumer {
     /** 单条资料事件 fieldMask 允许的最大字段数，取白名单全长即足够。 */
     private static final int MAX_METADATA_FIELDS = 16;
 
-    /** 单群成员列表上限，与角色事件保持同一量级口径。 */
+    /** 单群成员列表上限，与成员事件保持同一量级口径。 */
     private static final int MAX_SNAPSHOT_MEMBERS = 2000;
 
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
@@ -91,9 +91,12 @@ public class ProtocolGroupEventConsumer {
 
     /** Baileys/WGP2 当前会发布的群成员动作。 */
     private static final Set<String> SUPPORTED_PARTICIPANT_ACTIONS = Set.of(
-            "add", "remove", "promote", "demote");
+            "add", "remove", "promote", "demote", "modify");
 
-    /** 单条角色事件允许携带的最大成员数。 */
+    /** 同一个人的 PN/LID 身份合并；落库口径未定，先接住不报错。 */
+    private static final String ACTION_MODIFY = "modify";
+
+    /** 单条成员事件允许携带的最大成员数。 */
     private static final int MAX_PARTICIPANT_IDENTITIES = 500;
 
     /** Kafka 事件 JSON 解析器。 */
@@ -117,7 +120,7 @@ public class ProtocolGroupEventConsumer {
     /** 群邀请链接变更下游处理边界。 */
     private final ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink;
 
-    /** 群成员角色变化下游处理边界。 */
+    /** 群成员变化下游处理边界。 */
     private final ProtocolGroupParticipantChangedSink participantChangedSink;
 
     /** 群资料字段级变更下游处理边界。 */
@@ -196,7 +199,13 @@ public class ProtocolGroupEventConsumer {
         }
     }
 
-    /** 兼容忽略 add/remove，只对 promote/demote 校验完整业务关联并写角色事实。 */
+    /**
+     * 校验并分派群成员变化事件。
+     *
+     * <p>{@code add/remove} 改在群与否，{@code promote/demote} 改角色，两类都必须带完整业务关联才能
+     * 写库，因此走同一套校验。{@code modify} 只是同一个人的 PN/LID 身份合并，落库口径未定，
+     * 先记日志跳过，不影响同一 topic 的其它事件。</p>
+     */
     private void handleParticipantChanged(JsonNode envelope, String eventId) {
         JsonNode data = dataNode(envelope);
         String action = requiredText(
@@ -204,30 +213,30 @@ public class ProtocolGroupEventConsumer {
         if (!SUPPORTED_PARTICIPANT_ACTIONS.contains(action)) {
             throw validation("协议群成员事件 action 非法");
         }
-        if (!"promote".equals(action) && !"demote".equals(action)) {
-            log.debug("协议群成员非角色事件沿用既有链路 eventId={} action={}", eventId, action);
+        if (ACTION_MODIFY.equals(action)) {
+            log.debug("协议群成员身份合并事件尚未接入,跳过 eventId={} action={}", eventId, action);
             return;
         }
         String protocolAccountId = requiredText(
-                data, "protocolAccountId", "协议群成员角色事件缺少 data.protocolAccountId");
+                data, "protocolAccountId", "协议群成员事件缺少 data.protocolAccountId");
         if (!protocolAccountId.equals(text(envelope, "accountId"))) {
-            throw validation("协议群成员角色事件账号关联不一致");
+            throw validation("协议群成员事件账号关联不一致");
         }
         String protocolBackend = requiredText(
-                data, "protocolBackend", "协议群成员角色事件缺少 data.protocolBackend")
+                data, "protocolBackend", "协议群成员事件缺少 data.protocolBackend")
                 .toUpperCase(Locale.ROOT);
         if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
-            throw validation("协议群成员角色事件 protocolBackend 非法");
+            throw validation("协议群成员事件 protocolBackend 非法");
         }
         String groupJid = requiredText(
-                data, "groupJid", "协议群成员角色事件缺少 data.groupJid")
+                data, "groupJid", "协议群成员事件缺少 data.groupJid")
                 .trim().toLowerCase(Locale.ROOT);
         if (!groupJid.endsWith("@g.us")) {
-            throw validation("协议群成员角色事件 groupJid 非法");
+            throw validation("协议群成员事件 groupJid 非法");
         }
         long occurredAt = requiredOccurredAt(envelope, data);
         ProtocolGroupParticipantChangedEvent event = new ProtocolGroupParticipantChangedEvent(
-                requiredText(envelope, "eventId", "协议群成员角色事件缺少 eventId"),
+                requiredText(envelope, "eventId", "协议群成员事件缺少 eventId"),
                 requiredLong(data, "tenantId"),
                 requiredLong(data, "accountId"),
                 protocolAccountId,
@@ -236,10 +245,10 @@ public class ProtocolGroupEventConsumer {
                 action,
                 participantIdentities(data.path("participants")),
                 text(data, "operator"),
-                requiredText(data, "source", "协议群成员角色事件缺少 data.source"),
+                requiredText(data, "source", "协议群成员事件缺少 data.source"),
                 occurredAt,
                 text(envelope, "workerId"));
-        log.info("协议群成员角色事件收到 eventId={} tenantId={} accountId={} backend={} action={} count={}",
+        log.info("协议群成员事件收到 eventId={} tenantId={} accountId={} backend={} action={} count={}",
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
                 event.action(), event.participants().size());
         participantChangedSink.handleParticipantChanged(event);
@@ -490,25 +499,25 @@ public class ProtocolGroupEventConsumer {
     private static long requiredOccurredAt(JsonNode envelope, JsonNode data) {
         Long occurredAt = checkedAt(envelope, data);
         if (occurredAt == null || occurredAt <= 0) {
-            throw validation("协议群成员角色事件 occurredAt 非法");
+            throw validation("协议群成员事件 occurredAt 非法");
         }
         return occurredAt;
     }
 
     private static List<ProtocolGroupParticipantIdentity> participantIdentities(JsonNode node) {
         if (!node.isArray() || node.isEmpty() || node.size() > MAX_PARTICIPANT_IDENTITIES) {
-            throw validation("协议群成员角色事件 participants 数量非法");
+            throw validation("协议群成员事件 participants 数量非法");
         }
         List<ProtocolGroupParticipantIdentity> participants = new ArrayList<>(node.size());
         for (JsonNode participant : node) {
             if (!participant.isObject()) {
-                throw validation("协议群成员角色事件 participant 非对象");
+                throw validation("协议群成员事件 participant 非对象");
             }
             String id = normalizedIdentity(text(participant, "id"), false);
             String lid = normalizedIdentity(text(participant, "lid"), true);
             String phoneNumber = normalizedPhoneIdentity(text(participant, "phoneNumber"));
             if (id == null && lid == null && phoneNumber == null) {
-                throw validation("协议群成员角色事件 participant 缺少身份");
+                throw validation("协议群成员事件 participant 缺少身份");
             }
             participants.add(new ProtocolGroupParticipantIdentity(id, lid, phoneNumber));
         }
@@ -524,7 +533,7 @@ public class ProtocolGroupEventConsumer {
                 ? normalized.endsWith("@lid")
                 : normalized.endsWith("@lid") || normalized.endsWith("@s.whatsapp.net");
         if (!valid) {
-            throw validation("协议群成员角色事件 participant JID 非法");
+            throw validation("协议群成员事件 participant JID 非法");
         }
         return normalized;
     }
@@ -539,7 +548,7 @@ public class ProtocolGroupEventConsumer {
         }
         String digits = normalized.replaceAll("[^0-9]", "");
         if (digits.length() < 5 || digits.length() > 20) {
-            throw validation("协议群成员角色事件 participant phoneNumber 非法");
+            throw validation("协议群成员事件 participant phoneNumber 非法");
         }
         return digits;
     }

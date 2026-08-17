@@ -35,10 +35,36 @@
 | | 有人进群 / 退群 | 改群名、改群设置 |
 |---|---|---|
 | Web 号 | 即时 | 即时 |
-| 安卓号 | 即时（走旧事件名 `account.group_participant_joined/departed`） | **只能等下一轮定时刷新（默认 3 分钟）** |
+| 安卓号 | 即时（走旧事件名 `account.group_participant_joined/departed`） | **等 WhatsApp 下一次 `dirty(groups)` 通知**，时机不由我们控制 |
 
 安卓群资料字段覆盖 6/7：群名、全员禁言、仅管理员改资料、成员可否加人、进群审批、管理员身份。
 `description` 与 `ephemeralDuration` **不在 `GetAllGroup` 的 IQ 响应里**，安卓基线永远为空（§17.4）。
+
+## ⚠️ 定时任务一直是关的（0818 实测，推翻早先前提）
+
+`ACCOUNT_GROUP_SYNC_ENABLED` 默认 false（`armada-api/src/main/resources/application.yml:218`）；
+test1 机器 `/home/app/armada-deploy/.env` 没有这个开关（只有同前缀的
+`PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_CONCURRENCY=1`，那是 Kafka 消费者并发数，不是本任务）；
+容器日志近 20 分钟 `account_group.sync.job` 零条。间隔 3 分钟（`fixed-delay-ms:180000`）属实。
+
+推翻两条早先结论：
+
+1. 「定时任务不能砍，砍了就没人更新了」—— 前提不成立，它本来就没在跑。
+2. 「安卓群资料靠定时刷新兜住，慢 3 分钟」—— **错的**。安卓群资料实际靠自身的事件刷新：
+   WhatsApp 发 `dirty(groups)` 通知 → `GroupSnapshotCoordinator` 防抖 1s 后重拉全量群列表。
+   该链路不经过 armada，但**通知发不发由 WhatsApp 决定，我们不控制**。
+
+**由此浮出的真实风险**：定时任务既然关着，改动前 Web 群资料**唯一在跑**的更新路径就是
+`account.group_metadata_sync_requested`（改群名 → 协议层请求 → armada 回查全量 metadata）。
+`32e2232` 把它删了、换成直接发字段级 patch。方向是设计要求的，但意味着
+**新 patch 链路若在真机不生效，Web 群资料会从"能更新"直接变成"完全不更新"，且无任何兜底**。
+
+这把「监控与开关」从「上线出事能回退」提升为**上 test1 前的必要前置**：开关的具体作用是
+新链路不灵时立刻切回旧的请求-回查模式，而不是眼看着群资料停止更新。
+
+**验证期间定时任务保持关闭**：开着会盖住事件链路的问题，让人误判事件已通、实际是定时刷新在干活。
+确认事件链路可用后再决定是否作为生产安全网打开；打开前必须确认 `95b1308d` + `447b2f7`
+已随之上线，否则安卓号的命令仍会被静默丢弃。
 
 ## 关键设计决策
 

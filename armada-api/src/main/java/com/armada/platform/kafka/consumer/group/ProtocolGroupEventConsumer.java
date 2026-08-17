@@ -93,9 +93,6 @@ public class ProtocolGroupEventConsumer {
     private static final Set<String> SUPPORTED_PARTICIPANT_ACTIONS = Set.of(
             "add", "remove", "promote", "demote", "modify");
 
-    /** 同一个人的 PN/LID 身份合并；落库口径未定，先接住不报错。 */
-    private static final String ACTION_MODIFY = "modify";
-
     /** 单条成员事件允许携带的最大成员数。 */
     private static final int MAX_PARTICIPANT_IDENTITIES = 500;
 
@@ -202,9 +199,8 @@ public class ProtocolGroupEventConsumer {
     /**
      * 校验并分派群成员变化事件。
      *
-     * <p>{@code add/remove} 改在群与否，{@code promote/demote} 改角色，两类都必须带完整业务关联才能
-     * 写库，因此走同一套校验。{@code modify} 只是同一个人的 PN/LID 身份合并，落库口径未定，
-     * 先记日志跳过，不影响同一 topic 的其它事件。</p>
+     * <p>{@code add/remove} 改在群与否，{@code promote/demote} 改角色，{@code modify} 合并同一个人的
+     * PN/LID 身份，三类都必须带完整业务关联才能写库，因此走同一套校验。</p>
      */
     private void handleParticipantChanged(JsonNode envelope, String eventId) {
         JsonNode data = dataNode(envelope);
@@ -212,10 +208,6 @@ public class ProtocolGroupEventConsumer {
                 data, "action", "协议群成员事件缺少 data.action").toLowerCase(Locale.ROOT);
         if (!SUPPORTED_PARTICIPANT_ACTIONS.contains(action)) {
             throw validation("协议群成员事件 action 非法");
-        }
-        if (ACTION_MODIFY.equals(action)) {
-            log.debug("协议群成员身份合并事件尚未接入,跳过 eventId={} action={}", eventId, action);
-            return;
         }
         String protocolAccountId = requiredText(
                 data, "protocolAccountId", "协议群成员事件缺少 data.protocolAccountId");

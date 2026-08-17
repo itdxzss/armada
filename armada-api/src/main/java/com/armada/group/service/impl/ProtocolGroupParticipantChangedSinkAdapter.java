@@ -2,8 +2,10 @@ package com.armada.group.service.impl;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.GroupParticipantObservation;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
@@ -51,6 +53,9 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     /** 成员被取消管理员。 */
     private static final String ACTION_DEMOTE = "demote";
 
+    /** 同一个人的身份形态变化，只合并 PN/LID，不改在群态与角色。 */
+    private static final String ACTION_MODIFY = "modify";
+
     /** 成员被移出群，操作人与目标明确不是同一人。 */
     private static final String EXIT_TYPE_REMOVED = "REMOVED";
 
@@ -70,16 +75,19 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     private final GroupParticipantObservationService observationService;
     private final ProtocolGroupJoinSink joinSink;
     private final ProtocolGroupDepartureSink departureSink;
+    private final WhatsappGroupMemberCacheService memberCacheService;
 
     public ProtocolGroupParticipantChangedSinkAdapter(
             AccountProtocolLookupService accountLookupService,
             GroupParticipantObservationService observationService,
             ProtocolGroupJoinSink joinSink,
-            ProtocolGroupDepartureSink departureSink) {
+            ProtocolGroupDepartureSink departureSink,
+            WhatsappGroupMemberCacheService memberCacheService) {
         this.accountLookupService = accountLookupService;
         this.observationService = observationService;
         this.joinSink = joinSink;
         this.departureSink = departureSink;
+        this.memberCacheService = memberCacheService;
     }
 
     @Override
@@ -100,6 +108,7 @@ public class ProtocolGroupParticipantChangedSinkAdapter
                 case ACTION_ADD -> applyJoins(event);
                 case ACTION_REMOVE -> applyDepartures(event);
                 case ACTION_PROMOTE, ACTION_DEMOTE -> applyRoleObservations(event);
+                case ACTION_MODIFY -> applyIdentityMerges(event);
                 default -> log.debug("协议群成员事件动作尚未接入,跳过 eventId={} action={}",
                         event.eventId(), event.action());
             }
@@ -119,6 +128,35 @@ public class ProtocolGroupParticipantChangedSinkAdapter
                 .map(participant -> observation(event, participant, admin))
                 .toList();
         observationService.apply(observations);
+    }
+
+    /**
+     * 把同一个人的两种身份补进同一行成员记录。
+     *
+     * <p>只有两种身份都拿到才有合并对象：单边身份落库只会凭空多出一行未知态成员，比不写更糟。
+     * 号码还原不到 PN 的成员本次跳过，等下一次带号码的观察再合并。</p>
+     *
+     * <p>本动作不碰在群态与角色——协议只说了身份变了，没说这个人在不在群、是不是管理员。</p>
+     */
+    private void applyIdentityMerges(ProtocolGroupParticipantChangedEvent event) {
+        List<WhatsappGroupIdentityMergeFact> facts = new ArrayList<>(event.participants().size());
+        for (ProtocolGroupParticipantIdentity participant : event.participants()) {
+            String lidJid = userLevelJid(participant.lid());
+            String pnJid = phoneJid(participant);
+            if (lidJid == null || pnJid == null) {
+                continue;
+            }
+            facts.add(new WhatsappGroupIdentityMergeFact(
+                    event.tenantId(), event.groupJid(), pnJid, lidJid,
+                    digits(participant.phoneNumber()), event.occurredAt(),
+                    sourceEventId(event, participant)));
+        }
+        if (facts.isEmpty()) {
+            log.info("协议群成员身份变化事件没有可合并的双身份,跳过 eventId={} count={}",
+                    event.eventId(), event.participants().size());
+            return;
+        }
+        memberCacheService.applyIdentityMerges(facts);
     }
 
     /** 进群事实交给统一进群链路，再把受控账号的群关系对齐到落库后的结果。 */

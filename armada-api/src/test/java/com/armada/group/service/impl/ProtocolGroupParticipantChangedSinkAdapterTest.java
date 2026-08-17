@@ -8,8 +8,10 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.GroupParticipantObservation;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
+import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
@@ -38,6 +40,7 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
     @Mock private GroupParticipantObservationService observationService;
     @Mock private ProtocolGroupJoinSink joinSink;
     @Mock private ProtocolGroupDepartureSink departureSink;
+    @Mock private WhatsappGroupMemberCacheService memberCacheService;
 
     @AfterEach
     void clearTenant() {
@@ -179,6 +182,34 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
                 .containsExactly("UNKNOWN");
     }
 
+    @Test
+    void modifyMergesBothIdentitiesWithoutTouchingPresenceOrRole() {
+        bindAccount(ProtocolBackend.WEB);
+
+        adapter().handleParticipantChanged(event("modify", "WEB", null, lidWithPhone()));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WhatsappGroupIdentityMergeFact>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(memberCacheService).applyIdentityMerges(captor.capture());
+        assertThat(captor.getValue()).containsExactly(new WhatsappGroupIdentityMergeFact(
+                7L, GROUP_JID, "919000000001@s.whatsapp.net", "123456789012345@lid",
+                "919000000001", 5_000L, "member-event-1:123456789012345@lid"));
+        // 身份变化没有观察到在群与否和角色，这两条链路一律不能被触发。
+        verifyNoInteractions(joinSink, departureSink);
+        verify(observationService, never()).apply(org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void modifyWithOnlyOneIdentityHasNothingToMerge() {
+        bindAccount(ProtocolBackend.WEB);
+
+        // 只有号码、还原不出 LID：单边身份落库只会凭空多出一行未知态成员。
+        adapter().handleParticipantChanged(event("modify", "WEB", null, pnOnly()));
+
+        verifyNoInteractions(memberCacheService, joinSink, departureSink);
+    }
+
     private ProtocolGroupDepartureEvent capturedDeparture() {
         ArgumentCaptor<ProtocolGroupDepartureEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupDepartureEvent.class);
@@ -215,6 +246,6 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     private ProtocolGroupParticipantChangedSinkAdapter adapter() {
         return new ProtocolGroupParticipantChangedSinkAdapter(
-                accountLookupService, observationService, joinSink, departureSink);
+                accountLookupService, observationService, joinSink, departureSink, memberCacheService);
     }
 }

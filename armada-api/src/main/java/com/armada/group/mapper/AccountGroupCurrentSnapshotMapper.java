@@ -66,6 +66,21 @@ public interface AccountGroupCurrentSnapshotMapper {
 
     int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
 
+    /**
+     * 只把同一个人的 PN/LID 身份与号码补进同一行，不改 presence 与 role。
+     *
+     * <p>协议 modify 事件表示成员身份形态变化，并没有观察到在群与否和角色，所以不能走
+     * {@link #upsertParticipantFacts}——那条语句的 presence 没有"未观察"档，会把已知的在群态
+     * 覆盖成未知。新行按 presence_status=0、role=0 落地，两者都表示未知。</p>
+     *
+     * <p>调用方必须先确认同一个人在库里只有一行：已经分裂成 PN 行和 LID 行时，本语句会同时命中
+     * 两个唯一键而报重复键错误。跨行归并不在本语句职责内。</p>
+     *
+     * @param rows 只有 groupId/pnJid/lidJid/phone/now 有意义的写入行
+     * @return 受影响行数
+     */
+    int mergeParticipantIdentities(@Param("rows") List<ParticipantPresenceWrite> rows);
+
     int upsertGroupMetadata(
             @Param("groupId") Long groupId,
             @Param("row") GroupLinkPreview row,

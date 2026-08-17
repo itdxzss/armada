@@ -223,12 +223,15 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
-    void onMessage_participantModifyIsAcceptedWithoutDispatchUntilIdentityMergeLands() {
+    void onMessage_participantModifyDispatchesIdentityChange() {
         onMessage(participantRoleJson(
                 "acc-901", "WEB", "120363group@g.us", "modify",
                 "[{\"id\":\"919000000001@s.whatsapp.net\"}]"));
 
-        verifyNoInteractions(participantChangedSink);
+        ArgumentCaptor<ProtocolGroupParticipantChangedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupParticipantChangedEvent.class);
+        verify(participantChangedSink).handleParticipantChanged(captor.capture());
+        assertThat(captor.getValue().action()).isEqualTo("modify");
     }
 
     private static String participantRoleJson(

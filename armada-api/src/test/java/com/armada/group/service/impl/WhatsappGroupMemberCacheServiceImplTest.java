@@ -3,14 +3,17 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheRow;
+import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import java.util.List;
@@ -85,6 +88,47 @@ class WhatsappGroupMemberCacheServiceImplTest {
 
         verify(currentPersistence).applyParticipantJoins(joins);
         verify(currentPersistence).applyParticipantDepartures(departures);
+    }
+
+    @Test
+    void identityMergeWritesWhenBothIdentitiesStillLiveOnOneRow() {
+        WhatsappGroupIdentityMergeFact fact = mergeFact();
+        when(mapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us",
+                List.of("15550000001@s.whatsapp.net", "888777666@lid")))
+                .thenReturn(List.of(new WhatsappGroupMemberStateVO(
+                        "15550000001@s.whatsapp.net", "15550000001", false, false,
+                        "member", true, "FULL_SNAPSHOT", 900L)));
+
+        service().applyIdentityMerges(List.of(fact));
+
+        verify(currentPersistence).applyParticipantIdentityMerges(List.of(fact));
+    }
+
+    @Test
+    void identityMergeSkipsWhenThePersonAlreadySplitAcrossTwoRows() {
+        // 两个身份各自命中一行：写入会同时命中 PN 与 LID 两个唯一键，MySQL 直接报重复键。
+        when(mapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us",
+                List.of("15550000001@s.whatsapp.net", "888777666@lid")))
+                .thenReturn(List.of(
+                        new WhatsappGroupMemberStateVO(
+                                "15550000001@s.whatsapp.net", "15550000001", false, false,
+                                "member", true, "FULL_SNAPSHOT", 900L),
+                        new WhatsappGroupMemberStateVO(
+                                "888777666@lid", null, false, false,
+                                "member", true, "ADD_EVENT", 950L)));
+
+        service().applyIdentityMerges(List.of(mergeFact()));
+
+        verify(currentPersistence, never()).applyParticipantIdentityMerges(
+                org.mockito.ArgumentMatchers.anyList());
+    }
+
+    private static WhatsappGroupIdentityMergeFact mergeFact() {
+        return new WhatsappGroupIdentityMergeFact(
+                7L, "120363-TEST@G.US", "15550000001@s.whatsapp.net", "888777666@lid",
+                "15550000001", 1_000L, "modify-1");
     }
 
     private WhatsappGroupMemberCacheServiceImpl service() {

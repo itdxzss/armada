@@ -12,6 +12,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
@@ -516,6 +517,68 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 .map(observation -> participantObservation(tenantId, observation, now))
                 .toList();
         persistParticipantFacts(tenantId, rows);
+    }
+
+    /**
+     * 把同一个人的 PN/LID 身份与号码补进同一行，不改在群态与角色。
+     *
+     * <p>协议 modify 事件只说明成员身份形态变了，没有观察到在群与否和角色。写进群/退群那条
+     * 语句会把已知的在群态覆盖成未知，所以走单独的身份合并语句。</p>
+     *
+     * <p>调用方必须先确认同一个人在库里只有一行；分裂成两行时本方法会因为同时命中 PN 与 LID
+     * 两个唯一键而报重复键错误。</p>
+     *
+     * @param facts 身份合并事实，两个身份至少各有一个才有合并意义
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void applyParticipantIdentityMerges(List<WhatsappGroupIdentityMergeFact> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        List<ParticipantPresenceWrite> rows = facts.stream()
+                .filter(Objects::nonNull)
+                .map(fact -> {
+                    validateParticipantFactTenant(tenantId, fact.tenantId());
+                    return identityMergeRow(fact, now);
+                })
+                .toList();
+        if (rows.isEmpty()) {
+            return;
+        }
+        List<String> groupJids = rows.stream()
+                .map(ParticipantPresenceWrite::groupJid)
+                .distinct()
+                .sorted()
+                .toList();
+        Map<String, Long> groupIds = resolveGroupIds(tenantId, groupJids, now);
+        mapper.mergeParticipantIdentities(rows.stream()
+                .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
+                .toList());
+    }
+
+    /** 身份合并只填 groupId/pnJid/lidJid/phone/now，其余列对应语句一律不写。 */
+    private static ParticipantPresenceWrite identityMergeRow(
+            WhatsappGroupIdentityMergeFact fact,
+            long now) {
+        // 只有一个身份就没有可合并的对象，落库只会凭空多出一行未知态成员。
+        ParticipantIdentity pn = participantIdentity(fact.pnJid());
+        ParticipantIdentity lid = participantIdentity(fact.lidJid());
+        if (pn.pnJid() == null || lid.lidJid() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群成员身份合并需要 PN 与 LID 各一个");
+        }
+        return new ParticipantPresenceWrite(
+                null,
+                participantGroupJid(fact.groupJid()),
+                pn.pnJid(),
+                lid.lidJid(),
+                blankToNull(fact.phone()),
+                null, null, null,
+                requiredFactTime(fact.eventAt()),
+                now,
+                null, null, null, null, null, null, null, null, null,
+                null, null, null, null);
     }
 
     /** 用已确认完整的成员数组替换新模型成员快照。 */

@@ -199,9 +199,7 @@ public class PullTaskManagerJoinTransactionService {
             return PullTaskManagerJoinPreparation.completed(
                     PullTaskExecutionDispatchResult.LOST);
         }
-        ProtocolAccountRef account = resources.accountLookup()
-                .findActiveProtocolRef(manager.getAccountId())
-                .orElse(null);
+        ProtocolAccountRef account = onlineManagerRef(manager);
         if (account == null) {
             return waitForManager(candidate,
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
@@ -213,6 +211,27 @@ public class PullTaskManagerJoinTransactionService {
                 candidate.getLockOwner(), candidate.getVersion(), candidate.getGroupJid());
         return PullTaskManagerJoinPreparation.ready(new PullTaskManagerJoinWork(
                 candidate.getTenantId(), candidate.getId(), manager.getId(), action.getId(), payload));
+    }
+
+    /**
+     * 取本行管理员当前可用于同步踩链接的协议身份。
+     *
+     * <p>恢复分支会在事务外直接调用协议层进群，必须要求账号在线；{@code findActiveProtocolRef}
+     * 只保证租户、软删除和协议寻址事实，离线账号照样返回，由调用方自行决定是否发命令。
+     * 离线管理员在这里返回空，本行落到等待资源由恢复流程换人，不把离线号送进协议层。</p>
+     *
+     * @param manager 本行管理员角色行
+     * @return 在线管理员协议身份；账号缺失或已离线时为 null
+     */
+    private ProtocolAccountRef onlineManagerRef(PullTaskGroupAccount manager) {
+        Long accountId = manager.getAccountId();
+        if (accountId == null) {
+            return null;
+        }
+        return resources.accountLookup().findOnlineProtocolRefs(List.of(accountId))
+                .stream()
+                .findFirst()
+                .orElse(null);
     }
 
     private PullTaskManagerJoinPreparation submit(

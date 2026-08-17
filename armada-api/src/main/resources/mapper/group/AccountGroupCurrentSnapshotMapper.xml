@@ -240,35 +240,61 @@
     )
   </sql>
 
+  <!--
+    角色来源可信度分级：显式角色事件 &gt; 完整 metadata（含迁移回填的成员快照与群主事实）
+    &gt; 账号轻量快照。分级口径见群组数据模型设计 §7.2 的 participant role 优先级。
+  -->
+  <sql id="incomingRoleTier">
+    CASE VALUES(role_source)
+      WHEN 'WGP2_PROMOTE' THEN 4
+      WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2
+      WHEN 'FULL_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_MEMBER_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_METADATA_OWNER' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1
+      ELSE 0
+    END
+  </sql>
+
+  <sql id="existingRoleTier">
+    CASE wa_group_participant.role_source
+      WHEN 'WGP2_PROMOTE' THEN 4
+      WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2
+      WHEN 'FULL_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_MEMBER_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_METADATA_OWNER' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1
+      ELSE 0
+    END
+  </sql>
+
   <sql id="incomingRoleWins">
     (
-      VALUES(role_observed_at) &gt; COALESCE(wa_group_participant.role_observed_at, -1)
-      OR (
-        VALUES(role_observed_at) = wa_group_participant.role_observed_at
-        AND (
-          CASE VALUES(role_source)
-              WHEN 'WGP2_PROMOTE' THEN 4
-              WHEN 'WGP2_DEMOTE' THEN 4
-              WHEN 'WGP2_ADD' THEN 3
-              WHEN 'GROUP_MEMBER_QUERY' THEN 2
-              WHEN 'FULL_SNAPSHOT' THEN 2
-              WHEN 'GROUP_SNAPSHOT' THEN 1
-              ELSE 0
-            END
-            &gt; CASE wa_group_participant.role_source
-              WHEN 'WGP2_PROMOTE' THEN 4
-              WHEN 'WGP2_DEMOTE' THEN 4
-              WHEN 'WGP2_ADD' THEN 3
-              WHEN 'GROUP_MEMBER_QUERY' THEN 2
-              WHEN 'FULL_SNAPSHOT' THEN 2
-              WHEN 'GROUP_SNAPSHOT' THEN 1
-              ELSE 0
-            END
-          OR (
-            VALUES(role_source) = 'FULL_SNAPSHOT'
-            AND wa_group_participant.role_source = 'FULL_SNAPSHOT'
-            AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
-                &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
+      <!--
+        §7.2：账号轻量快照的 admin 只是布尔值，最多表达管理员、表达不了群主，
+        因此它只能在角色未知或来源不低于现有来源时写入；已有非未知角色时，
+        更低可信来源即使事实时间更晚也不得把 exact ADMIN/OWNER 降级。
+      -->
+      NOT (
+        wa_group_participant.role &lt;&gt; 0
+        AND <include refid="incomingRoleTier"/> &lt; <include refid="existingRoleTier"/>
+      )
+      AND (
+        VALUES(role_observed_at) &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+        OR (
+          VALUES(role_observed_at) = wa_group_participant.role_observed_at
+          AND (
+            <include refid="incomingRoleTier"/> &gt; <include refid="existingRoleTier"/>
+            OR (
+              VALUES(role_source) = 'FULL_SNAPSHOT'
+              AND wa_group_participant.role_source = 'FULL_SNAPSHOT'
+              AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
+                  &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
+            )
           )
         )
       )

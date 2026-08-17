@@ -476,3 +476,129 @@ Android 的 notification ACK 仍应及时发送，避免 WhatsApp 重发和断�
 - 确认 `wa_group_profile.field_version_keys` 随群模型迁移落地，或为本功能分配下一 Flyway；
 - 确认 test1 的 Web/Android/Kafka topic 版本和启用开关；
 - 头像和限时消息是否有稳定独立事件，若没有继续留在人工/修复 metadata 范围。
+
+---
+
+## 17. 实施前核实结论与修订（2026-08-17 追加）
+
+本节为实施前对三个仓库的代码核实结果。第 1-16 节为 2026-08-16 原稿，不修改；凡本节与原稿冲突处，**以本节为准**。
+
+核实基线：`armada` 分支 `1.0.3-group` @ `9fb70bf1`（与 origin 一致，Flyway 已到 V125）；`armada-protocol` 分支 `1.0.3-group`；`whatsapp-server-feature-android-zhuan` 分支 `1.0.3-snapshot` @ `de7d18f`。
+
+### 17.1 原稿仍然成立的事实
+
+| 原稿断言 | 核实结果 |
+|---|---|
+| Web `add/remove` 后仍发 `account.group_metadata_sync_requested` | 成立，`account-manager.ts:1524-1529` |
+| Web `groups.update` 后仍发 `METADATA_CHANGED` | 成立，`account-manager.ts:1582-1587` |
+| `group.metadata_updated` 已预留、无生产逻辑、列为 best-effort | 成立，`subjects.ts:47,97` |
+| `group.participant_changed` 已发布、CRITICAL、进 group topic | 成立，`event-bridge.ts:169`、`subjects.ts:41,81` |
+| Armada 只放行 `promote/demote` | 成立，`ProtocolGroupEventConsumer:175-186` |
+| Armada 无 `group.metadata_updated` consumer | 成立，`ProtocolGroupEventConsumer:163-172` 仅 6 个 case |
+| Android WGP2 仅接受 9 个 action，其余返回 nil | 成立，`group_notification.go:31-128`，默认分支 `:92-94` |
+| Android 明确忽略 `subject`；头像 handler 为空 | 成立，`notification.go` `handlePictureNotification` 空实现 |
+| Android ACK 早于业务解析 | 成立，`notification.go:88` 先 ACK，`:92-93` 后分派 |
+
+结论：原稿的问题诊断方向有效，第 4 节目标不需要改写。
+
+### 17.2 原稿已过时，必须修订的五处
+
+1. **§7.2 "迁移期继续双写 `group_link_preview`/`group_link` 兼容字段" —— 作废。**
+   V123 已将 `group_link` 改为句柄引用（`group_link.group_id` / `group_invite_id`），`wa_group_profile` 是唯一权威。**不得双写**，实施范围相应缩小。
+
+2. **§8.1.4 的工作量被低估 —— 由"改造映射"改为"新写映射"。**
+   §3.1 列举的 `subject/desc/announce/restrict/inviteCode/memberAddMode/joinApprovalMode` 是 Baileys 事件**可能携带**的字段，不是协议层已实现的映射。当前 Web `groupsUpdateHandler` **只提取 `inviteCode`**（`account-manager.ts:1564-1571`）。§8.1.4 需从零编写 7 字段映射与属性存在性判断。
+
+3. **§8.1.6 "修正 `Boolean(undefined) -> false` 未知值误报" —— 删除该项。**
+   现有代码使用 `stringValue()` 与 `?? null`，未发现该缺陷。
+
+4. **§7.2 `field_version_keys` 前置条件已确认成立 —— 本功能自带 Flyway。**
+   `wa_group_profile`（V120:26-65）只有整行水位 `metadata_observed_at`（V120:40），**无 `field_version_keys`**。按 §7.2 兜底条款，本功能分配 **V126**（V125 为当前最新）。
+   利好：该表已含全部 7 个业务字段列（`subject`/`description`/`announce_only`/`admin_only_edit_info`/`member_add_mode`/`join_approval_mode`/`ephemeral_duration_seconds`），§6.2 白名单无需建表。
+   `wa_group_participant`（V120:105-155）已有 `presence_status`（:114）与 `role`（:120），§7.1 可直接落地。
+
+5. **§9 "禁止入口"清单缺一条，且原有表述会误伤合法链路。**
+   Android `GroupSnapshotCoordinator` 存在两种触发，必须分开对待：
+   - ONLINE 后延迟 30-45s 首次全量快照（`group_snapshot_coordinator.go:145,197`）—— 属 §9 **允许**的"首次完整建档"，**保留**；
+   - `dirty(groups)` 脏标记 + 1s 防抖刷新 —— 属 §9 禁止的"事件后置全量查询"，是本设计的处置对象。
+   注意：脏标记链路兼任 `RemovalAuthoritative` 授权语义（`groups_fetcher.go:27-32,127`：只有读了成员明细才置真，armada 才据此判退群）。砍它必须同步解决"谁授权判退群"，不可单独删除。
+
+### 17.3 原稿未覆盖的新缺口
+
+1. **armada → Android 主动刷新通道断开。**
+   `AccountGroupSyncJob:47` 定时下发 `ProtocolAccountGroupSyncCommandRequest`，**不按 backend 分叉**。Web 有对应 handler（`account.groups_sync.requested`，`worker-consumer.ts:143-145,614`）；Android 命令白名单（`start.go:377-420`）共 9 个命令，**不含群列表同步命令**，命令进入永久失败处理（`start.go:548-558`）。
+   影响：不影响 Android 首次上线落库（该链路自主发起）；影响的是定时补偿同步——Android 只能靠"首次快照 + 脏标记事件"，事件漏投时无兜底。附带每轮定时任务产生永久失败命令，污染失败指标与 DLQ。
+   **对本设计的意义**：§9/§10 把"低频对账"当作事件漏投的安全网，而这张网对 Android **当前不存在**。§12.1"Armada consumer 可先于生产端部署"的前提（两端能力对称）不成立。
+
+2. **`group.members.result_reported` 已有独立落库路径**，而 §7.1 要求"完整快照也必须通过同一 reducer 写字段"。该现有链路是否纳入改造，决定 §13 是 8 项还是 9 项。**待定。**
+
+3. **Android 首次基线缺 `description` 与 `ephemeralDuration`。** 见 17.4。
+
+### 17.4 首次基线实际字段覆盖（本设计的地基）
+
+本设计的增量维护模型隐含前提：**首次基线必须覆盖全部要展示的字段**。事件只报"变了什么"，不报"现在是什么"——基线缺失的字段不会被增量补回，存量群将永久为空。核实结果：
+
+| 字段 | Web 首次基线 | Android 首次基线 |
+|---|---|---|
+| `subject` | 有 | 有 |
+| 成员列表 / admin | **无**（补丁主动拒绝，收到 participant 节点抛错） | 有（仅上报 admin 布尔） |
+| `announceOnly` | 无 | 协议已取得，**映射未上报** |
+| `adminOnlyEditInfo`（`Locked`） | 无 | 协议已取得，**映射未上报** |
+| `memberAddMode` | 无 | 协议已取得，**映射未上报** |
+| `joinApprovalMode`（`GroupJoinState`） | 无 | 协议已取得，**映射未上报** |
+| `description` | 无 | **IQ 响应不含该字段** |
+| `ephemeralDurationSeconds` | 无 | **IQ 响应不含该字段** |
+
+- Web 使用协议层自定义轻量方法 `groupFetchParticipatingSummaries()`（Baileys 补丁 `baileys+7.0.0-rc11.patch:9-12`），构造 `<participating/>` 空选择器，**故意**不请求 participants 与 description；上线触发链 `account-manager.ts:1678-1721 → :1721 → :2084`，延迟 30-45s（常量 `:80-81`）；payload 仅 `groupJid + subject`（`:2110-2114`）。
+- Android `GroupInfo`（`entity.go:37-58`）已含 `Announce`/`Locked`/`MemberAddMode`/`GroupJoinState`/`Participants`，但 `ReportedGroup`（`event.go:37-41`）只序列化 3 个字段，映射处 `groups_fetcher.go:117-121` 将其余丢弃。
+
+### 17.5 已确认决策（2026-08-17）
+
+**决策 1：Web 首次上线改为拉取完整 metadata，并强制并发限流。**
+
+推翻 `2026-07-11-lightweight-participating-group-sync-design.md` 的轻量结论（该文 `:5-11` 理由、`:98-99` 明文禁止回退完整查询）。改为在 `syncParticipatingGroups`（`account-manager.ts:2084`）使用 Baileys 原生 `groupFetchAllParticipating()`，一次取得 `GroupMetadata` 全部字段。
+
+- 收益：Web 基线达成 **7/7 覆盖**，含 `desc` 与 `ephemeralDuration`，两个原本缺失的字段在 Web 侧自动解决。
+- 已有可复用映射：`readGroupMetadata()`（`account-manager.ts:703-722`）。
+- **约束（不可拆分）**：0711 指出的"批量账号上线时无全局并发限制"是本决策的主要风险。本项必须作为一个整体实施，只做前半句（改用完整查询而不补限流）视为未完成：
+  1. 全局并发闸，限制同时进行的完整 metadata 查询数；
+  2. 每账号内串行 + 群数分批；
+  3. 大群成员数上限保护（`participants[]` 是 V8 heap 主要来源）；
+  4. 查询失败不阻塞上线主链路；
+  5. 按 0711 `:87-95` 的口径采集 groupCount / participantNodeCount / 查询耗时 / heap 摘要，作为验收证据。
+
+**决策 2：Android 先补齐映射，把已取得的 4 个字段上报。**
+
+扩展 `ReportedGroup`（`event.go:37-41`）并修改映射 `groups_fetcher.go:117-121`，上报 `announce/restrict/memberAddMode/joinApprovalMode`，armada 侧同步接收。成本低、与决策 1 无耦合，可并行。Android 基线由 1/7 提升至 5/7。
+
+**悬置项**：Android 的 `description` 与 `ephemeralDurationSeconds` 不在 `GetAllGroup` IQ 响应内，补齐口径未定，留待 §13 第 6 项（Android producer）时决定。
+
+### 17.6 与相邻设计的关系重排
+
+原稿默认可直接实施。核实后确认存在前置依赖：
+
+- 本设计的增量维护模型**要求基线足够厚**（17.4）；
+- "如何在不触发 heap 峰值的前提下把基线做厚"（异步、限流、按群去重、账号轮换）是 `2026-08-16-group-snapshot-kafka-sync-design.md` 的主题；
+- 因此两份 0816 设计**不是补集关系，而是前后依赖**：先解决基线建档，再上直接投影。在只有群名的基线上启用直投影，增量维护的将是一批空字段。
+- `AccountGroupSyncJob` 当前实际承担"把基线补厚"的兜底职责。§9 要收缩它的触发范围前，替代物必须先到位。
+
+### 17.7 已证伪的推测（留档避免重复排查）
+
+- 曾疑 Android 不发 `snapshotComplete`、导致快照永不判完整、退群不落库 —— **证伪**。`event.go:96` 有 `SnapshotComplete *bool`，`:169` 计算 `RemovalAuthoritative && SkippedGroupCount == 0`，`:188` 赋值；首次上线 `GroupBaselineReady=false` → 读成员明细 → `RemovalAuthoritative=true`，无跳过群时为 `true`。armada `completeSnapshot():188` 的 WEB 特例 Android 走不到，但 Android 自带显式标记，不漏退群判定。
+- 曾将 Android ONLINE 后 30-45s 首次快照误判为"应砍的事件后置查询" —— **纠正**，见 17.2 第 5 条。
+
+### 17.8 修订后的任务顺序（替代 §13）
+
+0. **基线策略前置**：决策 1（Web 完整查询 + 并发限流）与决策 2（Android 映射补齐）；armada 侧扩展 `account.groups_reported` 接收字段。
+1. 契约 fixtures：Web `groups.update` / `group-participants.update`；Android WGP2 真实脱敏样本（§16.3 唯一未解前置项，卡第 6 项，不卡前面）。
+2. Armada V126 `field_version_keys` + `GroupMetadataPatchService`（fieldMask + 逐字段版本）+ `group.metadata_updated` consumer 与 DTO。**不含双写**（17.2 第 1 条）。
+3. 成员 reducer：放行 `add/remove/modify`，统一 Web/Android 增量。
+4. Web producer：新写 7 字段映射（非改造），移除两处 metadata 请求。
+5. Android producer：WGP2 群资料 patch 分支。
+6. Android 群列表同步命令 handler（17.3 第 1 条），恢复 armada→Android 主动刷新与低频对账兜底。
+7. 监控与开关。
+8. test1 集成验收。
+
+### 17.9 §14.3 验收标准的修订
+
+原"上述正常事件不产生 metadata HTTP/IQ 查询"需限定范围：ONLINE 后首次全量建档属允许查询（决策 1 更使其成为**必需**的重量查询）。验收口径改为：**首次建档后，群成员与群资料变更不再产生 metadata 查询**；首次建档本身按决策 1 的限流指标单独验收。

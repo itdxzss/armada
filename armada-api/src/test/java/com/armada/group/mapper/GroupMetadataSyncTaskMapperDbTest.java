@@ -230,23 +230,60 @@ class GroupMetadataSyncTaskMapperDbTest {
                 VALUES (7, 501, 101, 3, NULL)
                 """);
 
-        assertThat(mapper.resumeDeferredForAccount(
-                501L,
-                GroupMetadataSyncStatus.DEFERRED.code(),
-                GroupMetadataSyncStatus.PENDING.code(),
-                GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
-                2_000L)).isEqualTo(1);
+        assertThat(resumeDeferredForAccount(501L, 2_000L)).isEqualTo(1);
 
         execute("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 101");
         execute("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 801");
         execute("UPDATE account_group_membership SET membership_status = 1");
 
-        assertThat(mapper.resumeDeferredForAccount(
-                501L,
+        assertThat(resumeDeferredForAccount(501L, 3_000L)).isZero();
+    }
+
+    @Test
+    void resumeDeferredOnlyLocksTheAccountsOwnDeferredTasks() throws SQLException {
+        insertGroupLink("wa://group/resume-mine@g.us", 4, "resume-mine@g.us", null);
+        insertTask(TENANT_ID, storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L));
+        execute("""
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, presence_status)
+                VALUES (801, 7, 101, 1)
+                """);
+        execute("""
+                INSERT INTO wa_account_group_binding
+                  (tenant_id, account_id, group_id, participant_id)
+                VALUES (7, 501, 101, 801)
+                """);
+        // 同租户另一个群同样处于 DEFERRED，但账号 501 不在其中。
+        insertGroupLink(102L, "wa://group/resume-others@g.us", 4, "resume-others@g.us", null);
+        GroupMetadataSyncTask foreign = storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L);
+        foreign.setGroupLinkId(102L);
+        insertTask(TENANT_ID, foreign);
+
+        assertThat(mapper.selectDeferredTaskIdsForAccount(
+                501L, GroupMetadataSyncStatus.DEFERRED.code())).hasSize(1);
+        assertThat(resumeDeferredForAccount(501L, 2_000L)).isEqualTo(1);
+
+        // 不属于该账号的延期任务既不进入候选主键，也不被写入。
+        assertThat(mapper.selectByGroupLinkId(101L).getStatus())
+                .isEqualTo(GroupMetadataSyncStatus.PENDING.code());
+        assertThat(mapper.selectByGroupLinkId(102L).getStatus())
+                .isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
+    }
+
+    /** 复现 service 的两步恢复：先读候选主键，再只按主键写。 */
+    private int resumeDeferredForAccount(long accountId, long now) {
+        java.util.List<Long> ids = mapper.selectDeferredTaskIdsForAccount(
+                accountId, GroupMetadataSyncStatus.DEFERRED.code());
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        assertThat(ids).isSorted();
+        return mapper.resumeDeferredByIds(
+                ids,
                 GroupMetadataSyncStatus.DEFERRED.code(),
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
-                3_000L)).isZero();
+                now);
     }
 
     @Test

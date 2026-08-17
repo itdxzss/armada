@@ -91,10 +91,35 @@ public interface GroupMetadataSyncTaskMapper {
     int defer(@Param("row") GroupMetadataSyncTask row,
               @Param("eligibleStatuses") List<Integer> eligibleStatuses);
 
-    /** 账号真正上线后恢复其当前在群范围内的延期任务。 */
-    int resumeDeferredForAccount(@Param("accountId") Long accountId,
-                                 @Param("deferredStatus") int deferredStatus,
-                                 @Param("pendingStatus") int pendingStatus,
-                                 @Param("triggerSource") int triggerSource,
-                                 @Param("now") long now);
+    /**
+     * 读取该账号当前仍在群范围内的延期任务主键，按主键升序返回。
+     *
+     * <p>普通一致性读不加锁，把跨 group_link、账号群关系和成员在群态的存在性判断留在读阶段，
+     * 使后续写只需锁本次已确定的少量主键。</p>
+     *
+     * @param accountId 上线账号
+     * @param deferredStatus DEFERRED 稳定码
+     * @return 升序任务主键；无候选返回空列表
+     */
+    List<Long> selectDeferredTaskIdsForAccount(@Param("accountId") Long accountId,
+                                               @Param("deferredStatus") int deferredStatus);
+
+    /**
+     * 按已确定的主键集合恢复延期任务。
+     *
+     * <p>单表按主键更新，锁范围只覆盖入参主键；调用方传入升序主键以固定锁序，
+     * 避免多个账号同时上线时互相持锁等待。</p>
+     *
+     * @param ids 升序任务主键，不能为空
+     * @param deferredStatus DEFERRED 稳定码
+     * @param pendingStatus 恢复后的 PENDING 稳定码
+     * @param triggerSource 恢复触发来源
+     * @param now 当前时间(epoch 毫秒)
+     * @return 恢复行数
+     */
+    int resumeDeferredByIds(@Param("ids") List<Long> ids,
+                            @Param("deferredStatus") int deferredStatus,
+                            @Param("pendingStatus") int pendingStatus,
+                            @Param("triggerSource") int triggerSource,
+                            @Param("now") long now);
 }

@@ -73,8 +73,15 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         if (accountId == null) {
             return;
         }
-        mapper.resumeDeferredForAccount(
-                accountId,
+        // 先用普通一致性读定位本账号的候选主键，再只锁这些主键。
+        // 合成一条带 EXISTS 的宽 UPDATE 会锁住全部 DEFERRED 行，多个账号同时上线必然互锁。
+        List<Long> deferredTaskIds = mapper.selectDeferredTaskIdsForAccount(
+                accountId, GroupMetadataSyncStatus.DEFERRED.code());
+        if (deferredTaskIds.isEmpty()) {
+            return;
+        }
+        mapper.resumeDeferredByIds(
+                deferredTaskIds,
                 GroupMetadataSyncStatus.DEFERRED.code(),
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),

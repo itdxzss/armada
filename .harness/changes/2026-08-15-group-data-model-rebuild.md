@@ -261,6 +261,10 @@
 - 前两次废弃的一次性启动因未完全关闭既有调度，分别触发了正常保留策略清理 218 条已发送且过期的 outbox，以及一次普通拉群执行 244 的抢占后跳过；执行 244 的锁和租约均已释放、状态未成功推进。最终 95 批回填使用关闭既有调度的干净启动参数完成。
 - 回填完成后的正常流量观察中，后端未重启，未发现群列表、回填或模型迁移错误；但 02:06～02:29 的账号上线恢复群元数据任务持续发生 7 次死锁和 6 次锁等待超时，受害 SQL 均为 `GroupMetadataSyncTaskMapper.resumeDeferredForAccount` 的 `group_metadata_sync_task` 更新及新关系表存在性判断。账号状态事件会继续完成，但该群组锁竞争尚未收口，不能记为运行稳定门禁通过。数据库应用账号无 `performance_schema` 读取权限，因此本次未伪报服务端慢 SQL 摘要通过。
 - 账号列表群数新旧只读对账覆盖租户 1 的 421 个有效账号：260 个一致、161 个不一致，且全部为旧表计数大于新模型当前事实；旧表合计 56,329、新模型合计 52,725，单账号最大差 127。为避免继续给 test1 数据库加压，差异归因查询在 10 秒上限主动取消；该项目前不能记为“业务口径不变”通过。
+- 2026-08-17 已把上条群数差异归因完毕，该门禁通过。把执行上限放到 45 秒后一次跑完：旧口径 56,328 行中，52,728 行在新模型为 `presence_status=1`，3,600 行为 `presence_status=2`，**无 binding 与有 binding 无 participant 均为 0 行**，即零漏迁。方向性复核显示这 3,599 条退群事实来源全部是 `SNAPSHOT_ABSENT`，且 `presence_observed_at` 无一早于旧 `updated_at`（新早于旧 = 0）。结论与群主 parity 同一口径：旧表陈旧、新模型是更新的当前事实，不用旧表反向覆盖。该基线必须在此刻定案——旧事实表退役后 `account_group_membership` 已停写，继续拖延该对账将永久失效。
+- 2026-08-17 旧事实表退役构建部署后现场复核：八张旧事实表在 30 分钟正常流量中运行时命中均为 0，运行时零访问门禁通过。
+- 2026-08-17 群组锁竞争已定位并修复。受害 SQL 是 `GroupMetadataSyncTaskMapper.resumeDeferredForAccount` 的单条宽 UPDATE：它以 `status = DEFERRED` 为条件、对每个候选行内联 EXISTS 探 `group_link`/`wa_account_group_binding`/`wa_group_participant`，因此每个账号上线都要锁住全部延期行。test1 EXPLAIN 实测该条件走 `idx_group_metadata_due`、`rows=253`，多个账号并发上线必然互锁。改为与 `updateLegacyGroupReferences` 相同的两步写法：先用普通一致性读 `selectDeferredTaskIdsForAccount` 取本账号候选主键并升序返回，再由 `resumeDeferredByIds` 只按主键单表更新。同一数据上 EXPLAIN 变为 `range` 走 `PRIMARY`、`rows` 等于候选主键数；InnoDB 按主键索引顺序取锁，候选集合相交也不再形成反向持锁。
+- 上条锁收窄的验证：`GroupMetadataSyncTaskMapperDbTest` 12 个、`GroupMetadataSyncTaskServiceImplTest` 10 个共 22 个测试通过，其中新增用例钉死「同租户内不属于该账号的 DEFERRED 任务既不进候选主键也不被写入」和「无候选时不发出 UPDATE」，H2 加载真实 Mapper XML 与租户插件；`xmllint` 与 `test-compile` 通过。同批定向回归 150 个测试中 14 个 error 全部与本改动无关：12 个是本机缺外部数据库/Docker 的既有环境阻断，2 个是 `AccountGroupCurrentSnapshotPersistenceImplTest` 在 HEAD 上已有的 `BaselineEvidence.capturedAt()` 空指针（该实现与测试均未被本次改动触及，且对 `GroupMetadataSync` 零引用）；没有把环境阻断或既有失败伪报为通过。
 
 ## 剩余门禁
 

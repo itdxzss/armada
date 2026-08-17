@@ -199,9 +199,10 @@ public class PullTaskExecutionDispatchCoordinator {
                     : stats.add(result);
         } catch (RuntimeException ex) {
             executionMapper.releaseLock(candidate.getId(), lockOwner, now);
+            // 调度异常会被吞掉只留类名，排查时无从定位；带上栈保留现场。
             log.error("普通拉群执行行调度异常 tenantId={} taskId={} executionId={} errorType={}",
                     candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
-                    ex.getClass().getSimpleName());
+                    ex.getClass().getSimpleName(), ex);
             return stats.skip();
         }
     }

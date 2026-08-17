@@ -381,7 +381,7 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
-    void updateSettingUsesLocalAdminAndEnqueuesMetadataRefresh() {
+    void updateSettingUsesLocalAdminAndReturnsAfterProtocolSuccess() {
         givenLiveTarget();
         when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
@@ -394,10 +394,7 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us");
         verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
                 org.mockito.ArgumentMatchers.any());
-        verify(metadataSyncTaskService).enqueue(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(GroupMetadataSyncTrigger.METADATA_CHANGED),
-                org.mockito.ArgumentMatchers.anyLong());
+        verifyNoInteractions(metadataSyncTaskService);
         verify(selector).requireAdmin(10L);
         verify(selector, never()).require(10L);
     }
@@ -417,6 +414,7 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us");
         verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
                 org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -433,6 +431,7 @@ class GroupDetailServiceImplTest {
                 androidAccount(), "120363detail@g.us");
         verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
                 org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -526,7 +525,7 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
-    void updateInviteViaLinkUsesAvailableGroupAdminAndEnqueuesRefresh() {
+    void updateInviteViaLinkUsesAvailableGroupAdminAndReturnsAfterProtocolSuccess() {
         givenLiveTarget();
         when(selector.requireAdmin(10L)).thenReturn(
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
@@ -541,10 +540,7 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us");
         verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
                 org.mockito.ArgumentMatchers.any());
-        verify(metadataSyncTaskService).enqueue(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(GroupMetadataSyncTrigger.METADATA_CHANGED),
-                org.mockito.ArgumentMatchers.anyLong());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test

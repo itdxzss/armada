@@ -387,11 +387,11 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 修改一项 WhatsApp 群权限并排队异步 metadata 刷新。
+     * 修改一项 WhatsApp 群权限并在协议成功后立即返回。
      *
-     * <p>从本地快照选择在线、正常、仍在群内的管理员或群主，直接调用对应权限设置接口，
-     * 协议设置请求成功后立即返回，metadata 由后台任务异步刷新。五个权限 key 共享同一执行流程，
-     * 不在请求主链路同步读取 metadata 或切换执行账号。</p>
+     * <p>从本地快照选择在线、正常、仍在群内的管理员或群主，直接调用对应权限设置接口。
+     * 协议返回成功即视为设置已提交，不再为本次操作创建 metadata 刷新任务，也不在请求主链路
+     * 读取 metadata。五个权限 key 共享同一执行流程。</p>
      *
      * @param id  群链接 ID
      * @param dto 权限 key 和期望开关状态
@@ -411,7 +411,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.key(), dto.enabled(), ex.errorCode());
             throw groupBusinessException(ex);
         }
-        enqueueMetadataRefresh(id);
         log.info("WhatsApp 群权限设置已提交 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
     }

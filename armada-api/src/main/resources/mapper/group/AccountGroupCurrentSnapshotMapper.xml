@@ -390,6 +390,14 @@
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
+      <!--
+        身份列只补空、不覆盖。命中的行可能只持有 PN 或只持有 LID：WhatsApp 群成员列表已逐步
+        只返回 LID，而账号快照按 self PN 建行，同一个人因此会分成两行。协议本次给出另一个
+        身份时补进同一行，使两种身份收敛到一条成员记录（设计 §3.2 硬不变量 3）。
+        已有值一律保留，避免把已确认身份改写成另一个人的。
+      -->
+      pn_jid = COALESCE(pn_jid, VALUES(pn_jid)),
+      lid_jid = COALESCE(lid_jid, VALUES(lid_jid)),
       phone = COALESCE(VALUES(phone), phone),
       presence_status = CASE
         WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)

@@ -956,7 +956,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (participant == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照包含空成员");
         }
-        ParticipantIdentity identity = participantIdentity(participant.jid());
+        ParticipantIdentity identity = mergedIdentity(participant);
         String identityKey = identity.pnJid() == null ? identity.lidJid() : identity.pnJid();
         String eventId = clamp(
                 "snapshot:" + snapshotVersion + ":" + identityKey,
@@ -1016,6 +1016,25 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     private record ParticipantIdentity(String pnJid, String lidJid) {
+    }
+
+    /**
+     * 合并协议给出的两种成员身份。
+     *
+     * <p>WhatsApp 群成员列表已逐步只返回 LID，此时仅按主标识解析会丢掉 PN 身份，
+     * 导致同一个人在 PN 与 LID 两行并存。协议另行给出号码时 adapter 会还原 PN JID，
+     * 这里把它补进同一行，使两个身份落在一条成员记录上（群组数据模型设计 §3.2 硬不变量 3）。</p>
+     *
+     * @param participant 协议成员结果
+     * @return 合并后的成员身份
+     */
+    private static ParticipantIdentity mergedIdentity(GroupParticipantResult participant) {
+        ParticipantIdentity identity = participantIdentity(participant.jid());
+        if (identity.pnJid() != null || participant.pnJid() == null) {
+            return identity;
+        }
+        ParticipantIdentity restored = participantIdentity(participant.pnJid());
+        return new ParticipantIdentity(restored.pnJid(), identity.lidJid());
     }
 
     private record BaselineEvidence(

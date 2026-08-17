@@ -48,6 +48,20 @@ class GroupParticipantRolePrecedenceSqlTest {
                 .contains("wa_group_participant.role &lt;&gt; 0");
     }
 
+    @Test
+    void participantUpsertBackfillsMissingIdentityWithoutOverwriting() throws IOException {
+        String xml = read(MAPPER);
+
+        assertThat(xml)
+                .as("命中行只持有一种身份时补齐另一种，使 PN 与 LID 收敛到同一行")
+                .contains("pn_jid = COALESCE(pn_jid, VALUES(pn_jid))")
+                .contains("lid_jid = COALESCE(lid_jid, VALUES(lid_jid))")
+                .as("已有身份必须保留：COALESCE 第一个参数须是现有列，"
+                        + "写反会把已确认身份改写成另一个人的")
+                .doesNotContain("pn_jid = COALESCE(VALUES(pn_jid), pn_jid)")
+                .doesNotContain("lid_jid = COALESCE(VALUES(lid_jid), lid_jid)");
+    }
+
     private static String sqlFragment(String xml, String id) {
         String open = "<sql id=\"" + id + "\">";
         int start = xml.indexOf(open);

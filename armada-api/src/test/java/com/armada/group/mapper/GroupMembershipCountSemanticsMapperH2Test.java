@@ -91,6 +91,8 @@ public class GroupMembershipCountSemanticsMapperH2Test {
 
     @Test
     void marketingTargetsReadCurrentBindingAndParticipantFacts() throws SQLException {
+        execute("UPDATE wa_account_group_binding "
+                + "SET was_in_initial_baseline = 0 WHERE id = 101");
         MarketingTargetCandidateRow current =
                 marketingTaskMapper.selectCurrentTargetGroup(501L, 2001L);
 
@@ -228,11 +230,11 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                   (2002, 7, 1001, 'wa://group/archived-alias', 'archived', 2, 900)
                 """);
 
-        assertThat(accountGroupMembershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(
+        assertThat(groupLinkMapper.selectIdByGroupJidIncludingDeleted(
                 "in-group@g.us")).isEqualTo(2001L);
 
         execute("UPDATE group_link SET deleted_at = 901 WHERE id = 2001");
-        assertThat(accountGroupMembershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(
+        assertThat(groupLinkMapper.selectIdByGroupJidIncludingDeleted(
                 "in-group@g.us")).isEqualTo(2001L);
     }
 
@@ -385,7 +387,8 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 INSERT INTO account_group_sync_state
                   (tenant_id, account_id, baseline_state, baseline_completeness,
                    last_sync_requested_at, last_snapshot_complete, created_at, updated_at)
-                VALUES (7, 502, 1, 0, 500, 0, 100, 100)
+                VALUES (7, 501, 2, 1, 0, 1, 100, 100),
+                       (7, 502, 1, 0, 500, 0, 100, 100)
                 """,
                 """
                 INSERT INTO account_group_membership

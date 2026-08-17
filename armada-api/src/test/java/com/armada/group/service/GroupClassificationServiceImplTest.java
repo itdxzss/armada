@@ -6,13 +6,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
-import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.model.vo.AccountGroupBaselineRow;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.impl.GroupClassificationServiceImpl;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,90 +21,84 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/** 历史群与上控后群固化分类真值表测试。 */
+/** 历史群与上控后群新模型分类测试。 */
 @ExtendWith(MockitoExtension.class)
 class GroupClassificationServiceImplTest {
 
     private static final long ACCOUNT_ID = 11L;
     private static final long CAPTURED_AT = 1_000L;
 
-    @Mock
-    private AccountGroupMembershipMapper membershipMapper;
-
-    @Mock
-    private GroupLinkMapper groupLinkMapper;
-
-    @Mock
-    private GroupLinkRegistryService registryService;
-
-    @Mock
-    private GroupMetadataSyncTaskService metadataSyncTaskService;
+    @Mock private AccountGroupCurrentSnapshotMapper currentSnapshotMapper;
+    @Mock private GroupLinkMapper groupLinkMapper;
+    @Mock private GroupLinkRegistryService registryService;
+    @Mock private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     private GroupClassificationService service;
 
     @BeforeEach
     void setUp() {
         service = new GroupClassificationServiceImpl(
-                membershipMapper,
-                groupLinkMapper,
-                registryService,
-                new ObjectMapper(),
-                metadataSyncTaskService);
+                currentSnapshotMapper, groupLinkMapper, registryService, metadataSyncTaskService);
     }
 
     @Test
-    void capturedSnapshotMarksBaselineAndPostControlWithoutClearingEitherFact() {
-        when(membershipMapper.selectAccountBaselineRow(ACCOUNT_ID))
-                .thenReturn(baseline(AccountGroupBaselineStateCode.CAPTURED));
-        GroupClassificationCandidate oldGroup = candidate(101L, "120363-old@g.us");
-        GroupClassificationCandidate newGroup = candidate(102L, "120363-new@g.us");
+    void capturedBindingsClassifyBaselineAndPostControlWithoutGuessingJoinedAt() {
+        when(currentSnapshotMapper.selectContext(ACCOUNT_ID)).thenReturn(context(2));
+        when(currentSnapshotMapper.selectExisting(
+                ACCOUNT_ID,
+                "15550000001@s.whatsapp.net",
+                List.of("120363-old@g.us", "120363-new@g.us")))
+                .thenReturn(List.of(
+                        existing("120363-old@g.us", 1, null),
+                        existing("120363-new@g.us", 0, 1_500L)));
         when(groupLinkMapper.markHistorical(101L, 2_000L)).thenReturn(1);
         when(groupLinkMapper.markPostControl(102L, 2_000L)).thenReturn(1);
 
-        service.classifyVisibleGroups(ACCOUNT_ID, List.of(oldGroup, newGroup), 2_000L);
+        service.classifyVisibleGroups(ACCOUNT_ID, List.of(
+                candidate(101L, "120363-old@g.us"),
+                candidate(102L, "120363-new@g.us")), 2_000L);
 
         verify(groupLinkMapper).markHistorical(101L, 2_000L);
         verify(groupLinkMapper).markPostControl(102L, 2_000L);
         verify(groupLinkMapper, never()).markPostControl(101L, 2_000L);
-        verify(groupLinkMapper, never()).markHistorical(102L, 2_000L);
         verify(metadataSyncTaskService).enqueue(
-                101L, com.armada.group.model.enums.GroupMetadataSyncTrigger.BASELINE_CAPTURED, 2_000L);
+                101L, GroupMetadataSyncTrigger.BASELINE_CAPTURED, 2_000L);
         verify(metadataSyncTaskService).enqueue(
-                102L, com.armada.group.model.enums.GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED, 2_000L);
+                102L, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED, 2_000L);
     }
 
     @Test
-    void pendingAndDisabledSnapshotsDoNotGuessClassification() {
-        when(membershipMapper.selectAccountBaselineRow(ACCOUNT_ID))
-                .thenReturn(baseline(AccountGroupBaselineStateCode.PENDING));
-        service.classifyVisibleGroups(ACCOUNT_ID, List.of(candidate(101L, "120363-new@g.us")), 2_000L);
+    void pendingBaselineDoesNotGuessClassification() {
+        when(currentSnapshotMapper.selectContext(ACCOUNT_ID)).thenReturn(context(1));
 
-        when(membershipMapper.selectAccountBaselineRow(ACCOUNT_ID))
-                .thenReturn(baseline(AccountGroupBaselineStateCode.DISABLED));
-        service.classifyVisibleGroups(ACCOUNT_ID, List.of(candidate(101L, "120363-new@g.us")), 3_000L);
+        service.classifyVisibleGroups(
+                ACCOUNT_ID, List.of(candidate(101L, "120363-new@g.us")), 2_000L);
 
         verifyNoInteractions(groupLinkMapper);
     }
 
     @Test
-    void preciseSelfAddRequiresCapturedBaselineOutsideJidAndLaterFactTime() {
-        when(membershipMapper.selectAccountBaselineRow(ACCOUNT_ID))
-                .thenReturn(baseline(AccountGroupBaselineStateCode.CAPTURED));
-        GroupClassificationCandidate oldGroup = candidate(101L, "120363-old@g.us");
-        GroupClassificationCandidate newGroup = candidate(102L, "120363-new@g.us");
+    void preciseAddAfterCapturedBaselineMarksOnlyNonBaselineBinding() {
+        when(currentSnapshotMapper.selectContext(ACCOUNT_ID)).thenReturn(context(2));
+        when(currentSnapshotMapper.selectSelfMembershipExisting(
+                ACCOUNT_ID, "15550000001@s.whatsapp.net", "120363-old@g.us"))
+                .thenReturn(existing("120363-old@g.us", 1, null));
+        when(currentSnapshotMapper.selectSelfMembershipExisting(
+                ACCOUNT_ID, "15550000001@s.whatsapp.net", "120363-new@g.us"))
+                .thenReturn(null);
         when(groupLinkMapper.markPostControl(102L, 2_001L)).thenReturn(1);
 
-        service.classifyMembershipAdded(ACCOUNT_ID, oldGroup, CAPTURED_AT + 1, 2_000L);
-        service.classifyMembershipAdded(ACCOUNT_ID, newGroup, CAPTURED_AT, 2_000L);
-        service.classifyMembershipAdded(ACCOUNT_ID, newGroup, CAPTURED_AT + 1, 2_001L);
+        service.classifyMembershipAdded(
+                ACCOUNT_ID, candidate(101L, "120363-old@g.us"), 1_001L, 2_000L);
+        service.classifyMembershipAdded(
+                ACCOUNT_ID, candidate(102L, "120363-new@g.us"), 1_001L, 2_001L);
 
-        verify(groupLinkMapper).markPostControl(102L, 2_001L);
         verify(groupLinkMapper, never()).markPostControl(101L, 2_000L);
-        verify(groupLinkMapper, never()).markPostControl(102L, 2_000L);
+        verify(groupLinkMapper).markPostControl(102L, 2_001L);
     }
 
     @Test
-    void initialBaselineRegistersEveryGroupThenMarksHistorical() {
+    void initialBaselineRegistersThenMarksHistorical() {
         when(registryService.registerAccountObservedGroup(
                 "120363-old@g.us", "历史群", ProtocolBackend.WEB, 2_000L))
                 .thenReturn(101L);
@@ -115,21 +110,24 @@ class GroupClassificationServiceImplTest {
                 2_000L);
 
         verify(groupLinkMapper).markHistorical(101L, 2_000L);
-        verify(groupLinkMapper, never()).markPostControl(101L, 2_000L);
         verify(metadataSyncTaskService).enqueue(
-                101L, com.armada.group.model.enums.GroupMetadataSyncTrigger.BASELINE_CAPTURED, 2_000L);
+                101L, GroupMetadataSyncTrigger.BASELINE_CAPTURED, 2_000L);
     }
 
-    private static GroupClassificationCandidate candidate(long groupLinkId, String groupJid) {
-        return new GroupClassificationCandidate(groupLinkId, groupJid, null);
+    private static GroupClassificationCandidate candidate(long id, String jid) {
+        return new GroupClassificationCandidate(id, jid, null);
     }
 
-    private static AccountGroupBaselineRow baseline(int state) {
-        AccountGroupBaselineRow row = new AccountGroupBaselineRow();
-        row.setAccountId(ACCOUNT_ID);
-        row.setGroupBaselineState(state);
-        row.setBaselineGroupJidsJson("[\"120363-old@g.us\"]");
-        row.setCapturedAt(CAPTURED_AT);
-        return row;
+    private static Context context(int state) {
+        return new Context(
+                ACCOUNT_ID, "15550000001", "WEB", "acc-11", state,
+                state == AccountGroupBaselineStateCode.CAPTURED ? 1 : 0,
+                1, CAPTURED_AT, null);
+    }
+
+    private static Existing existing(String jid, int baseline, Long postControlAt) {
+        return new Existing(
+                jid, 1L, 2L, 1, "GROUP_SNAPSHOT", 1_500L,
+                3L, baseline, postControlAt, null);
     }
 }

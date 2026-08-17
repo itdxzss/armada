@@ -265,7 +265,7 @@
       ON current_sync.tenant_id = a.tenant_id
      AND current_sync.account_id = a.id
     WHERE a.deleted_at IS NULL
-      AND a.group_baseline_state IN (#{baselineCapturedState}, 3)
+      AND current_sync.baseline_state IN (#{baselineCapturedState}, 3)
       AND a.protocol_account_id IS NOT NULL
       AND a.protocol_account_id != ''
       AND s.login_state = #{onlineLoginState}
@@ -286,32 +286,21 @@
   <select id="selectGroupBaselineStatesByTenantAndAccountIds"
           resultType="com.armada.account.model.vo.AccountGroupBaselineStateRow">
     <if test="accountIds != null and accountIds.size() &gt; 0">
-    SELECT id AS accountId,
-           group_baseline_state AS groupBaselineState
+    SELECT account.id AS accountId,
+           current_sync.baseline_state AS groupBaselineState
     FROM account
-    WHERE tenant_id = #{tenantId}
-      AND deleted_at IS NULL
-      AND id IN
+    LEFT JOIN account_group_sync_state current_sync
+      ON current_sync.tenant_id = account.tenant_id
+     AND current_sync.account_id = account.id
+    WHERE account.tenant_id = #{tenantId}
+      AND account.deleted_at IS NULL
+      AND account.id IN
     <foreach collection="accountIds" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>
     <if test="accountIds == null or accountIds.size() == 0">
     SELECT NULL AS accountId, NULL AS groupBaselineState FROM account WHERE 1=0
     </if>
   </select>
-
-  <insert id="markGroupSyncRequested">
-    INSERT INTO account_group_baseline (
-      account_id, baseline_group_jids, group_count, captured_at,
-      last_group_sync_requested_at, created_at, updated_at
-    )
-    VALUES
-    <foreach collection="accountIds" item="id" separator=",">
-      (#{id}, JSON_ARRAY(), 0, #{requestedAt}, #{requestedAt}, #{requestedAt}, #{requestedAt})
-    </foreach>
-    ON DUPLICATE KEY UPDATE
-      last_group_sync_requested_at = VALUES(last_group_sync_requested_at),
-      updated_at = VALUES(updated_at)
-  </insert>
 
   <insert id="markCurrentGroupSyncRequested">
     INSERT INTO account_group_sync_state (

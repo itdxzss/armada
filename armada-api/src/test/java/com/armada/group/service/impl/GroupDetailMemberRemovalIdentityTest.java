@@ -13,7 +13,6 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -55,14 +54,12 @@ class GroupDetailMemberRemovalIdentityTest {
     private static final String PHONE = "919123456789";
 
     @Mock private GroupLinkMapper groupLinkMapper;
-    @Mock private GroupLinkPreviewMapper previewMapper;
     @Mock private GroupExecutionAccountSelector selector;
     @Mock private FixedAccountGroupMetadataPort groupMetadataPort;
     @Mock private GroupProfilePort groupProfilePort;
     @Mock private GroupSettingsPort groupSettingsPort;
     @Mock private GroupParticipantPort groupParticipantPort;
     @Mock private GroupDetailSnapshotReader snapshotReader;
-    @Mock private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
     @Mock private GroupMetadataSyncTaskService metadataSyncTaskService;
     @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
     @Mock private GroupCurrentLocalPersistence currentLocalPersistence;
@@ -76,7 +73,6 @@ class GroupDetailMemberRemovalIdentityTest {
         TenantContext.set(7L);
         service = new GroupDetailServiceImpl(
                 groupLinkMapper,
-                previewMapper,
                 selector,
                 new GroupDetailProtocolPorts(
                         groupMetadataPort,
@@ -84,7 +80,6 @@ class GroupDetailMemberRemovalIdentityTest {
                         groupSettingsPort,
                         groupParticipantPort),
                 snapshotReader,
-                memberSnapshotMapper,
                 metadataSyncTaskService,
                 currentSnapshotPersistence,
                 currentLocalPersistence,
@@ -116,8 +111,6 @@ class GroupDetailMemberRemovalIdentityTest {
         });
         verify(businessDepartureService).recordConfirmedRemovals(
                 eq(7L), eq(GROUP_JID), anyMap(), anyLong(), startsWith("group-detail:10:"));
-        verify(memberSnapshotMapper).deleteParticipants(
-                GROUP_LINK_ID, List.of(REQUESTED_JID));
     }
 
     @Test
@@ -131,7 +124,6 @@ class GroupDetailMemberRemovalIdentityTest {
         GroupMemberBatchResultVO result = kickRequestedMember();
 
         assertUnknown(result, REQUESTED_JID);
-        verify(memberSnapshotMapper, never()).deleteParticipants(anyLong(), anyList());
         verifyNoInteractions(businessDepartureService, metadataSyncTaskService);
     }
 
@@ -146,7 +138,6 @@ class GroupDetailMemberRemovalIdentityTest {
         GroupMemberBatchResultVO result = kickRequestedMember();
 
         assertUnknown(result, REQUESTED_JID);
-        verify(memberSnapshotMapper, never()).deleteParticipants(anyLong(), anyList());
         verifyNoInteractions(businessDepartureService, metadataSyncTaskService);
     }
 
@@ -164,7 +155,6 @@ class GroupDetailMemberRemovalIdentityTest {
         GroupMemberBatchResultVO result = kickRequestedMember();
 
         assertUnknown(result, REQUESTED_JID);
-        verify(memberSnapshotMapper, never()).deleteParticipants(anyLong(), anyList());
         verifyNoInteractions(businessDepartureService, metadataSyncTaskService);
     }
 
@@ -183,7 +173,6 @@ class GroupDetailMemberRemovalIdentityTest {
                 GROUP_LINK_ID, new GroupMemberBatchCommandDTO(List.of(LID_JID)));
 
         assertUnknown(result, LID_JID);
-        verify(memberSnapshotMapper, never()).deleteParticipants(anyLong(), anyList());
         verifyNoInteractions(businessDepartureService, metadataSyncTaskService);
     }
 
@@ -204,8 +193,6 @@ class GroupDetailMemberRemovalIdentityTest {
         });
         verify(businessDepartureService).recordConfirmedRemovals(
                 eq(7L), eq(GROUP_JID), anyMap(), anyLong(), startsWith("group-detail:10:"));
-        verify(memberSnapshotMapper).deleteParticipants(
-                GROUP_LINK_ID, List.of(REQUESTED_JID));
         verifyNoInteractions(metadataSyncTaskService);
     }
 
@@ -222,8 +209,6 @@ class GroupDetailMemberRemovalIdentityTest {
         assertThat(result.ok()).isTrue();
         verify(businessDepartureService).recordConfirmedRemovals(
                 eq(7L), eq(GROUP_JID), anyMap(), anyLong(), startsWith("group-detail:10:"));
-        verify(memberSnapshotMapper).deleteParticipants(
-                GROUP_LINK_ID, List.of(REQUESTED_JID));
         verifyNoInteractions(metadataSyncTaskService);
     }
 

@@ -1,8 +1,6 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupMemberBatchCommandDTO;
 import com.armada.group.model.dto.GroupParticipantObservation;
@@ -113,9 +111,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 群链接本地资料 Mapper。 */
     private final GroupLinkMapper groupLinkMapper;
 
-    /** 旧群资料镜像双写 Mapper。 */
-    private final GroupLinkPreviewMapper previewMapper;
-
     /** 写操作所用的在线、在群且优先管理员执行账号选择器。 */
     private final GroupExecutionAccountSelector selector;
 
@@ -124,9 +119,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
 
     /** 当前群资料、成员和同步任务读取器。 */
     private final GroupDetailSnapshotReader snapshotReader;
-
-    /** 群成员最后成功快照 Mapper。 */
-    private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
 
     /** 群详情异步同步任务状态机。 */
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
@@ -137,34 +129,29 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /** 新群模型本地展示字段写入。 */
     private final GroupCurrentLocalPersistence currentLocalPersistence;
 
-    /** 已确认踢出事实的旧缓存与新群模型双写入口。 */
+    /** 已确认踢出事实写入当前成员模型的入口。 */
     private final WhatsappGroupBusinessDepartureService businessDepartureService;
 
     /**
      * 创建群详情业务服务。
      *
      * @param groupLinkMapper 群链接本地资料 Mapper
-     * @param previewMapper   旧群资料镜像双写 Mapper
      * @param selector        群操作执行账号选择器
      * @param protocolPorts   群元数据、资料、设置和成员协议端口集合
      */
     public GroupDetailServiceImpl(
             GroupLinkMapper groupLinkMapper,
-            GroupLinkPreviewMapper previewMapper,
             GroupExecutionAccountSelector selector,
             GroupDetailProtocolPorts protocolPorts,
             GroupDetailSnapshotReader snapshotReader,
-            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
             GroupMetadataSyncTaskService metadataSyncTaskService,
             AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
             GroupCurrentLocalPersistence currentLocalPersistence,
             WhatsappGroupBusinessDepartureService businessDepartureService) {
         this.groupLinkMapper = groupLinkMapper;
-        this.previewMapper = previewMapper;
         this.selector = selector;
         this.protocolPorts = protocolPorts;
         this.snapshotReader = snapshotReader;
-        this.memberSnapshotMapper = memberSnapshotMapper;
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
         this.currentLocalPersistence = currentLocalPersistence;
@@ -350,8 +337,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             result = new GroupPictureResult(true, confirmedUrl);
         }
         long observedAt = System.currentTimeMillis();
-        boolean mirrorSynced = result.avatarUrl() != null
-                && previewMapper.upsertAvatarUrl(id, result.avatarUrl(), observedAt) > 0;
+        boolean mirrorSynced = result.avatarUrl() != null;
         if (mirrorSynced) {
             currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
                     id, null, false, null, false, result.avatarUrl(), true, observedAt));
@@ -445,21 +431,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     private void persistConfirmedSetting(
             Long groupLinkId, String groupJid, GroupPermissionKey key, boolean enabled) {
         long now = System.currentTimeMillis();
-        int updated = switch (key) {
-            case EDIT_GROUP_SETTINGS -> previewMapper.updateAdminOnlyEditInfo(
-                    groupLinkId, !enabled, now);
-            case SEND_MESSAGES -> previewMapper.updateAnnounceOnly(
-                    groupLinkId, !enabled, now);
-            case ADD_MEMBERS -> previewMapper.updateMemberAddMode(
-                    groupLinkId, enabled, now);
-            case ADMIN_APPROVE_NEW_MEMBERS -> previewMapper.updateJoinApprovalMode(
-                    groupLinkId, enabled, now);
-            case INVITE_VIA_LINK -> previewMapper.updateMemberLinkMode(
-                    groupLinkId, enabled, now);
-        };
-        if (updated == 0) {
-            log.warn("群权限已确认但本地快照未更新 groupLinkId={} key={}", groupLinkId, key);
-        }
         GroupLinkPreview current = confirmedSetting(groupJid, key, enabled, now);
         if (current != null) {
             currentSnapshotPersistence.applyConfirmedMetadata(current);
@@ -637,7 +608,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (successCount > 0) {
             persistConfirmedMemberChanges(
                     id, target.groupJid(), action, successfulJids, membersBefore);
-            // REMOVE 已由同账号实时回读确认并即时双写，禁止再排队可能回灌旧视图的全量刷新。
+            // REMOVE 已由同账号实时回读确认并写入当前模型，禁止再排队可能回灌旧事实的全量刷新。
             if (action != GroupParticipantAction.REMOVE) {
                 enqueueMetadataRefresh(id);
             }
@@ -740,7 +711,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     participantPhones,
                     removedAt,
                     "group-detail:" + groupLinkId + ":" + removedAt);
-            memberSnapshotMapper.deleteParticipants(groupLinkId, successfulJids);
             return;
         }
         Boolean admin = switch (action) {
@@ -763,13 +733,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                             "group-detail-role:" + groupLinkId + ":" + observedAt + ":" + jid);
                 })
                 .toList());
-        int updated = memberSnapshotMapper.updateAdminRole(
-                groupLinkId, successfulJids, admin, observedAt);
-        if (updated < successfulJids.size()) {
-            log.warn("管理员角色已确认但本地快照未全部更新 groupLinkId={} action={} "
-                            + "targetCount={} updatedCount={}",
-                    groupLinkId, action, successfulJids.size(), updated);
-        }
     }
 
     private void enqueueMetadataRefresh(Long groupLinkId) {

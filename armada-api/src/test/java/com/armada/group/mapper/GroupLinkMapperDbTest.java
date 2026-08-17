@@ -8,24 +8,17 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
-import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
-import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
-import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
-import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -47,12 +40,6 @@ class GroupLinkMapperDbTest extends DbTestBase {
     private GroupLinkImportBatchMapper batchMapper;
 
     @Autowired
-    private GroupLinkPreviewMapper previewMapper;
-
-    @Autowired
-    private GroupLinkHealthMapper healthMapper;
-
-    @Autowired
     private AccountMapper accountMapper;
 
     @Autowired
@@ -60,9 +47,6 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @Autowired
-    private SqlSessionFactory sqlSessionFactory;
 
     // ---- 辅助方法 ----
 
@@ -98,15 +82,6 @@ class GroupLinkMapperDbTest extends DbTestBase {
         link.setCreatedAt(now);
         link.setUpdatedAt(now);
         return link;
-    }
-
-    private String countByLabelSql(GroupLinkQuery query) {
-        return sqlSessionFactory.getConfiguration()
-                .getMappedStatement("com.armada.group.mapper.GroupLinkMapper.countByLabel")
-                .getBoundSql(query)
-                .getSql()
-                .replaceAll("\\s+", " ")
-                .toLowerCase(Locale.ROOT);
     }
 
     // ---- 测试 ----
@@ -217,144 +192,10 @@ class GroupLinkMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void selectPageByLabel_joinsSourceFileName() {
-        GroupLinkLabel label = insertLabel("JOIN测试分组");
-        GroupLinkImportBatch batch = insertBatch(label.getId(), "source.xlsx");
-
-        mapper.insert(buildLink("chat.whatsapp.com/JoinTest1", label.getId(), batch.getId()));
-        mapper.insert(buildLink("chat.whatsapp.com/JoinTest2", label.getId(), batch.getId()));
-
-        GroupLinkQuery query = new GroupLinkQuery();
-        query.setLabelId(label.getId());
-        query.setPage(1);
-        query.setPageSize(10);
-
-        long total = mapper.countByLabel(query);
-        assertThat(total).isEqualTo(2);
-
-        List<GroupLinkVoRow> rows = mapper.selectPageByLabel(query);
-        assertThat(rows).hasSize(2);
-        // 每行应 JOIN 出 sourceFileName
-        rows.forEach(r -> assertThat(r.getSourceFileName()).isEqualTo("source.xlsx"));
-    }
-
-    @Test
-    void selectPageByLabel_returnsWsGroupListProjectionAndFilters() {
-        GroupLinkLabel label = insertLabel("群组列表主查询分组");
-        GroupLinkImportBatch batch = insertBatch(label.getId(), "main-query-source.xlsx");
-
-        GroupLink link = buildLink("chat.whatsapp.com/MainQueryProjection", label.getId(), batch.getId());
-        link.setGroupName(null);
-        link.setOrigin(GroupLinkOrigin.IMPORT.code());
-        link.setMembershipState(GroupMembershipState.JOINED.code());
-        link.setRemark("运营备注");
-        mapper.insert(link);
-
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(link.getId());
-        preview.setGroupJid("1203630mainquery@g.us");
-        preview.setInviteCode("MainQueryProjection");
-        preview.setWaSubject("WA真实群名-主查询");
-        preview.setMemberSize(42);
-        preview.setOwnerPhone("8613800000011");
-        preview.setOwnerPhoneObserved(true);
-        preview.setAvatarUrl("https://cdn.example.com/group.png");
-        preview.setLastPreviewAt(1_717_200_000_000L);
-        preview.setCreatedAt(1_717_200_000_000L);
-        preview.setUpdatedAt(1_717_200_000_000L);
-        previewMapper.upsert(preview);
-
-        GroupLinkHealth health = new GroupLinkHealth();
-        health.setGroupLinkId(link.getId());
-        health.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
-        health.setBanned(false);
-        health.setCurrentCount(45);
-        health.setLastCheckAt(1_717_200_100_000L);
-        health.setLastHealthError(null);
-        health.setHealthFailureCount(0);
-        health.setCreatedAt(1_717_200_100_000L);
-        health.setUpdatedAt(1_717_200_100_000L);
-        healthMapper.upsert(health);
-
-        jdbc.update("""
-                INSERT INTO join_task_result
-                    (tenant_id, join_task_id, account, account_id, link, status, reason,
-                     group_jid, is_admin, promoted_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                TEST_TENANT_ID, 990001L, "8611111111111", 101L, link.getLinkUrl(), "SUCCESS", "",
-                "1203630mainquery@g.us", 1, 1_717_200_200_000L, 1_717_200_000_000L, 1_717_200_200_000L,
-                TEST_TENANT_ID, 990002L, "8622222222222", 102L, link.getLinkUrl(), "SUCCESS", "",
-                "1203630mainquery@g.us", 1, 1_717_200_300_000L, 1_717_200_000_000L, 1_717_200_300_000L);
-
-        GroupLinkQuery query = new GroupLinkQuery();
-        query.setKeyword("WA真实群名-主查询");
-        query.setStatus("AVAILABLE");
-        query.setSourceFileName("main-query-source.xlsx");
-        query.setOrigin(GroupLinkOrigin.IMPORT.code());
-        query.setPage(1);
-        query.setPageSize(10);
-
-        assertThat(mapper.countByLabel(query)).isEqualTo(1);
-        List<GroupLinkVoRow> rows = mapper.selectPageByLabel(query);
-
-        assertThat(rows).hasSize(1);
-        GroupLinkVoRow row = rows.get(0);
-        assertThat(row.getId()).isEqualTo(link.getId());
-        assertThat(row.getGroupName()).isEqualTo("WA真实群名-主查询");
-        assertThat(row.getUrl()).isEqualTo("chat.whatsapp.com/MainQueryProjection");
-        assertThat(row.getSourceFileName()).isEqualTo("main-query-source.xlsx");
-        assertThat(row.getGroupJid()).isEqualTo("1203630mainquery@g.us");
-        assertThat(row.getAvatarUrl()).isEqualTo("https://cdn.example.com/group.png");
-        assertThat(row.getOwnerPhone()).isEqualTo("8613800000011");
-        assertThat(row.getHealthStatus()).isEqualTo(GroupLinkHealthStatus.AVAILABLE.code());
-        assertThat(row.getBanned()).isFalse();
-        assertThat(row.getMemberSize()).isEqualTo(42);
-        assertThat(row.getCurrentCount()).isEqualTo(45);
-        assertThat(row.getAdmin()).isEqualTo("8611111111111, 8622222222222");
-        assertThat(row.getOrigin()).isEqualTo(GroupLinkOrigin.IMPORT.code());
-        assertThat(row.getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
-        assertThat(row.getRemark()).isEqualTo("运营备注");
-        assertThat(row.getLastPreviewAt()).isEqualTo(1_717_200_000_000L);
-        assertThat(row.getLastCheckAt()).isEqualTo(1_717_200_100_000L);
-
-        query.setKeyword("8622222222222");
-        assertThat(mapper.countByLabel(query)).isEqualTo(1);
-        assertThat(mapper.selectPageByLabel(query)).hasSize(1);
-    }
-
-    @Test
-    void countByLabel_withoutKeyword_doesNotBuildAdminAggregation() {
-        GroupLinkQuery query = new GroupLinkQuery();
-        query.setPage(1);
-        query.setPageSize(10);
-
-        String sql = countByLabelSql(query);
-
-        assertThat(sql).doesNotContain("join_task_result");
-        assertThat(sql).doesNotContain("group_concat");
-    }
-
-    @Test
-    void countByLabel_withKeywordSearchesAdminWithoutGroupConcatAggregation() {
-        GroupLinkQuery query = new GroupLinkQuery();
-        query.setKeyword("8611111111111");
-        query.setPage(1);
-        query.setPageSize(10);
-
-        String sql = countByLabelSql(query);
-
-        assertThat(sql).contains("exists");
-        assertThat(sql).contains("join_task_result");
-        assertThat(sql).doesNotContain("group_concat");
-    }
-
-    @Test
     void selectHealthCheckCandidates_requiresResolvedGroupJidAndOnlineJoinedAccount() {
         GroupLink eligible = buildLink("chat.whatsapp.com/HealthCheckEligible", null, null);
         mapper.insert(eligible);
         upsertPreview(eligible.getId(), "1203630healthcheck@g.us");
-        upsertLegacyHealth(eligible.getId(), true);
 
         Account member = insertAccount("8613000001001", "acc_member", AccountLoginStateCode.ONLINE);
         Account admin = insertAccount("8613000001002", "acc_admin", AccountLoginStateCode.ONLINE);
@@ -401,25 +242,14 @@ class GroupLinkMapperDbTest extends DbTestBase {
         int deleted = mapper.softDeleteByLabelIds(List.of(label.getId()), System.currentTimeMillis());
         assertThat(deleted).isEqualTo(2);
 
-        // 分页查不到(活跃=0)
-        GroupLinkQuery query = new GroupLinkQuery();
-        query.setLabelId(label.getId());
-        query.setPage(1);
-        query.setPageSize(10);
-
-        assertThat(mapper.countByLabel(query)).isEqualTo(0);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM group_link WHERE label_id = ? AND deleted_at IS NULL",
+                Integer.class,
+                label.getId())).isZero();
     }
 
     private void upsertPreview(Long groupLinkId, String groupJid) {
         long now = System.currentTimeMillis();
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(groupLinkId);
-        preview.setGroupJid(groupJid);
-        preview.setInviteCode("HealthCheckCandidate");
-        preview.setWaSubject("健康检测候选群");
-        preview.setCreatedAt(now);
-        preview.setUpdatedAt(now);
-        previewMapper.upsert(preview);
         if (groupJid == null) {
             return;
         }
@@ -439,18 +269,6 @@ class GroupLinkMapperDbTest extends DbTestBase {
         jdbc.update("""
                 UPDATE group_link SET group_id = ? WHERE tenant_id = ? AND id = ?
                 """, groupId, TEST_TENANT_ID, groupLinkId);
-    }
-
-    private void upsertLegacyHealth(Long groupLinkId, boolean banned) {
-        long now = System.currentTimeMillis();
-        GroupLinkHealth health = new GroupLinkHealth();
-        health.setGroupLinkId(groupLinkId);
-        health.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
-        health.setBanned(banned);
-        health.setHealthFailureCount(0);
-        health.setCreatedAt(now);
-        health.setUpdatedAt(now);
-        healthMapper.upsert(health);
     }
 
     private Account insertAccount(String phone, String protocolAccountId, int loginState) {

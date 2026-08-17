@@ -18,7 +18,6 @@ import com.armada.account.model.entity.Account;
 import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupFolderMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
@@ -82,9 +81,6 @@ class GroupLinkServiceImplTest {
     private GroupLinkPreviewMapper previewMapper;
 
     @Mock
-    private GroupLinkHealthMapper healthMapper;
-
-    @Mock
     private GroupLinkLabelMapper labelMapper;
 
     @Mock
@@ -111,7 +107,7 @@ class GroupLinkServiceImplTest {
     void setUp() {
         TenantContext.set(TENANT_ID);
         service = new GroupLinkServiceImpl(
-                groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, healthMapper, labelMapper,
+                groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, labelMapper,
                 converter, accountMapper, groupPreviewPort, groupProfilePort,
                 currentLocalPersistence, currentInvitePersistence);
     }
@@ -164,7 +160,6 @@ class GroupLinkServiceImplTest {
         assertThat(result.total()).isEqualTo(0L);
         assertThat(result.list()).isEmpty();
         verify(groupListCurrentMapper, never()).selectPage(anyLong(), any());
-        verify(groupLinkMapper, never()).countByLabel(any());
     }
 
     @Test
@@ -335,7 +330,7 @@ class GroupLinkServiceImplTest {
                 " https://cdn.example.test/group-a.jpg "));
 
         verify(groupLinkMapper).updateProfile(eq(10L), eq("运营群A"), eq("重点客户"), anyLong());
-        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group-a.jpg"), anyLong());
+        verify(currentLocalPersistence).applyProfile(any(GroupCurrentLocalProfileWrite.class));
     }
 
     @Test
@@ -354,7 +349,7 @@ class GroupLinkServiceImplTest {
                 "https://cdn.example.test/group-a.jpg"));
 
         verify(groupLinkMapper).updateProfile(eq(10L), eq("旧群名"), eq("旧备注"), anyLong());
-        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group-a.jpg"), anyLong());
+        verify(currentLocalPersistence).applyProfile(any(GroupCurrentLocalProfileWrite.class));
     }
 
     @Test
@@ -365,7 +360,7 @@ class GroupLinkServiceImplTest {
 
         verify(groupLinkMapper, never()).selectActiveById(anyLong());
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
-        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+        verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
@@ -377,7 +372,7 @@ class GroupLinkServiceImplTest {
                 .hasMessageContaining("群链接不存在或已删除");
 
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
-        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+        verifyNoInteractions(currentLocalPersistence);
     }
 
     // ---- remote group profile commands ----
@@ -395,7 +390,7 @@ class GroupLinkServiceImplTest {
 
         verify(groupProfilePort).updateDescription(accountRef(), "120363profile@g.us", "群描述");
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
-        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+        verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
@@ -411,7 +406,7 @@ class GroupLinkServiceImplTest {
 
         verify(groupProfilePort).updateAnnouncementText(accountRef(), "120363profile@g.us", "群公告");
         verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
-        verify(previewMapper, never()).upsertAvatarUrl(anyLong(), any(), anyLong());
+        verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
@@ -428,7 +423,6 @@ class GroupLinkServiceImplTest {
 
         verify(groupProfilePort).updatePicture(accountRef(), "120363profile@g.us",
                 "https://cdn.example.test/group.jpg", null);
-        verify(previewMapper).upsertAvatarUrl(eq(10L), eq("https://cdn.example.test/group.jpg"), anyLong());
         ArgumentCaptor<GroupCurrentLocalProfileWrite> currentWrite =
                 ArgumentCaptor.forClass(GroupCurrentLocalProfileWrite.class);
         verify(currentLocalPersistence).applyProfile(currentWrite.capture());
@@ -578,26 +572,23 @@ class GroupLinkServiceImplTest {
         assertThat(result.items().get(0).groupJid()).isEqualTo("120363preview@g.us");
         assertThat(result.items().get(0).ownerPhone()).isEqualTo("8613999999999");
 
-        ArgumentCaptor<GroupLinkPreview> previewCaptor = ArgumentCaptor.forClass(GroupLinkPreview.class);
-        verify(previewMapper).upsert(previewCaptor.capture());
-        assertThat(previewCaptor.getValue().getGroupLinkId()).isEqualTo(10L);
-        assertThat(previewCaptor.getValue().getGroupJid()).isEqualTo("120363preview@g.us");
-        assertThat(previewCaptor.getValue().getWaSubject()).isEqualTo("预览群");
-        assertThat(previewCaptor.getValue().getMemberSize()).isEqualTo(12);
-        assertThat(previewCaptor.getValue().getOwnerPhone()).isEqualTo("8613999999999");
-        assertThat(previewCaptor.getValue().getOwnerPhoneObserved()).isTrue();
-        assertThat(previewCaptor.getValue().getAnnounceOnly()).isTrue();
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupLinkPreview>> previewRows = ArgumentCaptor.forClass(List.class);
+        verify(previewMapper).upsertCreatorCompatibility(previewRows.capture());
+        GroupLinkPreview previewRow = previewRows.getValue().get(0);
+        assertThat(previewRow.getGroupLinkId()).isEqualTo(10L);
+        assertThat(previewRow.getOwnerPhone()).isEqualTo("8613999999999");
+        assertThat(previewRow.getOwnerPhoneObserved()).isTrue();
 
         ArgumentCaptor<GroupLinkHealth> healthCaptor = ArgumentCaptor.forClass(GroupLinkHealth.class);
-        verify(healthMapper).upsert(healthCaptor.capture());
+        verify(currentInvitePersistence).applyHealth(
+                eq("120363preview@g.us"), healthCaptor.capture());
         assertThat(healthCaptor.getValue().getGroupLinkId()).isEqualTo(10L);
         assertThat(healthCaptor.getValue().getHealthStatus()).isEqualTo(1);
         assertThat(healthCaptor.getValue().getBanned()).isFalse();
         assertThat(healthCaptor.getValue().getCurrentCount()).isEqualTo(12);
         assertThat(healthCaptor.getValue().getLastHealthError()).isNull();
         assertThat(healthCaptor.getValue().getHealthFailureCount()).isZero();
-        verify(currentInvitePersistence).applyHealth(
-                "120363preview@g.us", healthCaptor.getValue());
     }
 
     @Test
@@ -614,8 +605,7 @@ class GroupLinkServiceImplTest {
         OwnerPreviewOutcome outcome = previewOwner("193088878297313");
 
         assertThat(outcome.responsePhone()).isNull();
-        assertThat(outcome.persisted().getOwnerPhone()).isNull();
-        assertThat(outcome.persisted().getOwnerPhoneObserved()).isFalse();
+        assertThat(outcome.persisted()).isNull();
     }
 
     private OwnerPreviewOutcome previewOwner(String ownerJid) {
@@ -643,11 +633,16 @@ class GroupLinkServiceImplTest {
 
         GroupLinkPreviewBatchVO result = service.previewBatch(
                 new GroupLinkPreviewDTO(7L, List.of(10L)));
-        ArgumentCaptor<GroupLinkPreview> captor = ArgumentCaptor.forClass(GroupLinkPreview.class);
-        verify(previewMapper).upsert(captor.capture());
+        if (!ownerJid.endsWith("@lid") && !ownerJid.endsWith("@s.whatsapp.net")) {
+            verify(previewMapper, never()).upsertCreatorCompatibility(any());
+            return new OwnerPreviewOutcome(result.items().get(0).ownerPhone(), null);
+        }
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupLinkPreview>> rows = ArgumentCaptor.forClass(List.class);
+        verify(previewMapper).upsertCreatorCompatibility(rows.capture());
         return new OwnerPreviewOutcome(
                 result.items().get(0).ownerPhone(),
-                captor.getValue());
+                rows.getValue().get(0));
     }
 
     private record OwnerPreviewOutcome(String responsePhone, GroupLinkPreview persisted) {

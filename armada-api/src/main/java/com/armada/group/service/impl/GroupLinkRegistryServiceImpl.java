@@ -1,9 +1,7 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
@@ -42,10 +40,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     /** 群入口数据访问。 */
     private final GroupLinkMapper groupLinkMapper;
 
-    /** 账号在群关系及群信息快照数据访问。 */
-    private final AccountGroupMembershipMapper membershipMapper;
-
-    /** 当前邀请码到原群入口的数据访问。 */
+    /** 旧列表创建者字段兼容数据访问。 */
     private final GroupLinkPreviewMapper previewMapper;
 
     /** 新群模型当前关系写入。 */
@@ -55,16 +50,13 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      * 创建群组池登记服务。
      *
      * @param groupLinkMapper 群入口数据访问
-     * @param membershipMapper 账号在群关系及群信息快照数据访问
-     * @param previewMapper 当前邀请码事实数据访问
+     * @param previewMapper 旧列表创建者字段兼容数据访问
      * @param currentSnapshotPersistence 新群模型当前关系写入
      */
     public GroupLinkRegistryServiceImpl(GroupLinkMapper groupLinkMapper,
-                                        AccountGroupMembershipMapper membershipMapper,
                                         GroupLinkPreviewMapper previewMapper,
                                         AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.groupLinkMapper = groupLinkMapper;
-        this.membershipMapper = membershipMapper;
         this.previewMapper = previewMapper;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
@@ -92,7 +84,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         String normalizedJid = normalizeRequired(groupJid, "账号群同步缺少 groupJid");
         String normalizedName = clamp(blankToNull(groupName), 128);
         int syncProtocolMask = observedBackend == ProtocolBackend.ANDROID ? 2 : 1;
-        Long groupLinkId = membershipMapper.selectGroupLinkIdByGroupJidIncludingDeleted(normalizedJid);
+        Long groupLinkId = groupLinkMapper.selectIdByGroupJidIncludingDeleted(normalizedJid);
         if (groupLinkId == null) {
             GroupLink row = new GroupLink();
             row.setLinkUrl(SELF_BUILT_LINK_PREFIX + normalizedJid);
@@ -109,7 +101,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             }
             return resolved.getId();
         }
-        membershipMapper.touchGroupLinkFromAccountSync(
+        groupLinkMapper.touchAccountObservedGroup(
                 groupLinkId, normalizedName, syncProtocolMask, now);
         return groupLinkId;
     }
@@ -163,7 +155,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      * @return 复用、复活或新建后的 {@code group_link.id}
      */
     private Long registerOne(String url, long now, GroupLinkOrigin origin) {
-        Long currentInviteGroupLinkId = previewMapper.selectActiveGroupLinkIdByInviteCode(
+        Long currentInviteGroupLinkId = groupLinkMapper.selectActiveIdByInviteCode(
                 inviteCode(url));
         if (currentInviteGroupLinkId != null && currentInviteGroupLinkId > 0) {
             return currentInviteGroupLinkId;
@@ -243,10 +235,13 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         preview.setMemberSize(memberCount);
         preview.setOwnerPhone(clamp(blankToNull(ownerPhone), 32));
         preview.setOwnerPhoneObserved(true);
+        preview.setCreatorCountryObserved(false);
         preview.setLastPreviewAt(now);
+        preview.setMetadataObservedAt(now);
         preview.setCreatedAt(now);
         preview.setUpdatedAt(now);
-        membershipMapper.upsertPreviewFromAccountSync(preview);
+        previewMapper.upsertCreatorCompatibility(List.of(preview));
+        currentSnapshotPersistence.applyConfirmedMetadata(preview);
         upsertKnownMembership(groupLinkId, normalizedJid, ownerAccountId, true, "SELF_BUILT", now);
         return groupLinkId;
     }
@@ -298,19 +293,6 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             boolean admin,
             String source,
             long now) {
-        AccountGroupMembership membership = new AccountGroupMembership();
-        membership.setAccountId(accountId);
-        membership.setGroupLinkId(groupLinkId);
-        membership.setGroupJid(groupJid);
-        membership.setAdmin(admin);
-        membership.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
-        membership.setStatusSource(source);
-        membership.setStatusUpdatedAt(now);
-        membership.setJoinedAt(now);
-        membership.setLastSeenAt(now);
-        membership.setCreatedAt(now);
-        membership.setUpdatedAt(now);
-        membershipMapper.upsertMembership(membership);
         String eventId = "registry:" + groupLinkId + ":" + accountId + ":" + now;
         currentSnapshotPersistence.applySelfMembershipChanged(
                 accountId, groupJid, AccountGroupMembershipStatus.IN_GROUP,

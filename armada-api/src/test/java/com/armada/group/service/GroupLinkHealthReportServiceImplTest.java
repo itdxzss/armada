@@ -2,13 +2,10 @@ package com.armada.group.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -17,8 +14,6 @@ import com.armada.group.service.impl.GroupCurrentInvitePersistence;
 import com.armada.group.service.impl.GroupLinkHealthReportServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,20 +23,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/**
- * 群链接健康检测回报服务单测。
- */
+/** 群健康事件只写当前群资料的单测。 */
 @ExtendWith(MockitoExtension.class)
 class GroupLinkHealthReportServiceImplTest {
 
-    @Mock
-    private GroupLinkHealthMapper healthMapper;
-
-    @Mock
-    private GroupLinkMapper groupLinkMapper;
-
-    @Mock
-    private GroupCurrentInvitePersistence currentInvitePersistence;
+    @Mock private GroupLinkMapper groupLinkMapper;
+    @Mock private GroupCurrentInvitePersistence currentInvitePersistence;
 
     private GroupLinkHealthReportServiceImpl service;
 
@@ -49,7 +36,7 @@ class GroupLinkHealthReportServiceImplTest {
     void setUp() {
         TenantContext.clear();
         service = new GroupLinkHealthReportServiceImpl(
-                healthMapper, groupLinkMapper, currentInvitePersistence);
+                groupLinkMapper, currentInvitePersistence);
     }
 
     @AfterEach
@@ -58,173 +45,86 @@ class GroupLinkHealthReportServiceImplTest {
     }
 
     @Test
-    void applyHealthReported_healthyUpdatesAvailableAndRestoresTenantContext() {
-        GroupLinkHealth current = currentHealth(44, 3);
-        List<Long> tenantContextDuringMapperCalls = captureTenantContext(current);
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630health@g.us")).thenReturn(200L);
+    void healthyEventWritesAvailableCurrentProfileAndRestoresTenant() {
+        when(groupLinkMapper.selectActiveIdByGroupJid("1203630health@g.us"))
+                .thenReturn(200L);
+        when(currentInvitePersistence.findHealth("1203630health@g.us"))
+                .thenReturn(currentHealth(44, 3));
 
-        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
-                new GroupLinkHealthReportedEvent(
-                9L,
-                200L,
-                "1203630health@g.us",
-                "HEALTHY",
-                55,
-                1_782_712_801_000L,
-                null,
-                "acc_100",
-                "evt-1"));
+        Optional<Long> result = service.applyHealthReported(event(
+                9L, 200L, "1203630health@g.us", "HEALTHY", 55, null));
 
-        assertThat(resolvedGroupLinkId).contains(200L);
-        ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
-        verify(healthMapper).upsert(captor.capture());
-        GroupLinkHealth row = captor.getValue();
-        assertThat(row.getGroupLinkId()).isEqualTo(200L);
-        assertThat(row.getHealthStatus()).isEqualTo(GroupLinkHealthStatus.AVAILABLE.code());
-        assertThat(row.getBanned()).isFalse();
-        assertThat(row.getCurrentCount()).isEqualTo(55);
-        assertThat(row.getLastCheckAt()).isEqualTo(1_782_712_801_000L);
-        assertThat(row.getLastHealthError()).isNull();
-        assertThat(row.getHealthFailureCount()).isZero();
-        verify(currentInvitePersistence).applyHealth("1203630health@g.us", row);
-        assertThat(tenantContextDuringMapperCalls).containsExactly(9L, 9L);
+        assertThat(result).contains(200L);
+        ArgumentCaptor<GroupLinkHealth> row = ArgumentCaptor.forClass(GroupLinkHealth.class);
+        verify(currentInvitePersistence).applyHealth(
+                org.mockito.ArgumentMatchers.eq("1203630health@g.us"), row.capture());
+        assertThat(row.getValue().getHealthStatus())
+                .isEqualTo(GroupLinkHealthStatus.AVAILABLE.code());
+        assertThat(row.getValue().getCurrentCount()).isEqualTo(55);
+        assertThat(row.getValue().getHealthFailureCount()).isZero();
         assertThat(TenantContext.get()).isNull();
     }
 
     @Test
-    void applyHealthReported_errorPreservesMemberCountAndIncrementsFailureCount() {
-        TenantContext.set(3L);
-        GroupLinkHealth current = currentHealth(66, 2);
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630error@g.us")).thenReturn(201L);
-        when(healthMapper.selectByGroupLinkId(201L)).thenReturn(current);
+    void errorPreservesCurrentCountAndIncrementsFailureCount() {
+        when(groupLinkMapper.selectActiveIdByGroupJid("1203630error@g.us"))
+                .thenReturn(201L);
+        when(currentInvitePersistence.findHealth("1203630error@g.us"))
+                .thenReturn(currentHealth(66, 2));
 
-        service.applyHealthReported(new GroupLinkHealthReportedEvent(
-                10L,
-                201L,
-                "1203630error@g.us",
-                "ERROR",
-                null,
-                1_782_712_802_000L,
-                "GROUP_METADATA_FAILED",
-                "acc_101",
-                "evt-2"));
+        service.applyHealthReported(event(
+                10L, 201L, "1203630error@g.us", "ERROR", null,
+                "GROUP_METADATA_FAILED"));
 
-        ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
-        verify(healthMapper).upsert(captor.capture());
-        GroupLinkHealth row = captor.getValue();
-        assertThat(row.getHealthStatus()).isEqualTo(GroupLinkHealthStatus.UNAVAILABLE.code());
-        assertThat(row.getBanned()).isFalse();
-        assertThat(row.getCurrentCount()).isEqualTo(66);
-        assertThat(row.getLastHealthError()).isEqualTo("GROUP_METADATA_FAILED");
-        assertThat(row.getHealthFailureCount()).isEqualTo(3);
-        assertThat(TenantContext.get()).isEqualTo(3L);
+        ArgumentCaptor<GroupLinkHealth> row = ArgumentCaptor.forClass(GroupLinkHealth.class);
+        verify(currentInvitePersistence).applyHealth(
+                org.mockito.ArgumentMatchers.eq("1203630error@g.us"), row.capture());
+        assertThat(row.getValue().getHealthStatus())
+                .isEqualTo(GroupLinkHealthStatus.UNAVAILABLE.code());
+        assertThat(row.getValue().getCurrentCount()).isEqualTo(66);
+        assertThat(row.getValue().getHealthFailureCount()).isEqualTo(3);
     }
 
     @Test
-    void applyHealthReported_revokedInviteMapsToLinkInvalid() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630revoked@g.us")).thenReturn(202L);
-        when(healthMapper.selectByGroupLinkId(202L)).thenReturn(null);
+    void unknownGroupSkipsCurrentHealthWrite() {
+        when(groupLinkMapper.selectActiveIdByGroupJid("1203630missing@g.us"))
+                .thenReturn(null);
 
-        service.applyHealthReported(new GroupLinkHealthReportedEvent(
-                11L,
-                202L,
-                "1203630revoked@g.us",
-                "ERROR",
-                null,
-                1_782_712_803_000L,
-                "INVITE_REVOKED",
-                "acc_102",
-                "evt-3"));
+        assertThat(service.applyHealthReported(event(
+                12L, null, "1203630missing@g.us", "BANNED", null,
+                "CHAT_TERMINATED"))).isEmpty();
 
-        ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
-        verify(healthMapper).upsert(captor.capture());
-        GroupLinkHealth row = captor.getValue();
-        assertThat(row.getHealthStatus()).isEqualTo(GroupLinkHealthStatus.LINK_INVALID.code());
-        assertThat(row.getBanned()).isFalse();
-        assertThat(row.getHealthFailureCount()).isEqualTo(1);
-        assertThat(row.getLastHealthError()).isEqualTo("INVITE_REVOKED");
+        verifyNoInteractions(currentInvitePersistence);
     }
 
     @Test
-    void applyHealthReported_jidOnlyBannedEventResolvesLinkAndPersistsSuspension() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630banned@g.us")).thenReturn(203L);
-        when(healthMapper.selectByGroupLinkId(203L)).thenReturn(null);
+    void conflictingHandleAndGroupJidAreRejected() {
+        when(groupLinkMapper.selectActiveIdByGroupJid("1203630mismatch@g.us"))
+                .thenReturn(999L);
 
-        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
-                new GroupLinkHealthReportedEvent(
-                12L,
-                null,
-                "1203630banned@g.us",
-                "BANNED",
-                null,
-                1_786_071_162_912L,
-                "CHAT_SUSPENDED",
-                "acc_103",
-                "evt-banned"));
-
-        assertThat(resolvedGroupLinkId).contains(203L);
-        ArgumentCaptor<GroupLinkHealth> captor = ArgumentCaptor.forClass(GroupLinkHealth.class);
-        verify(healthMapper).upsert(captor.capture());
-        GroupLinkHealth row = captor.getValue();
-        assertThat(row.getGroupLinkId()).isEqualTo(203L);
-        assertThat(row.getHealthStatus()).isEqualTo(GroupLinkHealthStatus.UNAVAILABLE.code());
-        assertThat(row.getBanned()).isTrue();
-        assertThat(row.getLastHealthError()).isEqualTo("CHAT_SUSPENDED");
-        assertThat(row.getLastCheckAt()).isEqualTo(1_786_071_162_912L);
-    }
-
-    @Test
-    void applyHealthReported_unknownGroupJidSkipsHealthWrite() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630missing@g.us")).thenReturn(null);
-
-        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(
-                new GroupLinkHealthReportedEvent(
-                        12L, null, "1203630missing@g.us", "BANNED", null, null,
-                        "CHAT_TERMINATED", "acc_103", "evt-missing"));
-
-        assertThat(resolvedGroupLinkId).isEmpty();
-        verifyNoInteractions(healthMapper);
-        assertThat(TenantContext.get()).isNull();
-    }
-
-    @Test
-    void applyHealthReported_rejectsLinkIdThatConflictsWithGroupJid() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630mismatch@g.us")).thenReturn(999L);
-
-        assertThatThrownBy(() -> service.applyHealthReported(new GroupLinkHealthReportedEvent(
-                12L, 204L, "1203630mismatch@g.us", "BANNED", null, null,
-                "CHAT_SUSPENDED", "acc_103", "evt-mismatch")))
+        assertThatThrownBy(() -> service.applyHealthReported(event(
+                12L, 204L, "1203630mismatch@g.us", "BANNED", null,
+                "CHAT_SUSPENDED")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("群链接健康事件 groupLinkId 与 groupJid 不一致");
-
-        verifyNoInteractions(healthMapper);
     }
 
-    @Test
-    void applyHealthReported_missingHealthThrowsBusinessException() {
-        assertThatThrownBy(() -> service.applyHealthReported(new GroupLinkHealthReportedEvent(
-                1L, 200L, "1203630health@g.us", null, null, null, null, null, null)))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("群链接健康事件缺少 health");
+    private static GroupLinkHealthReportedEvent event(
+            Long tenantId,
+            Long groupLinkId,
+            String groupJid,
+            String health,
+            Integer memberCount,
+            String errorCode) {
+        return new GroupLinkHealthReportedEvent(
+                tenantId, groupLinkId, groupJid, health, memberCount,
+                1_782_712_801_000L, errorCode, "acc", "evt");
     }
 
-    private List<Long> captureTenantContext(GroupLinkHealth current) {
-        List<Long> tenantContexts = new ArrayList<>();
-        doAnswer(invocation -> {
-            tenantContexts.add(TenantContext.get());
-            return null;
-        }).when(healthMapper).upsert(any());
-        doAnswer(invocation -> {
-            tenantContexts.add(TenantContext.get());
-            return current;
-        }).when(healthMapper).selectByGroupLinkId(200L);
-        return tenantContexts;
-    }
-
-    private static GroupLinkHealth currentHealth(Integer currentCount, Integer failureCount) {
+    private static GroupLinkHealth currentHealth(Integer count, Integer failures) {
         GroupLinkHealth current = new GroupLinkHealth();
-        current.setCurrentCount(currentCount);
-        current.setHealthFailureCount(failureCount);
+        current.setCurrentCount(count);
+        current.setHealthFailureCount(failures);
         return current;
     }
 }

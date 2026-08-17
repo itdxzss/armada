@@ -8,14 +8,12 @@ import com.armada.group.mapper.GroupLinkImportBatchMapper;
 import com.armada.group.mapper.GroupLinkImportDetailMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.dto.GroupLinkImportDTO;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
-import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
@@ -47,9 +45,6 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
     @Autowired
     private GroupLinkMapper groupLinkMapper;
-
-    @Autowired
-    private GroupLinkPreviewMapper previewMapper;
 
     @Autowired
     private GroupLinkImportBatchMapper batchMapper;
@@ -128,7 +123,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     }
 
     @Test
-    void importLinks_newUrl_writesInvitePageMetadataToPreview() {
+    void importLinks_newUrl_writesInvitePageMetadataToCurrentInvite() {
         GroupLinkLabel label = insertLabel("集成测试分组-公开页元数据");
         when(invitePageFetcher.fetch("chat.whatsapp.com/PageMeta12345678901234"))
                 .thenReturn(new GroupInvitePageMetadata(
@@ -143,11 +138,18 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.successRows()).isEqualTo(1);
         GroupLink link = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/PageMeta12345678901234");
         assertThat(link).isNotNull();
-        GroupLinkPreview preview = previewMapper.selectByGroupLinkId(link.getId());
-        assertThat(preview).isNotNull();
-        assertThat(preview.getInviteCode()).isEqualTo("PageMeta12345678901234");
-        assertThat(preview.getWaSubject()).isEqualTo("公开页群名");
-        assertThat(preview.getAvatarUrl()).isEqualTo("https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg");
+        assertThat(jdbc.queryForMap("""
+                SELECT invite.invite_code, invite.preview_subject, invite.avatar_url
+                FROM group_link handle
+                INNER JOIN wa_group_invite invite
+                  ON invite.tenant_id = handle.tenant_id
+                 AND invite.id = handle.group_invite_id
+                WHERE handle.tenant_id = 7 AND handle.id = ?
+                """, link.getId()))
+                .containsEntry("invite_code", "PageMeta12345678901234")
+                .containsEntry("preview_subject", "公开页群名")
+                .containsEntry("avatar_url",
+                        "https://pps.whatsapp.net/v/t61.24694-24/page-meta.jpg");
         assertThat(detailGroupName(result.batchId(), 1)).isEqualTo("公开页群名");
     }
 

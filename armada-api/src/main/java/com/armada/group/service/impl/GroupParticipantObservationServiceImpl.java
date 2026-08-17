@@ -2,24 +2,14 @@ package com.armada.group.service.impl;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
-import com.armada.group.mapper.AccountGroupMembershipMapper;
-import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.dto.GroupParticipantObservation;
-import com.armada.group.model.dto.WhatsappGroupMemberStateWrite;
-import com.armada.group.model.entity.AccountGroupMembership;
-import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
-import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
-import com.armada.group.model.vo.AccountGroupMembershipLookup;
-import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,27 +24,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class GroupParticipantObservationServiceImpl implements GroupParticipantObservationService {
 
-    private static final int WRITE_BATCH_SIZE = 200;
-
     private final WhatsappGroupMemberCacheMapper memberStateMapper;
-    private final WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
-    private final GroupLinkMapper groupLinkMapper;
     private final AccountMapper accountMapper;
-    private final AccountGroupMembershipMapper membershipMapper;
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
     public GroupParticipantObservationServiceImpl(
             WhatsappGroupMemberCacheMapper memberStateMapper,
-            WhatsappGroupMemberSnapshotMapper memberSnapshotMapper,
-            GroupLinkMapper groupLinkMapper,
             AccountMapper accountMapper,
-            AccountGroupMembershipMapper membershipMapper,
             AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.memberStateMapper = memberStateMapper;
-        this.memberSnapshotMapper = memberSnapshotMapper;
-        this.groupLinkMapper = groupLinkMapper;
         this.accountMapper = accountMapper;
-        this.membershipMapper = membershipMapper;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
@@ -86,22 +65,11 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
     }
 
     private void applyGroup(TenantGroupKey key, List<NormalizedObservation> observations) {
-        List<WhatsappGroupMemberStateWrite> writes = observations.stream()
-                .sorted(Comparator.comparing(NormalizedObservation::participantJid)
-                        .thenComparingLong(NormalizedObservation::observedAt)
-                        .thenComparing(NormalizedObservation::sourceEventId))
-                .map(GroupParticipantObservationServiceImpl::stateWrite)
-                .toList();
-        long now = System.currentTimeMillis();
-        for (int start = 0; start < writes.size(); start += WRITE_BATCH_SIZE) {
-            memberStateMapper.upsertStates(
-                    writes.subList(start, Math.min(start + WRITE_BATCH_SIZE, writes.size())), now);
-        }
         currentSnapshotPersistence.applyParticipantObservations(observations.stream()
                 .map(GroupParticipantObservationServiceImpl::currentObservation)
                 .toList());
-        List<String> participantJids = writes.stream()
-                .map(WhatsappGroupMemberStateWrite::participantJid)
+        List<String> participantJids = observations.stream()
+                .map(NormalizedObservation::participantJid)
                 .distinct()
                 .sorted()
                 .toList();
@@ -110,64 +78,12 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         if (winners == null || winners.isEmpty()) {
             return;
         }
-        Long groupLinkId = groupLinkMapper.selectActiveIdByGroupJid(key.groupJid());
-        if (groupLinkId == null) {
-            return;
-        }
-        reconcileSnapshot(groupLinkId, winners);
-        reconcileControlledMemberships(groupLinkId, key.groupJid(), winners, now);
-    }
-
-    private void reconcileSnapshot(Long groupLinkId, List<WhatsappGroupMemberStateVO> winners) {
-        List<WhatsappGroupMemberSnapshot> snapshot = memberSnapshotMapper.selectByGroupLinkId(groupLinkId);
-        if (snapshot == null || snapshot.isEmpty()) {
-            return;
-        }
-        Map<String, WhatsappGroupMemberSnapshot> byParticipant = snapshot.stream()
-                .filter(row -> hasText(row.getParticipantJid()))
-                .collect(Collectors.toMap(
-                        row -> canonicalParticipantJid(row.getParticipantJid(), row.getPhone()),
-                        Function.identity(),
-                        (left, right) -> left,
-                        LinkedHashMap::new));
-        Map<String, WhatsappGroupMemberSnapshot> byPhone = snapshot.stream()
-                .filter(row -> normalizedPhone(row.getPhone()) != null)
-                .collect(Collectors.toMap(
-                        row -> normalizedPhone(row.getPhone()),
-                        Function.identity(),
-                        (left, right) -> left,
-                        LinkedHashMap::new));
-        List<String> departures = new ArrayList<>();
-        for (WhatsappGroupMemberStateVO winner : winners) {
-            WhatsappGroupMemberSnapshot row = byParticipant.get(
-                    canonicalParticipantJid(winner.participantJid(), winner.phone()));
-            if (row == null && normalizedPhone(winner.phone()) != null) {
-                row = byPhone.get(normalizedPhone(winner.phone()));
-            }
-            if (row == null || !hasText(row.getParticipantJid())) {
-                continue;
-            }
-            if (!Boolean.TRUE.equals(winner.inGroup())) {
-                departures.add(row.getParticipantJid());
-                continue;
-            }
-            memberSnapshotMapper.updateAdminRole(
-                    groupLinkId,
-                    List.of(row.getParticipantJid()),
-                    Boolean.TRUE.equals(winner.admin()),
-                    winner.stateUpdatedAt());
-        }
-        if (!departures.isEmpty()) {
-            memberSnapshotMapper.deleteParticipants(
-                    groupLinkId, departures.stream().distinct().sorted().toList());
-        }
+        reconcileControlledMemberships(key.groupJid(), winners);
     }
 
     private void reconcileControlledMemberships(
-            Long groupLinkId,
             String groupJid,
-            List<WhatsappGroupMemberStateVO> winners,
-            long now) {
+            List<WhatsappGroupMemberStateVO> winners) {
         Map<String, WhatsappGroupMemberStateVO> winnerByPhone = winners.stream()
                 .filter(winner -> normalizedPhone(winner.phone()) != null)
                 .collect(Collectors.toMap(
@@ -183,69 +99,17 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         if (accounts == null || accounts.isEmpty()) {
             return;
         }
-        List<AccountGroupMembershipLookup> lookups = accounts.stream()
-                .filter(account -> account.getId() != null)
-                .map(account -> new AccountGroupMembershipLookup(account.getId(), groupJid))
-                .toList();
-        Map<Long, AccountGroupMembershipStatusRow> currentByAccount = lookups.isEmpty()
-                ? Map.of()
-                : membershipMapper.selectCurrentStatuses(lookups).stream()
-                        .collect(Collectors.toMap(
-                                AccountGroupMembershipStatusRow::accountId,
-                                Function.identity(),
-                                (left, right) -> left));
         for (Account account : accounts) {
             String phone = normalizedPhone(account.getWsPhone());
             WhatsappGroupMemberStateVO winner = winnerByPhone.get(phone);
             if (winner == null || account.getId() == null) {
                 continue;
             }
-            AccountGroupMembershipStatusRow current = currentByAccount.get(account.getId());
-            AccountGroupMembership row = membershipRow(
-                    account.getId(), groupLinkId, groupJid, winner, current, now);
-            membershipMapper.upsertMembership(row);
             currentSnapshotPersistence.applyControlledParticipantObservation(
                     account.getId(), groupJid, Boolean.TRUE.equals(winner.inGroup()),
                     Boolean.TRUE.equals(winner.admin()), winner.stateUpdatedAt(),
-                    winner.sourceEventId(), row.getStatusSource());
+                    winner.sourceEventId(), membershipStatusSource(winner));
         }
-    }
-
-    private static AccountGroupMembership membershipRow(
-            Long accountId,
-            Long groupLinkId,
-            String groupJid,
-            WhatsappGroupMemberStateVO winner,
-            AccountGroupMembershipStatusRow current,
-            long now) {
-        boolean inGroup = Boolean.TRUE.equals(winner.inGroup());
-        int membershipStatus = inGroup
-                ? AccountGroupMembershipStatus.IN_GROUP.code()
-                : preservedAbsentStatus(current);
-        AccountGroupMembership row = new AccountGroupMembership();
-        row.setAccountId(accountId);
-        row.setGroupLinkId(groupLinkId);
-        row.setGroupJid(groupJid);
-        row.setAdmin(inGroup && Boolean.TRUE.equals(winner.admin()));
-        row.setMembershipStatus(membershipStatus);
-        row.setStatusSource(membershipStatusSource(winner));
-        row.setStatusUpdatedAt(winner.stateUpdatedAt());
-        if (inGroup) {
-            row.setJoinedAt(winner.stateUpdatedAt());
-            row.setLastSeenAt(winner.stateUpdatedAt());
-        }
-        row.setCreatedAt(now);
-        row.setUpdatedAt(now);
-        return row;
-    }
-
-    private static int preservedAbsentStatus(AccountGroupMembershipStatusRow current) {
-        if (current == null) {
-            return AccountGroupMembershipStatus.NOT_IN_GROUP.code();
-        }
-        AccountGroupMembershipStatus status = AccountGroupMembershipStatus.fromCode(
-                current.membershipStatus());
-        return status.sendable() ? AccountGroupMembershipStatus.NOT_IN_GROUP.code() : status.code();
     }
 
     private static String membershipStatusSource(WhatsappGroupMemberStateVO winner) {
@@ -278,14 +142,6 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             case "MEMBER_QUERY", "FULL_SNAPSHOT", "SNAPSHOT_ABSENT" -> 2;
             default -> 0;
         };
-    }
-
-    private static WhatsappGroupMemberStateWrite stateWrite(NormalizedObservation value) {
-        return new WhatsappGroupMemberStateWrite(
-                value.tenantId(), value.groupJid(), value.participantJid(), value.phone(),
-                value.admin(), false, value.admin() ? "admin" : "member", value.inGroup(),
-                value.stateSource(), value.observedAt(), value.sourceEventId(), null,
-                value.observerAccountId());
     }
 
     private static GroupParticipantObservation currentObservation(NormalizedObservation value) {

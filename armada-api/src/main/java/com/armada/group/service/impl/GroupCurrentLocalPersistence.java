@@ -8,7 +8,7 @@ import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
-/** 保持旧群入口写行为不变，同时同步新群模型的本地展示字段。 */
+/** 将现有群入口操作持久化到当前群模型。 */
 @Service
 public class GroupCurrentLocalPersistence {
 

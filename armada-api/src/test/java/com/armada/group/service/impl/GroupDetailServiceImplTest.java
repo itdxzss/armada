@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
-import com.armada.group.mapper.WhatsappGroupMemberSnapshotMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
@@ -67,9 +66,6 @@ class GroupDetailServiceImplTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
-    private GroupLinkPreviewMapper previewMapper;
-
-    @Mock
     private GroupExecutionAccountSelector selector;
 
     @Mock
@@ -86,9 +82,6 @@ class GroupDetailServiceImplTest {
 
     @Mock
     private GroupDetailSnapshotReader snapshotReader;
-
-    @Mock
-    private WhatsappGroupMemberSnapshotMapper memberSnapshotMapper;
 
     @Mock
     private GroupMetadataSyncTaskService metadataSyncTaskService;
@@ -108,7 +101,6 @@ class GroupDetailServiceImplTest {
     void setUp() {
         service = new GroupDetailServiceImpl(
                 groupLinkMapper,
-                previewMapper,
                 selector,
                 new GroupDetailProtocolPorts(
                         groupMetadataPort,
@@ -116,7 +108,6 @@ class GroupDetailServiceImplTest {
                         groupSettingsPort,
                         groupParticipantPort),
                 snapshotReader,
-                memberSnapshotMapper,
                 metadataSyncTaskService,
                 currentSnapshotPersistence,
                 currentLocalPersistence,
@@ -396,11 +387,6 @@ class GroupDetailServiceImplTest {
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", true, false, false, false, 0));
-        when(previewMapper.updateMemberAddMode(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.ADD_MEMBERS, true));
 
@@ -408,10 +394,6 @@ class GroupDetailServiceImplTest {
                 .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort)
                 .getMetadata(webAccount(), "120363detail@g.us");
-        verify(previewMapper).updateMemberAddMode(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong());
         org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
                 org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
         verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
@@ -429,11 +411,6 @@ class GroupDetailServiceImplTest {
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, false, true, false, 0));
-        when(previewMapper.updateAdminOnlyEditInfo(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.EDIT_GROUP_SETTINGS, false));
 
@@ -442,10 +419,6 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us", false);
         verify(groupMetadataPort)
                 .getMetadata(webAccount(), "120363detail@g.us");
-        verify(previewMapper).updateAdminOnlyEditInfo(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong());
         org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
                 org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
         verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
@@ -461,20 +434,15 @@ class GroupDetailServiceImplTest {
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupMetadataPort.getMetadata(androidAccount(), "120363detail@g.us"))
                 .thenReturn(metadata("群名", false, true, false, false, 0));
-        when(previewMapper.updateAnnounceOnly(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.SEND_MESSAGES, false));
 
         verify(groupSettingsPort).setSendMessagesAllowed(
                 androidAccount(), "120363detail@g.us", false);
-        verify(previewMapper).updateAnnounceOnly(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
+        assertThat(currentCaptor.getValue().getAnnounceOnly()).isTrue();
     }
 
     @Test
@@ -585,11 +553,6 @@ class GroupDetailServiceImplTest {
                 new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
                 .thenReturn(metadataWithInviteViaLink(true));
-        when(previewMapper.updateMemberLinkMode(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         service.updateSetting(10L, new GroupSettingCommandDTO(
                 GroupPermissionKey.INVITE_VIA_LINK, true));
 
@@ -599,10 +562,6 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort)
                 .getMetadata(webAccount(), "120363detail@g.us");
-        verify(previewMapper).updateMemberLinkMode(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(true),
-                org.mockito.ArgumentMatchers.anyLong());
         org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
                 org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
         verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
@@ -644,11 +603,6 @@ class GroupDetailServiceImplTest {
                         "owner@s.whatsapp.net:OWNER_PROTECTED",
                         "admin-a@s.whatsapp.net:OK",
                         "admin-b@s.whatsapp.net:UNKNOWN");
-        verify(memberSnapshotMapper).updateAdminRole(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq(List.of("admin-a@s.whatsapp.net")),
-                org.mockito.ArgumentMatchers.eq(false),
-                org.mockito.ArgumentMatchers.anyLong());
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<List<GroupParticipantObservation>> currentCaptor =
                 org.mockito.ArgumentCaptor.forClass(List.class);
@@ -684,8 +638,12 @@ class GroupDetailServiceImplTest {
 
         assertThat(result.ok()).isTrue();
         assertThat(result.results().get(0).status()).isEqualTo("OK");
-        verify(memberSnapshotMapper).deleteParticipants(
-                10L, List.of("member@s.whatsapp.net"));
+        verify(businessDepartureService).recordConfirmedRemovals(
+                org.mockito.ArgumentMatchers.nullable(Long.class),
+                org.mockito.ArgumentMatchers.eq("120363detail@g.us"),
+                org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.startsWith("group-detail:10:"));
         verify(selector).require(10L);
         verify(groupMetadataPort, org.mockito.Mockito.times(2))
                 .getMetadata(webAccount(), "120363detail@g.us");
@@ -823,19 +781,15 @@ class GroupDetailServiceImplTest {
         when(groupProfilePort.updatePicture(
                 webAccount(), "120363detail@g.us", null, Base64.getEncoder().encodeToString(bytes)))
                 .thenReturn(new GroupPictureResult(true, "https://pps.whatsapp.net/new.jpg"));
-        when(previewMapper.upsertAvatarUrl(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq("https://pps.whatsapp.net/new.jpg"),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         GroupAvatarUpdateVO result = service.updateAvatar(10L, file);
 
         assertThat(result).isEqualTo(new GroupAvatarUpdateVO(
                 true, true, "https://pps.whatsapp.net/new.jpg"));
-        verify(previewMapper).upsertAvatarUrl(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq("https://pps.whatsapp.net/new.jpg"),
-                org.mockito.ArgumentMatchers.anyLong());
+        org.mockito.ArgumentCaptor<com.armada.group.model.dto.GroupCurrentLocalProfileWrite> profile =
+                org.mockito.ArgumentCaptor.forClass(
+                        com.armada.group.model.dto.GroupCurrentLocalProfileWrite.class);
+        verify(currentLocalPersistence).applyProfile(profile.capture());
+        assertThat(profile.getValue().avatarUrl()).isEqualTo("https://pps.whatsapp.net/new.jpg");
     }
 
     @Test
@@ -852,10 +806,8 @@ class GroupDetailServiceImplTest {
         GroupAvatarUpdateVO result = service.updateAvatar(10L, file);
 
         assertThat(result).isEqualTo(new GroupAvatarUpdateVO(true, false, null));
-        verify(previewMapper, never()).upsertAvatarUrl(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyLong());
+        verify(currentLocalPersistence, never()).applyProfile(
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -870,16 +822,12 @@ class GroupDetailServiceImplTest {
                 .thenThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"));
         when(groupProfilePort.getPictureUrl(webAccount(), "120363detail@g.us"))
                 .thenReturn("https://pps.whatsapp.net/changed.jpg");
-        when(previewMapper.upsertAvatarUrl(
-                org.mockito.ArgumentMatchers.eq(10L),
-                org.mockito.ArgumentMatchers.eq("https://pps.whatsapp.net/changed.jpg"),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
-
         GroupAvatarUpdateVO result = service.updateAvatar(10L, file);
 
         assertThat(result.applied()).isTrue();
         assertThat(result.mirrorSynced()).isTrue();
         assertThat(result.avatarUrl()).isEqualTo("https://pps.whatsapp.net/changed.jpg");
+        verify(currentLocalPersistence).applyProfile(org.mockito.ArgumentMatchers.any());
         verify(selector).require(10L);
         verify(groupProfilePort).getPictureUrl(webAccount(), "120363detail@g.us");
     }
@@ -902,10 +850,8 @@ class GroupDetailServiceImplTest {
                         assertThat(ex.getCode()).isEqualTo(ErrorCode.GROUP_PROTOCOL_TIMEOUT.code()));
 
         verify(selector).require(10L);
-        verify(previewMapper, never()).upsertAvatarUrl(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyLong());
+        verify(currentLocalPersistence, never()).applyProfile(
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

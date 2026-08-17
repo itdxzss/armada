@@ -7,7 +7,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
@@ -30,9 +29,6 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     @Mock
     private GroupLinkMapper groupLinkMapper;
-
-    @Mock
-    private AccountGroupMembershipMapper membershipMapper;
 
     @Mock
     private GroupLinkPreviewMapper previewMapper;
@@ -71,7 +67,7 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     @Test
     void currentObservedInviteReusesTheOriginalGroupEntry() {
-        when(previewMapper.selectActiveGroupLinkIdByInviteCode(
+        when(groupLinkMapper.selectActiveIdByInviteCode(
                 "BBBBBBBBBBBBBBBBBBBBBB")).thenReturn(55L);
 
         assertThat(service().registerPullTaskTargets(List.of(LINK_B), 1000L))
@@ -129,7 +125,7 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     private GroupLinkRegistryServiceImpl service() {
         return new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, membershipMapper, previewMapper,
+                groupLinkMapper, previewMapper,
                 currentSnapshotPersistence);
     }
 

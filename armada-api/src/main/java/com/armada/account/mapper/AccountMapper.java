@@ -230,9 +230,6 @@ public interface AccountMapper {
      * @param requestedAt 入队时间(epoch 毫秒)
      * @return 更新行数
      */
-    int markGroupSyncRequested(@Param("accountIds") List<Long> accountIds,
-                               @Param("requestedAt") long requestedAt);
-
     /** 同步更新六表模型中的账号群同步水位，不回退既有时间。 */
     @InterceptorIgnore(tenantLine = "true")
     int markCurrentGroupSyncRequested(

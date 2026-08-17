@@ -104,17 +104,20 @@
   </update>
 
   <update id="updateLegacyGroupAndInviteReferences">
-    UPDATE group_link handle
-    INNER JOIN group_link_preview preview
-      ON preview.tenant_id = handle.tenant_id
-     AND preview.group_link_id = handle.id
-    SET handle.group_id = #{groupId},
-        handle.group_invite_id = #{inviteId}
-    WHERE handle.tenant_id = #{tenantId}
-      AND (
-        LOWER(TRIM(preview.group_jid)) = #{groupJid}
-        OR TRIM(preview.invite_code) = #{inviteCode}
-      )
+    UPDATE group_link
+    SET group_id = #{groupId},
+        group_invite_id = #{inviteId}
+    WHERE tenant_id = #{tenantId}
+      AND id = #{groupLinkId}
+      AND deleted_at IS NULL
+  </update>
+
+  <update id="updateGroupReference">
+    UPDATE group_link
+    SET group_id = #{groupId}
+    WHERE tenant_id = #{tenantId}
+      AND id = #{groupLinkId}
+      AND deleted_at IS NULL
   </update>
 
   <update id="updateLegacyInviteReference">
@@ -141,6 +144,24 @@
     WHERE profile.tenant_id = #{tenantId}
       AND wa_group.group_jid = #{groupJid}
   </update>
+
+  <select id="selectGroupHealth"
+          resultType="com.armada.group.model.entity.GroupLinkHealth">
+    SELECT profile.health_status AS healthStatus,
+           profile.banned,
+           profile.checked_member_count AS currentCount,
+           profile.last_checked_at AS lastCheckAt,
+           profile.last_error_code AS lastHealthError,
+           profile.failure_count AS healthFailureCount
+    FROM wa_group current_group
+    INNER JOIN wa_group_profile profile
+      ON profile.tenant_id = current_group.tenant_id
+     AND profile.group_id = current_group.id
+    WHERE current_group.tenant_id = #{tenantId}
+      AND current_group.group_jid = #{groupJid}
+      AND current_group.deleted_at IS NULL
+    LIMIT 1
+  </select>
 
   <insert id="upsertPublicPreview">
     INSERT INTO wa_group_invite (

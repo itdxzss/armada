@@ -10,13 +10,13 @@ public final class AccountGroupCurrentSnapshotRows {
     public record Context(
             Long accountId,
             String wsPhone,
+            String protocolId,
+            String protocolAccountId,
             Integer baselineState,
-            String baselineGroupJidsJson,
-            String baselineGroupSubjectsJson,
+            Integer baselineCompleteness,
             Integer baselineGroupCount,
             Long baselineCapturedAt,
-            Long lastSyncRequestedAt,
-            Integer targetBaselineCompleteness) {
+            Long lastSyncRequestedAt) {
     }
 
     /** 写前普通一致性读得到的已有 G/self-M/B 状态。 */
@@ -28,6 +28,8 @@ public final class AccountGroupCurrentSnapshotRows {
             String presenceSource,
             Long presenceObservedAt,
             Long bindingId,
+            Integer wasInInitialBaseline,
+            Long firstPostControlObservedAt,
             Long deletedAt) {
     }
 

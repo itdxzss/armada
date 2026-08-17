@@ -1,6 +1,5 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -38,8 +37,6 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
     private static final String GROUP_LINK_REVOKED = "GROUP_LINK_REVOKED";
     private static final String REVOKED = "REVOKED";
 
-    private final GroupLinkHealthMapper healthMapper;
-
     private final GroupLinkMapper groupLinkMapper;
 
     private final GroupCurrentInvitePersistence currentInvitePersistence;
@@ -47,14 +44,11 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
     /**
      * 创建群链接健康检测回报落库服务。
      *
-     * @param healthMapper    群链接健康状态 mapper
      * @param groupLinkMapper 群入口 mapper
      * @param currentInvitePersistence 新群模型当前邀请码写入
      */
-    public GroupLinkHealthReportServiceImpl(GroupLinkHealthMapper healthMapper,
-                                            GroupLinkMapper groupLinkMapper,
+    public GroupLinkHealthReportServiceImpl(GroupLinkMapper groupLinkMapper,
                                             GroupCurrentInvitePersistence currentInvitePersistence) {
-        this.healthMapper = healthMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.currentInvitePersistence = currentInvitePersistence;
     }
@@ -80,9 +74,8 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
                         event.tenantId(), event.groupJid(), event.eventId(), event.protocolAccountId());
                 return Optional.empty();
             }
-            GroupLinkHealth current = healthMapper.selectByGroupLinkId(groupLinkId);
+            GroupLinkHealth current = currentInvitePersistence.findHealth(event.groupJid());
             GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
-            healthMapper.upsert(row);
             currentInvitePersistence.applyHealth(event.groupJid(), row);
             log.info("群链接健康事件已回写 tenantId={} groupLinkId={} groupJid={} health={} status={} "
                             + "banned={} failureCount={} eventId={} protocolAccountId={}",

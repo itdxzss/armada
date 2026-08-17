@@ -1,10 +1,10 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
-import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
-import com.armada.group.model.vo.AccountGroupBaselineRow;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
@@ -41,6 +41,9 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
     /** 账号群关系数据访问入口。 */
     private final AccountGroupMembershipMapper membershipMapper;
 
+    /** 新模型账号和 baseline 上下文。 */
+    private final AccountGroupCurrentSnapshotMapper currentSnapshotMapper;
+
     /** 协议事件观察到群时使用的统一群组池登记入口。 */
     private final GroupLinkRegistryService groupLinkRegistryService;
 
@@ -59,10 +62,12 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
      * @param currentPersistence V120 新表精确关系事实写入入口
      */
     public AccountGroupMembershipStatusServiceImpl(AccountGroupMembershipMapper membershipMapper,
+                                                   AccountGroupCurrentSnapshotMapper currentSnapshotMapper,
                                                    GroupLinkRegistryService groupLinkRegistryService,
                                                    GroupClassificationService classificationService,
                                                    AccountGroupCurrentSnapshotPersistenceImpl currentPersistence) {
         this.membershipMapper = membershipMapper;
+        this.currentSnapshotMapper = currentSnapshotMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.classificationService = classificationService;
         this.currentPersistence = currentPersistence;
@@ -111,13 +116,13 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            AccountGroupBaselineRow account = membershipMapper.selectAccountBaselineRow(event.accountId());
+            Context account = currentSnapshotMapper.selectContext(event.accountId());
             if (account == null) {
                 log.warn("账号群关系事件找不到活跃账号 eventId={} accountId={} action={} source={}",
                         event.eventId(), event.accountId(), event.action(), event.source());
                 return;
             }
-            if (!Objects.equals(normalizeJid(account.getProtocolAccountId()),
+            if (!Objects.equals(normalizeJid(account.protocolAccountId()),
                     normalizeJid(event.protocolAccountId()))) {
                 log.warn("账号群关系事件协议句柄已过期 eventId={} accountId={} action={} source={}",
                         event.eventId(), event.accountId(), event.action(), event.source());
@@ -128,31 +133,16 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
                     event.groupJid().trim(),
                     null,
-                    ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                    ProtocolBackend.fromProtocolId(account.protocolId()),
                     now);
-            AccountGroupMembership membership = new AccountGroupMembership();
-            membership.setAccountId(event.accountId());
-            membership.setGroupLinkId(groupLinkId);
-            membership.setGroupJid(event.groupJid().trim());
-            membership.setMembershipStatus(transition.status().code());
-            membership.setStatusSource(transition.source());
-            membership.setStatusUpdatedAt(event.occurredAt());
             if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
-                membership.setJoinedAt(event.occurredAt());
-                membership.setLastSeenAt(event.occurredAt());
                 classificationService.classifyMembershipAdded(
                         event.accountId(),
                         new GroupClassificationCandidate(
                                 groupLinkId, event.groupJid().trim(), null),
                         event.occurredAt(),
                         now);
-            } else {
-                membership.setLastExitType(transition.status().code());
-                membership.setLastExitedAt(event.occurredAt());
             }
-            membership.setCreatedAt(now);
-            membership.setUpdatedAt(now);
-            membershipMapper.upsertMembership(membership);
             currentPersistence.applySelfMembershipChanged(
                     event.accountId(),
                     event.groupJid().trim(),

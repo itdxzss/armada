@@ -1,15 +1,10 @@
 package com.armada.group.service.impl;
 
-import com.armada.group.mapper.AccountGroupMembershipMapper;
-import com.armada.group.mapper.GroupLinkHealthMapper;
 import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
-import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.entity.GroupLink;
-import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
-import com.armada.group.model.enums.AccountGroupMembershipStatus;
-import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
@@ -24,9 +19,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -35,9 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 账号可见群关系快照写入服务。
  *
- * <p>本类统一维护 {@code group_link}、{@code group_link_preview}、{@code group_link_health}
- * 和 {@code account_group_membership} 这些本地冗余事实。调用方传入协议回报的当前全部群,
- * 本类负责去重、更新当前关系，并在完整快照中把缺失关系标为“不在群”。</p>
+ * <p>本类只负责解析仍需兼容的 {@code group_link} 数字句柄、固化旧列表分类，
+ * 并保留旧列表仍展示的创建者手机号。群资料、健康状态、成员和账号关系事实只写新模型。</p>
  */
 @Service
 public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMembershipSnapshotService {
@@ -45,33 +37,27 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private static final Logger log = LoggerFactory.getLogger(AccountGroupMembershipSnapshotServiceImpl.class);
 
     private static final String ACCOUNT_SYNC_LINK_PREFIX = "wa://group/";
-    private static final int SUBJECT_MAX_LENGTH = 255;
     private static final int OWNER_PHONE_MAX_LENGTH = 32;
-    private static final int AVATAR_URL_MAX_LENGTH = 512;
 
-    private final AccountGroupMembershipMapper membershipMapper;
     private final GroupLinkMapper groupLinkMapper;
-    private final GroupLinkHealthMapper healthMapper;
+    private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupClassificationService classificationService;
 
     /**
      * 创建账号可见群关系快照写入服务。
      *
-     * @param membershipMapper 账号群关系 mapper
      * @param groupLinkMapper  群链接 mapper
-     * @param healthMapper     群健康状态 mapper
+     * @param previewMapper 创建者字段兼容 mapper
      * @param groupLinkRegistryService 群组池登记服务
      * @param classificationService 历史群与上控后群分类服务
      */
-    public AccountGroupMembershipSnapshotServiceImpl(AccountGroupMembershipMapper membershipMapper,
-                                                     GroupLinkMapper groupLinkMapper,
-                                                     GroupLinkHealthMapper healthMapper,
+    public AccountGroupMembershipSnapshotServiceImpl(GroupLinkMapper groupLinkMapper,
+                                                     GroupLinkPreviewMapper previewMapper,
                                                      GroupLinkRegistryService groupLinkRegistryService,
                                                      GroupClassificationService classificationService) {
-        this.membershipMapper = membershipMapper;
         this.groupLinkMapper = groupLinkMapper;
-        this.healthMapper = healthMapper;
+        this.previewMapper = previewMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.classificationService = classificationService;
     }
@@ -101,79 +87,19 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                                 blankToNull(resolved.group().subject())))
                         .toList(),
                 now);
-        List<ResolvedGroup> groupsByLinkId = resolvedGroups.stream()
-                .sorted(Comparator.comparing(ResolvedGroup::groupLinkId)
-                        .thenComparing(ResolvedGroup::groupJid))
-                .toList();
         List<ResolvedGroup> groupsByJid = resolvedGroups.stream()
                 .sorted(Comparator.comparing(ResolvedGroup::groupJid))
                 .toList();
-        List<Long> groupLinkIds = groupsByLinkId.stream().map(ResolvedGroup::groupLinkId).toList();
-        List<String> groupJids = groupsByJid.stream().map(ResolvedGroup::groupJid).toList();
-        Set<Long> existingPreviewIds = groupLinkIds.isEmpty()
-                ? Set.of()
-                : nonNullSet(membershipMapper.selectExistingPreviewGroupLinkIds(groupLinkIds));
-        Set<Long> existingHealthIds = groupLinkIds.isEmpty()
-                ? Set.of()
-                : nonNullSet(healthMapper.selectExistingGroupLinkIds(groupLinkIds));
-        Set<String> existingMembershipJids = groupJids.isEmpty()
-                ? Set.of()
-                : nonNullSet(membershipMapper.selectExistingActiveGroupJids(accountId, groupJids));
-        // 先用普通一致性读区分存量/新增，再按表和唯一键全局排序写入。RR 下禁止对缺失键先 UPDATE，
-        // 否则 next-key/gap 锁会与后续 INSERT 的插入意向锁形成 supremum 死锁。
-        persistPreviews(groupsByLinkId, existingPreviewIds, syncAt, now);
-        persistHealthRows(groupsByLinkId, existingHealthIds, syncAt, now);
-        persistMemberships(accountId, groupsByJid, existingMembershipJids, syncAt, now);
+        persistCreatorCompatibility(groupsByJid, syncAt, now);
         List<AccountGroupMembershipSnapshot> snapshots = groupsByJid.stream()
                 .map(resolved -> toSnapshot(
                         resolved.groupLinkId(), resolved.groupJid(), resolved.group()))
                 .toList();
-        int markedMissing = 0;
-        if (snapshotComplete) {
-            List<Integer> preservedStatuses = List.of(
-                    AccountGroupMembershipStatus.KICKED_OUT.code(),
-                    AccountGroupMembershipStatus.LEFT.code());
-            List<Long> missingMembershipIds = sortedIds(membershipMapper.selectMissingMembershipIds(
-                    accountId,
-                    List.copyOf(visibleGroups.keySet()),
-                    preservedStatuses,
-                    syncAt));
-            if (!missingMembershipIds.isEmpty()) {
-                AccountGroupMembership missingState = new AccountGroupMembership();
-                missingState.setMembershipStatus(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
-                missingState.setStatusSource("GROUP_SNAPSHOT");
-                missingState.setStatusUpdatedAt(syncAt);
-                missingState.setUpdatedAt(syncAt);
-                markedMissing = membershipMapper.markMembershipsNotInGroupByIds(
-                        missingMembershipIds, missingState, preservedStatuses);
-            }
-        }
-        log.info("账号可见群关系快照已刷新 eventId={} source={} accountId={} visibleGroups={} "
-                        + "visibleGroupJidSample={} snapshotComplete={} "
-                        + "markedMissing={} syncAt={}",
+        log.info("账号可见群兼容句柄已刷新 eventId={} source={} accountId={} visibleGroups={} "
+                        + "visibleGroupJidSample={} snapshotComplete={} syncAt={}",
                 eventId, source, accountId, visibleGroups.size(),
-                jidSample(visibleGroups.keySet()), snapshotComplete, markedMissing, syncAt);
+                jidSample(visibleGroups.keySet()), snapshotComplete, syncAt);
         return snapshots;
-    }
-
-    private static <T> Set<T> nonNullSet(List<T> values) {
-        if (values == null || values.isEmpty()) {
-            return Set.of();
-        }
-        return values.stream()
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
-    private static List<Long> sortedIds(List<Long> ids) {
-        if (ids == null || ids.isEmpty()) {
-            return List.of();
-        }
-        return ids.stream()
-                .filter(java.util.Objects::nonNull)
-                .distinct()
-                .sorted()
-                .toList();
     }
 
     /**
@@ -221,105 +147,32 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
         return resolvedGroups;
     }
 
-    private void persistPreviews(
+    private void persistCreatorCompatibility(
             List<ResolvedGroup> resolvedGroups,
-            Set<Long> existingPreviewIds,
             long syncAt,
             long now) {
-        for (ResolvedGroup resolved : resolvedGroups) {
-            GroupLinkPreview preview = previewRow(resolved, syncAt, now);
-            if (existingPreviewIds.contains(preview.getGroupLinkId())
-                    && membershipMapper.updatePreviewFromAccountSync(preview) > 0) {
-                continue;
-            }
-            membershipMapper.upsertPreviewFromAccountSync(preview);
+        List<GroupLinkPreview> rows = resolvedGroups.stream()
+                .map(resolved -> {
+                    OwnerPhoneObservation owner = ownerPhoneObservation(resolved.group());
+                    if (!owner.observed()) {
+                        return null;
+                    }
+                    GroupLinkPreview row = new GroupLinkPreview();
+                    row.setGroupLinkId(resolved.groupLinkId());
+                    row.setOwnerPhone(clamp(owner.phone(), OWNER_PHONE_MAX_LENGTH));
+                    row.setOwnerPhoneObserved(true);
+                    row.setCreatorCountryObserved(false);
+                    row.setLastPreviewAt(syncAt);
+                    row.setMetadataObservedAt(syncAt);
+                    row.setCreatedAt(now);
+                    row.setUpdatedAt(now);
+                    return row;
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!rows.isEmpty()) {
+            previewMapper.upsertCreatorCompatibility(rows);
         }
-    }
-
-    private GroupLinkPreview previewRow(ResolvedGroup resolved, long syncAt, long now) {
-        AccountGroupsReportedEvent.Group group = resolved.group();
-        GroupLinkPreview preview = new GroupLinkPreview();
-        preview.setGroupLinkId(resolved.groupLinkId());
-        preview.setGroupJid(resolved.groupJid());
-        preview.setWaSubject(clamp(blankToNull(group.subject()), SUBJECT_MAX_LENGTH));
-        preview.setMemberSize(group.memberCount());
-        OwnerPhoneObservation owner = ownerPhoneObservation(group);
-        preview.setOwnerPhone(clamp(owner.phone(), OWNER_PHONE_MAX_LENGTH));
-        preview.setOwnerPhoneObserved(owner.observed());
-        preview.setAnnounceOnly(group.announceOnly());
-        preview.setGroupCreatedAt(group.groupCreatedAt());
-        preview.setAvatarUrl(clamp(blankToNull(group.avatarUrl()), AVATAR_URL_MAX_LENGTH));
-        preview.setLastPreviewAt(syncAt);
-        preview.setCreatedAt(now);
-        preview.setUpdatedAt(now);
-        return preview;
-    }
-
-    private void persistHealthRows(
-            List<ResolvedGroup> resolvedGroups,
-            Set<Long> existingHealthIds,
-            long syncAt,
-            long now) {
-        for (ResolvedGroup resolved : resolvedGroups) {
-            GroupLinkHealth health = healthRow(resolved, syncAt, now);
-            if (existingHealthIds.contains(health.getGroupLinkId())
-                    && healthMapper.updateFromAccountGroupSync(health) > 0) {
-                continue;
-            }
-            healthMapper.upsertFromAccountGroupSync(health);
-        }
-    }
-
-    private GroupLinkHealth healthRow(ResolvedGroup resolved, long syncAt, long now) {
-        AccountGroupsReportedEvent.Group group = resolved.group();
-        GroupLinkHealth health = new GroupLinkHealth();
-        health.setGroupLinkId(resolved.groupLinkId());
-        health.setHealthStatus(GroupLinkHealthStatus.AVAILABLE.code());
-        health.setBanned(false);
-        health.setCurrentCount(group.memberCount());
-        health.setLastCheckAt(syncAt);
-        health.setLastHealthError(null);
-        health.setHealthFailureCount(0);
-        health.setCreatedAt(now);
-        health.setUpdatedAt(now);
-        return health;
-    }
-
-    private void persistMemberships(
-            Long accountId,
-            List<ResolvedGroup> resolvedGroups,
-            Set<String> existingMembershipJids,
-            long syncAt,
-            long now) {
-        for (ResolvedGroup resolved : resolvedGroups) {
-            AccountGroupMembership membership = membershipRow(accountId, resolved, syncAt, now);
-            if (existingMembershipJids.contains(membership.getGroupJid())
-                    && membershipMapper.updateActiveMembership(membership) > 0) {
-                continue;
-            }
-            membershipMapper.upsertMembership(membership);
-        }
-    }
-
-    private AccountGroupMembership membershipRow(
-            Long accountId,
-            ResolvedGroup resolved,
-            long syncAt,
-            long now) {
-        AccountGroupsReportedEvent.Group group = resolved.group();
-        AccountGroupMembership row = new AccountGroupMembership();
-        row.setAccountId(accountId);
-        row.setGroupLinkId(resolved.groupLinkId());
-        row.setGroupJid(resolved.groupJid());
-        row.setAdmin(group.admin());
-        row.setMembershipStatus(AccountGroupMembershipStatus.IN_GROUP.code());
-        row.setStatusSource("GROUP_SNAPSHOT");
-        row.setStatusUpdatedAt(syncAt);
-        row.setJoinedAt(syncAt);
-        row.setLastSeenAt(syncAt);
-        row.setCreatedAt(now);
-        row.setUpdatedAt(now);
-        return row;
     }
 
     private record ResolvedGroup(

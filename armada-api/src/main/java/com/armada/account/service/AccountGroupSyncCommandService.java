@@ -109,11 +109,6 @@ public class AccountGroupSyncCommandService {
     private void markRequested(List<ProtocolAccountGroupSyncCommandRequest> commands) {
         long requestedAt = System.currentTimeMillis();
         List<Long> accountIds = accountIds(commands);
-        int updated = accountMapper.markGroupSyncRequested(accountIds, requestedAt);
-        if (updated < accountIds.size()) {
-            throw new BusinessException(ErrorCode.CONFLICT,
-                    "账号群同步水位更新数量不一致: expected=" + accountIds.size() + ", updated=" + updated);
-        }
         int currentUpdated = accountMapper.markCurrentGroupSyncRequested(
                 TenantContext.get(), accountIds, requestedAt);
         if (currentUpdated < accountIds.size()) {

@@ -113,8 +113,8 @@ class AccountOnlineMapperDbTest extends DbTestBase {
         jdbc.update("UPDATE account_state SET login_state = ? WHERE account_id = ?",
                 AccountLoginStateCode.OFFLINE, offline.getId());
         markBaselineCaptured(captured.getId(), now);
-        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
-                AccountGroupBaselineStateCode.PENDING, pending.getId());
+        accountMapper.markCurrentGroupSyncRequested(
+                TEST_TENANT_ID, List.of(pending.getId()), now);
 
         List<AccountGroupSyncCandidate> candidates = accountMapper.selectGroupSyncCandidates(
                 50,
@@ -133,8 +133,8 @@ class AccountOnlineMapperDbTest extends DbTestBase {
         Account pending = insertAccount("86162" + (now % 10000000L), now);
         insertDefaultState(pending.getId(), now);
         markNormalOnline(pending.getId());
-        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
-                AccountGroupBaselineStateCode.PENDING, pending.getId());
+        accountMapper.markCurrentGroupSyncRequested(
+                TEST_TENANT_ID, List.of(pending.getId()), now);
 
         List<AccountGroupSyncCandidate> candidates = accountMapper.selectGroupSyncCandidates(
                 50,
@@ -147,23 +147,22 @@ class AccountOnlineMapperDbTest extends DbTestBase {
     }
 
     @Test
-    void markGroupSyncRequested_createsEmptyBaselineWatermarkWhenMissing() {
+    void markCurrentGroupSyncRequested_createsCurrentSyncWatermarkWhenMissing() {
         long now = System.currentTimeMillis();
         Account pending = insertAccount("86163" + (now % 10000000L), now);
-        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
-                AccountGroupBaselineStateCode.PENDING, pending.getId());
-
-        int affected = accountMapper.markGroupSyncRequested(List.of(pending.getId()), now + 1_000);
+        int affected = accountMapper.markCurrentGroupSyncRequested(
+                TEST_TENANT_ID, List.of(pending.getId()), now + 1_000);
 
         assertThat(affected).isGreaterThanOrEqualTo(1);
         assertThat(jdbc.queryForObject("""
-                SELECT baseline_group_jids
-                FROM account_group_baseline
+                SELECT baseline_state
+                FROM account_group_sync_state
                 WHERE account_id = ?
-                """, String.class, pending.getId())).isEqualTo("[]");
+                """, Integer.class, pending.getId()))
+                .isEqualTo(AccountGroupBaselineStateCode.PENDING);
         assertThat(jdbc.queryForObject("""
-                SELECT last_group_sync_requested_at
-                FROM account_group_baseline
+                SELECT last_sync_requested_at
+                FROM account_group_sync_state
                 WHERE account_id = ?
                 """, Long.class, pending.getId())).isEqualTo(now + 1_000);
     }
@@ -239,19 +238,19 @@ class AccountOnlineMapperDbTest extends DbTestBase {
     }
 
     private void markBaselineCaptured(Long accountId, long now) {
-        jdbc.update("UPDATE account SET group_baseline_state = ? WHERE id = ?",
-                AccountGroupBaselineStateCode.CAPTURED, accountId);
         jdbc.update("""
-                INSERT INTO account_group_baseline
-                    (tenant_id, account_id, baseline_group_jids, group_count, captured_at, created_at, updated_at)
-                VALUES (?, ?, '[]', 0, ?, ?, ?)
-                """, TEST_TENANT_ID, accountId, now, now, now);
+                INSERT INTO account_group_sync_state
+                    (tenant_id, account_id, baseline_state, baseline_completeness,
+                     baseline_group_count, baseline_captured_at, created_at, updated_at)
+                VALUES (?, ?, ?, 1, 0, ?, ?, ?)
+                """, TEST_TENANT_ID, accountId,
+                AccountGroupBaselineStateCode.CAPTURED, now, now, now);
     }
 
     private void setGroupSyncRequestedAt(Long accountId, long requestedAt) {
         jdbc.update("""
-                UPDATE account_group_baseline
-                SET last_group_sync_requested_at = ?
+                UPDATE account_group_sync_state
+                SET last_sync_requested_at = ?
                 WHERE account_id = ?
                 """, requestedAt, accountId);
     }

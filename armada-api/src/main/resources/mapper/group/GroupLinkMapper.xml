@@ -40,6 +40,46 @@
       updated_at = #{row.updatedAt}
   </insert>
 
+  <select id="selectIdByGroupJidIncludingDeleted" resultType="long">
+    SELECT handle.id
+    FROM group_link handle
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    WHERE current_group.group_jid = #{groupJid}
+       OR handle.link_url = CONCAT('wa://group/', #{groupJid})
+    ORDER BY CASE WHEN handle.deleted_at IS NULL THEN 0 ELSE 1 END,
+             handle.id ASC
+    LIMIT 1
+  </select>
+
+  <update id="touchAccountObservedGroup">
+    UPDATE group_link
+    SET deleted_at = NULL,
+        group_name = COALESCE(NULLIF(TRIM(#{groupName}), ''), group_name),
+        membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END,
+        sync_protocol_mask = CASE
+          WHEN sync_protocol_mask = 0 THEN #{syncProtocolMask}
+          WHEN sync_protocol_mask = #{syncProtocolMask} THEN sync_protocol_mask
+          ELSE 3
+        END,
+        updated_at = #{updatedAt}
+    WHERE id = #{groupLinkId}
+  </update>
+
+  <select id="selectActiveIdByInviteCode" resultType="long">
+    SELECT handle.id
+    FROM wa_group_invite current_invite
+    INNER JOIN group_link handle
+      ON handle.tenant_id = current_invite.tenant_id
+     AND handle.group_invite_id = current_invite.id
+     AND handle.deleted_at IS NULL
+    WHERE current_invite.invite_code = #{inviteCode}
+      AND current_invite.deleted_at IS NULL
+    ORDER BY current_invite.updated_at DESC, handle.id ASC
+    LIMIT 1
+  </select>
+
   <!-- 复活软删链接 + 归到本分组 + 更新来源批次/群名(群名空不覆盖) -->
   <update id="adoptToLabel">
     UPDATE group_link
@@ -99,293 +139,6 @@
       AND deleted_at IS NULL
       AND is_post_control = 0
   </update>
-
-  <update id="markHistoricalIncludingDeleted">
-    UPDATE group_link
-    SET is_historical = 1,
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE id = #{groupLinkId}
-      AND is_historical = 0
-  </update>
-
-  <insert id="insertHistoricalBaselineGroupIgnore" useGeneratedKeys="true" keyProperty="id">
-    INSERT IGNORE INTO group_link (
-      link_url, group_name, origin, membership_state, is_historical, is_post_control,
-      created_at, updated_at
-    ) VALUES (
-      #{linkUrl}, #{groupName}, #{origin}, #{membershipState},
-      COALESCE(#{isHistorical}, TRUE), COALESCE(#{isPostControl}, FALSE),
-      #{createdAt}, #{updatedAt}
-    )
-  </insert>
-
-  <select id="selectHistoricalClassificationBackfillCandidates"
-          resultType="com.armada.group.model.vo.GroupClassificationBackfillCandidate">
-    SELECT DISTINCT baseline.tenant_id AS tenantId,
-           COALESCE(by_preview.id, by_url.id) AS groupLinkId,
-           baseline_group.group_jid AS groupJid,
-           JSON_UNQUOTE(JSON_EXTRACT(
-             COALESCE(baseline.baseline_group_subjects, JSON_OBJECT()),
-             CONCAT('$.&quot;', baseline_group.group_jid, '&quot;')
-           )) AS groupName,
-           COALESCE(by_preview.deleted_at, by_url.deleted_at) AS deletedAt
-    FROM account_group_baseline baseline
-    INNER JOIN account account
-      ON account.tenant_id = baseline.tenant_id
-     AND account.id = baseline.account_id
-     AND account.deleted_at IS NULL
-     AND account.group_baseline_state = 2
-    INNER JOIN JSON_TABLE(
-      baseline.baseline_group_jids,
-      '$[*]' COLUMNS(group_jid VARCHAR(128) PATH '$')
-    ) baseline_group
-    LEFT JOIN group_link_preview preview
-      ON preview.tenant_id = baseline.tenant_id
-     AND preview.group_jid = baseline_group.group_jid
-    LEFT JOIN group_link by_preview
-      ON by_preview.tenant_id = preview.tenant_id
-     AND by_preview.id = preview.group_link_id
-    LEFT JOIN group_link by_url
-      ON by_url.tenant_id = baseline.tenant_id
-     AND by_url.link_url = CONCAT('wa://group/', baseline_group.group_jid)
-    WHERE baseline_group.group_jid IS NOT NULL
-      AND TRIM(baseline_group.group_jid) &lt;&gt; ''
-      AND COALESCE(by_preview.is_historical, by_url.is_historical, 0) = 0
-    ORDER BY baseline.tenant_id ASC,
-             COALESCE(by_preview.id, by_url.id, 0) ASC,
-             baseline_group.group_jid ASC
-    LIMIT #{limit}
-  </select>
-
-  <select id="selectPostControlClassificationBackfillCandidates"
-          resultType="com.armada.group.model.vo.GroupClassificationBackfillCandidate">
-    SELECT DISTINCT membership.tenant_id AS tenantId,
-           link.id AS groupLinkId,
-           membership.group_jid AS groupJid,
-           COALESCE(NULLIF(TRIM(link.group_name), ''), preview.wa_subject) AS groupName,
-           link.deleted_at AS deletedAt
-    FROM account_group_membership membership
-    INNER JOIN account account
-      ON account.tenant_id = membership.tenant_id
-     AND account.id = membership.account_id
-     AND account.deleted_at IS NULL
-     AND account.group_baseline_state = 2
-    INNER JOIN account_group_baseline baseline
-      ON baseline.tenant_id = account.tenant_id
-     AND baseline.account_id = account.id
-    INNER JOIN group_link link
-      ON link.tenant_id = membership.tenant_id
-     AND link.id = membership.group_link_id
-     AND link.deleted_at IS NULL
-    LEFT JOIN group_link_preview preview
-      ON preview.tenant_id = link.tenant_id
-     AND preview.group_link_id = link.id
-    WHERE membership.deleted_at IS NULL
-      AND membership.membership_status = 1
-      AND link.is_post_control = 0
-      AND JSON_CONTAINS(
-        COALESCE(baseline.baseline_group_jids, JSON_ARRAY()),
-        JSON_QUOTE(membership.group_jid)
-      ) = 0
-    ORDER BY membership.tenant_id ASC, link.id ASC, membership.group_jid ASC
-    LIMIT #{limit}
-  </select>
-
-  <!-- 统一群组列表 FROM；所有派生表均保证每租户每 group_link 最多一行。 -->
-  <sql id="groupListFrom">
-    FROM group_link g
-    LEFT JOIN group_link_import_batch b
-      ON b.tenant_id = g.tenant_id
-     AND b.id = g.import_batch_id
-    LEFT JOIN group_link_preview p
-      ON p.tenant_id = g.tenant_id
-     AND p.group_link_id = g.id
-    LEFT JOIN group_link_health h
-      ON h.tenant_id = g.tenant_id
-     AND h.group_link_id = g.id
-    LEFT JOIN group_folder f
-      ON f.tenant_id = g.tenant_id
-     AND f.id = g.folder_id
-     AND f.deleted_at IS NULL
-    LEFT JOIN country c
-      ON c.iso2 = p.creator_country_iso2
-     AND c.deleted_at IS NULL
-    LEFT JOIN (
-      SELECT member.tenant_id, member.group_link_id,
-             GROUP_CONCAT(DISTINCT member.phone ORDER BY member.phone SEPARATOR ', ') AS admin,
-             COUNT(DISTINCT CASE
-               WHEN controlled_account.protocol_account_id IS NOT NULL
-                AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''
-                AND execution_state.login_state = 1
-                AND execution_state.account_state = 2
-               THEN controlled_account.id
-             END) AS availableAdminCount
-      FROM whatsapp_group_member_snapshot member
-      INNER JOIN account controlled_account
-        ON controlled_account.tenant_id = member.tenant_id
-       AND controlled_account.ws_phone = member.phone
-       AND controlled_account.deleted_at IS NULL
-      LEFT JOIN account_state execution_state
-        ON execution_state.tenant_id = controlled_account.tenant_id
-       AND execution_state.account_id = controlled_account.id
-      WHERE member.is_admin = 1
-        AND member.phone IS NOT NULL
-        AND TRIM(member.phone) &lt;&gt; ''
-      GROUP BY member.tenant_id, member.group_link_id
-    ) admins
-      ON admins.tenant_id = g.tenant_id
-     AND admins.group_link_id = g.id
-    LEFT JOIN group_metadata_sync_task metadata_task
-      ON metadata_task.tenant_id = g.tenant_id
-     AND metadata_task.group_link_id = g.id
-  </sql>
-
-  <!-- count/list 共用全部筛选，范围端点均包含，未知值不命中已激活范围。 -->
-  <sql id="groupListFilter">
-    g.deleted_at IS NULL
-    <if test="labelId != null">
-      AND g.label_id = #{labelId}
-    </if>
-    <if test="folderId != null">
-      AND g.folder_id = #{folderId}
-    </if>
-    <if test="withoutFolder != null and withoutFolder">
-      AND g.folder_id IS NULL
-    </if>
-    <if test="groupTypeHistorical">
-      AND g.is_historical = 1
-    </if>
-    <if test="groupTypePostControl">
-      AND g.is_post_control = 1
-    </if>
-    <if test="groupTypeBoth">
-      AND g.is_historical = 1
-      AND g.is_post_control = 1
-    </if>
-    <if test="availableAdmin != null and availableAdmin">
-      AND COALESCE(admins.availableAdminCount, 0) &gt; 0
-    </if>
-    <if test="availableAdmin != null and !availableAdmin">
-      AND COALESCE(admins.availableAdminCount, 0) = 0
-    </if>
-    <if test="memberCountMin != null">
-      AND COALESCE(h.current_count, p.member_size) IS NOT NULL
-      AND COALESCE(h.current_count, p.member_size) &gt;= #{memberCountMin}
-    </if>
-    <if test="memberCountMax != null">
-      AND COALESCE(h.current_count, p.member_size) IS NOT NULL
-      AND COALESCE(h.current_count, p.member_size) &lt;= #{memberCountMax}
-    </if>
-    <if test="continentCode != null and continentCode != ''">
-      AND p.creator_continent_code = #{continentCode}
-    </if>
-    <if test="countryIso2 != null and countryIso2 != ''">
-      AND p.creator_country_iso2 = #{countryIso2}
-    </if>
-    <if test="ageDaysMin != null or ageDaysMax != null">
-      AND p.group_created_at IS NOT NULL
-      AND p.group_created_at &gt; 0
-      AND p.group_created_at &lt;= #{nowSeconds}
-    </if>
-    <if test="ageDaysMin != null">
-      AND FLOOR((#{nowSeconds} - p.group_created_at) / 86400) &gt;= #{ageDaysMin}
-    </if>
-    <if test="ageDaysMax != null">
-      AND FLOOR((#{nowSeconds} - p.group_created_at) / 86400) &lt;= #{ageDaysMax}
-    </if>
-    <if test="sourceFileName != null and sourceFileName != ''">
-      AND b.source_file_name LIKE CONCAT('%', #{sourceFileName}, '%')
-    </if>
-    <if test="origin != null">
-      AND g.origin = #{origin}
-    </if>
-    <if test="membershipState != null">
-      AND g.membership_state = #{membershipState}
-    </if>
-    <if test="statusUnchecked">
-      AND (h.id IS NULL OR h.health_status IS NULL) AND (h.is_banned IS NULL OR h.is_banned = 0)
-    </if>
-    <if test="statusAvailable">
-      AND h.health_status = 1 AND (h.is_banned IS NULL OR h.is_banned = 0)
-    </if>
-    <if test="statusBanned">
-      AND h.is_banned = 1
-    </if>
-    <if test="statusLinkInvalid">
-      AND h.health_status = 2 AND (h.is_banned IS NULL OR h.is_banned = 0)
-    </if>
-    <if test="statusUnavailable">
-      AND h.health_status = 3 AND (h.is_banned IS NULL OR h.is_banned = 0)
-    </if>
-  </sql>
-
-  <sql id="keywordFilter">
-    <if test="keyword != null and keyword != ''">
-      AND (
-        g.group_name LIKE CONCAT('%', #{keyword}, '%')
-        OR p.wa_subject LIKE CONCAT('%', #{keyword}, '%')
-        OR g.link_url LIKE CONCAT('%', #{keyword}, '%')
-        OR p.invite_code LIKE CONCAT('%', #{keyword}, '%')
-        OR p.group_jid LIKE CONCAT('%', #{keyword}, '%')
-        OR p.owner_phone LIKE CONCAT('%', #{keyword}, '%')
-        OR admins.admin LIKE CONCAT('%', #{keyword}, '%')
-      )
-    </if>
-  </sql>
-
-  <select id="countByLabel" resultType="long">
-    SELECT COUNT(*)
-    <include refid="groupListFrom"/>
-    WHERE <include refid="groupListFilter"/>
-    <include refid="keywordFilter"/>
-  </select>
-
-  <!-- 群组列表主查询列,对齐一期需求与 wheel 租户端群组列表。 -->
-  <select id="selectPageByLabel" resultType="com.armada.group.model.vo.GroupLinkVoRow">
-    SELECT g.id,
-           g.link_url AS url,
-           COALESCE(NULLIF(TRIM(g.group_name), ''), p.wa_subject) AS groupName,
-           p.wa_subject AS waSubject,
-           p.group_jid AS groupJid,
-           b.source_file_name AS sourceFileName,
-           h.health_status AS healthStatus,
-           h.is_banned AS banned,
-           p.member_size AS memberSize,
-           h.current_count AS currentCount,
-           p.owner_phone AS ownerPhone,
-           admins.admin AS admin,
-           g.sync_protocol_mask AS syncProtocolMask,
-           g.origin AS origin,
-           g.membership_state AS membershipState,
-           g.remark AS remark,
-           p.avatar_url AS avatarUrl,
-           p.last_preview_at AS lastPreviewAt,
-           h.last_check_at AS lastCheckAt,
-           h.last_health_error AS lastHealthError,
-           g.created_at AS createdAt,
-           g.is_historical AS isHistorical,
-           g.is_post_control AS isPostControl,
-           g.folder_id AS folderId,
-           f.name AS folderName,
-           CASE
-             WHEN p.invite_code IS NULL OR TRIM(p.invite_code) = '' THEN NULL
-             ELSE CONCAT('https://chat.whatsapp.com/', p.invite_code)
-           END AS inviteUrl,
-           COALESCE(admins.availableAdminCount, 0) AS availableAdminCount,
-           p.creator_country_iso2 AS creatorCountryIso2,
-           c.name_zh AS creatorCountryName,
-           c.flag AS creatorCountryFlag,
-           p.creator_continent_code AS creatorContinentCode,
-           p.group_created_at AS groupCreatedAt,
-           metadata_task.status AS metadataSyncStatus,
-           metadata_task.last_success_at AS metadataSyncedAt,
-           metadata_task.last_error_message AS metadataSyncError
-    <include refid="groupListFrom"/>
-    WHERE <include refid="groupListFilter"/>
-    <include refid="keywordFilter"/>
-    ORDER BY g.created_at DESC, g.id DESC
-    LIMIT #{offset}, #{pageSize}
-  </select>
 
   <select id="selectActiveById" resultType="com.armada.group.model.entity.GroupLink">
     SELECT *

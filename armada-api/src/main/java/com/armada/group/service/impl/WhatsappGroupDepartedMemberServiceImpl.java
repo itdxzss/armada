@@ -30,15 +30,6 @@ public class WhatsappGroupDepartedMemberServiceImpl implements WhatsappGroupDepa
         if (facts == null || facts.isEmpty()) {
             return;
         }
-        long now = System.currentTimeMillis();
-        facts.stream()
-                .sorted(Comparator.comparing(WhatsappGroupDepartureFact::tenantId)
-                        .thenComparing(WhatsappGroupDepartureFact::groupJid)
-                        .thenComparing(WhatsappGroupDepartureFact::participantJid))
-                .forEach(fact -> {
-                    mapper.upsertIdentity(fact, now);
-                    mapper.updateIfNewer(fact, now);
-                });
         currentPersistence.applyParticipantDepartures(facts);
     }
 

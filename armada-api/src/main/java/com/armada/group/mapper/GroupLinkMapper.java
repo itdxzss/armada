@@ -1,10 +1,7 @@
 package com.armada.group.mapper;
 
-import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
-import com.armada.group.model.vo.GroupLinkVoRow;
-import com.armada.group.model.vo.GroupClassificationBackfillCandidate;
 import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -60,6 +57,18 @@ public interface GroupLinkMapper {
     int upsertAccountObservedGroup(@Param("row") GroupLink row,
                                    @Param("observedGroupName") String observedGroupName);
 
+    /** 按群 JID 解析仍保留的数字句柄，必要时允许复用软删除行。 */
+    Long selectIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid);
+
+    /** 同步发现已有句柄时只更新句柄自身的名称、关系态和协议来源。 */
+    int touchAccountObservedGroup(@Param("groupLinkId") Long groupLinkId,
+                                  @Param("groupName") String groupName,
+                                  @Param("syncProtocolMask") int syncProtocolMask,
+                                  @Param("updatedAt") long updatedAt);
+
+    /** 按新模型当前邀请码解析仍活跃的数字句柄。 */
+    Long selectActiveIdByInviteCode(@Param("inviteCode") String inviteCode);
+
     /**
      * 复活软删链接并归到目标分组:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。
      *
@@ -105,44 +114,6 @@ public interface GroupLinkMapper {
     /** 把活动群入口的上控后群事实提升为真；永不清除。 */
     int markPostControl(@Param("groupLinkId") Long groupLinkId,
                         @Param("updatedAt") long updatedAt);
-
-    /** 把含软删除群入口的历史事实提升为真，但不得复活记录。 */
-    int markHistoricalIncludingDeleted(@Param("groupLinkId") Long groupLinkId,
-                                       @Param("updatedAt") long updatedAt);
-
-    /**
-     * 不复活既有软删除行地登记缺失 baseline 群入口。
-     *
-     * @param row 历史群入口
-     * @return 插入行数；唯一键冲突返回 0
-     */
-    int insertHistoricalBaselineGroupIgnore(GroupLink row);
-
-    /** 跨租户扫描尚未固化的 baseline 历史群候选。 */
-    @InterceptorIgnore(tenantLine = "true")
-    List<GroupClassificationBackfillCandidate> selectHistoricalClassificationBackfillCandidates(
-            @Param("limit") int limit);
-
-    /** 跨租户扫描 CAPTURED baseline 外的当前在群候选。 */
-    @InterceptorIgnore(tenantLine = "true")
-    List<GroupClassificationBackfillCandidate> selectPostControlClassificationBackfillCandidates(
-            @Param("limit") int limit);
-
-    /**
-     * 群组列表分页总数(与 selectPageByLabel 共用 filter,口径一致)。
-     *
-     * @param query 查询参数(labelId 可为空;为空时查当前租户全量群组列表)
-     * @return 活跃链接数
-     */
-    long countByLabel(GroupLinkQuery query);
-
-    /**
-     * 群组列表分页主查询,LEFT JOIN 预览、健康、来源批次与管理员聚合。
-     *
-     * @param query 查询参数(labelId 可为空;支持关键字、状态、来源文件、来源、关系态筛选)
-     * @return 投影行列表
-     */
-    List<GroupLinkVoRow> selectPageByLabel(GroupLinkQuery query);
 
     /**
      * 按 ID 查询活跃群链接。

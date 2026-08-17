@@ -152,7 +152,7 @@ public class GroupLinkController {
     }
 
     /**
-     * 修改单项 WhatsApp 群权限,操作账号由后端自动选择。
+     * 修改单项 WhatsApp 群权限，操作账号由后端自动选择；协议成功后异步刷新 metadata。
      *
      * @param id  群链接 ID
      * @param dto 权限键与目标状态

@@ -387,15 +387,15 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 修改一项 WhatsApp 群权限并回读确认。
+     * 修改一项 WhatsApp 群权限并排队异步 metadata 刷新。
      *
      * <p>从本地快照选择在线、正常、仍在群内的管理员或群主，直接调用对应权限设置接口，
-     * 随后只用同一账号读取一次 metadata 确认结果。五个权限 key 共享同一执行流程，
-     * 不在写入前额外读取 metadata 或切换执行账号。</p>
+     * 协议设置请求成功后立即返回，metadata 由后台任务异步刷新。五个权限 key 共享同一执行流程，
+     * 不在请求主链路同步读取 metadata 或切换执行账号。</p>
      *
      * @param id  群链接 ID
      * @param dto 权限 key 和期望开关状态
-     * @throws BusinessException 当参数无效、能力不支持、权限不足或回读状态不一致时抛出
+     * @throws BusinessException 当参数无效、能力不支持、权限不足或协议调用失败时抛出
      */
     @Override
     public void updateSetting(Long id, GroupSettingCommandDTO dto) {
@@ -407,62 +407,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         try {
             applySetting(account, target.groupJid(), dto);
         } catch (ProtocolException ex) {
-            if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
-                log.warn("群权限设置失败 groupLinkId={} accountId={} key={} enabled={} code={}",
-                        id, account.accountId(), dto.key(), dto.enabled(), ex.errorCode());
-                throw groupBusinessException(ex);
-            }
-            log.warn("群权限协议调用超时，开始同账号回读 groupLinkId={} accountId={} key={} enabled={}",
-                    id, account.accountId(), dto.key(), dto.enabled());
+            log.warn("群权限设置失败 groupLinkId={} accountId={} key={} enabled={} code={}",
+                    id, account.accountId(), dto.key(), dto.enabled(), ex.errorCode());
+            throw groupBusinessException(ex);
         }
-        confirmSetting(account, target.groupJid(), dto.key(), dto.enabled());
-        persistConfirmedSetting(id, target.groupJid(), dto.key(), dto.enabled());
         enqueueMetadataRefresh(id);
-        log.info("WhatsApp 群权限已更新 groupLinkId={} accountId={} key={} enabled={}",
+        log.info("WhatsApp 群权限设置已提交 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
-    }
-
-    /**
-     * 把已经由同一账号实时回读确认的权限立即写入本地快照。
-     *
-     * <p>详情接口只读本地快照；如果仅排队异步 metadata 刷新，前端写成功后立即重载会读到旧值，
-     * 导致开关视觉回弹。这里仅写本次已确认字段，并提升观察时间以阻止更早的异步结果覆盖。</p>
-     */
-    private void persistConfirmedSetting(
-            Long groupLinkId, String groupJid, GroupPermissionKey key, boolean enabled) {
-        long now = System.currentTimeMillis();
-        GroupLinkPreview current = confirmedSetting(groupJid, key, enabled, now);
-        if (current != null) {
-            currentSnapshotPersistence.applyConfirmedMetadata(current);
-        }
-    }
-
-    private static GroupLinkPreview confirmedSetting(
-            String groupJid, GroupPermissionKey key, boolean enabled, long observedAt) {
-        GroupLinkPreview preview = confirmedMetadata(groupJid, observedAt);
-        switch (key) {
-            case EDIT_GROUP_SETTINGS -> {
-                preview.setAdminOnlyEditInfo(!enabled);
-                preview.setAdminOnlyEditInfoObserved(true);
-            }
-            case SEND_MESSAGES -> {
-                preview.setAnnounceOnly(!enabled);
-                preview.setAnnounceOnlyObserved(true);
-            }
-            case ADD_MEMBERS -> {
-                preview.setMemberAddMode(enabled);
-                preview.setMemberAddModeObserved(true);
-            }
-            case ADMIN_APPROVE_NEW_MEMBERS -> {
-                preview.setJoinApprovalMode(enabled);
-                preview.setJoinApprovalModeObserved(true);
-            }
-            case INVITE_VIA_LINK -> {
-                preview.setMemberLinkMode(enabled);
-                preview.setMemberLinkModeObserved(true);
-            }
-        }
-        return preview;
     }
 
     private static GroupLinkPreview confirmedMetadata(String groupJid, long observedAt) {
@@ -1241,69 +1192,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     account.protocolRef(), groupJid, dto.enabled());
             case ADMIN_APPROVE_NEW_MEMBERS -> protocolPorts.settings().setJoinApprovalEnabled(
                     account.protocolRef(), groupJid, dto.enabled());
-        }
-    }
-
-    /**
-     * 使用原执行账号回读并确认一项群权限。
-     *
-     * @param account  原执行账号
-     * @param groupJid WhatsApp 群 JID
-     * @param key      权限 key
-     * @param expected 期望布尔状态
-     * @throws BusinessException 当回读失败或实际状态不一致时抛出
-     */
-    private void confirmSetting(
-            GroupExecutionAccount account,
-            String groupJid,
-            GroupPermissionKey key,
-            boolean expected) {
-        try {
-            GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolRef(), groupJid);
-            requireConfirmedPermission(metadata, key, expected);
-        } catch (BusinessException ex) {
-            log.warn("群权限设置回读状态不一致 accountId={} key={} expected={}",
-                    account.accountId(), key, expected);
-            throw ex;
-        } catch (ProtocolException ex) {
-            log.warn("群权限设置回读失败 accountId={} key={} expected={} code={}",
-                    account.accountId(), key, expected, ex.errorCode());
-            if (ex.errorCode() == ProtocolErrorCode.TIMEOUT) {
-                throw new BusinessException(
-                        ErrorCode.GROUP_PROTOCOL_TIMEOUT,
-                        "群设置结果待确认，请刷新");
-            }
-            throw groupBusinessException(ex);
-        }
-    }
-
-    /**
-     * 从 metadata 中取出指定权限并与期望值严格比较。
-     *
-     * <p>restrict 和 announce 是协议层反向语义，需要先取反；null 表示协议未给出确定状态，
-     * 不允许当作 false 或成功处理。</p>
-     *
-     * @param metadata 群元数据
-     * @param key      权限 key
-     * @param expected 期望状态
-     * @throws BusinessException 当实际值为空或与期望不一致时抛出
-     */
-    private static void requireConfirmedPermission(
-            GroupMetadataResult metadata,
-            GroupPermissionKey key,
-            boolean expected) {
-        Boolean actual = switch (key) {
-            case EDIT_GROUP_SETTINGS -> invert(metadata.restrict());
-            case SEND_MESSAGES -> invert(metadata.announce());
-            case ADD_MEMBERS -> metadata.memberAddMode();
-            case INVITE_VIA_LINK -> metadata.inviteViaLink();
-            case ADMIN_APPROVE_NEW_MEMBERS -> metadata.joinApprovalMode();
-        };
-        if (!Boolean.valueOf(expected).equals(actual)) {
-            throw new BusinessException(
-                    ErrorCode.GROUP_PROTOCOL_TIMEOUT,
-                    "设置请求已返回，但重新读取的 WhatsApp 状态不一致");
         }
     }
 

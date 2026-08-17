@@ -26,10 +26,10 @@ public interface GroupDetailService {
     /** 使用自动选号修改 WhatsApp 真实群名并同步本地镜像。 */
     void updateSubject(Long id, GroupSubjectCommandDTO dto);
 
-    /** 使用自动选号设置 WhatsApp 群限时消息并回读确认。 */
+    /** 使用自动选号设置 WhatsApp 群限时消息并同步本地详情快照。 */
     void updateTimedMessage(Long id, GroupTimedMessageCommandDTO dto);
 
-    /** 使用自动选号修改一项 WhatsApp 群权限并排队异步 metadata 刷新。 */
+    /** 使用自动选号修改一项 WhatsApp 群权限并同步本地详情快照。 */
     void updateSetting(Long id, GroupSettingCommandDTO dto);
 
     /** 批量提升群管理员,执行账号由后端自动选择。 */

@@ -351,14 +351,14 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     }
 
     /**
-     * 修改 WhatsApp 群限时消息周期并回读确认。
+     * 修改 WhatsApp 群限时消息周期并同步本地详情快照。
      *
-     * <p>请求只接受关闭、24 小时、7 天和 90 天四档。无论协议写请求直接成功还是超时，
-     * 都使用同一执行账号重新读取 metadata，只有实际秒数与期望值一致才返回成功。</p>
+     * <p>请求只接受关闭、24 小时、7 天和 90 天四档。协议返回成功后立即把本次提交值
+     * 写入当前群快照，不再同步读取 metadata，也不创建 metadata 刷新任务。</p>
      *
      * @param id  群链接 ID
      * @param dto 限时消息模式请求
-     * @throws BusinessException 当参数无效、无可执行账号、权限不足或回读状态不一致时抛出
+     * @throws BusinessException 当参数无效、无可执行账号、权限不足或协议调用失败时抛出
      */
     @Override
     public void updateTimedMessage(Long id, GroupTimedMessageCommandDTO dto) {
@@ -372,17 +372,12 @@ public class GroupDetailServiceImpl implements GroupDetailService {
             protocolPorts.settings().setEphemeralDuration(
                     account.protocolRef(), target.groupJid(), expectedSeconds);
         } catch (ProtocolException ex) {
-            if (ex.errorCode() != ProtocolErrorCode.TIMEOUT) {
-                log.warn("限时消息设置失败 groupLinkId={} accountId={} mode={} code={}",
-                        id, account.accountId(), dto.mode(), ex.errorCode());
-                throw groupBusinessException(ex);
-            }
-            log.warn("限时消息协议调用超时，开始同账号回读 groupLinkId={} accountId={} mode={}",
-                    id, account.accountId(), dto.mode());
+            log.warn("限时消息设置失败 groupLinkId={} accountId={} mode={} code={}",
+                    id, account.accountId(), dto.mode(), ex.errorCode());
+            throw groupBusinessException(ex);
         }
-        confirmTimedMessage(account, target.groupJid(), expectedSeconds);
-        enqueueMetadataRefresh(id);
-        log.info("WhatsApp 群限时消息已更新 groupLinkId={} accountId={} mode={}",
+        persistSubmittedTimedMessage(target.groupJid(), expectedSeconds);
+        log.info("WhatsApp 群限时消息设置已提交 groupLinkId={} accountId={} mode={}",
                 id, account.accountId(), dto.mode());
     }
 
@@ -411,8 +406,46 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId(), dto.key(), dto.enabled(), ex.errorCode());
             throw groupBusinessException(ex);
         }
+        persistSubmittedSetting(target.groupJid(), dto.key(), dto.enabled());
         log.info("WhatsApp 群权限设置已提交 groupLinkId={} accountId={} key={} enabled={}",
                 id, account.accountId(), dto.key(), dto.enabled());
+    }
+
+    /** 协议确认接收限时消息设置后，只更新本次提交字段。 */
+    private void persistSubmittedTimedMessage(String groupJid, int seconds) {
+        GroupLinkPreview preview = confirmedMetadata(groupJid, System.currentTimeMillis());
+        preview.setEphemeralDurationSeconds(seconds);
+        preview.setEphemeralDurationObserved(true);
+        currentSnapshotPersistence.applyConfirmedMetadata(preview);
+    }
+
+    /** 协议确认接收群权限设置后，只更新本次提交字段。 */
+    private void persistSubmittedSetting(
+            String groupJid, GroupPermissionKey key, boolean enabled) {
+        GroupLinkPreview preview = confirmedMetadata(groupJid, System.currentTimeMillis());
+        switch (key) {
+            case EDIT_GROUP_SETTINGS -> {
+                preview.setAdminOnlyEditInfo(!enabled);
+                preview.setAdminOnlyEditInfoObserved(true);
+            }
+            case SEND_MESSAGES -> {
+                preview.setAnnounceOnly(!enabled);
+                preview.setAnnounceOnlyObserved(true);
+            }
+            case ADD_MEMBERS -> {
+                preview.setMemberAddMode(enabled);
+                preview.setMemberAddModeObserved(true);
+            }
+            case INVITE_VIA_LINK -> {
+                preview.setMemberLinkMode(enabled);
+                preview.setMemberLinkModeObserved(true);
+            }
+            case ADMIN_APPROVE_NEW_MEMBERS -> {
+                preview.setJoinApprovalMode(enabled);
+                preview.setJoinApprovalModeObserved(true);
+            }
+        }
+        currentSnapshotPersistence.applyConfirmedMetadata(preview);
     }
 
     private static GroupLinkPreview confirmedMetadata(String groupJid, long observedAt) {
@@ -1137,36 +1170,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     account.accountId(), readEx.errorCode());
             return null;
         }
-    }
-
-    /**
-     * 回读并确认限时消息实际秒数。
-     *
-     * @param account         原执行账号
-     * @param groupJid        WhatsApp 群 JID
-     * @param expectedSeconds 期望限时消息秒数
-     * @throws BusinessException 当回读失败或实际值不一致时抛出待确认错误
-     */
-    private void confirmTimedMessage(
-            GroupExecutionAccount account,
-            String groupJid,
-            int expectedSeconds) {
-        try {
-            GroupMetadataResult metadata = protocolPorts.metadata().getMetadata(
-                    account.protocolRef(), groupJid);
-            if (Integer.valueOf(expectedSeconds).equals(
-                    metadata.ephemeralDurationSeconds())) {
-                return;
-            }
-            log.warn("限时消息设置回读状态不一致 accountId={} expectedSeconds={} actualSeconds={}",
-                    account.accountId(), expectedSeconds, metadata.ephemeralDurationSeconds());
-        } catch (ProtocolException ex) {
-            log.warn("限时消息设置回读失败 accountId={} expectedSeconds={} code={}",
-                    account.accountId(), expectedSeconds, ex.errorCode());
-        }
-        throw new BusinessException(
-                ErrorCode.GROUP_PROTOCOL_TIMEOUT,
-                "限时消息设置结果待确认，请刷新");
     }
 
     /**

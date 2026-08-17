@@ -312,48 +312,36 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
-    void updateTimedMessageUsesSelectedAccountAndConfirmsMetadata() {
+    void updateTimedMessagePersistsSubmittedStateWithoutMetadataRead() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
-        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
-                .thenReturn(metadata("群名", false, false, false, false, 604_800));
 
         service.updateTimedMessage(
                 10L, new GroupTimedMessageCommandDTO(GroupTimedMessageMode.DAYS_7));
 
-        InOrder order = inOrder(groupSettingsPort, groupMetadataPort);
-        order.verify(groupSettingsPort)
+        verify(groupSettingsPort)
                 .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
-        order.verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
+        verify(groupMetadataPort, never()).getMetadata(
+                webAccount(), "120363detail@g.us");
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getGroupJid()).isEqualTo("120363detail@g.us");
+        assertThat(snapshot.getValue().getEphemeralDurationSeconds()).isEqualTo(604_800);
+        assertThat(snapshot.getValue().getEphemeralDurationObserved()).isTrue();
+        verifyNoInteractions(metadataSyncTaskService);
         verify(selector).require(10L);
     }
 
     @Test
-    void updateTimedMessageTimeoutConfirmedBySameAccountSucceeds() {
+    void updateTimedMessageTimeoutIsReportedWithoutMetadataConfirmation() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
                 .when(groupSettingsPort)
                 .setEphemeralDuration(webAccount(), "120363detail@g.us", 604_800);
-        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
-                .thenReturn(metadata("群名", false, false, false, false, 604_800));
-
-        service.updateTimedMessage(
-                10L, new GroupTimedMessageCommandDTO(GroupTimedMessageMode.DAYS_7));
-
-        verify(selector).require(10L);
-        verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
-    }
-
-    @Test
-    void updateTimedMessageUnconfirmedThrowsDedicatedError() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
-        when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
-        when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
-        when(groupMetadataPort.getMetadata(webAccount(), "120363detail@g.us"))
-                .thenReturn(metadata("群名", false, false, false, false, 86_400));
 
         assertThatThrownBy(() -> service.updateTimedMessage(
                 10L, new GroupTimedMessageCommandDTO(GroupTimedMessageMode.DAYS_7)))
@@ -362,6 +350,11 @@ class GroupDetailServiceImplTest {
                                 .isEqualTo(ErrorCode.GROUP_PROTOCOL_TIMEOUT.code()));
 
         verify(selector).require(10L);
+        verify(groupMetadataPort, never()).getMetadata(
+                webAccount(), "120363detail@g.us");
+        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
+                org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -392,8 +385,11 @@ class GroupDetailServiceImplTest {
                 .setAddMembersAllowed(webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort, never()).getMetadata(
                 webAccount(), "120363detail@g.us");
-        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getMemberAddMode()).isTrue();
+        assertThat(snapshot.getValue().getMemberAddModeObserved()).isTrue();
         verifyNoInteractions(metadataSyncTaskService);
         verify(selector).requireAdmin(10L);
         verify(selector, never()).require(10L);
@@ -412,8 +408,11 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us", false);
         verify(groupMetadataPort, never()).getMetadata(
                 webAccount(), "120363detail@g.us");
-        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getAdminOnlyEditInfo()).isTrue();
+        assertThat(snapshot.getValue().getAdminOnlyEditInfoObserved()).isTrue();
         verifyNoInteractions(metadataSyncTaskService);
     }
 
@@ -429,8 +428,11 @@ class GroupDetailServiceImplTest {
                 androidAccount(), "120363detail@g.us", false);
         verify(groupMetadataPort, never()).getMetadata(
                 androidAccount(), "120363detail@g.us");
-        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getAnnounceOnly()).isTrue();
+        assertThat(snapshot.getValue().getAnnounceOnlyObserved()).isTrue();
         verifyNoInteractions(metadataSyncTaskService);
     }
 
@@ -451,6 +453,9 @@ class GroupDetailServiceImplTest {
                                 .isEqualTo(ErrorCode.GROUP_PERMISSION_DENIED.code()));
 
         verify(selector).requireAdmin(10L);
+        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
+                org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -484,6 +489,8 @@ class GroupDetailServiceImplTest {
         verify(selector).requireAdmin(10L);
         verify(groupMetadataPort, never()).getMetadata(
                 webAccount(), "120363detail@g.us");
+        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
+                org.mockito.ArgumentMatchers.any());
         verifyNoInteractions(metadataSyncTaskService);
     }
 
@@ -500,6 +507,11 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort, never()).getMetadata(
                 webAccount(), "120363detail@g.us");
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getJoinApprovalMode()).isTrue();
+        assertThat(snapshot.getValue().getJoinApprovalModeObserved()).isTrue();
     }
 
     @Test
@@ -522,6 +534,9 @@ class GroupDetailServiceImplTest {
         verify(groupSettingsPort).setInviteViaLinkAllowed(
                 webAccount(), "120363detail@g.us", true);
         verifyNoInteractions(groupMetadataPort);
+        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
+                org.mockito.ArgumentMatchers.any());
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -538,8 +553,11 @@ class GroupDetailServiceImplTest {
                 webAccount(), "120363detail@g.us", true);
         verify(groupMetadataPort, never()).getMetadata(
                 webAccount(), "120363detail@g.us");
-        verify(currentSnapshotPersistence, never()).applyConfirmedMetadata(
-                org.mockito.ArgumentMatchers.any());
+        org.mockito.ArgumentCaptor<GroupLinkPreview> snapshot =
+                org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(currentSnapshotPersistence).applyConfirmedMetadata(snapshot.capture());
+        assertThat(snapshot.getValue().getMemberLinkMode()).isTrue();
+        assertThat(snapshot.getValue().getMemberLinkModeObserved()).isTrue();
         verifyNoInteractions(metadataSyncTaskService);
     }
 

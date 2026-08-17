@@ -56,7 +56,7 @@ class WhatsappGroupMemberCacheServiceImplTest {
                 true, true, null, null, null,
                 null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
-                        "15550000001@s.whatsapp.net", "15550000001",
+"15550000001@s.whatsapp.net", null, "15550000001",
                         true, false, "admin")));
 
         var result = service().replaceCompleteSnapshot(

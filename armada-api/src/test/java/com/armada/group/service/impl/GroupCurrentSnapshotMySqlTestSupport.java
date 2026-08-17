@@ -80,6 +80,12 @@ final class GroupCurrentSnapshotMySqlTestSupport {
                 "/db/migration/V124__group_member_link_mode.sql");
     }
 
+    static void executeV127(DataSource dataSource) throws Exception {
+        executeMigration(
+                dataSource,
+                "/db/migration/V127__group_profile_field_versions.sql");
+    }
+
     private static void executeMigration(DataSource dataSource, String resource) throws Exception {
         String sql;
         try (var stream = GroupCurrentSnapshotMySqlTestSupport.class.getResourceAsStream(

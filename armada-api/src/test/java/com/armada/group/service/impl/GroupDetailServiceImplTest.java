@@ -912,7 +912,7 @@ class GroupDetailServiceImplTest {
                 false,
                 true,
                 List.of(new GroupParticipantResult(
-                        "8613800000000@s.whatsapp.net",
+"8613800000000@s.whatsapp.net", null,
                         "8613800000000",
                         true,
                         true,
@@ -960,7 +960,7 @@ class GroupDetailServiceImplTest {
                 false,
                 true,
                 List.of(new GroupParticipantResult(
-                        "8613800000000@s.whatsapp.net",
+"8613800000000@s.whatsapp.net", null,
                         "8613800000000",
                         true,
                         true,
@@ -980,7 +980,7 @@ class GroupDetailServiceImplTest {
             boolean admin,
             boolean owner) {
         return new GroupParticipantResult(
-                jid,
+jid, null,
                 phone,
                 admin,
                 owner,

@@ -3,6 +3,7 @@ package com.armada.platform.protocol.backend.android;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
@@ -44,12 +45,27 @@ public final class AndroidGroupMemberMapper {
             boolean admin = owner || "admin".equalsIgnoreCase(role);
             results.add(new GroupParticipantResult(
                     identity == null ? null : identity.jid(),
+                    identity == null ? null : pnJid(identity),
                     identity == null ? null : identity.phone(),
                     admin,
                     owner,
                     role));
         }
         return List.copyOf(results);
+    }
+
+    /**
+     * 还原成员的 PN 形式 JID。
+     *
+     * <p>Android 群成员的主标识多为 LID,但协议在 {@code phone} 系列字段单独给出号码;
+     * 据此还原可让同一个人的 PN 与 LID 身份落在同一行成员记录上。号码缺失时留空,
+     * 不得由 LID 数字反推手机号。</p>
+     *
+     * @param identity 已归一的成员身份
+     * @return PN 形式 JID;没有可信号码来源时返回 null
+     */
+    private static String pnJid(ParticipantIdentity identity) {
+        return identity.phone() == null ? null : WhatsappJids.userJid(identity.phone());
     }
 
     private static ParticipantIdentity participantIdentity(JsonNode participant) {

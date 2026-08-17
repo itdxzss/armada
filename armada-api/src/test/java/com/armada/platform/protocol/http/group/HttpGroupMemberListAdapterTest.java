@@ -46,11 +46,14 @@ class HttpGroupMemberListAdapterTest {
 
         assertThat(result).containsExactly(
                 new GroupParticipantResult(
-                        "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin"),
+                        "8613800000000@s.whatsapp.net", "8613800000000@s.whatsapp.net",
+                        "8613800000000", true, true, "superadmin"),
                 new GroupParticipantResult(
-                        "8613900000000:12@s.whatsapp.net", "8613900000000", true, false, "admin"),
+                        "8613900000000:12@s.whatsapp.net", "8613900000000@s.whatsapp.net",
+                        "8613900000000", true, false, "admin"),
                 new GroupParticipantResult(
-                        "8613700000000@s.whatsapp.net", "8613700000000", false, false, null));
+                        "8613700000000@s.whatsapp.net", "8613700000000@s.whatsapp.net",
+                        "8613700000000", false, false, null));
         server.verify();
     }
 

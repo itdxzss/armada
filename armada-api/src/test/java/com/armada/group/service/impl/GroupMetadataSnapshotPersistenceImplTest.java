@@ -101,7 +101,7 @@ class GroupMetadataSnapshotPersistenceImplTest {
         verify(currentSnapshotPersistence).replaceCompleteGroupMetadataSnapshot(
                 preview,
                 List.of(new GroupParticipantResult(
-                        "1001@s.whatsapp.net", "1001", true, false, null)),
+"1001@s.whatsapp.net", null, "1001", true, false, null)),
                 2_100L,
                 "metadata:10:2100");
         verify(currentSnapshotPersistence).applyControlledParticipantObservation(

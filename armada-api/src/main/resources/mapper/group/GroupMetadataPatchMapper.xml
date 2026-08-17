@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupMetadataPatchMapper">
+
+  <select id="selectGroupIdByJid" resultType="java.lang.Long">
+    SELECT id
+    FROM wa_group
+    WHERE group_jid = #{groupJid}
+    LIMIT 1
+  </select>
+
+  <insert id="insertMinimalGroup">
+    <!--
+      资料事件先于任何群建档到达时，只落群身份而不伪造邀请码或资料事实。
+      origin=5 与账号快照的 insertMissingGroups 保持一致，表示由协议事件建档。
+    -->
+    INSERT INTO wa_group (group_jid, origin, created_at, updated_at, deleted_at)
+    VALUES (#{groupJid}, 5, #{now}, #{now}, NULL)
+    ON DUPLICATE KEY UPDATE
+      deleted_at = NULL,
+      updated_at = GREATEST(wa_group.updated_at, VALUES(updated_at))
+  </insert>
+
+  <!--
+    来源可信度分级，与 GroupMetadataFieldSource.rank() 必须保持一致。
+    列值为 NULL 时所有 WHEN 比较均为 NULL，落到 ELSE 0，表示该字段尚无版本事实。
+  -->
+  <sql id="sourceRank">
+    (CASE ${col}
+       WHEN 'METADATA_EVENT' THEN 3
+       WHEN 'PROFILE_SNAPSHOT' THEN 2
+       WHEN 'GROUP_SNAPSHOT' THEN 1
+       ELSE 0 END)
+  </sql>
+
+  <!--
+    字段级 patch 决胜：先比事实时间，同一时间再比来源可信度，用 MySQL 行值比较一次表达
+    (事实时间, 来源分级) 的字典序。存量行事实时间为 NULL 时 COALESCE 成 -1，使任何带版本的
+    事件都能覆盖它。
+
+    每字段的三列（值 / 来源 / 事实时间）必须用同一个条件，否则会出现值更新了而版本没推进、
+    或版本推进了而值没更新的撕裂状态。*ObservedAt IS NOT NULL 即表示该字段本次被观察到，
+    fieldMask 语义已在 service 层归约，SQL 不再重复判断。
+
+    整行水位 metadata_observed_at 刻意不在此推进：它只服务账号级快照的整行判定，字段级
+    patch 推进它会让后到的快照被误判为旧。
+  -->
+  <insert id="upsertFieldPatch">
+    INSERT INTO wa_group_profile (
+      group_id,
+      subject, subject_source, subject_observed_at,
+      description, description_source, description_observed_at,
+      announce_only, announce_only_source, announce_only_observed_at,
+      admin_only_edit_info, admin_only_edit_info_source, admin_only_edit_info_observed_at,
+      member_add_mode, member_add_mode_source, member_add_mode_observed_at,
+      join_approval_mode, join_approval_mode_source, join_approval_mode_observed_at,
+      ephemeral_duration_seconds, ephemeral_duration_seconds_source,
+      ephemeral_duration_seconds_observed_at,
+      created_at, updated_at
+    ) VALUES (
+      #{row.groupId},
+      #{row.subject}, #{row.subjectSource}, #{row.subjectObservedAt},
+      #{row.description}, #{row.descriptionSource}, #{row.descriptionObservedAt},
+      #{row.announceOnly}, #{row.announceOnlySource}, #{row.announceOnlyObservedAt},
+      #{row.adminOnlyEditInfo}, #{row.adminOnlyEditInfoSource},
+      #{row.adminOnlyEditInfoObservedAt},
+      #{row.memberAddMode}, #{row.memberAddModeSource}, #{row.memberAddModeObservedAt},
+      #{row.joinApprovalMode}, #{row.joinApprovalModeSource},
+      #{row.joinApprovalModeObservedAt},
+      #{row.ephemeralDurationSeconds}, #{row.ephemeralDurationSecondsSource},
+      #{row.ephemeralDurationSecondsObservedAt},
+      #{row.now}, #{row.now}
+    )
+    ON DUPLICATE KEY UPDATE
+      subject = CASE WHEN #{row.subjectObservedAt} IS NOT NULL
+          AND (#{row.subjectObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(subject_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="subject_source"/></include>)
+        THEN #{row.subject} ELSE subject END,
+      subject_source = CASE WHEN #{row.subjectObservedAt} IS NOT NULL
+          AND (#{row.subjectObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(subject_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="subject_source"/></include>)
+        THEN #{row.subjectSource} ELSE subject_source END,
+      subject_observed_at = CASE WHEN #{row.subjectObservedAt} IS NOT NULL
+          AND (#{row.subjectObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(subject_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="subject_source"/></include>)
+        THEN #{row.subjectObservedAt} ELSE subject_observed_at END,
+
+      description = CASE WHEN #{row.descriptionObservedAt} IS NOT NULL
+          AND (#{row.descriptionObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(description_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="description_source"/></include>)
+        THEN #{row.description} ELSE description END,
+      description_source = CASE WHEN #{row.descriptionObservedAt} IS NOT NULL
+          AND (#{row.descriptionObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(description_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="description_source"/></include>)
+        THEN #{row.descriptionSource} ELSE description_source END,
+      description_observed_at = CASE WHEN #{row.descriptionObservedAt} IS NOT NULL
+          AND (#{row.descriptionObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(description_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="description_source"/></include>)
+        THEN #{row.descriptionObservedAt} ELSE description_observed_at END,
+
+      announce_only = CASE WHEN #{row.announceOnlyObservedAt} IS NOT NULL
+          AND (#{row.announceOnlyObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(announce_only_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="announce_only_source"/></include>)
+        THEN #{row.announceOnly} ELSE announce_only END,
+      announce_only_source = CASE WHEN #{row.announceOnlyObservedAt} IS NOT NULL
+          AND (#{row.announceOnlyObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(announce_only_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="announce_only_source"/></include>)
+        THEN #{row.announceOnlySource} ELSE announce_only_source END,
+      announce_only_observed_at = CASE WHEN #{row.announceOnlyObservedAt} IS NOT NULL
+          AND (#{row.announceOnlyObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(announce_only_observed_at, -1),
+                <include refid="sourceRank"><property name="col" value="announce_only_source"/></include>)
+        THEN #{row.announceOnlyObservedAt} ELSE announce_only_observed_at END,
+
+      admin_only_edit_info = CASE WHEN #{row.adminOnlyEditInfoObservedAt} IS NOT NULL
+          AND (#{row.adminOnlyEditInfoObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(admin_only_edit_info_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="admin_only_edit_info_source"/>
+                </include>)
+        THEN #{row.adminOnlyEditInfo} ELSE admin_only_edit_info END,
+      admin_only_edit_info_source = CASE WHEN #{row.adminOnlyEditInfoObservedAt} IS NOT NULL
+          AND (#{row.adminOnlyEditInfoObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(admin_only_edit_info_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="admin_only_edit_info_source"/>
+                </include>)
+        THEN #{row.adminOnlyEditInfoSource} ELSE admin_only_edit_info_source END,
+      admin_only_edit_info_observed_at = CASE WHEN #{row.adminOnlyEditInfoObservedAt} IS NOT NULL
+          AND (#{row.adminOnlyEditInfoObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(admin_only_edit_info_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="admin_only_edit_info_source"/>
+                </include>)
+        THEN #{row.adminOnlyEditInfoObservedAt} ELSE admin_only_edit_info_observed_at END,
+
+      member_add_mode = CASE WHEN #{row.memberAddModeObservedAt} IS NOT NULL
+          AND (#{row.memberAddModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(member_add_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="member_add_mode_source"/>
+                </include>)
+        THEN #{row.memberAddMode} ELSE member_add_mode END,
+      member_add_mode_source = CASE WHEN #{row.memberAddModeObservedAt} IS NOT NULL
+          AND (#{row.memberAddModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(member_add_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="member_add_mode_source"/>
+                </include>)
+        THEN #{row.memberAddModeSource} ELSE member_add_mode_source END,
+      member_add_mode_observed_at = CASE WHEN #{row.memberAddModeObservedAt} IS NOT NULL
+          AND (#{row.memberAddModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(member_add_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="member_add_mode_source"/>
+                </include>)
+        THEN #{row.memberAddModeObservedAt} ELSE member_add_mode_observed_at END,
+
+      join_approval_mode = CASE WHEN #{row.joinApprovalModeObservedAt} IS NOT NULL
+          AND (#{row.joinApprovalModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(join_approval_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="join_approval_mode_source"/>
+                </include>)
+        THEN #{row.joinApprovalMode} ELSE join_approval_mode END,
+      join_approval_mode_source = CASE WHEN #{row.joinApprovalModeObservedAt} IS NOT NULL
+          AND (#{row.joinApprovalModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(join_approval_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="join_approval_mode_source"/>
+                </include>)
+        THEN #{row.joinApprovalModeSource} ELSE join_approval_mode_source END,
+      join_approval_mode_observed_at = CASE WHEN #{row.joinApprovalModeObservedAt} IS NOT NULL
+          AND (#{row.joinApprovalModeObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(join_approval_mode_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="join_approval_mode_source"/>
+                </include>)
+        THEN #{row.joinApprovalModeObservedAt} ELSE join_approval_mode_observed_at END,
+
+      ephemeral_duration_seconds = CASE
+          WHEN #{row.ephemeralDurationSecondsObservedAt} IS NOT NULL
+          AND (#{row.ephemeralDurationSecondsObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(ephemeral_duration_seconds_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="ephemeral_duration_seconds_source"/>
+                </include>)
+        THEN #{row.ephemeralDurationSeconds} ELSE ephemeral_duration_seconds END,
+      ephemeral_duration_seconds_source = CASE
+          WHEN #{row.ephemeralDurationSecondsObservedAt} IS NOT NULL
+          AND (#{row.ephemeralDurationSecondsObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(ephemeral_duration_seconds_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="ephemeral_duration_seconds_source"/>
+                </include>)
+        THEN #{row.ephemeralDurationSecondsSource}
+        ELSE ephemeral_duration_seconds_source END,
+      ephemeral_duration_seconds_observed_at = CASE
+          WHEN #{row.ephemeralDurationSecondsObservedAt} IS NOT NULL
+          AND (#{row.ephemeralDurationSecondsObservedAt}, #{row.sourceRank})
+            &gt; (COALESCE(ephemeral_duration_seconds_observed_at, -1),
+                <include refid="sourceRank">
+                  <property name="col" value="ephemeral_duration_seconds_source"/>
+                </include>)
+        THEN #{row.ephemeralDurationSecondsObservedAt}
+        ELSE ephemeral_duration_seconds_observed_at END,
+
+      updated_at = #{row.now}
+  </insert>
+
+</mapper>

@@ -168,20 +168,33 @@
 
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
-      group_id, subject, member_count, checked_member_count, wa_created_at, announce_only,
+      group_id, subject, description, member_count, checked_member_count,
+      wa_created_at, announce_only,
+      admin_only_edit_info, member_add_mode, join_approval_mode, ephemeral_duration_seconds,
       metadata_observed_at, health_status, banned, last_checked_at,
       last_error_code, failure_count, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{row.groupId}, #{row.subject}, #{row.memberCount}, #{row.memberCount},
+        #{row.groupId}, #{row.subject}, #{row.description},
+        #{row.memberCount}, #{row.memberCount},
         #{row.waCreatedAt},
-        #{row.announceOnly}, #{row.syncAt}, 1, 0, #{row.syncAt},
+        #{row.announceOnly}, #{row.adminOnlyEditInfo}, #{row.memberAddMode},
+        #{row.joinApprovalMode}, #{row.ephemeralDurationSeconds},
+        #{row.syncAt}, 1, 0, #{row.syncAt},
         NULL, 0, #{row.now}, #{row.now}
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
       subject = COALESCE(NULLIF(TRIM(VALUES(subject)), ''), subject),
+      <!--
+        描述用 null 与空串区分观察语义，不能像单行 upsertGroupMetadata 那样另传 observed 标记：
+        批量 upsert 的 ON DUPLICATE KEY 段在 foreach 之外，引用不到单行参数。
+        service 层已归约为 null=本次未观察（保留旧值）、空串=明确观察到空描述（写入）。
+        这里刻意不套 NULLIF(TRIM(...), '')，否则空描述永远写不进去——与 subject 不同，
+        群描述为空是合法状态。
+      -->
+      description = COALESCE(VALUES(description), description),
       member_count = COALESCE(VALUES(member_count), member_count),
       checked_member_count = COALESCE(
         VALUES(checked_member_count), checked_member_count
@@ -197,6 +210,15 @@
         THEN failure_count ELSE VALUES(failure_count) END,
       wa_created_at = COALESCE(VALUES(wa_created_at), wa_created_at),
       announce_only = COALESCE(VALUES(announce_only), announce_only),
+      admin_only_edit_info = COALESCE(
+        VALUES(admin_only_edit_info), admin_only_edit_info
+      ),
+      member_add_mode = COALESCE(VALUES(member_add_mode), member_add_mode),
+      join_approval_mode = COALESCE(VALUES(join_approval_mode), join_approval_mode),
+      <!-- 0 是"明确关闭限时消息"，必须落库；只有 NULL 才表示未观察、保留旧值。 -->
+      ephemeral_duration_seconds = COALESCE(
+        VALUES(ephemeral_duration_seconds), ephemeral_duration_seconds
+      ),
       metadata_observed_at = VALUES(metadata_observed_at),
       updated_at = VALUES(updated_at)
   </insert>
@@ -384,6 +406,14 @@
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
+      <!--
+        身份列只补空、不覆盖。命中的行可能只持有 PN 或只持有 LID：WhatsApp 群成员列表已逐步
+        只返回 LID，而账号快照按 self PN 建行，同一个人因此会分成两行。协议本次给出另一个
+        身份时补进同一行，使两种身份收敛到一条成员记录（设计 §3.2 硬不变量 3）。
+        已有值一律保留，避免把已确认身份改写成另一个人的。
+      -->
+      pn_jid = COALESCE(pn_jid, VALUES(pn_jid)),
+      lid_jid = COALESCE(lid_jid, VALUES(lid_jid)),
       phone = COALESCE(VALUES(phone), phone),
       presence_status = CASE
         WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)

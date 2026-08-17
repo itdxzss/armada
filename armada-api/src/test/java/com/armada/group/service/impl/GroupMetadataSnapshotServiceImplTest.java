@@ -300,8 +300,8 @@ class GroupMetadataSnapshotServiceImplTest {
                 true,
                 List.of(
                         new GroupParticipantResult(
-                                "8613800000000@s.whatsapp.net", "8613800000000", true, true, "superadmin"),
+"8613800000000@s.whatsapp.net", null, "8613800000000", true, true, "superadmin"),
                         new GroupParticipantResult(
-                                "8613900000000@s.whatsapp.net", "8613900000000", false, false, null)));
+"8613900000000@s.whatsapp.net", null, "8613900000000", false, false, null)));
     }
 }

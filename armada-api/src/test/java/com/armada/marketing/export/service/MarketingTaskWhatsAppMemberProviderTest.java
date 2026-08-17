@@ -95,8 +95,10 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 true, true, null, null, null,
                 null, null, false, null, false, true,
                 List.of(
-                        new GroupParticipantResult("15550000001@s.whatsapp.net", "15550000001", true, false, "admin"),
-                        new GroupParticipantResult("551100000002@s.whatsapp.net", "551100000002", false, false, ""))));
+                        new GroupParticipantResult(
+"15550000001@s.whatsapp.net", null, "15550000001", true, false, "admin"),
+                        new GroupParticipantResult(
+"551100000002@s.whatsapp.net", null, "551100000002", false, false, ""))));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
                 new WhatsappGroupDepartedMemberVO("120363-test@g.us", "15550000001@s.whatsapp.net",
                         "15550000001", 900L, "LEFT", "HISTORY_SYNC"),
@@ -282,7 +284,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 true, false, null, null, null,
                 null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
-                        "current@s.whatsapp.net", null, false, false, ""))));
+"current@s.whatsapp.net", null, null, false, false, ""))));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
                 new WhatsappGroupDepartedMemberVO(
                         "120363-test@g.us", "current@s.whatsapp.net", null, 800L,
@@ -346,7 +348,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 true, false, null, null, null,
                 null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(
-                        "123456789012345@lid", null, false, false, ""))));
+"123456789012345@lid", null, null, false, false, ""))));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
         MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(

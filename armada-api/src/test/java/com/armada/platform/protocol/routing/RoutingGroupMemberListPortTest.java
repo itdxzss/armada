@@ -25,7 +25,7 @@ class RoutingGroupMemberListPortTest {
         List<GroupParticipantResult> result = port.list(query);
 
         assertThat(result).containsExactly(new GroupParticipantResult(
-                "919000000002@s.whatsapp.net", "919000000002", false, false, null));
+"919000000002@s.whatsapp.net", null, "919000000002", false, false, null));
         assertThat(web.lastQuery).isNull();
         assertThat(android.lastQuery).isSameAs(query);
     }
@@ -71,7 +71,7 @@ class RoutingGroupMemberListPortTest {
         public List<GroupParticipantResult> list(GroupMemberListQuery query) {
             lastQuery = query;
             return List.of(new GroupParticipantResult(
-                    "919000000002@s.whatsapp.net", "919000000002", false, false, null));
+"919000000002@s.whatsapp.net", null, "919000000002", false, false, null));
         }
     }
 }

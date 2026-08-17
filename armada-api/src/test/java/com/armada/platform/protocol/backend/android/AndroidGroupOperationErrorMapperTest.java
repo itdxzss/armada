@@ -45,6 +45,21 @@ class AndroidGroupOperationErrorMapperTest {
     }
 
     @Test
+    void classifiesLockedGroupAsGroupPermissionDenied() {
+        // test1 实测：群设置为仅管理员可改时，提权返回 IQ error code=423 text=locked。
+        assertThat(mapper.toException(
+                response("设置管理员 113834467586188@lid 失败, locked, Code: 423", null, "423"),
+                account(), "group.admin.set", "item:11").errorCode())
+                .as("协议已明确给出 423/locked，不能退化成 UNKNOWN")
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+        assertThat(mapper.toException(
+                response("group is locked", null, null),
+                account(), "group.admin.set", "item:11").errorCode())
+                .as("仅有文案没有原始码时也应识别")
+                .isEqualTo(ProtocolErrorCode.GROUP_PERMISSION_DENIED);
+    }
+
+    @Test
     void classifiesNotAuthorizedAndRaw401AsGroupPermissionDenied() {
         ProtocolException messageException = mapper.toException(
                 response("获取群链接失败, not-authorized, Code: 401", null, null),

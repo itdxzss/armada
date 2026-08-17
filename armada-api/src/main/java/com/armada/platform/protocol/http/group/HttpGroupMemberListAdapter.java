@@ -23,6 +23,7 @@ public class HttpGroupMemberListAdapter implements GroupMemberListBackend {
 
     /** Baileys 普通管理员角色值。 */
     private static final String ROLE_ADMIN = "admin";
+    private static final String PN_JID_SUFFIX = "@s.whatsapp.net";
 
     /** Baileys 群主角色值。 */
     private static final String ROLE_SUPERADMIN = "superadmin";
@@ -62,10 +63,30 @@ public class HttpGroupMemberListAdapter implements GroupMemberListBackend {
         String jid = blankToNull(response.id());
         return new GroupParticipantResult(
                 jid,
+                pnJid(response, jid),
                 phone(response),
                 ROLE_ADMIN.equals(role) || ROLE_SUPERADMIN.equals(role),
                 ROLE_SUPERADMIN.equals(role),
                 role);
+    }
+
+    /**
+     * 还原成员的 PN 形式 JID。
+     *
+     * <p>成员主标识 {@code id} 可能已是 LID,协议另在 {@code phoneNumber} 给出 PN JID;
+     * 据此还原可让同一个人的两种身份落在同一行成员记录上。没有可信号码来源时留空,
+     * 不得由 LID 数字反推手机号。</p>
+     *
+     * @param response 协议返回的成员项
+     * @param jid      成员主标识,可能是 PN 或 LID 形式
+     * @return PN 形式 JID;没有可信来源时返回 null
+     */
+    private static String pnJid(ParticipantResponse response, String jid) {
+        String explicitPhone = blankToNull(response.phoneNumber());
+        if (explicitPhone != null) {
+            return phone(explicitPhone) + PN_JID_SUFFIX;
+        }
+        return jid != null && jid.endsWith(PN_JID_SUFFIX) ? phone(jid) + PN_JID_SUFFIX : null;
     }
 
     private static String phone(ParticipantResponse response) {

@@ -86,11 +86,15 @@ public final class AndroidGroupOperationErrorMapper {
         if (message.contains("time out") || message.contains("timeout")) {
             return ProtocolErrorCode.TIMEOUT;
         }
+        // 423/locked 是群设置为仅管理员可改时 WhatsApp 返回的 IQ error：对运营而言
+        // 与无权限的处置动作相同（换群或等解锁），归入同一错误码，避免退化成 UNKNOWN。
         boolean unauthorized = "401".equals(response.rawProtocolCode())
                 || "403".equals(response.rawProtocolCode())
+                || "423".equals(response.rawProtocolCode())
                 || message.contains("not-authorized")
                 || message.contains("not authorized")
                 || message.contains("forbidden")
+                || message.contains("locked")
                 || message.contains("code: 401")
                 || message.contains("code: 403");
         if (unauthorized) {

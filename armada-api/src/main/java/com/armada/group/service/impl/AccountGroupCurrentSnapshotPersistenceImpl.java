@@ -48,6 +48,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             AccountGroupCurrentSnapshotPersistenceImpl.class);
 
     private static final int SUBJECT_MAX_LENGTH = 255;
+    private static final int DESCRIPTION_MAX_LENGTH = 1024;
     private static final int AVATAR_URL_MAX_LENGTH = 512;
     private static final int EVENT_ID_MAX_LENGTH = 255;
     private static final int SNAPSHOT_VERSION_MAX_LENGTH = 64;
@@ -154,7 +155,16 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     classification.wasInInitialBaseline(),
                     classification.baselineSubjectSnapshot(),
                     activeSince,
-                    classification.firstPostControlObservedAt()));
+                    classification.firstPostControlObservedAt(),
+                    group.adminOnlyEditInfo(),
+                    group.memberAddMode(),
+                    // 把观察语义归约成 null / 空串：未观察传 null 让 SQL 保留旧值，观察到才传值
+                    // （含明确观察到的空描述）。批量 upsert 的 ON DUPLICATE KEY 段引用不到单行
+                    // 参数，无法像单行 upsertGroupMetadata 那样另传 observed 标记。
+                    group.descriptionObserved()
+                            ? clamp(group.description(), DESCRIPTION_MAX_LENGTH) : null,
+                    group.joinApprovalMode(),
+                    group.ephemeralDurationSeconds()));
         }
 
         if (!rows.isEmpty()) {
@@ -315,7 +325,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, normalizedEventId, occurredAt, now, null, null, null, null)));
+                    0, normalizedEventId, occurredAt, now, null, null, null, null, null, null,
+                    null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -391,7 +402,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             mapper.insertMissingGroups(tenantId, List.of(new Write(
                     null, normalizedGroupJid, null,
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, row.eventId(), observedAt, now, null, null, null, null)));
+                    0, row.eventId(), observedAt, now, null, null, null, null, null, null,
+                    null, null, null)));
         }
         if (row.groupId() == null) {
             List<GroupId> groupIds = mapper.selectGroupIds(
@@ -632,7 +644,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     .map(groupJid -> new Write(
                             null, groupJid, null,
                             null, null, null, null, null, null, 0, null,
-                            now, now, null, null, null, null))
+                            now, now, null, null, null, null, null, null,
+                            null, null, null))
                     .toList();
             mapper.insertMissingGroups(tenantId, missingGroups);
             mapper.selectGroupIds(tenantId, missingGroupJids)
@@ -954,7 +967,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (participant == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照包含空成员");
         }
-        ParticipantIdentity identity = participantIdentity(participant.jid());
+        ParticipantIdentity identity = mergedIdentity(participant);
         String identityKey = identity.pnJid() == null ? identity.lidJid() : identity.pnJid();
         String eventId = clamp(
                 "snapshot:" + snapshotVersion + ":" + identityKey,
@@ -1014,6 +1027,25 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
     }
 
     private record ParticipantIdentity(String pnJid, String lidJid) {
+    }
+
+    /**
+     * 合并协议给出的两种成员身份。
+     *
+     * <p>WhatsApp 群成员列表已逐步只返回 LID，此时仅按主标识解析会丢掉 PN 身份，
+     * 导致同一个人在 PN 与 LID 两行并存。协议另行给出号码时 adapter 会还原 PN JID，
+     * 这里把它补进同一行，使两个身份落在一条成员记录上（群组数据模型设计 §3.2 硬不变量 3）。</p>
+     *
+     * @param participant 协议成员结果
+     * @return 合并后的成员身份
+     */
+    private static ParticipantIdentity mergedIdentity(GroupParticipantResult participant) {
+        ParticipantIdentity identity = participantIdentity(participant.jid());
+        if (identity.pnJid() != null || participant.pnJid() == null) {
+            return identity;
+        }
+        ParticipantIdentity restored = participantIdentity(participant.pnJid());
+        return new ParticipantIdentity(restored.pnJid(), identity.lidJid());
     }
 
     private record BaselineEvidence(

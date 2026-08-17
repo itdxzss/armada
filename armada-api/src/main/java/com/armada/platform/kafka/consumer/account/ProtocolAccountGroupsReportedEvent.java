@@ -35,15 +35,24 @@ public record ProtocolAccountGroupsReportedEvent(
     /**
      * 账号当前参与的单个群。
      *
-     * @param groupJid     WhatsApp 群 JID
-     * @param subject      群名称,可空
-     * @param memberCount  群人数,可空
-     * @param ownerJid     群主 JID,可空
-     * @param ownerPhone   群主号码,可空
-     * @param admin        当前账号是否管理员,可空
-     * @param announceOnly 是否仅管理员发言,可空
-     * @param avatarUrl    群头像 URL,可空
-     * @param creation     WhatsApp 群创建时间,Unix 秒;可空
+     * <p>群设置字段一律可空,null 表示协议本次未观察到,落库时不得覆盖已知事实;
+     * 明确的 {@code false} 必须区别于 null 落库,否则控端只看得到设置开启。</p>
+     *
+     * @param groupJid          WhatsApp 群 JID
+     * @param subject           群名称,可空
+     * @param memberCount       群人数,可空
+     * @param ownerJid          群主 JID,可空
+     * @param ownerPhone        群主号码,可空
+     * @param admin             当前账号是否管理员,可空
+     * @param announceOnly      是否仅管理员发言,可空
+     * @param avatarUrl         群头像 URL,可空
+     * @param creation          WhatsApp 群创建时间,Unix 秒;可空
+     * @param adminOnlyEditInfo 是否仅管理员可编辑群资料,可空
+     * @param memberAddMode     普通成员是否可添加成员,可空
+     * @param description       群描述,可空;是否采纳由 descriptionObserved 决定
+     * @param descriptionObserved 本次是否观察到群描述字段
+     * @param joinApprovalMode  是否开启入群审批,可空
+     * @param ephemeralDurationSeconds 限时消息秒数,0 表示明确关闭;可空表示未观察
      */
     public record Group(
             String groupJid,
@@ -54,10 +63,16 @@ public record ProtocolAccountGroupsReportedEvent(
             Boolean admin,
             Boolean announceOnly,
             String avatarUrl,
-            Long creation
+            Long creation,
+            Boolean adminOnlyEditInfo,
+            Boolean memberAddMode,
+            String description,
+            boolean descriptionObserved,
+            Boolean joinApprovalMode,
+            Integer ephemeralDurationSeconds
     ) {
 
-        /** 兼容旧协议事件不带 creation 的构造方式。 */
+        /** 兼容旧协议事件不带 creation 与群设置的构造方式。 */
         public Group(
                 String groupJid,
                 String subject,
@@ -68,7 +83,8 @@ public record ProtocolAccountGroupsReportedEvent(
                 Boolean announceOnly,
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
-                    admin, announceOnly, avatarUrl, null);
+                    admin, announceOnly, avatarUrl, null, null, null,
+                    null, false, null, null);
         }
     }
 }

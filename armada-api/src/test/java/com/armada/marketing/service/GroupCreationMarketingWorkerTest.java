@@ -244,9 +244,12 @@ class GroupCreationMarketingWorkerTest {
         seedSuccessfulOnlineItem();
         when(groupMemberListPort.list(any(GroupMemberListQuery.class)))
                 .thenReturn(List.of(
-                        new GroupParticipantResult("8613000000000@s.whatsapp.net", "8613000000000", true, true, "superadmin"),
-                        new GroupParticipantResult("8613900000000@s.whatsapp.net", "8613900000000", false, false, null),
-                        new GroupParticipantResult("8613911111111@s.whatsapp.net", "8613911111111", false, false, null)));
+                        new GroupParticipantResult(
+"8613000000000@s.whatsapp.net", null, "8613000000000", true, true, "superadmin"),
+                        new GroupParticipantResult(
+"8613900000000@s.whatsapp.net", null, "8613900000000", false, false, null),
+                        new GroupParticipantResult(
+"8613911111111@s.whatsapp.net", null, "8613911111111", false, false, null)));
 
         worker.processDueItems(10);
 

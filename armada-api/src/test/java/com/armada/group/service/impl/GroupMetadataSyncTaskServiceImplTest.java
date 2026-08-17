@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
@@ -71,6 +72,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         task.setStatus(GroupMetadataSyncStatus.PENDING.code());
 
         service.defer(task, 5_000L);
+        when(mapper.selectDeferredTaskIdsForAccount(
+                77L, GroupMetadataSyncStatus.DEFERRED.code())).thenReturn(List.of(11L, 12L));
         service.resumeDeferredForAccount(77L, 6_000L);
 
         ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
@@ -79,12 +82,24 @@ class GroupMetadataSyncTaskServiceImplTest {
                 GroupMetadataSyncStatus.RETRY_WAIT.code())));
         assertThat(captor.getValue().getStatus()).isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
         assertThat(captor.getValue().getAttemptCount()).isZero();
-        verify(mapper).resumeDeferredForAccount(
-                77L,
+        // 恢复只按已定位的主键写，不再用一条宽 UPDATE 扫锁全部延期行。
+        verify(mapper).resumeDeferredByIds(
+                List.of(11L, 12L),
                 GroupMetadataSyncStatus.DEFERRED.code(),
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
                 6_000L);
+    }
+
+    @Test
+    void onlineResumeSkipsTheWriteWhenAccountHasNoDeferredGroup() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+        when(mapper.selectDeferredTaskIdsForAccount(
+                77L, GroupMetadataSyncStatus.DEFERRED.code())).thenReturn(List.of());
+
+        service.resumeDeferredForAccount(77L, 6_000L);
+
+        verify(mapper, never()).resumeDeferredByIds(any(), anyInt(), anyInt(), anyInt(), anyLong());
     }
 
     @Test

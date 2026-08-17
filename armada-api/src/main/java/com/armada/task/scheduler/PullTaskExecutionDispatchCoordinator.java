@@ -198,10 +198,15 @@ public class PullTaskExecutionDispatchCoordinator {
                     ? stats.skip()
                     : stats.add(result);
         } catch (RuntimeException ex) {
-            executionMapper.releaseLock(candidate.getId(), lockOwner, now);
-            log.error("普通拉群执行行调度异常 tenantId={} taskId={} executionId={} errorType={}",
+            // 释放租约但不推后 next_run_at，会让本行下一轮立刻回到队首再次失败；
+            // 不可恢复的行会因此每秒重试并长期占用 claim 名额。异常一律退避后再试。
+            long nextRunAt = Math.addExact(now, properties.getRetryDelayMs());
+            executionMapper.releaseLockWithBackoff(candidate.getId(), lockOwner, now, nextRunAt);
+            // 类名加 message 仍不足以定位非协议异常，带上栈保留现场。
+            log.error("普通拉群执行行调度异常 tenantId={} taskId={} executionId={} errorType={} "
+                            + "nextRunAt={} reason={}",
                     candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
-                    ex.getClass().getSimpleName());
+                    ex.getClass().getSimpleName(), nextRunAt, ex.getMessage(), ex);
             return stats.skip();
         }
     }

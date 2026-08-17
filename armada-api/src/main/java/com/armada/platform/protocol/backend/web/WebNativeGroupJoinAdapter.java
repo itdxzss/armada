@@ -1,5 +1,6 @@
 package com.armada.platform.protocol.backend.web;
 
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
@@ -39,6 +40,13 @@ public final class WebNativeGroupJoinAdapter implements GroupJoinBackend {
                     JOIN_URI,
                     request(command.account().protocolAccountId(), command.inviteLinkOrCode()),
                     JoinResponse.class);
+            // JSON 字面量 null 能正常反序列化成 null，不会走解析失败分支；这里不判空就会
+            // 在下一行裸抛 NullPointerException，丢掉错误码也丢掉调用上下文。
+            if (response == null) {
+                throw new ProtocolException(
+                        ProtocolErrorCode.JOIN_RESULT_UNCONFIRMED,
+                        "Web 进群响应体为空，无法确认入群结果");
+            }
 
             // Web 接口只返回 joined 布尔值：true 表示已经真实入群，false 表示已提交申请、等待审批。
             // 在 adapter 边界转换为统一枚举，避免上层业务继续依赖 Web 协议的原始字段语义。

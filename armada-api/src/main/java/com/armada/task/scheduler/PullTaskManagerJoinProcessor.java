@@ -86,11 +86,12 @@ public class PullTaskManagerJoinProcessor {
                         protocol.operation().orElse(null), protocol.operationId().orElse(null),
                         work.payload().knownGroupJid(), protocol.retryable().orElse(null));
             } else {
+                // 非协议异常没有标准错误码，只打类名无法定位；带上栈供排查。
                 log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
                                 + "errorType={} groupJid={}",
                         work.tenantId(), work.executionId(),
                         work.payload().account().armadaAccountId(),
-                        ex.getClass().getSimpleName(), work.payload().knownGroupJid());
+                        ex.getClass().getSimpleName(), work.payload().knownGroupJid(), ex);
             }
         }
         return transactions.complete(work, outcome, now);

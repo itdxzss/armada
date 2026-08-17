@@ -209,15 +209,9 @@
       </foreach>
   </update>
 
-  <update id="resumeDeferredForAccount">
-    UPDATE group_metadata_sync_task task
-    SET task.status = #{pendingStatus},
-        task.trigger_source = #{triggerSource},
-        task.next_run_at = #{now},
-        task.rerun_requested = FALSE,
-        task.last_error_code = NULL,
-        task.last_error_message = NULL,
-        task.updated_at = #{now}
+  <select id="selectDeferredTaskIdsForAccount" resultType="java.lang.Long">
+    SELECT task.id
+    FROM group_metadata_sync_task task
     WHERE task.status = #{deferredStatus}
       AND EXISTS (
         SELECT 1
@@ -235,6 +229,26 @@
           AND link.id = task.group_link_id
           AND link.deleted_at IS NULL
       )
+    ORDER BY task.id ASC
+  </select>
+
+  <!--
+    只按主键更新。入参主键已升序，InnoDB 按主键索引顺序取锁，
+    因此并发上线的多个账号即使候选集合相交也不会形成反向持锁。
+  -->
+  <update id="resumeDeferredByIds">
+    UPDATE group_metadata_sync_task task
+    SET task.status = #{pendingStatus},
+        task.trigger_source = #{triggerSource},
+        task.next_run_at = #{now},
+        task.rerun_requested = FALSE,
+        task.last_error_code = NULL,
+        task.last_error_message = NULL,
+        task.updated_at = #{now}
+    WHERE task.status = #{deferredStatus}
+      AND task.id IN
+      <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
+
 
 </mapper>

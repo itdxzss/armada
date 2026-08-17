@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.backend.web;
 
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -13,6 +15,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -112,6 +115,30 @@ class WebNativeGroupJoinAdapterTest {
                 "join-task-result:3"));
 
         assertThat(result.joined()).isTrue();
+        server.verify();
+    }
+
+    @Test
+    void nullJoinResponseBodyRaisesUnconfirmedProtocolErrorInsteadOfNullPointer() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WebNativeGroupJoinAdapter adapter = new WebNativeGroupJoinAdapter(
+                new ProtocolHttpExecutor(builder.build()));
+
+        // JSON 字面量 null 能被正常反序列化成 null，不会触发解析异常。
+        server.expect(requestTo("http://protocol.internal/v1/groups/join"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withSuccess("null", MediaType.APPLICATION_JSON));
+
+        GroupJoinCommand command = new GroupJoinCommand(
+                new ProtocolAccountRef(4L, ProtocolBackend.WEB, "acc_864444", "864444"),
+                "https://chat.whatsapp.com/EMPTY01",
+                "join-task-result:4");
+
+        assertThatThrownBy(() -> adapter.join(command))
+                .isInstanceOf(ProtocolException.class)
+                .extracting(exception -> ((ProtocolException) exception).errorCode())
+                .isEqualTo(ProtocolErrorCode.JOIN_RESULT_UNCONFIRMED);
         server.verify();
     }
 }

@@ -225,7 +225,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.selectByExecutionAndType(
                 11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
                 .thenReturn(List.of(action));
-        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account()));
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
 
         PullTaskManagerJoinPreparation prepared =
                 service.prepare(candidate, "worker-1", NOW);
@@ -250,14 +250,45 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.selectByExecutionAndType(
                 11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
                 .thenReturn(List.of(action));
-        when(accountLookup.findActiveProtocolRef(901L))
-                .thenReturn(Optional.of(androidAccount()));
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L)))
+                .thenReturn(List.of(androidAccount()));
 
         PullTaskManagerJoinPreparation prepared =
                 service.prepare(candidate, "worker-1", NOW);
 
         assertThat(prepared.ready()).isTrue();
         assertThat(prepared.work().payload().inviteLink()).isEqualTo("AAAA");
+    }
+
+    @Test
+    void offlineManagerParksTheRowInsteadOfHandingAnOfflineAccountToTheJoinProtocol() {
+        PullTaskGroupExecution candidate = candidate();
+        seedDispatchableParent(candidate);
+        when(groupAccountMapper.selectByExecutionAndRole(11L, 1))
+                .thenReturn(List.of(manager()));
+        when(actionMapper.selectByExecutionAndType(
+                11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
+                .thenReturn(List.of(submittedAction()));
+        // 账号在库里仍然活着，只是已经离线；恢复踩链接必须放弃本轮，不能把离线号交给协议层。
+        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account()));
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of());
+        when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
+
+        PullTaskManagerJoinPreparation prepared =
+                service.prepare(candidate, "worker-1", NOW);
+
+        assertThat(prepared.ready()).isFalse();
+        assertThat(prepared.result()).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        ArgumentCaptor<PullTaskGroupExecution> update =
+                ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executionMapper).transitionClaimed(update.capture(),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()));
+        assertThat(update.getValue().getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(update.getValue().getWaitResourceType())
+                .isEqualTo(PullTaskWaitResourceType.MANAGER.code());
+        assertThat(update.getValue().getReasonCode()).isEqualTo("MANAGER_UNAVAILABLE");
     }
 
     @Test
@@ -276,7 +307,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.reopenForVerification(
                 601L, PullTaskActionStatus.UNKNOWN.code(),
                 PullTaskActionStatus.SUBMITTED.code(), NOW)).thenReturn(1);
-        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account()));
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
 
         PullTaskManagerJoinPreparation prepared =
                 service.prepare(candidate, "worker-1", NOW);

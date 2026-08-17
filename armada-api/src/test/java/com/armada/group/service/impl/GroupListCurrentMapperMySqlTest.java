@@ -130,25 +130,30 @@ class GroupListCurrentMapperMySqlTest {
     void deferredTaskResumeUsesCurrentSelfPresence() {
         jdbc.update("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 201");
         try {
-            assertThat(metadataTaskMapper.resumeDeferredForAccount(
-                    301L,
-                    GroupMetadataSyncStatus.DEFERRED.code(),
-                    GroupMetadataSyncStatus.PENDING.code(),
-                    GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
-                    500L)).isEqualTo(1);
+            assertThat(resumeDeferredForAccount(301L, 500L)).isEqualTo(1);
 
             jdbc.update("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 201");
             jdbc.update("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 801");
-            assertThat(metadataTaskMapper.resumeDeferredForAccount(
-                    301L,
-                    GroupMetadataSyncStatus.DEFERRED.code(),
-                    GroupMetadataSyncStatus.PENDING.code(),
-                    GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
-                    600L)).isZero();
+            assertThat(resumeDeferredForAccount(301L, 600L)).isZero();
         } finally {
             jdbc.update("UPDATE wa_group_participant SET presence_status = 1 WHERE id = 801");
             jdbc.update("UPDATE group_metadata_sync_task SET status = 2 WHERE group_link_id = 201");
         }
+    }
+
+    /** 复现 service 的两步恢复：先读候选主键，再只按主键写。 */
+    private int resumeDeferredForAccount(long accountId, long now) {
+        java.util.List<Long> ids = metadataTaskMapper.selectDeferredTaskIdsForAccount(
+                accountId, GroupMetadataSyncStatus.DEFERRED.code());
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return metadataTaskMapper.resumeDeferredByIds(
+                ids,
+                GroupMetadataSyncStatus.DEFERRED.code(),
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code(),
+                now);
     }
 
     @Test

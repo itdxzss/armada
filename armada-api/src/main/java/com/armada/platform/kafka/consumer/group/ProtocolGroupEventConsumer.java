@@ -53,6 +53,12 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群成员变化事件类型；当前只落 promote/demote 角色事实。 */
     public static final String EVENT_GROUP_PARTICIPANT_CHANGED = "group.participant_changed";
 
+    /** Web/Android 统一群资料字段级变更事件类型。 */
+    public static final String EVENT_GROUP_METADATA_UPDATED = "group.metadata_updated";
+
+    /** 单条资料事件 fieldMask 允许的最大字段数，取白名单全长即足够。 */
+    private static final int MAX_METADATA_FIELDS = 16;
+
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
     private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
             "JOINED", "ALREADY_JOINED", "PENDING_APPROVAL", "FAILED");
@@ -108,6 +114,9 @@ public class ProtocolGroupEventConsumer {
     /** 群成员角色变化下游处理边界。 */
     private final ProtocolGroupParticipantChangedSink participantChangedSink;
 
+    /** 群资料字段级变更下游处理边界。 */
+    private final ProtocolGroupMetadataUpdatedSink metadataUpdatedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -125,7 +134,8 @@ public class ProtocolGroupEventConsumer {
                                               batchParticipantResultReportedSink,
                                       ProtocolGroupMembersResultReportedSink membersResultReportedSink,
                                       ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink,
-                                      ProtocolGroupParticipantChangedSink participantChangedSink) {
+                                      ProtocolGroupParticipantChangedSink participantChangedSink,
+                                      ProtocolGroupMetadataUpdatedSink metadataUpdatedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -134,6 +144,7 @@ public class ProtocolGroupEventConsumer {
         this.membersResultReportedSink = membersResultReportedSink;
         this.inviteLinkChangedSink = inviteLinkChangedSink;
         this.participantChangedSink = participantChangedSink;
+        this.metadataUpdatedSink = metadataUpdatedSink;
     }
 
     /**
@@ -167,6 +178,7 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_MEMBERS_RESULT_REPORTED -> handleMembersResultReported(envelope, eventId);
             case EVENT_GROUP_INVITE_LINK_CHANGED -> handleInviteLinkChanged(envelope, eventId);
             case EVENT_GROUP_PARTICIPANT_CHANGED -> handleParticipantChanged(envelope, eventId);
+            case EVENT_GROUP_METADATA_UPDATED -> handleMetadataUpdated(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
@@ -219,6 +231,154 @@ public class ProtocolGroupEventConsumer {
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
                 event.action(), event.participants().size());
         participantChangedSink.handleParticipantChanged(event);
+    }
+
+    /**
+     * 校验并分派群资料字段级变更事件。
+     *
+     * <p>fieldMask 决定哪些字段允许写库：进了 mask 的字段必须具有合法类型，未进 mask 的同名值
+     * 一律忽略。业务白名单过滤放在 group 域完成——白名单枚举属于业务模型，platform 层不反向
+     * 依赖它，这里只保证协议契约本身合法（数组、非空、去重、上限、字段类型）。</p>
+     *
+     * <p>类型非法一律拒绝整条事件而不是跳过该字段，避免部分写产生半截资料；未识别的字段名不在
+     * 此处判定，由 group 域计指标后跳过，以免一个未知字段阻塞同一事件里已识别的字段。</p>
+     */
+    private void handleMetadataUpdated(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群资料事件缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("协议群资料事件账号关联不一致");
+        }
+        String protocolBackend = requiredText(
+                data, "protocolBackend", "协议群资料事件缺少 data.protocolBackend")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
+            throw validation("协议群资料事件 protocolBackend 非法");
+        }
+        String groupJid = requiredText(
+                data, "groupJid", "协议群资料事件缺少 data.groupJid")
+                .trim().toLowerCase(Locale.ROOT);
+        if (!groupJid.endsWith("@g.us")) {
+            throw validation("协议群资料事件 groupJid 非法");
+        }
+        long occurredAt = requiredOccurredAt(envelope, data, "协议群资料事件 occurredAt 非法");
+        List<String> fieldMask = metadataFieldMask(data.path("fieldMask"));
+
+        ProtocolGroupMetadataUpdatedEvent event = new ProtocolGroupMetadataUpdatedEvent(
+                requiredText(envelope, "eventId", "协议群资料事件缺少 eventId"),
+                requiredLong(data, "tenantId"),
+                requiredLong(data, "accountId"),
+                protocolAccountId,
+                protocolBackend,
+                groupJid,
+                fieldMask,
+                maskedText(data, fieldMask, "subject", true),
+                maskedText(data, fieldMask, "description", false),
+                maskedBoolean(data, fieldMask, "announceOnly"),
+                maskedBoolean(data, fieldMask, "adminOnlyEditInfo"),
+                maskedBoolean(data, fieldMask, "memberAddMode"),
+                maskedBoolean(data, fieldMask, "joinApprovalMode"),
+                maskedEphemeralDuration(data, fieldMask),
+                text(data, "author"),
+                requiredText(data, "source", "协议群资料事件缺少 data.source"),
+                occurredAt,
+                text(envelope, "workerId"));
+        log.info("协议群资料事件收到 eventId={} tenantId={} accountId={} backend={} fields={}",
+                event.eventId(), event.tenantId(), event.accountId(),
+                event.protocolBackend(), event.fieldMask());
+        metadataUpdatedSink.handleMetadataUpdated(event);
+    }
+
+    /** 解析 fieldMask：必须是字符串数组，去重后仍非空且不超上限。 */
+    private static List<String> metadataFieldMask(JsonNode node) {
+        if (!node.isArray() || node.isEmpty() || node.size() > MAX_METADATA_FIELDS) {
+            throw validation("协议群资料事件 fieldMask 数量非法");
+        }
+        List<String> unique = new ArrayList<>(node.size());
+        for (JsonNode item : node) {
+            if (!item.isTextual()) {
+                throw validation("协议群资料事件 fieldMask 含非字符串字段名");
+            }
+            String name = item.asText().trim();
+            if (!name.isEmpty() && !containsIgnoreCase(unique, name)) {
+                unique.add(name);
+            }
+        }
+        if (unique.isEmpty()) {
+            throw validation("协议群资料事件 fieldMask 为空");
+        }
+        return List.copyOf(unique);
+    }
+
+    private static boolean containsIgnoreCase(List<String> names, String candidate) {
+        for (String name : names) {
+            if (name.equalsIgnoreCase(candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 读取进入 mask 的文本字段。
+     *
+     * @param requireValue true 表示进 mask 后必须有非空文本（群名没有"清空"语义）；false 表示
+     *                     允许 null，用于描述的明确清空——此时值为 null 但字段仍在 mask 中，
+     *                     下游据 mask 而非值本身判断是否写库
+     */
+    private static String maskedText(
+            JsonNode data, List<String> mask, String fieldName, boolean requireValue) {
+        if (!containsIgnoreCase(mask, fieldName)) {
+            return null;
+        }
+        JsonNode value = data.path(fieldName);
+        if (value.isTextual()) {
+            String text = value.asText();
+            if (requireValue && text.trim().isEmpty()) {
+                throw validation("协议群资料事件 " + fieldName + " 不能为空");
+            }
+            return text;
+        }
+        if (requireValue || !(value.isNull() || value.isMissingNode())) {
+            throw validation("协议群资料事件 " + fieldName + " 类型非法");
+        }
+        return null;
+    }
+
+    /** 读取进入 mask 的布尔字段；布尔设置没有"清空"语义，进了 mask 就必须有明确的 true/false。 */
+    private static Boolean maskedBoolean(JsonNode data, List<String> mask, String fieldName) {
+        if (!containsIgnoreCase(mask, fieldName)) {
+            return null;
+        }
+        JsonNode value = data.path(fieldName);
+        if (!value.isBoolean()) {
+            throw validation("协议群资料事件 " + fieldName + " 必须是布尔值");
+        }
+        return value.booleanValue();
+    }
+
+    /** 读取进入 mask 的限时消息秒数；0 是明确关闭，负数与非整数一律拒绝。 */
+    private static Integer maskedEphemeralDuration(JsonNode data, List<String> mask) {
+        String fieldName = "ephemeralDurationSeconds";
+        if (!containsIgnoreCase(mask, fieldName)) {
+            return null;
+        }
+        JsonNode value = data.path(fieldName);
+        if (!value.isIntegralNumber()
+                || value.asLong() < 0
+                || value.asLong() > Integer.MAX_VALUE) {
+            throw validation("协议群资料事件 " + fieldName + " 必须是非负整数");
+        }
+        return value.intValue();
+    }
+
+    private static long requiredOccurredAt(JsonNode envelope, JsonNode data, String message) {
+        Long occurredAt = checkedAt(envelope, data);
+        if (occurredAt == null || occurredAt <= 0) {
+            throw validation(message);
+        }
+        return occurredAt;
     }
 
     private static long requiredOccurredAt(JsonNode envelope, JsonNode data) {

@@ -45,6 +45,8 @@ class ProtocolGroupMetadataUpdatedConsumerTest {
     private ProtocolGroupParticipantChangedSink participantChangedSink;
     @Mock
     private ProtocolGroupMetadataUpdatedSink metadataUpdatedSink;
+    @Mock
+    private ProtocolGroupProfileReportedSink profileReportedSink;
 
     private ProtocolGroupEventConsumer consumer;
 
@@ -53,7 +55,7 @@ class ProtocolGroupMetadataUpdatedConsumerTest {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), healthSink, joinResultSink, actionResultSink,
                 batchParticipantSink, membersResultSink, inviteLinkChangedSink,
-                participantChangedSink, metadataUpdatedSink);
+                participantChangedSink, metadataUpdatedSink, profileReportedSink);
     }
 
     @Test

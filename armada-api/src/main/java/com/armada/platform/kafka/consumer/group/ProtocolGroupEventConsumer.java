@@ -56,8 +56,14 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 统一群资料字段级变更事件类型。 */
     public static final String EVENT_GROUP_METADATA_UPDATED = "group.metadata_updated";
 
+    /** Web/Android 单群完整资料上报事件类型，用于首次建档与人工刷新。 */
+    public static final String EVENT_GROUP_PROFILE_REPORTED = "group.profile_reported";
+
     /** 单条资料事件 fieldMask 允许的最大字段数，取白名单全长即足够。 */
     private static final int MAX_METADATA_FIELDS = 16;
+
+    /** 单群成员列表上限，与角色事件保持同一量级口径。 */
+    private static final int MAX_SNAPSHOT_MEMBERS = 2000;
 
     /** 协议两端约定的完整进群结果码集合，未知值必须拒绝，不能误判为普通失败。 */
     private static final Set<String> SUPPORTED_JOIN_OUTCOMES = Set.of(
@@ -117,6 +123,9 @@ public class ProtocolGroupEventConsumer {
     /** 群资料字段级变更下游处理边界。 */
     private final ProtocolGroupMetadataUpdatedSink metadataUpdatedSink;
 
+    /** 单群完整资料上报下游处理边界。 */
+    private final ProtocolGroupProfileReportedSink profileReportedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -135,7 +144,8 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupMembersResultReportedSink membersResultReportedSink,
                                       ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink,
                                       ProtocolGroupParticipantChangedSink participantChangedSink,
-                                      ProtocolGroupMetadataUpdatedSink metadataUpdatedSink) {
+                                      ProtocolGroupMetadataUpdatedSink metadataUpdatedSink,
+                                      ProtocolGroupProfileReportedSink profileReportedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -145,6 +155,7 @@ public class ProtocolGroupEventConsumer {
         this.inviteLinkChangedSink = inviteLinkChangedSink;
         this.participantChangedSink = participantChangedSink;
         this.metadataUpdatedSink = metadataUpdatedSink;
+        this.profileReportedSink = profileReportedSink;
     }
 
     /**
@@ -179,6 +190,7 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_INVITE_LINK_CHANGED -> handleInviteLinkChanged(envelope, eventId);
             case EVENT_GROUP_PARTICIPANT_CHANGED -> handleParticipantChanged(envelope, eventId);
             case EVENT_GROUP_METADATA_UPDATED -> handleMetadataUpdated(envelope, eventId);
+            case EVENT_GROUP_PROFILE_REPORTED -> handleProfileReported(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
@@ -371,6 +383,100 @@ public class ProtocolGroupEventConsumer {
             throw validation("协议群资料事件 " + fieldName + " 必须是非负整数");
         }
         return value.intValue();
+    }
+
+    /**
+     * 校验并分派单群完整资料上报事件。
+     *
+     * <p>资料字段沿用 {@code group.metadata_updated} 的 fieldMask 语义与类型校验；成员列表是本事件
+     * 独有的部分，允许缺省（表示本次只观察资料），但一旦出现就必须每项至少有一个合法身份。</p>
+     *
+     * <p>{@code membersComplete} 缺省为 false：退群判定必须由协议明确授权，缺字段时按"不能判定"
+     * 处理，宁可漏判也不误判——误判会把在群成员标记为已退群，直接影响选号与拉群。</p>
+     */
+    private void handleProfileReported(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议群资料上报事件缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("协议群资料上报事件账号关联不一致");
+        }
+        String protocolBackend = requiredText(
+                data, "protocolBackend", "协议群资料上报事件缺少 data.protocolBackend")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(protocolBackend)) {
+            throw validation("协议群资料上报事件 protocolBackend 非法");
+        }
+        String groupJid = requiredText(
+                data, "groupJid", "协议群资料上报事件缺少 data.groupJid")
+                .trim().toLowerCase(Locale.ROOT);
+        if (!groupJid.endsWith("@g.us")) {
+            throw validation("协议群资料上报事件 groupJid 非法");
+        }
+        long occurredAt = requiredOccurredAt(envelope, data, "协议群资料上报事件 occurredAt 非法");
+        List<String> fieldMask = metadataFieldMask(data.path("fieldMask"));
+        List<ProtocolGroupProfileReportedEvent.Member> members =
+                snapshotMembers(data.path("members"));
+        boolean membersComplete = data.path("membersComplete").isBoolean()
+                && data.path("membersComplete").booleanValue();
+        if (membersComplete && members.isEmpty()) {
+            // 声明完整却没有任何成员，会让控端把全群成员判为退群，必须拒绝而不是照做。
+            throw validation("协议群资料上报事件声明成员完整但列表为空");
+        }
+
+        ProtocolGroupProfileReportedEvent event = new ProtocolGroupProfileReportedEvent(
+                requiredText(envelope, "eventId", "协议群资料上报事件缺少 eventId"),
+                requiredLong(data, "tenantId"),
+                requiredLong(data, "accountId"),
+                protocolAccountId,
+                protocolBackend,
+                groupJid,
+                fieldMask,
+                maskedText(data, fieldMask, "subject", true),
+                maskedText(data, fieldMask, "description", false),
+                maskedBoolean(data, fieldMask, "announceOnly"),
+                maskedBoolean(data, fieldMask, "adminOnlyEditInfo"),
+                maskedBoolean(data, fieldMask, "memberAddMode"),
+                maskedBoolean(data, fieldMask, "joinApprovalMode"),
+                maskedEphemeralDuration(data, fieldMask),
+                members,
+                membersComplete,
+                requiredText(data, "source", "协议群资料上报事件缺少 data.source"),
+                occurredAt,
+                text(envelope, "workerId"));
+        log.info("协议群资料上报事件收到 eventId={} tenantId={} accountId={} backend={} "
+                        + "fields={} memberCount={} membersComplete={}",
+                event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
+                event.fieldMask(), event.members().size(), event.membersComplete());
+        profileReportedSink.handleProfileReported(event);
+    }
+
+    /** 解析成员列表：允许缺省，出现则每项至少有一个合法身份。 */
+    private static List<ProtocolGroupProfileReportedEvent.Member> snapshotMembers(JsonNode node) {
+        if (node.isMissingNode() || node.isNull()) {
+            return List.of();
+        }
+        if (!node.isArray() || node.size() > MAX_SNAPSHOT_MEMBERS) {
+            throw validation("协议群资料上报事件 members 数量非法");
+        }
+        List<ProtocolGroupProfileReportedEvent.Member> members = new ArrayList<>(node.size());
+        for (JsonNode item : node) {
+            if (!item.isObject()) {
+                throw validation("协议群资料上报事件 member 非对象");
+            }
+            String jid = normalizedIdentity(text(item, "jid"), false);
+            String lid = normalizedIdentity(text(item, "lid"), true);
+            String phone = normalizedPhoneIdentity(text(item, "phone"));
+            if (jid == null && lid == null && phone == null) {
+                throw validation("协议群资料上报事件 member 缺少身份");
+            }
+            members.add(new ProtocolGroupProfileReportedEvent.Member(
+                    jid, lid, phone,
+                    booleanValue(item, "admin"),
+                    booleanValue(item, "owner"),
+                    text(item, "role")));
+        }
+        return List.copyOf(members);
     }
 
     private static long requiredOccurredAt(JsonNode envelope, JsonNode data, String message) {

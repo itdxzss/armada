@@ -223,6 +223,38 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
+    void releaseLockWithBackoffPushesNextRunAtAndStillRequiresTheOwningLease()
+            throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        mapper.freezeDraftRows(100L, 500L);
+
+        TenantContext.clear();
+        assertThat(mapper.claimDue(claimCriteria(10, 600L, "worker-1", 660L))).isEqualTo(1);
+
+        // 非持有者不得改写别人正在跑的行。
+        assertThat(mapper.releaseLockWithBackoff(row.getId(), "worker-2", 650L, 30_650L))
+                .isZero();
+        assertThat(mapper.releaseLockWithBackoff(row.getId(), "worker-1", 650L, 30_650L))
+                .isEqualTo(1);
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution released = mapper.selectByTaskId(100L).get(0);
+        assertThat(released.getLockOwner()).isNull();
+        assertThat(released.getLockExpiresAt()).isNull();
+        assertThat(released.getUpdatedAt()).isEqualTo(650L);
+        // 关键差异：普通 releaseLock 不动 next_run_at，异常退避必须把它推到未来，
+        // 否则本行会在下一轮 ORDER BY next_run_at ASC 里立刻回到队首继续每秒失败。
+        assertThat(released.getNextRunAt()).isEqualTo(30_650L);
+
+        TenantContext.clear();
+        assertThat(mapper.claimDue(claimCriteria(10, 700L, "worker-1", 760L))).isZero();
+        assertThat(mapper.claimDue(claimCriteria(10, 30_650L, "worker-1", 30_710L)))
+                .isEqualTo(1);
+    }
+
+    @Test
     void memberQueryDeferAndWakeRequireExactLeaseAndStage() throws SQLException {
         PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
         mapper.insertDraft(row);

@@ -400,4 +400,23 @@ public interface PullTaskGroupExecutionMapper {
      */
     @InterceptorIgnore(tenantLine = "true")
     int releaseLock(@Param("id") long id, @Param("lockOwner") String lockOwner, @Param("now") long now);
+
+    /**
+     * 调度异常后释放本实例调度锁，并把下次执行时间推后。
+     *
+     * <p>普通释放不改 {@code next_run_at}。抢占按 {@code ORDER BY next_run_at ASC} 排队，
+     * 因此异常行会保持已过期的旧时间、下一轮立刻回到队首再次失败，形成每秒重试并长期占用
+     * claim 名额。异常路径必须退避，让本轮已到期的健康行先被取走。</p>
+     *
+     * @param id 执行行 ID
+     * @param lockOwner 抢占实例标识
+     * @param now 释放时间(epoch 毫秒)，写入 {@code updated_at}
+     * @param nextRunAt 下次允许抢占的时间(epoch 毫秒)
+     * @return 实际释放行数
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int releaseLockWithBackoff(@Param("id") long id,
+                               @Param("lockOwner") String lockOwner,
+                               @Param("now") long now,
+                               @Param("nextRunAt") long nextRunAt);
 }

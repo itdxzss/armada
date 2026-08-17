@@ -2,6 +2,7 @@ package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -266,6 +267,33 @@ class PullTaskExecutionDispatchCoordinatorTest {
 
         assertThat(coordinator.dispatchOnce(1_000L).advanced()).isEqualTo(1);
         verify(recovery).recover(candidate, "worker-fixed", 1_000L, 2_000L);
+    }
+
+    @Test
+    void dispatchFailureBacksOffTheRowInsteadOfLeavingItAtTheHeadOfTheQueue() {
+        PullTaskGroupExecutionMapper mapper = mock(PullTaskGroupExecutionMapper.class);
+        PullTaskManagerJoinProcessor managerJoinProcessor =
+                mock(PullTaskManagerJoinProcessor.class);
+        PullTaskGroupExecution candidate = claimed(41L, 7L, "chat.whatsapp.com/EEEE");
+        candidate.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+        candidate.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of(candidate));
+        when(managerJoinProcessor.process(candidate, "worker-fixed", 1_000L))
+                .thenThrow(new IllegalStateException("管理员进群提交状态已变化"));
+        PullTaskExecutionDispatchCoordinator coordinator =
+                new PullTaskExecutionDispatchCoordinator(
+                        mapper,
+                        stageRouter(mock(PullTaskLinkValidationProcessor.class),
+                                managerJoinProcessor),
+                        mock(PullTaskResourceRecoveryTransactionService.class),
+                        properties(), "worker-fixed");
+
+        assertThat(coordinator.dispatchOnce(1_000L).skipped()).isEqualTo(1);
+
+        // 退避写入 now + retryDelayMs，本行不会在下一轮立刻回到队首重试。
+        verify(mapper).releaseLockWithBackoff(41L, "worker-fixed", 1_000L, 3_000L);
+        // 不能再走不推后 next_run_at 的普通释放，否则每秒重试并长期占用 claim 名额。
+        verify(mapper, never()).releaseLock(anyLong(), any(), anyLong());
     }
 
     /** 只关心 claim 行为的用例：所有阶段处理器都是 mock，本轮不会读回任何行。 */

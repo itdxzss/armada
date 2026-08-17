@@ -16,8 +16,8 @@ import org.slf4j.LoggerFactory;
  * {@code mode} 字符串，并把协议账号放入请求体供 master gateway 路由 owner worker。
  * 执行账号选择、管理员权限判断、超时回读确认和业务异常转换均由上层 Service 负责。</p>
  *
- * <p>当前协议版本没有公开“通过链接邀请”的独立写能力，该设置会直接抛出
- * {@link ProtocolErrorCode#GROUP_CAPABILITY_UNSUPPORTED}，禁止映射到添加成员或入群审批接口。</p>
+ * <p>“通过链接邀请”使用协议层封装的 WhatsApp UpdateGroupProperty MEX mutation，
+ * 与添加成员和入群审批保持为三个独立设置。</p>
  */
 public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
 
@@ -193,15 +193,15 @@ public class HttpGroupSettingsAdapter implements GroupSettingsBackend {
     }
 
     /**
-     * 拒绝当前协议版本不支持的“通过链接邀请”权限修改。
+     * 设置普通成员是否可以访问和分享群邀请链接。
      *
-     * <p>该能力与直接添加成员、入群审批都是独立设置。在没有真实协议 wire 能力前，
-     * 本适配器不发送任何替代请求，避免误改其它群权限。</p>
+     * <p>该能力与直接添加成员、入群审批都是独立设置，协议层负责使用
+     * WhatsApp 的 UpdateGroupProperty MEX mutation 写入 member_link_mode。</p>
      *
-     * @param protocolAccountId 协议层账号句柄，本实现不会发送
-     * @param groupJid          WhatsApp 群 JID，本实现不会发送
-     * @param enabled           期望状态，本实现不支持修改
-     * @throws ProtocolException 始终以 GROUP_CAPABILITY_UNSUPPORTED 抛出
+     * @param account  协议层执行账号
+     * @param groupJid WhatsApp 群 JID
+     * @param enabled  true 表示所有成员可访问和分享群邀请链接
+     * @throws ProtocolException 当参数缺失或协议调用失败时抛出
      */
     @Override
     public void setInviteViaLinkAllowed(

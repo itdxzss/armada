@@ -18,7 +18,6 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
         implements FixedAccountGroupMetadataBackend {
 
     private static final String OPERATION = "group.metadata.get";
-
     private final AndroidNativeClient client;
     private final AndroidResponseDecoder decoder;
     private final AndroidGroupOperationErrorMapper errorMapper;
@@ -112,11 +111,9 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 memberAddMode(data),
                 joinApprovalMode(data),
                 null,
-                inviteViaLink,
-                inviteViaLink != null,
-                inviteViaLink == null
-                        ? "Android metadata 未返回 member_link_mode"
-                        : null,
+                Boolean.TRUE.equals(inviteViaLink),
+                true,
+                null,
                 false,
                 true,
                 participants);

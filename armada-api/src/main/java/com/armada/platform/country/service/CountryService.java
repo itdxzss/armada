@@ -3,6 +3,7 @@ package com.armada.platform.country.service;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
 import java.util.Collection;
 import java.util.Map;
 
@@ -90,6 +91,19 @@ public interface CountryService {
      * @return 原手机号到国家展示引用的映射
      */
     Map<String, CountryReferenceVO> resolveActiveCountriesByPhoneNumbers(
+            Collection<String> wsPhones);
+
+    /**
+     * 批量按已确认的 WhatsApp 国际手机号解析国家，并尽力推断号码原始分配归属区。
+     *
+     * <p>归属区不是实时地理位置。携号转网、跨区使用或号码转售后，持有人所在地可能与结果不同。
+     * 无效号码、LID、未知 JID 与未启用国家不会出现在返回映射中；有效号码即使没有归属区映射，
+     * 仍返回国家且归属区字段为空。</p>
+     *
+     * @param wsPhones WhatsApp 国际手机号或 PN JID 集合
+     * @return 原手机号到国家及可选原始号段归属区的映射
+     */
+    Map<String, PhoneLocationReferenceVO> resolveActivePhoneLocations(
             Collection<String> wsPhones);
 
     /**

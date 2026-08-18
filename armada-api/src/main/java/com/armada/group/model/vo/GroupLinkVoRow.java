@@ -40,6 +40,8 @@ public class GroupLinkVoRow {
     private String creatorCountryName;
     private String creatorCountryFlag;
     private String creatorContinentCode;
+    private String creatorPhoneRegionCode;
+    private String creatorPhoneRegionName;
     private Long groupCreatedAt;
     private Integer metadataSyncStatus;
     private Long metadataSyncedAt;
@@ -291,6 +293,22 @@ public class GroupLinkVoRow {
 
     public void setCreatorContinentCode(String creatorContinentCode) {
         this.creatorContinentCode = creatorContinentCode;
+    }
+
+    public String getCreatorPhoneRegionCode() {
+        return creatorPhoneRegionCode;
+    }
+
+    public void setCreatorPhoneRegionCode(String creatorPhoneRegionCode) {
+        this.creatorPhoneRegionCode = creatorPhoneRegionCode;
+    }
+
+    public String getCreatorPhoneRegionName() {
+        return creatorPhoneRegionName;
+    }
+
+    public void setCreatorPhoneRegionName(String creatorPhoneRegionName) {
+        this.creatorPhoneRegionName = creatorPhoneRegionName;
     }
 
     public Long getGroupCreatedAt() {

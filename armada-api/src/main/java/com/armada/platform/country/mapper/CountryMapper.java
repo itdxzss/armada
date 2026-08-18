@@ -2,6 +2,7 @@ package com.armada.platform.country.mapper;
 
 import com.armada.platform.country.model.entity.Country;
 import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
+import com.armada.platform.country.model.entity.CountryPhoneRegionPrefixMapping;
 import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -40,6 +41,15 @@ public interface CountryMapper {
      * @return 规范化区号唯一映射
      */
     List<CountryPhonePrefixMapping> selectPhonePrefixMappings();
+
+    /**
+     * 按国家批量查询手机号国内号段的原始分配归属区。
+     *
+     * @param countryIso2s 国家/地区 ISO2 集合
+     * @return 按国内号段长度倒序排列的归属区映射
+     */
+    List<CountryPhoneRegionPrefixMapping> selectPhoneRegionPrefixMappings(
+            @Param("countryIso2s") Collection<String> countryIso2s);
 
     /**
      * 查询全部启用国家/地区,不受 IP 管理支持标记限制。

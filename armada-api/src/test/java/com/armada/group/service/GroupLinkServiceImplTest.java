@@ -190,7 +190,7 @@ class GroupLinkServiceImplTest {
                 "UNCHECKED", "未检测", null, null, null, null,
                 3, null, null, null, null, null, null, null, null, null, null, 1000L,
                 false, false, null, null, null, List.of(), false, 0,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
         when(groupListCurrentMapper.count(TENANT_ID, q)).thenReturn(1L);
         when(groupListCurrentMapper.selectPage(TENANT_ID, q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));

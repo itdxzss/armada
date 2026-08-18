@@ -28,7 +28,11 @@ public class MyBatisConfig {
      * 新增此类表时记得同步登记。
      */
     private static final Set<String> IGNORED_TABLES =
-            Set.of("tenant", "country", "country_phone_prefix_mapping");
+            Set.of(
+                    "tenant",
+                    "country",
+                    "country_phone_prefix_mapping",
+                    "country_phone_region_prefix_mapping");
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor(TenantLineHandler tenantLineHandler) {

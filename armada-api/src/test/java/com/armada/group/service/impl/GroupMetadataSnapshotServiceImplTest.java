@@ -17,6 +17,7 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.group.service.GroupMetadataSyncProtocolPorts;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
@@ -70,9 +71,12 @@ class GroupMetadataSnapshotServiceImplTest {
                 .thenReturn(Optional.of(account));
         when(invitePort.getInvite(account.protocolRef(), task.getGroupJid()))
                 .thenReturn(new GroupInviteResult(task.getGroupJid(), "invite-code", "url"));
-        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+        when(countryService.resolveActivePhoneLocations(List.of("8613800000000")))
                 .thenReturn(Map.of("8613800000000",
-                        new CountryReferenceVO(1L, "CN", "中国", "+86", "🇨🇳", "ASIA")));
+                        new PhoneLocationReferenceVO(
+                                new CountryReferenceVO(1L, "CN", "中国", "+86", "🇨🇳", "ASIA"),
+                                "GD",
+                                "广东省")));
         when(persistence.persist(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyList())).thenReturn(true);
 
@@ -91,6 +95,8 @@ class GroupMetadataSnapshotServiceImplTest {
             assertThat(row.getGroupCreatedAt()).isEqualTo(1_722_470_400L);
             assertThat(row.getCreatorCountryIso2()).isEqualTo("CN");
             assertThat(row.getCreatorContinentCode()).isEqualTo("ASIA");
+            assertThat(row.getCreatorPhoneRegionCode()).isEqualTo("GD");
+            assertThat(row.getCreatorPhoneRegionName()).isEqualTo("广东省");
             assertThat(row.getMemberSize()).isEqualTo(2);
         });
         assertThat(members.getValue())
@@ -113,7 +119,7 @@ class GroupMetadataSnapshotServiceImplTest {
                 .thenReturn(Optional.of(freshOwner));
         when(invitePort.getInvite(freshOwner.protocolRef(), task.getGroupJid()))
                 .thenReturn(new GroupInviteResult(task.getGroupJid(), "fresh-invite", "url"));
-        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+        when(countryService.resolveActivePhoneLocations(List.of("8613800000000")))
                 .thenReturn(Map.of());
         when(persistence.persist(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyList())).thenReturn(true);
@@ -131,7 +137,7 @@ class GroupMetadataSnapshotServiceImplTest {
         GroupExecutionAccount account = account(false);
         when(metadataPort.getMetadata(account.protocolRef(), task.getGroupJid()))
                 .thenReturn(metadata(Long.MAX_VALUE, true));
-        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+        when(countryService.resolveActivePhoneLocations(List.of("8613800000000")))
                 .thenReturn(Map.of());
         when(persistence.persist(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyList())).thenReturn(true);
@@ -158,7 +164,7 @@ class GroupMetadataSnapshotServiceImplTest {
                 .thenReturn(Optional.of(account));
         when(invitePort.getInvite(account.protocolRef(), task.getGroupJid()))
                 .thenThrow(new IllegalStateException("Android invite temporarily unavailable"));
-        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("8613800000000")))
+        when(countryService.resolveActivePhoneLocations(List.of("8613800000000")))
                 .thenReturn(Map.of());
         when(persistence.persist(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyList())).thenReturn(true);

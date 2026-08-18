@@ -1129,6 +1129,8 @@ public class MysqlModeMapperInMemoryTest {
                     group_created_at BIGINT,
                     creator_country_iso2 VARCHAR(2),
                     creator_continent_code VARCHAR(24),
+                    creator_phone_region_code VARCHAR(32),
+                    creator_phone_region_name VARCHAR(96),
                     avatar_url VARCHAR(512),
                     last_preview_at BIGINT,
                     metadata_observed_at BIGINT,

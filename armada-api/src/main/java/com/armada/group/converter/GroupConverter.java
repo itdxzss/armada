@@ -89,6 +89,8 @@ public interface GroupConverter {
                 row.getCreatorCountryName(),
                 row.getCreatorCountryFlag(),
                 row.getCreatorContinentCode(),
+                row.getCreatorPhoneRegionCode(),
+                row.getCreatorPhoneRegionName(),
                 row.getGroupCreatedAt(),
                 metadataStatus(row.getMetadataSyncStatus()),
                 row.getMetadataSyncedAt(),

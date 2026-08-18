@@ -29,6 +29,19 @@
     ORDER BY CHAR_LENGTH(normalized_prefix) DESC, normalized_prefix ASC
   </select>
 
+  <select id="selectPhoneRegionPrefixMappings"
+          resultType="com.armada.platform.country.model.entity.CountryPhoneRegionPrefixMapping">
+    SELECT country_iso2, normalized_national_prefix, region_code, region_name_zh
+    FROM country_phone_region_prefix_mapping
+    WHERE country_iso2 IN
+    <foreach collection="countryIso2s" item="countryIso2" open="(" separator="," close=")">
+      #{countryIso2}
+    </foreach>
+    ORDER BY country_iso2 ASC,
+             CHAR_LENGTH(normalized_national_prefix) DESC,
+             normalized_national_prefix ASC
+  </select>
+
   <select id="selectIpSupported" resultType="com.armada.platform.country.model.entity.Country">
     SELECT <include refid="Columns"/>
     FROM country

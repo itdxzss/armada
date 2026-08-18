@@ -3,18 +3,20 @@
 <mapper namespace="com.armada.group.mapper.GroupLinkPreviewMapper">
 
   <!--
-    旧预览表退役期间只兼容创建者手机号、国家和洲。owner 与地区各自沿用原观察时间，
+    旧预览表退役期间只兼容创建者手机号、国家、洲和手机号归属区。owner 与地区各自沿用原观察时间，
     禁止把群名称、成员数、邀请、头像、设置等当前事实重新双写回旧表。
   -->
   <insert id="upsertCreatorCompatibility">
     INSERT INTO group_link_preview (
       group_link_id, owner_phone, creator_country_iso2, creator_continent_code,
+      creator_phone_region_code, creator_phone_region_name,
       last_preview_at, metadata_observed_at, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
         #{row.groupLinkId}, #{row.ownerPhone}, #{row.creatorCountryIso2},
-        #{row.creatorContinentCode},
+        #{row.creatorContinentCode}, #{row.creatorPhoneRegionCode},
+        #{row.creatorPhoneRegionName},
         COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0),
         CASE WHEN #{row.creatorCountryObserved} = TRUE
           THEN COALESCE(#{row.metadataObservedAt}, 0) ELSE NULL END,
@@ -54,6 +56,28 @@
           END
         </foreach>
         ELSE creator_continent_code
+      END,
+      creator_phone_region_code = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.creatorCountryObserved} = TRUE
+              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+              THEN VALUES(creator_phone_region_code)
+            ELSE creator_phone_region_code
+          END
+        </foreach>
+        ELSE creator_phone_region_code
+      END,
+      creator_phone_region_name = CASE VALUES(group_link_id)
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE
+            WHEN #{row.creatorCountryObserved} = TRUE
+              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
+              THEN VALUES(creator_phone_region_name)
+            ELSE creator_phone_region_name
+          END
+        </foreach>
+        ELSE creator_phone_region_name
       END,
       last_preview_at = GREATEST(COALESCE(last_preview_at, 0), VALUES(last_preview_at)),
       metadata_observed_at = CASE VALUES(group_link_id)

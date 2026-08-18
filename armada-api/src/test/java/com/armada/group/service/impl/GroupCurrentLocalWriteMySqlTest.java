@@ -1469,6 +1469,8 @@ class GroupCurrentLocalWriteMySqlTest {
                   owner_phone VARCHAR(32) DEFAULT NULL,
                   creator_country_iso2 CHAR(2) DEFAULT NULL,
                   creator_continent_code VARCHAR(24) DEFAULT NULL,
+                  creator_phone_region_code VARCHAR(32) DEFAULT NULL,
+                  creator_phone_region_name VARCHAR(96) DEFAULT NULL,
                   last_preview_at BIGINT DEFAULT NULL,
                   metadata_observed_at BIGINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,

@@ -8,9 +8,11 @@ import static org.mockito.Mockito.verify;
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
 import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
+import com.armada.platform.country.model.entity.CountryPhoneRegionPrefixMapping;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
 import com.armada.platform.country.service.impl.CountryServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -220,6 +222,47 @@ class CountryServiceImplTest {
     }
 
     @Test
+    void resolveActivePhoneLocations_matchesLongestNationalPrefixWithoutClaimingCurrentLocation() {
+        Country india = country("IN", "印度", "+91", "🇮🇳");
+        india.setId(101L);
+        india.setContinentCode("ASIA");
+        when(mapper.selectActive()).thenReturn(List.of(india));
+        when(mapper.selectPhoneRegionPrefixMappings(List.of("IN"))).thenReturn(List.of(
+                regionMapping("IN", "700", "IN", "印度"),
+                regionMapping("IN", "7000", "MP", "中央邦/恰蒂斯加尔邦")));
+
+        Map<String, PhoneLocationReferenceVO> result = service.resolveActivePhoneLocations(
+                List.of("917000123456@s.whatsapp.net", "+919999123456", "917000123456@lid"));
+
+        assertThat(result.get("917000123456@s.whatsapp.net")).satisfies(location -> {
+            assertThat(location.country().iso2()).isEqualTo("IN");
+            assertThat(location.regionCode()).isEqualTo("MP");
+            assertThat(location.regionName()).isEqualTo("中央邦/恰蒂斯加尔邦");
+        });
+        assertThat(result.get("+919999123456")).satisfies(location -> {
+            assertThat(location.country().iso2()).isEqualTo("IN");
+            assertThat(location.regionCode()).isNull();
+            assertThat(location.regionName()).isNull();
+        });
+        assertThat(result).doesNotContainKey("917000123456@lid");
+    }
+
+    @Test
+    void resolveActivePhoneLocations_usesOfflineGeocoderWhenNoCuratedPrefixExists() {
+        Country switzerland = country("CH", "瑞士", "+41", "🇨🇭");
+        switzerland.setId(102L);
+        when(mapper.selectActive()).thenReturn(List.of(switzerland));
+        when(mapper.selectPhoneRegionPrefixMappings(List.of("CH"))).thenReturn(List.of());
+
+        PhoneLocationReferenceVO location = service.resolveActivePhoneLocations(
+                List.of("41444668100")).get("41444668100");
+
+        assertThat(location.country().iso2()).isEqualTo("CH");
+        assertThat(location.regionCode()).isNull();
+        assertThat(location.regionName()).isNotBlank().isNotEqualTo("瑞士");
+    }
+
+    @Test
     void countryOptions_validateIso2AndLoadPageDisplayDataInBatch() {
         Country india = country("IN", "印度", "+91", "🇮🇳");
         when(mapper.selectActiveByIso2("IN")).thenReturn(india);
@@ -271,6 +314,16 @@ class CountryServiceImplTest {
         CountryPhonePrefixMapping mapping = new CountryPhonePrefixMapping();
         mapping.setNormalizedPrefix(prefix);
         mapping.setCountryIso2(iso2);
+        return mapping;
+    }
+
+    private static CountryPhoneRegionPrefixMapping regionMapping(
+            String iso2, String prefix, String regionCode, String regionName) {
+        CountryPhoneRegionPrefixMapping mapping = new CountryPhoneRegionPrefixMapping();
+        mapping.setCountryIso2(iso2);
+        mapping.setNormalizedNationalPrefix(prefix);
+        mapping.setRegionCode(regionCode);
+        mapping.setRegionNameZh(regionName);
         return mapping;
     }
 }

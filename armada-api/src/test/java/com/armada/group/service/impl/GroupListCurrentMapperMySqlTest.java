@@ -81,9 +81,15 @@ class GroupListCurrentMapperMySqlTest {
     void resolvedAndUnresolvedRowsSupportCurrentFiltersOrderAndPagination() {
         GroupLinkQuery all = pageQuery(1, 10);
         assertValidPage(all);
-        assertThat(currentMapper.selectPage(TENANT_ID, all))
+        var rows = currentMapper.selectPage(TENANT_ID, all);
+        assertThat(rows)
                 .extracting(row -> row.getId())
                 .containsExactly(202L, 201L);
+        assertThat(rows).filteredOn(row -> row.getId().equals(201L)).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getCreatorPhoneRegionCode()).isEqualTo("PB");
+                    assertThat(row.getCreatorPhoneRegionName()).isEqualTo("旁遮普邦");
+                });
 
         assertValidPage(pageQuery(1, 1));
         assertValidPage(pageQuery(2, 1));
@@ -210,14 +216,15 @@ class GroupListCurrentMapperMySqlTest {
                 INSERT INTO group_link_preview
                   (tenant_id, group_link_id, group_jid, invite_code, wa_subject,
                    member_size, owner_phone, avatar_url, last_preview_at,
-                   creator_country_iso2, creator_continent_code, group_created_at)
+                   creator_country_iso2, creator_continent_code,
+                   creator_phone_region_code, creator_phone_region_name, group_created_at)
                 VALUES
                   (7, 201, 'resolved@g.us', 'resolved-code', 'WA群名', 5,
                    '1002', 'https://cdn.example/resolved.jpg', 120,
-                   'PK', 'ASIA', 113600),
+                   'PK', 'ASIA', 'PB', '旁遮普邦', 113600),
                   (7, 202, NULL, 'unresolved-code', '未解析预览群', NULL,
                    NULL, 'https://cdn.example/unresolved.jpg', 220,
-                   NULL, NULL, NULL)
+                   NULL, NULL, NULL, NULL, NULL)
                 """);
         jdbc.update("""
                 INSERT INTO group_link_import_batch (id, tenant_id, source_file_name)
@@ -353,6 +360,8 @@ class GroupListCurrentMapperMySqlTest {
                   member_add_mode TINYINT DEFAULT NULL,
                   owner_phone VARCHAR(32), avatar_url VARCHAR(1024), last_preview_at BIGINT,
                   creator_country_iso2 VARCHAR(2), creator_continent_code VARCHAR(24),
+                  creator_phone_region_code VARCHAR(32),
+                  creator_phone_region_name VARCHAR(96),
                   group_created_at BIGINT
                 ) ENGINE=InnoDB
                 """);

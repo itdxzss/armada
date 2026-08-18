@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 将 Android 实时 add 事件转换为群域进群事实。 */
+/** 将 Web/Android 实时 add 事件转换为群域进群事实。 */
 @Component
 public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
 

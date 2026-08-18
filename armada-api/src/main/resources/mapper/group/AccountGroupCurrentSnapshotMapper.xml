@@ -502,6 +502,29 @@
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
+  <insert id="mergeParticipantIdentities">
+    <!--
+      协议 modify 只说明成员身份形态变了，没观察到在群与否和角色，因此这条语句只补身份列。
+      新行的 presence_status 与 role 都落 0（未知），命中已有行时两者一律不写。
+      身份列只补空、不覆盖：已有值可能是更早确认过的，改写等于把两个人并成一个。
+    -->
+    INSERT INTO wa_group_participant (
+      group_id, pn_jid, lid_jid, phone,
+      presence_status, role, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupId}, #{row.pnJid}, #{row.lidJid}, #{row.phone},
+        0, 0, #{row.now}, #{row.now}
+      )
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      pn_jid = COALESCE(pn_jid, VALUES(pn_jid)),
+      lid_jid = COALESCE(lid_jid, VALUES(lid_jid)),
+      phone = COALESCE(phone, VALUES(phone)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
   <sql id="incomingMemberSnapshotWins">
     (
       wa_group_profile.member_snapshot_at IS NULL

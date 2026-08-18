@@ -1,6 +1,7 @@
 package com.armada.group.service;
 
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheSnapshotVO;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
@@ -34,4 +35,16 @@ public interface WhatsappGroupMemberCacheService {
     void applyJoins(List<WhatsappGroupJoinFact> facts);
 
     void applyDepartures(List<WhatsappGroupDepartureFact> facts);
+
+    /**
+     * 把同一个人的 PN 与 LID 身份补进同一行成员记录。
+     *
+     * <p>不改在群与否，也不改角色——协议 modify 事件这两样都没观察到。</p>
+     *
+     * <p>同一个人在库里已经分裂成 PN 行与 LID 行时跳过并记日志：一次写入同时命中两个唯一键
+     * 会直接报重复键错误，而跨行归并要决定哪一行留下、账号群关系怎么跟着搬，不在本方法职责内。</p>
+     *
+     * @param facts 身份合并事实
+     */
+    void applyIdentityMerges(List<WhatsappGroupIdentityMergeFact> facts);
 }

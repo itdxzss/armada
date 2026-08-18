@@ -3,14 +3,14 @@ package com.armada.platform.kafka.consumer.account;
 import java.util.List;
 
 /**
- * Android 协议上报的一批 WhatsApp 退群事实。
+ * Web/Android 协议上报的一批 WhatsApp 退群事实。
  *
  * @param eventId 内部事件 ID
  * @param tenantId 租户 ID
  * @param accountId 观察账号 ID
  * @param protocolAccountId 协议账号 ID
  * @param groupJid 群 JID
- * @param sourceType HISTORY_SYNC 或 WGP2_NOTIFICATION
+ * @param sourceType HISTORY_SYNC、WGP2_NOTIFICATION 或 WEB_NOTIFICATION
  * @param occurredAt 上报时间
  * @param participants 退群成员事实
  */

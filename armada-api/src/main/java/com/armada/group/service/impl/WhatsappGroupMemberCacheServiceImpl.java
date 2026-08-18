@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.WhatsappGroupMemberCacheRow;
@@ -15,12 +16,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** MySQL 实现的 WhatsApp 群成员缓存服务；读取统一使用新群模型。 */
 @Service
 public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberCacheService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(WhatsappGroupMemberCacheServiceImpl.class);
 
     private static final int QUERY_BATCH_SIZE = 500;
 
@@ -109,6 +115,48 @@ public class WhatsappGroupMemberCacheServiceImpl implements WhatsappGroupMemberC
             return;
         }
         currentSnapshotPersistence.applyParticipantDepartures(facts);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void applyIdentityMerges(List<WhatsappGroupIdentityMergeFact> facts) {
+        if (facts == null || facts.isEmpty()) {
+            return;
+        }
+        List<WhatsappGroupIdentityMergeFact> mergeable = facts.stream()
+                .filter(fact -> fact != null && !alreadySplitAcrossRows(fact))
+                .toList();
+        if (mergeable.isEmpty()) {
+            return;
+        }
+        currentSnapshotPersistence.applyParticipantIdentityMerges(mergeable);
+    }
+
+    /**
+     * 判断这个人在库里是不是已经分裂成 PN 行和 LID 行。
+     *
+     * <p>成员行按 PN 优先形态索引，两个身份各自命中一行时会查回两条记录。这种情况下写入会
+     * 同时命中 PN 与 LID 两个唯一键，MySQL 直接报重复键错误把消费卡住，所以只记日志跳过。</p>
+     */
+    private boolean alreadySplitAcrossRows(WhatsappGroupIdentityMergeFact fact) {
+        String groupJid = canonicalGroupJid(fact.groupJid());
+        List<String> identities = List.of(fact.pnJid(), fact.lidJid()).stream()
+                .filter(jid -> jid != null && !jid.isBlank())
+                .map(jid -> jid.trim().toLowerCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
+        if (identities.size() < 2) {
+            return false;
+        }
+        List<WhatsappGroupMemberStateVO> existing = mapper.selectStatesByParticipantJids(
+                fact.tenantId(), groupJid, identities);
+        if (existing == null || existing.size() < 2) {
+            return false;
+        }
+        log.warn("群成员两种身份已分属不同行,跳过身份合并 tenantId={} groupJid={} sourceEventId={} rows={}",
+                fact.tenantId(), groupJid, fact.sourceEventId(), existing.size());
+        return true;
     }
 
     private static List<String> normalizeGroupJids(List<String> groupJids) {

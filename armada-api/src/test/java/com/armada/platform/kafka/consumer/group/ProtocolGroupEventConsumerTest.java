@@ -49,6 +49,11 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolGroupParticipantChangedSink participantChangedSink;
 
+    @Mock
+    private ProtocolGroupMetadataUpdatedSink metadataUpdatedSink;
+    @Mock
+    private ProtocolGroupProfileReportedSink profileReportedSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
@@ -56,7 +61,7 @@ class ProtocolGroupEventConsumerTest {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
                 batchParticipantResultSink, membersResultSink, inviteLinkChangedSink,
-                participantChangedSink);
+                participantChangedSink, metadataUpdatedSink, profileReportedSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -200,15 +205,33 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
-    void onMessage_nonRoleParticipantChangeRemainsIgnoredForRollingUpgrade() {
-        onMessage("""
-                {"eventId":"legacy-add","event":"group.participant_changed",
-                 "accountId":"acc-901","occurredAt":"2026-08-10T06:00:00Z",
-                 "data":{"groupJid":"120363group@g.us","action":"add",
-                         "participants":["919000000001@s.whatsapp.net"]}}
-                """);
+    void onMessage_participantAddAndRemoveDispatchCompleteMemberFact() {
+        onMessage(participantRoleJson(
+                "acc-901", "WEB", "120363group@g.us", "add",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]"));
+        onMessage(participantRoleJson(
+                "acc-901", "WEB", "120363group@g.us", "remove",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]"));
 
-        verifyNoInteractions(participantChangedSink);
+        ArgumentCaptor<ProtocolGroupParticipantChangedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupParticipantChangedEvent.class);
+        verify(participantChangedSink, org.mockito.Mockito.times(2))
+                .handleParticipantChanged(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(ProtocolGroupParticipantChangedEvent::action)
+                .containsExactly("add", "remove");
+    }
+
+    @Test
+    void onMessage_participantModifyDispatchesIdentityChange() {
+        onMessage(participantRoleJson(
+                "acc-901", "WEB", "120363group@g.us", "modify",
+                "[{\"id\":\"919000000001@s.whatsapp.net\"}]"));
+
+        ArgumentCaptor<ProtocolGroupParticipantChangedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupParticipantChangedEvent.class);
+        verify(participantChangedSink).handleParticipantChanged(captor.capture());
+        assertThat(captor.getValue().action()).isEqualTo("modify");
     }
 
     private static String participantRoleJson(

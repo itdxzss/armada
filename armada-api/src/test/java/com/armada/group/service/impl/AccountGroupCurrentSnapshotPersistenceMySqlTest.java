@@ -8,6 +8,7 @@ import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.mapper.GroupCurrentInviteMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -842,6 +843,55 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 Long.class)).isNull();
     }
 
+    @Test
+    void identityMergeFillsTheMissingIdentityWithoutTouchingPresenceOrRole() {
+        // 先按号码建一行在群的管理员，再收到带 LID 的身份变化事件。
+        writeParticipantSnapshot(
+                groupJid(41),
+                List.of(new GroupParticipantResult(
+                        "919000000001@s.whatsapp.net", "919000000001@s.whatsapp.net",
+                        "919000000001", true, false, "admin")),
+                1_000L,
+                "snapshot-41");
+
+        writeParticipantIdentityMerges(List.of(new WhatsappGroupIdentityMergeFact(
+                TENANT_ID, groupJid(41), "919000000001@s.whatsapp.net",
+                "123456789012345@lid", "919000000001", 2_000L, "modify-41")));
+
+        assertThat(jdbc.queryForList("SELECT pn_jid, lid_jid, phone, presence_status, role, "
+                + "presence_observed_at, role_observed_at FROM wa_group_participant"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row).containsEntry("pn_jid", "919000000001@s.whatsapp.net");
+                    // 缺的那一半补上了。
+                    assertThat(row).containsEntry("lid_jid", "123456789012345@lid");
+                    assertThat(row).containsEntry("phone", "919000000001");
+                    // 身份变化没观察到在群与否和角色，两者必须保持快照写下的值。
+                    assertThat(row).containsEntry("presence_status", 1);
+                    assertThat(row).containsEntry("role", 2);
+                    assertThat(row).containsEntry("presence_observed_at", 1_000L);
+                    assertThat(row).containsEntry("role_observed_at", 1_000L);
+                });
+    }
+
+    @Test
+    void identityMergeForAnUnseenPersonLandsAsUnknownPresenceAndRole() {
+        writeParticipantIdentityMerges(List.of(new WhatsappGroupIdentityMergeFact(
+                TENANT_ID, groupJid(42), "919000000002@s.whatsapp.net",
+                "223456789012345@lid", "919000000002", 2_000L, "modify-42")));
+
+        assertThat(jdbc.queryForList(
+                "SELECT pn_jid, lid_jid, presence_status, role FROM wa_group_participant"))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row).containsEntry("pn_jid", "919000000002@s.whatsapp.net");
+                    assertThat(row).containsEntry("lid_jid", "223456789012345@lid");
+                    // 没见过这个人，不能凭身份变化就断言他在群，更不能给角色。
+                    assertThat(row).containsEntry("presence_status", 0);
+                    assertThat(row).containsEntry("role", 0);
+                });
+    }
+
     private static void writeSnapshot(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -924,6 +974,16 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(transaction ->
                     persistence.applyParticipantJoins(facts));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeParticipantIdentityMerges(List<WhatsappGroupIdentityMergeFact> facts) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    persistence.applyParticipantIdentityMerges(facts));
         } finally {
             TenantContext.clear();
         }

@@ -2,7 +2,7 @@ package com.armada.platform.kafka.consumer.account;
 
 import java.util.List;
 
-/** Android 实时群成员进群事件。 */
+/** Web/Android 统一的实时群成员进群事件。 */
 public record ProtocolGroupJoinEvent(
         String eventId,
         Long tenantId,

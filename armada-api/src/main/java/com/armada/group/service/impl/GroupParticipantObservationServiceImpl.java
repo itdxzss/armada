@@ -68,17 +68,46 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         currentSnapshotPersistence.applyParticipantObservations(observations.stream()
                 .map(GroupParticipantObservationServiceImpl::currentObservation)
                 .toList());
-        List<String> participantJids = observations.stream()
+        reconcileControlledMemberships(key.tenantId(), key.groupJid(), observations.stream()
                 .map(NormalizedObservation::participantJid)
+                .toList());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void reconcileControlledMemberships(
+            Long tenantId,
+            String groupJid,
+            List<String> participantJids) {
+        if (tenantId == null || participantJids == null || participantJids.isEmpty()) {
+            return;
+        }
+        List<String> candidates = participantJids.stream()
+                .filter(GroupParticipantObservationServiceImpl::hasText)
+                .map(jid -> jid.trim().toLowerCase(Locale.ROOT))
                 .distinct()
                 .sorted()
                 .toList();
-        List<WhatsappGroupMemberStateVO> winners = memberStateMapper.selectStatesByParticipantJids(
-                key.tenantId(), key.groupJid(), participantJids);
-        if (winners == null || winners.isEmpty()) {
+        if (candidates.isEmpty()) {
             return;
         }
-        reconcileControlledMemberships(key.groupJid(), winners);
+        String normalizedGroupJid = canonicalGroupJid(groupJid);
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(tenantId);
+            List<WhatsappGroupMemberStateVO> winners = memberStateMapper.selectStatesByParticipantJids(
+                    tenantId, normalizedGroupJid, candidates);
+            if (winners == null || winners.isEmpty()) {
+                return;
+            }
+            reconcileControlledMemberships(normalizedGroupJid, winners);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
     }
 
     private void reconcileControlledMemberships(

@@ -71,6 +71,15 @@ public class MarketingTask {
     /** 单条消息允许的最大重试次数。 */
     private Integer retryLimit;
 
+    /** 是否开启账号动态目标新群首次延迟发送。 */
+    private Boolean newGroupDelayEnabled;
+
+    /** 新群首次发送延迟数值。 */
+    private Integer newGroupDelayValue;
+
+    /** 新群首次发送延迟单位码：1=分钟，2=小时。 */
+    private Integer newGroupDelayUnit;
+
     /** 已成功抢占生成的最新正常营销轮次号。 */
     private Long currentRoundNo;
 
@@ -279,6 +288,30 @@ public class MarketingTask {
 
     public void setRetryLimit(Integer retryLimit) {
         this.retryLimit = retryLimit;
+    }
+
+    public Boolean getNewGroupDelayEnabled() {
+        return newGroupDelayEnabled;
+    }
+
+    public void setNewGroupDelayEnabled(Boolean newGroupDelayEnabled) {
+        this.newGroupDelayEnabled = newGroupDelayEnabled;
+    }
+
+    public Integer getNewGroupDelayValue() {
+        return newGroupDelayValue;
+    }
+
+    public void setNewGroupDelayValue(Integer newGroupDelayValue) {
+        this.newGroupDelayValue = newGroupDelayValue;
+    }
+
+    public Integer getNewGroupDelayUnit() {
+        return newGroupDelayUnit;
+    }
+
+    public void setNewGroupDelayUnit(Integer newGroupDelayUnit) {
+        this.newGroupDelayUnit = newGroupDelayUnit;
     }
 
     public Long getCurrentRoundNo() {

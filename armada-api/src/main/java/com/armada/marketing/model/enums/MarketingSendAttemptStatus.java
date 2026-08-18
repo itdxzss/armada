@@ -17,7 +17,10 @@ public enum MarketingSendAttemptStatus {
     FAILED(2),
 
     /** 业务规则跳过发送,保留给后续在线检测/异常群跳过能力。 */
-    SKIPPED(3);
+    SKIPPED(3),
+
+    /** 新群首次发送尚未到达业务计划时间，未写入协议 outbox。 */
+    WAITING(4);
 
     private final int code;
 

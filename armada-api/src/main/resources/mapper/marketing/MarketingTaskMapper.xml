@@ -25,6 +25,9 @@
         <result column="is_abnormal_group_skipped" property="abnormalGroupSkipped"/>
         <result column="is_auto_retry_enabled" property="autoRetryEnabled"/>
         <result column="retry_limit" property="retryLimit"/>
+        <result column="is_new_group_delay_enabled" property="newGroupDelayEnabled"/>
+        <result column="new_group_delay_value" property="newGroupDelayValue"/>
+        <result column="new_group_delay_unit" property="newGroupDelayUnit"/>
         <result column="current_round_no" property="currentRoundNo"/>
         <result column="remark" property="remark"/>
         <result column="account_group_send_at" property="accountGroupSendAt"/>
@@ -86,6 +89,9 @@
         <result column="group_status" property="groupStatus"/>
         <result column="group_status_reason" property="groupStatusReason"/>
         <result column="group_status_checked_at" property="groupStatusCheckedAt"/>
+        <result column="detected_at" property="detectedAt"/>
+        <result column="scheduled_send_at" property="scheduledSendAt"/>
+        <result column="outbox_accepted_at" property="outboxAcceptedAt"/>
         <result column="submitted_at" property="submittedAt"/>
         <result column="result_at" property="resultAt"/>
         <result column="attempted_at" property="attemptedAt"/>
@@ -98,7 +104,8 @@
         sent_message_count, failed_message_count,
         send_per_round, account_group_send_interval_ms, send_interval_seconds,
         is_online_check_enabled, is_abnormal_group_skipped,
-        is_auto_retry_enabled, retry_limit, current_round_no, remark,
+        is_auto_retry_enabled, retry_limit, is_new_group_delay_enabled, new_group_delay_value,
+        new_group_delay_unit, current_round_no, remark,
         account_group_send_at, task_start_at, task_end_at, started_at, next_round_at,
         last_round_started_at, last_sent_at, finished_at,
         created_by, created_at, updated_at, deleted_at
@@ -131,6 +138,7 @@
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
              failed_message_count, send_per_round, account_group_send_interval_ms, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
+             is_new_group_delay_enabled, new_group_delay_value, new_group_delay_unit,
              current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
              next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
@@ -138,6 +146,8 @@
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
              #{failedMessageCount}, #{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
+             COALESCE(#{newGroupDelayEnabled}, 0), COALESCE(#{newGroupDelayValue}, 30),
+             COALESCE(#{newGroupDelayUnit}, 1),
              #{currentRoundNo}, #{remark}, #{accountGroupSendAt}, #{taskStartAt}, #{taskEndAt},
              #{startedAt}, #{nextRoundAt}, #{lastRoundStartedAt}, #{lastSentAt}, #{finishedAt},
              #{createdBy}, #{createdAt}, #{updatedAt})
@@ -173,6 +183,13 @@
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
         WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectTaskByIdForUpdate" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE id = #{id} AND deleted_at IS NULL
+        FOR UPDATE
     </select>
 
     <select id="selectTargetsByTaskId" resultMap="MarketingTaskTargetResultMap">
@@ -588,14 +605,16 @@
         INSERT INTO marketing_task_send_attempt
             (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
              status, reason_code, reason_message, message_id,
-             group_status, group_status_reason, group_status_checked_at, submitted_at, result_at,
+             group_status, group_status_reason, group_status_checked_at, detected_at, scheduled_send_at,
+             outbox_accepted_at, submitted_at, result_at,
              attempted_at, created_at)
         VALUES
         <foreach collection="attempts" item="a" separator=",">
             (#{a.marketingTaskId}, #{a.targetId}, #{a.groupLinkId}, #{a.groupJid}, #{a.groupName},
              #{a.roundNo}, #{a.attemptNo}, #{a.retry}, #{a.commandId}, #{a.status}, #{a.reasonCode},
              #{a.reasonMessage}, #{a.messageId}, #{a.groupStatus}, #{a.groupStatusReason},
-             #{a.groupStatusCheckedAt}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
+             #{a.groupStatusCheckedAt}, #{a.detectedAt}, #{a.scheduledSendAt},
+             #{a.outboxAcceptedAt}, #{a.submittedAt}, #{a.resultAt}, #{a.attemptedAt},
              #{a.createdAt})
         </foreach>
     </insert>
@@ -605,23 +624,129 @@
         INSERT INTO marketing_task_send_attempt
             (marketing_task_id, target_id, group_link_id, group_jid, group_name, round_no, attempt_no, is_retry, command_id,
              status, reason_code, reason_message, message_id,
-             group_status, group_status_reason, group_status_checked_at, submitted_at, result_at,
+             group_status, group_status_reason, group_status_checked_at, detected_at, scheduled_send_at,
+             outbox_accepted_at, submitted_at, result_at,
              attempted_at, created_at)
         VALUES
             (#{marketingTaskId}, #{targetId}, #{groupLinkId}, #{groupJid}, #{groupName}, #{roundNo},
              #{attemptNo}, #{retry}, #{commandId}, #{status}, #{reasonCode}, #{reasonMessage}, #{messageId},
-             #{groupStatus}, #{groupStatusReason}, #{groupStatusCheckedAt},
-             #{submittedAt}, #{resultAt}, #{attemptedAt}, #{createdAt})
+             #{groupStatus}, #{groupStatusReason}, #{groupStatusCheckedAt}, #{detectedAt}, #{scheduledSendAt},
+             #{outboxAcceptedAt}, #{submittedAt}, #{resultAt}, #{attemptedAt}, #{createdAt})
     </insert>
 
     <select id="selectSendAttemptById" resultMap="MarketingTaskSendAttemptResultMap">
         SELECT id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
                round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
-               message_id, group_status, group_status_reason, group_status_checked_at,
-               submitted_at, result_at, attempted_at, created_at
+               message_id, group_status, group_status_reason, group_status_checked_at, detected_at, scheduled_send_at,
+               outbox_accepted_at, submitted_at, result_at, attempted_at, created_at
         FROM marketing_task_send_attempt
         WHERE id = #{attemptId}
     </select>
+
+    <select id="selectDueWaitingNewGroupAttempts" resultMap="MarketingTaskSendAttemptResultMap">
+        SELECT a.id, a.tenant_id, a.marketing_task_id, a.target_id, a.group_link_id, a.group_jid, a.group_name,
+               a.round_no, a.attempt_no, a.is_retry, a.command_id, a.status, a.reason_code, a.reason_message,
+               a.message_id, a.group_status, a.group_status_reason, a.group_status_checked_at,
+               a.detected_at, a.scheduled_send_at, a.outbox_accepted_at,
+               a.submitted_at, a.result_at, a.attempted_at, a.created_at
+        FROM marketing_task_send_attempt a
+        JOIN marketing_task task ON task.id = a.marketing_task_id
+                                AND task.tenant_id = a.tenant_id
+                                AND task.deleted_at IS NULL
+                                AND task.business_type = 1
+                                AND task.status = 2
+                                AND (task.task_end_at IS NULL OR task.task_end_at &gt; #{now})
+        WHERE a.status = 4
+          AND a.round_no = 0
+          AND a.scheduled_send_at IS NOT NULL
+          AND a.scheduled_send_at &lt;= #{now}
+        ORDER BY a.scheduled_send_at ASC, a.id ASC
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectWaitingAttemptsForUpdate" resultMap="MarketingTaskSendAttemptResultMap">
+        SELECT id, tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
+               round_no, attempt_no, is_retry, command_id, status, reason_code, reason_message,
+               message_id, group_status, group_status_reason, group_status_checked_at,
+               detected_at, scheduled_send_at, outbox_accepted_at,
+               submitted_at, result_at, attempted_at, created_at
+        FROM marketing_task_send_attempt
+        WHERE status = 4
+          AND round_no = 0
+          AND marketing_task_id = #{taskId}
+          AND scheduled_send_at &lt;= #{now}
+          AND id IN
+          <foreach collection="attemptIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY scheduled_send_at ASC, id ASC
+        FOR UPDATE
+    </select>
+
+    <select id="countOrdinarySubmittedOrSuccessfulAttempts" resultType="int">
+        SELECT COUNT(*)
+        FROM marketing_task_send_attempt
+        WHERE target_id = #{targetId}
+          AND round_no &gt; 0
+          AND (outbox_accepted_at IS NOT NULL OR status IN (0, 1))
+          AND TRIM(group_jid) = TRIM(#{groupJid})
+    </select>
+
+    <update id="markAttemptOutboxAccepted">
+        UPDATE marketing_task_send_attempt
+        SET outbox_accepted_at = #{acceptedAt}
+        WHERE id = #{attemptId}
+          AND command_id = #{commandId}
+          AND status = 0
+          AND outbox_accepted_at IS NULL
+    </update>
+
+    <update id="markWaitingAttemptSubmitted">
+        UPDATE marketing_task_send_attempt
+        SET command_id = #{commandId},
+            status = 0,
+            outbox_accepted_at = #{submittedAt},
+            submitted_at = #{submittedAt},
+            attempted_at = #{submittedAt}
+        WHERE id = #{attemptId}
+          AND status = 4
+          AND round_no = 0
+          AND command_id IS NULL
+    </update>
+
+    <update id="markWaitingAttemptSkipped">
+        UPDATE marketing_task_send_attempt
+        SET status = 3,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            result_at = #{resultAt},
+            attempted_at = #{resultAt}
+        WHERE id = #{attemptId}
+          AND status = 4
+          AND round_no = 0
+    </update>
+
+    <update id="markWaitingAttemptFailed">
+        UPDATE marketing_task_send_attempt
+        SET status = 2,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            result_at = #{resultAt},
+            attempted_at = #{resultAt}
+        WHERE id = #{attemptId}
+          AND status = 4
+          AND round_no = 0
+    </update>
+
+    <update id="markTaskWaitingAttemptsSkipped">
+        UPDATE marketing_task_send_attempt
+        SET status = 3,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            result_at = #{resultAt},
+            attempted_at = #{resultAt}
+        WHERE marketing_task_id = #{taskId}
+          AND status = 4
+          AND round_no = 0
+    </update>
 
     <select id="selectTargetById" resultMap="MarketingTaskTargetResultMap">
         SELECT <include refid="TargetColumns"/>
@@ -1174,6 +1299,16 @@
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND (#{accountGroupSendAt} IS NULL
                OR binding.membership_active_since_at &gt;= #{accountGroupSendAt})
+          <if test="targetId != null">
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM marketing_task_send_attempt waiting
+                  WHERE waiting.target_id = #{targetId}
+                    AND waiting.round_no = 0
+                    AND waiting.status = 4
+                    AND TRIM(waiting.group_jid) = TRIM(current_group.group_jid)
+              )
+          </if>
         ORDER BY g.id ASC
     </select>
 

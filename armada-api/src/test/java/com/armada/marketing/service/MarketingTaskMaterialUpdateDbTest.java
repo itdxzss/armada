@@ -85,12 +85,18 @@ class MarketingTaskMaterialUpdateDbTest extends DbTestBase {
                 fixture.templateId(),
                 "营销模板",
                 "PENDING",
+                null,
+                null,
+                null,
                 1,
                 null,
                 30,
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "素材更新测试",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
     }

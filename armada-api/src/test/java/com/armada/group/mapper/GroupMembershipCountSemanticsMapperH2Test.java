@@ -99,7 +99,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         assertThat(current).isNotNull();
         assertThat(current.getGroupJid()).isEqualTo("in-group@g.us");
         assertThat(current.getMembershipStatus()).isEqualTo(1);
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(501L, 100L))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, 100L))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly("in-group@g.us");
 
@@ -111,9 +111,37 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 """);
 
         assertThat(marketingTaskMapper.selectCurrentTargetGroup(501L, 2001L)).isNull();
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(501L, null))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, null))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getMembershipStatus()).isEqualTo(3));
+    }
+
+    @Test
+    void dynamicRoundExcludesGroupWhileNewGroupFirstSendIsWaiting() throws SQLException {
+        execute("""
+                INSERT INTO marketing_task_send_attempt
+                  (id, tenant_id, target_id, group_jid, round_no, status)
+                VALUES (9001, 7, 701, 'in-group@g.us', 0, 4)
+                """);
+
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null)).isEmpty();
+
+        execute("UPDATE marketing_task_send_attempt SET status = 0 WHERE id = 9001");
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+    }
+
+    @Test
+    void ordinaryAttemptRemainsCoverageAfterAcceptedOutboxLaterFails() throws SQLException {
+        execute("""
+                INSERT INTO marketing_task_send_attempt
+                  (id, tenant_id, target_id, group_jid, round_no, status, outbox_accepted_at)
+                VALUES (9002, 7, 701, 'in-group@g.us', 1, 2, 2000)
+                """);
+
+        assertThat(marketingTaskMapper.countOrdinarySubmittedOrSuccessfulAttempts(
+                701L, "in-group@g.us")).isEqualTo(1);
     }
 
     @Test
@@ -309,6 +337,12 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 CREATE TABLE account_group_membership (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, account_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) NOT NULL, membership_status TINYINT NOT NULL, deleted_at BIGINT
+                )
+                """, """
+                CREATE TABLE marketing_task_send_attempt (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, target_id BIGINT NOT NULL,
+                  group_jid VARCHAR(128) NOT NULL, round_no BIGINT NOT NULL, status TINYINT NOT NULL,
+                  outbox_accepted_at BIGINT
                 )
                 """, """
                 CREATE TABLE wa_account_group_binding (

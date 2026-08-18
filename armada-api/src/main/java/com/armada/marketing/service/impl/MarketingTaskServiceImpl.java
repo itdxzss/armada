@@ -16,6 +16,7 @@ import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingBusinessType;
+import com.armada.marketing.model.enums.MarketingNewGroupDelayUnit;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
@@ -73,6 +74,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private static final BigDecimal MIN_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("0.5");
     private static final BigDecimal MAX_ACCOUNT_GROUP_SEND_INTERVAL_SECONDS = new BigDecimal("3");
     private static final int DEFAULT_ACCOUNT_GROUP_SEND_INTERVAL_MS = 500;
+    private static final int DEFAULT_NEW_GROUP_DELAY_VALUE = 30;
 
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateMapper templateMapper;
@@ -303,9 +305,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (updated == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务状态已变化,请刷新后重试");
         }
+        int skipped = taskMapper.markTaskWaitingAttemptsSkipped(
+                id, "TASK_CLOSED", "营销任务已关闭", now);
         int released = occupancyService.releaseTaskAccounts(id);
-        log.info("营销任务手动关闭 tenantId={} taskId={} releasedAccounts={}",
-                task.getTenantId(), id, released);
+        log.info("营销任务手动关闭 tenantId={} taskId={} skippedWaiting={} releasedAccounts={}",
+                task.getTenantId(), id, skipped, released);
         return toVO(requireTask(id));
     }
 
@@ -399,6 +403,19 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个发送账号");
         }
         validateLifecycleTimes(request, now);
+        validateNewGroupDelay(request);
+    }
+
+    private void validateNewGroupDelay(CreateMarketingTaskDTO request) {
+        MarketingNewGroupDelayUnit unit = MarketingNewGroupDelayUnit.fromApiValue(
+                request.newGroupDelayUnit());
+        int value = normalizeNewGroupDelayValue(request.newGroupDelayValue());
+        if (!unit.supports(value)) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    unit == MarketingNewGroupDelayUnit.MINUTE
+                            ? "分钟延迟时长必须为1到60的正整数"
+                            : "小时延迟时长必须为1到24的正整数");
+        }
     }
 
     private void validateLifecycleTimes(CreateMarketingTaskDTO request, long now) {
@@ -605,6 +622,11 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setAutoRetryEnabled(Boolean.TRUE.equals(request.autoRetryEnabled()));
         // 一期需求只表达"失败后自动重试一次";后续若做可配置次数再扩 DTO。
         task.setRetryLimit(Boolean.TRUE.equals(request.autoRetryEnabled()) ? 1 : 0);
+        MarketingNewGroupDelayUnit delayUnit = MarketingNewGroupDelayUnit.fromApiValue(
+                request.newGroupDelayUnit());
+        task.setNewGroupDelayEnabled(Boolean.TRUE.equals(request.newGroupDelayEnabled()));
+        task.setNewGroupDelayValue(normalizeNewGroupDelayValue(request.newGroupDelayValue()));
+        task.setNewGroupDelayUnit(delayUnit.code());
         task.setCurrentRoundNo(0L);
         task.setRemark(request.remark());
         task.setAccountGroupSendAt(accountGroupSendAt);
@@ -651,6 +673,10 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private static int positive(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private static int normalizeNewGroupDelayValue(Integer value) {
+        return value == null ? DEFAULT_NEW_GROUP_DELAY_VALUE : value;
     }
 
     private static boolean validAccountGroupSendInterval(BigDecimal value) {
@@ -710,7 +736,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSentMessageCount(), task.getFailedMessageCount(), task.getSendPerRound(),
                 accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
-                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
+                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getNewGroupDelayEnabled(),
+                task.getNewGroupDelayValue(), MarketingNewGroupDelayUnit.fromCode(task.getNewGroupDelayUnit()).apiValue(),
+                task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
                 template == null ? null : template.getContent(),
@@ -865,7 +893,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 task.getSendPerRound(),
                 accountGroupSendIntervalSeconds(task.getAccountGroupSendIntervalMs()),
                 task.getSendIntervalSeconds(), task.getOnlineCheckEnabled(), task.getAbnormalGroupSkipped(),
-                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getRemark(),
+                task.getAutoRetryEnabled(), task.getRetryLimit(), task.getNewGroupDelayEnabled(),
+                task.getNewGroupDelayValue(), MarketingNewGroupDelayUnit.fromCode(task.getNewGroupDelayUnit()).apiValue(),
+                task.getRemark(),
                 task.getAccountGroupSendAt(), task.getTaskStartAt(), task.getTaskEndAt(), task.getStartedAt(),
                 task.getLastSentAt(), task.getFinishedAt(), task.getCreatedAt(), task.getUpdatedAt(),
                 targets, accountTargets);

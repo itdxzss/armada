@@ -21,6 +21,9 @@ import java.util.List;
  * @param onlineCheckEnabled    发送前是否检测账号在线
  * @param abnormalGroupSkipped  是否跳过异常群
  * @param autoRetryEnabled      失败是否自动重试
+ * @param newGroupDelayEnabled  是否开启账号动态新群首次延迟发送
+ * @param newGroupDelayValue    延迟数值
+ * @param newGroupDelayUnit     延迟单位：MINUTE/HOUR
  * @param remark                备注
  * @param selections            账号维度目标选择;每个账号可按固定群组或账号动态群组发送
  */
@@ -40,28 +43,9 @@ public record CreateMarketingTaskDTO(
         Boolean onlineCheckEnabled,
         Boolean abnormalGroupSkipped,
         Boolean autoRetryEnabled,
+        Boolean newGroupDelayEnabled,
+        Integer newGroupDelayValue,
+        String newGroupDelayUnit,
         String remark,
         List<MarketingSelectionDTO> selections) {
-
-    /**
-     * 兼容旧测试和旧调用方。未传计划时间时仍按当前时间立即/待启动语义落库。
-     */
-    public CreateMarketingTaskDTO(String taskName,
-                                  Long accountGroupId,
-                                  String accountGroupName,
-                                  Long marketingTemplateId,
-                                  String marketingTemplateName,
-                                  String startMode,
-                                  Integer sendPerRound,
-                                  BigDecimal accountGroupSendIntervalSeconds,
-                                  Integer sendIntervalSeconds,
-                                  Boolean onlineCheckEnabled,
-                                  Boolean abnormalGroupSkipped,
-                                  Boolean autoRetryEnabled,
-                                  String remark,
-                                  List<MarketingSelectionDTO> selections) {
-        this(taskName, accountGroupId, accountGroupName, marketingTemplateId, marketingTemplateName, startMode,
-                null, null, null, sendPerRound, accountGroupSendIntervalSeconds, sendIntervalSeconds,
-                onlineCheckEnabled, abnormalGroupSkipped, autoRetryEnabled, remark, selections);
-    }
 }

@@ -2,8 +2,10 @@ package com.armada.marketing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -21,16 +23,21 @@ import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
+import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.scheduler.MarketingRoundSchedulerProperties;
+import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.marketing.service.impl.MarketingNewGroupImmediateSendServiceImpl;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.dao.DuplicateKeyException;
 
 class MarketingNewGroupImmediateSendServiceImplTest {
@@ -39,6 +46,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private final MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
     private final MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
     private final MessageSendPort messagePort = mock(MessageSendPort.class);
+    private final MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
     private final MarketingMessageCommandFactory messageFactory = new MarketingMessageCommandFactory(
             templateMapper,
             fileMapper,
@@ -46,11 +54,12 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private final MarketingRoundSchedulerProperties schedulerProperties = schedulerProperties();
     private final MarketingNewGroupImmediateSendServiceImpl service =
             new MarketingNewGroupImmediateSendServiceImpl(
-                    mapper, messageFactory, messagePort, schedulerProperties);
+                    mapper, messageFactory, messagePort, schedulerProperties, occupancyService);
 
     @BeforeEach
     void setUp() {
         when(templateMapper.selectById(77L)).thenReturn(textTemplate());
+        when(mapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
     }
 
     @Test
@@ -86,6 +95,106 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         assertThat(commandCaptor.getValue())
                 .extracting(MessageSendCommand::notBeforeAt)
                 .containsExactly(2_000L, 2_750L);
+    }
+
+    @Test
+    void enqueueNewGroups_delayEnabledCreatesWaitingAttemptsWithoutOutbox() {
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        task.setNewGroupDelayValue(30);
+        task.setNewGroupDelayUnit(1);
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        assignAttemptIds(9_000L);
+
+        service.enqueueNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", "群A")),
+                2_000L);
+
+        ArgumentCaptor<MarketingTaskSendAttempt> captor =
+                ArgumentCaptor.forClass(MarketingTaskSendAttempt.class);
+        verify(mapper).insertSendAttempt(captor.capture());
+        MarketingTaskSendAttempt waiting = captor.getValue();
+        assertThat(waiting.getStatus()).isEqualTo(MarketingSendAttemptStatus.WAITING.code());
+        assertThat(waiting.getCommandId()).isNull();
+        assertThat(waiting.getDetectedAt()).isEqualTo(2_000L);
+        assertThat(waiting.getScheduledSendAt()).isEqualTo(1_802_000L);
+        assertThat(waiting.getSubmittedAt()).isNull();
+        assertThat(waiting.getAttemptedAt()).isEqualTo(2_000L);
+        InOrder lockOrder = inOrder(mapper);
+        lockOrder.verify(mapper).selectOwnedSendingDynamicTarget(5_001L, 2_000L);
+        lockOrder.verify(mapper).selectTaskByIdForUpdate(42L);
+        lockOrder.verify(mapper).insertSendAttempt(any());
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_validAttemptUsesSharedOutboxSubmission() {
+        MarketingTaskSendAttempt waiting = waitingAttempt();
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        MarketingTaskTarget target = dynamicTarget();
+        MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
+        owner.setAccountId(target.getAccountId());
+        owner.setMarketingTaskId(task.getId());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waiting));
+        when(mapper.selectTargetById(501L)).thenReturn(target);
+        when(occupancyService.loadActiveOwners(List.of(5_001L)))
+                .thenReturn(Map.of(5_001L, owner));
+        when(mapper.selectAccountTargetCandidate(eq(8L), eq(5_001L), any()))
+                .thenReturn(accountCandidate());
+        when(mapper.selectCurrentTargetGroup(5_001L, 301L)).thenReturn(groupCandidate());
+        when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))
+                .thenReturn(0);
+        when(mapper.markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L))).thenReturn(1);
+        when(messagePort.enqueue(any())).thenAnswer(invocation -> acceptAll(invocation.getArgument(0)));
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        InOrder lockOrder = inOrder(mapper);
+        lockOrder.verify(mapper).selectTaskByIdForUpdate(42L);
+        lockOrder.verify(mapper).selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L);
+        verify(messagePort).enqueue(any());
+        verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
+        verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_pausedTaskKeepsWaitingWithoutOutbox() {
+        MarketingTask task = sendingTask();
+        task.setStatus(5);
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waitingAttempt()));
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        verify(messagePort, never()).enqueue(any());
+        verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
+        verify(mapper, never()).markWaitingAttemptSubmitted(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_ordinaryRoundCoveredMarksSkippedWithoutOutbox() {
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waitingAttempt()));
+        when(mapper.selectTargetById(501L)).thenReturn(dynamicTarget());
+        when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))
+                .thenReturn(1);
+        when(mapper.markWaitingAttemptSkipped(
+                9_001L, "ORDINARY_ROUND_COVERED", "已被普通轮次覆盖", 3_000L)).thenReturn(1);
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        verify(mapper).markWaitingAttemptSkipped(
+                9_001L, "ORDINARY_ROUND_COVERED", "已被普通轮次覆盖", 3_000L);
+        verify(messagePort, never()).enqueue(any());
     }
 
     @Test
@@ -168,7 +277,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
 
     private void stubOwnedSendingTask() {
         when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
-        when(mapper.selectTaskById(42L)).thenReturn(sendingTask());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(sendingTask());
     }
 
     private void assignAttemptIds(long startingId) {
@@ -190,10 +299,47 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTask task = new MarketingTask();
         task.setId(42L);
         task.setTenantId(1L);
+        task.setBusinessType(1);
         task.setStatus(2);
         task.setMarketingTemplateId(77L);
+        task.setAccountGroupId(8L);
         task.setAccountGroupSendIntervalMs(750);
         return task;
+    }
+
+    private static MarketingTaskSendAttempt waitingAttempt() {
+        MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
+        attempt.setId(9_001L);
+        attempt.setTenantId(1L);
+        attempt.setMarketingTaskId(42L);
+        attempt.setTargetId(501L);
+        attempt.setGroupLinkId(301L);
+        attempt.setGroupJid("120363a@g.us");
+        attempt.setGroupName("群A");
+        attempt.setRoundNo(0L);
+        attempt.setAttemptNo(1);
+        attempt.setRetry(false);
+        attempt.setStatus(MarketingSendAttemptStatus.WAITING.code());
+        attempt.setDetectedAt(2_000L);
+        attempt.setScheduledSendAt(2_500L);
+        attempt.setAttemptedAt(2_000L);
+        attempt.setCreatedAt(2_000L);
+        return attempt;
+    }
+
+    private static MarketingTargetCandidateRow accountCandidate() {
+        MarketingTargetCandidateRow row = new MarketingTargetCandidateRow();
+        row.setAccountId(5_001L);
+        return row;
+    }
+
+    private static MarketingTargetCandidateRow groupCandidate() {
+        MarketingTargetCandidateRow row = accountCandidate();
+        row.setGroupLinkId(301L);
+        row.setGroupJid("120363a@g.us");
+        row.setGroupName("群A");
+        row.setMembershipStatus(1);
+        return row;
     }
 
     private static MarketingTaskTarget dynamicTarget() {

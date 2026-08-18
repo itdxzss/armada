@@ -1298,7 +1298,8 @@ public class MysqlModeMapperInMemoryTest {
                     target_id BIGINT NOT NULL,
                     group_link_id BIGINT,
                     group_jid VARCHAR(64),
-                    group_name VARCHAR(255)
+                    group_name VARCHAR(255),
+                    outbox_accepted_at BIGINT
                 )
                 """);
     }

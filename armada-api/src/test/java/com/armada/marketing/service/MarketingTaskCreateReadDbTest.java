@@ -795,6 +795,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }
@@ -810,12 +813,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 null,
                 null,
                 startMode,
+                null,
+                null,
+                null,
                 1,
                 null,
                 30,
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }
@@ -841,6 +850,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }

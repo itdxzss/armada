@@ -198,12 +198,18 @@ class MarketingTaskMutationDbTest extends DbTestBase {
                 fixture.templateId(),
                 "营销模板",
                 startMode,
+                null,
+                null,
+                null,
                 1,
                 null,
                 30,
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "状态变更测试",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
     }
@@ -229,6 +235,9 @@ class MarketingTaskMutationDbTest extends DbTestBase {
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "状态变更测试",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId())))));
     }

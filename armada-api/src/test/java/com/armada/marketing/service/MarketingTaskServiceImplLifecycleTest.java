@@ -253,13 +253,18 @@ class MarketingTaskServiceImplLifecycleTest {
         CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
                 "未来执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
                 null, now + 60_000L, now + 600_000L,
-                1, new BigDecimal("3.0"), 30, true, true, false, null,
+                1, new BigDecimal("3.0"), 30, true, true, false,
+                true, 12, "HOUR", null,
                 java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
 
         var created = service.createTask(request);
 
         assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(3_000);
+        assertThat(insertedTask.get().getNewGroupDelayEnabled()).isTrue();
+        assertThat(insertedTask.get().getNewGroupDelayValue()).isEqualTo(12);
+        assertThat(insertedTask.get().getNewGroupDelayUnit()).isEqualTo(2);
         assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("3.0");
+        assertThat(created.newGroupDelayUnit()).isEqualTo("HOUR");
         verify(templateMapper).selectByIdForUpdate(TEMPLATE_ID);
         verify(occupancyService).lockTaskAccountsOrThrow(
                 eq(insertedTask.get()), anyLong());
@@ -294,6 +299,19 @@ class MarketingTaskServiceImplLifecycleTest {
         assertThatThrownBy(() -> service.createTask(requestWithInterval(new BigDecimal(interval))))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("单账号下群组发送间隔必须为0.5到3秒，最多一位小数");
+
+        verify(taskMapper, never()).insertTask(org.mockito.ArgumentMatchers.any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "MINUTE,61,分钟延迟时长必须为1到60的正整数",
+            "HOUR,25,小时延迟时长必须为1到24的正整数"
+    })
+    void createTask_invalidNewGroupDelayIsRejected(String unit, int value, String message) {
+        assertThatThrownBy(() -> service.createTask(requestWithDelay(value, unit)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(message);
 
         verify(taskMapper, never()).insertTask(org.mockito.ArgumentMatchers.any());
     }
@@ -376,6 +394,8 @@ class MarketingTaskServiceImplLifecycleTest {
 
         service.closeTask(TASK_ID);
 
+        verify(taskMapper).markTaskWaitingAttemptsSkipped(
+                eq(TASK_ID), eq("TASK_CLOSED"), eq("营销任务已关闭"), anyLong());
         verify(occupancyService).releaseTaskAccounts(TASK_ID);
     }
 
@@ -424,7 +444,16 @@ class MarketingTaskServiceImplLifecycleTest {
     private static CreateMarketingTaskDTO requestWithInterval(BigDecimal interval) {
         return new CreateMarketingTaskDTO(
                 "间隔测试任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
-                null, null, null, 1, interval, 30, true, true, false, null,
+                null, null, null, 1, interval, 30, true, true, false,
+                false, 30, "MINUTE", null,
+                java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
+    }
+
+    private static CreateMarketingTaskDTO requestWithDelay(int value, String unit) {
+        return new CreateMarketingTaskDTO(
+                "延迟校验任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
+                null, null, null, 1, new BigDecimal("0.5"), 30, true, true, false,
+                true, value, unit, null,
                 java.util.List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", java.util.List.of())));
     }
 }

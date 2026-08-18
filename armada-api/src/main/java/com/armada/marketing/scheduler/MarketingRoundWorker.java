@@ -256,10 +256,12 @@ public class MarketingRoundWorker {
             return true;
         }
         int ended = taskMapper.endExpiredTask(task.getId(), now);
+        int skipped = ended > 0 ? taskMapper.markTaskWaitingAttemptsSkipped(
+                task.getId(), "TASK_EXPIRED", "营销任务已结束", now) : 0;
         int released = ended > 0 ? occupancyService.releaseTaskAccounts(task.getId()) : 0;
         log.info("营销任务轮次跳过并结束:已到任务结束时间 tenantId={} taskId={} taskEndAt={} "
-                        + "updated={} releasedAccounts={}",
-                task.getTenantId(), task.getId(), task.getTaskEndAt(), ended, released);
+                        + "updated={} skippedWaiting={} releasedAccounts={}",
+                task.getTenantId(), task.getId(), task.getTaskEndAt(), ended, skipped, released);
         return true;
     }
 
@@ -311,7 +313,7 @@ public class MarketingRoundWorker {
                                                  MarketingTaskTarget target,
                                                  List<MarketingResolvedTarget> sendTargets) {
         List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(
-                target.getAccountId(), task.getAccountGroupSendAt());
+                target.getId(), target.getAccountId(), task.getAccountGroupSendAt());
         if (groups.isEmpty()) {
             log.debug("营销账号动态目标本轮无可发送群 tenantId={} taskId={} targetId={} accountId={}",
                     target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());
@@ -589,6 +591,12 @@ public class MarketingRoundWorker {
                 throw new IllegalStateException("营销消息入队结果 commandId 与命令不一致");
             }
             if (item.accepted()) {
+                int updated = taskMapper.markAttemptOutboxAccepted(
+                        attempt.getId(), command.commandId(), resultAt);
+                if (updated != 1) {
+                    throw new IllegalStateException("营销发送记录 Outbox 接受状态更新失败");
+                }
+                attempt.setOutboxAcceptedAt(resultAt);
                 accepted++;
                 continue;
             }

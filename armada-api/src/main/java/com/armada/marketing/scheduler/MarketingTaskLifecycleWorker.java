@@ -76,9 +76,12 @@ public class MarketingTaskLifecycleWorker {
             }
             int updated = taskMapper.endExpiredTask(taskId, now);
             if (updated > 0) {
+                int skipped = taskMapper.markTaskWaitingAttemptsSkipped(
+                        taskId, "TASK_EXPIRED", "营销任务已结束", now);
                 int released = occupancyService.releaseTaskAccounts(taskId);
-                log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={} releasedAccounts={}",
-                        tenantId, taskId, now, released);
+                log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={} "
+                                + "skippedWaiting={} releasedAccounts={}",
+                        tenantId, taskId, now, skipped, released);
             }
         } finally {
             restoreTenant(previousTenant);

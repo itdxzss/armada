@@ -57,6 +57,11 @@ class MarketingTaskLifecycleWorkerTest {
 
         worker.endExpiredTask(1L, 42L);
 
+        verify(taskMapper).markTaskWaitingAttemptsSkipped(
+                org.mockito.ArgumentMatchers.eq(42L),
+                org.mockito.ArgumentMatchers.eq("TASK_EXPIRED"),
+                org.mockito.ArgumentMatchers.eq("营销任务已结束"),
+                org.mockito.ArgumentMatchers.anyLong());
         verify(occupancyService).releaseTaskAccounts(42L);
     }
 

@@ -114,7 +114,23 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 | `pull_task_group_execution` | `create_attempt_count` | INT NOT NULL DEFAULT 0 | 确定未创建类失败的重试计数（不用于结果不明，见 ADR-0013） |
 | `pull_task_group_execution` | `group_subject` | VARCHAR(255) DEFAULT NULL | 本群最终名称 |
 
-任务级建群配置（群名来源、群头像素材、群描述、初始站台数量、群设置执行时机）落 `pull_task_standard_setting`，与既有拉群配置同表，不另建配置表。
+任务级建群配置只新增三项：建群人分组、分组名快照、建群时初始站台数量，落 `pull_task_standard_setting`。
+
+**其余建群配置一律复用 `pull_task_standard_group_setting`（V095 已建），不新增列。** 该表已经具备：
+
+| 既有列 | 含义 |
+|---|---|
+| `setting_timing` | 设置顺序：1=拉人前 2=拉完后 |
+| `group_name` | 手工群名 |
+| `is_material_filename_as_group_name` | 是否用对应 TXT 文件名当群名 |
+| `avatar_file_key` | 群头像 |
+| `group_description` | 群描述 |
+| `mute_mode` / `link_permission_mode` / `disappearing_message_mode` / `edit_permission_mode` | 禁言、群链接权限、限时消息、编辑权限 |
+| `is_auto_unmute_after_task` / `is_auto_close_invite_after_task` | 任务完成后自动解禁言 / 关闭拉人权限 |
+
+> 这一条是实施当天发现并纠正的：初稿规格想当然认为这些配置不存在，V134 初版重复造了五列。写规格时应先 grep 既有存储再定新列。同一份配置有两个真相，是比缺列严重得多的问题。
+
+**`setting_timing` 目前只写不读**：`PullTaskStandardGroupSettingWriter` 写入、读服务返回，但 `PullTaskGroupSettingsGate`（仅 25 行）不按它分支，执行引擎并未据此选择时机。让它真正生效属于第 5 片的工作。
 
 ### 4.3 枚举追加
 
@@ -145,7 +161,7 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 | V131 | `pull_task_group_execution` 三列改可空；新增 `create_step` / `create_operation_id` / `create_attempt_count` / `group_subject`；更新 `stage` 列注释（现注释仍是 V093 时代的七阶段，缺 `MANAGER_ADMIN` 和 `CLOSING`，本次一并订正为九阶段） |
 | V132 | `pull_task` 新增 `creation_mode` |
 | V133 | `pull_task_group_account.entry_mode` 列注释追加取值 4（仅改注释，列已是 TINYINT，无需扩容；参照 V119 的写法） |
-| V134 | `pull_task_standard_setting` 新增建群配置列 |
+| V134 | `pull_task_standard_setting` 新增三列：`creator_group_id` / `creator_group_name` / `initial_station_count`。其余建群配置复用 `pull_task_standard_group_setting` 既有列，不新增 |
 
 全部迁移必须写成幂等形式（`information_schema` 判断 + `PREPARE/EXECUTE`），与 V103、V119 同款。共享 RDS 上禁止手工 ALTER。
 
@@ -159,15 +175,14 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 ### 5.2 建群配置字段
 
+本模式**新增**的请求字段只有两个：
+
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `creatorAccountGroupId` | 是 | 建群人分组。每条执行行取一个建群人 |
-| `groupNameSource` | 是 | `MATERIAL_FILE_NAME` 取料子文件名 / `MANUAL` 手动填写 |
-| `groupNameText` | `MANUAL` 时必填 | 手动群名 |
-| `groupAvatarMaterialId` | 否 | 群头像素材 |
-| `groupDescription` | 否 | 群描述 |
+| `creatorGroupId` | 是 | 建群人分组。每条执行行取一个建群人 |
 | `initialStationCount` | 否，默认 0 | 建群时作为初始成员加入的站台数量 |
-| `groupSettingsTiming` | 是 | `BEFORE_PULL` 拉人前设置 / `AFTER_PULL` 拉完人后设置 |
+
+群名、群头像、群描述、群设置执行时机与全部权限项，**沿用既有的 `groupSetting` 请求块**（`PullTaskStandardGroupSettingDTO`），字段一个不加：`settingTiming`、`groupName`、`materialFilenameAsGroupName`、`avatarFileKey`、`groupDescription` 等。新群模式只是让这些配置在建群阶段也生效。
 
 群名取料子文件名时，取本执行行绑定的那个 TXT 的文件名——链接与料子的 1:1 随机配对在创建时冻结（ADR-0005），新群模式沿用同一配对机制，只是配对左侧从「粘贴的链接」变成「计划创建的群」。
 
@@ -227,8 +242,8 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 | 片 | 内容 | 验证 |
 |---:|---|---|
-| 1 | V131~V134 迁移 + 枚举追加 + 实体/Mapper | 迁移结构测试、Mapper H2 测试 |
-| 2 | 创建接口接收 `creationMode` 与建群配置，含站台双笔校验与群名来源解析 | 服务层单测 + 控制器测试 |
+| 1 | V131~V134 迁移 + 枚举追加 | 迁移结构测试 + 本机 MySQL 实跑（已完成） |
+| 2 | 创建接口接收 `creationMode`、`creatorGroupId`、`initialStationCount`，含站台双笔校验；群名/头像/描述/时机沿用既有 `groupSetting` 块 | 服务层单测 + 控制器测试 |
 | 3 | 建群阶段步骤 1~3（角色行、建群调用、JID 与站台回执落库） | 阶段处理器单测，重点覆盖站台状态写 `IN_GROUP` 与写错的后果 |
 | 4 | 建群阶段步骤 4~7（群资料、邀请链接、群设置、自建群登记）+ 置 `stage=2` 衔接 | 阶段处理器单测 + 与 `MANAGER_JOIN` 的衔接测试 |
 | 5 | 收口阶段 `AFTER_PULL` 群设置分支 | 收口阶段单测 |

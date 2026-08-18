@@ -92,12 +92,7 @@ public final class PullTaskNormalLinkSchema {
                 puller_finish_group_name VARCHAR(100),
                 creator_group_id BIGINT,
                 creator_group_name VARCHAR(100),
-                group_name_source VARCHAR(32),
-                group_name_text VARCHAR(255),
-                group_description VARCHAR(512),
-                group_avatar_material_id BIGINT,
                 initial_station_count INT NOT NULL DEFAULT 0,
-                group_settings_timing VARCHAR(16),
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 PRIMARY KEY (tenant_id, task_id)

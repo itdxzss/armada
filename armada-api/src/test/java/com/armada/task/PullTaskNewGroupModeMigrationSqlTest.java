@@ -133,18 +133,30 @@ class PullTaskNewGroupModeMigrationSqlTest {
     }
 
     @Test
-    @DisplayName("V134 新增建群配置列，站台初始数量默认 0 保持存量任务行为不变")
-    void v134AddsGroupCreateSettings() throws IOException {
+    @DisplayName("V134 只加三列真正缺的配置，站台初始数量默认 0 保持存量任务行为不变")
+    void v134AddsOnlyTheThreeGenuinelyMissingSettings() throws IOException {
         String sql = read(V134);
 
         assertThat(sql)
                 .contains("ADD COLUMN creator_group_id BIGINT")
-                .contains("ADD COLUMN group_name_source VARCHAR(32)")
-                .contains("ADD COLUMN group_name_text VARCHAR(255)")
-                .contains("ADD COLUMN group_description VARCHAR(512)")
-                .contains("ADD COLUMN group_avatar_material_id BIGINT")
-                .contains("ADD COLUMN initial_station_count INT NOT NULL DEFAULT 0")
-                .contains("ADD COLUMN group_settings_timing VARCHAR(16)");
+                .contains("ADD COLUMN creator_group_name VARCHAR(100)")
+                .contains("ADD COLUMN initial_station_count INT NOT NULL DEFAULT 0");
+    }
+
+    @Test
+    @DisplayName("V134 不重复造 pull_task_standard_group_setting 已有的群配置列")
+    void v134DoesNotDuplicateExistingGroupSettingColumns() throws IOException {
+        String sql = read(V134);
+
+        // 群名来源、手工群名、群头像、群描述、群设置执行时机，V095 建的
+        // pull_task_standard_group_setting 已经全部具备。另起一套会让同一份配置有两个真相。
+        // 断言的是「没有针对它们的 DDL 动作」——脚本注释需要能列出复用了哪些既有列。
+        assertThat(sql)
+                .doesNotContain("ADD COLUMN group_name")
+                .doesNotContain("ADD COLUMN group_description")
+                .doesNotContain("ADD COLUMN group_avatar")
+                .doesNotContain("ADD COLUMN group_settings_timing")
+                .doesNotContain("ADD COLUMN setting_timing");
     }
 
     @Test

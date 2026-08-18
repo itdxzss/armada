@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class GroupSnapshotCommandCorrelationMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V129__group_snapshot_command_correlation.sql");
+            "src/main/resources/db/migration/V128__group_snapshot_command_correlation.sql");
 
     private String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);

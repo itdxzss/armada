@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class GroupCreatorPhoneRegionMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V128__group_creator_phone_region.sql");
+            "src/main/resources/db/migration/V129__group_creator_phone_region.sql");
     private static final Path LIST_MAPPER = Path.of(
             "src/main/resources/mapper/group/GroupListCurrentMapper.xml");
     private static final Path PREVIEW_MAPPER = Path.of(

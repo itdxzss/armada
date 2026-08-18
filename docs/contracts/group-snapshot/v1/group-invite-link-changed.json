@@ -1,0 +1,17 @@
+{
+  "eventId": "acc_fixture_1:group.invite_link_changed:cmd_snapshot_fixture_1",
+  "event": "group.invite_link_changed",
+  "accountId": "acc_fixture_1",
+  "occurredAt": "2026-08-18T04:30:02.000Z",
+  "data": {
+    "tenantId": 1,
+    "accountId": 100,
+    "protocolAccountId": "acc_fixture_1",
+    "protocolBackend": "WEB",
+    "groupLinkId": 5001,
+    "groupJid": "120363000000001@g.us",
+    "commandId": "cmd_snapshot_fixture_1",
+    "source": "MANUAL_INFO_REFRESH",
+    "inviteCode": "FixtureInviteCode"
+  }
+}

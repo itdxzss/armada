@@ -35,6 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMembershipStatusService {
 
+    /** 群快照命令明确确认当前执行账号已不在群时使用的精确关系来源。 */
+    public static final String GROUP_SNAPSHOT_NOT_JOINED_SOURCE = "GROUP_SNAPSHOT_NOT_JOINED";
+
     /** 关系事件应用结果的安全业务日志。 */
     private static final Logger log = LoggerFactory.getLogger(AccountGroupMembershipStatusServiceImpl.class);
 
@@ -143,13 +146,16 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
                         event.occurredAt(),
                         now);
             }
+            String presenceSource = GROUP_SNAPSHOT_NOT_JOINED_SOURCE.equals(event.source())
+                    && transition.status() == AccountGroupMembershipStatus.NOT_IN_GROUP
+                    ? GROUP_SNAPSHOT_NOT_JOINED_SOURCE : transition.source();
             currentPersistence.applySelfMembershipChanged(
                     event.accountId(),
                     event.groupJid().trim(),
                     transition.status(),
                     event.occurredAt(),
                     event.eventId(),
-                    transition.source());
+                    presenceSource);
             log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
                     event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
                     transition.source());

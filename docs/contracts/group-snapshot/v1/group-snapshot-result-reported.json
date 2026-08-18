@@ -1,0 +1,22 @@
+{
+  "eventId": "acc_fixture_1:group.snapshot_result_reported:cmd_snapshot_fixture_1",
+  "event": "group.snapshot_result_reported",
+  "accountId": "acc_fixture_1",
+  "occurredAt": "2026-08-18T04:30:03.000Z",
+  "data": {
+    "tenantId": 1,
+    "accountId": 100,
+    "protocolAccountId": "acc_fixture_1",
+    "protocolBackend": "WEB",
+    "groupLinkId": 5001,
+    "groupJid": "120363000000001@g.us",
+    "commandId": "cmd_snapshot_fixture_1",
+    "taskType": "GROUP_METADATA_SYNC",
+    "taskId": 9001,
+    "attemptNo": 1,
+    "scopes": {
+      "METADATA": {"outcome": "SUCCESS", "completedAt": 1787027401000},
+      "INVITE_CODE": {"outcome": "SUCCESS", "completedAt": 1787027402000}
+    }
+  }
+}

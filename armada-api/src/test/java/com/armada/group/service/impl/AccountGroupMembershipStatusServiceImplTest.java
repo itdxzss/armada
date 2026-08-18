@@ -56,6 +56,24 @@ class AccountGroupMembershipStatusServiceImplTest {
     }
 
     @Test
+    void snapshotNotJoinedKeepsDedicatedHighPrioritySource() {
+        Mockito.when(currentMapper.selectContext(10L)).thenReturn(context());
+        Mockito.when(registry.registerAccountObservedGroup(
+                Mockito.eq("120363001@g.us"), Mockito.isNull(),
+                Mockito.eq(ProtocolBackend.ANDROID), Mockito.anyLong()))
+                .thenReturn(20L);
+
+        service.applyMembershipChanged(new AccountGroupMembershipChangedEvent(
+                1L, 10L, "protocol-account-10", "120363001@g.us",
+                "remove", 2_000L, "event-snapshot-not-joined",
+                AccountGroupMembershipStatusServiceImpl.GROUP_SNAPSHOT_NOT_JOINED_SOURCE));
+
+        verify(persistence).applySelfMembershipChanged(
+                10L, "120363001@g.us", AccountGroupMembershipStatus.NOT_IN_GROUP,
+                2_000L, "event-snapshot-not-joined", "GROUP_SNAPSHOT_NOT_JOINED");
+    }
+
+    @Test
     void preciseAddClassifiesBeforeWritingCurrentMembership() {
         Mockito.when(currentMapper.selectContext(10L)).thenReturn(context());
         Mockito.when(registry.registerAccountObservedGroup(

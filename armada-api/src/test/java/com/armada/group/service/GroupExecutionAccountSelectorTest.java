@@ -51,7 +51,7 @@ class GroupExecutionAccountSelectorTest {
 
         assertThat(selector.find(10L, 0)).contains(first);
         assertThat(selector.find(10L, 1)).contains(second);
-        assertThat(selector.find(10L, 2)).contains(first);
+        assertThat(selector.find(10L, 2)).isEmpty();
     }
 
     @Test

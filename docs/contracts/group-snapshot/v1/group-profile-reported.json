@@ -1,0 +1,21 @@
+{
+  "eventId": "acc_fixture_1:group.profile_reported:cmd_snapshot_fixture_1",
+  "event": "group.profile_reported",
+  "accountId": "acc_fixture_1",
+  "occurredAt": "2026-08-18T04:30:01.000Z",
+  "data": {
+    "tenantId": 1,
+    "accountId": 100,
+    "protocolAccountId": "acc_fixture_1",
+    "protocolBackend": "WEB",
+    "groupLinkId": 5001,
+    "groupJid": "120363000000001@g.us",
+    "commandId": "cmd_snapshot_fixture_1",
+    "source": "MANUAL_INFO_REFRESH",
+    "subject": "fixture group",
+    "members": [{"jid": "15550000001@s.whatsapp.net", "phone": "15550000001",
+      "admin": true, "owner": true, "role": "superadmin"}],
+    "membersComplete": true,
+    "fieldMask": ["subject"]
+  }
+}

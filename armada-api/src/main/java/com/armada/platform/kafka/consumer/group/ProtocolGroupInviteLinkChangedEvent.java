@@ -26,5 +26,6 @@ public record ProtocolGroupInviteLinkChangedEvent(
         String author,
         String source,
         Long occurredAt,
-        String workerId) {
+        String workerId,
+        String commandId) {
 }

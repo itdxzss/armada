@@ -81,6 +81,36 @@ public interface GroupMetadataSyncTaskMapper {
               @Param("tenantConcurrency") int tenantConcurrency,
               @Param("accountConcurrency") int accountConcurrency);
 
+    /** RUNNING 任务与新建 Outbox 命令建立 CAS 关联。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int markAwaitingResult(@Param("row") GroupMetadataSyncTask row,
+                           @Param("runningStatus") int runningStatus);
+
+    /** 命令事实落库后按 currentCommandId 幂等累计完成 scope。 */
+    int markScopeCompleted(@Param("commandId") String commandId,
+                           @Param("scopeMask") int scopeMask,
+                           @Param("observedAt") long observedAt);
+
+    /** 按 commandId 读取当前等待结算任务及群 JID。 */
+    @InterceptorIgnore(tenantLine = "true")
+    GroupMetadataSyncTask selectByCurrentCommandId(@Param("tenantId") Long tenantId,
+                                                   @Param("commandId") String commandId);
+
+    /** 仅供 INVALID_PAYLOAD 结算按全局 commandId 找回任务，避免非法 tenant 字段造成超时。 */
+    @InterceptorIgnore(tenantLine = "true")
+    GroupMetadataSyncTask selectByCurrentCommandIdUnscoped(@Param("commandId") String commandId);
+
+    /** 当前命令失败后 CAS 回到 PENDING，保留已完成 scope 并推进候选游标。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int resetCurrentCommandForRetry(@Param("row") GroupMetadataSyncTask row,
+                                    @Param("runningStatus") int runningStatus,
+                                    @Param("pendingStatus") int pendingStatus);
+
+    /** 按 currentCommandId CAS 结束当前命令，避免重复或旧结算覆盖新尝试。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int settleCurrentCommand(@Param("row") GroupMetadataSyncTask row,
+                             @Param("runningStatus") int runningStatus);
+
     /** 仅由 RUNNING 状态完成、延期或失败当前任务。 */
     @InterceptorIgnore(tenantLine = "true")
     int finish(@Param("row") GroupMetadataSyncTask row,

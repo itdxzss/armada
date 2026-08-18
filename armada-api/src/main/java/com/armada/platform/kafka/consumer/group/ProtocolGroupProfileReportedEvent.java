@@ -55,7 +55,8 @@ public record ProtocolGroupProfileReportedEvent(
         boolean membersComplete,
         String source,
         long occurredAt,
-        String workerId
+        String workerId,
+        String commandId
 ) {
 
     /**

@@ -101,6 +101,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
                 taskId,
                 GroupBatchTaskItemStatus.CANCELED.code(),
                 GroupBatchTaskItemStatus.PENDING.code(),
+                GroupBatchTaskItemStatus.WAITING_RESULT.code(),
                 now);
         taskMapper.cancelIfRunnable(
                 taskId, GroupBatchTaskStatus.CANCELED.code(), CANCELABLE_TASK_STATUSES, now);
@@ -128,7 +129,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
         GroupBatchTask task = task(type, requestId, operatorId, targets.size(), blocked.size(), now);
         taskMapper.insert(task);
         itemMapper.batchInsert(items(task, targets, blocked, now));
-        // 两类批量都由执行器实时直调协议，提交阶段不再排任何耐久队列。
+        // 两类批量都由后台 Worker 写群快照 Outbox；提交请求不等待协议结果。
         return accepted(task);
     }
 

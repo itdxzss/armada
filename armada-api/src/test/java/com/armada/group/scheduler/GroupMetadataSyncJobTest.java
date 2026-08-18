@@ -2,15 +2,20 @@ package com.armada.group.scheduler;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
+import com.armada.group.observability.GroupSnapshotMetrics;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncExecutor;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.GroupSnapshotDispatchService;
+import com.armada.group.service.GroupSnapshotProperties;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -30,6 +35,12 @@ class GroupMetadataSyncJobTest {
 
     @Mock
     private GroupMetadataSyncExecutor executor;
+
+    @Mock
+    private GroupSnapshotDispatchService snapshotDispatchService;
+
+    @Mock
+    private GroupSnapshotMetrics snapshotMetrics;
 
     @Test
     void runOnceDefersWithoutAccountAndExecutesClaimedTasksIndependently() {
@@ -84,13 +95,85 @@ class GroupMetadataSyncJobTest {
         verify(taskService).succeed(org.mockito.ArgumentMatchers.eq(succeeded), anyLong());
     }
 
+    @Test
+    void bothSnapshotAndHttpFallbackSwitchesOffLeaveTaskPending() {
+        GroupMetadataSyncTask pending = task(1L, 7L, 10L);
+        GroupExecutionAccount account = new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(pending));
+        when(selector.find(10L, 0)).thenReturn(Optional.of(account));
+
+        job(new GroupSnapshotProperties(false, 20, 1, 120_000L, 4, false)).runOnce();
+
+        verify(snapshotDispatchService, never()).dispatchMetadataTask(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(taskService, never()).claim(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(executor, never()).execute(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void snapshotDispatchUsesPersistedCandidateCursor() {
+        GroupMetadataSyncTask pending = task(1L, 7L, 10L);
+        pending.setAttemptCount(8);
+        pending.setCandidateCursor(2);
+        GroupExecutionAccount account = new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(pending));
+        when(selector.find(10L, 2)).thenReturn(Optional.of(account));
+        when(snapshotDispatchService.dispatchMetadataTask(
+                eq(pending), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+
+        job(new GroupSnapshotProperties(true, 20, 1, 120_000L, 4, false)).runOnce();
+
+        verify(selector).find(10L, 2);
+        verify(snapshotDispatchService).dispatchMetadataTask(
+                eq(pending), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void snapshotDispatchDeduplicatesSameTenantAndJidOnlyForCurrentRun() {
+        GroupMetadataSyncTask first = task(1L, 7L, 10L);
+        first.setGroupJid("120363000@g.us");
+        GroupMetadataSyncTask duplicate = task(2L, 7L, 20L);
+        duplicate.setGroupJid(" 120363000@G.US ");
+        GroupMetadataSyncTask anotherDuplicate = task(3L, 7L, 30L);
+        anotherDuplicate.setGroupJid("120363000@g.us");
+        GroupExecutionAccount account = new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(first, duplicate, anotherDuplicate));
+        when(selector.find(10L, 0)).thenReturn(Optional.of(account));
+        when(snapshotDispatchService.dispatchMetadataTask(
+                eq(first), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+
+        job(new GroupSnapshotProperties(true, 20, 1, 120_000L, 4, false)).runOnce();
+
+        verify(snapshotDispatchService).dispatchMetadataTask(
+                eq(first), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(selector, never()).find(eq(20L), org.mockito.ArgumentMatchers.anyInt());
+        verify(selector, never()).find(eq(30L), org.mockito.ArgumentMatchers.anyInt());
+        verify(snapshotMetrics, times(2)).recordDuplicateJid();
+    }
+
     private GroupMetadataSyncJob job() {
+        return job(new GroupSnapshotProperties(false, 20, 1, 120_000L, 4, true));
+    }
+
+    private GroupMetadataSyncJob job(GroupSnapshotProperties snapshotProperties) {
         return new GroupMetadataSyncJob(
                 taskService,
                 selector,
                 executor,
                 new GroupMetadataSyncJobProperties(true, 5_000L, 20, 120_000L, 2_000L, 3, 1),
-                new GroupMetadataSyncMetrics());
+                new GroupMetadataSyncMetrics(),
+                snapshotMetrics,
+                snapshotDispatchService,
+                snapshotProperties);
     }
 
     private static GroupMetadataSyncTask task(long id, long tenantId, long groupLinkId) {

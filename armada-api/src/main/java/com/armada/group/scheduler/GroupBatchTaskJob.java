@@ -7,6 +7,7 @@ import com.armada.group.model.entity.GroupBatchTaskItem;
 import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.enums.GroupBatchTaskType;
+import com.armada.group.service.GroupBatchSnapshotDispatchService;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Set;
@@ -21,7 +22,7 @@ import org.springframework.stereotype.Component;
 /**
  * 群组列表批量刷新任务调度器。
  *
- * <p>只做扫描与分派，不持有事务也不发协议：真正的落库由每个执行器交给逐项独立事务完成，
+ * <p>只做扫描与分派，不持有事务也不发协议：真正的 Outbox 与状态关联由逐项事务完成，
  * 保证前端轮询能在任务运行期间看到进度实时增长。</p>
  *
  * <p>推进动作一律投递到自有线程池。应用内 @Scheduled 共用 Spring 默认单线程调度器，
@@ -43,6 +44,7 @@ public class GroupBatchTaskJob {
     private final GroupBatchTaskWorkers workers;
     private final GroupBatchTaskExecutors executors;
     private final GroupBatchTaskJobProperties properties;
+    private final GroupBatchSnapshotDispatchService snapshotDispatchService;
     /** 已投递未跑完的任务，避免下一轮对同一批明细重复发协议调用。 */
     private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
 
@@ -52,12 +54,14 @@ public class GroupBatchTaskJob {
             GroupBatchTaskItemMapper itemMapper,
             GroupBatchTaskWorkers workers,
             GroupBatchTaskExecutors executors,
-            GroupBatchTaskJobProperties properties) {
+            GroupBatchTaskJobProperties properties,
+            GroupBatchSnapshotDispatchService snapshotDispatchService) {
         this.taskMapper = taskMapper;
         this.itemMapper = itemMapper;
         this.workers = workers;
         this.executors = executors;
         this.properties = properties;
+        this.snapshotDispatchService = snapshotDispatchService;
     }
 
     /** 执行一轮扫描与分派。 */
@@ -97,13 +101,23 @@ public class GroupBatchTaskJob {
     /**
      * 在任务所属租户上下文内推进一批明细。
      *
-     * <p>明细并发推进:两个按钮都要实时直调协议，单条约 1~2 秒，串行跑上千个群要几十分钟。
-     * 并发上限由明细线程池封顶，单账号再由账号闸门串行。</p>
+     * <p>明细并发推进：两类按钮只做本地选号、Outbox 与状态关联，线程池仍用于限制数据库瞬时压力；
+     * 真正协议耗时由 Kafka lag 吸收。</p>
      *
      * <p>本轮明细全部结束才返回。提前返回会释放 inFlight，下一轮就会对还在飞的明细重复
      * 发协议调用。</p>
      */
     private void advance(GroupBatchTask task) {
+        GroupBatchTaskType taskType = GroupBatchTaskType.fromCode(task.getTaskType());
+        long now = System.currentTimeMillis();
+        List<GroupBatchTaskItem> expired = itemMapper.selectExpiredSnapshots(
+                task.getId(), GroupBatchTaskItemStatus.WAITING_RESULT.code(), now,
+                Math.max(1, properties.itemBatchSize()));
+        if (expired != null) {
+            for (GroupBatchTaskItem item : expired) {
+                snapshotDispatchService.recoverExpired(task, item, taskType, now);
+            }
+        }
         List<GroupBatchTaskItem> items = itemMapper.selectPending(
                 task.getId(),
                 GroupBatchTaskItemStatus.PENDING.code(),
@@ -111,9 +125,7 @@ public class GroupBatchTaskJob {
         if (items == null || items.isEmpty()) {
             return;
         }
-        boolean refreshLink =
-                GroupBatchTaskType.REFRESH_LINK == GroupBatchTaskType.fromCode(task.getTaskType());
-        long now = System.currentTimeMillis();
+        boolean refreshLink = GroupBatchTaskType.REFRESH_LINK == taskType;
         CompletableFuture<?>[] pending = items.stream()
                 .map(item -> CompletableFuture.runAsync(
                         () -> withTenant(task.getTenantId(), () -> advanceItem(refreshLink, item, now)),

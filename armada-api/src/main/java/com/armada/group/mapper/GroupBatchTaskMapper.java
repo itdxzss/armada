@@ -94,4 +94,9 @@ public interface GroupBatchTaskMapper {
      */
     @InterceptorIgnore(tenantLine = "true")
     Integer selectStatusById(@Param("taskId") Long taskId);
+
+    /** 首条明细成功写入 Outbox 后把主任务从 PENDING 推进为 RUNNING。 */
+    int markRunning(@Param("taskId") Long taskId,
+                    @Param("pendingStatus") int pendingStatus,
+                    @Param("runningStatus") int runningStatus);
 }

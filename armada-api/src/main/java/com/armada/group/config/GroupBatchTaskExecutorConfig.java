@@ -2,6 +2,7 @@ package com.armada.group.config;
 
 import com.armada.group.scheduler.GroupBatchTaskExecutors;
 import com.armada.group.scheduler.GroupBatchTaskJobProperties;
+import com.armada.group.service.GroupSnapshotProperties;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -14,11 +15,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 /**
  * 群组列表批量刷新任务的有界后台执行器配置。
  *
- * <p>分两层:任务层只负责扫描分派，明细层负责实时发协议调用。两层分开才能既保证
+ * <p>分两层:任务层只负责扫描分派，明细层负责写 Outbox 与状态关联。两层分开才能既保证
  * 任务不互相堵塞，又能按明细并发放大吞吐。</p>
  */
 @Configuration
-@EnableConfigurationProperties(GroupBatchTaskJobProperties.class)
+@EnableConfigurationProperties({GroupBatchTaskJobProperties.class, GroupSnapshotProperties.class})
 public class GroupBatchTaskExecutorConfig {
 
     /** 任务层常驻工作线程数。 */
@@ -60,9 +61,9 @@ public class GroupBatchTaskExecutorConfig {
     /**
      * 创建批量明细有界执行器。
      *
-     * <p>明细逐条实时直调协议，单条约 1~2 秒;串行推进上千个群要几十分钟，因此按
-     * {@code armada.group-batch-task.item-concurrency}(默认 6)并发放大。总在飞数由这个池封顶，
-     * 单账号再由 {@code GroupBatchAccountThrottle} 串行，两层共同限住协议层压力。</p>
+     * <p>明细逐条写本地事务与 Outbox，按
+     * {@code armada.group-batch-task.item-concurrency}(默认 6)限制数据库瞬时并发；
+     * 协议端压力由 Kafka 消费并发与账号门禁控制。</p>
      *
      * <p>并发数走 {@code @Value} 而不是上面那个 record:并发是这里唯一必须确保默认值生效的量。</p>
      *

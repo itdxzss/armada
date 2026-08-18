@@ -161,6 +161,7 @@ class GroupBatchTaskServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(900L),
                 anyInt(),
                 anyInt(),
+                anyInt(),
                 anyLong())).thenReturn(3);
 
         assertThat(service().cancel(900L)).isEqualTo(3);
@@ -169,6 +170,7 @@ class GroupBatchTaskServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(900L),
                 org.mockito.ArgumentMatchers.eq(GroupBatchTaskItemStatus.CANCELED.code()),
                 org.mockito.ArgumentMatchers.eq(GroupBatchTaskItemStatus.PENDING.code()),
+                org.mockito.ArgumentMatchers.eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()),
                 anyLong());
         verify(taskMapper).cancelIfRunnable(
                 org.mockito.ArgumentMatchers.eq(900L),
@@ -187,7 +189,7 @@ class GroupBatchTaskServiceImplTest {
         assertThat(service().cancel(900L)).isZero();
 
         // 已完成的任务没有待执行项；改写状态会把成功的批次显示成已取消。
-        verify(itemMapper, never()).cancelPending(any(), anyInt(), anyInt(), anyLong());
+        verify(itemMapper, never()).cancelPending(any(), anyInt(), anyInt(), anyInt(), anyLong());
         verify(taskMapper, never()).cancelIfRunnable(any(), anyInt(), anyList(), anyLong());
     }
 

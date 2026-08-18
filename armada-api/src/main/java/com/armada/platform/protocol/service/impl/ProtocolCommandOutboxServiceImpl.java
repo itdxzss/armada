@@ -11,6 +11,7 @@ import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupSnapshotCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -76,6 +77,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 批量进群命令类型。 */
     public static final String COMMAND_TYPE_GROUP_JOIN_REQUESTED = "group.join.requested";
 
+    /** 按需单群快照命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_SNAPSHOT_REQUESTED = "group.snapshot.requested";
+
     /** 联系人保存命令类型。 */
     public static final String COMMAND_TYPE_CONTACT_SAVE_REQUESTED = "contact.save.requested";
 
@@ -104,6 +108,14 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     /** 进群任务明细聚合类型。 */
     public static final String AGGREGATE_TYPE_JOIN_TASK_RESULT = "JOIN_TASK_RESULT";
+
+    /** 单群资料同步任务聚合类型。 */
+    public static final String AGGREGATE_TYPE_GROUP_METADATA_SYNC_TASK =
+            "GROUP_METADATA_SYNC_TASK";
+
+    /** 人工批量群任务明细聚合类型。 */
+    public static final String AGGREGATE_TYPE_GROUP_BATCH_TASK_ITEM =
+            "GROUP_BATCH_TASK_ITEM";
 
     /** 普通拉群账号动作聚合类型。 */
     public static final String AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION = "PULL_TASK_ACCOUNT_ACTION";
@@ -331,6 +343,23 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             rows.add(toAccountGroupSyncOutboxRow(command, commandId, batchId, now));
         }
 
+        return insertPendingRows(batchId, commandIds, rows);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueGroupSnapshotCommands(
+            List<ProtocolGroupSnapshotCommandRequest> commands) {
+        validateGroupSnapshotCommands(commands);
+        String batchId = commands.size() == 1 ? null : newBatchId();
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        for (ProtocolGroupSnapshotCommandRequest command : commands) {
+            String commandId = newCommandId();
+            commandIds.add(commandId);
+            rows.add(toGroupSnapshotOutboxRow(command, commandId, batchId, now));
+        }
         return insertPendingRows(batchId, commandIds, rows);
     }
 
@@ -772,6 +801,38 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setKafkaKey(command.protocolAccountId());
         row.setProtocolAccountId(command.protocolAccountId());
         row.setProtocolBackend(ProtocolBackend.WEB.name());
+        row.setPayloadJson(payloadJson(command));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    private ProtocolCommandOutbox toGroupSnapshotOutboxRow(
+            ProtocolGroupSnapshotCommandRequest command,
+            String commandId,
+            String batchId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(TenantContext.get());
+        row.setCommandId(commandId);
+        row.setBatchId(batchId);
+        row.setCommandType(COMMAND_TYPE_GROUP_SNAPSHOT_REQUESTED);
+        row.setAggregateType(switch (command.taskType()) {
+            case "GROUP_METADATA_SYNC" -> AGGREGATE_TYPE_GROUP_METADATA_SYNC_TASK;
+            case "GROUP_BATCH_TASK_ITEM" -> AGGREGATE_TYPE_GROUP_BATCH_TASK_ITEM;
+            default -> throw new IllegalArgumentException(
+                    "unsupported group snapshot taskType: " + command.taskType());
+        });
+        row.setAggregateId(command.taskId());
+        row.setKafkaTopic(command.protocolBackend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic()
+                : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.protocolAccountId());
+        row.setProtocolAccountId(command.protocolAccountId());
+        row.setProtocolBackend(command.protocolBackend().name());
         row.setPayloadJson(payloadJson(command));
         row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
         row.setRetryCount(0);
@@ -1348,6 +1409,34 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         }
         for (ProtocolGroupHealthCheckCommandRequest command : commands) {
             validateGroupHealthCheckCommand(command);
+        }
+    }
+
+    private void validateGroupSnapshotCommands(List<ProtocolGroupSnapshotCommandRequest> commands) {
+        if (commands == null || commands.isEmpty() || commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群快照命令为空或超过批量上限");
+        }
+        Set<String> allowedScopes = Set.of("METADATA", "INVITE_CODE");
+        Set<String> allowedSources = Set.of(
+                "MANUAL_INFO_REFRESH", "MANUAL_INVITE_REFRESH", "REPAIR", "BACKFILL",
+                "INVITE_CANDIDATE_ROTATION");
+        Set<String> allowedTaskTypes = Set.of("GROUP_METADATA_SYNC", "GROUP_BATCH_TASK_ITEM");
+        for (ProtocolGroupSnapshotCommandRequest command : commands) {
+            if (command == null || command.tenantId() == null || command.tenantId() <= 0
+                    || command.accountId() == null || command.accountId() <= 0
+                    || command.groupLinkId() == null || command.groupLinkId() <= 0
+                    || isBlank(command.groupJid()) || !command.groupJid().endsWith("@g.us")
+                    || command.scopes() == null || command.scopes().isEmpty()
+                    || command.scopes().size() > allowedScopes.size()
+                    || command.scopes().stream().anyMatch(scope -> !allowedScopes.contains(scope))
+                    || new HashSet<>(command.scopes()).size() != command.scopes().size()
+                    || !allowedSources.contains(command.source())
+                    || !allowedTaskTypes.contains(command.taskType())
+                    || command.taskId() == null || command.taskId() <= 0
+                    || command.attemptNo() <= 0 || isBlank(command.protocolAccountId())
+                    || command.protocolBackend() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "群快照命令缺少必要字段或字段非法");
+            }
         }
     }
 

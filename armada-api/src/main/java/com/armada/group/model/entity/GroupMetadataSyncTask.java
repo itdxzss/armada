@@ -39,6 +39,21 @@ public class GroupMetadataSyncTask {
     /** 运行期间是否收到新触发。 */
     private Boolean rerunRequested;
 
+    /** 当前等待结算的群快照命令 ID。 */
+    private String currentCommandId;
+
+    /** 当前命令请求 scope 位掩码；1=METADATA，2=INVITE_CODE。 */
+    private Integer requestedScopeMask;
+
+    /** 当前任务已成功落库 scope 位掩码。 */
+    private Integer completedScopeMask;
+
+    /** 已消费执行账号候选位置。 */
+    private Integer candidateCursor;
+
+    /** 当前命令结果超时水位(epoch 毫秒)。 */
+    private Long resultDeadlineAt;
+
     /** 最近一次开始执行时间(epoch 毫秒)。 */
     private Long lastStartedAt;
 
@@ -151,6 +166,46 @@ public class GroupMetadataSyncTask {
 
     public void setRerunRequested(Boolean rerunRequested) {
         this.rerunRequested = rerunRequested;
+    }
+
+    public String getCurrentCommandId() {
+        return currentCommandId;
+    }
+
+    public void setCurrentCommandId(String currentCommandId) {
+        this.currentCommandId = currentCommandId;
+    }
+
+    public Integer getRequestedScopeMask() {
+        return requestedScopeMask;
+    }
+
+    public void setRequestedScopeMask(Integer requestedScopeMask) {
+        this.requestedScopeMask = requestedScopeMask;
+    }
+
+    public Integer getCompletedScopeMask() {
+        return completedScopeMask;
+    }
+
+    public void setCompletedScopeMask(Integer completedScopeMask) {
+        this.completedScopeMask = completedScopeMask;
+    }
+
+    public Integer getCandidateCursor() {
+        return candidateCursor;
+    }
+
+    public void setCandidateCursor(Integer candidateCursor) {
+        this.candidateCursor = candidateCursor;
+    }
+
+    public Long getResultDeadlineAt() {
+        return resultDeadlineAt;
+    }
+
+    public void setResultDeadlineAt(Long resultDeadlineAt) {
+        this.resultDeadlineAt = resultDeadlineAt;
     }
 
     public Long getLastStartedAt() {

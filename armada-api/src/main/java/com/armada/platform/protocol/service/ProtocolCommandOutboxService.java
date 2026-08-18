@@ -3,6 +3,7 @@ package com.armada.platform.protocol.service;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupSnapshotCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
@@ -86,6 +87,10 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueueAccountGroupSyncCommands(
             List<ProtocolAccountGroupSyncCommandRequest> commands);
+
+    /** 写入按需单群资料/邀请码查询命令；Web 走 master，Android 走 group-action。 */
+    ProtocolCommandOutboxEnqueueResult enqueueGroupSnapshotCommands(
+            List<ProtocolGroupSnapshotCommandRequest> commands);
 
     /**
      * 批量写入 Web/Android 统一进群 outbox 命令。

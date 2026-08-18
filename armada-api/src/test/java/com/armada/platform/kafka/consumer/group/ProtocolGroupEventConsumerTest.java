@@ -53,6 +53,8 @@ class ProtocolGroupEventConsumerTest {
     private ProtocolGroupMetadataUpdatedSink metadataUpdatedSink;
     @Mock
     private ProtocolGroupProfileReportedSink profileReportedSink;
+    @Mock
+    private ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
 
     private ProtocolGroupEventConsumer consumer;
 
@@ -61,7 +63,8 @@ class ProtocolGroupEventConsumerTest {
         consumer = new ProtocolGroupEventConsumer(
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
                 batchParticipantResultSink, membersResultSink, inviteLinkChangedSink,
-                participantChangedSink, metadataUpdatedSink, profileReportedSink);
+                participantChangedSink, metadataUpdatedSink, profileReportedSink,
+                snapshotResultReportedSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -70,6 +73,57 @@ class ProtocolGroupEventConsumerTest {
 
     private void onMessage(String rawMessage, String headerTraceId) {
         consumer.onMessage(rawMessage, headerTraceId);
+    }
+
+    @Test
+    void onMessage_snapshotResultDispatchesStrictScopeSettlement() {
+        onMessage("""
+                {
+                  "eventId":"acc-901:group.snapshot_result_reported:cmd-1",
+                  "event":"group.snapshot_result_reported","version":"v1",
+                  "accountId":"acc-901","occurredAt":"2026-08-18T04:30:02Z",
+                  "workerId":"android-worker",
+                  "data":{"commandId":"cmd-1","tenantId":7,"accountId":901,
+                    "protocolAccountId":"acc-901","protocolBackend":"ANDROID",
+                    "groupLinkId":5001,"groupJid":"120363000@g.us",
+                    "taskType":"GROUP_METADATA_SYNC","taskId":9001,"attemptNo":1,
+                    "scopes":{"METADATA":{"outcome":"SUCCESS","completedAt":1786854600000},
+                      "INVITE_CODE":{"outcome":"FAILED","completedAt":1786854600100,
+                        "errorCode":"GROUP_PERMISSION_DENIED"}}}
+                }
+                """);
+
+        verify(snapshotResultReportedSink).handleSnapshotResult(
+                org.mockito.ArgumentMatchers.argThat(event ->
+                        event.commandId().equals("cmd-1")
+                                && event.scopes().size() == 2
+                                && event.scopes().get("INVITE_CODE").errorCode()
+                                .equals("GROUP_PERMISSION_DENIED")));
+    }
+
+    @Test
+    void onMessage_invalidPayloadSettlementAllowsRequestedUnknownScopeAndBadGroupJid() {
+        onMessage("""
+                {
+                  "eventId":"acc-901:group.snapshot_result_reported:cmd-invalid",
+                  "event":"group.snapshot_result_reported","version":"v1",
+                  "accountId":"acc-901","occurredAt":"2026-08-18T04:30:02Z",
+                  "workerId":"worker-1",
+                  "data":{"commandId":"cmd-invalid","tenantId":7,"accountId":901,
+                    "protocolAccountId":"acc-901","protocolBackend":"WEB",
+                    "groupLinkId":5001,"groupJid":"bad-jid",
+                    "taskType":"GROUP_METADATA_SYNC","taskId":9001,"attemptNo":1,
+                    "scopes":{"UNKNOWN":{"outcome":"FAILED","completedAt":1786854600000,
+                      "errorCode":"INVALID_PAYLOAD"}}}
+                }
+                """);
+
+        verify(snapshotResultReportedSink).handleSnapshotResult(
+                org.mockito.ArgumentMatchers.argThat(event ->
+                        event.commandId().equals("cmd-invalid")
+                                && event.groupJid().equals("bad-jid")
+                                && event.scopes().get("UNKNOWN").errorCode()
+                                .equals("INVALID_PAYLOAD")));
     }
 
     @Test
@@ -134,7 +188,7 @@ class ProtocolGroupEventConsumerTest {
                         7L, 901L, "acc-901", "ANDROID",
                         "120363group@g.us", "NewInviteCode_2026",
                         "919000000002@s.whatsapp.net", "wgp2_notification",
-                        1786341600000L, "android-worker"));
+                        1786341600000L, "android-worker", null));
     }
 
     @Test

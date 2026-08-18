@@ -4,7 +4,8 @@
 
   <sql id="Columns">
     id, tenant_id, task_id, group_link_id, group_jid, account_id, status,
-    error_code, description, operated_at, created_at, updated_at
+    error_code, description, operated_at, current_command_id, attempt_count,
+    candidate_cursor, result_deadline_at, completed_scope_mask, created_at, updated_at
   </sql>
 
   <!-- 提交阶段被拦截的群直接以终态失败入库，因此 error_code / description / operated_at
@@ -53,6 +54,94 @@
     LIMIT #{limit}
   </select>
 
+  <update id="markWaitingResult">
+    UPDATE group_batch_task_item
+    SET status = #{waitingStatus},
+        group_jid = #{row.groupJid},
+        account_id = #{row.accountId},
+        current_command_id = #{row.currentCommandId},
+        attempt_count = #{row.attemptCount},
+        candidate_cursor = #{row.candidateCursor},
+        result_deadline_at = #{row.resultDeadlineAt},
+        error_code = NULL,
+        description = '等待协议端返回群快照',
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{pendingStatus}
+      AND current_command_id IS NULL
+  </update>
+
+  <update id="markScopeCompleted">
+    UPDATE group_batch_task_item
+    SET completed_scope_mask = CASE
+          WHEN MOD(FLOOR(completed_scope_mask / #{scopeMask}), 2) = 1
+            THEN completed_scope_mask
+          ELSE completed_scope_mask + #{scopeMask}
+        END,
+        updated_at = GREATEST(updated_at, #{observedAt})
+    WHERE current_command_id = #{commandId}
+  </update>
+
+  <select id="selectByCurrentCommandId"
+          resultType="com.armada.group.model.entity.GroupBatchTaskItem">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task_item
+    WHERE tenant_id = #{tenantId}
+      AND current_command_id = #{commandId}
+    LIMIT 1
+  </select>
+
+  <select id="selectByCurrentCommandIdUnscoped"
+          resultType="com.armada.group.model.entity.GroupBatchTaskItem">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task_item
+    WHERE current_command_id = #{commandId}
+    LIMIT 1
+  </select>
+
+  <update id="resetCurrentCommandForRetry">
+    UPDATE group_batch_task_item
+    SET status = #{pendingStatus},
+        current_command_id = NULL,
+        candidate_cursor = #{row.candidateCursor},
+        result_deadline_at = NULL,
+        error_code = #{row.errorCode},
+        description = #{row.description},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{waitingStatus}
+      AND current_command_id = #{row.currentCommandId}
+  </update>
+
+  <update id="settleCurrentCommand">
+    UPDATE group_batch_task_item
+    SET status = #{row.status},
+        current_command_id = NULL,
+        result_deadline_at = NULL,
+        error_code = #{row.errorCode},
+        description = #{row.description},
+        operated_at = #{row.operatedAt},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{waitingStatus}
+      AND current_command_id = #{row.currentCommandId}
+  </update>
+
+  <select id="selectExpiredSnapshots"
+          resultType="com.armada.group.model.entity.GroupBatchTaskItem">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task_item
+    WHERE task_id = #{taskId}
+      AND status = #{waitingStatus}
+      AND result_deadline_at IS NOT NULL
+      AND result_deadline_at &lt;= #{now}
+    ORDER BY result_deadline_at ASC, id ASC
+    LIMIT #{limit}
+  </select>
+
   <update id="finishItem">
     UPDATE group_batch_task_item
     SET status = #{row.status},
@@ -71,10 +160,12 @@
   <update id="cancelPending">
     UPDATE group_batch_task_item
     SET status = #{canceledStatus},
+        current_command_id = NULL,
+        result_deadline_at = NULL,
         operated_at = #{now},
         updated_at = #{now}
     WHERE task_id = #{taskId}
-      <!-- 只取消还没开始的项；已终结的明细是既有结果，不能被覆盖。 -->
-      AND status = #{pendingStatus}
+      <!-- 已进入 Kafka 的只读事实允许晚到落库，但取消后不再等待结算或累计任务进度。 -->
+      AND status IN (#{pendingStatus}, #{waitingStatus})
   </update>
 </mapper>

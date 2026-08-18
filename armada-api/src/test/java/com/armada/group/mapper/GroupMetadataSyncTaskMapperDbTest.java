@@ -370,6 +370,38 @@ class GroupMetadataSyncTaskMapperDbTest {
                 .containsExactly(newGroupLinkId, changedGroupLinkId, GROUP_LINK_ID);
     }
 
+    @Test
+    void commandCorrelationUsesCasAndScopeMaskIsIdempotent() throws SQLException {
+        insertGroupLink("wa://group/120363snapshot@g.us", 4,
+                "120363snapshot@g.us", null);
+        GroupMetadataSyncTask running = storedTask(GroupMetadataSyncStatus.RUNNING, 1_000L);
+        running.setExecutionAccountId(501L);
+        insertTask(TENANT_ID, running);
+        GroupMetadataSyncTask stored = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        GroupMetadataSyncTask awaiting = new GroupMetadataSyncTask();
+        awaiting.setId(stored.getId());
+        awaiting.setTenantId(TENANT_ID);
+        awaiting.setCurrentCommandId("cmd-1");
+        awaiting.setRequestedScopeMask(3);
+        awaiting.setCompletedScopeMask(0);
+        awaiting.setCandidateCursor(0);
+        awaiting.setResultDeadlineAt(121_000L);
+        awaiting.setUpdatedAt(1_000L);
+
+        assertThat(mapper.markAwaitingResult(
+                awaiting, GroupMetadataSyncStatus.RUNNING.code())).isEqualTo(1);
+        assertThat(mapper.markAwaitingResult(
+                awaiting, GroupMetadataSyncStatus.RUNNING.code())).isZero();
+        assertThat(mapper.markScopeCompleted("cmd-1", 1, 2_000L)).isEqualTo(1);
+        assertThat(mapper.markScopeCompleted("cmd-1", 1, 2_100L)).isEqualTo(1);
+        GroupMetadataSyncTask current = mapper.selectByCurrentCommandId(TENANT_ID, "cmd-1");
+        assertThat(current.getCompletedScopeMask()).isEqualTo(1);
+        assertThat(current.getGroupJid()).isEqualTo("120363snapshot@g.us");
+        TenantContext.set(OTHER_TENANT_ID);
+        assertThat(mapper.selectByCurrentCommandIdUnscoped("cmd-1").getTenantId())
+                .isEqualTo(TENANT_ID);
+    }
+
     private static GroupMetadataSyncTask pendingTask(
             GroupMetadataSyncTrigger trigger,
             long now) {
@@ -585,6 +617,11 @@ class GroupMetadataSyncTaskMapperDbTest {
                     lease_until BIGINT,
                     execution_account_id BIGINT,
                     rerun_requested TINYINT NOT NULL DEFAULT 0,
+                    current_command_id VARCHAR(64),
+                    requested_scope_mask TINYINT NOT NULL DEFAULT 0,
+                    completed_scope_mask TINYINT NOT NULL DEFAULT 0,
+                    candidate_cursor INT NOT NULL DEFAULT 0,
+                    result_deadline_at BIGINT,
                     last_started_at BIGINT,
                     last_success_at BIGINT,
                     last_error_code VARCHAR(64),

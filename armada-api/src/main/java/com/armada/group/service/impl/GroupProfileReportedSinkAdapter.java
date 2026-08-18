@@ -1,6 +1,8 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.model.dto.GroupMetadataPatch;
+import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
+import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupMetadataPatchService;
@@ -36,12 +38,18 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
 
     private final GroupMetadataPatchService patchService;
     private final AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence;
+    private final GroupMetadataSyncTaskMapper taskMapper;
+    private final GroupBatchTaskItemMapper batchItemMapper;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
-            AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence) {
+            AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence,
+            GroupMetadataSyncTaskMapper taskMapper,
+            GroupBatchTaskItemMapper batchItemMapper) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
+        this.taskMapper = taskMapper;
+        this.batchItemMapper = batchItemMapper;
     }
 
     @Override
@@ -51,6 +59,10 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             applyProfileFields(event);
             applyMembers(event);
+            if (event.commandId() != null && !event.commandId().isBlank()) {
+                taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
+                batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
+            }
         } finally {
             TenantContext.clear();
         }
@@ -93,9 +105,6 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
 
     /** 写完整成员快照；只有协议授权列表完整时才执行，因为它会判定缺失成员已退群。 */
     private void applyMembers(ProtocolGroupProfileReportedEvent event) {
-        if (event.members().isEmpty()) {
-            return;
-        }
         if (!event.membersComplete()) {
             log.info("协议群成员列表未声明完整,跳过成员落库以免误判退群 eventId={} groupJid={} count={}",
                     event.eventId(), event.groupJid(), event.members().size());

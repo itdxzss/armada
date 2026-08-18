@@ -33,6 +33,21 @@ public class GroupBatchTaskItem {
     /** 该项结束时间(epoch 毫秒)。 */
     private Long operatedAt;
 
+    /** 当前等待结算的群快照命令 ID。 */
+    private String currentCommandId;
+
+    /** 已派发群快照命令次数。 */
+    private Integer attemptCount;
+
+    /** 已消费执行账号候选位置。 */
+    private Integer candidateCursor;
+
+    /** 当前命令结果超时水位(epoch 毫秒)。 */
+    private Long resultDeadlineAt;
+
+    /** 已成功落库 scope 位掩码；1=METADATA，2=INVITE_CODE。 */
+    private Integer completedScopeMask;
+
     /** 创建时间(epoch 毫秒)。 */
     private Long createdAt;
 
@@ -117,6 +132,46 @@ public class GroupBatchTaskItem {
 
     public void setOperatedAt(Long operatedAt) {
         this.operatedAt = operatedAt;
+    }
+
+    public String getCurrentCommandId() {
+        return currentCommandId;
+    }
+
+    public void setCurrentCommandId(String currentCommandId) {
+        this.currentCommandId = currentCommandId;
+    }
+
+    public Integer getAttemptCount() {
+        return attemptCount;
+    }
+
+    public void setAttemptCount(Integer attemptCount) {
+        this.attemptCount = attemptCount;
+    }
+
+    public Integer getCandidateCursor() {
+        return candidateCursor;
+    }
+
+    public void setCandidateCursor(Integer candidateCursor) {
+        this.candidateCursor = candidateCursor;
+    }
+
+    public Long getResultDeadlineAt() {
+        return resultDeadlineAt;
+    }
+
+    public void setResultDeadlineAt(Long resultDeadlineAt) {
+        this.resultDeadlineAt = resultDeadlineAt;
+    }
+
+    public Integer getCompletedScopeMask() {
+        return completedScopeMask;
+    }
+
+    public void setCompletedScopeMask(Integer completedScopeMask) {
+        this.completedScopeMask = completedScopeMask;
     }
 
     public Long getCreatedAt() {

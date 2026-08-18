@@ -197,8 +197,10 @@ public final class GroupExecutionAccountSelector {
         if (candidates == null || candidates.isEmpty()) {
             return Optional.empty();
         }
-        int index = Math.floorMod(completedAttempts, candidates.size());
-        return Optional.of(candidates.get(index));
+        if (completedAttempts < 0 || completedAttempts >= candidates.size()) {
+            return Optional.empty();
+        }
+        return Optional.of(candidates.get(completedAttempts));
     }
 
     private static String normalizePhone(String value) {

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
 import com.armada.group.model.dto.GroupInviteLinkObservation;
+import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupInviteLinkChangedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -32,12 +33,15 @@ class GroupInviteLinkChangedSinkAdapterTest {
             return null;
         }).when(service).applyCurrentInvite(any());
         GroupInviteLinkChangedSinkAdapter adapter =
-                new GroupInviteLinkChangedSinkAdapter(service);
+                new GroupInviteLinkChangedSinkAdapter(
+                        service,
+                        mock(GroupMetadataSyncTaskMapper.class),
+                        mock(com.armada.group.mapper.GroupBatchTaskItemMapper.class));
 
         adapter.handleInviteLinkChanged(new ProtocolGroupInviteLinkChangedEvent(
                 "evt-1", 7L, 901L, "acc-901", "ANDROID",
                 "120363group@g.us", "NewInviteCode_2026", null,
-                "wgp2_notification", 1786341600000L, "worker"));
+                "wgp2_notification", 1786341600000L, "worker", null));
 
         assertThat(observedTenant.get()).isEqualTo(7L);
         assertThat(observedEvent.get()).isEqualTo(new GroupInviteLinkObservation(

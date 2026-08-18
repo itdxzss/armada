@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.armada.group.model.dto.GroupMetadataPatch;
+import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
+import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupMetadataPatchService;
@@ -38,6 +41,12 @@ class GroupProfileReportedSinkAdapterTest {
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence;
 
+    @Mock
+    private GroupMetadataSyncTaskMapper taskMapper;
+
+    @Mock
+    private GroupBatchTaskItemMapper batchItemMapper;
+
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
 
@@ -66,6 +75,16 @@ class GroupProfileReportedSinkAdapterTest {
                 .as("号码要还原成 PN JID 供落库层归位到 pn_jid 列")
                 .isEqualTo("919000000001@s.whatsapp.net");
         assertThat(participants.get(0).admin()).isTrue();
+    }
+
+    @Test
+    void completeEmptyMembersStillClearsDepartedMembers() {
+        ProtocolGroupProfileReportedEvent event = event(true, List.of());
+
+        adapter.handleProfileReported(event);
+
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                eq(event.groupJid()), eq(List.of()), eq(event.occurredAt()), eq(event.eventId()));
     }
 
     @Test
@@ -132,6 +151,7 @@ class GroupProfileReportedSinkAdapterTest {
                 membersComplete,
                 "online_full_metadata",
                 2_000L,
-                "worker-1");
+                "worker-1",
+                null);
     }
 }

@@ -13,7 +13,13 @@ public enum GroupBatchTaskItemStatus {
     FAILED(3),
 
     /** 已取消：任务被取消前该项还没开始执行，终态；不计入成功数也不计入失败数。 */
-    CANCELED(4);
+    CANCELED(4),
+
+    /** 已写入 Outbox，等待 dispatcher 获得 broker ACK。 */
+    DISPATCHED(5),
+
+    /** 命令已派发，等待协议端事实事件与结算事件。 */
+    WAITING_RESULT(6);
 
     private final int code;
 

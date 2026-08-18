@@ -4,8 +4,10 @@
 
   <sql id="Columns">
     id, tenant_id, group_link_id, status, trigger_source, attempt_count, next_run_at,
-    lease_until, execution_account_id, rerun_requested, last_started_at, last_success_at,
-    last_error_code, last_error_message, created_at, updated_at
+    lease_until, execution_account_id, rerun_requested, current_command_id,
+    requested_scope_mask, completed_scope_mask, candidate_cursor, result_deadline_at,
+    last_started_at, last_success_at, last_error_code, last_error_message,
+    created_at, updated_at
   </sql>
 
   <insert id="enqueue" useGeneratedKeys="true" keyProperty="row.id">
@@ -23,6 +25,21 @@
       lease_until = CASE WHEN status = #{runningStatus} THEN lease_until ELSE NULL END,
       execution_account_id = CASE
         WHEN status = #{runningStatus} THEN execution_account_id ELSE NULL
+      END,
+      current_command_id = CASE
+        WHEN status = #{runningStatus} THEN current_command_id ELSE NULL
+      END,
+      requested_scope_mask = CASE
+        WHEN status = #{runningStatus} THEN requested_scope_mask ELSE 0
+      END,
+      completed_scope_mask = CASE
+        WHEN status = #{runningStatus} THEN completed_scope_mask ELSE 0
+      END,
+      candidate_cursor = CASE
+        WHEN status = #{runningStatus} THEN candidate_cursor ELSE 0
+      END,
+      result_deadline_at = CASE
+        WHEN status = #{runningStatus} THEN result_deadline_at ELSE NULL
       END,
       rerun_requested = CASE WHEN status = #{runningStatus} THEN TRUE ELSE FALSE END,
       last_error_code = CASE WHEN status = #{runningStatus} THEN last_error_code ELSE NULL END,
@@ -45,6 +62,12 @@
         next_run_at = #{row.nextRunAt},
         lease_until = NULL,
         execution_account_id = NULL,
+        candidate_cursor = CASE
+          WHEN current_command_id IS NULL THEN candidate_cursor ELSE candidate_cursor + 1
+        END,
+        current_command_id = NULL,
+        requested_scope_mask = 0,
+        result_deadline_at = NULL,
         rerun_requested = FALSE,
         last_error_code = #{row.lastErrorCode},
         last_error_message = #{row.lastErrorMessage},
@@ -60,6 +83,12 @@
         next_run_at = #{row.nextRunAt},
         lease_until = NULL,
         execution_account_id = NULL,
+        candidate_cursor = CASE
+          WHEN current_command_id IS NULL THEN candidate_cursor ELSE candidate_cursor + 1
+        END,
+        current_command_id = NULL,
+        requested_scope_mask = 0,
+        result_deadline_at = NULL,
         rerun_requested = FALSE,
         last_error_code = #{row.lastErrorCode},
         last_error_message = #{row.lastErrorMessage},
@@ -73,7 +102,9 @@
           resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
     SELECT task.id, task.tenant_id, task.group_link_id, task.status, task.trigger_source,
            task.attempt_count, task.next_run_at, task.lease_until, task.execution_account_id,
-           task.rerun_requested, task.last_started_at, task.last_success_at,
+           task.rerun_requested, task.current_command_id, task.requested_scope_mask,
+           task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
+           task.last_started_at, task.last_success_at,
            task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
            COALESCE(
              NULLIF(TRIM(current_group.group_jid), ''),
@@ -189,6 +220,111 @@
     WHERE id = #{row.id}
       AND tenant_id = #{row.tenantId}
       AND status = #{runningStatus}
+  </update>
+
+  <update id="markAwaitingResult">
+    UPDATE group_metadata_sync_task
+    SET current_command_id = #{row.currentCommandId},
+        requested_scope_mask = #{row.requestedScopeMask},
+        completed_scope_mask = #{row.completedScopeMask},
+        candidate_cursor = #{row.candidateCursor},
+        result_deadline_at = #{row.resultDeadlineAt},
+        lease_until = #{row.resultDeadlineAt},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{runningStatus}
+      AND current_command_id IS NULL
+  </update>
+
+  <update id="markScopeCompleted">
+    UPDATE group_metadata_sync_task
+    SET completed_scope_mask = CASE
+          WHEN MOD(FLOOR(completed_scope_mask / #{scopeMask}), 2) = 1
+            THEN completed_scope_mask
+          ELSE completed_scope_mask + #{scopeMask}
+        END,
+        updated_at = GREATEST(updated_at, #{observedAt})
+    WHERE current_command_id = #{commandId}
+  </update>
+
+  <select id="selectByCurrentCommandId"
+          resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
+    SELECT task.id, task.tenant_id, task.group_link_id, task.status, task.trigger_source,
+           task.attempt_count, task.next_run_at, task.lease_until, task.execution_account_id,
+           task.rerun_requested, task.current_command_id, task.requested_scope_mask,
+           task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
+           task.last_started_at, task.last_success_at,
+           task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
+           COALESCE(NULLIF(TRIM(current_group.group_jid), ''),
+             CASE WHEN link.link_url LIKE 'wa://group/%'
+               THEN SUBSTRING(link.link_url, CHAR_LENGTH('wa://group/') + 1) ELSE NULL END) AS groupJid
+    FROM group_metadata_sync_task task
+    INNER JOIN group_link link
+      ON link.tenant_id = task.tenant_id
+     AND link.id = task.group_link_id
+     AND link.deleted_at IS NULL
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = link.tenant_id
+     AND current_group.id = link.group_id
+    WHERE task.tenant_id = #{tenantId}
+      AND task.current_command_id = #{commandId}
+    LIMIT 1
+  </select>
+
+  <select id="selectByCurrentCommandIdUnscoped"
+          resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
+    SELECT task.id, task.tenant_id, task.group_link_id, task.status, task.trigger_source,
+           task.attempt_count, task.next_run_at, task.lease_until, task.execution_account_id,
+           task.rerun_requested, task.current_command_id, task.requested_scope_mask,
+           task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
+           task.last_started_at, task.last_success_at, task.last_error_code,
+           task.last_error_message, task.created_at, task.updated_at
+    FROM group_metadata_sync_task task
+    WHERE task.current_command_id = #{commandId}
+    LIMIT 1
+  </select>
+
+  <update id="resetCurrentCommandForRetry">
+    UPDATE group_metadata_sync_task
+    SET status = #{pendingStatus},
+        next_run_at = #{row.nextRunAt},
+        lease_until = NULL,
+        execution_account_id = NULL,
+        current_command_id = NULL,
+        requested_scope_mask = 0,
+        candidate_cursor = #{row.candidateCursor},
+        result_deadline_at = NULL,
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{runningStatus}
+      AND current_command_id = #{row.currentCommandId}
+  </update>
+
+  <update id="settleCurrentCommand">
+    UPDATE group_metadata_sync_task
+    SET status = #{row.status},
+        next_run_at = #{row.nextRunAt},
+        lease_until = NULL,
+        execution_account_id = NULL,
+        current_command_id = NULL,
+        requested_scope_mask = 0,
+        completed_scope_mask = #{row.completedScopeMask},
+        candidate_cursor = #{row.candidateCursor},
+        result_deadline_at = NULL,
+        attempt_count = #{row.attemptCount},
+        rerun_requested = FALSE,
+        last_success_at = COALESCE(#{row.lastSuccessAt}, last_success_at),
+        last_error_code = #{row.lastErrorCode},
+        last_error_message = #{row.lastErrorMessage},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND tenant_id = #{row.tenantId}
+      AND status = #{runningStatus}
+      AND current_command_id = #{row.currentCommandId}
   </update>
 
   <update id="defer">

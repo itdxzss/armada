@@ -13,7 +13,9 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +61,9 @@ public class ProtocolGroupEventConsumer {
     /** Web/Android 单群完整资料上报事件类型，用于首次建档与人工刷新。 */
     public static final String EVENT_GROUP_PROFILE_REPORTED = "group.profile_reported";
 
+    /** 按需单群快照命令结算事件类型。 */
+    public static final String EVENT_GROUP_SNAPSHOT_RESULT_REPORTED = "group.snapshot_result_reported";
+
     /** 单条资料事件 fieldMask 允许的最大字段数，取白名单全长即足够。 */
     private static final int MAX_METADATA_FIELDS = 16;
 
@@ -88,6 +93,13 @@ public class ProtocolGroupEventConsumer {
 
     /** 成员查询事件只能由当前接入的两种协议后端发出。 */
     private static final Set<String> SUPPORTED_PROTOCOL_BACKENDS = Set.of("WEB", "ANDROID");
+
+    /** 群快照失败只接受跨三端固定的低基数错误码。 */
+    private static final Set<String> SUPPORTED_SNAPSHOT_ERROR_CODES = Set.of(
+            "ACCOUNT_NOT_ONLINE", "ACCOUNT_BUSY", "ACCOUNT_BINDING_MISMATCH",
+            "GROUP_PERMISSION_DENIED", "GROUP_NOT_JOINED", "GROUP_UNAVAILABLE",
+            "INVALID_PAYLOAD", "TIMEOUT", "NETWORK", "RESULT_PUBLISH_FAILED",
+            "PAYLOAD_TOO_LARGE", "UNKNOWN");
 
     /** Baileys/WGP2 当前会发布的群成员动作。 */
     private static final Set<String> SUPPORTED_PARTICIPANT_ACTIONS = Set.of(
@@ -126,6 +138,9 @@ public class ProtocolGroupEventConsumer {
     /** 单群完整资料上报下游处理边界。 */
     private final ProtocolGroupProfileReportedSink profileReportedSink;
 
+    /** 按需单群快照命令结算下游处理边界。 */
+    private final ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
+
     /**
      * 创建协议群组事件 consumer。
      *
@@ -145,7 +160,8 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupInviteLinkChangedSink inviteLinkChangedSink,
                                       ProtocolGroupParticipantChangedSink participantChangedSink,
                                       ProtocolGroupMetadataUpdatedSink metadataUpdatedSink,
-                                      ProtocolGroupProfileReportedSink profileReportedSink) {
+                                      ProtocolGroupProfileReportedSink profileReportedSink,
+                                      ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -156,6 +172,7 @@ public class ProtocolGroupEventConsumer {
         this.participantChangedSink = participantChangedSink;
         this.metadataUpdatedSink = metadataUpdatedSink;
         this.profileReportedSink = profileReportedSink;
+        this.snapshotResultReportedSink = snapshotResultReportedSink;
     }
 
     /**
@@ -191,9 +208,99 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_PARTICIPANT_CHANGED -> handleParticipantChanged(envelope, eventId);
             case EVENT_GROUP_METADATA_UPDATED -> handleMetadataUpdated(envelope, eventId);
             case EVENT_GROUP_PROFILE_REPORTED -> handleProfileReported(envelope, eventId);
+            case EVENT_GROUP_SNAPSHOT_RESULT_REPORTED -> handleSnapshotResultReported(envelope, eventId);
             default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
         }
+    }
+
+    /** 校验结算关联和 scope 形状；事实是否已落库由 group 域按 commandId CAS 判断。 */
+    private void handleSnapshotResultReported(JsonNode envelope, String eventId) {
+        JsonNode data = dataNode(envelope);
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "群快照结算缺少 data.protocolAccountId");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) {
+            throw validation("群快照结算账号关联不一致");
+        }
+        String backend = requiredText(data, "protocolBackend", "群快照结算缺少 backend")
+                .toUpperCase(Locale.ROOT);
+        if (!SUPPORTED_PROTOCOL_BACKENDS.contains(backend)) {
+            throw validation("群快照结算 protocolBackend 非法");
+        }
+        String taskType = requiredText(data, "taskType", "群快照结算缺少 taskType");
+        if (!Set.of("GROUP_METADATA_SYNC", "GROUP_BATCH_TASK_ITEM").contains(taskType)) {
+            throw validation("群快照结算 taskType 非法");
+        }
+        JsonNode scopesNode = data.path("scopes");
+        boolean invalidPayloadSettlement = isInvalidPayloadSettlement(scopesNode);
+        if (!scopesNode.isObject() || scopesNode.isEmpty()
+                || !invalidPayloadSettlement && scopesNode.size() > 2) {
+            throw validation("群快照结算 scopes 非法");
+        }
+        Map<String, ProtocolGroupSnapshotResultReportedEvent.ScopeResult> scopes =
+                new LinkedHashMap<>();
+        scopesNode.fields().forEachRemaining(entry -> {
+            String scope = entry.getKey();
+            if ((!Set.of("METADATA", "INVITE_CODE").contains(scope) && !invalidPayloadSettlement)
+                    || !entry.getValue().isObject()) {
+                throw validation("群快照结算包含非法 scope");
+            }
+            JsonNode result = entry.getValue();
+            String outcome = requiredText(result, "outcome", "群快照结算缺少 outcome")
+                    .toUpperCase(Locale.ROOT);
+            if (!Set.of("SUCCESS", "FAILED").contains(outcome)) {
+                throw validation("群快照结算 outcome 非法");
+            }
+            long completedAt = requiredLong(result, "completedAt");
+            String errorCode = text(result, "errorCode");
+            if ("FAILED".equals(outcome) && !hasText(errorCode)) {
+                throw validation("群快照失败结算缺少 errorCode");
+            }
+            if ("FAILED".equals(outcome) && !SUPPORTED_SNAPSHOT_ERROR_CODES.contains(errorCode)) {
+                throw validation("群快照失败结算 errorCode 非法");
+            }
+            if ("SUCCESS".equals(outcome) && hasText(errorCode)) {
+                throw validation("群快照成功结算不得携带 errorCode");
+            }
+            scopes.put(scope, new ProtocolGroupSnapshotResultReportedEvent.ScopeResult(
+                    outcome, completedAt, errorCode));
+        });
+        int attemptNo = integer(data, "attemptNo") == null ? 0 : integer(data, "attemptNo");
+        if (attemptNo <= 0) {
+            throw validation("群快照结算 attemptNo 非法");
+        }
+        String rawGroupJid = text(data, "groupJid");
+        String groupJid = rawGroupJid == null ? "" : rawGroupJid.toLowerCase(Locale.ROOT);
+        if (!invalidPayloadSettlement && !groupJid.endsWith("@g.us")) {
+            throw validation("群快照结算 groupJid 非法");
+        }
+        ProtocolGroupSnapshotResultReportedEvent event =
+                new ProtocolGroupSnapshotResultReportedEvent(
+                        requiredText(envelope, "eventId", "群快照结算缺少 eventId"),
+                        requiredLong(data, "tenantId"), requiredLong(data, "accountId"),
+                        protocolAccountId, backend, requiredLong(data, "groupLinkId"), groupJid,
+                        taskType, requiredLong(data, "taskId"), attemptNo,
+                        requiredText(data, "commandId", "群快照结算缺少 commandId"),
+                        Map.copyOf(scopes), text(envelope, "workerId"));
+        log.info("群快照结算收到 eventId={} taskType={} taskId={} attemptNo={} scopes={}",
+                event.eventId(), event.taskType(), event.taskId(), event.attemptNo(), event.scopes().keySet());
+        snapshotResultReportedSink.handleSnapshotResult(event);
+    }
+
+    private static boolean isInvalidPayloadSettlement(JsonNode scopesNode) {
+        if (!scopesNode.isObject() || scopesNode.isEmpty()) {
+            return false;
+        }
+        var fields = scopesNode.fields();
+        while (fields.hasNext()) {
+            JsonNode result = fields.next().getValue();
+            if (!result.isObject()
+                    || !"FAILED".equalsIgnoreCase(text(result, "outcome"))
+                    || !"INVALID_PAYLOAD".equals(text(result, "errorCode"))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -444,7 +551,8 @@ public class ProtocolGroupEventConsumer {
                 membersComplete,
                 requiredText(data, "source", "协议群资料上报事件缺少 data.source"),
                 occurredAt,
-                text(envelope, "workerId"));
+                text(envelope, "workerId"),
+                text(data, "commandId"));
         log.info("协议群资料上报事件收到 eventId={} tenantId={} accountId={} backend={} "
                         + "fields={} memberCount={} membersComplete={}",
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
@@ -579,7 +687,8 @@ public class ProtocolGroupEventConsumer {
                 text(data, "author"),
                 requiredText(data, "source", "协议群邀请链接事件缺少 data.source"),
                 occurredAt,
-                text(envelope, "workerId"));
+                text(envelope, "workerId"),
+                text(data, "commandId"));
         log.info("协议群邀请链接变更收到 eventId={} tenantId={} accountId={} protocolBackend={}",
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend());
         inviteLinkChangedSink.handleInviteLinkChanged(event);

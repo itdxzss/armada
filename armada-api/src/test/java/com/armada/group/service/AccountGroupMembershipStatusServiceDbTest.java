@@ -97,6 +97,23 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
     }
 
     @Test
+    void snapshotNotJoinedCalibratesOnlyTargetAccountRelationship() {
+        long targetAccountId = seedAccount(PROTOCOL_ACCOUNT_ID + "-snapshot-target");
+        long otherAccountId = seedAccount(PROTOCOL_ACCOUNT_ID + "-snapshot-other");
+        apply(targetAccountId, "add", 1_000L, "evt-target-add");
+        apply(otherAccountId, "add", 1_000L, "evt-other-add");
+
+        apply(targetAccountId, "remove", 2_000L, "evt-target-not-joined",
+                "GROUP_SNAPSHOT_NOT_JOINED");
+
+        assertThat(status(targetAccountId, GROUP_JID))
+                .isEqualTo(AccountGroupMembershipStatus.NOT_IN_GROUP.code());
+        assertThat(source(targetAccountId, GROUP_JID)).isEqualTo("GROUP_SNAPSHOT_NOT_JOINED");
+        assertThat(status(otherAccountId, GROUP_JID))
+                .isEqualTo(AccountGroupMembershipStatus.IN_GROUP.code());
+    }
+
+    @Test
     void batchStatusLookupReturnsOnlyCurrentTenantRows() {
         long sharedAccountId = 987654321L;
         long tenantOneLinkId = seedGroupLink(TEST_TENANT_ID, "tenant-one");
@@ -120,6 +137,15 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
     }
 
     private void apply(long accountId, String action, long occurredAt, String eventId) {
+        apply(accountId, action, occurredAt, eventId, "android_wgp2");
+    }
+
+    private void apply(
+            long accountId,
+            String action,
+            long occurredAt,
+            String eventId,
+            String source) {
         String protocolAccountId = jdbc.queryForObject(
                 "SELECT protocol_account_id FROM account WHERE id = ?",
                 String.class,
@@ -132,7 +158,7 @@ class AccountGroupMembershipStatusServiceDbTest extends DbTestBase {
                 action,
                 occurredAt,
                 eventId,
-                "android_wgp2"));
+                source));
     }
 
     private long seedAccount(String protocolAccountId) {

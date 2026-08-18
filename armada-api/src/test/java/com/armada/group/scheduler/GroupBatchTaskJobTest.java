@@ -19,6 +19,7 @@ import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.enums.GroupBatchTaskType;
 import com.armada.group.service.impl.GroupBatchInfoRefreshWorker;
 import com.armada.group.service.impl.GroupBatchLinkRefreshWorker;
+import com.armada.group.service.GroupBatchSnapshotDispatchService;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -56,6 +57,9 @@ class GroupBatchTaskJobTest {
 
     @Mock
     private GroupBatchInfoRefreshWorker infoWorker;
+
+    @Mock
+    private GroupBatchSnapshotDispatchService snapshotDispatchService;
 
     @AfterEach
     void tearDown() {
@@ -153,7 +157,8 @@ class GroupBatchTaskJobTest {
                 itemMapper,
                 new GroupBatchTaskWorkers(linkWorker, infoWorker),
                 new GroupBatchTaskExecutors(manualExecutor, itemExecutor),
-                new GroupBatchTaskJobProperties(true, 3_000L, 20, 50));
+                new GroupBatchTaskJobProperties(true, 3_000L, 20, 50),
+                snapshotDispatchService);
     }
 
     @Test

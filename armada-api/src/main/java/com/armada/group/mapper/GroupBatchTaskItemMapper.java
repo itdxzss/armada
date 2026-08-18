@@ -2,6 +2,7 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.entity.GroupBatchTaskItem;
 import com.armada.group.model.vo.GroupBatchTaskItemRow;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -46,6 +47,39 @@ public interface GroupBatchTaskItemMapper {
                                            @Param("pendingStatus") int pendingStatus,
                                            @Param("limit") int limit);
 
+    /** Outbox 写入后把待执行项 CAS 为等待协议结果。 */
+    int markWaitingResult(@Param("row") GroupBatchTaskItem row,
+                          @Param("pendingStatus") int pendingStatus,
+                          @Param("waitingStatus") int waitingStatus);
+
+    /** 命令事实落库后按 commandId 幂等累计完成 scope。 */
+    int markScopeCompleted(@Param("commandId") String commandId,
+                           @Param("scopeMask") int scopeMask,
+                           @Param("observedAt") long observedAt);
+
+    /** 按当前 commandId 读取等待结算的批量明细。 */
+    GroupBatchTaskItem selectByCurrentCommandId(@Param("tenantId") Long tenantId,
+                                                @Param("commandId") String commandId);
+
+    /** 仅供 INVALID_PAYLOAD 结算按全局 commandId 找回明细，避免非法 tenant 字段造成超时。 */
+    @InterceptorIgnore(tenantLine = "true")
+    GroupBatchTaskItem selectByCurrentCommandIdUnscoped(@Param("commandId") String commandId);
+
+    /** 当前命令失败后 CAS 回待执行，保留已成功 scope 并推进候选。 */
+    int resetCurrentCommandForRetry(@Param("row") GroupBatchTaskItem row,
+                                    @Param("waitingStatus") int waitingStatus,
+                                    @Param("pendingStatus") int pendingStatus);
+
+    /** 按 commandId CAS 终结等待中的明细。 */
+    int settleCurrentCommand(@Param("row") GroupBatchTaskItem row,
+                             @Param("waitingStatus") int waitingStatus);
+
+    /** 读取一个批量任务中已超时的等待结果明细。 */
+    List<GroupBatchTaskItem> selectExpiredSnapshots(@Param("taskId") Long taskId,
+                                                    @Param("waitingStatus") int waitingStatus,
+                                                    @Param("now") long now,
+                                                    @Param("limit") int limit);
+
     /**
      * 终结一条明细。
      *
@@ -58,18 +92,20 @@ public interface GroupBatchTaskItemMapper {
     int finishItem(@Param("row") GroupBatchTaskItem row, @Param("pendingStatus") int pendingStatus);
 
     /**
-     * 取消任务中尚未开始执行的明细。
+     * 取消任务中尚未终结的明细。
      *
-     * <p>只动待执行项:已成功/已失败的明细是既有结果，取消不能覆盖。</p>
+     * <p>待执行及等待只读快照结果的项均可取消；已成功/已失败的既有结果不能覆盖。</p>
      *
      * @param taskId 任务 ID
      * @param canceledStatus 已取消稳定码
      * @param pendingStatus 待执行稳定码
+     * @param waitingStatus 等待协议结果稳定码
      * @param now 取消时间(epoch 毫秒)
      * @return 实际取消的明细数
      */
     int cancelPending(@Param("taskId") Long taskId,
                       @Param("canceledStatus") int canceledStatus,
                       @Param("pendingStatus") int pendingStatus,
+                      @Param("waitingStatus") int waitingStatus,
                       @Param("now") long now);
 }

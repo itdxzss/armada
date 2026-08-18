@@ -77,4 +77,11 @@
     FROM group_batch_task
     WHERE id = #{taskId}
   </select>
+
+  <update id="markRunning">
+    UPDATE group_batch_task
+    SET status = #{runningStatus}
+    WHERE id = #{taskId}
+      AND status = #{pendingStatus}
+  </update>
 </mapper>

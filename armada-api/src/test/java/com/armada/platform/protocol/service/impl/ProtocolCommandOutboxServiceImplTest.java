@@ -21,6 +21,7 @@ import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncComman
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolGroupJoinCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolGroupSnapshotCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolMessageOutboxCommand;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
@@ -68,6 +69,45 @@ class ProtocolCommandOutboxServiceImplTest {
             org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);
     private final ObjectMapper objectMapper = new ObjectMapper()
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+
+    @Test
+    void enqueueGroupSnapshotCommands_routesWebAndAndroidAndKeepsSettlementCorrelation() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-web", "cmd-android"), List.of("batch-snapshot"));
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result = service.enqueueGroupSnapshotCommands(List.of(
+                    groupSnapshotCommand(ProtocolBackend.WEB, 5001L, 100L, "acc-web"),
+                    groupSnapshotCommand(ProtocolBackend.ANDROID, 5002L, 101L, "acc-android")));
+
+            assertThat(result.commandIds()).containsExactly("cmd-web", "cmd-android");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.snapshot.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("acc-web", "acc-android");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateType)
+                    .containsOnly("GROUP_METADATA_SYNC_TASK");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsExactly(9001L, 9002L);
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(1).getPayloadJson(), new TypeReference<>() { });
+            assertThat(payload).containsEntry("groupLinkId", 5002)
+                    .containsEntry("groupJid", "120363000@g.us")
+                    .containsEntry("taskType", "GROUP_METADATA_SYNC")
+                    .containsEntry("taskId", 9002)
+                    .containsEntry("attemptNo", 1)
+                    .containsEntry("protocolAccountId", "acc-android");
+            assertThat(payload.get("scopes")).isEqualTo(List.of("METADATA", "INVITE_CODE"));
+        } finally {
+            TenantContext.clear();
+        }
+    }
 
     @Test
     void enqueueGroupJoinCommands_routesWebAndAndroidWithApprovedPayload() throws Exception {
@@ -1332,6 +1372,18 @@ class ProtocolCommandOutboxServiceImplTest {
         return new ProtocolGroupJoinCommandRequest(
                 1L, 9L, resultId, accountId, protocolAccountId, wsPhone,
                 backend, inviteCode, 1, "join_task");
+    }
+
+    private static ProtocolGroupSnapshotCommandRequest groupSnapshotCommand(
+            ProtocolBackend backend,
+            Long groupLinkId,
+            Long accountId,
+            String protocolAccountId) {
+        return new ProtocolGroupSnapshotCommandRequest(
+                1L, accountId, groupLinkId, "120363000@g.us",
+                List.of("METADATA", "INVITE_CODE"), "MANUAL_INFO_REFRESH",
+                "GROUP_METADATA_SYNC", 9001L + (groupLinkId - 5001L), 1,
+                protocolAccountId, backend);
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

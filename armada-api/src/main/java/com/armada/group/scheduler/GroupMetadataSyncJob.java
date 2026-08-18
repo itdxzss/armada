@@ -3,13 +3,19 @@ package com.armada.group.scheduler;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
+import com.armada.group.observability.GroupSnapshotMetrics;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncExecutor;
 import com.armada.group.service.GroupMetadataSyncLimits;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.GroupSnapshotDispatchService;
+import com.armada.group.service.GroupSnapshotProperties;
 import com.armada.shared.tenant.TenantContext;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -24,7 +30,7 @@ import org.springframework.stereotype.Component;
         name = "enabled",
         havingValue = "true",
         matchIfMissing = true)
-@EnableConfigurationProperties(GroupMetadataSyncJobProperties.class)
+@EnableConfigurationProperties({GroupMetadataSyncJobProperties.class, GroupSnapshotProperties.class})
 public class GroupMetadataSyncJob {
 
     private final GroupMetadataSyncTaskService taskService;
@@ -32,6 +38,9 @@ public class GroupMetadataSyncJob {
     private final GroupMetadataSyncExecutor executor;
     private final GroupMetadataSyncJobProperties properties;
     private final GroupMetadataSyncMetrics metrics;
+    private final GroupSnapshotMetrics snapshotMetrics;
+    private final GroupSnapshotDispatchService snapshotDispatchService;
+    private final GroupSnapshotProperties snapshotProperties;
 
     /** 创建群详情同步 job。 */
     public GroupMetadataSyncJob(
@@ -39,12 +48,18 @@ public class GroupMetadataSyncJob {
             GroupExecutionAccountSelector selector,
             GroupMetadataSyncExecutor executor,
             GroupMetadataSyncJobProperties properties,
-            GroupMetadataSyncMetrics metrics) {
+            GroupMetadataSyncMetrics metrics,
+            GroupSnapshotMetrics snapshotMetrics,
+            GroupSnapshotDispatchService snapshotDispatchService,
+            GroupSnapshotProperties snapshotProperties) {
         this.taskService = taskService;
         this.selector = selector;
         this.executor = executor;
         this.properties = properties;
         this.metrics = metrics;
+        this.snapshotMetrics = snapshotMetrics;
+        this.snapshotDispatchService = snapshotDispatchService;
+        this.snapshotProperties = snapshotProperties;
     }
 
     /** 执行一轮恢复、选号、领取与同步。 */
@@ -52,11 +67,20 @@ public class GroupMetadataSyncJob {
     public RunResult runOnce() {
         long now = System.currentTimeMillis();
         int recovered = taskService.recoverExpiredLeases(now);
-        List<GroupMetadataSyncTask> tasks = taskService.findDue(now, Math.max(1, properties.batchSize()));
+        int batchSize = snapshotProperties.enabled()
+                ? snapshotProperties.dispatchBatchSize()
+                : properties.batchSize();
+        List<GroupMetadataSyncTask> tasks = taskService.findDue(now, Math.max(1, batchSize));
         metrics.recordPending(tasks.size());
         int executed = 0;
         int deferred = 0;
+        Set<String> dispatchedGroupKeys = new HashSet<>();
         for (GroupMetadataSyncTask task : tasks) {
+            String groupKey = snapshotProperties.enabled() ? groupKey(task) : null;
+            if (groupKey != null && !dispatchedGroupKeys.add(groupKey)) {
+                snapshotMetrics.recordDuplicateJid();
+                continue;
+            }
             TaskResult result = withTenant(task.getTenantId(), () -> process(task));
             if (result == TaskResult.EXECUTED) {
                 executed++;
@@ -68,10 +92,13 @@ public class GroupMetadataSyncJob {
     }
 
     private TaskResult process(GroupMetadataSyncTask task) {
+        long now = System.currentTimeMillis();
+        int candidateCursor = snapshotProperties.enabled()
+                ? valueOrZero(task.getCandidateCursor())
+                : valueOrZero(task.getAttemptCount());
         Optional<GroupExecutionAccount> selected = selector.find(
                 task.getGroupLinkId(),
-                task.getAttemptCount() == null ? 0 : task.getAttemptCount());
-        long now = System.currentTimeMillis();
+                candidateCursor);
         if (selected.isEmpty()) {
             taskService.defer(task, now);
             metrics.recordResult(GroupMetadataSyncMetrics.Result.DEFERRED);
@@ -81,7 +108,27 @@ public class GroupMetadataSyncJob {
         long leaseUntil = now + Math.max(1L, properties.leaseMs());
         GroupMetadataSyncLimits limits = new GroupMetadataSyncLimits(
                 Math.max(1, properties.tenantConcurrency()),
-                Math.max(1, properties.accountConcurrency()));
+                Math.max(1, snapshotProperties.enabled()
+                        ? snapshotProperties.accountConcurrency()
+                        : properties.accountConcurrency()));
+        if (snapshotProperties.enabled()) {
+            long resultDeadlineAt = now + Math.max(1L, snapshotProperties.resultTimeoutMs());
+            long startedAt = System.currentTimeMillis();
+            try {
+                boolean dispatched = snapshotDispatchService.dispatchMetadataTask(
+                        task, account, now, resultDeadlineAt, limits);
+                return dispatched ? TaskResult.EXECUTED : TaskResult.SKIPPED;
+            } catch (RuntimeException exception) {
+                // 派发服务的事务已整体回滚；任务保持原待执行态，下一轮安全重试。
+                metrics.recordResult(GroupMetadataSyncMetrics.Result.RETRY);
+                return TaskResult.EXECUTED;
+            } finally {
+                metrics.recordDuration(System.currentTimeMillis() - startedAt);
+            }
+        }
+        if (!snapshotProperties.httpFallbackEnabled()) {
+            return TaskResult.SKIPPED;
+        }
         if (!taskService.claim(task, account, now, leaseUntil, limits)) {
             return TaskResult.SKIPPED;
         }
@@ -117,6 +164,18 @@ public class GroupMetadataSyncJob {
                 TenantContext.set(previous);
             }
         }
+    }
+
+    private static int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private static String groupKey(GroupMetadataSyncTask task) {
+        String groupJid = task.getGroupJid();
+        if (task.getTenantId() == null || groupJid == null || groupJid.isBlank()) {
+            return null;
+        }
+        return task.getTenantId() + "\u0000" + groupJid.trim().toLowerCase(Locale.ROOT);
     }
 
     private enum TaskResult {

@@ -42,6 +42,15 @@ server:
   port: 8080
 
 armada:
+  group-snapshot:
+    # 主链默认关闭；批量任务 V128 后始终走 Outbox，不受该人工单群灰度开关影响。
+    enabled: ${GROUP_SNAPSHOT_ENABLED:false}
+    dispatch-batch-size: ${GROUP_SNAPSHOT_DISPATCH_BATCH_SIZE:20}
+    account-concurrency: ${GROUP_SNAPSHOT_ACCOUNT_CONCURRENCY:1}
+    result-timeout-ms: ${GROUP_SNAPSHOT_RESULT_TIMEOUT_MS:120000}
+    max-candidates: ${GROUP_SNAPSHOT_MAX_CANDIDATES:4}
+    # 仅人工单群刷新紧急回退同步 HTTP；不覆盖批量 Worker。
+    http-fallback-enabled: ${GROUP_SNAPSHOT_HTTP_FALLBACK_ENABLED:false}
   normal-group-creation:
     kafka:
       web-command-topic: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:protocol.web.normal-group.commands.v1}

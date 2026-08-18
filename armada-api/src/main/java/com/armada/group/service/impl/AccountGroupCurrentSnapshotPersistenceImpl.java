@@ -860,7 +860,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         }
         return switch (source) {
             case "WGP2_REMOVE", "WGP2_LEAVE", "REMOVE_EVENT", "LEAVE_EVENT",
-                    "UNKNOWN_EXIT_EVENT" -> 5;
+                    "UNKNOWN_EXIT_EVENT", "GROUP_SNAPSHOT_NOT_JOINED" -> 5;
             case "WGP2_PROMOTE", "WGP2_DEMOTE" -> 4;
             case "WGP2_ADD", "ADD_EVENT" -> 3;
             case "GROUP_MEMBER_QUERY", "FULL_SNAPSHOT", "SNAPSHOT_ABSENT" -> 2;

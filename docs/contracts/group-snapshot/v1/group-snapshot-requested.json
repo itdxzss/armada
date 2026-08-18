@@ -1,0 +1,22 @@
+{
+  "commandId": "cmd_snapshot_fixture_1",
+  "commandType": "group.snapshot.requested",
+  "version": "v1",
+  "aggregateType": "GROUP_METADATA_SYNC_TASK",
+  "aggregateId": 9001,
+  "protocolAccountId": "acc_fixture_1",
+  "traceId": "trace_fixture_1",
+  "createdAt": "2026-08-18T04:30:00.000Z",
+  "payload": {
+    "tenantId": 1,
+    "accountId": 100,
+    "protocolAccountId": "acc_fixture_1",
+    "groupLinkId": 5001,
+    "groupJid": "120363000000001@g.us",
+    "scopes": ["METADATA", "INVITE_CODE"],
+    "source": "MANUAL_INFO_REFRESH",
+    "taskType": "GROUP_METADATA_SYNC",
+    "taskId": 9001,
+    "attemptNo": 1
+  }
+}

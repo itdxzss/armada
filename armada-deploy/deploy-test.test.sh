@@ -837,7 +837,7 @@ test_test1_profile_uses_three_node_android_fleet() {
   assert_contains "${profile_content}" "PROFILE_ZHUAN_DEPLOY_MODE=fleet"
   assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_EXPECTED_NODES=3"
   assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_COORDINATOR_PORT=9100"
-  assert_contains "${profile_content}" "EXPECTED_ANDROID_BASE_URL=http://65.2.123.53:9100"
+  assert_contains "${profile_content}" "EXPECTED_ANDROID_BASE_URL=http://172.31.13.65:9100"
   assert_not_contains "${profile_content}" "PROFILE_ZHUAN_HOST="
   assert_not_contains "${profile_content}" "PROFILE_ZHUAN_COMPOSE_FILE="
 }

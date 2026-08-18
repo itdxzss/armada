@@ -132,6 +132,7 @@ class GroupBatchTaskItemMapperDbTest {
                 TASK_ID,
                 GroupBatchTaskItemStatus.CANCELED.code(),
                 PENDING,
+                GroupBatchTaskItemStatus.WAITING_RESULT.code(),
                 9_000L);
 
         assertThat(canceled).isEqualTo(1);
@@ -142,6 +143,43 @@ class GroupBatchTaskItemMapperDbTest {
                 .containsExactly(
                         GroupBatchTaskItemStatus.SUCCESS.code(),
                         GroupBatchTaskItemStatus.CANCELED.code());
+    }
+
+    @Test
+    void snapshotCorrelationTracksFactsAndSettlesByCurrentCommand() {
+        mapper.batchInsert(List.of(item(101L)));
+        GroupBatchTaskItem awaiting = mapper.selectPending(TASK_ID, PENDING, 10).get(0);
+        awaiting.setCurrentCommandId("cmd-batch-1");
+        awaiting.setAccountId(77L);
+        awaiting.setGroupJid("120363batch@g.us");
+        awaiting.setAttemptCount(1);
+        awaiting.setCandidateCursor(0);
+        awaiting.setResultDeadlineAt(9_000L);
+        awaiting.setUpdatedAt(2_000L);
+        assertThat(mapper.markWaitingResult(
+                awaiting, PENDING, GroupBatchTaskItemStatus.WAITING_RESULT.code())).isEqualTo(1);
+
+        assertThat(mapper.markScopeCompleted("cmd-batch-1", 1, 2_100L)).isEqualTo(1);
+        assertThat(mapper.markScopeCompleted("cmd-batch-1", 1, 2_200L)).isEqualTo(1);
+        GroupBatchTaskItem stored = mapper.selectByCurrentCommandId(TENANT_ID, "cmd-batch-1");
+        assertThat(stored.getCompletedScopeMask()).isEqualTo(1);
+        TenantContext.set(8L);
+        assertThat(mapper.selectByCurrentCommandIdUnscoped("cmd-batch-1").getTenantId())
+                .isEqualTo(TENANT_ID);
+        TenantContext.set(TENANT_ID);
+
+        GroupBatchTaskItem outcome = new GroupBatchTaskItem();
+        outcome.setId(stored.getId());
+        outcome.setTenantId(TENANT_ID);
+        outcome.setCurrentCommandId("cmd-batch-1");
+        outcome.setStatus(GroupBatchTaskItemStatus.SUCCESS.code());
+        outcome.setDescription("群信息已刷新");
+        outcome.setOperatedAt(3_000L);
+        outcome.setUpdatedAt(3_000L);
+        assertThat(mapper.settleCurrentCommand(
+                outcome, GroupBatchTaskItemStatus.WAITING_RESULT.code())).isEqualTo(1);
+        assertThat(mapper.settleCurrentCommand(
+                outcome, GroupBatchTaskItemStatus.WAITING_RESULT.code())).isZero();
     }
 
     private static GroupBatchTaskItem item(long groupLinkId) {
@@ -169,6 +207,11 @@ class GroupBatchTaskItemMapperDbTest {
                     error_code VARCHAR(64),
                     description VARCHAR(512),
                     operated_at BIGINT,
+                    current_command_id VARCHAR(64),
+                    attempt_count INT NOT NULL DEFAULT 0,
+                    candidate_cursor INT NOT NULL DEFAULT 0,
+                    result_deadline_at BIGINT,
+                    completed_scope_mask TINYINT NOT NULL DEFAULT 0,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     CONSTRAINT uq_group_batch_task_item_group UNIQUE (task_id, group_link_id)

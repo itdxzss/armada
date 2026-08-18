@@ -89,6 +89,19 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 改为可空对既有群链接模式的行零影响：它们的这三列一直有值。
 
+**已在真实 MySQL 上验证（2026-08-18，本机 MySQL，非任何共享环境）。** 做法是把 V093 的建表语句原样跑出来，再把 V131 原样打上去：
+
+| 验证项 | 结果 |
+|---|---|
+| V131 能否在带 STORED 生成列的表上改列可空 | 通过。三列变可空，生成列与四个唯一键全部保留 |
+| V131 幂等 | 通过。第二次执行全部走 `SELECT 1` 跳过分支，退出码 0 |
+| 同任务多条无链接执行行能否共存 | 通过。插入 3 条 `normalized_link=NULL` 且 `execution_status=2` 的行，全部成功 |
+| 回填链接后占用键是否恢复保护 | 通过。两行回填成同一链接立即报 `ERROR 1062 Duplicate entry ... for key 'uq_pull_task_execution_link'` |
+
+最后一项是反向验证：保护没有被削弱，只是在链接为空时不生效。
+
+这类验证 H2 做不到——Flyway 脚本不在 H2 上执行，迁移文本测试只能断言脚本写了什么，不能断言 MySQL 认不认。迁移失败会导致容器 crash-loop 并使整站 502，因此**涉及改列、生成列、索引的迁移都应在本机 MySQL 上实跑一遍再合并**。
+
 `source_file_index` 与 `uq_pull_task_execution_file` 保持不变，新群模式仍绑定料子 TXT。
 
 ### 4.2 新增列

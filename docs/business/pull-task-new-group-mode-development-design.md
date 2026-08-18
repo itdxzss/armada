@@ -1,0 +1,237 @@
+# 拉群任务「新群模式」开发设计（实施版）
+
+> 日期：2026-08-18
+> 决策依据：ADR-0010（建群收进拉群阶段循环）、ADR-0011（建群人落 `role_type=4`）、ADR-0012（站台两种进群方式并存）、ADR-0013（建群结果不明停止等人工）
+> 已有链路依据：ADR-0002（普通群链接版范围）、ADR-0005（链接与料子随机 1:1 配对）、ADR-0006（管理/拉手/站台执行语义，50 条）、ADR-0008（拉手跨任务互斥）
+>
+> 本文写给「没参与过 0818 讨论的人」。凡是只有读代码才知道的事实，都在文中显式写出并标注出处，不要求读者自行发现。
+
+## 1. 一句话结论
+
+新群模式 = **在拉群执行行阶段循环最前面加一个建群阶段**，建群成功并生成邀请链接后，直接进入现有的「管理入群」阶段，后续七个阶段全部沿用群链接模式，不改行为。
+
+## 2. 范围
+
+### 做
+
+- 新建拉群任务页「新群模式」Tab：建群配置表单。
+- 任务级新增群来源标记，列表与详情能区分两种模式。
+- 执行行新增建群阶段：建群、设群名/头像/描述、生成邀请链接、按时机应用群设置。
+- 站台支持「建群时作为初始成员加入」，与既有「拉人时由拉手带入」并存。
+- 群设置执行时机（拉人前 / 拉人后）。
+
+### 不做
+
+- 速拉模式（仍延期，ADR-0001）。
+- 历史群组营销版、公告群链接版（仍延期，ADR-0002）。
+- 建群人自动退群、成功/失败账号迁移分组（这些属于「新建普群」，本模式不引入，ADR-0011 决定 2、5）。
+- 建群重试次数配置（ADR-0013 明确不做）。
+- 修改 `com.armada.group.normalcreation` 任何代码或表。
+
+## 3. 三条必须先知道的隐性事实
+
+这三条只有读代码才看得到，写错任何一条都会导致返工。
+
+### 3.1 `"NORMAL_LINK"` 是执行链路开关，不是群来源
+
+字面量 `"NORMAL_LINK"` 硬编码在 **26 个主代码文件**中：`PullTaskExecutionDispatchCoordinator` 的执行行认领条件、全部 `task/scheduler/*TransactionService` 的准入闸门、`PullTaskFilter`、`PullTaskListServiceImpl`、`PullTaskStandardReadServiceImpl` 等读服务与生命周期服务。
+
+**新群模式的 `pull_task.mode` 必须仍然是 `NORMAL_LINK`**，否则调度器不认领它的执行行，任务创建后一步也不会动，而且不会报错——只是永远停在待启动。
+
+群来源用新列 `pull_task.group_source` 表达。
+
+### 3.2 站台重复入群由既有选号逻辑天然防住，条件是状态写对
+
+`PullTaskStationSelectionService.findCandidates` 会先把本执行行**全部** `role_type=STATION` 的角色行收进 `usedAccountIds` 并排除；只有 `reusableStation` 判定为真的行才允许重新选中，而它要求 `membership_status = NOT_JOINED`（另需 `pull_call_id` 与 `active_pull_attempt_id` 均为空、失败次数 < 4、可用状态为 AVAILABLE）。
+
+因此建群时进群的初始站台，**必须写 `membership_status = IN_GROUP`**。写成 `NOT_JOINED` 会被后续拉人调用重新选中并重复提交同一个号。
+
+### 3.3 建群人的角色槽位是现成的
+
+`pull_task_group_account.role_type` 已有 `4=提权管理员`（V102 引入），语义是「群内现有的我方群主或管理员，负责为任务管理员提权」。`PullTaskManagerAdminCandidateSelector` 就是从这个角色挑人。
+
+新群模式的建群人直接落 `role_type=4`，**不新增角色取值**，`MANAGER_ADMIN` 阶段代码不改。
+
+## 4. 数据模型变更
+
+### 4.1 拦路石与解法：执行行的链接三列
+
+`pull_task_group_execution`（V093 建表）当前是：
+
+```sql
+normalized_link     VARCHAR(255) ascii_bin NOT NULL  -- 归一化群链接
+invite_code         VARCHAR(64)  ascii_bin NOT NULL  -- 群邀请码
+source_link_line_no INT                    NOT NULL  -- 粘贴内容原始行号
+```
+
+外加：
+
+```sql
+UNIQUE KEY uq_pull_task_execution_link (tenant_id, task_id, normalized_link)
+link_occupancy_key VARCHAR(255) GENERATED ALWAYS AS (
+    CASE WHEN execution_status IN (1,2,3) THEN normalized_link ELSE NULL END) STORED
+UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
+```
+
+新群模式在建群成功之前没有链接，三个 NOT NULL 都填不出来。
+
+**解法：只把这三列改为可空，唯一键与生成列一行都不动。**
+
+理由：MySQL 的 UNIQUE 索引不对 NULL 做唯一性约束，多行 NULL 可以共存。`normalized_link` 为 NULL 时，生成列 `link_occupancy_key` 的 CASE 结果也是 NULL，占用唯一键自然不生效。建群成功后回填 `normalized_link` 与 `invite_code`，此时执行行处于执行中（`execution_status=2`），生成列取到值，跨任务占用唯一键随即开始保护——这正是期望行为。
+
+改为可空对既有群链接模式的行零影响：它们的这三列一直有值。
+
+`source_file_index` 与 `uq_pull_task_execution_file` 保持不变，新群模式仍绑定料子 TXT。
+
+### 4.2 新增列
+
+| 表 | 列 | 类型 | 说明 |
+|---|---|---|---|
+| `pull_task` | `group_source` | VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK' | 群来源：`PASTED_LINK` 粘贴群链接 / `NEW_GROUP` 新建群。存量行默认 `PASTED_LINK`，语义正确 |
+| `pull_task_group_execution` | `create_step` | TINYINT DEFAULT NULL | 建群阶段内部步骤游标，见 6.2；非新群模式为 NULL |
+| `pull_task_group_execution` | `create_operation_id` | VARCHAR(64) ascii_bin DEFAULT NULL | 建群幂等键，同一执行行的同一次逻辑建群恒定复用 |
+| `pull_task_group_execution` | `create_attempt_count` | INT NOT NULL DEFAULT 0 | 确定未创建类失败的重试计数（不用于结果不明，见 ADR-0013） |
+| `pull_task_group_execution` | `group_subject` | VARCHAR(255) DEFAULT NULL | 本群最终名称 |
+
+任务级建群配置（群名来源、群头像素材、群描述、初始站台数量、群设置执行时机）落 `pull_task_standard_setting`，与既有拉群配置同表，不另建配置表。
+
+### 4.3 枚举追加
+
+| 枚举 | 追加 | 现有取值 |
+|---|---|---|
+| `PullTaskAccountEntryMode` | `4=建群时作为初始成员加入` | 1=踩链接 2=管理员邀请 3=随拉手批量调用 |
+| `PullTaskExecutionStage` | `9=GROUP_CREATE 建群` | 1..8 不变 |
+
+**阶段码取 9 而不是 0，是为了纯追加。** 执行顺序上建群最先，但取值排在最后，避免变更既有取值造成存量行语义漂移。新群模式执行行初始 `stage=9`，建群阶段完成后置 `stage=2`（MANAGER_JOIN），**跳过 `stage=1`（LINK_VALIDATION）**——链接是本任务生成的，无需校验，`LINK_VALIDATION` 实现不改。
+
+### 4.4 迁移
+
+**当前最大 Flyway 版本是 V129**（本地与 `origin/1.0.3-snapshot` 一致，已核对）。新迁移从 **V130** 起。
+
+> 落盘前必须重新核对：`git fetch` 后检查 origin 及其他在途分支的最高版本号。跨分支撞号会导致容器 crash-loop 并使整站 502，这是仓库出现过多次的事故。
+
+| 版本 | 内容 |
+|---|---|
+| V130 | `pull_task_group_execution` 三列改可空；新增 `create_step` / `create_operation_id` / `create_attempt_count` / `group_subject`；更新 `stage` 列注释（现注释仍是 V093 时代的七阶段，缺 `MANAGER_ADMIN` 和 `CLOSING`，本次一并订正为九阶段） |
+| V131 | `pull_task` 新增 `group_source` |
+| V132 | `pull_task_group_account.entry_mode` 列注释追加取值 4（仅改注释，列已是 TINYINT，无需扩容；参照 V119 的写法） |
+| V133 | `pull_task_standard_setting` 新增建群配置列 |
+
+全部迁移必须写成幂等形式（`information_schema` 判断 + `PREPARE/EXECUTE`），与 V103、V119 同款。共享 RDS 上禁止手工 ALTER。
+
+## 5. 创建任务
+
+### 5.1 接口
+
+沿用 `POST /api/pull-tasks` 系列既有端点，请求体增加 `groupSource: "NEW_GROUP"` 及建群配置块。出入参 camelCase，时间值 epoch 毫秒。
+
+### 5.2 建群配置字段
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `creatorAccountGroupId` | 是 | 建群人分组。每条执行行取一个建群人 |
+| `groupNameSource` | 是 | `MATERIAL_FILE_NAME` 取料子文件名 / `MANUAL` 手动填写 |
+| `groupNameText` | `MANUAL` 时必填 | 手动群名 |
+| `groupAvatarMaterialId` | 否 | 群头像素材 |
+| `groupDescription` | 否 | 群描述 |
+| `initialStationCount` | 否，默认 0 | 建群时作为初始成员加入的站台数量 |
+| `groupSettingsTiming` | 是 | `BEFORE_PULL` 拉人前设置 / `AFTER_PULL` 拉完人后设置 |
+
+群名取料子文件名时，取本执行行绑定的那个 TXT 的文件名——链接与料子的 1:1 随机配对在创建时冻结（ADR-0005），新群模式沿用同一配对机制，只是配对左侧从「粘贴的链接」变成「计划创建的群」。
+
+### 5.3 资源校验
+
+除既有校验外，**站台必须计两笔**（ADR-0012 决定 5）：
+
+```
+站台分组可用数 >= max(initialStationCount, stationCountPerCall)
+```
+
+并在确认页明确提示：建群时占用的站台会减少后续拉人调用的可选站台；分组偏小时执行行会进入「等待站台」。
+
+只校验 `stationCountPerCall` 会让用户在配置阶段看不出问题、启动后才卡住。
+
+## 6. 建群阶段规格
+
+### 6.1 阶段职责
+
+一次调度只执行一个有界动作，与既有阶段一致。阶段内多个步骤靠 `create_step` 游标持久化推进，服务重启后从游标续跑。
+
+### 6.2 步骤序列
+
+| `create_step` | 动作 | 完成条件 |
+|---:|---|---|
+| 1 | 选定建群人，写 `role_type=4` 角色行；选定初始站台（若 `initialStationCount > 0`），写 `role_type=3` 角色行、`entry_mode=4`、`membership_status=NOT_JOINED` | 角色行落库 |
+| 2 | 调 `IdempotentGroupCreatePort.create`，`participants` 一次性带全部初始站台，`operationId` 取 `create_operation_id` | 取得群 JID |
+| 3 | 条件更新落 `group_jid`；再按建群回执逐个回写初始站台的 `membership_status`：明确成功写 `IN_GROUP`，其余保持 `NOT_JOINED` 或写失败态 | JID 与逐成员回执均落库 |
+| 4 | 调 `GroupProfilePort` 设群名、群头像、群描述 | 各项结果落库 |
+| 5 | 调 `GroupInvitePort` 生成群邀请链接，回填 `normalized_link` 与 `invite_code` | 链接落库 |
+| 6 | `groupSettingsTiming = BEFORE_PULL` 时，调 `GroupSettingsPort` 应用群设置并回读元数据校验；`AFTER_PULL` 时跳过，配置留到收口阶段执行 | 设置结果落库或已跳过 |
+| 7 | 登记自建群到 `group_link`（复用 `GroupLinkRegistryService.registerSelfBuiltGroup`），回填 `group_link_id` | 登记完成 |
+
+全部步骤完成后置 `stage=2`，进入既有的管理入群阶段。
+
+### 6.3 关键约束
+
+- **第 3 步的站台状态是 3.2 的核心风险点。** 只有建群回执明确成功的站台才写 `IN_GROUP`；未成功的保持可被后续拉人调用重新选中，由既有机制自然补足（ADR-0013 决定 4）。
+- **第 5 步是硬门槛。** 邀请链接生成失败即阻断次管理员进群、补充拉手（ADR-0006 第 45 条固定踩链接）、补充管理员的踩链接分支。不允许把链接生成延后到后续阶段（ADR-0011 影响段）。
+- 第 2 步的失败分类严格按 ADR-0013：确定未创建的错误码允许重试并累加 `create_attempt_count`；其余一律转结果未知并停止，不自动重建。
+- WhatsApp 副作用节点之间沿用 ADR-0006 第 50 条的 3～5 秒持久化随机静默。
+
+### 6.4 收口阶段的改动
+
+`groupSettingsTiming = AFTER_PULL` 时，收口阶段（`stage=8`）在既有动作之外，追加执行群设置。这是本方案对既有阶段的**唯一**改动。
+
+## 7. 前端
+
+- 新建拉群任务页启用「新群模式」Tab，去掉「（后期）」字样。
+- 建群配置表单按 5.2 字段；站台容量提示按 5.3。
+- 任务列表与详情按 `groupSource` 区分展示；新群模式的执行行在建群完成前没有群链接，列表不得显示空链接或占位文本，应显示当前建群步骤。
+- 沿用既有 `data-testid` 约定，供 e2e 断言使用。
+
+## 8. 纵切拆片
+
+每片独立可验收，做完即停等审。
+
+| 片 | 内容 | 验证 |
+|---:|---|---|
+| 1 | V130~V133 迁移 + 枚举追加 + 实体/Mapper | 迁移结构测试、Mapper H2 测试 |
+| 2 | 创建接口接收 `groupSource` 与建群配置，含站台双笔校验与群名来源解析 | 服务层单测 + 控制器测试 |
+| 3 | 建群阶段步骤 1~3（角色行、建群调用、JID 与站台回执落库） | 阶段处理器单测，重点覆盖站台状态写 `IN_GROUP` 与写错的后果 |
+| 4 | 建群阶段步骤 4~7（群资料、邀请链接、群设置、自建群登记）+ 置 `stage=2` 衔接 | 阶段处理器单测 + 与 `MANAGER_JOIN` 的衔接测试 |
+| 5 | 收口阶段 `AFTER_PULL` 群设置分支 | 收口阶段单测 |
+| 6 | 前端新群模式 Tab 与表单 | vitest + 组件测试 |
+| 7 | test1 真环境 Playwright 闭环 | 见第 10 节 |
+
+## 9. 仓库特有的坑
+
+以下都是本仓库出现过实际事故的点，实施时必须遵守。
+
+- **Flyway 版本号跨分支撞号会让容器 crash-loop、整站 502。** 落盘前重新核对 origin 及在途分支的最高版本号，不要只看本地。
+- **部署前必须 `mvn -pl armada-api clean`。** 不清理会带上 worktree 里的过期迁移文件，同样导致 crash-loop。
+- **mapper XML 里裸写 `<` `>` 会在运行时炸并 crash-loop 全站。** 比较符必须转义或用 `<![CDATA[]]>`，改完用 `xmllint` 或跑一次 Mapper 测试。
+- **带 `FOR UPDATE` 的 mapper 必须加 `@InterceptorIgnore(tenantLine)`**，否则租户拦截器会拼出 MySQL 语法错误，且 mock 测试发现不了。
+- **共享工作区里禁止 `git add .`**，只能精确添加路径，否则会卷进他人在途改动。
+- **禁止 Java 内存分页与 load-all**，分页、计数、筛选一律 SQL 下推，测试环境同样适用。
+- **生成列的 else 分支必须是 NULL**，写成 0 会让唯一索引把已释放记录也纳入约束（ADR-0008 已踩过）。
+- 时间一律 epoch 毫秒 BIGINT，不用 DATETIME。API 出入参 camelCase。
+
+## 10. 验证
+
+### 10.1 快筛
+
+`cd armada-api && mvn test`。H2 内存库，不连真库，零资源消耗。用于拆片 1~6 的红绿信号。
+
+### 10.2 真环境闭环
+
+拆片 7。Playwright 驱动 test1 已部署前端，真后端、真协议、真发 WhatsApp。断言分三层，参照现有 `wheel-saas-pure-web/e2e/group-marketing.spec.ts`：页面元素与文本、API 响应体、数据库事实。诊断复用 `armada-deploy/tools/pull-task-diagnose.sh`。
+
+**真环境前置条件（本文写作时尚未满足）：**
+
+- 拉手与站台账号需在线。0818 实测：`108 拉群测试-站台分组` 20 个账号 0 在线、`117 测试拉手分组` 6 个 0 在线、`145 8-12默念第二批（拉手）` 87 个仅 1 在线。不解决则执行行会停在「等待拉手」，验不到拉人段。
+- 需要为验证圈出专属账号分组，避免与他人在途任务抢号（0818 实测 `#167` 正在 EXECUTING）。
+- 料子号码是硬消耗：拉进群的号不能再次使用。按每轮 5~10 人计，一个 40 人料子文件够跑四到八轮，跑完需补充。
+
+**真环境验证判据**（逐条为真才算通过）：群已创建且能查到 JID；群名、头像、描述与配置一致；邀请链接已生成；次管理员在群内且已是管理员；建群时的初始站台在群内；拉手在群内；料子按配置数量进群；拉人时的站台也已进群；群设置按所选时机生效。
+
+判据必须以 WhatsApp 实时群元数据为准，不能只读本系统写入的状态——「库里成功、群里没人」是本系统最典型的假成功模式。

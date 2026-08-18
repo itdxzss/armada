@@ -38,7 +38,15 @@
 
 **新群模式的 `pull_task.mode` 必须仍然是 `NORMAL_LINK`**，否则调度器不认领它的执行行，任务创建后一步也不会动，而且不会报错——只是永远停在待启动。
 
-群来源用新列 `pull_task.group_source` 表达。
+模式区分用新列 `pull_task.creation_mode` 表达。
+
+**不要复用同表已有的 `group_source` 列。** 该列由 V088 引入，注释是「群组来源:HISTORICAL历史群 SELF_COLLECTED自收群 MIXED混合;普通任务为空」，配套 `PullTaskGroupSource` 枚举，服务于**拉群营销**的任务列表筛选（`PullTaskFilter` / `PullTaskQuery`）。名字看着贴切，语义完全无关，复用会污染营销筛选。新列取名 `creation_mode` 而非 `group_origin` 之类，也是为了跟 `group_source` 拉开距离，避免后人再次混淆。
+
+### 3.1.1 H2 测试表结构是手工维护的，改列必须同步
+
+Flyway 脚本**不在 H2 上执行**。`armada-api/src/test/java/com/armada/task/mapper/PullTaskNormalLinkSchema.java` 手工维护了一份与 V093 及其后续增量迁移等价的 DDL，供 Mapper 测试建表。
+
+**加列、改列只写迁移不改这里，Mapper 测试会拿着过期结构照样通过——是假绿。** 该文件类注释里已有这条警告，实施时必须遵守。
 
 ### 3.2 站台重复入群由既有选号逻辑天然防住，条件是状态写对
 
@@ -87,7 +95,7 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 | 表 | 列 | 类型 | 说明 |
 |---|---|---|---|
-| `pull_task` | `group_source` | VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK' | 群来源：`PASTED_LINK` 粘贴群链接 / `NEW_GROUP` 新建群。存量行默认 `PASTED_LINK`，语义正确 |
+| `pull_task` | `creation_mode` | VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK' | 新建任务时选择的模式：`PASTED_LINK` 群链接模式 / `NEW_GROUP` 新群模式。存量行默认 `PASTED_LINK`，语义正确。**与同表 `group_source` 无关**，后者是拉群营销的历史群/自收群来源 |
 | `pull_task_group_execution` | `create_step` | TINYINT DEFAULT NULL | 建群阶段内部步骤游标，见 6.2；非新群模式为 NULL |
 | `pull_task_group_execution` | `create_operation_id` | VARCHAR(64) ascii_bin DEFAULT NULL | 建群幂等键，同一执行行的同一次逻辑建群恒定复用 |
 | `pull_task_group_execution` | `create_attempt_count` | INT NOT NULL DEFAULT 0 | 确定未创建类失败的重试计数（不用于结果不明，见 ADR-0013） |
@@ -106,24 +114,35 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 ### 4.4 迁移
 
-**当前最大 Flyway 版本是 V129**（本地与 `origin/1.0.3-snapshot` 一致，已核对）。新迁移从 **V130** 起。
+**新迁移从 V131 起。**
 
-> 落盘前必须重新核对：`git fetch` 后检查 origin 及其他在途分支的最高版本号。跨分支撞号会导致容器 crash-loop 并使整站 502，这是仓库出现过多次的事故。
+版本号核对记录：本文初稿时本地与 `origin/1.0.3-snapshot` 的最高版本都是 V129，据此排到 V130。实施当天 `git fetch` 后复查，发现 `origin/1.0.3-snapshot-delaySend` 已推 `V130__marketing_new_group_delay_send.sql`，V130 已被占用，因此整体后移一位。
+
+> 这正是下面这条规矩的意义：**落盘前必须重新核对全部远程分支和在途分支的最高版本号，不能只看本地、也不能只看主线。** 跨分支撞号会导致容器 crash-loop 并使整站 502，是本仓库出现过多次的事故。核对命令：
+>
+> ```bash
+> git fetch origin
+> for b in $(git branch -r --format='%(refname:short)' | grep -v HEAD); do \
+>   git ls-tree -r --name-only "$b" -- armada-api/src/main/resources/db/migration/; done \
+>   | sed -E 's/.*V([0-9]+)__.*/\1/' | sort -n | tail -3
+> ```
 
 | 版本 | 内容 |
 |---|---|
-| V130 | `pull_task_group_execution` 三列改可空；新增 `create_step` / `create_operation_id` / `create_attempt_count` / `group_subject`；更新 `stage` 列注释（现注释仍是 V093 时代的七阶段，缺 `MANAGER_ADMIN` 和 `CLOSING`，本次一并订正为九阶段） |
-| V131 | `pull_task` 新增 `group_source` |
-| V132 | `pull_task_group_account.entry_mode` 列注释追加取值 4（仅改注释，列已是 TINYINT，无需扩容；参照 V119 的写法） |
-| V133 | `pull_task_standard_setting` 新增建群配置列 |
+| V131 | `pull_task_group_execution` 三列改可空；新增 `create_step` / `create_operation_id` / `create_attempt_count` / `group_subject`；更新 `stage` 列注释（现注释仍是 V093 时代的七阶段，缺 `MANAGER_ADMIN` 和 `CLOSING`，本次一并订正为九阶段） |
+| V132 | `pull_task` 新增 `creation_mode` |
+| V133 | `pull_task_group_account.entry_mode` 列注释追加取值 4（仅改注释，列已是 TINYINT，无需扩容；参照 V119 的写法） |
+| V134 | `pull_task_standard_setting` 新增建群配置列 |
 
 全部迁移必须写成幂等形式（`information_schema` 判断 + `PREPARE/EXECUTE`），与 V103、V119 同款。共享 RDS 上禁止手工 ALTER。
+
+**迁移落盘后必须同步更新 `PullTaskNormalLinkSchema`**（见 3.1.1），否则 Mapper 测试假绿。
 
 ## 5. 创建任务
 
 ### 5.1 接口
 
-沿用 `POST /api/pull-tasks` 系列既有端点，请求体增加 `groupSource: "NEW_GROUP"` 及建群配置块。出入参 camelCase，时间值 epoch 毫秒。
+沿用 `POST /api/pull-tasks` 系列既有端点，请求体增加 `creationMode: "NEW_GROUP"` 及建群配置块。出入参 camelCase，时间值 epoch 毫秒。
 
 ### 5.2 建群配置字段
 
@@ -186,7 +205,7 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 - 新建拉群任务页启用「新群模式」Tab，去掉「（后期）」字样。
 - 建群配置表单按 5.2 字段；站台容量提示按 5.3。
-- 任务列表与详情按 `groupSource` 区分展示；新群模式的执行行在建群完成前没有群链接，列表不得显示空链接或占位文本，应显示当前建群步骤。
+- 任务列表与详情按 `creationMode` 区分展示；新群模式的执行行在建群完成前没有群链接，列表不得显示空链接或占位文本，应显示当前建群步骤。
 - 沿用既有 `data-testid` 约定，供 e2e 断言使用。
 
 ## 8. 纵切拆片
@@ -195,8 +214,8 @@ UNIQUE KEY uq_pull_task_execution_link_occupancy (tenant_id, link_occupancy_key)
 
 | 片 | 内容 | 验证 |
 |---:|---|---|
-| 1 | V130~V133 迁移 + 枚举追加 + 实体/Mapper | 迁移结构测试、Mapper H2 测试 |
-| 2 | 创建接口接收 `groupSource` 与建群配置，含站台双笔校验与群名来源解析 | 服务层单测 + 控制器测试 |
+| 1 | V131~V134 迁移 + 枚举追加 + 实体/Mapper | 迁移结构测试、Mapper H2 测试 |
+| 2 | 创建接口接收 `creationMode` 与建群配置，含站台双笔校验与群名来源解析 | 服务层单测 + 控制器测试 |
 | 3 | 建群阶段步骤 1~3（角色行、建群调用、JID 与站台回执落库） | 阶段处理器单测，重点覆盖站台状态写 `IN_GROUP` 与写错的后果 |
 | 4 | 建群阶段步骤 4~7（群资料、邀请链接、群设置、自建群登记）+ 置 `stage=2` 衔接 | 阶段处理器单测 + 与 `MANAGER_JOIN` 的衔接测试 |
 | 5 | 收口阶段 `AFTER_PULL` 群设置分支 | 收口阶段单测 |

@@ -21,7 +21,7 @@ ADR-0001 把新群模式整体排除在上一期之外。现在要实现它。
 - 复用**协议能力层**，不新增端口，不复制协议实现：`IdempotentGroupCreatePort`（`platform/protocol/idempotency/`，装饰在 `GroupCreatePort` 外，同 `operationId` 只建一次群）、`ContactPort`、`GroupSettingsPort`、`GroupProfilePort`、`GroupInvitePort`、`GroupMetadataPort`。Web 与 Android 两套 Adapter 已覆盖这些能力。
 - 新写的只有**编排**：新阶段调用上述端口、保存群 JID、生成群邀请链接、推进到下一阶段。
 - **不新建任务表**，建群事实落在拉群现有执行行及其角色行上。
-- **`pull_task.mode` 保持 `NORMAL_LINK`，不为新群模式引入新的 mode 取值。** 群来源改由新增的任务级列 `pull_task.group_source` 表达（`PASTED_LINK` = 粘贴群链接，`NEW_GROUP` = 新建群）。
+- **`pull_task.mode` 保持 `NORMAL_LINK`，不为新群模式引入新的 mode 取值。** 模式区分改由新增的任务级列 `pull_task.creation_mode` 表达（`PASTED_LINK` = 群链接模式，`NEW_GROUP` = 新群模式）。**不复用同表已有的 `group_source` 列**——该列由 V088 为拉群营销定义，取值是 `HISTORICAL` / `SELF_COLLECTED` / `MIXED`（配套 `PullTaskGroupSource` 枚举与任务列表筛选），语义与本模式无关，复用会污染营销筛选。
 - `normal_group_creation_*` 三张表、三个 Kafka 主 Topic 和三个消费者不参与本模式，也不因本模式修改。
 
 ## 影响
@@ -30,7 +30,7 @@ ADR-0001 把新群模式整体排除在上一期之外。现在要实现它。
 - 一条执行行从建群到收口只有一套状态机、一条时间线；暂停、恢复、资源等待、重启续跑、任务详情展示全部沿用现有机制，不需要为「建群中」另找位置。
 - 建群编排在仓库中会存在两份（`normalcreation` 一份、拉群一份）。这是本决定的真实代价。缓解方式是两边都通过 `IdempotentGroupCreatePort` 建群，重复的是编排而不是最容易出错的幂等与结果对账逻辑。
 - **保持 `mode='NORMAL_LINK'` 是本决定成立的前提。** 字面量 `"NORMAL_LINK"` 目前硬编码在 26 个主代码文件中（`PullTaskExecutionDispatchCoordinator` 的执行行认领条件、全部 `*TransactionService` 的准入闸门、`PullTaskFilter`、各读服务与生命周期服务）。它实际表达的是「本任务走新 PRD 普通拉群执行链路」，而不是「群来自粘贴的链接」。新群模式按本 ADR 正是走同一条链路，因此沿用同一取值在语义上成立，且这 26 处无需改动。若改为新增 mode 取值，则每一处都要独立判断是否放行新群模式，26 个判断中任何一个判错都会造成执行行不被调度或闸门误放。
-- 群来源的区分下沉到 `pull_task.group_source`。任务列表、详情与创建入口按该列区分新群模式与群链接模式，不依赖 `mode`。
+- 模式区分下沉到 `pull_task.creation_mode`。任务列表、详情与创建入口按该列区分新群模式与群链接模式，不依赖 `mode`。
 - 三个功能仍共用底盘，与本决定无关：`group_link` 与自建群登记、协议 Port/Adapter、协议命令 Outbox（按账号串行，新群模式上量会拉长同账号命令队列并影响另两个功能吞吐）、账号分组池。容量规划需要把这一层算进去。
 
 ## 被否决方案

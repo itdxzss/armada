@@ -1,8 +1,8 @@
 package com.armada.marketing.export.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
@@ -22,15 +22,11 @@ import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
-import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
-import com.armada.platform.protocol.port.GroupInvitePort;
-import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import java.util.Map;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,63 +38,28 @@ class MarketingTaskWhatsAppMemberProviderTest {
     @Mock private MarketingTaskExportMapper mapper;
     @Mock private AccountProtocolLookupService accountLookupService;
     @Mock private FixedAccountGroupMetadataPort metadataPort;
-    @Mock private GroupInvitePort invitePort;
     @Mock private WhatsappGroupMemberCacheService memberCacheService;
     @Mock private WhatsappGroupDepartedMemberService departedMemberService;
     @Mock private WhatsappGroupMemberJoinFactService joinFactService;
-
-    @BeforeEach
-    void returnPersistedSnapshotForLiveMetadata() {
-        org.mockito.Mockito.lenient().when(invitePort.getInvite(
-                        org.mockito.ArgumentMatchers.any(ProtocolAccountRef.class),
-                        org.mockito.ArgumentMatchers.anyString()))
-                .thenAnswer(invocation -> new GroupInviteResult(
-                        invocation.getArgument(1),
-                        "test",
-                        "https://chat.whatsapp.com/test"));
-        org.mockito.Mockito.lenient().when(memberCacheService.replaceCompleteSnapshot(
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.anyLong(),
-                        org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.any(GroupMetadataResult.class),
-                        org.mockito.ArgumentMatchers.anyLong()))
-                .thenAnswer(invocation -> {
-                    String groupJid = invocation.getArgument(2);
-                    GroupMetadataResult metadata = invocation.getArgument(3);
-                    long snapshotAt = invocation.getArgument(4);
-                    Long observerAccountId = invocation.getArgument(1);
-                    List<WhatsappGroupMemberStateVO> members = metadata.participants().stream()
-                            .map(participant -> new WhatsappGroupMemberStateVO(
-                                    participant.jid(), participant.phone(), participant.admin(),
-                                    participant.owner(), participant.role(), true,
-                                    "FULL_SNAPSHOT", snapshotAt))
-                            .toList();
-                    return new WhatsappGroupMemberCacheSnapshotVO(
-                            groupJid, metadata.subject(), metadata.announce(), snapshotAt,
-                            observerAccountId, members);
-                });
-    }
 
     @Test
     void collectUsesWhatsAppMembersAndExcludesRejoinedDeparture() {
         MarketingTaskGroupExportRow group = group();
         group.setJoinedTaskAt(800L);
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        group.setSenderPhone("15550000001");
+        WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "WhatsApp真实群", true, 1_000L, null,
+                List.of(
+                        new WhatsappGroupMemberStateVO(
+                                "15550000001@s.whatsapp.net", "15550000001",
+                                true, false, "admin", true, "FULL_SNAPSHOT", 1_000L),
+                        new WhatsappGroupMemberStateVO(
+                                "551100000002@s.whatsapp.net", "551100000002",
+                                false, false, "member", true, "FULL_SNAPSHOT", 1_000L)));
 
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "WhatsApp真实群", null, null, null,
-                true, true, null, null, null,
-                null, null, false, null, false, true,
-                List.of(
-                        new GroupParticipantResult(
-"15550000001@s.whatsapp.net", null, "15550000001", true, false, "admin"),
-                        new GroupParticipantResult(
-"551100000002@s.whatsapp.net", null, "551100000002", false, false, ""))));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", cache));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
                 new WhatsappGroupDepartedMemberVO("120363-test@g.us", "15550000001@s.whatsapp.net",
                         "15550000001", 900L, "LEFT", "HISTORY_SYNC"),
@@ -114,9 +75,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 new WhatsappGroupJoinFactVO(
                         "120363-test@g.us", "521100000003@s.whatsapp.net", "521100000003", 900L)));
 
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
         CountryService.PhonePrefixResolver countries = phone -> phone.startsWith("55")
                 ? new CountryOptionVO(
                         "BR", "BR", "巴西", "Brazil", "+55", "", false, "SOUTH_AMERICA")
@@ -159,7 +118,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
     }
 
     @Test
-    void collectUsesDurableSnapshotWhenObserverIsUnavailableAndPreservesStoredMetadata() {
+    void collectUsesPersistedFactsAndPreservesStoredMetadata() {
         MarketingTaskGroupExportRow group = group();
         group.setGroupJid("120363-TEST@G.US");
         group.setSpeechPermission("仅管理员可发言（发送账号可发言）");
@@ -174,14 +133,11 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(Map.of("120363-test@g.us", cache));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of());
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
         when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
@@ -191,18 +147,151 @@ class MarketingTaskWhatsAppMemberProviderTest {
 
         assertThat(groups).singleElement().satisfies(row -> {
             assertThat(row.getGroupName()).isEqualTo("旧群名");
-            assertThat(row.getGroupLink()).isEqualTo("无权限获取");
+            assertThat(row.getGroupLink()).isEqualTo("https://chat.whatsapp.com/test");
             assertThat(row.getGroupMemberCount()).isEqualTo(1);
             assertThat(row.getSpeechPermission()).isEqualTo("仅管理员可发言（发送账号可发言）");
         });
         assertThat(members).singleElement()
                 .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("551100000002"));
-        org.mockito.Mockito.verifyNoInteractions(metadataPort);
-        verify(accountLookupService).findActiveProtocolRefs(List.of(10L));
+        verifyNoInteractions(accountLookupService, metadataPort);
     }
 
     @Test
-    void collectExplainsWhenNeitherDatabaseSnapshotNorActiveObserverExists() {
+    void collectExportsPersistedIncrementalFactsWhenObserverIsOffline() {
+        MarketingTaskGroupExportRow group = group();
+        group.setObserverAccountId(10L);
+        group.setObserverCandidateRank(1);
+        WhatsappGroupMemberCacheSnapshotVO persisted = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "数据库群名", false, null, null,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "551100000002@s.whatsapp.net", "551100000002",
+                        false, false, "member", true, "ADD_EVENT", 900L)));
+
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", persisted));
+        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of());
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        MarketingTaskWhatsAppMemberProvider provider = provider();
+
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        provider.streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+
+        assertThat(groups).singleElement().satisfies(row -> {
+            assertThat(row.getGroupName()).isEqualTo("数据库群名");
+            assertThat(row.getGroupLink()).isEqualTo("https://chat.whatsapp.com/test");
+        });
+        assertThat(members).singleElement()
+                .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("551100000002"));
+        verifyNoInteractions(metadataPort);
+    }
+
+    @Test
+    void collectCompletesIncompleteDatabaseFactsThroughOnlineProtocol() {
+        MarketingTaskGroupExportRow group = group();
+        group.setObserverAccountId(10L);
+        group.setObserverCandidateRank(1);
+        WhatsappGroupMemberCacheSnapshotVO persisted = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "数据库旧群名", false, null, null,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "551100000002@s.whatsapp.net", "551100000002",
+                        false, false, "member", true, "ADD_EVENT", 900L)));
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        GroupMetadataResult metadata = new GroupMetadataResult(
+                "120363-test@g.us", "协议完整群名", null, null, null,
+                true, false, null, null, null, null, null,
+                false, null, false, true,
+                List.of(
+                        new GroupParticipantResult(
+                                "551100000002@s.whatsapp.net", null, "551100000002",
+                                false, false, "member"),
+                        new GroupParticipantResult(
+                                "15550000003@s.whatsapp.net", null, "15550000003",
+                                true, false, "admin")));
+        WhatsappGroupMemberCacheSnapshotVO fresh = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "协议完整群名", false, 1_000L, 10L,
+                List.of(
+                        new WhatsappGroupMemberStateVO(
+                                "551100000002@s.whatsapp.net", "551100000002",
+                                false, false, "member", true, "FULL_SNAPSHOT", 1_000L),
+                        new WhatsappGroupMemberStateVO(
+                                "15550000003@s.whatsapp.net", "15550000003",
+                                true, false, "admin", true, "FULL_SNAPSHOT", 1_000L)));
+
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", persisted));
+        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
+        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(metadata);
+        when(memberCacheService.replaceCompleteSnapshot(
+                7L, 10L, "120363-test@g.us", metadata, 1_000L)).thenReturn(fresh);
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        provider().streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+
+        assertThat(groups).singleElement().satisfies(row -> {
+            assertThat(row.getGroupName()).isEqualTo("协议完整群名");
+            assertThat(row.getGroupMemberCount()).isEqualTo(2);
+        });
+        assertThat(members).extracting(MarketingTaskGroupMemberExportRow::getMemberPhone)
+                .containsExactlyInAnyOrder("551100000002", "15550000003");
+        verify(metadataPort).getMetadata(account, "120363-test@g.us");
+        verify(memberCacheService).replaceCompleteSnapshot(
+                7L, 10L, "120363-test@g.us", metadata, 1_000L);
+    }
+
+    @Test
+    void collectFallsBackToPersistedFactsWhenProtocolCompletionFails() {
+        MarketingTaskGroupExportRow group = group();
+        group.setObserverAccountId(10L);
+        group.setObserverCandidateRank(1);
+        WhatsappGroupMemberCacheSnapshotVO persisted = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "数据库群名", false, null, null,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "551100000002@s.whatsapp.net", "551100000002",
+                        false, false, "member", true, "ADD_EVENT", 900L)));
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", persisted));
+        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
+        when(metadataPort.getMetadata(account, "120363-test@g.us"))
+                .thenThrow(new IllegalStateException("account offline"));
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        provider().streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+
+        assertThat(groups).singleElement()
+                .satisfies(row -> assertThat(row.getGroupName()).isEqualTo("数据库群名"));
+        assertThat(members).singleElement()
+                .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("551100000002"));
+    }
+
+    @Test
+    void collectContinuesWhenDatabaseHasNoSavedGroupMemberDataAndObserverIsOffline() {
         MarketingTaskGroupExportRow group = group();
         group.setObserverAccountId(10L);
         group.setObserverCandidateRank(1);
@@ -214,77 +303,35 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 .thenReturn(List.of());
         when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
-
-        assertThatThrownBy(() -> provider.streamFull(
-                request(phone -> null),
-                new MarketingTaskWhatsAppMemberProvider.FullOutput(
-                        ignored -> { }, ignored -> { })))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("数据库中没有群成员快照且没有可用的实际发送账号");
-        org.mockito.Mockito.verifyNoInteractions(metadataPort);
-    }
-
-    @Test
-    void collectRetriesOneFallbackObserverWhenPrimaryQueryFails() {
-        MarketingTaskGroupExportRow group = group();
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        MarketingTaskGroupExportRow fallbackGroup = group();
-        fallbackGroup.setObserverAccountId(11L);
-        fallbackGroup.setObserverCandidateRank(2);
-        ProtocolAccountRef primary = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
-        ProtocolAccountRef fallback = new ProtocolAccountRef(
-                11L, ProtocolBackend.ANDROID, "android-11", "15550000002");
-
-        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L))
-                .thenReturn(List.of(group, fallbackGroup));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L, 11L)))
-                .thenReturn(List.of(primary, fallback));
-        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
-                .thenReturn(List.of());
-        when(metadataPort.getMetadata(primary, "120363-test@g.us"))
-                .thenThrow(new IllegalStateException("primary offline"));
-        when(metadataPort.getMetadata(fallback, "120363-test@g.us"))
-                .thenReturn(new GroupMetadataResult(
-                        "120363-test@g.us", "fallback", null, null, null,
-                        true, false, null, null, null,
-                        null, null, false, null, false, true, List.of()));
-
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
         provider.streamFull(
                 request(phone -> null),
-                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, ignored -> { }));
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(
+                        groups::add, members::add));
 
-        assertThat(groups).singleElement()
-                .satisfies(row -> assertThat(row.getGroupName()).isEqualTo("fallback"));
-        verify(metadataPort).getMetadata(primary, "120363-test@g.us");
-        verify(metadataPort).getMetadata(fallback, "120363-test@g.us");
+        assertThat(groups).singleElement().satisfies(row -> {
+            assertThat(row.getGroupName()).isEqualTo("旧群名");
+            assertThat(row.getGroupMemberCount()).isZero();
+        });
+        assertThat(members).isEmpty();
+        verifyNoInteractions(metadataPort);
     }
 
     @Test
     void collectDoesNotTreatMissingPhoneAsTheSameMember() {
         MarketingTaskGroupExportRow group = group();
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "群", false, null, null,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "current@s.whatsapp.net", null,
+                        false, false, "member", true, "ADD_EVENT", 900L)));
 
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "群", null, null, null,
-                true, false, null, null, null,
-                null, null, false, null, false, true,
-                List.of(new GroupParticipantResult(
-"current@s.whatsapp.net", null, null, false, false, ""))));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", cache));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us"))).thenReturn(List.of(
                 new WhatsappGroupDepartedMemberVO(
                         "120363-test@g.us", "current@s.whatsapp.net", null, 800L,
@@ -302,9 +349,7 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         "120363-test@g.us", "unknown@s.whatsapp.net", null, 920L,
                         "UNKNOWN", "WGP2_NOTIFICATION")));
 
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
 
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
         provider.streamFull(
@@ -336,24 +381,18 @@ class MarketingTaskWhatsAppMemberProviderTest {
     @Test
     void streamCountryDoesNotTreatLidAsPhoneWithoutTrustedMapping() {
         MarketingTaskGroupExportRow group = group();
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "群", false, null, null,
+                List.of(new WhatsappGroupMemberStateVO(
+                        "123456789012345@lid", null,
+                        false, false, "member", true, "ADD_EVENT", 900L)));
 
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(new GroupMetadataResult(
-                "120363-test@g.us", "群", null, null, null,
-                true, false, null, null, null,
-                null, null, false, null, false, true,
-                List.of(new GroupParticipantResult(
-"123456789012345@lid", null, null, false, false, ""))));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", cache));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
         List<MarketingTaskCountryEntryExportRow> countryEntries = new java.util.ArrayList<>();
 
         provider.streamCountry(
@@ -365,13 +404,9 @@ class MarketingTaskWhatsAppMemberProviderTest {
     }
 
     @Test
-    void collectFetchesRealInviteInsteadOfExportingGroupJid() {
+    void collectUsesPersistedInviteWithoutProtocolQuery() {
         MarketingTaskGroupExportRow group = group();
-        group.setGroupLink("120363-test@g.us");
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.WEB, "web-10", "15550000001");
+        group.setGroupLink("https://chat.whatsapp.com/CtGyyLpASoO3N54ZNUPJh3?source=export");
         WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
                 "120363-test@g.us", "缓存群名", false, 900L, 10L,
                 List.of(new WhatsappGroupMemberStateVO(
@@ -381,19 +416,12 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(Map.of("120363-test@g.us", cache));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(invitePort.getInvite(account, "120363-test@g.us"))
-                .thenReturn(new GroupInviteResult(
-                        "120363-test@g.us", "CtGyyLpASoO3N54ZNUPJh3",
-                        "https://chat.whatsapp.com/CtGyyLpASoO3N54ZNUPJh3?source=export"));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
         when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
 
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
 
@@ -407,17 +435,12 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(members).singleElement().satisfies(row ->
                 assertThat(row.getGroupLink())
                         .isEqualTo("https://chat.whatsapp.com/CtGyyLpASoO3N54ZNUPJh3"));
-        verify(invitePort).getInvite(account, "120363-test@g.us");
     }
 
     @Test
-    void collectExportsNoPermissionWhenRealInviteCannotBeFetched() {
+    void collectExportsNoPermissionWhenDatabaseHasNoStandardInvite() {
         MarketingTaskGroupExportRow group = group();
-        group.setGroupLink("https://chat.whatsapp.com/previousInvite");
-        group.setObserverAccountId(10L);
-        group.setObserverCandidateRank(1);
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
+        group.setGroupLink("120363-test@g.us");
         WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
                 "120363-test@g.us", "缓存群名", false, 900L, 10L,
                 List.of(new WhatsappGroupMemberStateVO(
@@ -427,17 +450,12 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
         when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(Map.of("120363-test@g.us", cache));
-        when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(invitePort.getInvite(account, "120363-test@g.us"))
-                .thenThrow(new IllegalStateException("invite access denied"));
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
         when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(List.of());
 
-        MarketingTaskWhatsAppMemberProvider provider = new MarketingTaskWhatsAppMemberProvider(
-                mapper, accountLookupService, metadataPort, invitePort, memberCacheService,
-                departedMemberService, joinFactService);
+        MarketingTaskWhatsAppMemberProvider provider = provider();
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
 
@@ -449,6 +467,12 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 assertThat(row.getGroupLink()).isEqualTo("无权限获取"));
         assertThat(members).singleElement().satisfies(row ->
                 assertThat(row.getGroupLink()).isEqualTo("无权限获取"));
+    }
+
+    private MarketingTaskWhatsAppMemberProvider provider() {
+        return new MarketingTaskWhatsAppMemberProvider(
+                mapper, accountLookupService, metadataPort,
+                memberCacheService, departedMemberService, joinFactService);
     }
 
     private static MarketingTaskGroupExportRow group() {

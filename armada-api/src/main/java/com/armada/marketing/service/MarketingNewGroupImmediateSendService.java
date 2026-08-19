@@ -21,6 +21,18 @@ public interface MarketingNewGroupImmediateSendService {
     void enqueueNewGroups(Long accountId, List<MarketingNewGroupDTO> groups, long detectedAt);
 
     /**
+     * 只为开启延迟发送的账号动态任务登记新群 WAITING。
+     *
+     * <p>本入口用于实时成员增量兜底；延迟未开启时不创建 attempt，也绝不进入 Outbox。
+     * 原有账号群全量快照入口继续调用 {@link #enqueueNewGroups(Long, List, long)}。</p>
+     *
+     * @param accountId 本次真正新增群的受控账号 ID
+     * @param groups 本次新增群
+     * @param detectedAt Armada 确认新增群的时间(epoch 毫秒)
+     */
+    void enqueueDelayedNewGroups(Long accountId, List<MarketingNewGroupDTO> groups, long detectedAt);
+
+    /**
      * 提交一批已经到达计划时间的新群等待记录。
      *
      * <p>调用方按租户、任务和 target 分组；本方法在事务中锁定 WAITING、重新校验发送资格，

@@ -1,5 +1,6 @@
 package com.armada.group.service;
 
+import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import java.util.List;
 
@@ -20,6 +21,23 @@ public interface GroupParticipantObservationService {
      * @param groupJid 群 JID
      * @param participantJids 本次变更涉及的成员身份候选；库中按 PN 优先形态匹配，
      *                        因此同一个人的 PN 与 LID 两种形态都传进来，匹配不上的自动忽略
+     * @return 本次真正从非在群转为在群的受控账号关系；没有变化时返回空列表
      */
-    void reconcileControlledMemberships(Long tenantId, String groupJid, List<String> participantJids);
+    List<ControlledAccountGroupTransition> reconcileControlledMemberships(
+            Long tenantId,
+            String groupJid,
+            List<String> participantJids);
+
+    /**
+     * 在通用 add 事实落库前，把事件中可识别的受控账号收敛为在群关系。
+     *
+     * <p>必须在普通成员 add 写入前调用，否则 self 成员行已是在群状态，
+     * 无法再判断本次是否真正从非在群转为在群。</p>
+     */
+    List<ControlledAccountGroupTransition> reconcileControlledJoins(
+            Long tenantId,
+            String groupJid,
+            List<String> participantJids,
+            long observedAt,
+            String sourceEventId);
 }

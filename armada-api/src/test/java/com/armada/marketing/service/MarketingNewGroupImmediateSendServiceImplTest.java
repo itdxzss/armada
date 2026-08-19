@@ -171,6 +171,62 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     }
 
     @Test
+    void enqueueDelayedNewGroups_delayEnabledCreatesWaitingWithoutOutbox() {
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        task.setNewGroupDelayValue(30);
+        task.setNewGroupDelayUnit(1);
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskById(42L)).thenReturn(task);
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        assignAttemptIds(9_000L);
+
+        service.enqueueDelayedNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", null)),
+                2_000L);
+
+        ArgumentCaptor<MarketingTaskSendAttempt> captor =
+                ArgumentCaptor.forClass(MarketingTaskSendAttempt.class);
+        verify(mapper).insertSendAttempt(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(MarketingSendAttemptStatus.WAITING.code());
+        assertThat(captor.getValue().getScheduledSendAt()).isEqualTo(1_802_000L);
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
+    void enqueueDelayedNewGroups_delayDisabledDoesNotChangeImmediateBehavior() {
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(false);
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskById(42L)).thenReturn(task);
+
+        service.enqueueDelayedNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", null)),
+                2_000L);
+
+        verify(mapper, never()).insertSendAttempt(any());
+        verify(mapper, never()).selectTaskByIdForUpdate(anyLong());
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
+    void enqueueDelayedNewGroups_missingTaskDoesNotLockOrWrite() {
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskById(42L)).thenReturn(null);
+
+        service.enqueueDelayedNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(null, "120363a@g.us", null)),
+                2_000L);
+
+        verify(mapper, never()).insertSendAttempt(any());
+        verify(mapper, never()).selectTaskByIdForUpdate(anyLong());
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
     void submitDueWaitingAttempts_validAttemptUsesSharedOutboxSubmission() {
         MarketingTaskSendAttempt waiting = waitingAttempt();
         MarketingTask task = sendingTask();
@@ -201,6 +257,40 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         verify(messagePort).enqueue(any());
         verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
         verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_realtimeAttemptWithoutGroupLinkUsesCurrentJidFacts() {
+        MarketingTaskSendAttempt waiting = waitingAttempt();
+        waiting.setGroupLinkId(null);
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        MarketingTaskTarget target = dynamicTarget();
+        MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
+        owner.setAccountId(target.getAccountId());
+        owner.setMarketingTaskId(task.getId());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waiting));
+        when(mapper.selectTargetById(501L)).thenReturn(target);
+        when(occupancyService.loadActiveOwners(List.of(5_001L)))
+                .thenReturn(Map.of(5_001L, owner));
+        when(mapper.selectAccountTargetCandidate(eq(8L), eq(5_001L), any()))
+                .thenReturn(accountCandidate());
+        MarketingTargetCandidateRow realtimeGroup = groupCandidate();
+        realtimeGroup.setGroupLinkId(null);
+        when(mapper.selectCurrentTargetGroupByJid(5_001L, "120363a@g.us"))
+                .thenReturn(realtimeGroup);
+        when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))
+                .thenReturn(0);
+        when(mapper.markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L))).thenReturn(1);
+        when(messagePort.enqueue(any())).thenAnswer(invocation -> acceptAll(invocation.getArgument(0)));
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        verify(mapper).selectCurrentTargetGroupByJid(5_001L, "120363a@g.us");
+        verify(mapper, never()).selectCurrentTargetGroup(anyLong(), anyLong());
+        verify(messagePort).enqueue(any());
     }
 
     @Test

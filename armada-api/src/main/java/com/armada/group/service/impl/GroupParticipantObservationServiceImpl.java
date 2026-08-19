@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
+import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
@@ -10,11 +11,13 @@ import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -75,12 +78,12 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void reconcileControlledMemberships(
+    public List<ControlledAccountGroupTransition> reconcileControlledMemberships(
             Long tenantId,
             String groupJid,
             List<String> participantJids) {
         if (tenantId == null || participantJids == null || participantJids.isEmpty()) {
-            return;
+            return List.of();
         }
         List<String> candidates = participantJids.stream()
                 .filter(GroupParticipantObservationServiceImpl::hasText)
@@ -89,7 +92,7 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
                 .sorted()
                 .toList();
         if (candidates.isEmpty()) {
-            return;
+            return List.of();
         }
         String normalizedGroupJid = canonicalGroupJid(groupJid);
         Long previousTenant = TenantContext.get();
@@ -98,9 +101,9 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             List<WhatsappGroupMemberStateVO> winners = memberStateMapper.selectStatesByParticipantJids(
                     tenantId, normalizedGroupJid, candidates);
             if (winners == null || winners.isEmpty()) {
-                return;
+                return List.of();
             }
-            reconcileControlledMemberships(normalizedGroupJid, winners);
+            return reconcileControlledMemberships(normalizedGroupJid, winners);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -110,7 +113,58 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         }
     }
 
-    private void reconcileControlledMemberships(
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<ControlledAccountGroupTransition> reconcileControlledJoins(
+            Long tenantId,
+            String groupJid,
+            List<String> participantJids,
+            long observedAt,
+            String sourceEventId) {
+        if (tenantId == null || participantJids == null || participantJids.isEmpty()) {
+            return List.of();
+        }
+        List<String> phones = participantJids.stream()
+                .map(GroupParticipantObservationServiceImpl::phoneFromJid)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (phones.isEmpty()) {
+            return List.of();
+        }
+        String normalizedGroupJid = canonicalGroupJid(groupJid);
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(tenantId);
+            List<Account> accounts = accountMapper.selectActiveByWsPhones(phones);
+            if (accounts == null || accounts.isEmpty()) {
+                return List.of();
+            }
+            List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
+            for (Account account : accounts) {
+                if (account.getId() == null) {
+                    continue;
+                }
+                boolean newlyInGroup = currentSnapshotPersistence.applyControlledParticipantObservation(
+                        account.getId(), normalizedGroupJid, true, false,
+                        observedAt, sourceEventId, "WGP2_ADD");
+                if (newlyInGroup) {
+                    transitions.add(new ControlledAccountGroupTransition(
+                            account.getId(), normalizedGroupJid));
+                }
+            }
+            return List.copyOf(transitions);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private List<ControlledAccountGroupTransition> reconcileControlledMemberships(
             String groupJid,
             List<WhatsappGroupMemberStateVO> winners) {
         Map<String, WhatsappGroupMemberStateVO> winnerByPhone = winners.stream()
@@ -121,24 +175,30 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
                         GroupParticipantObservationServiceImpl::laterState,
                         LinkedHashMap::new));
         if (winnerByPhone.isEmpty()) {
-            return;
+            return List.of();
         }
         List<String> phones = winnerByPhone.keySet().stream().sorted().toList();
         List<Account> accounts = accountMapper.selectActiveByWsPhones(phones);
         if (accounts == null || accounts.isEmpty()) {
-            return;
+            return List.of();
         }
+        List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
         for (Account account : accounts) {
             String phone = normalizedPhone(account.getWsPhone());
             WhatsappGroupMemberStateVO winner = winnerByPhone.get(phone);
             if (winner == null || account.getId() == null) {
                 continue;
             }
-            currentSnapshotPersistence.applyControlledParticipantObservation(
+            boolean newlyInGroup = currentSnapshotPersistence.applyControlledParticipantObservation(
                     account.getId(), groupJid, Boolean.TRUE.equals(winner.inGroup()),
                     Boolean.TRUE.equals(winner.admin()), winner.stateUpdatedAt(),
                     winner.sourceEventId(), membershipStatusSource(winner));
+            if (newlyInGroup) {
+                transitions.add(new ControlledAccountGroupTransition(
+                        account.getId(), groupJid));
+            }
         }
+        return List.copyOf(transitions);
     }
 
     private static String membershipStatusSource(WhatsappGroupMemberStateVO winner) {

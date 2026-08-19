@@ -1374,6 +1374,60 @@
         LIMIT 1
     </select>
 
+    <select id="selectCurrentTargetGroupByJid" resultType="com.armada.marketing.model.vo.MarketingTargetCandidateRow">
+        SELECT a.id AS accountId,
+               a.ws_phone AS accountPhone,
+               NULL AS groupLinkId,
+               current_group.group_jid AS groupJid,
+               NULL AS groupLinkUrl,
+               COALESCE(NULLIF(TRIM(current_profile.subject), ''),
+                        NULLIF(TRIM(current_group.display_name), '')) AS groupName,
+               CASE self_participant.presence_status
+                 WHEN 1 THEN 1
+                 WHEN 0 THEN 2
+                 WHEN 2 THEN CASE self_participant.last_exit_type
+                   WHEN 'REMOVED' THEN 3
+                   WHEN 'LEFT' THEN 4
+                   ELSE 5
+                 END
+                 ELSE 2
+               END AS membershipStatus,
+               COALESCE(self_participant.presence_observed_at,
+                        binding.last_observed_at) AS statusUpdatedAt
+        FROM account a
+        JOIN account_state s ON s.account_id = a.id
+        JOIN account_group_sync_state group_sync ON group_sync.account_id = a.id
+        JOIN wa_group current_group ON current_group.group_jid = #{groupJid}
+                                   AND current_group.deleted_at IS NULL
+        JOIN wa_account_group_binding binding ON binding.account_id = a.id
+                                             AND binding.group_id = current_group.id
+        JOIN wa_group_participant self_participant
+          ON self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+        LEFT JOIN wa_group_profile current_profile
+          ON current_profile.group_id = current_group.id
+        WHERE a.id = #{accountId}
+          AND a.deleted_at IS NULL
+          AND s.login_state = 1
+          AND s.account_state = 2
+          AND a.protocol_account_id IS NOT NULL
+          AND TRIM(a.protocol_account_id) &lt;&gt; ''
+          AND group_sync.baseline_state IN (2, 3)
+          AND (s.risk_status IS NULL OR s.risk_status = 1)
+          AND s.mute_status IS NULL
+          AND self_participant.presence_status IN (0, 1)
+          AND (current_profile.id IS NULL
+               OR (COALESCE(current_profile.banned, 0) = 0
+                   AND (current_profile.health_status IS NULL
+                        OR current_profile.health_status = 1)))
+          AND (
+              group_sync.baseline_state &lt;&gt; 2
+              OR binding.was_in_initial_baseline IS NULL
+              OR binding.was_in_initial_baseline = 0
+          )
+        LIMIT 1
+    </select>
+
     <select id="selectAccountTreeAccounts" resultType="com.armada.marketing.model.vo.MarketingAccountTreeAccountRow">
         SELECT a.id AS accountId,
                a.ws_phone AS wsPhone,

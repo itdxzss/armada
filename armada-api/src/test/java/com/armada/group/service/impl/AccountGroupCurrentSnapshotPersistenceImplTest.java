@@ -41,8 +41,6 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     void setUp() {
         TenantContext.set(TENANT_ID);
         persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper);
-        when(mapper.selectGroupIds(TENANT_ID, List.of(GROUP_JID)))
-                .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
     }
 
     @AfterEach
@@ -52,6 +50,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
 
     @Test
     void firstSnapshotAfterPreciseAddIsAddedButEstablishedReplayIsNot() {
+        stubGroupId();
         stubSnapshotContext();
         AccountGroupMembershipSnapshot current = currentGroup();
         when(mapper.selectExisting(ACCOUNT_ID, "923300000010@s.whatsapp.net", List.of(GROUP_JID)))
@@ -69,6 +68,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
 
     @Test
     void staleSnapshotCannotReAddNewerExitedRelationship() {
+        stubGroupId();
         stubSnapshotContext();
         when(mapper.selectExisting(ACCOUNT_ID, "923300000010@s.whatsapp.net", List.of(GROUP_JID)))
                 .thenReturn(List.of(existing(2, "WGP2_REMOVE", 4_000L)));
@@ -82,6 +82,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
 
     @Test
     void participantRoleObservationWritesCurrentParticipantWithoutBinding() {
+        stubGroupId();
         persistence.applyParticipantObservations(List.of(new GroupParticipantObservation(
                 TENANT_ID, 20L, GROUP_JID, "15550000001@s.whatsapp.net",
                 "15550000001@s.whatsapp.net", "15550000001", true, true,
@@ -100,10 +101,43 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
         });
     }
 
+    @Test
+    void controlledAddReturnsTrueOnlyForAcceptedInGroupTransition() {
+        stubSnapshotContext();
+        when(mapper.selectSelfMembershipExisting(
+                ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
+                .thenReturn(existing(2, "WGP2_REMOVE", 1_000L));
+
+        boolean transitioned = persistence.applyControlledParticipantObservation(
+                ACCOUNT_ID, GROUP_JID, true, false,
+                2_000L, "event-add", "WGP2_ADD");
+
+        assertThat(transitioned).isTrue();
+    }
+
+    @Test
+    void controlledRepeatedAddDoesNotReturnAnotherTransition() {
+        stubSnapshotContext();
+        when(mapper.selectSelfMembershipExisting(
+                ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
+                .thenReturn(existing(1, "WGP2_ADD", 2_000L));
+
+        boolean transitioned = persistence.applyControlledParticipantObservation(
+                ACCOUNT_ID, GROUP_JID, true, false,
+                2_000L, "event-add", "WGP2_ADD");
+
+        assertThat(transitioned).isFalse();
+    }
+
     private static Existing existing(int presenceStatus, String source, long observedAt) {
         return new Existing(
                 GROUP_JID, 100L, 200L, presenceStatus, source, observedAt,
                 300L, 0, null, null);
+    }
+
+    private void stubGroupId() {
+        when(mapper.selectGroupIds(TENANT_ID, List.of(GROUP_JID)))
+                .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
     }
 
     private void stubSnapshotContext() {

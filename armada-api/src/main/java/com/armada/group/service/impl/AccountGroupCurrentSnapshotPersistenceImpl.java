@@ -346,7 +346,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      * 写入受控账号的成员当前状态和角色观察，不把角色或查询时间解释成进群时间。
      */
     @Transactional(rollbackFor = Exception.class)
-    public void applyControlledParticipantObservation(
+    public boolean applyControlledParticipantObservation(
             Long accountId,
             String groupJid,
             boolean inGroup,
@@ -373,6 +373,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
 
         Existing existing = mapper.selectSelfMembershipExisting(
                 accountId, self.ownerJid(), normalizedGroupJid);
+        boolean newlyInGroup = inGroup
+                && presenceWins(existing, observedAt, normalizedSource)
+                && (existing == null || existing.presenceStatus() == null
+                || existing.presenceStatus() != PRESENCE_IN_GROUP);
         long now = System.currentTimeMillis();
         ParticipantPresenceWrite row = new ParticipantPresenceWrite(
                 existing == null ? null : existing.groupId(),
@@ -417,6 +421,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         mapper.updateLegacyGroupReferences(tenantId, List.of(normalizedGroupJid));
         mapper.upsertParticipantFacts(List.of(row));
         mapper.upsertSelfBinding(tenantId, accountId, row);
+        return newlyInGroup;
     }
 
     /** 写入普通成员进群事实，不创建账号群关系。 */

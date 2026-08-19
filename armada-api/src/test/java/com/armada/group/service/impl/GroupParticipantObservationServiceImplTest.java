@@ -9,6 +9,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
 import com.armada.group.model.dto.GroupParticipantObservation;
+import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.shared.tenant.TenantContext;
@@ -99,13 +100,64 @@ class GroupParticipantObservationServiceImplTest {
         when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
                 .thenReturn(List.of(account(77L, "15550000001")));
 
-        service().reconcileControlledMemberships(7L, "120363-TEST@G.US", List.of(
+        when(currentSnapshotPersistence.applyControlledParticipantObservation(
+                77L, "120363-test@g.us", false, false,
+                2_000L, "event-remove", "WGP2_REMOVE"))
+                .thenReturn(false);
+
+        List<ControlledAccountGroupTransition> transitions = service().reconcileControlledMemberships(
+                7L, "120363-TEST@G.US", List.of(
                 "15550000001@s.whatsapp.net", "123456789012345@LID",
                 "123456789012345@lid", " "));
 
         verify(currentSnapshotPersistence).applyControlledParticipantObservation(
                 77L, "120363-test@g.us", false, false,
                 2_000L, "event-remove", "WGP2_REMOVE");
+        assertThat(transitions).isEmpty();
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
+    void reconcileControlledMembershipsReturnsOnlyNewInGroupTransitions() {
+        when(memberStateMapper.selectStatesByParticipantJids(
+                7L, "120363-test@g.us", List.of("15550000001@s.whatsapp.net")))
+                .thenReturn(List.of(new WhatsappGroupMemberStateVO(
+                        "15550000001@s.whatsapp.net", "15550000001", false, false,
+                        "member", true, "ADD_EVENT", 2_000L, "event-add")));
+        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+                .thenReturn(List.of(account(77L, "15550000001")));
+        when(currentSnapshotPersistence.applyControlledParticipantObservation(
+                77L, "120363-test@g.us", true, false,
+                2_000L, "event-add", "WGP2_ADD"))
+                .thenReturn(true);
+
+        List<ControlledAccountGroupTransition> transitions = service().reconcileControlledMemberships(
+                7L, "120363-test@g.us", List.of("15550000001@s.whatsapp.net"));
+
+        assertThat(transitions).containsExactly(new ControlledAccountGroupTransition(
+                77L, "120363-test@g.us"));
+    }
+
+    @Test
+    void reconcileControlledJoinsDetectsTransitionBeforeGenericAddIsWritten() {
+        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+                .thenReturn(List.of(account(77L, "15550000001")));
+        when(currentSnapshotPersistence.applyControlledParticipantObservation(
+                77L, "120363-test@g.us", true, false,
+                2_000L, "event-add", "WGP2_ADD"))
+                .thenReturn(true);
+
+        List<ControlledAccountGroupTransition> transitions = service().reconcileControlledJoins(
+                7L, "120363-TEST@G.US",
+                List.of("123456789012345@lid", "15550000001@s.whatsapp.net"),
+                2_000L, "event-add");
+
+        assertThat(transitions).containsExactly(new ControlledAccountGroupTransition(
+                77L, "120363-test@g.us"));
+        verify(memberStateMapper, never()).selectStatesByParticipantJids(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyList());
         assertThat(TenantContext.get()).isNull();
     }
 

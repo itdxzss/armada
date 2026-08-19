@@ -146,6 +146,7 @@ class MarketingTaskMapperSqlShapeTest {
         String accountCandidateSql = selectBlock(xml, "selectAccountTargetCandidate");
         String dynamicTargetSql = selectBlock(xml, "selectDynamicTargetGroups");
         String currentTargetSql = selectBlock(xml, "selectCurrentTargetGroup");
+        String currentTargetByJidSql = selectBlock(xml, "selectCurrentTargetGroupByJid");
         String treeAccountSql = selectBlock(xml, "selectAccountTreeAccounts");
 
         assertThat(candidateSql)
@@ -179,6 +180,14 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("binding.was_in_initial_baseline")
                 .doesNotContain("account_group_membership")
                 .doesNotContain("account_group_baseline")
+                .contains("WHERE a.id = #{accountId}");
+        assertThat(currentTargetByJidSql)
+                .contains("JOIN wa_group current_group ON current_group.group_jid = #{groupJid}")
+                .contains("JOIN wa_account_group_binding binding")
+                .contains("self_participant.presence_status IN (0, 1)")
+                .contains("NULL AS groupLinkId")
+                .doesNotContain("JOIN group_link")
+                .doesNotContain("account_group_membership")
                 .contains("WHERE a.id = #{accountId}");
         assertThat(treeAccountSql).contains("a.protocol_account_id AS protocolAccountId");
         assertThat(treeAccountSql)
@@ -278,6 +287,29 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("a.tenant_id = 7")
                 .contains("p.tenant_id = 7")
                 .contains("g.tenant_id = 7")
+                .doesNotContain("FOR UPDATE");
+    }
+
+    @Test
+    void tenantInterceptorParsesCurrentTargetByJid() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+        String sql = sqlBody(selectBlock(xml, "selectCurrentTargetGroupByJid"))
+                .replace("#{accountId}", "5001")
+                .replace("#{groupJid}", "'120363001@g.us'")
+                .replace("&lt;&gt;", "<>");
+        TenantLineInnerInterceptor interceptor = new TenantLineInnerInterceptor(() -> new LongValue(7L));
+
+        String parsedSql = interceptor.parserSingle(sql, null);
+
+        assertThat(parsedSql)
+                .contains("a.tenant_id = 7")
+                .contains("s.tenant_id = 7")
+                .contains("group_sync.tenant_id = 7")
+                .contains("current_group.tenant_id = 7")
+                .contains("binding.tenant_id = 7")
+                .contains("self_participant.tenant_id = 7")
                 .doesNotContain("FOR UPDATE");
     }
 

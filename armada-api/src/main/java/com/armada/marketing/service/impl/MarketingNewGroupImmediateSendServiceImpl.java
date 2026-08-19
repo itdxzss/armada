@@ -153,6 +153,38 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
     }
 
     /**
+     * 为实时成员新增事件只登记延迟任务 WAITING，不改变延迟关闭任务的即时发送语义。
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void enqueueDelayedNewGroups(Long accountId,
+                                        List<MarketingNewGroupDTO> groups,
+                                        long detectedAt) {
+        List<MarketingNewGroupDTO> candidates = normalizeGroups(groups);
+        if (accountId == null || candidates.isEmpty()) {
+            return;
+        }
+        MarketingTaskTarget target = taskMapper.selectOwnedSendingDynamicTarget(accountId, detectedAt);
+        if (target == null) {
+            return;
+        }
+        MarketingTask candidateTask = taskMapper.selectTaskById(target.getMarketingTaskId());
+        if (candidateTask == null || !delayEnabled(candidateTask)) {
+            return;
+        }
+        MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
+        if (!canRegisterNewGroup(task, detectedAt) || !delayEnabled(task)) {
+            return;
+        }
+        ClaimedImmediateTargets claimed = claimWaitingAttempts(task, target, candidates, detectedAt);
+        if (!claimed.attempts().isEmpty()) {
+            log.info("群成员增量新群已进入延迟等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
+                    task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
+                    claimed.attempts().get(0).getScheduledSendAt());
+        }
+    }
+
+    /**
      * 在当前租户事务中提交已到期的第 0 轮等待记录。
      *
      * <p>暂停状态保留 WAITING；关闭、结束、普通轮次覆盖或发送资格失效时转为 SKIPPED。
@@ -598,7 +630,8 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>();
         for (MarketingTaskSendAttempt attempt : waiting) {
             MarketingTargetCandidateRow group = attempt.getGroupLinkId() == null
-                    ? null
+                    ? taskMapper.selectCurrentTargetGroupByJid(
+                            target.getAccountId(), normalizeGroupJid(attempt.getGroupJid()))
                     : taskMapper.selectCurrentTargetGroup(target.getAccountId(), attempt.getGroupLinkId());
             if (group == null || !normalizeGroupJid(attempt.getGroupJid()).equals(
                     normalizeGroupJid(group.getGroupJid()))) {

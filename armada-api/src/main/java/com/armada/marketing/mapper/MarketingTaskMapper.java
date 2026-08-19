@@ -345,7 +345,11 @@ public interface MarketingTaskMapper {
 
     /** 查询固定群组目标在发送前是否仍是账号当前可发送群。 */
     MarketingTargetCandidateRow selectCurrentTargetGroup(@Param("accountId") Long accountId,
-                                                         @Param("groupLinkId") Long groupLinkId);
+                                                          @Param("groupLinkId") Long groupLinkId);
+
+    /** 实时群成员事件尚无群入口时，按账号和群 JID 校验当前可发送关系。 */
+    MarketingTargetCandidateRow selectCurrentTargetGroupByJid(@Param("accountId") Long accountId,
+                                                               @Param("groupJid") String groupJid);
 
     /** 查询建营销任务用的账号树账号;包含分组下全部账号和库内可营销群数量。 */
     List<MarketingAccountTreeAccountRow> selectAccountTreeAccounts(@Param("groupId") Long groupId);

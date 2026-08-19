@@ -34,6 +34,7 @@ import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -318,7 +319,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     7L, 100L, execution.getId(), action.getId(), actor.getAccountId(),
                     "account-" + actor.getAccountId(), action.getCommandId(),
                     action.getAttemptNo(),
-                    PullTaskGroupSettingsProtocolOutcome.SUCCESS, null, null, occurredAt));
+                    PullTaskGroupSettingsProtocolOutcome.SUCCESS, null, null, null,
+                    occurredAt));
         }
     }
 
@@ -722,7 +724,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                             executionMapper, lookup, outboxService, properties);
             PullTaskManagerPullerContactTransactionService transactions =
                     new PullTaskManagerPullerContactTransactionService(
-                            taskMapper, settingMapper, accountMapper, actionMapper, resources);
+                            taskMapper, settingMapper, accountMapper, actionMapper, resources,
+                            mock(PullTaskGroupProfileDispatcher.class));
             // 群设置改为异步命令后本阶段不再有事务外协议调用，无需再注入元数据与设置端口。
             return new PullTaskManagerPullerContactProcessor(
                     transactions,
@@ -806,7 +809,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskPullWavePlanningTransactionService planning,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskPullWaveSettlementTransactionService(
-                    resources, planning, properties);
+                    resources, planning, properties,
+                    mock(PullTaskGroupProfileDispatcher.class));
         }
 
         @Bean PullTaskPullerStationContactProcessor pullerStationContacts(

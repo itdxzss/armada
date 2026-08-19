@@ -1,6 +1,7 @@
 package com.armada.group.normalcreation.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -414,7 +415,7 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
-    void androidSettingsSuccessEnqueuesMetadataSyncForInviteLink() {
+    void androidSettingsSuccessEnqueuesInviteCodeWithoutMetadata() {
         ItemWork item = new ItemWork(
                 21L, 1L, 9L, "普群001", "普群{no}",
                 382L, "creator-android", "ANDROID", "911",
@@ -438,8 +439,9 @@ class NormalGroupCreationProtocolResultServiceTest {
                 382L, "creator-android", "ANDROID", null, null,
                 null, null, null));
 
-        verify(metadataSyncTaskService).enqueue(
+        verify(metadataSyncTaskService).enqueueInviteCode(
                 eq(101L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
+        verify(metadataSyncTaskService, never()).enqueue(anyLong(), any(), anyLong());
     }
 
     @Test

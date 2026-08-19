@@ -26,6 +26,10 @@ import org.springframework.stereotype.Component;
  *
  * <p>一条命令一个设置项：设置项与目标值由动作行的 {@code action_type} 唯一决定，Outbox 引用里
  * 不存这两个字段，避免同一事实出现两份可能不一致的副本。</p>
+ *
+ * <p>「群信息设置」整块的下发不走本类：它另起一条 {@code group.profile.apply} 命令，
+ * 由 {@link PullTaskGroupProfilePayloadHydrator} 补全。本类只管放开加人权限与关闭进群审核
+ * 这两个单项命令，命令类型和来源都保持不变。</p>
  */
 @Component
 public class PullTaskGroupSettingsPayloadHydrator implements ProtocolCommandPayloadHydrator {
@@ -71,7 +75,6 @@ public class PullTaskGroupSettingsPayloadHydrator implements ProtocolCommandPayl
             if (!validAction(action, row, reference)) {
                 throw validation("普通拉群群设置命令关联动作不一致 commandId=" + row.getCommandId());
             }
-            SettingSpec spec = settingSpec(action.getActionType());
             PullTaskGroupAccount manager =
                     accountMapper.selectById(action.getActorGroupAccountId());
             PullTaskGroupExecution execution =
@@ -79,6 +82,7 @@ public class PullTaskGroupSettingsPayloadHydrator implements ProtocolCommandPayl
             if (!validManager(manager, reference) || !validExecution(execution, reference)) {
                 throw validation("普通拉群群设置命令冻结事实不完整 commandId=" + row.getCommandId());
             }
+            SettingSpec spec = settingSpec(action.getActionType());
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(),
                     reference.pullTaskId(),

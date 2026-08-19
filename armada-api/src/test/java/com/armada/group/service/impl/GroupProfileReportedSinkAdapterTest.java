@@ -14,9 +14,9 @@ import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -58,7 +58,7 @@ class GroupProfileReportedSinkAdapterTest {
     private GroupCreatorCompatibilityWriter creatorWriter;
 
     @Mock
-    private GroupMetadataSyncTaskService metadataSyncTaskService;
+    private AccountMapper accountMapper;
 
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
@@ -255,26 +255,35 @@ class GroupProfileReportedSinkAdapterTest {
     }
 
     @Test
-    void inviteCodeFetchIsQueuedInsteadOfCalledInline() {
-        // 取邀请码要发一次 WhatsApp 请求；同步等会把消费线程卡住，21 人群的 21 条建档事件
-        // 就会把后面所有群一起堵上。这里只入队，由后台任务慢慢取。
-        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
-                anyString(), any(), any(), anyLong())).thenReturn(77L);
+    void controlledAccountBindingsAreWrittenFromTheMemberList() {
+        // 可用管理员与邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员与
+        // 角色，却不建绑定，就会出现"群主在控端、列表却判不可用"。
+        Account controlled = new Account();
+        controlled.setId(1649L);
+        controlled.setWsPhone("923048826465");
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenReturn(List.of(controlled));
 
-        adapter.handleProfileReported(event(true, List.of()));
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"),
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "916360432840@s.whatsapp.net", null, "916360432840", false, false, null))));
 
-        verify(metadataSyncTaskService).enqueue(
-                eq(77L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
+        // 只给受控账号建绑定；外部号码查不到账号自然不写。
+        verify(snapshotPersistence).applyControlledParticipantObservation(
+                eq(1649L), eq("120363-abc@g.us"), eq(true), eq(true),
+                anyLong(), anyString(), anyString());
     }
 
     @Test
-    void inviteCodeQueueFailureDoesNotDropTheProfileFacts() {
-        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
-                anyString(), any(), any(), anyLong())).thenReturn(77L);
-        org.mockito.Mockito.doThrow(new RuntimeException("queue down"))
-                .when(metadataSyncTaskService).enqueue(anyLong(), any(), anyLong());
+    void bindingReconcileFailureDoesNotDropTheProfileFacts() {
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenThrow(new RuntimeException("account lookup down"));
 
-        adapter.handleProfileReported(event(true, List.of()));
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"))));
 
         verify(patchService).applyPatch(any(GroupMetadataPatch.class));
     }

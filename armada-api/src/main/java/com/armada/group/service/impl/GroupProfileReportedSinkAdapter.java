@@ -6,9 +6,9 @@ import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
 import com.armada.platform.protocol.exception.ProtocolException;
@@ -48,7 +48,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupBatchTaskItemMapper batchItemMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupCreatorCompatibilityWriter creatorWriter;
-    private final GroupMetadataSyncTaskService metadataSyncTaskService;
+    private final AccountMapper accountMapper;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
@@ -57,14 +57,14 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             GroupBatchTaskItemMapper batchItemMapper,
             GroupLinkRegistryService groupLinkRegistryService,
             GroupCreatorCompatibilityWriter creatorWriter,
-            GroupMetadataSyncTaskService metadataSyncTaskService) {
+            AccountMapper accountMapper) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.creatorWriter = creatorWriter;
-        this.metadataSyncTaskService = metadataSyncTaskService;
+        this.accountMapper = accountMapper;
     }
 
     @Override
@@ -74,11 +74,11 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             Long groupLinkId = registerGroupLink(event);
             writeCreator(event, groupLinkId);
-            queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
             snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
             applyMembers(event);
+            writeControlledBindings(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {
                 taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
                 batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
@@ -108,8 +108,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     ProtocolBackend.fromProtocolId(event.protocolBackend()),
                     System.currentTimeMillis());
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
+            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
             return null;
         }
     }
@@ -126,33 +126,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
-        }
-    }
-
-    /**
-     * 入队邀请码抓取，不在本线程取。
-     *
-     * <p>邀请码要向 WhatsApp 发一次请求，同步等会把 Kafka 消费线程卡在网络往返上——
-     * 一个 21 人群会产生 21 条建档事件，逐条同步取会把后面所有群的建档一起堵住。
-     * 这里只写一行任务（毫秒级），由既有的群快照调度器带并发控制地慢慢取。</p>
-     *
-     * <p>任务表按 (tenant_id, group_link_id) 唯一，同群的 21 次入队天然合并成一条，
-     * 不必在这里另做去重。</p>
-     *
-     * <p>入队失败只告警：邀请码是补充事实，不该让整条资料事件重投。</p>
-     */
-    private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
-        if (groupLinkId == null) {
-            return;
-        }
-        try {
-            metadataSyncTaskService.enqueue(
-                    groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, event.occurredAt());
-        } catch (RuntimeException e) {
-            log.warn("协议群资料上报入队邀请码抓取失败,其余事实照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
+            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
         }
     }
 
@@ -189,6 +164,72 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 GroupMetadataFieldSource.PROFILE_SNAPSHOT,
                 event.occurredAt(),
                 event.eventId()));
+    }
+
+    /**
+     * 按成员列表给我方账号建群绑定。
+     *
+     * <p>「可用管理员」与邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员
+     * 与角色，却不建绑定，就会出现"群主明明在控端、列表却判不可用"，邀请码任务也拿
+     * NO_EXECUTION_ACCOUNT 失败。绑定原先只由精确关系事件建立，而那条事件与上线全量清单同
+     * 队列，实测慢几分钟；建档只要 3 秒，两者之间的窗口就是上述现象。</p>
+     *
+     * <p>不复用 GroupParticipantObservationService#reconcileControlledMemberships：它按老模型
+     * 表 whatsapp_group_member_state 查成员，而建档写的是新模型 wa_group_participant，
+     * 老表没有对应行时它直接返回，既不报错也不建绑定。这里改为直接按成员号码查受控账号，
+     * 再走新模型的绑定写入口。</p>
+     *
+     * <p>放在成员落库之后：绑定与成员事实同属一次观察，先落成员再对齐绑定。
+     * 失败只告警，不让整条资料事件重投。</p>
+     */
+    private void writeControlledBindings(ProtocolGroupProfileReportedEvent event) {
+        if (!event.membersComplete() || event.members() == null || event.members().isEmpty()) {
+            return;
+        }
+        List<String> phones = new ArrayList<>(event.members().size());
+        for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
+            if (member.phone() != null && !member.phone().isBlank()) {
+                phones.add(member.phone().trim());
+            }
+        }
+        if (phones.isEmpty()) {
+            return;
+        }
+        try {
+            List<Account> accounts = accountMapper.selectActiveByWsPhones(phones);
+            if (accounts == null || accounts.isEmpty()) {
+                return;
+            }
+            for (Account account : accounts) {
+                ProtocolGroupProfileReportedEvent.Member member =
+                        findMemberByPhone(event, account.getWsPhone());
+                if (member == null || account.getId() == null) {
+                    continue;
+                }
+                snapshotPersistence.applyControlledParticipantObservation(
+                        account.getId(), event.groupJid(), true,
+                        Boolean.TRUE.equals(member.admin()) || Boolean.TRUE.equals(member.owner()),
+                        event.occurredAt(), event.eventId(), "FULL_SNAPSHOT");
+            }
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报写账号群绑定失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
+        }
+    }
+
+    /** 按号码回找成员，用于把受控账号与其在群内的角色对上。 */
+    private static ProtocolGroupProfileReportedEvent.Member findMemberByPhone(
+            ProtocolGroupProfileReportedEvent event, String wsPhone) {
+        if (wsPhone == null) {
+            return null;
+        }
+        String normalized = wsPhone.trim();
+        for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
+            if (member.phone() != null && normalized.equals(member.phone().trim())) {
+                return member;
+            }
+        }
+        return null;
     }
 
     /** 写完整成员快照；只有协议授权列表完整时才执行，因为它会判定缺失成员已退群。 */

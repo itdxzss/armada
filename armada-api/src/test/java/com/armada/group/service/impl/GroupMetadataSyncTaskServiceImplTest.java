@@ -40,6 +40,22 @@ class GroupMetadataSyncTaskServiceImplTest {
         verify(mapper, org.mockito.Mockito.times(2)).enqueue(captor.capture(), anyInt());
         assertThat(captor.getAllValues().get(0).getNextRunAt()).isEqualTo(3_000L);
         assertThat(captor.getAllValues().get(1).getNextRunAt()).isEqualTo(1_000L);
+        assertThat(captor.getAllValues())
+                .extracting(GroupMetadataSyncTask::getCompletedScopeMask)
+                .containsExactly(0, 0);
+    }
+
+    @Test
+    void enqueueInviteCodeMarksMetadataAsAlreadyComplete() {
+        GroupMetadataSyncTaskServiceImpl service = service();
+
+        service.enqueueInviteCode(11L, GroupMetadataSyncTrigger.BASELINE_CAPTURED, 1_000L);
+
+        ArgumentCaptor<GroupMetadataSyncTask> captor =
+                ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
+        verify(mapper).enqueue(captor.capture(), anyInt());
+        assertThat(captor.getValue().getGroupLinkId()).isEqualTo(11L);
+        assertThat(captor.getValue().getCompletedScopeMask()).isEqualTo(1);
     }
 
     @Test

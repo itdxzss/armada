@@ -295,7 +295,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         GroupLinkPreview current = confirmedMetadata(target.groupJid(), observedAt);
         current.setWaSubject(subject);
         currentSnapshotPersistence.applyConfirmedMetadata(current);
-        enqueueMetadataRefresh(id);
         log.info("WhatsApp 群名称已更新并同步本地镜像 groupLinkId={} accountId={}",
                 id, account.accountId());
     }
@@ -344,9 +343,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         }
         log.info("WhatsApp 群头像更新完成 groupLinkId={} accountId={} applied={} mirrorSynced={}",
                 id, account.accountId(), result.applied(), mirrorSynced);
-        if (result.applied()) {
-            enqueueMetadataRefresh(id);
-        }
         return new GroupAvatarUpdateVO(result.applied(), mirrorSynced, result.avatarUrl());
     }
 
@@ -591,10 +587,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (successCount > 0) {
             persistConfirmedMemberChanges(
                     id, target.groupJid(), action, successfulJids, membersBefore);
-            // REMOVE 已由同账号实时回读确认并写入当前模型，禁止再排队可能回灌旧事实的全量刷新。
-            if (action != GroupParticipantAction.REMOVE) {
-                enqueueMetadataRefresh(id);
-            }
         }
         log.info("群成员批量操作完成 groupLinkId={} accountId={} action={} requestedCount={} "
                         + "protocolTargetCount={} successCount={} partial={}",
@@ -716,13 +708,6 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                             "group-detail-role:" + groupLinkId + ":" + observedAt + ":" + jid);
                 })
                 .toList());
-    }
-
-    private void enqueueMetadataRefresh(Long groupLinkId) {
-        metadataSyncTaskService.enqueue(
-                groupLinkId,
-                GroupMetadataSyncTrigger.METADATA_CHANGED,
-                System.currentTimeMillis());
     }
 
     /**

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -421,7 +422,8 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 PullTaskPullWavePlanningTransactionService planning,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskPullWaveSettlementTransactionService(
-                    resources, planning, properties);
+                    resources, planning, properties,
+                    mock(PullTaskGroupProfileDispatcher.class));
         }
 
         @Bean PullTaskExecutionDispatchProperties properties() {

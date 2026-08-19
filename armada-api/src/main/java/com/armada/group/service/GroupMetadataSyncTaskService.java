@@ -11,6 +11,9 @@ public interface GroupMetadataSyncTaskService {
     /** 幂等排队单群同步任务。 */
     void enqueue(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt);
 
+    /** 幂等排队单群邀请码读取；metadata 已由当前业务事实确认，不再重复请求。 */
+    void enqueueInviteCode(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt);
+
     /** 恢复当前账号在群范围内的延期任务。 */
     void resumeDeferredForAccount(Long accountId, long now);
 

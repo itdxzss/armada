@@ -7,6 +7,7 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.GroupMetadataSyncLimits;
+import com.armada.group.service.GroupSnapshotDispatchService;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +52,23 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     @Override
     @Transactional
     public void enqueue(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt) {
+        enqueue(groupLinkId, trigger, triggeredAt, 0);
+    }
+
+    @Override
+    @Transactional
+    public void enqueueInviteCode(
+            Long groupLinkId,
+            GroupMetadataSyncTrigger trigger,
+            long triggeredAt) {
+        enqueue(groupLinkId, trigger, triggeredAt, GroupSnapshotDispatchService.SCOPE_METADATA);
+    }
+
+    private void enqueue(
+            Long groupLinkId,
+            GroupMetadataSyncTrigger trigger,
+            long triggeredAt,
+            int completedScopeMask) {
         if (groupLinkId == null || trigger == null) {
             return;
         }
@@ -62,6 +80,7 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         row.setAttemptCount(0);
         row.setNextRunAt(nextRunAt);
         row.setRerunRequested(false);
+        row.setCompletedScopeMask(completedScopeMask);
         row.setCreatedAt(triggeredAt);
         row.setUpdatedAt(triggeredAt);
         mapper.enqueue(row, GroupMetadataSyncStatus.RUNNING.code());

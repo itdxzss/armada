@@ -221,6 +221,21 @@ class GroupMetadataSyncTaskMapperDbTest {
     }
 
     @Test
+    void dueCandidateProjectsCurrentMemberSnapshotTime() throws SQLException {
+        insertGroupLink("wa://group/current-profile@g.us", 4,
+                "current-profile@g.us", null);
+        execute("UPDATE wa_group_profile SET member_snapshot_at = 9500 WHERE group_id = 101");
+        mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BASELINE_CAPTURED, 10_000L),
+                GroupMetadataSyncStatus.RUNNING.code());
+
+        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+                java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 10).get(0);
+
+        assertThat(due.getMemberSnapshotAt()).isEqualTo(9_500L);
+    }
+
+    @Test
     void resumeDeferredUsesCurrentSelfPresenceInsteadOfStaleLegacyMembership()
             throws SQLException {
         insertGroupLink("wa://group/resume-current@g.us", 4,
@@ -572,7 +587,8 @@ class GroupMetadataSyncTaskMapperDbTest {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     group_id BIGINT NOT NULL,
-                    current_invite_id BIGINT
+                    current_invite_id BIGINT,
+                    member_snapshot_at BIGINT
                 )
                 """);
         execute("""

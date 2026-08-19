@@ -18,6 +18,9 @@ public class GroupMetadataSyncTask {
     /** 调度查询计算出的自建群邀请码必需标记；非任务表持久列。 */
     private Boolean inviteRequired;
 
+    /** 调度查询读出的最近完整成员快照事实时间；非任务表持久列。 */
+    private Long memberSnapshotAt;
+
     /** 任务状态稳定码。 */
     private Integer status;
 
@@ -110,6 +113,14 @@ public class GroupMetadataSyncTask {
 
     public void setInviteRequired(Boolean inviteRequired) {
         this.inviteRequired = inviteRequired;
+    }
+
+    public Long getMemberSnapshotAt() {
+        return memberSnapshotAt;
+    }
+
+    public void setMemberSnapshotAt(Long memberSnapshotAt) {
+        this.memberSnapshotAt = memberSnapshotAt;
     }
 
     public Integer getStatus() {

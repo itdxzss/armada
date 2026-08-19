@@ -74,8 +74,6 @@ class GroupConverterTest {
         row.setCreatorCountryName("印度");
         row.setCreatorCountryFlag("🇮🇳");
         row.setCreatorContinentCode("ASIA");
-        row.setCreatorPhoneRegionCode("MH");
-        row.setCreatorPhoneRegionName("马哈拉施特拉邦/果阿邦");
         row.setGroupCreatedAt(1_717_200_000L);
         row.setMetadataSyncStatus(GroupMetadataSyncStatus.SUCCEEDED.code());
         row.setMetadataSyncedAt(EPOCH_2024_06_01_UTC);
@@ -104,8 +102,6 @@ class GroupConverterTest {
         assertThat(vo.availableAdmin()).isTrue();
         assertThat(vo.creatorCountryIso2()).isEqualTo("IN");
         assertThat(vo.creatorContinentCode()).isEqualTo("ASIA");
-        assertThat(vo.creatorPhoneRegionCode()).isEqualTo("MH");
-        assertThat(vo.creatorPhoneRegionName()).isEqualTo("马哈拉施特拉邦/果阿邦");
         assertThat(vo.groupCreatedAt()).isEqualTo(1_717_200_000L);
         assertThat(vo.metadataSyncStatus()).isEqualTo("SUCCEEDED");
     }

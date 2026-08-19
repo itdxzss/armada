@@ -87,8 +87,8 @@ class GroupListCurrentMapperMySqlTest {
                 .containsExactly(202L, 201L);
         assertThat(rows).filteredOn(row -> row.getId().equals(201L)).singleElement()
                 .satisfies(row -> {
-                    assertThat(row.getCreatorPhoneRegionCode()).isEqualTo("PB");
-                    assertThat(row.getCreatorPhoneRegionName()).isEqualTo("旁遮普邦");
+                    assertThat(row.getCreatorCountryIso2()).isEqualTo("PK");
+                    assertThat(row.getCreatorContinentCode()).isEqualTo("ASIA");
                 });
 
         assertValidPage(pageQuery(1, 1));

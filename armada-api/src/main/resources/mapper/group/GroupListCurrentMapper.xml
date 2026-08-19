@@ -339,8 +339,6 @@
            country.name_zh AS creatorCountryName,
            country.flag AS creatorCountryFlag,
            legacy_preview.creator_continent_code AS creatorContinentCode,
-           legacy_preview.creator_phone_region_code AS creatorPhoneRegionCode,
-           legacy_preview.creator_phone_region_name AS creatorPhoneRegionName,
            CASE WHEN current_profile.wa_created_at IS NULL THEN NULL
              ELSE FLOOR(current_profile.wa_created_at / 1000) END AS groupCreatedAt,
            metadata_task.status AS metadataSyncStatus,

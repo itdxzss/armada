@@ -69,6 +69,16 @@ class PullTaskStandardGroupSettingMapperInMemoryTest {
         assertThat(saved.getUpdatedAt()).isEqualTo(100L);
     }
 
+    /** 总开关必须真正落列并读回；只加实体字段而 SQL 不写这一列，详情就永远显示关闭。 */
+    @Test
+    void persistsAndReadsBackGroupSettingToggle() {
+        PullTaskStandardGroupSetting row = sample(1L, "avatar-a.png");
+        row.setGroupSettingEnabled(1);
+        mapper.insert(row);
+
+        assertThat(mapper.selectByTaskId(1L).getGroupSettingEnabled()).isEqualTo(1);
+    }
+
     @Test
     void permitsMultipleNullAvatarKeysButRejectsSameBoundKeyWithinTenant() {
         mapper.insert(sample(1L, null));

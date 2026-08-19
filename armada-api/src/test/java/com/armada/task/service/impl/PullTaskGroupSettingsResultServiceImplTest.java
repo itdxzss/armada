@@ -320,7 +320,7 @@ class PullTaskGroupSettingsResultServiceImplTest {
             PullTaskGroupSettingsProtocolOutcome outcome, String reasonCode) {
         return new PullTaskGroupSettingsCallback(
                 7L, 100L, 11L, 812L, 901L, "manager-901",
-                "cmd-settings-1", 2, outcome, reasonCode, "raw", 1_000L);
+                "cmd-settings-1", 2, outcome, null, reasonCode, "raw", 1_000L);
     }
 
     private static PullTaskAccountAction action(PullTaskAccountActionType type) {

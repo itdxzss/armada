@@ -52,7 +52,7 @@ class ProtocolGroupActionResultAdapterTest {
         verify(groupSettingsResultService).apply(captor.capture());
         assertThat(captor.getValue()).isEqualTo(new PullTaskGroupSettingsCallback(
                 7L, 100L, 11L, 811L, 901L, "manager-901", "cmd-settings-1", 2,
-                PullTaskGroupSettingsProtocolOutcome.FAILED,
+                PullTaskGroupSettingsProtocolOutcome.FAILED, null,
                 "GROUP_PERMISSION_DENIED", "denied", 5_000L));
     }
 

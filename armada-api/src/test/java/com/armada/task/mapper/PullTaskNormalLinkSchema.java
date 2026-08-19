@@ -112,6 +112,7 @@ public final class PullTaskNormalLinkSchema {
                 mute_mode TINYINT NOT NULL DEFAULT 0,
                 link_permission_mode TINYINT NOT NULL DEFAULT 2,
                 disappearing_message_mode TINYINT NOT NULL DEFAULT 0,
+                is_group_setting_enabled TINYINT NOT NULL DEFAULT 0,
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 CONSTRAINT uq_pull_task_standard_group_setting_task

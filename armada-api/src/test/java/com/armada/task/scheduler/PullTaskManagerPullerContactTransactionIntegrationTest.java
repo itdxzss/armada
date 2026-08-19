@@ -16,6 +16,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsC
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -652,7 +653,8 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskManagerPullerContactResources resources) {
             return new PullTaskManagerPullerContactTransactionService(
-                    taskMapper, settingMapper, groupAccountMapper, actionMapper, resources);
+                    taskMapper, settingMapper, groupAccountMapper, actionMapper, resources,
+                    mock(PullTaskGroupProfileDispatcher.class));
         }
     }
 }

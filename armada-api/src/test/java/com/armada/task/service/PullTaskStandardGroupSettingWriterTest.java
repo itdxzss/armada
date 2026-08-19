@@ -67,7 +67,7 @@ class PullTaskStandardGroupSettingWriterTest {
         assertThatThrownBy(() -> writer.insert(setting(false, "x".repeat(129), null), 9L))
                 .isInstanceOf(BusinessException.class);
         PullTaskStandardGroupSettingDTO nullBoolean = new PullTaskStandardGroupSettingDTO(
-                PullTaskGroupSettingTiming.AFTER_PULL, null, null, null, null,
+                true, PullTaskGroupSettingTiming.AFTER_PULL, null, null, null, null,
                 true, true, PullTaskEditPermissionMode.DISALLOW, PullTaskMuteMode.MUTE,
                 PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.NINETY_DAYS);
@@ -79,7 +79,7 @@ class PullTaskStandardGroupSettingWriterTest {
     private PullTaskStandardGroupSettingDTO setting(
             boolean useFileName, String groupName, String description) {
         return new PullTaskStandardGroupSettingDTO(
-                PullTaskGroupSettingTiming.AFTER_PULL, groupName, useFileName,
+                true, PullTaskGroupSettingTiming.AFTER_PULL, groupName, useFileName,
                 "avatar.png", description, true, true,
                 PullTaskEditPermissionMode.DISALLOW, PullTaskMuteMode.MUTE,
                 PullTaskLinkPermissionMode.ADMIN_ONLY,

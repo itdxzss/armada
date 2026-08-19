@@ -7,18 +7,21 @@
              autoMapping="true">
     <result column="is_material_filename_as_group_name"
             property="materialFilenameAsGroupName"/>
+    <result column="is_group_setting_enabled" property="groupSettingEnabled"/>
     <result column="is_auto_unmute_after_task" property="autoUnmuteAfterTask"/>
     <result column="is_auto_close_invite_after_task" property="autoCloseInviteAfterTask"/>
   </resultMap>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_standard_group_setting (
-      task_id, setting_timing, group_name, is_material_filename_as_group_name,
+      task_id, is_group_setting_enabled, setting_timing, group_name,
+      is_material_filename_as_group_name,
       avatar_file_key, group_description, is_auto_unmute_after_task,
       is_auto_close_invite_after_task, edit_permission_mode, mute_mode,
       link_permission_mode, disappearing_message_mode, created_at, updated_at
     ) VALUES (
-      #{taskId}, #{settingTiming}, #{groupName}, #{materialFilenameAsGroupName},
+      #{taskId}, COALESCE(#{groupSettingEnabled}, 0), #{settingTiming}, #{groupName},
+      #{materialFilenameAsGroupName},
       #{avatarFileKey}, #{groupDescription}, #{autoUnmuteAfterTask},
       #{autoCloseInviteAfterTask}, #{editPermissionMode}, #{muteMode},
       #{linkPermissionMode}, #{disappearingMessageMode}, #{createdAt}, #{updatedAt}

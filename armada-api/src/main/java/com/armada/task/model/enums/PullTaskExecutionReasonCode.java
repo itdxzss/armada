@@ -42,6 +42,48 @@ public enum PullTaskExecutionReasonCode {
      */
     GROUP_JOIN_APPROVAL_CLOSE_FAILED("关闭进群审核失败"),
 
+    /**
+     * 「群信息设置」的群名下发失败。
+     *
+     * <p>与关闭进群审核同口径：只留痕不阻断执行行。群资料是运营展示需求，拉不拉得到人与它无关，
+     * 让它阻断执行行会把整条执行行卡在一个纯展示问题上。</p>
+     *
+     * <p>本码起的一组按设置项拆开：一条 {@code GROUP_SETTINGS_APPLY} 命令要改八项，只留一个
+     * 笼统的「群设置失败」会让运营看不出到底哪一项没设上，排查还得回去翻协议日志。</p>
+     */
+    GROUP_NAME_SET_FAILED("设置群名称失败"),
+
+    /** 「群信息设置」的群头像下发失败；只留痕不阻断执行行。 */
+    GROUP_AVATAR_SET_FAILED("设置群头像失败"),
+
+    /** 「群信息设置」的群描述下发失败；只留痕不阻断执行行。 */
+    GROUP_DESCRIPTION_SET_FAILED("设置群描述失败"),
+
+    /** 「群信息设置」的群禁言下发失败；只留痕不阻断执行行。 */
+    GROUP_MUTE_SET_FAILED("设置群禁言失败"),
+
+    /** 「群信息设置」的群资料编辑权限下发失败；只留痕不阻断执行行。 */
+    GROUP_EDIT_PERMISSION_SET_FAILED("设置群资料编辑权限失败"),
+
+    /**
+     * 「群信息设置」的加人（邀请链接）权限下发失败；只留痕不阻断执行行。
+     *
+     * <p>与 {@code GROUP_MEMBER_ADD_PERMISSION_UNCONFIRMED} 不是一回事：那个是拉手拉人的硬前置
+     * 门控，未确认要卡住执行行；本码只是「群信息设置」里运营自己勾的一项，失败不影响拉人。</p>
+     */
+    GROUP_MEMBER_ADD_PERMISSION_SET_FAILED("设置群加人权限失败"),
+
+    /**
+     * 「群信息设置」的入群审批下发失败；只留痕不阻断执行行。
+     *
+     * <p>与 {@code GROUP_JOIN_APPROVAL_CLOSE_FAILED} 不是一回事：那个来自独立的关闭进群审核
+     * 命令，本码来自「群信息设置」整块下发里的入群审批那一项。</p>
+     */
+    GROUP_JOIN_APPROVAL_SET_FAILED("设置入群审批失败"),
+
+    /** 「群信息设置」的限时消息下发失败；只留痕不阻断执行行。 */
+    GROUP_DISAPPEARING_MESSAGE_SET_FAILED("设置限时消息失败"),
+
     /** WhatsApp 明确通知目标群已暂停或终止。 */
     GROUP_BANNED("群已被封禁"),
 

@@ -15,7 +15,8 @@ import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupParticipantObservationService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -57,7 +58,7 @@ class GroupProfileReportedSinkAdapterTest {
     private GroupCreatorCompatibilityWriter creatorWriter;
 
     @Mock
-    private GroupParticipantObservationService participantObservationService;
+    private AccountMapper accountMapper;
 
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
@@ -254,28 +255,31 @@ class GroupProfileReportedSinkAdapterTest {
     }
 
     @Test
-    void controlledAccountBindingsAreReconciledFromTheMemberList() {
-        // 可用管理员、邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员
-        // 与角色，却不建绑定，就会出现"群主在控端、却判不可用"。
+    void controlledAccountBindingsAreWrittenFromTheMemberList() {
+        // 可用管理员与邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员与
+        // 角色，却不建绑定，就会出现"群主在控端、列表却判不可用"。
+        Account controlled = new Account();
+        controlled.setId(1649L);
+        controlled.setWsPhone("923048826465");
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenReturn(List.of(controlled));
+
         adapter.handleProfileReported(event(true, List.of(
                 new ProtocolGroupProfileReportedEvent.Member(
                         "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"),
                 new ProtocolGroupProfileReportedEvent.Member(
                         "916360432840@s.whatsapp.net", null, "916360432840", false, false, null))));
 
-        ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
-        verify(participantObservationService).reconcileControlledMemberships(
-                eq(1L), eq("120363-abc@g.us"), captor.capture());
-        assertThat(captor.getValue())
-                .as("成员身份需全部送进对账，由下游筛出我方受控账号")
-                .contains("923048826465@s.whatsapp.net", "916360432840@s.whatsapp.net");
+        // 只给受控账号建绑定；外部号码查不到账号自然不写。
+        verify(snapshotPersistence).applyControlledParticipantObservation(
+                eq(1649L), eq("120363-abc@g.us"), eq(true), eq(true),
+                anyLong(), anyString(), anyString());
     }
 
     @Test
     void bindingReconcileFailureDoesNotDropTheProfileFacts() {
-        org.mockito.Mockito.doThrow(new RuntimeException("reconcile down"))
-                .when(participantObservationService)
-                .reconcileControlledMemberships(anyLong(), anyString(), any());
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenThrow(new RuntimeException("account lookup down"));
 
         adapter.handleProfileReported(event(true, List.of(
                 new ProtocolGroupProfileReportedEvent.Member(

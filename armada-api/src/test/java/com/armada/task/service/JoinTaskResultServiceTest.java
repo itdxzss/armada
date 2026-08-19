@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.tenant.TenantContext;
@@ -35,6 +37,8 @@ class JoinTaskResultServiceTest {
     @Mock
     private JoinTaskMapper taskMapper;
     @Mock
+    private AccountGroupMembershipStatusService membershipStatusService;
+    @Mock
     private MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     private JoinTaskResultService service;
@@ -45,6 +49,7 @@ class JoinTaskResultServiceTest {
                 resultMapper,
                 taskMapper,
                 new JoinTaskIntervalPolicy(),
+                membershipStatusService,
                 marketingNewGroupService,
                 () -> 10_000L);
     }
@@ -61,6 +66,16 @@ class JoinTaskResultServiceTest {
         service.apply(event("JOINED", null, false, "120363@g.us", 1));
 
         verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verify(membershipStatusService).applyMembershipChanged(
+                new AccountGroupMembershipChangedEvent(
+                        1L,
+                        382L,
+                        "acc-1",
+                        "120363@g.us",
+                        "add",
+                        9_000L,
+                        "event-1",
+                        "JOIN_TASK_RESULT"));
         verify(marketingNewGroupService).enqueueDelayedNewGroups(
                 382L,
                 List.of(new MarketingNewGroupDTO(null, "120363@g.us", null)),
@@ -77,6 +92,7 @@ class JoinTaskResultServiceTest {
         service.apply(event("ALREADY_JOINED", null, false, "120363@g.us", 1));
 
         verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verifyNoInteractions(membershipStatusService);
         verifyNoInteractions(marketingNewGroupService);
     }
 
@@ -95,6 +111,23 @@ class JoinTaskResultServiceTest {
                 anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
         verify(resultMapper, never()).activateNextPending(
                 anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verifyNoInteractions(membershipStatusService);
+        verifyNoInteractions(marketingNewGroupService);
+    }
+
+    @Test
+    void apply_joinedWithInvalidFactTimestampDoesNotOverwriteMembershipOrFinalize() {
+        stubSubmitted(task(true, 2, 5), row(1));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.apply(eventWithTimestamp(
+                                "JOINED", null, false, "120363@g.us", 1, 0L)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("进群成功结果 timestamp 非法");
+
+        verify(resultMapper, never()).markTerminalSuccess(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
+        verifyNoInteractions(membershipStatusService);
         verifyNoInteractions(marketingNewGroupService);
     }
 
@@ -138,6 +171,7 @@ class JoinTaskResultServiceTest {
         service.apply(event("FAILED", "TEMPORARY_FAILURE", true, null, 1));
 
         verifyNoInteractions(taskMapper);
+        verifyNoInteractions(membershipStatusService);
         verifyNoInteractions(marketingNewGroupService);
         org.assertj.core.api.Assertions.assertThat(TenantContext.get()).isEqualTo(99L);
     }
@@ -182,8 +216,18 @@ class JoinTaskResultServiceTest {
 
     private static JoinTaskResultReportedEvent event(
             String outcome, String reason, boolean retryable, String groupJid, int attemptNo) {
+        return eventWithTimestamp(outcome, reason, retryable, groupJid, attemptNo, 9_000L);
+    }
+
+    private static JoinTaskResultReportedEvent eventWithTimestamp(
+            String outcome,
+            String reason,
+            boolean retryable,
+            String groupJid,
+            int attemptNo,
+            long timestamp) {
         return new JoinTaskResultReportedEvent(
                 "event-1", 1L, 9L, 26L, 382L, "acc-1", "cmd-1", attemptNo,
-                outcome, groupJid, reason, null, retryable, 9_000L, "worker-1");
+                outcome, groupJid, reason, null, retryable, timestamp, "worker-1");
     }
 }

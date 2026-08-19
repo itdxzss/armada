@@ -258,7 +258,12 @@
                    a.round_no AS roundNo,
                    a.attempt_no AS attemptNo,
                    COALESCE(a.result_at, a.attempted_at, a.created_at) AS eventAt,
-                   COALESCE(a.group_link_id, t.group_link_id) AS groupLinkId,
+                   CASE
+                       WHEN a.round_no = 0
+                            AND a.group_link_id IS NULL
+                            AND NULLIF(TRIM(a.group_jid), '') IS NOT NULL THEN NULL
+                       ELSE COALESCE(a.group_link_id, t.group_link_id)
+                   END AS groupLinkId,
                    COALESCE(
                        NULLIF(TRIM(a.group_jid), ''),
                        NULLIF(TRIM(current_group.group_jid), ''),
@@ -271,19 +276,41 @@
                        CONCAT('link:', COALESCE(a.group_link_id, t.group_link_id)),
                        CONCAT('target:', t.id)
                    ) AS groupKey,
-                   COALESCE(g.link_url, t.group_link_url) AS groupLinkUrl,
-                   COALESCE(
-                       NULLIF(TRIM(a.group_name), ''),
-                       NULLIF(TRIM(g.group_name), ''),
-                       NULLIF(TRIM(current_profile.subject), ''),
-                       NULLIF(TRIM(t.group_name), ''),
-                       COALESCE(NULLIF(TRIM(a.group_jid), ''), NULLIF(TRIM(t.group_jid), ''))
-                   ) AS groupName
+                   CASE
+                       WHEN a.round_no = 0
+                            AND a.group_link_id IS NULL
+                            AND NULLIF(TRIM(a.group_jid), '') IS NOT NULL THEN NULL
+                       ELSE COALESCE(g.link_url, t.group_link_url)
+                   END AS groupLinkUrl,
+                   CASE
+                       WHEN a.round_no = 0
+                            AND a.group_link_id IS NULL
+                            AND NULLIF(TRIM(a.group_jid), '') IS NOT NULL THEN COALESCE(
+                           NULLIF(TRIM(a.group_name), ''),
+                           NULLIF(TRIM(current_profile.subject), ''),
+                           NULLIF(TRIM(current_group.display_name), ''),
+                           NULLIF(TRIM(a.group_jid), '')
+                       )
+                       ELSE COALESCE(
+                           NULLIF(TRIM(a.group_name), ''),
+                           NULLIF(TRIM(g.group_name), ''),
+                           NULLIF(TRIM(current_profile.subject), ''),
+                           NULLIF(TRIM(current_group.display_name), ''),
+                           NULLIF(TRIM(t.group_name), ''),
+                           NULLIF(TRIM(t.group_jid), '')
+                       )
+                   END AS groupName
             FROM marketing_task_target t
             JOIN marketing_task_send_attempt a ON a.target_id = t.id
                                               AND a.marketing_task_id = t.marketing_task_id
             LEFT JOIN group_link g ON g.id = COALESCE(a.group_link_id, t.group_link_id)
-            LEFT JOIN wa_group current_group ON current_group.id = g.group_id
+            LEFT JOIN wa_group linked_group ON linked_group.id = g.group_id
+            LEFT JOIN wa_group current_group ON current_group.tenant_id = t.tenant_id
+                                             AND current_group.group_jid = COALESCE(
+                                                 NULLIF(TRIM(a.group_jid), ''),
+                                                 NULLIF(TRIM(linked_group.group_jid), ''),
+                                                 NULLIF(TRIM(t.group_jid), '')
+                                             )
             LEFT JOIN wa_group_profile current_profile ON current_profile.group_id = current_group.id
             WHERE t.marketing_task_id = #{taskId}
               AND a.marketing_task_id = #{taskId}
@@ -677,7 +704,8 @@
                detected_at, scheduled_send_at, outbox_accepted_at,
                submitted_at, result_at, attempted_at, created_at
         FROM marketing_task_send_attempt
-        WHERE status = 4
+        WHERE tenant_id = #{tenantId}
+          AND status = 4
           AND round_no = 0
           AND marketing_task_id = #{taskId}
           AND scheduled_send_at &lt;= #{now}

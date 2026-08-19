@@ -58,6 +58,7 @@
 - 2026-08-19 追加回归：暂停期间登记 WAITING、WAITING 明细置顶、PN JID 后缀兼容等 80 个后端聚焦测试通过；前端 WAITING 标签映射 2 个定点测试通过。当前前端工作区缺少 `node_modules` 中的 TypeScript/Vue 工具，因此本轮未能重新执行完整 typecheck。
 - 2026-08-19 实时增量兜底最终回归：57 个聚焦用例全部通过，覆盖原即时发送、延迟 WAITING、延迟关闭隔离、受控目标账号识别、成员增量与营销登记顺序、重复/旧 add 幂等、remove 不触发营销、实时记录按群 JID 到期校验以及 Mapper SQL 形态；`mvn -Dmaven.test.skip=true package` 构建通过。
 - 2026-08-19 进群结果兜底回归：72 个相关用例全部通过，覆盖首次有效 `JOINED` 登记、`ALREADY_JOINED`/失败/重复/迟到隔离、非法群 JID 不落成功终态、消费边界校验，以及既有快照差集和实时成员入口；主代码打包通过。当前合并基线另有 `MarketingTaskWhatsAppMemberProviderTest` 构造器参数不匹配，执行时通过 Maven test exclude 隔离该范围外已知破损测试。
+- 2026-08-19 test1 联调修复：`JOINED` 在登记 WAITING 前复用群域服务按协议事实时间落账号在群关系；无群链接的第 0 轮 WAITING 明细名称按 attempt 自身群 JID 查询，不再回退到动态目标旧群；到期锁定 SQL 改为显式租户条件并绕开租户插件改写，修复 MySQL `FOR UPDATE ORDER BY` 语法错误。相关 60 个聚焦用例及主代码打包通过；定点用例明确断言到期加载任务当前营销模板、生成目标群消息并交给统一 Outbox 发送端口。
 - 本轮未连接共享测试库执行真实 MySQL 查询；新增按群 JID 校验 SQL 已通过 MyBatis SQL 形态、租户拦截解析和 Service 回归。极端并发下旧 add 与更新的 remove 同时到达，可能短暂多登记一条 WAITING，但到期关系复核会将其跳过，不会进入 Outbox 或误发。
 
 ## 回滚方案

@@ -231,12 +231,17 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTaskSendAttempt waiting = waitingAttempt();
         MarketingTask task = sendingTask();
         task.setNewGroupDelayEnabled(true);
+        task.setMarketingTemplateId(88L);
+        MarketingTemplate currentTemplate = textTemplate();
+        currentTemplate.setId(88L);
+        currentTemplate.setContent("到期时任务当前模板消息");
+        when(templateMapper.selectById(88L)).thenReturn(currentTemplate);
         MarketingTaskTarget target = dynamicTarget();
         MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
         owner.setAccountId(target.getAccountId());
         owner.setMarketingTaskId(task.getId());
         when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
-        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
                 .thenReturn(List.of(waiting));
         when(mapper.selectTargetById(501L)).thenReturn(target);
         when(occupancyService.loadActiveOwners(List.of(5_001L)))
@@ -253,8 +258,16 @@ class MarketingNewGroupImmediateSendServiceImplTest {
 
         InOrder lockOrder = inOrder(mapper);
         lockOrder.verify(mapper).selectTaskByIdForUpdate(42L);
-        lockOrder.verify(mapper).selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L);
-        verify(messagePort).enqueue(any());
+        lockOrder.verify(mapper).selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<MessageSendCommand>> commandCaptor = ArgumentCaptor.forClass(List.class);
+        verify(messagePort).enqueue(commandCaptor.capture());
+        assertThat(commandCaptor.getValue()).hasSize(1);
+        MessageSendCommand command = commandCaptor.getValue().get(0);
+        assertThat(command.target().groupJid()).isEqualTo("120363a@g.us");
+        assertThat(command.payload().content().text()).isEqualTo("到期时任务当前模板消息");
+        assertThat(command.correlation().marketing().attemptId()).isEqualTo(9_001L);
+        verify(templateMapper).selectById(88L);
         verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
         verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
     }
@@ -270,7 +283,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         owner.setAccountId(target.getAccountId());
         owner.setMarketingTaskId(task.getId());
         when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
-        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
                 .thenReturn(List.of(waiting));
         when(mapper.selectTargetById(501L)).thenReturn(target);
         when(occupancyService.loadActiveOwners(List.of(5_001L)))
@@ -298,7 +311,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTask task = sendingTask();
         task.setStatus(5);
         when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
-        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
                 .thenReturn(List.of(waitingAttempt()));
 
         service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
@@ -313,7 +326,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTask task = sendingTask();
         task.setNewGroupDelayEnabled(true);
         when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
-        when(mapper.selectWaitingAttemptsForUpdate(42L, List.of(9_001L), 3_000L))
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
                 .thenReturn(List.of(waitingAttempt()));
         when(mapper.selectTargetById(501L)).thenReturn(dynamicTarget());
         when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))

@@ -100,8 +100,14 @@ public interface MarketingTaskMapper {
     List<MarketingTaskSendAttempt> selectDueWaitingNewGroupAttempts(@Param("now") long now,
                                                                     @Param("limit") int limit);
 
-    /** 在当前租户事务中锁定指定的等待记录，供多实例幂等提交。 */
+    /**
+     * 在指定租户事务中锁定等待记录，供多实例幂等提交。
+     *
+     * <p>该查询自行携带租户条件，避免租户插件改写 {@code ORDER BY ... FOR UPDATE} 时破坏 MySQL 语法。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
     List<MarketingTaskSendAttempt> selectWaitingAttemptsForUpdate(
+            @Param("tenantId") Long tenantId,
             @Param("taskId") Long taskId,
             @Param("attemptIds") List<Long> attemptIds,
             @Param("now") long now);

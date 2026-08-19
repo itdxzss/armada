@@ -203,6 +203,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         TenantContext.set(tenantId);
         try {
             submitDueWaitingAttemptsInTenant(
+                    tenantId,
                     marketingTaskId,
                     attemptIds.stream().filter(Objects::nonNull).distinct().toList(),
                     submittedAt);
@@ -215,9 +216,10 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         }
     }
 
-    private void submitDueWaitingAttemptsInTenant(Long marketingTaskId,
-                                                  List<Long> attemptIds,
-                                                  long submittedAt) {
+    private void submitDueWaitingAttemptsInTenant(Long tenantId,
+                                                   Long marketingTaskId,
+                                                   List<Long> attemptIds,
+                                                   long submittedAt) {
         if (attemptIds.isEmpty()) {
             return;
         }
@@ -226,7 +228,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         List<MarketingTaskSendAttempt> waiting = taskMapper.selectWaitingAttemptsForUpdate(
-                marketingTaskId, attemptIds, submittedAt);
+                tenantId, marketingTaskId, attemptIds, submittedAt);
         if (waiting.isEmpty()) {
             return;
         }

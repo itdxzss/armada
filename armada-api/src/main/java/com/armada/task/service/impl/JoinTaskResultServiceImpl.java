@@ -1,5 +1,7 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.tenant.TenantContext;
@@ -26,8 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
  * 旧尝试迟到结果或已经被其它消费者处理的事件查不到可更新行，因此直接幂等返回。当前行需要重试时
  * 只把它恢复为 WAITING 并设置随机执行时间；只有当前行进入终态后才激活同账号下一行。</p>
  *
- * <p>任务计数刷新、下一行激活和当前行状态迁移处于同一事务。协议事件自带 timestamp 仅供诊断，
- * 业务排期使用 Armada 当前时间，避免协议机器时钟偏差破坏账号间隔。</p>
+ * <p>任务计数刷新、下一行激活和当前行状态迁移处于同一事务。任务排期使用 Armada 当前时间，避免协议
+ * 机器时钟偏差破坏账号间隔；JOINED 写入群关系时保留协议事实时间，用于抵御群关系事件乱序。</p>
  */
 @Service
 public class JoinTaskResultServiceImpl implements JoinTaskResultService {
@@ -37,6 +39,12 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
 
     /** 协议确认账号此前已在目标群，业务上按成功收敛。 */
     private static final String OUTCOME_ALREADY_JOINED = "ALREADY_JOINED";
+
+    /** 群关系服务接受的入群动作。 */
+    private static final String MEMBERSHIP_ACTION_ADD = "add";
+
+    /** 进群任务成功结果写入群关系时使用的事实来源。 */
+    private static final String JOIN_TASK_RESULT_SOURCE = "JOIN_TASK_RESULT";
 
     /** 目标群开启入群审批，本次命令已结束但未真正入群。 */
     private static final String OUTCOME_PENDING_APPROVAL = "PENDING_APPROVAL";
@@ -53,6 +61,9 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     /** 同账号下一次执行时间的随机区间策略。 */
     private final JoinTaskIntervalPolicy intervalPolicy;
 
+    /** 群域关系写入入口，确保进群成功事实先成为可校验的当前关系。 */
+    private final AccountGroupMembershipStatusService membershipStatusService;
+
     /** 进群成功后的延迟营销登记入口；延迟未开启时由该服务直接忽略。 */
     private final MarketingNewGroupImmediateSendService marketingNewGroupService;
 
@@ -65,14 +76,17 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
      * @param intervalPolicy 随机执行间隔策略
+     * @param membershipStatusService 账号群关系服务
      * @param marketingNewGroupService 新群延迟营销登记服务
      */
     @Autowired
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
                                      JoinTaskIntervalPolicy intervalPolicy,
+                                     AccountGroupMembershipStatusService membershipStatusService,
                                      MarketingNewGroupImmediateSendService marketingNewGroupService) {
-        this(resultMapper, taskMapper, intervalPolicy, marketingNewGroupService, System::currentTimeMillis);
+        this(resultMapper, taskMapper, intervalPolicy, membershipStatusService,
+                marketingNewGroupService, System::currentTimeMillis);
     }
 
     /**
@@ -81,17 +95,20 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
      * @param intervalPolicy 随机执行间隔策略
+     * @param membershipStatusService 账号群关系服务
      * @param marketingNewGroupService 新群延迟营销登记服务
      * @param currentTimeMillis 当前 epoch 毫秒提供器
      */
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
                                      JoinTaskIntervalPolicy intervalPolicy,
+                                     AccountGroupMembershipStatusService membershipStatusService,
                                      MarketingNewGroupImmediateSendService marketingNewGroupService,
                                      LongSupplier currentTimeMillis) {
         this.resultMapper = resultMapper;
         this.taskMapper = taskMapper;
         this.intervalPolicy = intervalPolicy;
+        this.membershipStatusService = membershipStatusService;
         this.marketingNewGroupService = marketingNewGroupService;
         this.currentTimeMillis = currentTimeMillis;
     }
@@ -128,8 +145,21 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
                 String groupJid = OUTCOME_JOINED.equals(outcome)
                         ? requiredJoinedGroupJid(event.groupJid())
                         : safe(event.groupJid());
+                long membershipOccurredAt = OUTCOME_JOINED.equals(outcome)
+                        ? requiredMembershipOccurredAt(event.timestamp())
+                        : 0L;
                 resultMapper.markTerminalSuccess(row.getId(), groupJid, now);
                 if (OUTCOME_JOINED.equals(outcome)) {
+                    membershipStatusService.applyMembershipChanged(
+                            new AccountGroupMembershipChangedEvent(
+                                    event.tenantId(),
+                                    row.getAccountId(),
+                                    event.protocolAccountId(),
+                                    groupJid,
+                                    MEMBERSHIP_ACTION_ADD,
+                                    membershipOccurredAt,
+                                    event.eventId(),
+                                    JOIN_TASK_RESULT_SOURCE));
                     marketingNewGroupService.enqueueDelayedNewGroups(
                             row.getAccountId(),
                             List.of(new MarketingNewGroupDTO(null, groupJid, null)),
@@ -238,6 +268,14 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
             throw new IllegalArgumentException("进群成功结果 groupJid 非法");
         }
         return groupJid;
+    }
+
+    /** JOINED 群关系必须使用协议事实时间，禁止以迟到消费时间覆盖更新的退群事实。 */
+    private static long requiredMembershipOccurredAt(long timestamp) {
+        if (timestamp <= 0L) {
+            throw new IllegalArgumentException("进群成功结果 timestamp 非法");
+        }
+        return timestamp;
     }
 
     /** 在设置租户上下文前校验锁定当前业务尝试所需的最小关联字段。 */

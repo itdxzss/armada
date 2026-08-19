@@ -578,6 +578,39 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("d.tenant_id = 7");
     }
 
+    @Test
+    void waitingAttemptLockKeepsExplicitTenantBeforeMysqlOrderAndForUpdate() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectWaitingAttemptsForUpdate");
+
+        assertThat(sql)
+                .contains("tenant_id = #{tenantId}")
+                .contains("ORDER BY scheduled_send_at ASC, id ASC\n        FOR UPDATE");
+    }
+
+    @Test
+    void dynamicWaitingAttemptNameNeverFallsBackToAnotherTargetGroup() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
+
+        assertThat(sql)
+                .contains("WHEN a.round_no = 0\n"
+                        + "                            AND a.group_link_id IS NULL\n"
+                        + "                            AND NULLIF(TRIM(a.group_jid), '') IS NOT NULL THEN")
+                .contains("NULLIF(TRIM(current_profile.subject), '')")
+                .contains("NULLIF(TRIM(current_group.display_name), '')")
+                .contains("ELSE COALESCE(\n"
+                        + "                           NULLIF(TRIM(a.group_name), ''),\n"
+                        + "                           NULLIF(TRIM(g.group_name), '')")
+                .contains("NULLIF(TRIM(t.group_name), '')");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

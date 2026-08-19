@@ -9,6 +9,7 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
 import com.armada.platform.protocol.exception.ProtocolException;
@@ -49,6 +50,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupCreatorCompatibilityWriter creatorWriter;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
+    private final GroupParticipantObservationService participantObservationService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
@@ -57,7 +59,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             GroupBatchTaskItemMapper batchItemMapper,
             GroupLinkRegistryService groupLinkRegistryService,
             GroupCreatorCompatibilityWriter creatorWriter,
-            GroupMetadataSyncTaskService metadataSyncTaskService) {
+            GroupMetadataSyncTaskService metadataSyncTaskService,
+            GroupParticipantObservationService participantObservationService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
@@ -65,6 +68,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.creatorWriter = creatorWriter;
         this.metadataSyncTaskService = metadataSyncTaskService;
+        this.participantObservationService = participantObservationService;
     }
 
     @Override
@@ -79,6 +83,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
             applyMembers(event);
+            reconcileControlledBindings(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {
                 taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
                 batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
@@ -189,6 +194,46 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 GroupMetadataFieldSource.PROFILE_SNAPSHOT,
                 event.occurredAt(),
                 event.eventId()));
+    }
+
+    /**
+     * 按成员列表对齐我方账号的群绑定。
+     *
+     * <p>「可用管理员」与邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员
+     * 与角色，却不建绑定，就会出现"群主明明在控端、列表却判不可用"，邀请码任务也拿
+     * NO_EXECUTION_ACCOUNT 失败。绑定原先只由精确关系事件建立，而那条事件与上线全量清单同
+     * 队列，实测慢几分钟。</p>
+     *
+     * <p>成员身份整份送下去，由 reconcileControlledMemberships 自己筛出受控账号——外部号码
+     * 匹配不到账号自然不会建绑定，这里不重复判断。</p>
+     *
+     * <p>放在成员落库之后：对账要按已落库的成员状态匹配。失败只告警，不让整条事件重投。</p>
+     */
+    private void reconcileControlledBindings(ProtocolGroupProfileReportedEvent event) {
+        if (event.members() == null || event.members().isEmpty()) {
+            return;
+        }
+        List<String> identities = new ArrayList<>(event.members().size());
+        for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
+            // 传 PN 与 LID 双候选：下游按 COALESCE(pn_jid, lid_jid) 匹配，
+            // 只传一种会漏掉已合并出另一种形态的行。
+            if (member.jid() != null) {
+                identities.add(member.jid());
+            }
+            if (member.lid() != null) {
+                identities.add(member.lid());
+            }
+        }
+        if (identities.isEmpty()) {
+            return;
+        }
+        try {
+            participantObservationService.reconcileControlledMemberships(
+                    event.tenantId(), event.groupJid(), identities);
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报对齐账号群绑定失败,其余事实照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
+        }
     }
 
     /** 写完整成员快照；只有协议授权列表完整时才执行，因为它会判定缺失成员已退群。 */

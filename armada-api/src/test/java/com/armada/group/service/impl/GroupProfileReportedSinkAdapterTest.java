@@ -17,6 +17,7 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -59,6 +60,9 @@ class GroupProfileReportedSinkAdapterTest {
 
     @Mock
     private GroupMetadataSyncTaskService metadataSyncTaskService;
+
+    @Mock
+    private GroupParticipantObservationService participantObservationService;
 
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
@@ -252,6 +256,37 @@ class GroupProfileReportedSinkAdapterTest {
         adapter.handleProfileReported(event(true, List.of()));
 
         verify(creatorWriter, never()).writeCreator(anyLong(), anyString(), anyLong());
+    }
+
+    @Test
+    void controlledAccountBindingsAreReconciledFromTheMemberList() {
+        // 可用管理员、邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员
+        // 与角色，却不建绑定，就会出现"群主在控端、却判不可用"。
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"),
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "916360432840@s.whatsapp.net", null, "916360432840", false, false, null))));
+
+        ArgumentCaptor<List<String>> captor = ArgumentCaptor.forClass(List.class);
+        verify(participantObservationService).reconcileControlledMemberships(
+                eq(1L), eq("120363-abc@g.us"), captor.capture());
+        assertThat(captor.getValue())
+                .as("成员身份需全部送进对账，由下游筛出我方受控账号")
+                .contains("923048826465@s.whatsapp.net", "916360432840@s.whatsapp.net");
+    }
+
+    @Test
+    void bindingReconcileFailureDoesNotDropTheProfileFacts() {
+        org.mockito.Mockito.doThrow(new RuntimeException("reconcile down"))
+                .when(participantObservationService)
+                .reconcileControlledMemberships(anyLong(), anyString(), any());
+
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"))));
+
+        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
     }
 
     @Test

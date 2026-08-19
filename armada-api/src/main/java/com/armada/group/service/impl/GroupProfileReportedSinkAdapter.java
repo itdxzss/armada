@@ -5,10 +5,12 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
@@ -42,16 +44,19 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence;
     private final GroupMetadataSyncTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper batchItemMapper;
+    private final GroupLinkRegistryService groupLinkRegistryService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
             AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence,
             GroupMetadataSyncTaskMapper taskMapper,
-            GroupBatchTaskItemMapper batchItemMapper) {
+            GroupBatchTaskItemMapper batchItemMapper,
+            GroupLinkRegistryService groupLinkRegistryService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
+        this.groupLinkRegistryService = groupLinkRegistryService;
     }
 
     @Override
@@ -59,6 +64,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     public void handleProfileReported(ProtocolGroupProfileReportedEvent event) {
         TenantContext.set(event.tenantId());
         try {
+            registerGroupLink(event);
             applyProfileFields(event);
             applyMembers(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {
@@ -67,6 +73,31 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             }
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /**
+     * 把群登记进群组列表主表 group_link。
+     *
+     * <p>群组列表读的是 group_link，而不是资料表。此前只有精确关系事件登记它，于是资料几秒就到位、
+     * 列表却要等那条事件——它走账号群同步 topic，会排在上线全量清单后面，实测堵了 5 分 49 秒。
+     * 本事件自带群 JID 与群名，登记所需信息齐全，且 registerAccountObservedGroup 幂等，
+     * 与关系事件重复登记只会 touch 同一行。</p>
+     *
+     * <p>登记失败不向上抛：资料与成员才是本事件的主载荷，不能因为列表入口没建成而整条消息重投，
+     * 那会把这个群的资料也一起卡住。关系事件随后仍会补登记。</p>
+     */
+    private void registerGroupLink(ProtocolGroupProfileReportedEvent event) {
+        try {
+            groupLinkRegistryService.registerAccountObservedGroup(
+                    event.groupJid(),
+                    event.subject(),
+                    // 用容错解析而非 valueOf：backend 来自外部事件，未知值该回落而不是抛异常。
+                    ProtocolBackend.fromProtocolId(event.protocolBackend()),
+                    System.currentTimeMillis());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
         }
     }
 

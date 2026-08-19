@@ -13,8 +13,10 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
@@ -46,6 +48,9 @@ class GroupProfileReportedSinkAdapterTest {
 
     @Mock
     private GroupBatchTaskItemMapper batchItemMapper;
+
+    @Mock
+    private GroupLinkRegistryService groupLinkRegistryService;
 
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
@@ -181,6 +186,34 @@ class GroupProfileReportedSinkAdapterTest {
                 .as("协议侧已把号码还原成完整 JID 时不得再拼一次后缀："
                         + "绑定按 pn_jid 等值关联，双后缀会让受控账号永远匹配不上自己的群")
                 .isEqualTo("919000000003@s.whatsapp.net");
+    }
+
+    @Test
+    void profileReportRegistersGroupLinkSoTheGroupListShowsItImmediately() {
+        // 群组列表主表是 group_link，建档不登记它，页面就要等精确关系事件——
+        // 那条走另一个 topic，实测被上线全量清单堵了 5 分 49 秒。
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "919000000001@s.whatsapp.net", null, "919000000001", true, true, "superadmin"))));
+
+        verify(groupLinkRegistryService).registerAccountObservedGroup(
+                eq("120363-abc@g.us"), eq("Alpha"), eq(ProtocolBackend.WEB), anyLong());
+    }
+
+    @Test
+    void groupLinkRegistrationFailureDoesNotDropTheProfileFacts() {
+        // 登记失败不能连累资料与成员落库：那两者才是本事件的主载荷。
+        org.mockito.Mockito.doThrow(new RuntimeException("registry down"))
+                .when(groupLinkRegistryService)
+                .registerAccountObservedGroup(anyString(), any(), any(), anyLong());
+
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "919000000001@s.whatsapp.net", null, "919000000001", false, false, null))));
+
+        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), any(), anyLong(), anyString());
     }
 
     private static ProtocolGroupProfileReportedEvent event(

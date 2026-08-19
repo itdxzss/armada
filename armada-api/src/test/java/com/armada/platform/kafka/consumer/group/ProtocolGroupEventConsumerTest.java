@@ -759,9 +759,17 @@ class ProtocolGroupEventConsumerTest {
                   "outcome":"MAYBE","retryable":false
                 }}
                 """;
+        String joinedWithoutGroupJid = """
+                {"event":"group.join_result_reported","data":{
+                  "tenantId":1,"joinTaskId":9,"joinTaskResultId":26,"accountId":382,
+                  "protocolAccountId":"acc-1","commandId":"cmd-1","attemptNo":1,
+                  "outcome":"JOINED","retryable":false
+                }}
+                """;
 
         assertThatThrownBy(() -> onMessage(missingCommand)).isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> onMessage(invalidOutcome)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> onMessage(joinedWithoutGroupJid)).isInstanceOf(BusinessException.class);
         verifyNoInteractions(joinResultSink);
     }
 

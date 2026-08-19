@@ -969,6 +969,10 @@ public class ProtocolGroupEventConsumer {
         if (!SUPPORTED_JOIN_OUTCOMES.contains(outcome)) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果 outcome 非法");
         }
+        String groupJid = text(data, "groupJid");
+        if ("JOINED".equals(outcome)) {
+            groupJid = normalizeRequiredGroupJid(groupJid, "协议进群成功结果 groupJid 非法");
+        }
         Boolean retryable = booleanValue(data, "retryable");
         if (retryable == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果缺少 data.retryable");
@@ -983,7 +987,7 @@ public class ProtocolGroupEventConsumer {
                 commandId,
                 attemptNo,
                 outcome,
-                text(data, "groupJid"),
+                groupJid,
                 text(data, "reasonCode"),
                 text(data, "reasonMessage"),
                 retryable,
@@ -993,6 +997,16 @@ public class ProtocolGroupEventConsumer {
                 event.eventId(), event.tenantId(), event.correlation(),
                 event.commandId(), event.attemptNo(), event.outcome());
         joinResultReportedSink.handleJoinResultReported(event);
+    }
+
+    private static String normalizeRequiredGroupJid(String value, String message) {
+        String groupJid = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        if (groupJid.length() <= "@g.us".length()
+                || !groupJid.endsWith("@g.us")
+                || groupJid.indexOf('@') != groupJid.lastIndexOf('@')) {
+            throw new BusinessException(ErrorCode.VALIDATION, message);
+        }
+        return groupJid;
     }
 
     private static ProtocolGroupJoinCorrelation joinCorrelation(JsonNode data) {

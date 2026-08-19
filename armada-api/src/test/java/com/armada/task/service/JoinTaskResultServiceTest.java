@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.marketing.model.dto.MarketingNewGroupDTO;
+import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -8,10 +10,14 @@ import com.armada.task.model.dto.JoinTaskDeadCommandCandidate;
 import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.service.impl.JoinTaskResultServiceImpl;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -28,12 +34,19 @@ class JoinTaskResultServiceTest {
     private JoinTaskResultMapper resultMapper;
     @Mock
     private JoinTaskMapper taskMapper;
+    @Mock
+    private MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     private JoinTaskResultService service;
 
     @BeforeEach
     void setUp() {
-        service = new JoinTaskResultServiceImpl(resultMapper, taskMapper, new JoinTaskIntervalPolicy(), () -> 10_000L);
+        service = new JoinTaskResultServiceImpl(
+                resultMapper,
+                taskMapper,
+                new JoinTaskIntervalPolicy(),
+                marketingNewGroupService,
+                () -> 10_000L);
     }
 
     @AfterEach
@@ -48,9 +61,41 @@ class JoinTaskResultServiceTest {
         service.apply(event("JOINED", null, false, "120363@g.us", 1));
 
         verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verify(marketingNewGroupService).enqueueDelayedNewGroups(
+                382L,
+                List.of(new MarketingNewGroupDTO(null, "120363@g.us", null)),
+                10_000L);
         verify(resultMapper).activateNextPending(9L, 382L, 26L, 15_000L, 10_000L);
         verify(taskMapper).refreshCounters(9L);
         verify(taskMapper).markDoneWhenNoPending(9L, 10_000L);
+    }
+
+    @Test
+    void apply_alreadyJoinedDoesNotRegisterNewGroupMarketing() {
+        stubSubmitted(task(true, 2, 5), row(1));
+
+        service.apply(event("ALREADY_JOINED", null, false, "120363@g.us", 1));
+
+        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verifyNoInteractions(marketingNewGroupService);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"not-a-group", "@g.us", "120363@g.us@evil"})
+    void apply_joinedWithInvalidGroupJidDoesNotFinalizeOrRegisterMarketing(String groupJid) {
+        stubSubmitted(task(true, 2, 5), row(1));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.apply(event("JOINED", null, false, groupJid, 1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("进群成功结果 groupJid 非法");
+
+        verify(resultMapper, never()).markTerminalSuccess(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
+        verify(resultMapper, never()).activateNextPending(
+                anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verifyNoInteractions(marketingNewGroupService);
     }
 
     @Test
@@ -93,6 +138,7 @@ class JoinTaskResultServiceTest {
         service.apply(event("FAILED", "TEMPORARY_FAILURE", true, null, 1));
 
         verifyNoInteractions(taskMapper);
+        verifyNoInteractions(marketingNewGroupService);
         org.assertj.core.api.Assertions.assertThat(TenantContext.get()).isEqualTo(99L);
     }
 

@@ -1,5 +1,7 @@
 package com.armada.task.service.impl;
 
+import com.armada.marketing.model.dto.MarketingNewGroupDTO;
+import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -10,6 +12,7 @@ import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.task.model.enums.JoinTaskFailureReason;
 import com.armada.task.service.JoinTaskIntervalPolicy;
 import com.armada.task.service.JoinTaskResultService;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.LongSupplier;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +53,9 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     /** 同账号下一次执行时间的随机区间策略。 */
     private final JoinTaskIntervalPolicy intervalPolicy;
 
+    /** 进群成功后的延迟营销登记入口；延迟未开启时由该服务直接忽略。 */
+    private final MarketingNewGroupImmediateSendService marketingNewGroupService;
+
     /** 可替换时钟，生产使用系统时间，测试使用固定时间。 */
     private final LongSupplier currentTimeMillis;
 
@@ -59,12 +65,14 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
      * @param intervalPolicy 随机执行间隔策略
+     * @param marketingNewGroupService 新群延迟营销登记服务
      */
     @Autowired
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
-                                     JoinTaskIntervalPolicy intervalPolicy) {
-        this(resultMapper, taskMapper, intervalPolicy, System::currentTimeMillis);
+                                     JoinTaskIntervalPolicy intervalPolicy,
+                                     MarketingNewGroupImmediateSendService marketingNewGroupService) {
+        this(resultMapper, taskMapper, intervalPolicy, marketingNewGroupService, System::currentTimeMillis);
     }
 
     /**
@@ -73,15 +81,18 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
      * @param intervalPolicy 随机执行间隔策略
+     * @param marketingNewGroupService 新群延迟营销登记服务
      * @param currentTimeMillis 当前 epoch 毫秒提供器
      */
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
                                      JoinTaskIntervalPolicy intervalPolicy,
+                                     MarketingNewGroupImmediateSendService marketingNewGroupService,
                                      LongSupplier currentTimeMillis) {
         this.resultMapper = resultMapper;
         this.taskMapper = taskMapper;
         this.intervalPolicy = intervalPolicy;
+        this.marketingNewGroupService = marketingNewGroupService;
         this.currentTimeMillis = currentTimeMillis;
     }
 
@@ -114,7 +125,16 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
             long now = currentTimeMillis.getAsLong();
             String outcome = event.outcome().trim().toUpperCase(Locale.ROOT);
             if (OUTCOME_JOINED.equals(outcome) || OUTCOME_ALREADY_JOINED.equals(outcome)) {
-                resultMapper.markTerminalSuccess(row.getId(), safe(event.groupJid()), now);
+                String groupJid = OUTCOME_JOINED.equals(outcome)
+                        ? requiredJoinedGroupJid(event.groupJid())
+                        : safe(event.groupJid());
+                resultMapper.markTerminalSuccess(row.getId(), groupJid, now);
+                if (OUTCOME_JOINED.equals(outcome)) {
+                    marketingNewGroupService.enqueueDelayedNewGroups(
+                            row.getAccountId(),
+                            List.of(new MarketingNewGroupDTO(null, groupJid, null)),
+                            now);
+                }
                 advanceAfterTerminal(task, row, now);
                 return;
             }
@@ -207,6 +227,17 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     /** 把协议可空文本归一为空串，满足历史非空列约束。 */
     private static String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    /** JOINED 必须携带可用于新群营销和结果追踪的群 JID，非法值不能先收敛为成功终态。 */
+    private static String requiredJoinedGroupJid(String value) {
+        String groupJid = safe(value).toLowerCase(Locale.ROOT);
+        if (groupJid.length() <= "@g.us".length()
+                || !groupJid.endsWith("@g.us")
+                || groupJid.indexOf('@') != groupJid.lastIndexOf('@')) {
+            throw new IllegalArgumentException("进群成功结果 groupJid 非法");
+        }
+        return groupJid;
     }
 
     /** 在设置租户上下文前校验锁定当前业务尝试所需的最小关联字段。 */

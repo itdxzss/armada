@@ -610,6 +610,30 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 preview.getGroupJid(), participants, snapshotAt, snapshotVersion, preview);
     }
 
+    /**
+     * 只填建群时间；已有值时不覆盖。
+     *
+     * <p>建群时间建群时定死、此后不变，与可变的资料字段不是同一生命周期，因此不进
+     * fieldMask 也不参与版本比较——先到先得即可。</p>
+     *
+     * @param groupJid    群 JID
+     * @param waCreatedAt WhatsApp 建群时间(epoch 毫秒)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void fillGroupCreatedAt(String groupJid, Long waCreatedAt) {
+        if (waCreatedAt == null || waCreatedAt <= 0) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        String normalizedJid = participantGroupJid(groupJid);
+        Long groupId = resolveGroupIds(tenantId, List.of(normalizedJid), now).get(normalizedJid);
+        if (groupId == null) {
+            return;
+        }
+        mapper.fillGroupCreatedAt(groupId, waCreatedAt, now);
+    }
+
     /** 将协议回读已确认的群资料单字段立即写入新模型。 */
     @Transactional(rollbackFor = Exception.class)
     public void applyConfirmedMetadata(GroupLinkPreview preview) {

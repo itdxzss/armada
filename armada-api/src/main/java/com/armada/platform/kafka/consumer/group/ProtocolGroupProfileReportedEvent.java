@@ -34,6 +34,8 @@ import java.util.List;
  * @param membersComplete  成员列表是否为该群全集，决定能否判定退群
  * @param source           协议侧来源标识，仅用于追溯
  * @param occurredAt       事实发生时间(epoch 毫秒)
+ * @param groupCreatedAt   WhatsApp 建群时间(epoch 毫秒)，协议侧已换算；未观察为 null
+ * @param creatorPhone     建群人手机号(裸号)，用于创建者展示与国旗推导；未观察为 null
  * @param workerId         产生事件的协议层 worker ID
  */
 public record ProtocolGroupProfileReportedEvent(
@@ -55,6 +57,8 @@ public record ProtocolGroupProfileReportedEvent(
         boolean membersComplete,
         String source,
         long occurredAt,
+        Long groupCreatedAt,
+        String creatorPhone,
         String workerId,
         String commandId
 ) {

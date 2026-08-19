@@ -200,6 +200,8 @@ armada:
       group-events:
         topic: ${PROTOCOL_GROUP_EVENTS_TOPIC:protocol.group.events.v1}
         group-id: ${PROTOCOL_GROUP_EVENTS_GROUP_ID:armada-api-group-events}
+        # 默认取分区数：一群一账号一条建档事件，单线程消费实测把落库压到 45 秒。
+        concurrency: ${PROTOCOL_GROUP_EVENTS_CONCURRENCY:3}
   protocol-restart:
     pm2-bin: ${ARMADA_PROTOCOL_RESTART_PM2_BIN:pm2}
     process-names:

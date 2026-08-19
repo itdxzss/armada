@@ -13,8 +13,12 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
@@ -46,6 +50,15 @@ class GroupProfileReportedSinkAdapterTest {
 
     @Mock
     private GroupBatchTaskItemMapper batchItemMapper;
+
+    @Mock
+    private GroupLinkRegistryService groupLinkRegistryService;
+
+    @Mock
+    private GroupCreatorCompatibilityWriter creatorWriter;
+
+    @Mock
+    private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
@@ -183,8 +196,109 @@ class GroupProfileReportedSinkAdapterTest {
                 .isEqualTo("919000000003@s.whatsapp.net");
     }
 
+    @Test
+    void profileReportRegistersGroupLinkSoTheGroupListShowsItImmediately() {
+        // 群组列表主表是 group_link，建档不登记它，页面就要等精确关系事件——
+        // 那条走另一个 topic，实测被上线全量清单堵了 5 分 49 秒。
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "919000000001@s.whatsapp.net", null, "919000000001", true, true, "superadmin"))));
+
+        verify(groupLinkRegistryService).registerAccountObservedGroup(
+                eq("120363-abc@g.us"), eq("Alpha"), eq(ProtocolBackend.WEB), anyLong());
+    }
+
+    @Test
+    void groupLinkRegistrationFailureDoesNotDropTheProfileFacts() {
+        // 登记失败不能连累资料与成员落库：那两者才是本事件的主载荷。
+        org.mockito.Mockito.doThrow(new RuntimeException("registry down"))
+                .when(groupLinkRegistryService)
+                .registerAccountObservedGroup(anyString(), any(), any(), anyLong());
+
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "919000000001@s.whatsapp.net", null, "919000000001", false, false, null))));
+
+        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), any(), anyLong(), anyString());
+    }
+
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete, List<ProtocolGroupProfileReportedEvent.Member> members) {
+        return event(membersComplete, members, null, null);
+    }
+
+    private static ProtocolGroupProfileReportedEvent event(
+            boolean membersComplete,
+            List<ProtocolGroupProfileReportedEvent.Member> members,
+            Long groupCreatedAt) {
+        return event(membersComplete, members, groupCreatedAt, null);
+    }
+
+    @Test
+    void creatorPhoneIsPersistedSoTheListShowsCreatorAndFlag() {
+        // 列表的「创建者」与国旗都来自这一个手机号：国旗按号码区号推导。
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+
+        adapter.handleProfileReported(event(true, List.of(), null, "923206788780"));
+
+        verify(creatorWriter).writeCreator(eq(77L), eq("923206788780"), anyLong());
+    }
+
+    @Test
+    void missingCreatorPhoneSkipsTheCompatibilityWrite() {
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(creatorWriter, never()).writeCreator(anyLong(), anyString(), anyLong());
+    }
+
+    @Test
+    void inviteCodeFetchIsQueuedInsteadOfCalledInline() {
+        // 取邀请码要发一次 WhatsApp 请求；同步等会把消费线程卡住，21 人群的 21 条建档事件
+        // 就会把后面所有群一起堵上。这里只入队，由后台任务慢慢取。
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(metadataSyncTaskService).enqueue(
+                eq(77L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
+    }
+
+    @Test
+    void inviteCodeQueueFailureDoesNotDropTheProfileFacts() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+        org.mockito.Mockito.doThrow(new RuntimeException("queue down"))
+                .when(metadataSyncTaskService).enqueue(anyLong(), any(), anyLong());
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
+    }
+
+    @Test
+    void creationTimeIsPersistedSoTheListCanShowIt() {
+        adapter.handleProfileReported(event(true, List.of(), 1_787_096_047_000L));
+
+        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", 1_787_096_047_000L);
+    }
+
+    @Test
+    void missingCreationTimeIsPassedThroughAsUnobserved() {
+        // 未观察写 null 而不是 0：0 会被当成 1970 年建群。
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", null);
+    }
+
+    private static ProtocolGroupProfileReportedEvent event(
+            boolean membersComplete,
+            List<ProtocolGroupProfileReportedEvent.Member> members,
+            Long groupCreatedAt,
+            String creatorPhone) {
         return new ProtocolGroupProfileReportedEvent(
                 "acc-100:group.profile_reported:1",
                 1L,
@@ -199,6 +313,8 @@ class GroupProfileReportedSinkAdapterTest {
                 membersComplete,
                 "online_full_metadata",
                 2_000L,
+                groupCreatedAt,
+                creatorPhone,
                 "worker-1",
                 null);
     }

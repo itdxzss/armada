@@ -5,10 +5,14 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
@@ -42,16 +46,25 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence;
     private final GroupMetadataSyncTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper batchItemMapper;
+    private final GroupLinkRegistryService groupLinkRegistryService;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
             AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence,
             GroupMetadataSyncTaskMapper taskMapper,
-            GroupBatchTaskItemMapper batchItemMapper) {
+            GroupBatchTaskItemMapper batchItemMapper,
+            GroupLinkRegistryService groupLinkRegistryService,
+            GroupCreatorCompatibilityWriter creatorWriter,
+            GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
+        this.groupLinkRegistryService = groupLinkRegistryService;
+        this.creatorWriter = creatorWriter;
+        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     @Override
@@ -59,6 +72,11 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     public void handleProfileReported(ProtocolGroupProfileReportedEvent event) {
         TenantContext.set(event.tenantId());
         try {
+            Long groupLinkId = registerGroupLink(event);
+            writeCreator(event, groupLinkId);
+            queueInviteCodeFetch(event, groupLinkId);
+            // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
+            snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
             applyMembers(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {
@@ -67,6 +85,74 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             }
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /**
+     * 把群登记进群组列表主表 group_link。
+     *
+     * <p>群组列表读的是 group_link，而不是资料表。此前只有精确关系事件登记它，于是资料几秒就到位、
+     * 列表却要等那条事件——它走账号群同步 topic，会排在上线全量清单后面，实测堵了 5 分 49 秒。
+     * 本事件自带群 JID 与群名，登记所需信息齐全，且 registerAccountObservedGroup 幂等，
+     * 与关系事件重复登记只会 touch 同一行。</p>
+     *
+     * <p>登记失败不向上抛：资料与成员才是本事件的主载荷，不能因为列表入口没建成而整条消息重投，
+     * 那会把这个群的资料也一起卡住。关系事件随后仍会补登记。</p>
+     */
+    private Long registerGroupLink(ProtocolGroupProfileReportedEvent event) {
+        try {
+            return groupLinkRegistryService.registerAccountObservedGroup(
+                    event.groupJid(),
+                    event.subject(),
+                    // 用容错解析而非 valueOf：backend 来自外部事件，未知值该回落而不是抛异常。
+                    ProtocolBackend.fromProtocolId(event.protocolBackend()),
+                    System.currentTimeMillis());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 写创建者与国旗；两者同源于建群人手机号。
+     *
+     * <p>与登记群入口同样只告警不抛出：创建者是展示字段，不该让整条资料事件因它重投。</p>
+     */
+    private void writeCreator(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null || event.creatorPhone() == null) {
+            return;
+        }
+        try {
+            creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
+        }
+    }
+
+    /**
+     * 入队邀请码抓取，不在本线程取。
+     *
+     * <p>邀请码要向 WhatsApp 发一次请求，同步等会把 Kafka 消费线程卡在网络往返上——
+     * 一个 21 人群会产生 21 条建档事件，逐条同步取会把后面所有群的建档一起堵住。
+     * 这里只写一行任务（毫秒级），由既有的群快照调度器带并发控制地慢慢取。</p>
+     *
+     * <p>任务表按 (tenant_id, group_link_id) 唯一，同群的 21 次入队天然合并成一条，
+     * 不必在这里另做去重。</p>
+     *
+     * <p>入队失败只告警：邀请码是补充事实，不该让整条资料事件重投。</p>
+     */
+    private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null) {
+            return;
+        }
+        try {
+            metadataSyncTaskService.enqueue(
+                    groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, event.occurredAt());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报入队邀请码抓取失败,其余事实照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
         }
     }
 

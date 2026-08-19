@@ -185,7 +185,8 @@ public class ProtocolGroupEventConsumer {
      */
     @KafkaListener(
             topics = "${armada.protocol.kafka.group-events.topic:protocol.group.events.v1}",
-            groupId = "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}")
+            groupId = "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}",
+            concurrency = "${armada.protocol.kafka.group-events.concurrency:3}")
     public void onMessage(
             String rawMessage,
             @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {

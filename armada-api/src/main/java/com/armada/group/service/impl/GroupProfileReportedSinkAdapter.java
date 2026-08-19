@@ -107,8 +107,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     ProtocolBackend.fromProtocolId(event.protocolBackend()),
                     System.currentTimeMillis());
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
+            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
             return null;
         }
     }
@@ -125,8 +125,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
+            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
         }
     }
 
@@ -200,8 +200,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             participantObservationService.reconcileControlledMemberships(
                     event.tenantId(), event.groupJid(), identities);
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报对齐账号群绑定失败,其余事实照常落库 eventId={} groupJid={} reason={}",
-                    event.eventId(), event.groupJid(), e.getMessage());
+            log.warn("协议群资料上报对齐账号群绑定失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
         }
     }
 

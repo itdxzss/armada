@@ -8,7 +8,9 @@ import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupMetadataPatchService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -116,7 +118,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     // jid 缺失时用 LID 兜住主标识，落库层按 PN/LID 形态各自归位。
                     member.jid() != null ? member.jid() : member.lid(),
                     // 号码由协议侧还原；控端不猜，缺号码仍保存成员事实，只是关联不到受控账号。
-                    member.phone() != null ? member.phone() + "@s.whatsapp.net" : null,
+                    // 协议侧可能送裸号码，也可能已经是完整 JID，一律交给 WhatsappJids 归一：
+                    // 自己拼后缀会在后者上拼出双后缀，而绑定按 pn_jid 等值关联，受控账号从此匹配不上。
+                    pnJid(member.phone()),
                     member.phone(),
                     member.admin(),
                     member.owner(),
@@ -128,5 +132,27 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 event.occurredAt(),
                 // 事件 ID 作为快照版本，使同一次协议观察的重放天然幂等。
                 event.eventId());
+    }
+
+    /**
+     * 把协议侧号码归一成 PN JID；缺号码或号码非法时返回 null，成员事实仍照常落库。
+     *
+     * <p>协议侧可能送裸号码，也可能已经送完整 JID，{@link WhatsappJids#userJid} 对后者原样返回，
+     * 所以这里不能自己拼后缀。单个成员号码非法不应炸掉整批快照——落库层允许 pn_jid 为空，
+     * 代价只是这一个成员关联不到受控账号。</p>
+     *
+     * @param phone 协议侧还原的号码，可能是裸号码、完整 JID 或 null
+     * @return 归一后的 PN JID；不可用时为 null
+     */
+    private static String pnJid(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
+        }
+        try {
+            return WhatsappJids.userJid(phone);
+        } catch (ProtocolException e) {
+            log.warn("协议成员号码无法归一成 PN JID,该成员按无号码落库 phone={}", phone);
+            return null;
+        }
     }
 }

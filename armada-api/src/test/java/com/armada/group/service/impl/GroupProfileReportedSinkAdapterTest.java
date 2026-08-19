@@ -135,6 +135,22 @@ class GroupProfileReportedSinkAdapterTest {
                 .isNull();
     }
 
+    @Test
+    void phoneAlreadyInJidFormIsNotSuffixedTwice() {
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "919000000003@s.whatsapp.net", null, "919000000003@s.whatsapp.net",
+                        false, false, null))));
+
+        ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), captor.capture(), anyLong(), anyString());
+        assertThat(captor.getValue().get(0).pnJid())
+                .as("协议侧已把号码还原成完整 JID 时不得再拼一次后缀："
+                        + "绑定按 pn_jid 等值关联，双后缀会让受控账号永远匹配不上自己的群")
+                .isEqualTo("919000000003@s.whatsapp.net");
+    }
+
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete, List<ProtocolGroupProfileReportedEvent.Member> members) {
         return new ProtocolGroupProfileReportedEvent(

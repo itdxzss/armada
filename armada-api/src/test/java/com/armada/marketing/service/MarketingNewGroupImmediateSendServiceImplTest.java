@@ -130,6 +130,47 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     }
 
     @Test
+    void enqueueNewGroups_pausedDelayEnabledCreatesWaitingAttemptsWithoutOutbox() {
+        MarketingTask task = sendingTask();
+        task.setStatus(5);
+        task.setNewGroupDelayEnabled(true);
+        task.setNewGroupDelayValue(30);
+        task.setNewGroupDelayUnit(1);
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        assignAttemptIds(9_000L);
+
+        service.enqueueNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", "群A")),
+                2_000L);
+
+        ArgumentCaptor<MarketingTaskSendAttempt> captor =
+                ArgumentCaptor.forClass(MarketingTaskSendAttempt.class);
+        verify(mapper).insertSendAttempt(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(MarketingSendAttemptStatus.WAITING.code());
+        assertThat(captor.getValue().getScheduledSendAt()).isEqualTo(1_802_000L);
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
+    void enqueueNewGroups_pausedDelayDisabledDoesNothing() {
+        MarketingTask task = sendingTask();
+        task.setStatus(5);
+        task.setNewGroupDelayEnabled(false);
+        when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+
+        service.enqueueNewGroups(
+                5_001L,
+                List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", "群A")),
+                2_000L);
+
+        verify(mapper, never()).insertSendAttempt(any());
+        verify(messagePort, never()).enqueue(any());
+    }
+
+    @Test
     void submitDueWaitingAttempts_validAttemptUsesSharedOutboxSubmission() {
         MarketingTaskSendAttempt waiting = waitingAttempt();
         MarketingTask task = sendingTask();

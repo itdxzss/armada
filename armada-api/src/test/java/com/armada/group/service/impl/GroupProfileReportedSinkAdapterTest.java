@@ -78,6 +78,38 @@ class GroupProfileReportedSinkAdapterTest {
     }
 
     @Test
+    void completeMemberWithPnPhoneDoesNotAppendSuffixTwice() {
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "123456789012345@lid", "123456789012345@lid",
+                        "919000000001@s.whatsapp.net", true, false, "admin"))));
+
+        ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), captor.capture(), anyLong(), anyString());
+
+        assertThat(captor.getValue()).singleElement().satisfies(participant -> {
+            assertThat(participant.pnJid()).isEqualTo("919000000001@s.whatsapp.net");
+            assertThat(participant.pnJid()).doesNotContain("@s.whatsapp.net@s.whatsapp.net");
+        });
+    }
+
+    @Test
+    void completeMemberWithNonNumericPhoneDoesNotAppendPnSuffix() {
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "123456789012345@lid", "123456789012345@lid",
+                        "123456789012345@lid", true, false, "admin"))));
+
+        ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
+        verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), captor.capture(), anyLong(), anyString());
+
+        assertThat(captor.getValue()).singleElement().satisfies(participant ->
+                assertThat(participant.pnJid()).isEqualTo("123456789012345@lid"));
+    }
+
+    @Test
     void completeEmptyMembersStillClearsDepartedMembers() {
         ProtocolGroupProfileReportedEvent event = event(true, List.of());
 

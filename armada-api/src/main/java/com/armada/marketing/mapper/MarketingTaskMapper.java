@@ -39,7 +39,9 @@ public interface MarketingTaskMapper {
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
 
     /**
-     * 查询账号当前占用的发送中账号动态 target。
+     * 查询账号当前占用且可登记新群的账号动态 target。
+     *
+     * <p>发送中任务始终可匹配；暂停任务仅在新群延迟开启时匹配，避免暂停期间即时发送。</p>
      *
      * @param accountId 账号 ID
      * @param now       检测时间(epoch 毫秒)

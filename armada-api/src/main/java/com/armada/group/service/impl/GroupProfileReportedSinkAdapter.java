@@ -112,12 +112,15 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         }
         List<GroupParticipantResult> participants = new ArrayList<>(event.members().size());
         for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
+            String phone = member.phone();
+            String pnJid = phone != null && phone.matches("[0-9]+")
+                    ? phone + "@s.whatsapp.net" : phone;
             participants.add(new GroupParticipantResult(
                     // jid 缺失时用 LID 兜住主标识，落库层按 PN/LID 形态各自归位。
                     member.jid() != null ? member.jid() : member.lid(),
-                    // 号码由协议侧还原；控端不猜，缺号码仍保存成员事实，只是关联不到受控账号。
-                    member.phone() != null ? member.phone() + "@s.whatsapp.net" : null,
-                    member.phone(),
+                    // phone 兼容纯号码和完整 PN JID；只对纯号码补后缀，避免同一成员被拆成两行。
+                    pnJid,
+                    phone,
                     member.admin(),
                     member.owner(),
                     member.role()));

@@ -205,7 +205,10 @@
         FROM marketing_task_target t
         JOIN marketing_task mt ON mt.id = t.marketing_task_id
                               AND mt.deleted_at IS NULL
-                              AND mt.status = 2
+                              AND (
+                                  mt.status = 2
+                                  OR (mt.status = 5 AND mt.is_new_group_delay_enabled = 1)
+                              )
                               AND (mt.task_start_at IS NULL OR mt.task_start_at &lt;= #{now})
                               AND (mt.task_end_at IS NULL OR mt.task_end_at &gt; #{now})
         JOIN marketing_account_occupancy o ON o.account_id = t.account_id
@@ -284,7 +287,7 @@
             LEFT JOIN wa_group_profile current_profile ON current_profile.group_id = current_group.id
             WHERE t.marketing_task_id = #{taskId}
               AND a.marketing_task_id = #{taskId}
-              AND a.status IN (0, 1, 2, 3)
+              AND a.status IN (0, 1, 2, 3, 4)
         ),
         fixed_target_groups AS (
             SELECT t.tenant_id AS tenant_id,
@@ -343,7 +346,8 @@
                    SUM(CASE WHEN attemptStatus = 1 THEN 1 ELSE 0 END) AS sentMessageCount,
                    SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount,
                    SUM(CASE WHEN attemptStatus = 3 THEN 1 ELSE 0 END) AS skippedMessageCount,
-                   MAX(eventAt) AS lastAttemptAt,
+                   MAX(CASE WHEN attemptStatus IN (0, 1, 2, 3) THEN eventAt ELSE NULL END)
+                       AS lastAttemptAt,
                    MAX(CASE WHEN attemptStatus = 1 THEN eventAt ELSE NULL END) AS lastSentAt,
                    NULLIF(
                        SUBSTRING_INDEX(
@@ -396,10 +400,11 @@
                 SELECT ended.*,
                        ROW_NUMBER() OVER (
                            PARTITION BY tenant_id, accountId, groupKey
-                           ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC
+                           ORDER BY CASE WHEN attemptStatus = 4 THEN 0 ELSE 1 END ASC,
+                                    roundNo DESC, attemptNo DESC, attemptId DESC
                        ) AS endedRank
                 FROM attempt_facts ended
-                WHERE attemptStatus IN (1, 2, 3)
+                WHERE attemptStatus IN (1, 2, 3, 4)
             ) ranked
             WHERE ranked.endedRank = 1
         )
@@ -464,6 +469,7 @@
          AND self_participant.group_id = binding.group_id
          AND self_participant.id = binding.participant_id
         ORDER BY d.accountId ASC,
+                 CASE WHEN ended.attemptStatus = 4 THEN 0 ELSE 1 END ASC,
                  COALESCE(a.lastAttemptAt, 0) DESC,
                  d.groupKey ASC
     </select>

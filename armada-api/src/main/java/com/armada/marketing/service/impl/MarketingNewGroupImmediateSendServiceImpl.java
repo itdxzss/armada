@@ -124,17 +124,18 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
-        if (!isSendingNow(task, detectedAt)) {
+        if (!canRegisterNewGroup(task, detectedAt)) {
             return;
         }
 
-        ClaimedImmediateTargets claimed = delayEnabled(task)
+        boolean delayed = delayEnabled(task);
+        ClaimedImmediateTargets claimed = delayed
                 ? claimWaitingAttempts(task, target, candidates, detectedAt)
                 : claimImmediateAttempts(task, target, candidates, detectedAt);
         if (claimed.attempts().isEmpty()) {
             return;
         }
-        if (delayEnabled(task)) {
+        if (delayed) {
             log.info("新群首次营销已进入等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
                     task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
                     claimed.attempts().get(0).getScheduledSendAt());
@@ -689,6 +690,29 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                 && Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())
                 && (task.getTaskStartAt() == null || task.getTaskStartAt() <= now)
                 && (task.getTaskEndAt() == null || task.getTaskEndAt() > now);
+    }
+
+    /**
+     * 判断新群事件是否可以登记首次发送。
+     *
+     * <p>发送中任务沿用即时或延迟分支；暂停任务只有开启延迟时才允许创建 WAITING，
+     * 且绝不在本入口写 Outbox。任务时间窗在暂停期间仍继续流逝。</p>
+     *
+     * @param task 当前账号占用的普通营销任务
+     * @param now Armada 确认新增群的时间(epoch 毫秒)
+     * @return 可以登记首次发送时返回 {@code true}
+     */
+    private static boolean canRegisterNewGroup(MarketingTask task, long now) {
+        if (task == null
+                || task.getTaskStartAt() != null && task.getTaskStartAt() > now
+                || task.getTaskEndAt() != null && task.getTaskEndAt() <= now) {
+            return false;
+        }
+        if (Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())) {
+            return true;
+        }
+        return Integer.valueOf(MarketingTaskStatus.PAUSED.code()).equals(task.getStatus())
+                && delayEnabled(task);
     }
 
     /**

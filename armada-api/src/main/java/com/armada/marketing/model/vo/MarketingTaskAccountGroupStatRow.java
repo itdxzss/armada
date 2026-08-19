@@ -55,19 +55,19 @@ public class MarketingTaskAccountGroupStatRow {
     /** 最近一次有效群状态证据携带的群组检测原因。 */
     private String groupStatusReason;
 
-    /** 最后已结束尝试状态:1成功、2失败、3跳过。 */
+    /** 最后可展示尝试状态:1成功、2失败、3跳过、4等待发送。 */
     private Integer latestExecutionStatus;
 
-    /** 最后已结束尝试原因码。 */
+    /** 最后可展示尝试原因码。 */
     private String executionReasonCode;
 
-    /** 最后已结束尝试原因描述。 */
+    /** 最后可展示尝试原因描述。 */
     private String executionReasonMessage;
 
-    /** 最后已结束尝试携带的原始群组检测状态。 */
+    /** 最后可展示尝试携带的原始群组检测状态。 */
     private String executionGroupStatus;
 
-    /** 最后已结束尝试携带的群组检测原因。 */
+    /** 最后可展示尝试携带的群组检测原因。 */
     private String executionGroupStatusReason;
 
     /**

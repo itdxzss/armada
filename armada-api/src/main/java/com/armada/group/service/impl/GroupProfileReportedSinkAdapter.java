@@ -7,6 +7,8 @@ import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
@@ -49,6 +51,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupCreatorCompatibilityWriter creatorWriter;
     private final AccountMapper accountMapper;
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
@@ -57,7 +60,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             GroupBatchTaskItemMapper batchItemMapper,
             GroupLinkRegistryService groupLinkRegistryService,
             GroupCreatorCompatibilityWriter creatorWriter,
-            AccountMapper accountMapper) {
+            AccountMapper accountMapper,
+            GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
@@ -65,6 +69,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.creatorWriter = creatorWriter;
         this.accountMapper = accountMapper;
+        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     @Override
@@ -74,6 +79,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             Long groupLinkId = registerGroupLink(event);
             writeCreator(event, groupLinkId);
+            queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
             snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
@@ -85,6 +91,41 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             }
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /**
+     * 入队邀请码抓取，不在本线程取。
+     *
+     * <p>外部用控端账号建的群走本事件上报，不经过普通建群链路，因此那条链路里的
+     * enqueueInviteCode 不会被调用。少了这一步，群组列表的邀请链接与状态两列恒为空——
+     * 邀请码只在 WhatsApp 主动推 invite 通知时才带，建群与进群都不带，必须主动查一次。</p>
+     *
+     * <p>用 enqueueInviteCode 而不是 enqueue：建档事件已带回完整资料，只差邀请码，
+     * 无须再拉一次全量 metadata。这正是 {@code 574451a5} 收窄 metadata 拉取的意图，
+     * 那一刀建好了这个精确入口，只是没在本链路挂上。</p>
+     *
+     * <p>不同步取：取邀请码要向 WhatsApp 发一次请求，而一个 21 人群会产生 21 条建档事件，
+     * 逐条同步等网络往返会把 Kafka 消费线程连同后面所有群的建档一起堵住。</p>
+     *
+     * <p>同群的 21 次入队由唯一键 {@code (tenant_id, group_link_id)} 在库层合并成一条，
+     * 不必另做去重；任务空闲时 upsert 会重置 next_run_at 与 attempt_count，
+     * 所以群链接以后变了仍能重新抓，任务在跑时则只置 rerun_requested 不打断。</p>
+     *
+     * <p>入队失败只告警：邀请码是补充事实，不该让整条资料事件重投。</p>
+     */
+    private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null) {
+            return;
+        }
+        try {
+            metadataSyncTaskService.enqueueInviteCode(
+                    groupLinkId,
+                    GroupMetadataSyncTrigger.BASELINE_CAPTURED,
+                    System.currentTimeMillis());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报入队邀请码抓取失败,资料与成员照常落库 eventId={} groupLinkId={}",
+                    event.eventId(), groupLinkId, e);
         }
     }
 

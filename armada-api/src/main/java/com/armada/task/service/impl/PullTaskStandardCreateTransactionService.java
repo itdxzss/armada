@@ -100,6 +100,7 @@ public class PullTaskStandardCreateTransactionService {
         }
         validateRanges(request);
         validateOptions(request);
+        PullTaskNewGroupModeValidator.validateRequest(request);
     }
 
     private void validateRanges(PullTaskStandardCreateDTO request) {

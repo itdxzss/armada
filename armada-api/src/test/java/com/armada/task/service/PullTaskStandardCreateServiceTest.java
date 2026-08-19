@@ -409,7 +409,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
-                11L, 12L, 13L, null, null, validGroupSetting());
+                11L, 12L, 13L, null, null, validGroupSetting(),
+                null, null, null);
     }
 
     private static PullTaskStandardGroupSettingDTO validGroupSetting() {
@@ -438,7 +439,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withEarlyPull(
@@ -451,7 +453,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     /**
@@ -471,7 +474,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 managerGroupId, base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withAutoStart(PullTaskStandardCreateDTO base,
@@ -484,7 +488,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withStation(
@@ -498,7 +503,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 stationCount, base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), stationGroupId,
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withGroupSetting(
@@ -512,7 +518,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), groupSetting);
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), groupSetting,
+                base.creationMode(), base.creatorGroupId(), base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withAvatar(

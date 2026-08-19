@@ -190,7 +190,7 @@ class GroupLinkServiceImplTest {
                 "UNCHECKED", "未检测", null, null, null, null,
                 3, null, null, null, null, null, null, null, null, null, null, 1000L,
                 false, false, null, null, null, List.of(), false, 0,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
         when(groupListCurrentMapper.count(TENANT_ID, q)).thenReturn(1L);
         when(groupListCurrentMapper.selectPage(TENANT_ID, q)).thenReturn(List.of(row));
         when(converter.toGroupLinkVOList(List.of(row))).thenReturn(List.of(vo));
@@ -238,6 +238,18 @@ class GroupLinkServiceImplTest {
         assertThat(query.getCountryIso2()).isEqualTo("IN");
         assertThat(query.getContinentCode()).isEqualTo("ASIA");
         assertThat(query.getNowSeconds()).isPositive();
+        verify(groupListCurrentMapper).count(TENANT_ID, query);
+    }
+
+    @Test
+    void listByLabel_acceptsAntarcticaAsSeventhContinent() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setContinentCode(" antarctica ");
+        when(groupListCurrentMapper.count(TENANT_ID, query)).thenReturn(0L);
+
+        service.listByLabel(query);
+
+        assertThat(query.getContinentCode()).isEqualTo("ANTARCTICA");
         verify(groupListCurrentMapper).count(TENANT_ID, query);
     }
 
@@ -303,7 +315,7 @@ class GroupLinkServiceImplTest {
     @Test
     void listByLabel_rejectsUnknownContinentAndMalformedCountry() {
         GroupLinkQuery query = new GroupLinkQuery();
-        query.setContinentCode("ANTARCTICA");
+        query.setContinentCode("ATLANTIS");
         query.setCountryIso2("IND");
 
         assertThatThrownBy(() -> service.listByLabel(query))

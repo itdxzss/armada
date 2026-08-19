@@ -3,18 +3,15 @@ package com.armada.platform.country.service.impl;
 import com.armada.platform.country.mapper.CountryMapper;
 import com.armada.platform.country.model.entity.Country;
 import com.armada.platform.country.model.entity.CountryPhonePrefixMapping;
-import com.armada.platform.country.model.entity.CountryPhoneRegionPrefixMapping;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.model.vo.CountryOptionsVO;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
-import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber;
-import com.google.i18n.phonenumbers.geocoding.PhoneNumberOfflineGeocoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -57,12 +54,17 @@ public class CountryServiceImpl implements CountryService {
     /** libphonenumber 解析带国际区号号码时使用的未知默认区域。 */
     private static final String UNKNOWN_REGION = "ZZ";
 
+    /** WhatsApp 历史墨西哥移动号码会在国家码 +52 后额外保留数字 1。 */
+    private static final String LEGACY_MEXICO_MOBILE_PREFIX = "+521";
+
+    /** 墨西哥当前 E.164 国家码。 */
+    private static final String MEXICO_E164_PREFIX = "+52";
+
+    /** 墨西哥国内号码固定长度。 */
+    private static final int MEXICO_NATIONAL_NUMBER_LENGTH = 10;
+
     /** Google 国际号码解析器,元数据由 libphonenumber 依赖提供。 */
     private static final PhoneNumberUtil PHONE_NUMBER_UTIL = PhoneNumberUtil.getInstance();
-
-    /** libphonenumber 离线号段地理描述；仅作国家内归属区的尽力推断。 */
-    private static final PhoneNumberOfflineGeocoder PHONE_NUMBER_GEOCODER =
-            PhoneNumberOfflineGeocoder.getInstance();
 
     /** 下拉第一项虚拟选项,用于表达不限真实国家的混合代理池。 */
     private static final CountryOptionVO MIXED_OPTION =
@@ -236,76 +238,25 @@ public class CountryServiceImpl implements CountryService {
         return Collections.unmodifiableMap(result);
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public Map<String, PhoneLocationReferenceVO> resolveActivePhoneLocations(
-            Collection<String> wsPhones) {
-        if (wsPhones == null || wsPhones.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, Country> countriesByIso2 = mapper.selectActive().stream()
-                .filter(country -> StringUtils.hasText(country.getIso2()))
-                .collect(Collectors.toMap(
-                        country -> country.getIso2().trim().toUpperCase(Locale.ROOT),
-                        Function.identity(),
-                        (first, ignored) -> first,
-                        LinkedHashMap::new));
-        Map<String, ParsedPhone> parsedByInput = new LinkedHashMap<>();
-        LinkedHashSet<String> matchedCountryIso2s = new LinkedHashSet<>();
-        for (String wsPhone : new LinkedHashSet<>(wsPhones)) {
-            validPhone(wsPhone).ifPresent(parsed -> {
-                if (countriesByIso2.containsKey(parsed.regionIso2())) {
-                    parsedByInput.put(wsPhone, parsed);
-                    matchedCountryIso2s.add(parsed.regionIso2());
-                }
-            });
-        }
-        if (parsedByInput.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, List<CountryPhoneRegionPrefixMapping>> mappingsByCountry =
-                mapper.selectPhoneRegionPrefixMappings(List.copyOf(matchedCountryIso2s)).stream()
-                        .filter(mapping -> StringUtils.hasText(mapping.getCountryIso2()))
-                        .filter(mapping -> StringUtils.hasText(mapping.getNormalizedNationalPrefix()))
-                        .collect(Collectors.groupingBy(
-                                mapping -> mapping.getCountryIso2().trim().toUpperCase(Locale.ROOT),
-                                LinkedHashMap::new,
-                                Collectors.toList()));
-        mappingsByCountry.values().forEach(mappings -> mappings.sort((left, right) ->
-                Integer.compare(
-                        right.getNormalizedNationalPrefix().length(),
-                        left.getNormalizedNationalPrefix().length())));
-
-        Map<String, PhoneLocationReferenceVO> result = new LinkedHashMap<>();
-        parsedByInput.forEach((raw, parsed) -> {
-            Country country = countriesByIso2.get(parsed.regionIso2());
-            CountryPhoneRegionPrefixMapping region = matchPhoneRegion(
-                    parsed.nationalNumber(), mappingsByCountry.get(parsed.regionIso2()));
-            String regionName = region == null
-                    ? offlineRegionName(parsed, country)
-                    : region.getRegionNameZh();
-            result.put(raw, new PhoneLocationReferenceVO(
-                    toReference(country),
-                    region == null ? null : region.getRegionCode(),
-                    regionName));
-        });
-        return Collections.unmodifiableMap(result);
-    }
-
     /** 严格校验国际号码并解析二字母区域码。 */
     private static Optional<String> validRegionIso2(String raw) {
-        return validPhone(raw).map(ParsedPhone::regionIso2);
-    }
-
-    /** 严格校验国际号码，并保留国家码和国内有效号码供号段匹配复用。 */
-    private static Optional<ParsedPhone> validPhone(String raw) {
         Optional<String> internationalPhone = internationalPhone(raw);
         if (internationalPhone.isEmpty()) {
             return Optional.empty();
         }
+        Optional<String> parsed = parseValidRegionIso2(internationalPhone.get());
+        if (parsed.isPresent()) {
+            return parsed;
+        }
+        return legacyMexicoMobilePhone(internationalPhone.get()).flatMap(
+                CountryServiceImpl::parseValidRegionIso2);
+    }
+
+    /** 使用 libphonenumber 严格校验一个已规范成带加号的国际号码并返回 ISO2。 */
+    private static Optional<String> parseValidRegionIso2(String internationalPhone) {
         try {
             Phonenumber.PhoneNumber parsed = PHONE_NUMBER_UTIL.parse(
-                    internationalPhone.get(), UNKNOWN_REGION);
+                    internationalPhone, UNKNOWN_REGION);
             if (!PHONE_NUMBER_UTIL.isValidNumber(parsed)) {
                 return Optional.empty();
             }
@@ -313,70 +264,26 @@ public class CountryServiceImpl implements CountryService {
             if (!StringUtils.hasText(regionIso2) || regionIso2.length() != 2) {
                 return Optional.empty();
             }
-            String nationalNumber = PHONE_NUMBER_UTIL.getNationalSignificantNumber(parsed);
-            if (!StringUtils.hasText(nationalNumber)) {
-                return Optional.empty();
-            }
-            return Optional.of(new ParsedPhone(
-                    regionIso2.toUpperCase(Locale.ROOT), nationalNumber, parsed));
+            return Optional.of(regionIso2.toUpperCase(Locale.ROOT));
         } catch (NumberParseException ignored) {
             return Optional.empty();
         }
     }
 
-    private static CountryPhoneRegionPrefixMapping matchPhoneRegion(
-            String nationalNumber,
-            List<CountryPhoneRegionPrefixMapping> mappings) {
-        if (!StringUtils.hasText(nationalNumber) || mappings == null || mappings.isEmpty()) {
-            return null;
-        }
-        return mappings.stream()
-                .filter(mapping -> nationalNumber.startsWith(mapping.getNormalizedNationalPrefix()))
-                .findFirst()
-                .orElse(null);
-    }
-
     /**
-     * 使用 libphonenumber 自带的离线号段库补充其他国家；只返回比国家更细的描述。
+     * 把 WhatsApp 历史墨西哥移动号码 {@code +521 + 10位国内号} 转成当前 E.164 格式。
+     *
+     * <p>只在原号码无法通过严格校验后尝试该兼容，避免改写本身有效的其他国家号码。</p>
      */
-    private static String offlineRegionName(ParsedPhone parsed, Country country) {
-        String chinese = specificRegionName(
-                PHONE_NUMBER_GEOCODER.getDescriptionForNumber(
-                        parsed.phoneNumber(), Locale.SIMPLIFIED_CHINESE),
-                country);
-        if (chinese != null) {
-            return chinese;
+    private static Optional<String> legacyMexicoMobilePhone(String internationalPhone) {
+        int expectedLength = LEGACY_MEXICO_MOBILE_PREFIX.length()
+                + MEXICO_NATIONAL_NUMBER_LENGTH;
+        if (!internationalPhone.startsWith(LEGACY_MEXICO_MOBILE_PREFIX)
+                || internationalPhone.length() != expectedLength) {
+            return Optional.empty();
         }
-        return specificRegionName(
-                PHONE_NUMBER_GEOCODER.getDescriptionForNumber(
-                        parsed.phoneNumber(), Locale.ENGLISH),
-                country);
-    }
-
-    /** 过滤空描述和仅重复国家名的描述，避免把国家误标为州。 */
-    private static String specificRegionName(String description, Country country) {
-        if (!StringUtils.hasText(description)) {
-            return null;
-        }
-        String normalized = description.trim();
-        Locale regionLocale = new Locale("", country.getIso2());
-        if (normalized.equalsIgnoreCase(country.getIso2())
-                || normalized.equalsIgnoreCase(country.getNameZh())
-                || normalized.equalsIgnoreCase(
-                        regionLocale.getDisplayCountry(Locale.SIMPLIFIED_CHINESE))
-                || normalized.equalsIgnoreCase(regionLocale.getDisplayCountry(Locale.ENGLISH))
-                || (StringUtils.hasText(country.getNameEn())
-                    && normalized.equalsIgnoreCase(country.getNameEn().trim()))) {
-            return null;
-        }
-        return normalized;
-    }
-
-    /** 已通过 libphonenumber 完整校验的号码解析结果。 */
-    private record ParsedPhone(
-            String regionIso2,
-            String nationalNumber,
-            Phonenumber.PhoneNumber phoneNumber) {
+        return Optional.of(MEXICO_E164_PREFIX
+                + internationalPhone.substring(LEGACY_MEXICO_MOBILE_PREFIX.length()));
     }
 
     /** 只接受纯数字国际号码、单个前导加号或明确的 WhatsApp PN JID。 */

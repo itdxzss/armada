@@ -118,12 +118,6 @@ public record GroupLinkVO(
         /** 群创建者所属大洲。 */
         String creatorContinentCode,
 
-        /** 创建者手机号原始号段归属区代码；不是当前所在地。 */
-        String creatorPhoneRegionCode,
-
-        /** 创建者手机号原始号段归属区名称；不是当前所在地。 */
-        String creatorPhoneRegionName,
-
         /** WhatsApp 协议返回的建群时间(Unix 秒)，未知为空。 */
         Long groupCreatedAt,
 

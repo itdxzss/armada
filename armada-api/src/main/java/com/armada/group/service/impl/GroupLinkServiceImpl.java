@@ -83,9 +83,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             "UNCHECKED", "AVAILABLE", "BANNED", "LINK_INVALID", "UNAVAILABLE");
 
-    /** 历史群筛选只接受产品约定的六大洲。 */
+    /** 历史群筛选只接受产品约定的七大洲。 */
     private static final Set<String> ALLOWED_CONTINENTS = Set.of(
-            "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA");
+            "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA",
+            "ANTARCTICA");
 
     private final GroupLinkMapper groupLinkMapper;
     private final GroupListCurrentMapper groupListCurrentMapper;

@@ -8,7 +8,7 @@ package com.armada.platform.country.model.vo;
  * @param nameZh 中文展示名称
  * @param phonePrefix 手机号国际区号
  * @param flag 国旗 emoji
- * @param continentCode 六大洲代码；特殊南极地区可空
+ * @param continentCode 七大洲代码；无法归类的特殊地区可空
  */
 public record CountryReferenceVO(
         Long id,

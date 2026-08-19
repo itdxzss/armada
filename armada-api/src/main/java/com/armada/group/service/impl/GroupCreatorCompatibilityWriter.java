@@ -2,7 +2,7 @@ package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLinkPreview;
-import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import java.util.List;
 import org.slf4j.Logger;
@@ -12,8 +12,8 @@ import org.springframework.stereotype.Service;
 /**
  * 把建群人手机号写进退役中的预览表，供群组列表展示创建者与国旗。
  *
- * <p>群组列表的「创建者」与国旗两列仍读 group_link_preview：国旗由手机号区号推导，
- * 两者是同一份数据。新群模型尚未接管这两列，因此这里只做定向兼容写入——只碰创建者相关列，
+ * <p>群组列表的创建者国家与洲仍读 group_link_preview：国家由已确认的国际手机号严格解析，
+ * 洲来自国家主数据。新群模型尚未接管这些列，因此这里只做定向兼容写入——只碰创建者相关列，
  * 群名、成员数、邀请码等当前事实一律不回写旧表，避免旧表重新成为事实来源。</p>
  */
 @Service
@@ -32,7 +32,7 @@ public class GroupCreatorCompatibilityWriter {
     }
 
     /**
-     * 写入创建者手机号与按区号推导的国家信息。
+     * 写入创建者手机号，以及严格解析出的国家和洲信息。
      *
      * <p>推导失败时仍写手机号：创建者本身是有效事实，不该因为认不出国家而整条丢弃，
      * 那样列表连创建者都显示不出来。</p>
@@ -46,17 +46,15 @@ public class GroupCreatorCompatibilityWriter {
         if (phone == null || phone.isEmpty()) {
             return;
         }
-        PhoneLocationReferenceVO location = resolveLocation(phone);
+        CountryReferenceVO country = resolveCountry(phone);
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(groupLinkId);
         row.setOwnerPhone(phone);
         row.setOwnerPhoneObserved(true);
-        row.setCreatorCountryIso2(location == null ? null : location.country().iso2());
-        row.setCreatorContinentCode(location == null ? null : location.country().continentCode());
-        row.setCreatorPhoneRegionCode(location == null ? null : location.regionCode());
-        row.setCreatorPhoneRegionName(location == null ? null : location.regionName());
+        row.setCreatorCountryIso2(country == null ? null : country.iso2());
+        row.setCreatorContinentCode(country == null ? null : country.continentCode());
         // 认不出国家时不宣称观察过国家，避免用空值压过既有的正确国家。
-        row.setCreatorCountryObserved(location != null);
+        row.setCreatorCountryObserved(country != null);
         row.setLastPreviewAt(observedAt);
         row.setMetadataObservedAt(observedAt);
         row.setCreatedAt(observedAt);
@@ -64,11 +62,11 @@ public class GroupCreatorCompatibilityWriter {
         previewMapper.upsertCreatorCompatibility(List.of(row));
     }
 
-    private PhoneLocationReferenceVO resolveLocation(String phone) {
+    private CountryReferenceVO resolveCountry(String phone) {
         try {
-            return countryService.resolveActivePhoneLocations(List.of(phone)).get(phone);
+            return countryService.resolveActiveCountriesByPhoneNumbers(List.of(phone)).get(phone);
         } catch (RuntimeException e) {
-            log.warn("建群人号码归属地推导失败,仅写号码 phoneSuffix={} reason={}",
+            log.warn("建群人号码国家解析失败,仅写号码 phoneSuffix={} reason={}",
                     phone.length() <= 4 ? phone : phone.substring(phone.length() - 4),
                     e.getMessage());
             return null;

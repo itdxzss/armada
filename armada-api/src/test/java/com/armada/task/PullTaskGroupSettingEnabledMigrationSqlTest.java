@@ -13,7 +13,7 @@ class PullTaskGroupSettingEnabledMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/"
-                    + "V128__pull_task_group_setting_enabled.sql");
+                    + "V132__pull_task_group_setting_enabled.sql");
 
     /**
      * 存量任务一律置为关闭。

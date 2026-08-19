@@ -23,7 +23,7 @@ public class Country {
     /** 国旗 emoji。 */
     private String flag;
 
-    /** 所属大洲代码：ASIA、EUROPE、AFRICA、NORTH_AMERICA、SOUTH_AMERICA、OCEANIA。 */
+    /** 所属大洲代码：ASIA、EUROPE、AFRICA、NORTH_AMERICA、SOUTH_AMERICA、OCEANIA、ANTARCTICA。 */
     private String continentCode;
 
     /** 是否启用:1=启用 0=停用。 */

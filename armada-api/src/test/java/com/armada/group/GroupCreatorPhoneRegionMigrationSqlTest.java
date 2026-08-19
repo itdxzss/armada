@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** 创建者手机号原始号段归属区迁移与列表投影契约测试。 */
+/** 已执行的创建者手机号归属区历史迁移与当前运行时隔离契约测试。 */
 class GroupCreatorPhoneRegionMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
@@ -35,17 +35,15 @@ class GroupCreatorPhoneRegionMigrationSqlTest {
     }
 
     @Test
-    void previewUpsertAndListProjectionCarryBothRegionFields() throws Exception {
+    void runtimeMappersNoLongerReadOrWritePhoneRegionFields() throws Exception {
         String previewXml = Files.readString(PREVIEW_MAPPER, StandardCharsets.UTF_8);
         String listXml = Files.readString(LIST_MAPPER, StandardCharsets.UTF_8);
 
         assertThat(previewXml)
-                .contains("#{row.creatorPhoneRegionCode}")
-                .contains("#{row.creatorPhoneRegionName}")
-                .contains("VALUES(creator_phone_region_code)")
-                .contains("VALUES(creator_phone_region_name)");
+                .doesNotContain("creatorPhoneRegion")
+                .doesNotContain("creator_phone_region");
         assertThat(listXml)
-                .contains("creator_phone_region_code AS creatorPhoneRegionCode")
-                .contains("creator_phone_region_name AS creatorPhoneRegionName");
+                .doesNotContain("creatorPhoneRegion")
+                .doesNotContain("creator_phone_region");
     }
 }

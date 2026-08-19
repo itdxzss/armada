@@ -10,7 +10,7 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.group.service.GroupMetadataSnapshotService;
 import com.armada.group.service.GroupMetadataSyncProtocolPorts;
-import com.armada.platform.country.model.vo.PhoneLocationReferenceVO;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
@@ -107,9 +107,9 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
                 .orElseGet(() -> freshAdminPhones.isEmpty() && account.groupAdmin() ? account : null);
         String inviteCode = inviteAccount == null ? null : safeInviteCode(inviteAccount, groupJid);
         String ownerPhone = confirmedOwnerPhone(metadata, members);
-        PhoneLocationReferenceVO location = resolveLocation(ownerPhone);
+        CountryReferenceVO country = resolveCountry(ownerPhone);
         GroupLinkPreview preview = preview(
-                request, metadata, inviteCode, ownerPhone, location, observedAt, completedAt);
+                request, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
         if (persistSerially(preview, members)) {
             metrics.recordSnapshotMembers(members.size());
         }
@@ -160,11 +160,11 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         }
     }
 
-    private PhoneLocationReferenceVO resolveLocation(String ownerPhone) {
+    private CountryReferenceVO resolveCountry(String ownerPhone) {
         if (ownerPhone == null) {
             return null;
         }
-        return countryService.resolveActivePhoneLocations(List.of(ownerPhone))
+        return countryService.resolveActiveCountriesByPhoneNumbers(List.of(ownerPhone))
                 .get(ownerPhone);
     }
 
@@ -173,7 +173,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
             GroupMetadataResult metadata,
             String inviteCode,
             String ownerPhone,
-            PhoneLocationReferenceVO location,
+            CountryReferenceVO country,
             long observedAt,
             long completedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
@@ -199,10 +199,8 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         row.setEphemeralDurationSeconds(metadata.ephemeralDurationSeconds());
         row.setEphemeralDurationObserved(metadata.ephemeralDurationSeconds() != null);
         row.setGroupCreatedAt(validCreation(metadata.createdAtSeconds(), observedAt));
-        row.setCreatorCountryIso2(location == null ? null : location.country().iso2());
-        row.setCreatorContinentCode(location == null ? null : location.country().continentCode());
-        row.setCreatorPhoneRegionCode(location == null ? null : location.regionCode());
-        row.setCreatorPhoneRegionName(location == null ? null : location.regionName());
+        row.setCreatorCountryIso2(country == null ? null : country.iso2());
+        row.setCreatorContinentCode(country == null ? null : country.continentCode());
         row.setCreatorCountryObserved(true);
         row.setLastPreviewAt(completedAt);
         row.setMetadataObservedAt(observedAt);

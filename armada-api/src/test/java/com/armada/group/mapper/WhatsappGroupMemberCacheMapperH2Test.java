@@ -108,10 +108,11 @@ class WhatsappGroupMemberCacheMapperH2Test {
                 """);
 
         assertThat(mapper.selectByGroupJids(7L, java.util.List.of("120363-test@g.us")))
-                .hasSize(3)
+                .hasSize(4)
                 .allSatisfy(row -> assertThat(row.subject()).isEqualTo("tenant-7"))
                 .extracting(row -> row.phone())
-                .containsExactly("15550000001", "15550000002", "15550000005");
+                .containsExactly(
+                        "15550000001", "15550000002", "15550000004", "15550000005");
     }
 
     @Test
@@ -140,6 +141,36 @@ class WhatsappGroupMemberCacheMapperH2Test {
                     assertThat(row.stateSource()).isEqualTo("ROLE_EVENT");
                     assertThat(row.stateUpdatedAt()).isEqualTo(2_000L);
                     assertThat(row.sourceEventId()).isEqualTo("promote-1");
+                });
+    }
+
+    @Test
+    void selectByGroupJidsReturnsPersistedFactsWithoutCompleteSnapshotVersion() throws SQLException {
+        executeSql("""
+                INSERT INTO wa_group (id, tenant_id, group_jid)
+                VALUES (71, 7, '120363-test@g.us')
+                """, """
+                INSERT INTO wa_group_profile
+                    (id, tenant_id, group_id, subject, announce_only,
+                     member_snapshot_at, member_snapshot_version)
+                VALUES (701, 7, 71, 'incremental-group', 0, NULL, NULL)
+                """, """
+                INSERT INTO wa_group_participant
+                    (id, tenant_id, group_id, pn_jid, phone, presence_status,
+                     presence_source, presence_observed_at, role,
+                     role_source, last_snapshot_version, last_joined_at,
+                     last_exit_source_type)
+                VALUES (711, 7, 71, '15550000001@s.whatsapp.net', '15550000001',
+                        1, 'WGP2_ADD', 2000, 1, NULL, NULL, 2000, NULL)
+                """);
+
+        assertThat(mapper.selectByGroupJids(7L, java.util.List.of("120363-test@g.us")))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.subject()).isEqualTo("incremental-group");
+                    assertThat(row.snapshotAt()).isNull();
+                    assertThat(row.phone()).isEqualTo("15550000001");
+                    assertThat(row.inGroup()).isTrue();
                 });
     }
 

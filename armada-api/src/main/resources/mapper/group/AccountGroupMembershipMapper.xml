@@ -38,7 +38,9 @@
              WHEN relation.presence_status = 1
               AND relation.role IN (2, 3)
               AND relation.login_state = #{onlineLoginState}
-              AND relation.account_state = #{normalAccountState}
+              AND relation.account_state IN
+                <foreach collection="executableAccountStates" item="executableState"
+                         open="(" separator="," close=")">#{executableState}</foreach>
              THEN 1 ELSE 0
            END) AS operable
     FROM (
@@ -103,8 +105,8 @@
   <select id="countHistoricalGroupsByTenantAndAccountGroup" resultType="long">
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     SELECT COUNT(*)
     FROM (
       <include refid="historicalGroupAggregated"/>
@@ -116,8 +118,8 @@
           resultType="com.armada.group.model.vo.HistoricalGroupPageRow">
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     SELECT *
     FROM (
       <include refid="historicalGroupAggregated"/>
@@ -209,8 +211,8 @@
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
@@ -248,7 +250,9 @@
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND current_group.group_jid = #{groupJid}
       AND s.login_state = #{onlineLoginState}
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+        <foreach collection="executableAccountStates" item="executableState"
+                 open="(" separator="," close=")">#{executableState}</foreach>
     ORDER BY CASE
                WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
                     = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
@@ -263,8 +267,8 @@
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
@@ -304,7 +308,9 @@
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND s.login_state = #{onlineLoginState}
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+        <foreach collection="executableAccountStates" item="executableState"
+                 open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
       AND s.mute_status IS NULL
     ORDER BY CASE
@@ -320,8 +326,8 @@
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <bind name="onlineLoginState"
           value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
-    <bind name="normalAccountState"
-          value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
@@ -353,7 +359,9 @@
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND s.login_state = #{onlineLoginState}
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+        <foreach collection="executableAccountStates" item="executableState"
+                 open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
       AND s.mute_status IS NULL
     ORDER BY a.id ASC
@@ -418,7 +426,9 @@
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
-     AND s.account_state = #{normalAccountState}
+     AND s.account_state IN
+       <foreach collection="executableAccountStates" item="executableState"
+                open="(" separator="," close=")">#{executableState}</foreach>
     LEFT JOIN group_link_preview owner_preview
       ON owner_preview.tenant_id = group_handle.tenant_id
      AND owner_preview.group_link_id = group_handle.id
@@ -475,7 +485,9 @@
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
      AND s.login_state = #{onlineLoginState}
-     AND s.account_state = #{normalAccountState}
+     AND s.account_state IN
+       <foreach collection="executableAccountStates" item="executableState"
+                open="(" separator="," close=")">#{executableState}</foreach>
     LEFT JOIN wa_account_group_binding binding
       ON binding.tenant_id = group_handle.tenant_id
      AND binding.group_id = group_handle.group_id

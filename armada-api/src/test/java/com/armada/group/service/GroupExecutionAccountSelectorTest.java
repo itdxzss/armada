@@ -1,5 +1,6 @@
 package com.armada.group.service;
 
+import com.armada.group.service.GroupExecutableAccountStates;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
@@ -28,7 +29,7 @@ class GroupExecutionAccountSelectorTest {
     void findReturnsOnlineMembershipAccountSelectedByMapper() {
         GroupExecutionAccount account = account(7L, "923310000001", true);
         when(mapper.selectGroupExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of(account));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -37,7 +38,7 @@ class GroupExecutionAccountSelectorTest {
         assertThat(result).contains(account);
         assertThat(result.orElseThrow().groupAdmin()).isTrue();
         verify(mapper).selectGroupExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4);
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4);
     }
 
     @Test
@@ -45,7 +46,7 @@ class GroupExecutionAccountSelectorTest {
         GroupExecutionAccount first = account(7L, "923310000001", true);
         GroupExecutionAccount second = account(8L, "923310000002", false);
         when(mapper.selectGroupExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of(first, second));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -59,7 +60,7 @@ class GroupExecutionAccountSelectorTest {
         GroupExecutionAccount first = account(7L, "923310000001", true);
         GroupExecutionAccount second = account(8L, "923310000002", false);
         when(mapper.selectGroupExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of(first, second));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -74,7 +75,7 @@ class GroupExecutionAccountSelectorTest {
                 10L,
                 List.of("923310000001", "923310000002"),
                 AccountLoginStateCode.ONLINE,
-                AccountStateCode.NORMAL,
+                GroupExecutableAccountStates.executable(),
                 4)).thenReturn(List.of(first, second));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -94,14 +95,14 @@ class GroupExecutionAccountSelectorTest {
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
     void requireThrowsDedicatedErrorWhenNoExecutionAccountExists() {
         when(mapper.selectGroupExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 4))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of());
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -115,19 +116,19 @@ class GroupExecutionAccountSelectorTest {
     void requireOwnerReturnsExactOnlineGroupOwnerSelectedByMapper() {
         GroupExecutionAccount owner = account(9L, "923310000009", true);
         when(mapper.selectGroupOwnerExecutionAccount(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable()))
                 .thenReturn(owner);
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
         assertThat(selector.requireOwner(10L)).isEqualTo(owner);
         verify(mapper).selectGroupOwnerExecutionAccount(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL);
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable());
     }
 
     @Test
     void requireOwnerThrowsDedicatedErrorInsteadOfFallingBackToAnotherMember() {
         when(mapper.selectGroupOwnerExecutionAccount(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable()))
                 .thenReturn(null);
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -170,7 +171,7 @@ class GroupExecutionAccountSelectorTest {
     @Test
     void findAdminReturnsEmptyWhenGroupHasNoOnlineAdminSoCallerCanSkipTheProtocolCall() {
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
                 .thenReturn(List.of());
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -181,7 +182,7 @@ class GroupExecutionAccountSelectorTest {
     void findAdminSelectsTheGroupAdminCandidateReturnedByMapper() {
         GroupExecutionAccount admin = account(7L, "923310000001", true);
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
                 .thenReturn(List.of(admin));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -192,23 +193,23 @@ class GroupExecutionAccountSelectorTest {
     void requireAdminReturnsAvailableGroupAdminWithoutRequiringOwner() {
         GroupExecutionAccount admin = account(7L, "923310000001", true);
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
                 .thenReturn(List.of(admin));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
         assertThat(selector.requireAdmin(10L)).isEqualTo(admin);
         verify(mapper).selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1);
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1);
         verify(mapper, org.mockito.Mockito.never()).selectGroupOwnerExecutionAccount(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyInt());
+                org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test
     void requireAdminThrowsInsteadOfFallingBackToOrdinaryMember() {
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
                 .thenReturn(List.of());
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
@@ -219,7 +220,7 @@ class GroupExecutionAccountSelectorTest {
         verify(mapper, org.mockito.Mockito.never()).selectGroupExecutionAccounts(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyInt());
     }
 

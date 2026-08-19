@@ -1,5 +1,6 @@
 package com.armada.testsupport;
 
+import com.armada.group.service.GroupExecutableAccountStates;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -221,25 +222,25 @@ public class MysqlModeMapperInMemoryTest {
                 """);
 
         GroupExecutionAccount owner = membershipMapper.selectGroupOwnerExecutionAccount(
-                31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL);
+                31L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable());
 
         assertThat(owner).isNotNull();
         assertThat(owner.accountId()).isEqualTo(601L);
         assertThat(owner.protocolAccountId()).isEqualTo("owner-601");
 
         assertThat(membershipMapper.selectGroupExecutionAccounts(
-                33L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 10))
+                33L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 10))
                 .extracting(GroupExecutionAccount::accountId)
                 .containsExactly(604L);
         assertThat(membershipMapper.selectGroupAdminExecutionAccounts(
-                33L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 10))
+                33L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 10))
                 .extracting(GroupExecutionAccount::accountId)
                 .containsExactly(604L);
 
         try {
             TenantContext.set(8L);
             assertThat(membershipMapper.selectGroupOwnerExecutionAccount(
-                    31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).isNull();
+                    31L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable())).isNull();
         } finally {
             TenantContext.set(CURRENT_TENANT_ID);
         }
@@ -248,7 +249,7 @@ public class MysqlModeMapperInMemoryTest {
                 "UPDATE account_state SET login_state = ? WHERE tenant_id = 7 AND account_id = 601",
                 AccountLoginStateCode.OFFLINE);
         assertThat(membershipMapper.selectGroupOwnerExecutionAccount(
-                31L, AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL)).isNull();
+                31L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable())).isNull();
     }
 
     @Test

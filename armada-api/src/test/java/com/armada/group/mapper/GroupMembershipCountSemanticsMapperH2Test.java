@@ -1,5 +1,6 @@
 package com.armada.group.mapper;
 
+import com.armada.group.service.GroupExecutableAccountStates;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.mapper.AccountMapper;
@@ -210,19 +211,19 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     @Test
     void groupHandleExecutionQueriesReadCanonicalBindingAndParticipant() {
         assertThat(accountGroupMembershipMapper.selectGroupExecutionAccounts(
-                        2001L, 1, 2, 10))
+                        2001L, 1, GroupExecutableAccountStates.executable(), 10))
                 .containsExactly(new GroupExecutionAccount(
                         501L, "wa-web", "acc_501", "923300000501", true));
         assertThat(accountGroupMembershipMapper.selectGroupAdminExecutionAccounts(
-                        2001L, 1, 2, 10))
+                        2001L, 1, GroupExecutableAccountStates.executable(), 10))
                 .extracting(GroupExecutionAccount::accountId)
                 .containsExactly(501L);
         assertThat(accountGroupMembershipMapper.selectGroupOwnerExecutionAccount(
-                        2001L, 1, 2))
+                        2001L, 1, GroupExecutableAccountStates.executable()))
                 .extracting(GroupExecutionAccount::accountId)
                 .isEqualTo(501L);
         assertThat(accountGroupMembershipMapper.selectGroupExecutionAccountsByPhones(
-                        2001L, List.of("923300000501"), 1, 2, 10))
+                        2001L, List.of("923300000501"), 1, GroupExecutableAccountStates.executable(), 10))
                 .extracting(GroupExecutionAccount::accountId)
                 .containsExactly(501L);
     }

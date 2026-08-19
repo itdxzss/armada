@@ -189,7 +189,7 @@ public interface AccountGroupMembershipMapper {
     List<GroupExecutionAccount> selectGroupExecutionAccounts(
             @Param("groupLinkId") Long groupLinkId,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("executableAccountStates") List<Integer> executableAccountStates,
             @Param("limit") int limit);
 
     /**
@@ -200,13 +200,13 @@ public interface AccountGroupMembershipMapper {
      *
      * @param groupLinkId 群链接 ID
      * @param onlineLoginState 在线登录态码
-     * @param normalAccountState 正常账号态码
+     * @param executableAccountStates 可执行账号生命周期状态集合
      * @return 群主账号；群主身份未知、离线或不再在群时返回 null
      */
     GroupExecutionAccount selectGroupOwnerExecutionAccount(
             @Param("groupLinkId") Long groupLinkId,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("normalAccountState") int normalAccountState);
+            @Param("executableAccountStates") List<Integer> executableAccountStates);
 
     /**
      * 选择一个当前在线、在群且群角色为管理员的账号,用于刷新群邀请链接等必须管理员权限的操作。
@@ -216,14 +216,14 @@ public interface AccountGroupMembershipMapper {
      *
      * @param groupLinkId 群链接 ID
      * @param onlineLoginState 在线登录态码
-     * @param normalAccountState 正常账号态码
+     * @param executableAccountStates 可执行账号生命周期状态集合
      * @param limit 最大候选数
      * @return 按最近在群时间稳定排序的管理员候选;无管理员时为空列表
      */
     List<GroupExecutionAccount> selectGroupAdminExecutionAccounts(
             @Param("groupLinkId") Long groupLinkId,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("executableAccountStates") List<Integer> executableAccountStates,
             @Param("limit") int limit);
 
     /**
@@ -235,7 +235,7 @@ public interface AccountGroupMembershipMapper {
      * @param groupLinkId 群入口 ID
      * @param phones 新鲜 metadata 确认的管理员手机号
      * @param onlineLoginState 在线登录态码
-     * @param normalAccountState 正常账号态码
+     * @param executableAccountStates 可执行账号生命周期状态集合
      * @param limit 最大候选数
      * @return 按最近在群时间稳定排序的候选
      */
@@ -243,7 +243,7 @@ public interface AccountGroupMembershipMapper {
             @Param("groupLinkId") Long groupLinkId,
             @Param("phones") List<String> phones,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("executableAccountStates") List<Integer> executableAccountStates,
             @Param("limit") int limit);
 
     /**

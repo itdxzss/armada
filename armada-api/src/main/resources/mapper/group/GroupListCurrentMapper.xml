@@ -2,8 +2,37 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupListCurrentMapper">
 
+  <!--
+    「可用管理员」探针:群内存在角色为管理员/群主、且我方持有的账号当前在线可执行。
+    account_state 取三态(正常/被抢登/抢登中)——能不能干活看 login_state,
+    account_state 记的是生命周期处境,抢登中的号连接仍可能健康。与选号链路同口径。
+  -->
+  <sql id="availableAdminProbe">
+    SELECT 1
+    FROM wa_group_participant participant
+    INNER JOIN account execution_account
+      ON execution_account.tenant_id = participant.tenant_id
+     AND execution_account.ws_phone = participant.phone
+     AND execution_account.deleted_at IS NULL
+     AND execution_account.protocol_account_id IS NOT NULL
+     AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
+    INNER JOIN account_state execution_state
+      ON execution_state.tenant_id = execution_account.tenant_id
+     AND execution_state.account_id = execution_account.id
+     AND execution_state.login_state = 1
+     AND execution_state.account_state IN
+       <foreach collection="executableAccountStates" item="executableState"
+                open="(" separator="," close=")">#{executableState}</foreach>
+    WHERE participant.tenant_id = handle.tenant_id
+      AND participant.group_id = current_group.id
+      AND participant.presence_status = 1
+      AND participant.role IN (2, 3)
+  </sql>
+
   <!-- group_link 保留现有数值 ID/alias；v1 建群人及国家字段继续使用 legacy preview 兼容投影。 -->
   <sql id="currentListFrom">
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
     <bind name="hasKeyword"
           value="query.keyword != null and query.keyword != ''"/>
     <bind name="hasStatus"
@@ -106,44 +135,12 @@
     </if>
     <if test="query.availableAdmin != null and query.availableAdmin">
       AND EXISTS (
-        SELECT 1
-        FROM wa_group_participant participant
-        INNER JOIN account execution_account
-          ON execution_account.tenant_id = participant.tenant_id
-         AND execution_account.ws_phone = participant.phone
-         AND execution_account.deleted_at IS NULL
-         AND execution_account.protocol_account_id IS NOT NULL
-         AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
-        INNER JOIN account_state execution_state
-          ON execution_state.tenant_id = execution_account.tenant_id
-         AND execution_state.account_id = execution_account.id
-         AND execution_state.login_state = 1
-          AND execution_state.account_state = 2
-        WHERE participant.tenant_id = handle.tenant_id
-          AND participant.group_id = current_group.id
-          AND participant.presence_status = 1
-          AND participant.role IN (2, 3)
+        <include refid="availableAdminProbe"/>
       )
     </if>
     <if test="query.availableAdmin != null and !query.availableAdmin">
       AND NOT EXISTS (
-        SELECT 1
-        FROM wa_group_participant participant
-        INNER JOIN account execution_account
-          ON execution_account.tenant_id = participant.tenant_id
-         AND execution_account.ws_phone = participant.phone
-         AND execution_account.deleted_at IS NULL
-         AND execution_account.protocol_account_id IS NOT NULL
-         AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
-        INNER JOIN account_state execution_state
-          ON execution_state.tenant_id = execution_account.tenant_id
-         AND execution_state.account_id = execution_account.id
-         AND execution_state.login_state = 1
-          AND execution_state.account_state = 2
-        WHERE participant.tenant_id = handle.tenant_id
-          AND participant.group_id = current_group.id
-          AND participant.presence_status = 1
-          AND participant.role IN (2, 3)
+        <include refid="availableAdminProbe"/>
       )
     </if>
     <if test="query.memberCountMin != null">
@@ -275,7 +272,9 @@
                   WHEN controlled_account.protocol_account_id IS NOT NULL
                    AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''
                    AND execution_state.login_state = 1
-                   AND execution_state.account_state = 2
+                   AND execution_state.account_state IN
+                     <foreach collection="executableAccountStates" item="executableState"
+                              open="(" separator="," close=")">#{executableState}</foreach>
                   THEN controlled_account.id
                 END) AS available_admin_count
       FROM page_groups page_group

@@ -1,7 +1,6 @@
 package com.armada.group.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
-import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
@@ -10,7 +9,13 @@ import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Component;
 
-/** 为群实时读写选择在线、仍在群内的执行账号。 */
+/**
+ * 为群实时读写选择在线、仍在群内的执行账号。
+ *
+ * <p>能不能干活由 {@code login_state} 在线判定;{@code account_state} 只排除终态与禁用态,
+ * 被抢登与抢登中的号连接可能仍然健康,一并视为可执行,口径见
+ * {@link GroupExecutableAccountStates}。</p>
+ */
 @Component
 public final class GroupExecutionAccountSelector {
 
@@ -47,7 +52,7 @@ public final class GroupExecutionAccountSelector {
         List<GroupExecutionAccount> candidates = mapper.selectGroupExecutionAccounts(
                 groupLinkId,
                 AccountLoginStateCode.ONLINE,
-                AccountStateCode.NORMAL,
+                GroupExecutableAccountStates.executable(),
                 MAX_RETRY_CANDIDATES);
         return candidates == null ? List.of() : List.copyOf(candidates);
     }
@@ -69,7 +74,7 @@ public final class GroupExecutionAccountSelector {
         List<GroupExecutionAccount> candidates = mapper.selectGroupAdminExecutionAccounts(
                 groupLinkId,
                 AccountLoginStateCode.ONLINE,
-                AccountStateCode.NORMAL,
+                GroupExecutableAccountStates.executable(),
                 1);
         return candidates == null || candidates.isEmpty()
                 ? Optional.empty()
@@ -107,7 +112,7 @@ public final class GroupExecutionAccountSelector {
                 groupLinkId,
                 normalizedPhones,
                 AccountLoginStateCode.ONLINE,
-                AccountStateCode.NORMAL,
+                GroupExecutableAccountStates.executable(),
                 MAX_RETRY_CANDIDATES), completedAttempts);
     }
 
@@ -156,7 +161,7 @@ public final class GroupExecutionAccountSelector {
                 : mapper.selectGroupOwnerExecutionAccount(
                         groupLinkId,
                         AccountLoginStateCode.ONLINE,
-                        AccountStateCode.NORMAL);
+                        GroupExecutableAccountStates.executable());
         if (owner == null) {
             throw new BusinessException(
                     ErrorCode.GROUP_EXECUTOR_UNAVAILABLE,

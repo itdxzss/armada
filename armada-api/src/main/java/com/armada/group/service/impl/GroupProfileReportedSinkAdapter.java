@@ -45,18 +45,21 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupMetadataSyncTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper batchItemMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
             AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence,
             GroupMetadataSyncTaskMapper taskMapper,
             GroupBatchTaskItemMapper batchItemMapper,
-            GroupLinkRegistryService groupLinkRegistryService) {
+            GroupLinkRegistryService groupLinkRegistryService,
+            GroupCreatorCompatibilityWriter creatorWriter) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.creatorWriter = creatorWriter;
     }
 
     @Override
@@ -64,7 +67,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     public void handleProfileReported(ProtocolGroupProfileReportedEvent event) {
         TenantContext.set(event.tenantId());
         try {
-            registerGroupLink(event);
+            Long groupLinkId = registerGroupLink(event);
+            writeCreator(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
             snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
@@ -89,9 +93,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
      * <p>登记失败不向上抛：资料与成员才是本事件的主载荷，不能因为列表入口没建成而整条消息重投，
      * 那会把这个群的资料也一起卡住。关系事件随后仍会补登记。</p>
      */
-    private void registerGroupLink(ProtocolGroupProfileReportedEvent event) {
+    private Long registerGroupLink(ProtocolGroupProfileReportedEvent event) {
         try {
-            groupLinkRegistryService.registerAccountObservedGroup(
+            return groupLinkRegistryService.registerAccountObservedGroup(
                     event.groupJid(),
                     event.subject(),
                     // 用容错解析而非 valueOf：backend 来自外部事件，未知值该回落而不是抛异常。
@@ -99,6 +103,24 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     System.currentTimeMillis());
         } catch (RuntimeException e) {
             log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 写创建者与国旗；两者同源于建群人手机号。
+     *
+     * <p>与登记群入口同样只告警不抛出：创建者是展示字段，不该让整条资料事件因它重投。</p>
+     */
+    private void writeCreator(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null || event.creatorPhone() == null) {
+            return;
+        }
+        try {
+            creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={} reason={}",
                     event.eventId(), event.groupJid(), e.getMessage());
         }
     }

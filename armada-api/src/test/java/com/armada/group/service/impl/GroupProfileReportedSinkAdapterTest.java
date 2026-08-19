@@ -52,6 +52,9 @@ class GroupProfileReportedSinkAdapterTest {
     @Mock
     private GroupLinkRegistryService groupLinkRegistryService;
 
+    @Mock
+    private GroupCreatorCompatibilityWriter creatorWriter;
+
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
 
@@ -218,7 +221,32 @@ class GroupProfileReportedSinkAdapterTest {
 
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete, List<ProtocolGroupProfileReportedEvent.Member> members) {
-        return event(membersComplete, members, null);
+        return event(membersComplete, members, null, null);
+    }
+
+    private static ProtocolGroupProfileReportedEvent event(
+            boolean membersComplete,
+            List<ProtocolGroupProfileReportedEvent.Member> members,
+            Long groupCreatedAt) {
+        return event(membersComplete, members, groupCreatedAt, null);
+    }
+
+    @Test
+    void creatorPhoneIsPersistedSoTheListShowsCreatorAndFlag() {
+        // 列表的「创建者」与国旗都来自这一个手机号：国旗按号码区号推导。
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+
+        adapter.handleProfileReported(event(true, List.of(), null, "923206788780"));
+
+        verify(creatorWriter).writeCreator(eq(77L), eq("923206788780"), anyLong());
+    }
+
+    @Test
+    void missingCreatorPhoneSkipsTheCompatibilityWrite() {
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(creatorWriter, never()).writeCreator(anyLong(), anyString(), anyLong());
     }
 
     @Test
@@ -239,7 +267,8 @@ class GroupProfileReportedSinkAdapterTest {
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete,
             List<ProtocolGroupProfileReportedEvent.Member> members,
-            Long groupCreatedAt) {
+            Long groupCreatedAt,
+            String creatorPhone) {
         return new ProtocolGroupProfileReportedEvent(
                 "acc-100:group.profile_reported:1",
                 1L,
@@ -255,7 +284,7 @@ class GroupProfileReportedSinkAdapterTest {
                 "online_full_metadata",
                 2_000L,
                 groupCreatedAt,
-                null,
+                creatorPhone,
                 "worker-1",
                 null);
     }

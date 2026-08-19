@@ -30,6 +30,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskDisappearingMessageMode;
 import com.armada.task.model.enums.PullTaskEditPermissionMode;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
@@ -239,6 +240,63 @@ class PullTaskStandardCreateServiceTest {
     }
 
     @Test
+    void newGroupModeFreezesCreationModeAndCreatorConfigOnSubmit() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+        AccountGroup creatorGroup = new AccountGroup();
+        creatorGroup.setName("建群人组");
+        when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
+
+        service.create(newGroupRequest(taskId), CREATOR);
+
+        // mode 必须仍是 NORMAL_LINK：它是执行链路开关，改掉调度器就不认领执行行了。
+        PullTask task = pullTaskMapper.selectLifecycle(taskId);
+        assertThat(task.getMode()).isEqualTo("NORMAL_LINK");
+        assertThat(task.getCreationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getCreatorGroupId()).isEqualTo(16L);
+        assertThat(setting.getCreatorGroupName()).isEqualTo("建群人组");
+        assertThat(setting.getInitialStationCount()).isEqualTo(2);
+    }
+
+    @Test
+    void linkModeSubmitLeavesCreationModeAtItsColumnDefault() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+
+        service.create(validRequest(taskId), CREATOR);
+
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getCreationMode())
+                .isEqualTo(PullTaskCreationMode.PASTED_LINK);
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getCreatorGroupId()).isNull();
+        assertThat(setting.getInitialStationCount()).isZero();
+    }
+
+    @Test
+    void newGroupModeWithoutCreatorGroupIsRejected() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+        PullTaskStandardCreateDTO request = newGroupRequest(taskId);
+        PullTaskStandardCreateDTO withoutCreator = new PullTaskStandardCreateDTO(
+                request.draftTaskId(), request.taskName(), request.remark(), request.autoStart(),
+                request.groupFolderId(), request.pullerSyncMode(), request.materialAdminTiming(),
+                request.clearExistingMembers(), request.pullerJoinByLink(),
+                request.earlyPullCount(), request.earlyPullCallCount(), request.pullCountMin(),
+                request.pullCountMax(), request.pullIntervalSeconds(),
+                request.pullerCountPerGroup(), request.stationCountPerCall(),
+                request.concurrentGroupCount(), request.managerGroupId(), request.pullerGroupId(),
+                request.stationGroupId(), request.managerFinishGroupId(),
+                request.pullerFinishGroupId(), request.groupSetting(), request.creationMode(),
+                null, request.initialStationCount());
+
+        assertThatThrownBy(() -> service.create(withoutCreator, CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("建群人");
+
+        // 整单回滚：任务仍是草稿，配置一行没落。
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
+        assertThat(settingMapper.selectByTaskId(taskId)).isNull();
+    }
+
+    @Test
     void rejectsPullCountRangeWithMinGreaterThanMax() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
@@ -419,6 +477,20 @@ class PullTaskStandardCreateServiceTest {
                 false, false, PullTaskEditPermissionMode.UNCHANGED,
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);
+    }
+
+    /**
+     * 新群模式入参：建群人分组 16，建群时带 2 个初始站台。
+     *
+     * @param taskId 草稿任务 ID
+     * @return 新群模式整单提交入参
+     */
+    private static PullTaskStandardCreateDTO newGroupRequest(long taskId) {
+        return new PullTaskStandardCreateDTO(
+                taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
+                1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
+                11L, 12L, 13L, null, null, validGroupSetting(),
+                PullTaskCreationMode.NEW_GROUP, 16L, 2);
     }
 
     /**

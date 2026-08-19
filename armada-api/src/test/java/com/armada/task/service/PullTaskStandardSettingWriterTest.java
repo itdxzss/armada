@@ -15,6 +15,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskPullerSyncMode;
 import com.armada.task.service.impl.PullTaskStandardSettingWriter;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,8 +35,10 @@ class PullTaskStandardSettingWriterTest {
     void setUp() {
         when(accountGroupService.requireExisting(11L)).thenReturn(group("管理组"));
         when(accountGroupService.requireExisting(12L)).thenReturn(group("拉手组"));
+        when(accountGroupService.requireExisting(13L)).thenReturn(group("站台组"));
         when(accountGroupService.requireExisting(14L)).thenReturn(group("管理完成组"));
         when(accountGroupService.requireExisting(15L)).thenReturn(group("拉手完成组"));
+        when(accountGroupService.requireExisting(16L)).thenReturn(group("建群人组"));
         when(groupFolderService.requireExisting(18L))
                 .thenReturn(new GroupFolderOptionVO(18L, "印度群"));
     }
@@ -85,6 +88,59 @@ class PullTaskStandardSettingWriterTest {
                 ArgumentCaptor.forClass(PullTaskStandardSetting.class);
         verify(mapper).insert(captor.capture());
         assertThat(captor.getValue().getPullerJoinByLink()).isZero();
+    }
+
+    @Test
+    void newGroupModePersistsCreatorGroupWithServerSideNameSnapshot() {
+        PullTaskStandardCreateDTO request = request(2, 13L);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(3);
+
+        writer.insert(request, 9L);
+
+        PullTaskStandardSetting saved = captureSaved();
+        assertThat(saved.getCreatorGroupId()).isEqualTo(16L);
+        // 分组名是服务端快照，不接受前端传值，与 managerGroupName 等既有列同款。
+        assertThat(saved.getCreatorGroupName()).isEqualTo("建群人组");
+        assertThat(saved.getInitialStationCount()).isEqualTo(3);
+    }
+
+    @Test
+    void linkModeLeavesCreatorColumnsEmptyEvenIfClientSendsThem() {
+        // 群链接模式下建群配置无意义；前端误传也不得落库，否则读服务会把它当成新群模式的配置。
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.PASTED_LINK);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(3);
+
+        writer.insert(request, 9L);
+
+        PullTaskStandardSetting saved = captureSaved();
+        assertThat(saved.getCreatorGroupId()).isNull();
+        assertThat(saved.getCreatorGroupName()).isNull();
+        assertThat(saved.getInitialStationCount()).isZero();
+        verify(accountGroupService, never()).requireExisting(16L);
+    }
+
+    @Test
+    void omittedInitialStationCountFallsBackToZeroRatherThanNull() {
+        // 列是 NOT NULL DEFAULT 0；写 null 会在真库直接抛，H2 上却可能放过。
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(null);
+
+        writer.insert(request, 9L);
+
+        assertThat(captureSaved().getInitialStationCount()).isZero();
+    }
+
+    private PullTaskStandardSetting captureSaved() {
+        ArgumentCaptor<PullTaskStandardSetting> captor =
+                ArgumentCaptor.forClass(PullTaskStandardSetting.class);
+        verify(mapper).insert(captor.capture());
+        return captor.getValue();
     }
 
     private PullTaskStandardCreateDTO request(int stationCount, Long stationGroupId) {

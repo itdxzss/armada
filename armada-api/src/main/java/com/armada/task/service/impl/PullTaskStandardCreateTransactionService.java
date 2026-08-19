@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.dto.PullTaskStandardGroupSettingDTO;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskMaterialAdminTiming;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
@@ -201,6 +202,8 @@ public class PullTaskStandardCreateTransactionService {
         update.setId(task.getId());
         update.setTaskName(request.taskName().trim());
         update.setRemark(request.remark());
+        // 模式在提交这一刻冻结；mode 不动，它是执行链路开关，两个模式共用 NORMAL_LINK。
+        update.setCreationMode(PullTaskCreationMode.fromNullable(request.creationMode()));
         update.setGroupCount(rows.size());
         update.setExpectedPullCount(rows.stream()
                 .mapToInt(PullTaskGroupExecution::getValidMemberCount).sum());

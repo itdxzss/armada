@@ -19,17 +19,21 @@ public class PullTaskStandardSetting {
     private Integer pullIntervalSeconds;
     private Integer pullerCountPerGroup;
     private Integer stationCountPerCall;
+    /** 建群时作为初始成员加入的站台数量；默认 0 对齐列的 NOT NULL DEFAULT 0。 */
+    private Integer initialStationCount = 0;
     private Integer concurrentGroupCount;
     private Integer pullerRiskMinutes;
     private Integer requiredManagerCount;
     private Long managerGroupId;
     private Long pullerGroupId;
     private Long stationGroupId;
+    private Long creatorGroupId;
     private Long managerFinishGroupId;
     private Long pullerFinishGroupId;
     private String managerGroupName;
     private String pullerGroupName;
     private String stationGroupName;
+    private String creatorGroupName;
     private String managerFinishGroupName;
     private String pullerFinishGroupName;
     private Long createdAt;
@@ -67,6 +71,8 @@ public class PullTaskStandardSetting {
     public void setPullerCountPerGroup(Integer value) { this.pullerCountPerGroup = value; }
     public Integer getStationCountPerCall() { return stationCountPerCall; }
     public void setStationCountPerCall(Integer value) { this.stationCountPerCall = value; }
+    public Integer getInitialStationCount() { return initialStationCount; }
+    public void setInitialStationCount(Integer value) { this.initialStationCount = value; }
     public Integer getConcurrentGroupCount() { return concurrentGroupCount; }
     public void setConcurrentGroupCount(Integer value) { this.concurrentGroupCount = value; }
     public Integer getPullerRiskMinutes() { return pullerRiskMinutes; }
@@ -79,6 +85,8 @@ public class PullTaskStandardSetting {
     public void setPullerGroupId(Long pullerGroupId) { this.pullerGroupId = pullerGroupId; }
     public Long getStationGroupId() { return stationGroupId; }
     public void setStationGroupId(Long stationGroupId) { this.stationGroupId = stationGroupId; }
+    public Long getCreatorGroupId() { return creatorGroupId; }
+    public void setCreatorGroupId(Long creatorGroupId) { this.creatorGroupId = creatorGroupId; }
     public Long getManagerFinishGroupId() { return managerFinishGroupId; }
     public void setManagerFinishGroupId(Long value) { this.managerFinishGroupId = value; }
     public Long getPullerFinishGroupId() { return pullerFinishGroupId; }
@@ -89,6 +97,8 @@ public class PullTaskStandardSetting {
     public void setPullerGroupName(String value) { this.pullerGroupName = value; }
     public String getStationGroupName() { return stationGroupName; }
     public void setStationGroupName(String value) { this.stationGroupName = value; }
+    public String getCreatorGroupName() { return creatorGroupName; }
+    public void setCreatorGroupName(String value) { this.creatorGroupName = value; }
     public String getManagerFinishGroupName() { return managerFinishGroupName; }
     public void setManagerFinishGroupName(String value) { this.managerFinishGroupName = value; }
     public String getPullerFinishGroupName() { return pullerFinishGroupName; }

@@ -1,5 +1,6 @@
 package com.armada.task.model.entity;
 
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskGroupSource;
 import com.armada.task.model.enums.PullTaskType;
 
@@ -26,6 +27,18 @@ public class PullTask {
 
     /** 普通拉群任务模式。 */
     private String mode;
+
+    /**
+     * 新建任务时选择的模式：群链接模式 / 新群模式。
+     *
+     * <p>与 {@link #mode} 无关——后者恒为 {@code NORMAL_LINK}，表达「走普通拉群执行链路」，
+     * 两个模式共用同一条链路；也与 {@link #groupSource} 无关，那是拉群营销的
+     * 历史群/自收群来源。</p>
+     *
+     * <p>默认群链接模式，与列的 {@code NOT NULL DEFAULT 'PASTED_LINK'} 对齐：
+     * 不关心建群的既有构造点（营销任务、草稿提交的 mapper 测试）不必显式赋值。</p>
+     */
+    private PullTaskCreationMode creationMode = PullTaskCreationMode.PASTED_LINK;
 
     /** 当前状态码。 */
     private String status;
@@ -129,6 +142,14 @@ public class PullTask {
 
     public void setMode(String mode) {
         this.mode = mode;
+    }
+
+    public PullTaskCreationMode getCreationMode() {
+        return creationMode;
+    }
+
+    public void setCreationMode(PullTaskCreationMode creationMode) {
+        this.creationMode = creationMode;
     }
 
     public String getStatus() {

@@ -5,10 +5,15 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
+import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -40,16 +45,25 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence;
     private final GroupMetadataSyncTaskMapper taskMapper;
     private final GroupBatchTaskItemMapper batchItemMapper;
+    private final GroupLinkRegistryService groupLinkRegistryService;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
+    private final GroupParticipantObservationService participantObservationService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
             AccountGroupCurrentSnapshotPersistenceImpl snapshotPersistence,
             GroupMetadataSyncTaskMapper taskMapper,
-            GroupBatchTaskItemMapper batchItemMapper) {
+            GroupBatchTaskItemMapper batchItemMapper,
+            GroupLinkRegistryService groupLinkRegistryService,
+            GroupCreatorCompatibilityWriter creatorWriter,
+            GroupParticipantObservationService participantObservationService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
+        this.groupLinkRegistryService = groupLinkRegistryService;
+        this.creatorWriter = creatorWriter;
+        this.participantObservationService = participantObservationService;
     }
 
     @Override
@@ -57,14 +71,62 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     public void handleProfileReported(ProtocolGroupProfileReportedEvent event) {
         TenantContext.set(event.tenantId());
         try {
+            Long groupLinkId = registerGroupLink(event);
+            writeCreator(event, groupLinkId);
+            // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
+            snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
             applyMembers(event);
+            reconcileControlledBindings(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {
                 taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
                 batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
             }
         } finally {
             TenantContext.clear();
+        }
+    }
+
+    /**
+     * 把群登记进群组列表主表 group_link。
+     *
+     * <p>群组列表读的是 group_link，而不是资料表。此前只有精确关系事件登记它，于是资料几秒就到位、
+     * 列表却要等那条事件——它走账号群同步 topic，会排在上线全量清单后面，实测堵了 5 分 49 秒。
+     * 本事件自带群 JID 与群名，登记所需信息齐全，且 registerAccountObservedGroup 幂等，
+     * 与关系事件重复登记只会 touch 同一行。</p>
+     *
+     * <p>登记失败不向上抛：资料与成员才是本事件的主载荷，不能因为列表入口没建成而整条消息重投，
+     * 那会把这个群的资料也一起卡住。关系事件随后仍会补登记。</p>
+     */
+    private Long registerGroupLink(ProtocolGroupProfileReportedEvent event) {
+        try {
+            return groupLinkRegistryService.registerAccountObservedGroup(
+                    event.groupJid(),
+                    event.subject(),
+                    // 用容错解析而非 valueOf：backend 来自外部事件，未知值该回落而不是抛异常。
+                    ProtocolBackend.fromProtocolId(event.protocolBackend()),
+                    System.currentTimeMillis());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报登记群入口失败,资料与成员照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 写创建者与国旗；两者同源于建群人手机号。
+     *
+     * <p>与登记群入口同样只告警不抛出：创建者是展示字段，不该让整条资料事件因它重投。</p>
+     */
+    private void writeCreator(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null || event.creatorPhone() == null) {
+            return;
+        }
+        try {
+            creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
         }
     }
 
@@ -103,6 +165,46 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 event.eventId()));
     }
 
+    /**
+     * 按成员列表对齐我方账号的群绑定。
+     *
+     * <p>「可用管理员」与邀请码选号都 INNER JOIN wa_account_group_binding。建档带着完整成员
+     * 与角色，却不建绑定，就会出现"群主明明在控端、列表却判不可用"，邀请码任务也拿
+     * NO_EXECUTION_ACCOUNT 失败。绑定原先只由精确关系事件建立，而那条事件与上线全量清单同
+     * 队列，实测慢几分钟。</p>
+     *
+     * <p>成员身份整份送下去，由 reconcileControlledMemberships 自己筛出受控账号——外部号码
+     * 匹配不到账号自然不会建绑定，这里不重复判断。</p>
+     *
+     * <p>放在成员落库之后：对账要按已落库的成员状态匹配。失败只告警，不让整条事件重投。</p>
+     */
+    private void reconcileControlledBindings(ProtocolGroupProfileReportedEvent event) {
+        if (event.members() == null || event.members().isEmpty()) {
+            return;
+        }
+        List<String> identities = new ArrayList<>(event.members().size());
+        for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
+            // 传 PN 与 LID 双候选：下游按 COALESCE(pn_jid, lid_jid) 匹配，
+            // 只传一种会漏掉已合并出另一种形态的行。
+            if (member.jid() != null) {
+                identities.add(member.jid());
+            }
+            if (member.lid() != null) {
+                identities.add(member.lid());
+            }
+        }
+        if (identities.isEmpty()) {
+            return;
+        }
+        try {
+            participantObservationService.reconcileControlledMemberships(
+                    event.tenantId(), event.groupJid(), identities);
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报对齐账号群绑定失败,其余事实照常落库 eventId={} groupJid={}",
+                    event.eventId(), event.groupJid(), e);
+        }
+    }
+
     /** 写完整成员快照；只有协议授权列表完整时才执行，因为它会判定缺失成员已退群。 */
     private void applyMembers(ProtocolGroupProfileReportedEvent event) {
         if (!event.membersComplete()) {
@@ -116,7 +218,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     // jid 缺失时用 LID 兜住主标识，落库层按 PN/LID 形态各自归位。
                     member.jid() != null ? member.jid() : member.lid(),
                     // 号码由协议侧还原；控端不猜，缺号码仍保存成员事实，只是关联不到受控账号。
-                    member.phone() != null ? member.phone() + "@s.whatsapp.net" : null,
+                    // 协议侧可能送裸号码，也可能已经是完整 JID，一律交给 WhatsappJids 归一：
+                    // 自己拼后缀会在后者上拼出双后缀，而绑定按 pn_jid 等值关联，受控账号从此匹配不上。
+                    pnJid(member.phone()),
                     member.phone(),
                     member.admin(),
                     member.owner(),
@@ -128,5 +232,27 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 event.occurredAt(),
                 // 事件 ID 作为快照版本，使同一次协议观察的重放天然幂等。
                 event.eventId());
+    }
+
+    /**
+     * 把协议侧号码归一成 PN JID；缺号码或号码非法时返回 null，成员事实仍照常落库。
+     *
+     * <p>协议侧可能送裸号码，也可能已经送完整 JID，{@link WhatsappJids#userJid} 对后者原样返回，
+     * 所以这里不能自己拼后缀。单个成员号码非法不应炸掉整批快照——落库层允许 pn_jid 为空，
+     * 代价只是这一个成员关联不到受控账号。</p>
+     *
+     * @param phone 协议侧还原的号码，可能是裸号码、完整 JID 或 null
+     * @return 归一后的 PN JID；不可用时为 null
+     */
+    private static String pnJid(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
+        }
+        try {
+            return WhatsappJids.userJid(phone);
+        } catch (ProtocolException e) {
+            log.warn("协议成员号码无法归一成 PN JID,该成员按无号码落库 phone={}", phone);
+            return null;
+        }
     }
 }

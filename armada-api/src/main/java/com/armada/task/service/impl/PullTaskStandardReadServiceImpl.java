@@ -296,6 +296,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 ? null
                 : "/api/pull-tasks/standard/group-avatars/" + row.getAvatarFileKey();
         return new PullTaskStandardGroupSettingVO(
+                enabled(row.getGroupSettingEnabled()),
                 PullTaskGroupSettingTiming.fromCode(value(row.getSettingTiming())),
                 row.getGroupName(), enabled(row.getMaterialFilenameAsGroupName()),
                 row.getAvatarFileKey(), avatarUrl, row.getGroupDescription(),

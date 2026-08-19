@@ -19,6 +19,7 @@ import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskGroupSettingItem;
 import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.service.PullTaskGroupSettingsResultService;
@@ -35,6 +36,17 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>阻断规则集中在本类：放开加人权限是阶段推进条件，成功才追加关闭审核命令并唤醒执行行；
  * 关闭进群审核无论成败都只写动作行，不读也不 CAS 执行行，因此它的结果在执行行推进到后续阶段
  * 之后到达仍能正常落库。</p>
+ *
+ * <p>「群信息设置」整块命令（{@code group.profile.apply} /
+ * {@link PullTaskAccountActionType#APPLY_GROUP_SETTINGS}）与关闭进群审核同形状：只写动作行，
+ * 不读也不 CAS 执行行，失败按第一个失败项分派到各自的原因码。</p>
+ *
+ * <p>它的失败口径（业务确认 2026-08-19）：协议侧对设置项失败恒回 {@code UNKNOWN} 并带
+ * {@code retryable}，但 <b>armada 只留 reason_code 供排查与统计，不重试、不重发</b>，
+ * 一条命令只发一次。这是二选一而不是漏做：本仓的重试驱动来自执行行被卡在该步（放开加人权限
+ * 就是这么重试的），而群资料按业务口径不阻断执行行，执行行径直往后走，没有任何人会回头再发，
+ * 两者在现有结构下互斥。协议侧的 {@code retryable} 标志因此目前不消费——将来若加「按动作行扫
+ * UNKNOWN」的补发任务再用，别看到这个字段就以为重试已经生效。</p>
  */
 @Service
 public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSettingsResultService {
@@ -95,9 +107,14 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
             if (Objects.equals(action.getActionStatus(), targetStatus)) {
                 return true;
             }
-            return action.getActionType() == PullTaskAccountActionType.OPEN_MEMBER_ADD.code()
-                    ? applyMemberAdd(action, callback, targetStatus)
-                    : applyJoinApproval(action, callback, targetStatus);
+            if (action.getActionType() == PullTaskAccountActionType.OPEN_MEMBER_ADD.code()) {
+                return applyMemberAdd(action, callback, targetStatus);
+            }
+            if (action.getActionType()
+                    == PullTaskAccountActionType.APPLY_GROUP_SETTINGS.code()) {
+                return applyGroupProfile(action, callback, targetStatus);
+            }
+            return applyJoinApproval(action, callback, targetStatus);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -185,6 +202,64 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
                     callback.commandId(), callback.reasonCode());
         }
         return true;
+    }
+
+    /**
+     * 「群信息设置」整块下发结果：只写动作行。
+     *
+     * <p>与关闭进群审核同形状——不读执行行也不 CAS 执行行，因此结果晚到（执行行早已推进到拉人
+     * 甚至收尾阶段）仍能正常落库。群资料是运营展示需求，拉不拉得到人与它无关，让它阻断执行行
+     * 等于用一个展示层问题卡死整条行。</p>
+     *
+     * <p>失败按<b>第一个失败项</b>分派到各自的原因码，让运营在执行明细里直接看到是哪一项没设上；
+     * 只留痕，不重发：一条 {@code group.profile.apply} 命令只发一次，理由见类注释。</p>
+     */
+    private boolean applyGroupProfile(
+            PullTaskAccountAction action,
+            PullTaskGroupSettingsCallback callback,
+            int targetStatus) {
+        boolean success = callback.outcome() == PullTaskGroupSettingsProtocolOutcome.SUCCESS;
+        PullTaskExecutionReasonCode reason = success ? null : groupProfileReason(callback);
+        if (actionMapper.transitionManagerAdminResult(
+                action.getId(), callback.commandId(), callback.attemptNo(), ACTION_OPEN,
+                targetStatus, false, reason == null ? null : reason.name(),
+                reason == null ? null : reason.message(), callback.occurredAt()) != 1) {
+            return false;
+        }
+        if (!success) {
+            log.warn("拉群群信息设置失败，只留痕不阻断执行行 taskId={} executionId={} actionId={} "
+                            + "commandId={} failedItem={} reasonCode={}",
+                    callback.pullTaskId(), callback.groupExecutionId(), callback.actionId(),
+                    callback.commandId(), callback.failedItem(), reason.name());
+        }
+        return true;
+    }
+
+    /**
+     * 把协议回传的失败项翻成原因码。
+     *
+     * <p>八项各有各的码，不许合并成一个笼统码：只回「设置失败」运营还得回去翻协议日志。协议侧
+     * 没给失败项时退回群名那一项——它是执行顺序里的第一项，多项失败只回报第一项。</p>
+     */
+    private static PullTaskExecutionReasonCode groupProfileReason(
+            PullTaskGroupSettingsCallback callback) {
+        PullTaskGroupSettingItem item = callback.failedItem();
+        if (item == null) {
+            return PullTaskExecutionReasonCode.GROUP_NAME_SET_FAILED;
+        }
+        return switch (item) {
+            case GROUP_NAME -> PullTaskExecutionReasonCode.GROUP_NAME_SET_FAILED;
+            case AVATAR -> PullTaskExecutionReasonCode.GROUP_AVATAR_SET_FAILED;
+            case DESCRIPTION -> PullTaskExecutionReasonCode.GROUP_DESCRIPTION_SET_FAILED;
+            case MUTE -> PullTaskExecutionReasonCode.GROUP_MUTE_SET_FAILED;
+            case EDIT_PERMISSION ->
+                    PullTaskExecutionReasonCode.GROUP_EDIT_PERMISSION_SET_FAILED;
+            case MEMBER_ADD_PERMISSION ->
+                    PullTaskExecutionReasonCode.GROUP_MEMBER_ADD_PERMISSION_SET_FAILED;
+            case JOIN_APPROVAL -> PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_SET_FAILED;
+            case DISAPPEARING_MESSAGE ->
+                    PullTaskExecutionReasonCode.GROUP_DISAPPEARING_MESSAGE_SET_FAILED;
+        };
     }
 
     /**
@@ -282,7 +357,8 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
     private static boolean isGroupSettingsAction(Integer actionType) {
         return actionType != null
                 && (actionType == PullTaskAccountActionType.OPEN_MEMBER_ADD.code()
-                || actionType == PullTaskAccountActionType.CLOSE_JOIN_APPROVAL.code());
+                || actionType == PullTaskAccountActionType.CLOSE_JOIN_APPROVAL.code()
+                || actionType == PullTaskAccountActionType.APPLY_GROUP_SETTINGS.code());
     }
 
     private static void restoreTenant(Long previousTenant) {

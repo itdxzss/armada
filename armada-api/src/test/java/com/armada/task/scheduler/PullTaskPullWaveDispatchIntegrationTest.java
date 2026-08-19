@@ -14,6 +14,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -453,7 +454,8 @@ class PullTaskPullWaveDispatchIntegrationTest {
                 PullTaskPullWavePlanningTransactionService planning,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskPullWaveSettlementTransactionService(
-                    resources, planning, properties);
+                    resources, planning, properties,
+                    mock(PullTaskGroupProfileDispatcher.class));
         }
 
         @Bean PullTaskExecutionDispatchProperties properties() {

@@ -79,14 +79,16 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
             return;
         }
         if ("pull_task_group_settings".equals(event.source())) {
-            // 群设置改的是群属性，事件没有 targetJid；一条命令一个设置项，
-            // 因此命令级 outcome 就是该设置项的结果。
+            // 群设置改的是群属性，事件没有 targetJid。放开加人权限与关闭进群审核仍是一条命令
+            // 一个设置项，命令级 outcome 就是该设置项的结果。
+            // 「群信息设置」整块下发的失败项还没从协议事件里透出：
+            // ProtocolGroupActionResultReportedEvent 尚无对应字段，补齐前只能传 null。
             groupSettingsResultService.apply(new PullTaskGroupSettingsCallback(
                     event.tenantId(), event.pullTaskId(), event.groupExecutionId(),
                     event.actionId(), event.accountId(), event.protocolAccountId(),
                     event.commandId(), event.attemptNo(),
                     PullTaskGroupSettingsProtocolOutcome.valueOf(event.outcome()),
-                    event.reasonCode(), event.reasonMessage(), event.timestamp()));
+                    null, event.reasonCode(), event.reasonMessage(), event.timestamp()));
             return;
         }
         if ("pull_task_material_admin".equals(event.source())) {

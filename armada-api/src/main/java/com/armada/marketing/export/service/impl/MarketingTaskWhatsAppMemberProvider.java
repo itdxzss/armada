@@ -15,10 +15,8 @@ import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
-import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
@@ -38,22 +36,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** 导出时优先复用完整群成员缓存；无缓存时逐群查询 WhatsApp 并落库。 */
+/** 营销导出优先读库；快照不完整时尝试协议补齐，失败则降级使用库内现有事实。 */
 @Component
 public class MarketingTaskWhatsAppMemberProvider {
 
     private static final Logger log = LoggerFactory.getLogger(MarketingTaskWhatsAppMemberProvider.class);
-    private static final int MAX_PARALLEL_ACCOUNTS = 4;
+    private static final int MAX_PARALLEL_GROUPS = 4;
     private static final int MAX_OBSERVER_CANDIDATES = 2;
     private static final String INVITE_URL_PREFIX = "https://chat.whatsapp.com/";
     private static final String INVITE_UNAVAILABLE = "无权限获取";
-    private static final String NO_SNAPSHOT_AND_OBSERVER_REASON =
-            "数据库中没有群成员快照且没有可用的实际发送账号";
 
     private final MarketingTaskExportMapper mapper;
     private final AccountProtocolLookupService accountLookupService;
     private final FixedAccountGroupMetadataPort metadataPort;
-    private final GroupInvitePort invitePort;
     private final WhatsappGroupMemberCacheService memberCacheService;
     private final WhatsappGroupDepartedMemberService departedMemberService;
     private final WhatsappGroupMemberJoinFactService joinFactService;
@@ -62,14 +57,12 @@ public class MarketingTaskWhatsAppMemberProvider {
             MarketingTaskExportMapper mapper,
             AccountProtocolLookupService accountLookupService,
             FixedAccountGroupMetadataPort metadataPort,
-            GroupInvitePort invitePort,
             WhatsappGroupMemberCacheService memberCacheService,
             WhatsappGroupDepartedMemberService departedMemberService,
             WhatsappGroupMemberJoinFactService joinFactService) {
         this.mapper = mapper;
         this.accountLookupService = accountLookupService;
         this.metadataPort = metadataPort;
-        this.invitePort = invitePort;
         this.memberCacheService = memberCacheService;
         this.departedMemberService = departedMemberService;
         this.joinFactService = joinFactService;
@@ -105,7 +98,8 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         groupRows.forEach(group -> {
             group.setGroupJid(normalizeGroupJid(group.getGroupJid()));
-            group.setGroupLink(standardInviteUrl(group.getGroupLink()));
+            String storedInvite = standardInviteUrl(group.getGroupLink());
+            group.setGroupLink(storedInvite == null ? INVITE_UNAVAILABLE : storedInvite);
         });
         Map<GroupKey, List<Long>> observerIds = groupObserverIds(groupRows);
         Map<GroupKey, MarketingTaskGroupExportRow> distinctGroups = new LinkedHashMap<>();
@@ -118,13 +112,20 @@ public class MarketingTaskWhatsAppMemberProvider {
                         .map(MarketingTaskGroupExportRow::getGroupJid)
                         .distinct()
                         .toList());
-        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(observerIds);
+        Map<GroupKey, List<Long>> incompleteObserverIds = new LinkedHashMap<>();
+        observerIds.forEach((key, value) -> {
+            if (!isCompleteSnapshot(cachedByGroup.get(key.groupJid()))) {
+                incompleteObserverIds.put(key, value);
+            }
+        });
+        Map<Long, ProtocolAccountRef> accounts = protocolAccounts(incompleteObserverIds);
         Map<Long, Object> accountLocks = new HashMap<>();
         accounts.keySet().forEach(id -> accountLocks.put(id, new Object()));
         QueryContext queryContext = new QueryContext(
-                observerIds, accounts, accountLocks, request.ownershipCheck());
+                Map.copyOf(incompleteObserverIds), accounts, accountLocks, request.ownershipCheck());
         queryAndMergeGroups(
-                groups, request.tenantId(), request.snapshotAt(), cachedByGroup, queryContext, rows);
+                groups, request.tenantId(), request.snapshotAt(), cachedByGroup,
+                queryContext, rows);
     }
 
     private void queryAndMergeGroups(
@@ -134,13 +135,14 @@ public class MarketingTaskWhatsAppMemberProvider {
             Map<String, WhatsappGroupMemberCacheSnapshotVO> cachedByGroup,
             QueryContext queryContext,
             ExportSink rows) {
-        ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_ACCOUNTS, groups.size()));
+        ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_GROUPS, groups.size()));
         try {
-            for (int start = 0; start < groups.size(); start += MAX_PARALLEL_ACCOUNTS) {
+            for (int start = 0; start < groups.size(); start += MAX_PARALLEL_GROUPS) {
                 List<MarketingTaskGroupExportRow> batch = groups.subList(
-                        start, Math.min(start + MAX_PARALLEL_ACCOUNTS, groups.size()));
+                        start, Math.min(start + MAX_PARALLEL_GROUPS, groups.size()));
                 List<String> batchGroupJids = batch.stream()
                         .map(MarketingTaskGroupExportRow::getGroupJid)
+                        .filter(java.util.Objects::nonNull)
                         .distinct()
                         .toList();
                 Map<String, List<WhatsappGroupDepartedMemberVO>> departedByGroup = departedByGroup(
@@ -184,107 +186,80 @@ public class MarketingTaskWhatsAppMemberProvider {
             QueryContext context) {
         String groupJid = normalizeGroupJid(group.getGroupJid());
         if (groupJid == null) {
-            throw groupFailure(group, "缺少群JID");
+            log.warn("营销导出群缺少JID，按数据库摘要继续 taskId={}", group.getTaskId());
+            return fallbackSnapshot(group, null, cached);
         }
-        if (cached != null) {
+        if (isCompleteSnapshot(cached)) {
             applyCachedMetadata(group, cached, group.getSenderPhone());
-            resolveGroupInvite(group, groupJid, context);
             return new GroupSnapshot(group, cached);
         }
+
         List<Long> candidates = context.observerIds()
                 .getOrDefault(new GroupKey(group.getTaskId(), groupJid), List.of());
-        List<Long> resolvedCandidates = candidates.stream()
-                .filter(context.accounts()::containsKey)
-                .toList();
-        log.debug("WhatsApp群查询候选账号 taskId={} groupJid={} candidateAccountIds={} resolvedAndroidAccountIds={}",
-                group.getTaskId(), groupJid, candidates, resolvedCandidates);
-        RuntimeException lastFailure = null;
         int attempted = 0;
+        RuntimeException lastFailure = null;
         for (Long accountId : candidates) {
             ProtocolAccountRef account = context.accounts().get(accountId);
             if (account == null || attempted >= MAX_OBSERVER_CANDIDATES) {
                 continue;
             }
             attempted++;
-            WhatsappGroupMemberCacheSnapshotVO fresh;
+            context.ownershipCheck().run();
             try {
-                context.ownershipCheck().run();
                 GroupMetadataResult metadata;
                 synchronized (context.accountLocks().get(accountId)) {
-                    context.ownershipCheck().run();
                     metadata = metadataPort.getMetadata(account, groupJid);
                 }
-                validateMetadata(metadata);
-                fresh = memberCacheService.replaceCompleteSnapshot(
+                validateCompleteMetadata(metadata);
+                WhatsappGroupMemberCacheSnapshotVO fresh = memberCacheService.replaceCompleteSnapshot(
                         tenantId, accountId, groupJid, metadata, snapshotAt);
                 if (fresh == null) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "WhatsApp 群成员缓存写入结果为空");
+                    throw new IllegalStateException("群成员完整快照写入结果为空");
                 }
+                applyCachedMetadata(group, fresh, account.wsPhone());
+                return new GroupSnapshot(group, fresh);
             } catch (RuntimeException ex) {
                 lastFailure = ex;
-                log.warn("WhatsApp群协议查询尝试失败 taskId={} groupJid={} accountId={} attempt={} exceptionType={}",
-                        group.getTaskId(), groupJid, accountId, attempted, ex.getClass().getSimpleName(), ex);
-                continue;
-            }
-            applyCachedMetadata(group, fresh, account.wsPhone());
-            resolveGroupInvite(group, groupJid, context);
-            return new GroupSnapshot(group, fresh);
-        }
-        String reason = attempted == 0
-                ? NO_SNAPSHOT_AND_OBSERVER_REASON
-                : "协议查询失败";
-        log.warn("WhatsApp群查询最终失败 taskId={} groupJid={} reason={} candidateAccountIds={} "
-                        + "resolvedAndroidAccountIds={} attempted={} maxAttempts={} lastExceptionType={}",
-                group.getTaskId(), groupJid, reason, candidates, resolvedCandidates, attempted,
-                MAX_OBSERVER_CANDIDATES,
-                lastFailure == null ? null : lastFailure.getClass().getSimpleName());
-        throw groupFailure(group, reason, lastFailure);
-    }
-
-    /** 只允许标准 WhatsApp 邀请链接进入导出；协议无法返回时使用统一业务占位。 */
-    private void resolveGroupInvite(
-            MarketingTaskGroupExportRow group,
-            String groupJid,
-            QueryContext context) {
-        List<Long> candidates = context.observerIds()
-                .getOrDefault(new GroupKey(group.getTaskId(), groupJid), List.of());
-        int attempted = 0;
-        for (Long accountId : candidates) {
-            ProtocolAccountRef account = context.accounts().get(accountId);
-            if (account == null || attempted >= MAX_OBSERVER_CANDIDATES) {
-                continue;
-            }
-            attempted++;
-            try {
-                context.ownershipCheck().run();
-                GroupInviteResult invite;
-                synchronized (context.accountLocks().get(accountId)) {
-                    context.ownershipCheck().run();
-                    invite = invitePort.getInvite(account, groupJid);
-                }
-                String inviteUrl = invite == null ? null : standardInviteUrl(invite.inviteUrl());
-                if (inviteUrl == null && invite != null) {
-                    inviteUrl = inviteUrlFromCode(invite.inviteCode());
-                }
-                if (inviteUrl != null) {
-                    group.setGroupLink(inviteUrl);
-                    return;
-                }
-            } catch (BusinessException ex) {
-                throw ex;
-            } catch (RuntimeException ex) {
-                log.info("WhatsApp群邀请链接获取失败 taskId={} groupJid={} accountId={} exceptionType={}",
-                        group.getTaskId(), maskedGroup(groupJid), accountId,
+                log.warn("营销导出协议补齐失败，降级候选 taskId={} groupJid={} accountId={} "
+                                + "attempt={} exceptionType={}",
+                        group.getTaskId(), maskedGroup(groupJid), accountId, attempted,
                         ex.getClass().getSimpleName());
             }
         }
-        group.setGroupLink(INVITE_UNAVAILABLE);
+        log.info("营销导出使用数据库降级数据 taskId={} groupJid={} hasCachedFacts={} "
+                        + "candidateCount={} attempted={} lastExceptionType={}",
+                group.getTaskId(), maskedGroup(groupJid), cached != null, candidates.size(), attempted,
+                lastFailure == null ? null : lastFailure.getClass().getSimpleName());
+        return fallbackSnapshot(group, groupJid, cached);
     }
 
-    private static void validateMetadata(GroupMetadataResult metadata) {
-        if (metadata == null || metadata.participants() == null) {
-            throw new BusinessException(ErrorCode.CONFLICT, "WhatsApp 群详情响应缺少成员列表");
+    private static boolean isCompleteSnapshot(WhatsappGroupMemberCacheSnapshotVO cached) {
+        return cached != null && cached.snapshotAt() != null;
+    }
+
+    private static void validateCompleteMetadata(GroupMetadataResult metadata) {
+        if (metadata == null || metadata.participants() == null || !metadata.participantsComplete()) {
+            throw new IllegalStateException("协议返回的群成员快照不完整");
         }
+    }
+
+    private static GroupSnapshot fallbackSnapshot(
+            MarketingTaskGroupExportRow group,
+            String groupJid,
+            WhatsappGroupMemberCacheSnapshotVO cached) {
+        if (cached != null) {
+            applyCachedMetadata(group, cached, group.getSenderPhone());
+            return new GroupSnapshot(group, cached);
+        }
+        WhatsappGroupMemberCacheSnapshotVO empty = new WhatsappGroupMemberCacheSnapshotVO(
+                groupJid, null, null, null, null, List.of());
+        if (group.getGroupMemberCount() == null) {
+            group.setGroupMemberCount(0);
+        }
+        if (normalize(group.getSpeechPermission()) == null) {
+            group.setSpeechPermission("未确认");
+        }
+        return new GroupSnapshot(group, empty);
     }
 
     private static void applyCachedMetadata(
@@ -487,11 +462,17 @@ public class MarketingTaskWhatsAppMemberProvider {
         if (requested.isEmpty()) {
             return Map.of();
         }
-        Map<Long, ProtocolAccountRef> accounts = new LinkedHashMap<>();
-        for (ProtocolAccountRef account : accountLookupService.findActiveProtocolRefs(requested)) {
-            accounts.put(account.armadaAccountId(), account);
+        try {
+            Map<Long, ProtocolAccountRef> accounts = new LinkedHashMap<>();
+            for (ProtocolAccountRef account : accountLookupService.findActiveProtocolRefs(requested)) {
+                accounts.put(account.armadaAccountId(), account);
+            }
+            return Map.copyOf(accounts);
+        } catch (RuntimeException ex) {
+            log.warn("营销导出查询在线协议账号失败，全部降级数据库 requestedCount={} exceptionType={}",
+                    requested.size(), ex.getClass().getSimpleName());
+            return Map.of();
         }
-        return accounts;
     }
 
     private static Map<GroupKey, List<Long>> groupObserverIds(List<MarketingTaskGroupExportRow> rows) {
@@ -666,22 +647,6 @@ public class MarketingTaskWhatsAppMemberProvider {
                 && user.chars().allMatch(Character::isDigit) ? user : null;
     }
 
-    private static BusinessException groupFailure(MarketingTaskGroupExportRow group, String reason) {
-        return groupFailure(group, reason, null);
-    }
-
-    private static BusinessException groupFailure(
-            MarketingTaskGroupExportRow group,
-            String reason,
-            RuntimeException cause) {
-        String message = "WhatsApp群查询失败: taskId=" + group.getTaskId()
-                + ", group=" + maskedGroup(group.getGroupJid()) + ", reason=" + reason;
-        if (cause != null) {
-            message += " (" + cause.getClass().getSimpleName() + ")";
-        }
-        return new BusinessException(ErrorCode.CONFLICT, message);
-    }
-
     private static String maskedGroup(String groupJid) {
         String normalized = normalize(groupJid);
         if (normalized == null || normalized.length() <= 8) {
@@ -691,6 +656,13 @@ public class MarketingTaskWhatsAppMemberProvider {
     }
 
     private record GroupKey(Long taskId, String groupJid) {
+    }
+
+    private record QueryContext(
+            Map<GroupKey, List<Long>> observerIds,
+            Map<Long, ProtocolAccountRef> accounts,
+            Map<Long, Object> accountLocks,
+            Runnable ownershipCheck) {
     }
 
     /** 单次导出查询上下文。 */
@@ -706,13 +678,6 @@ public class MarketingTaskWhatsAppMemberProvider {
     public record FullOutput(
             Consumer<MarketingTaskGroupExportRow> groupConsumer,
             Consumer<MarketingTaskGroupMemberExportRow> memberConsumer) {
-    }
-
-    private record QueryContext(
-            Map<GroupKey, List<Long>> observerIds,
-            Map<Long, ProtocolAccountRef> accounts,
-            Map<Long, Object> accountLocks,
-            Runnable ownershipCheck) {
     }
 
     private record MemberState(

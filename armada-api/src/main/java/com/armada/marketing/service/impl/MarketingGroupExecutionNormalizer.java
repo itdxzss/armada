@@ -38,6 +38,9 @@ final class MarketingGroupExecutionNormalizer {
     /** 最后已结束尝试为业务跳过。 */
     private static final String RESULT_SKIPPED = "SKIPPED";
 
+    /** 新群首次发送尚在等待计划时间或任务恢复。 */
+    private static final String RESULT_WAITING = "WAITING";
+
     /** 协议明确判定发送账号已封禁。 */
     private static final String REASON_ACCOUNT_BANNED = "ACCOUNT_BANNED";
 
@@ -148,12 +151,16 @@ final class MarketingGroupExecutionNormalizer {
         if (Integer.valueOf(MarketingSendAttemptStatus.SKIPPED.code()).equals(status)) {
             return RESULT_SKIPPED;
         }
+        if (Integer.valueOf(MarketingSendAttemptStatus.WAITING.code()).equals(status)) {
+            return RESULT_WAITING;
+        }
         return null;
     }
 
-    /** 返回最后已结束 attempt 的直接执行原因，成功或未结束时为空。 */
+    /** 返回最后 attempt 的直接执行原因，成功、等待或未结束时为空。 */
     static String executionReason(Integer status, String reasonMessage, String reasonCode) {
         if (Integer.valueOf(MarketingSendAttemptStatus.SUCCESS.code()).equals(status)
+                || Integer.valueOf(MarketingSendAttemptStatus.WAITING.code()).equals(status)
                 || executionResult(status) == null) {
             return null;
         }

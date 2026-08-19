@@ -266,12 +266,18 @@ class MarketingTaskControllerDbTest {
                 fixture.templateId(),
                 "营销模板",
                 "PENDING",
+                null,
+                null,
+                null,
                 1,
                 null,
                 30,
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "Controller测试备注",
                 List.of(new MarketingSelectionDTO(fixture.accountId(), List.of(fixture.groupLinkId()))));
     }

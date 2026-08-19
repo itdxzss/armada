@@ -109,4 +109,12 @@ class MarketingGroupExecutionNormalizerTest {
                 MarketingSendAttemptStatus.SKIPPED.code(), "账号已主动退出群聊", "LEFT"))
                 .isEqualTo("账号已主动退出群聊");
     }
+
+    @Test
+    void waitingAttemptHasIndependentExecutionResultWithoutReason() {
+        assertThat(MarketingGroupExecutionNormalizer.executionResult(
+                MarketingSendAttemptStatus.WAITING.code())).isEqualTo("WAITING");
+        assertThat(MarketingGroupExecutionNormalizer.executionReason(
+                MarketingSendAttemptStatus.WAITING.code(), null, null)).isNull();
+    }
 }

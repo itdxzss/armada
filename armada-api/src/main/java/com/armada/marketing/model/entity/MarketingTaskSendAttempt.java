@@ -25,6 +25,9 @@ public class MarketingTaskSendAttempt {
     private String groupStatus;
     private String groupStatusReason;
     private Long groupStatusCheckedAt;
+    private Long detectedAt;
+    private Long scheduledSendAt;
+    private Long outboxAcceptedAt;
     private Long submittedAt;
     private Long resultAt;
     private Long attemptedAt;
@@ -172,6 +175,30 @@ public class MarketingTaskSendAttempt {
 
     public void setGroupStatusCheckedAt(Long groupStatusCheckedAt) {
         this.groupStatusCheckedAt = groupStatusCheckedAt;
+    }
+
+    public Long getDetectedAt() {
+        return detectedAt;
+    }
+
+    public void setDetectedAt(Long detectedAt) {
+        this.detectedAt = detectedAt;
+    }
+
+    public Long getScheduledSendAt() {
+        return scheduledSendAt;
+    }
+
+    public void setScheduledSendAt(Long scheduledSendAt) {
+        this.scheduledSendAt = scheduledSendAt;
+    }
+
+    public Long getOutboxAcceptedAt() {
+        return outboxAcceptedAt;
+    }
+
+    public void setOutboxAcceptedAt(Long outboxAcceptedAt) {
+        this.outboxAcceptedAt = outboxAcceptedAt;
     }
 
     public Long getSubmittedAt() {

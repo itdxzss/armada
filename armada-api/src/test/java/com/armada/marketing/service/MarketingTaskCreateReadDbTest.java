@@ -686,6 +686,60 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
     }
 
     @Test
+    void getDetail_showsWaitingDynamicGroupFirstWithoutCountingIt() {
+        Fixture fixture = seedTakeoverFixture(
+                "detail-dynamic-waiting",
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+        GroupFixture waitingGroup = seedGroup(
+                "detail-dynamic-waiting-new",
+                "120363199@g.us",
+                "https://chat.whatsapp.com/detail-dynamic-waiting-new");
+        seedMembership(fixture.accountId(), waitingGroup);
+        MarketingTaskVO created = service.createTask(request(
+                "动态群等待任务",
+                fixture.accountGroupId(),
+                fixture.templateId(),
+                "PENDING",
+                List.of(new MarketingSelectionDTO(
+                        fixture.accountId(),
+                        "ACCOUNT_DYNAMIC",
+                        List.of()))));
+        Long targetId = jdbc.queryForObject(
+                "SELECT id FROM marketing_task_target WHERE marketing_task_id = ?",
+                Long.class,
+                created.id());
+
+        insertAttempt(new SendAttemptFixture(created.id(), targetId, fixture.groupLinkId(),
+                fixture.groupJid(), "已发送群", 1, MarketingSendAttemptStatus.SUCCESS.code(), null, null,
+                "NORMAL", "GROUP_SEND_ALLOWED", 5_000L));
+        insertAttempt(new SendAttemptFixture(created.id(), targetId, waitingGroup.groupLinkId(),
+                waitingGroup.groupJid(), "等待群历史轮次", 1,
+                MarketingSendAttemptStatus.SUCCESS.code(), null, null,
+                "NORMAL", "GROUP_SEND_ALLOWED", 4_000L));
+        insertWaitingAttempt(created.id(), targetId, waitingGroup, 2_000L, 3_800_000L);
+
+        MarketingTaskDetailVO detail = service.getDetail(created.id());
+
+        assertThat(detail.accountTargets()).singleElement().satisfies(account -> {
+            assertThat(account.groups()).hasSize(2);
+            assertThat(account.groups().get(0).groupJid()).isEqualTo(waitingGroup.groupJid());
+            assertThat(account.groups().get(0).executionResult()).isEqualTo("WAITING");
+            assertThat(account.groups().get(0).executionReason()).isNull();
+            assertThat(account.groups().get(0).lastAttemptAt()).isEqualTo(4_000L);
+            assertThat(account.groups().get(0).sentMessageCount()).isEqualTo(1);
+            assertThat(account.groups().get(0).failedMessageCount()).isZero();
+            assertThat(account.groups().get(0).skippedMessageCount()).isZero();
+            assertThat(account.sentMessageCount()).isEqualTo(2);
+            assertThat(account.failedMessageCount()).isZero();
+            assertThat(account.skippedMessageCount()).isZero();
+        });
+        assertThat(detail.sentMessageCount()).isEqualTo(2);
+        assertThat(detail.failedMessageCount()).isZero();
+        assertThat(detail.skippedMessageCount()).isZero();
+    }
+
+    @Test
     void getDetail_keepsAccountRowsWithoutSendAttempts() {
         Fixture fixture = seedFixture("detail-empty-rollup");
         MarketingTaskVO created = service.createTask(request(
@@ -795,6 +849,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }
@@ -810,12 +867,18 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 null,
                 null,
                 startMode,
+                null,
+                null,
+                null,
                 1,
                 null,
                 30,
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }
@@ -841,6 +904,9 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 true,
                 true,
                 false,
+                false,
+                30,
+                "MINUTE",
                 "备注",
                 selections);
     }
@@ -994,6 +1060,22 @@ class MarketingTaskCreateReadDbTest extends DbTestBase {
                 attempt.reasonCode(), attempt.reasonMessage(), attempt.groupStatus(), attempt.groupStatusReason(),
                 attempt.resultAt() - 15, attempt.resultAt() - 10, attempt.resultAt(),
                 attempt.resultAt() - 20, attempt.resultAt() - 30);
+    }
+
+    private void insertWaitingAttempt(long taskId,
+                                      long targetId,
+                                      GroupFixture group,
+                                      long detectedAt,
+                                      long scheduledSendAt) {
+        jdbc.update("""
+                INSERT INTO marketing_task_send_attempt
+                    (tenant_id, marketing_task_id, target_id, group_link_id, group_jid, group_name,
+                     round_no, attempt_no, is_retry, command_id, status, detected_at, scheduled_send_at,
+                     attempted_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 0, 1, 0, NULL, ?, ?, ?, ?, ?)
+                """, TEST_TENANT_ID, taskId, targetId, group.groupLinkId(), group.groupJid(),
+                "等待群", MarketingSendAttemptStatus.WAITING.code(), detectedAt, scheduledSendAt,
+                detectedAt, detectedAt);
     }
 
     private static void assertOfflineGroupStatus(List<MarketingTaskGroupStatVO> groups,

@@ -78,6 +78,8 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("JOIN marketing_account_occupancy o ON o.account_id = t.account_id")
                 .contains("o.marketing_task_id = mt.id")
                 .contains("mt.status = 2")
+                .contains("mt.status = 5")
+                .contains("mt.is_new_group_delay_enabled = 1")
                 .contains("mt.task_start_at IS NULL OR mt.task_start_at &lt;= #{now}")
                 .contains("mt.task_end_at IS NULL OR mt.task_end_at &gt; #{now}")
                 .contains("LIMIT 1")
@@ -414,10 +416,13 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("a.status IN (0, 1, 2, 3, 4)")
                 .contains("SUM(CASE WHEN attemptStatus = 2 THEN 1 ELSE 0 END) AS failedMessageCount")
+                .contains("SUM(CASE WHEN attemptStatus = 3 THEN 1 ELSE 0 END) AS skippedMessageCount")
                 .contains("WHEN attemptStatus IN (2, 3) THEN COALESCE")
-                .doesNotContain("SUM(CASE WHEN attemptStatus IN (2, 3)");
+                .contains("WHERE attemptStatus IN (1, 2, 3, 4)")
+                .doesNotContain("SUM(CASE WHEN attemptStatus IN (2, 3)")
+                .doesNotContain("SUM(CASE WHEN attemptStatus = 4");
     }
 
     @Test
@@ -465,9 +470,10 @@ class MarketingTaskMapperSqlShapeTest {
 
         assertThat(sql)
                 .contains("ROW_NUMBER() OVER")
-                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("roundNo DESC, attemptNo DESC, attemptId DESC")
                 .contains("protocol.attemptStatus AS latestAttemptStatus")
                 .contains("ended.attemptStatus AS latestExecutionStatus")
+                .contains("CASE WHEN ended.attemptStatus = 4 THEN 0 ELSE 1 END ASC")
                 .doesNotContain("AS executionResult");
     }
 
@@ -480,13 +486,14 @@ class MarketingTaskMapperSqlShapeTest {
         String sql = selectBlock(xml, "selectAccountGroupStatsByTaskId");
 
         assertThat(sql)
-                .contains("a.status IN (0, 1, 2, 3)")
+                .contains("a.status IN (0, 1, 2, 3, 4)")
                 .contains("latest_protocol AS")
                 .contains("latest_ended AS")
                 .contains("WHERE attemptStatus IN (1, 2)")
-                .contains("WHERE attemptStatus IN (1, 2, 3)")
+                .contains("WHERE attemptStatus IN (1, 2, 3, 4)")
                 .contains("PARTITION BY tenant_id, accountId, groupKey")
-                .contains("ORDER BY roundNo DESC, attemptNo DESC, attemptId DESC")
+                .contains("ORDER BY CASE WHEN attemptStatus = 4 THEN 0 ELSE 1 END ASC")
+                .contains("roundNo DESC, attemptNo DESC, attemptId DESC")
                 .contains("protocol.attemptStatus AS latestAttemptStatus")
                 .contains("protocol.reasonCode AS reasonCode")
                 .contains("protocol.reasonMessage AS reasonMessage")

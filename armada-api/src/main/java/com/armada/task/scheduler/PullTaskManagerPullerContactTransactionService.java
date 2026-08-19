@@ -14,6 +14,8 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskGroupSettingTiming;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
@@ -55,6 +57,7 @@ public class PullTaskManagerPullerContactTransactionService {
     private final PullTaskGroupAccountMapper groupAccountMapper;
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskManagerPullerContactResources resources;
+    private final PullTaskGroupProfileDispatcher groupProfileDispatcher;
 
     /**
      * @param taskMapper         父任务 Mapper
@@ -68,12 +71,14 @@ public class PullTaskManagerPullerContactTransactionService {
             PullTaskStandardSettingMapper settingMapper,
             PullTaskGroupAccountMapper groupAccountMapper,
             PullTaskAccountActionMapper actionMapper,
-            PullTaskManagerPullerContactResources resources) {
+            PullTaskManagerPullerContactResources resources,
+            PullTaskGroupProfileDispatcher groupProfileDispatcher) {
         this.taskMapper = taskMapper;
         this.settingMapper = settingMapper;
         this.groupAccountMapper = groupAccountMapper;
         this.actionMapper = actionMapper;
         this.resources = resources;
+        this.groupProfileDispatcher = groupProfileDispatcher;
     }
 
     /** 在短事务内占用拉手、补齐双向动作，并提交一条尚未执行的动作。 */
@@ -138,6 +143,9 @@ public class PullTaskManagerPullerContactTransactionService {
                             candidate.getId(), PullTaskAccountActionType.OPEN_MEMBER_ADD.code());
             if (memberAddActions.stream().anyMatch(row -> Objects.equals(
                     row.getActionStatus(), PullTaskActionStatus.SUCCESS.code()))) {
+                // 加人权限已放开、马上要占拉手开拉，这里就是「拉人之前」的最后一刻。
+                groupProfileDispatcher.dispatchIfDue(
+                        candidate, PullTaskGroupSettingTiming.BEFORE_PULL, now);
                 return PullTaskGroupSettingsGate.open();
             }
             if (memberAddActions.stream().anyMatch(

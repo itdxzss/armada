@@ -31,8 +31,7 @@ public class MyBatisConfig {
             Set.of(
                     "tenant",
                     "country",
-                    "country_phone_prefix_mapping",
-                    "country_phone_region_prefix_mapping");
+                    "country_phone_prefix_mapping");
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor(TenantLineHandler tenantLineHandler) {

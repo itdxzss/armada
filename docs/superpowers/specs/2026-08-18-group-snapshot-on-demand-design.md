@@ -450,7 +450,7 @@
 ## 11. 数据模型（Flyway **V129**）
 
 设计时最新为 V127；集成时 V128 已被群创建者手机号地区功能占用，因此本功能使用 **V129**：
-`V129__group_snapshot_command_correlation.sql`。
+`V128__group_snapshot_command_correlation.sql`。
 
 ### 11.1 `group_metadata_sync_task` 增列
 

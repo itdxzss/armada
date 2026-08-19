@@ -26,6 +26,8 @@ import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupLinkService;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -83,9 +85,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private static final Set<String> ALLOWED_STATUSES = Set.of(
             "UNCHECKED", "AVAILABLE", "BANNED", "LINK_INVALID", "UNAVAILABLE");
 
-    /** 历史群筛选只接受产品约定的六大洲。 */
+    /** 历史群筛选只接受产品约定的七大洲。 */
     private static final Set<String> ALLOWED_CONTINENTS = Set.of(
-            "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA");
+            "ASIA", "AFRICA", "EUROPE", "NORTH_AMERICA", "SOUTH_AMERICA", "OCEANIA",
+            "ANTARCTICA");
 
     private final GroupLinkMapper groupLinkMapper;
     private final GroupListCurrentMapper groupListCurrentMapper;
@@ -93,6 +96,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupLinkPreviewMapper previewMapper;
     private final GroupLinkLabelMapper labelMapper;
     private final GroupConverter converter;
+    private final CountryService countryService;
     private final AccountMapper accountMapper;
     private final GroupPreviewPort groupPreviewPort;
     private final GroupProfilePort groupProfilePort;
@@ -105,6 +109,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupLinkPreviewMapper previewMapper,
                                 GroupLinkLabelMapper labelMapper,
                                 GroupConverter converter,
+                                CountryService countryService,
                                 AccountMapper accountMapper,
                                 GroupPreviewPort groupPreviewPort,
                                 GroupProfilePort groupProfilePort,
@@ -116,6 +121,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.previewMapper = previewMapper;
         this.labelMapper = labelMapper;
         this.converter = converter;
+        this.countryService = countryService;
         this.accountMapper = accountMapper;
         this.groupPreviewPort = groupPreviewPort;
         this.groupProfilePort = groupProfilePort;
@@ -139,11 +145,50 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         query.setNowSeconds(Instant.now().getEpochSecond());
         Long tenantId = TenantContext.get();
         long total = groupListCurrentMapper.count(tenantId, query);
-        List<GroupLinkVO> rows = total == 0
-                ? List.of()
-                : converter.toGroupLinkVOList(groupListCurrentMapper.selectPage(tenantId, query));
+        List<GroupLinkVO> rows;
+        if (total == 0) {
+            rows = List.of();
+        } else {
+            List<GroupLinkVoRow> pageRows = groupListCurrentMapper.selectPage(tenantId, query);
+            enrichMissingCreatorCountries(pageRows);
+            rows = converter.toGroupLinkVOList(pageRows);
+        }
         log.debug("群链接分页查询 labelId={} total={}", query.getLabelId(), total);
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+    }
+
+    /**
+     * 只为当前响应补齐旧快照缺失的创建者国家/洲，不写回数据库，也不覆盖已同步的国家快照。
+     */
+    private void enrichMissingCreatorCountries(List<GroupLinkVoRow> rows) {
+        List<String> unresolvedPhones = rows.stream()
+                .filter(row -> !hasText(row.getCreatorCountryIso2()))
+                .map(GroupLinkVoRow::getOwnerPhone)
+                .filter(GroupLinkServiceImpl::hasText)
+                .distinct()
+                .toList();
+        if (unresolvedPhones.isEmpty()) {
+            return;
+        }
+        Map<String, CountryReferenceVO> countriesByPhone =
+                countryService.resolveActiveCountriesByPhoneNumbers(unresolvedPhones);
+        for (GroupLinkVoRow row : rows) {
+            if (hasText(row.getCreatorCountryIso2())) {
+                continue;
+            }
+            CountryReferenceVO country = countriesByPhone.get(row.getOwnerPhone());
+            if (country == null) {
+                continue;
+            }
+            row.setCreatorCountryIso2(country.iso2());
+            row.setCreatorCountryName(country.nameZh());
+            row.setCreatorCountryFlag(country.flag());
+            row.setCreatorContinentCode(country.continentCode());
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /** {@inheritDoc} */

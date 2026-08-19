@@ -7,10 +7,13 @@ import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingBusinessType;
+import com.armada.marketing.model.enums.MarketingNewGroupDelayUnit;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.support.MarketingResolvedTarget;
 import com.armada.marketing.model.support.MarketingSendAttemptResult;
+import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
+import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
 import com.armada.marketing.scheduler.MarketingRoundSchedulerProperties;
 import com.armada.marketing.service.MarketingMessageCommandFactory;
 import com.armada.marketing.service.MarketingMessageComposer;
@@ -20,10 +23,13 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -51,6 +57,12 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
 
     /** 模板配置无法生成消息时写入发送明细的稳定失败码。 */
     private static final String REASON_INVALID_TEMPLATE_CONFIG = "INVALID_TEMPLATE_CONFIG";
+    private static final String REASON_ORDINARY_ROUND_COVERED = "ORDINARY_ROUND_COVERED";
+    private static final String REASON_TASK_CLOSED = "TASK_CLOSED";
+    private static final String REASON_TASK_EXPIRED = "TASK_EXPIRED";
+    private static final String REASON_ACCOUNT_NOT_OWNED = "ACCOUNT_NOT_OWNED";
+    private static final String REASON_ACCOUNT_NOT_ELIGIBLE = "ACCOUNT_NOT_ELIGIBLE";
+    private static final String REASON_GROUP_NOT_SENDABLE = "GROUP_NOT_SENDABLE";
 
     /** 营销任务、目标和发送尝试数据访问。 */
     private final MarketingTaskMapper taskMapper;
@@ -64,6 +76,9 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
     /** 复用普通营销 outbox 分批参数。 */
     private final MarketingRoundSchedulerProperties schedulerProperties;
 
+    /** 普通营销账号占用关系，用于到期时重新确认任务仍持有账号。 */
+    private final MarketingAccountOccupancyService occupancyService;
+
     /**
      * 创建新群即时营销服务。
      *
@@ -71,15 +86,18 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
      * @param messageFactory  营销消息命令组装器
      * @param messageSendPort 统一消息发送端口
      * @param schedulerProperties 普通营销现有 outbox 分批配置
+     * @param occupancyService 普通营销账号占用服务
      */
     public MarketingNewGroupImmediateSendServiceImpl(MarketingTaskMapper taskMapper,
                                                      MarketingMessageCommandFactory messageFactory,
                                                      MessageSendPort messageSendPort,
-                                                     MarketingRoundSchedulerProperties schedulerProperties) {
+                                                     MarketingRoundSchedulerProperties schedulerProperties,
+                                                     MarketingAccountOccupancyService occupancyService) {
         this.taskMapper = taskMapper;
         this.messageFactory = messageFactory;
         this.messageSendPort = messageSendPort;
         this.schedulerProperties = schedulerProperties;
+        this.occupancyService = occupancyService;
     }
 
     /**
@@ -105,14 +123,22 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         if (target == null) {
             return;
         }
-        MarketingTask task = taskMapper.selectTaskById(target.getMarketingTaskId());
-        if (!isSendingNow(task, detectedAt)) {
+        MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
+        if (!canRegisterNewGroup(task, detectedAt)) {
             return;
         }
 
-        ClaimedImmediateTargets claimed = claimImmediateAttempts(
-                task, target, candidates, detectedAt);
+        boolean delayed = delayEnabled(task);
+        ClaimedImmediateTargets claimed = delayed
+                ? claimWaitingAttempts(task, target, candidates, detectedAt)
+                : claimImmediateAttempts(task, target, candidates, detectedAt);
         if (claimed.attempts().isEmpty()) {
+            return;
+        }
+        if (delayed) {
+            log.info("新群首次营销已进入等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
+                    task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
+                    claimed.attempts().get(0).getScheduledSendAt());
             return;
         }
 
@@ -124,6 +150,104 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         enqueueClaimed(task, claimed.targets(), claimed.attempts(), message, detectedAt);
+    }
+
+    /**
+     * 在当前租户事务中提交已到期的第 0 轮等待记录。
+     *
+     * <p>暂停状态保留 WAITING；关闭、结束、普通轮次覆盖或发送资格失效时转为 SKIPPED。
+     * 只有 Outbox 接受命令后才从 WAITING 转为 SUBMITTED，事务失败时二者一起回滚。</p>
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void submitDueWaitingAttempts(Long tenantId,
+                                         Long marketingTaskId,
+                                         List<Long> attemptIds,
+                                         long submittedAt) {
+        if (tenantId == null || marketingTaskId == null || attemptIds == null || attemptIds.isEmpty()) {
+            return;
+        }
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(tenantId);
+        try {
+            submitDueWaitingAttemptsInTenant(
+                    marketingTaskId,
+                    attemptIds.stream().filter(Objects::nonNull).distinct().toList(),
+                    submittedAt);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private void submitDueWaitingAttemptsInTenant(Long marketingTaskId,
+                                                  List<Long> attemptIds,
+                                                  long submittedAt) {
+        if (attemptIds.isEmpty()) {
+            return;
+        }
+        MarketingTask task = taskMapper.selectTaskByIdForUpdate(marketingTaskId);
+        if (task == null) {
+            return;
+        }
+        List<MarketingTaskSendAttempt> waiting = taskMapper.selectWaitingAttemptsForUpdate(
+                marketingTaskId, attemptIds, submittedAt);
+        if (waiting.isEmpty()) {
+            return;
+        }
+        if (Integer.valueOf(MarketingTaskStatus.CLOSED.code()).equals(task.getStatus())) {
+            skipAttempts(waiting, REASON_TASK_CLOSED, "营销任务已关闭", submittedAt);
+            return;
+        }
+        if (Integer.valueOf(MarketingTaskStatus.PAUSED.code()).equals(task.getStatus())
+                || Integer.valueOf(MarketingTaskStatus.PENDING.code()).equals(task.getStatus())) {
+            return;
+        }
+        if (!Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())
+                || task.getTaskEndAt() != null && task.getTaskEndAt() <= submittedAt) {
+            skipAttempts(waiting, REASON_TASK_EXPIRED, "营销任务已结束", submittedAt);
+            return;
+        }
+        MarketingTaskTarget target = taskMapper.selectTargetById(waiting.get(0).getTargetId());
+        if (!validDynamicTarget(task, target, waiting)) {
+            skipAttempts(waiting, REASON_GROUP_NOT_SENDABLE, "新群不再属于当前账号动态目标", submittedAt);
+            return;
+        }
+        List<MarketingTaskSendAttempt> uncovered = skipOrdinaryCovered(waiting, submittedAt);
+        if (uncovered.isEmpty()) {
+            return;
+        }
+        MarketingAccountOccupancyOwnerRow owner = occupancyService
+                .loadActiveOwners(List.of(target.getAccountId()))
+                .get(target.getAccountId());
+        if (owner == null || !task.getId().equals(owner.getMarketingTaskId())) {
+            skipAttempts(uncovered, REASON_ACCOUNT_NOT_OWNED, "账号不再由当前营销任务占用", submittedAt);
+            return;
+        }
+        if (taskMapper.selectAccountTargetCandidate(
+                task.getAccountGroupId(), target.getAccountId(), MarketingAccountEligibility.selectableAccountStates())
+                == null) {
+            skipAttempts(uncovered, REASON_ACCOUNT_NOT_ELIGIBLE, "账号当前不可发送", submittedAt);
+            return;
+        }
+        ClaimedImmediateTargets sendable = dueSendableTargets(target, uncovered, submittedAt);
+        if (sendable.attempts().isEmpty()) {
+            return;
+        }
+        MarketingMessageComposer.ComposedMessage message;
+        try {
+            message = messageFactory.composeTaskMessage(task);
+        } catch (BusinessException ex) {
+            markLocalTemplateFailures(task, sendable.attempts(), ex.getMessage(), submittedAt);
+            return;
+        }
+        for (MarketingTaskSendAttempt attempt : sendable.attempts()) {
+            attempt.setCommandId(messageFactory.newCommandId());
+        }
+        enqueueClaimed(task, sendable.targets(), sendable.attempts(), message, submittedAt);
     }
 
     /**
@@ -209,6 +333,29 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         return new ClaimedImmediateTargets(claimedTargets, attempts);
     }
 
+    private ClaimedImmediateTargets claimWaitingAttempts(MarketingTask task,
+                                                         MarketingTaskTarget target,
+                                                         List<MarketingNewGroupDTO> candidates,
+                                                         long detectedAt) {
+        List<MarketingResolvedTarget> claimedTargets = new ArrayList<>();
+        List<MarketingTaskSendAttempt> attempts = new ArrayList<>();
+        long scheduledSendAt = detectedAt + delayMilliseconds(task);
+        for (MarketingNewGroupDTO group : candidates) {
+            MarketingTaskSendAttempt attempt = waitingAttempt(task, target, group, detectedAt, scheduledSendAt);
+            try {
+                if (taskMapper.insertSendAttempt(attempt) == 1) {
+                    claimedTargets.add(new MarketingResolvedTarget(
+                            target, group.groupLinkId(), group.groupJid(), group.groupName()));
+                    attempts.add(attempt);
+                }
+            } catch (DuplicateKeyException duplicate) {
+                log.debug("新群延迟营销重复跳过 tenantId={} taskId={} accountId={} groupJid={}",
+                        task.getTenantId(), task.getId(), target.getAccountId(), group.groupJid());
+            }
+        }
+        return new ClaimedImmediateTargets(claimedTargets, attempts);
+    }
+
     /**
      * 创建一条尚未下发的第 0 轮发送尝试实体。
      *
@@ -234,9 +381,24 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         attempt.setGroupName(group.groupName());
         attempt.setCommandId(messageFactory.newCommandId());
         attempt.setStatus(MarketingSendAttemptStatus.SUBMITTED.code());
+        attempt.setDetectedAt(detectedAt);
+        attempt.setScheduledSendAt(detectedAt);
         attempt.setSubmittedAt(detectedAt);
         attempt.setAttemptedAt(detectedAt);
         attempt.setCreatedAt(detectedAt);
+        return attempt;
+    }
+
+    private MarketingTaskSendAttempt waitingAttempt(MarketingTask task,
+                                                    MarketingTaskTarget target,
+                                                    MarketingNewGroupDTO group,
+                                                    long detectedAt,
+                                                    long scheduledSendAt) {
+        MarketingTaskSendAttempt attempt = immediateAttempt(task, target, group, detectedAt);
+        attempt.setCommandId(null);
+        attempt.setStatus(MarketingSendAttemptStatus.WAITING.code());
+        attempt.setScheduledSendAt(scheduledSendAt);
+        attempt.setSubmittedAt(null);
         return attempt;
     }
 
@@ -298,8 +460,11 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             if (item == null || !command.commandId().equals(item.commandId())) {
                 throw new IllegalStateException("新群即时营销入队结果 commandId 与命令不一致");
             }
-            if (!item.accepted() && finalizeLocalFailure(
-                    attempts.get(index), item.reasonCode(), item.reasonMessage(), detectedAt)) {
+            MarketingTaskSendAttempt attempt = attempts.get(index);
+            if (item.accepted()) {
+                submitWaitingAttemptIfNeeded(attempt, command.commandId(), detectedAt);
+            } else if (finalizeLocalFailure(
+                    attempt, item.reasonCode(), item.reasonMessage(), detectedAt)) {
                 rejected++;
             }
         }
@@ -356,6 +521,16 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                                          String reasonCode,
                                          String reasonMessage,
                                          long resultAt) {
+        if (Integer.valueOf(MarketingSendAttemptStatus.WAITING.code()).equals(attempt.getStatus())) {
+            int updated = taskMapper.markWaitingAttemptFailed(
+                    attempt.getId(), reasonCode, reasonMessage, resultAt);
+            if (updated == 0) {
+                return false;
+            }
+            taskMapper.markTargetFailedFromAttempt(
+                    attempt.getTargetId(), attempt.getId(), reasonCode, reasonMessage, resultAt);
+            return true;
+        }
         MarketingSendAttemptResult result = new MarketingSendAttemptResult(
                 attempt.getId(),
                 attempt.getCommandId(),
@@ -374,6 +549,111 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         taskMapper.markTargetFailedFromAttempt(
                 attempt.getTargetId(), attempt.getId(), reasonCode, reasonMessage, resultAt);
         return true;
+    }
+
+    private void submitWaitingAttemptIfNeeded(MarketingTaskSendAttempt attempt,
+                                              String commandId,
+                                              long submittedAt) {
+        if (!Integer.valueOf(MarketingSendAttemptStatus.WAITING.code()).equals(attempt.getStatus())) {
+            recordOutboxAcceptedIfNeeded(attempt, commandId, submittedAt);
+            return;
+        }
+        int updated = taskMapper.markWaitingAttemptSubmitted(attempt.getId(), commandId, submittedAt);
+        if (updated != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群等待记录状态已变化，请重试");
+        }
+    }
+
+    private void recordOutboxAcceptedIfNeeded(MarketingTaskSendAttempt attempt,
+                                               String commandId,
+                                               long acceptedAt) {
+        if (attempt.getOutboxAcceptedAt() != null) {
+            return;
+        }
+        int updated = taskMapper.markAttemptOutboxAccepted(attempt.getId(), commandId, acceptedAt);
+        if (updated != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "营销发送记录状态已变化，请重试");
+        }
+        attempt.setOutboxAcceptedAt(acceptedAt);
+    }
+
+    private List<MarketingTaskSendAttempt> skipOrdinaryCovered(List<MarketingTaskSendAttempt> waiting,
+                                                               long resultAt) {
+        List<MarketingTaskSendAttempt> uncovered = new ArrayList<>();
+        for (MarketingTaskSendAttempt attempt : waiting) {
+            if (taskMapper.countOrdinarySubmittedOrSuccessfulAttempts(
+                    attempt.getTargetId(), attempt.getGroupJid()) > 0) {
+                markSkipped(attempt, REASON_ORDINARY_ROUND_COVERED, "已被普通轮次覆盖", resultAt);
+            } else {
+                uncovered.add(attempt);
+            }
+        }
+        return uncovered;
+    }
+
+    private ClaimedImmediateTargets dueSendableTargets(MarketingTaskTarget target,
+                                                       List<MarketingTaskSendAttempt> waiting,
+                                                       long resultAt) {
+        List<MarketingResolvedTarget> targets = new ArrayList<>();
+        List<MarketingTaskSendAttempt> attempts = new ArrayList<>();
+        for (MarketingTaskSendAttempt attempt : waiting) {
+            MarketingTargetCandidateRow group = attempt.getGroupLinkId() == null
+                    ? null
+                    : taskMapper.selectCurrentTargetGroup(target.getAccountId(), attempt.getGroupLinkId());
+            if (group == null || !normalizeGroupJid(attempt.getGroupJid()).equals(
+                    normalizeGroupJid(group.getGroupJid()))) {
+                markSkipped(attempt, REASON_GROUP_NOT_SENDABLE, "账号当前不再具备该群发送条件", resultAt);
+                continue;
+            }
+            targets.add(new MarketingResolvedTarget(
+                    target, group.getGroupLinkId(), group.getGroupJid(), group.getGroupName()));
+            attempts.add(attempt);
+        }
+        return new ClaimedImmediateTargets(targets, attempts);
+    }
+
+    private void skipAttempts(List<MarketingTaskSendAttempt> attempts,
+                              String reasonCode,
+                              String reasonMessage,
+                              long resultAt) {
+        for (MarketingTaskSendAttempt attempt : attempts) {
+            markSkipped(attempt, reasonCode, reasonMessage, resultAt);
+        }
+    }
+
+    private void markSkipped(MarketingTaskSendAttempt attempt,
+                             String reasonCode,
+                             String reasonMessage,
+                             long resultAt) {
+        taskMapper.markWaitingAttemptSkipped(attempt.getId(), reasonCode, reasonMessage, resultAt);
+    }
+
+    private static boolean validDynamicTarget(MarketingTask task,
+                                              MarketingTaskTarget target,
+                                              List<MarketingTaskSendAttempt> waiting) {
+        return Integer.valueOf(MarketingBusinessType.ORDINARY.code()).equals(task.getBusinessType())
+                && delayEnabled(task)
+                && target != null
+                && Integer.valueOf(MarketingTargetScope.ACCOUNT_DYNAMIC.code()).equals(target.getTargetScope())
+                && waiting.stream().allMatch(attempt -> task.getId().equals(attempt.getMarketingTaskId())
+                        && target.getId().equals(attempt.getTargetId()));
+    }
+
+    private static boolean delayEnabled(MarketingTask task) {
+        return Boolean.TRUE.equals(task.getNewGroupDelayEnabled());
+    }
+
+    private static long delayMilliseconds(MarketingTask task) {
+        MarketingNewGroupDelayUnit unit = MarketingNewGroupDelayUnit.fromCode(task.getNewGroupDelayUnit());
+        Integer value = task.getNewGroupDelayValue();
+        if (value == null || !unit.supports(value)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群延迟配置无效");
+        }
+        return unit.toMilliseconds(value);
+    }
+
+    private static String normalizeGroupJid(String groupJid) {
+        return groupJid == null ? "" : groupJid.trim();
     }
 
     /**
@@ -410,6 +690,29 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                 && Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())
                 && (task.getTaskStartAt() == null || task.getTaskStartAt() <= now)
                 && (task.getTaskEndAt() == null || task.getTaskEndAt() > now);
+    }
+
+    /**
+     * 判断新群事件是否可以登记首次发送。
+     *
+     * <p>发送中任务沿用即时或延迟分支；暂停任务只有开启延迟时才允许创建 WAITING，
+     * 且绝不在本入口写 Outbox。任务时间窗在暂停期间仍继续流逝。</p>
+     *
+     * @param task 当前账号占用的普通营销任务
+     * @param now Armada 确认新增群的时间(epoch 毫秒)
+     * @return 可以登记首次发送时返回 {@code true}
+     */
+    private static boolean canRegisterNewGroup(MarketingTask task, long now) {
+        if (task == null
+                || task.getTaskStartAt() != null && task.getTaskStartAt() > now
+                || task.getTaskEndAt() != null && task.getTaskEndAt() <= now) {
+            return false;
+        }
+        if (Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())) {
+            return true;
+        }
+        return Integer.valueOf(MarketingTaskStatus.PAUSED.code()).equals(task.getStatus())
+                && delayEnabled(task);
     }
 
     /**

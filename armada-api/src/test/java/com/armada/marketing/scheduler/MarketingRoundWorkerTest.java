@@ -212,6 +212,7 @@ class MarketingRoundWorkerTest {
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
@@ -480,7 +481,7 @@ class MarketingRoundWorkerTest {
         MarketingTaskTarget target = dynamicTarget();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
-        when(taskMapper.selectDynamicTargetGroups(5001L, 1_000L)).thenReturn(List.of(
+        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L)).thenReturn(List.of(
                 dynamicGroup(8101L, "12036308101@g.us", "新增群A"),
                 dynamicGroup(8102L, "12036308102@g.us", "新增群B")));
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
@@ -529,7 +530,7 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(dynamicTarget()));
-        when(taskMapper.selectDynamicTargetGroups(5001L, 1_000L)).thenReturn(List.of());
+        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L)).thenReturn(List.of());
 
         MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
         worker.runRound(1L, 42L);
@@ -599,6 +600,7 @@ class MarketingRoundWorkerTest {
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
@@ -649,6 +651,7 @@ class MarketingRoundWorkerTest {
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         stubCurrentTargets(taskMapper, targets);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<MarketingTaskSendAttempt> attempts = invocation.getArgument(0, List.class);
@@ -704,6 +707,7 @@ class MarketingRoundWorkerTest {
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithButtons());
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
@@ -793,8 +797,9 @@ class MarketingRoundWorkerTest {
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
                                         MessageSendPort outbox,
                                         MarketingRoundSchedulerProperties properties,
-                                        Clock clock,
-                                        MarketingAccountOccupancyService occupancyService) {
+                                               Clock clock,
+                                               MarketingAccountOccupancyService occupancyService) {
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
         when(templateMapper.selectById(77L)).thenReturn(template());
@@ -862,6 +867,7 @@ class MarketingRoundWorkerTest {
     }
 
     private static void assignAttemptIds(MarketingTaskMapper taskMapper, long startingId) {
+        when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         long[] nextId = {startingId};
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")

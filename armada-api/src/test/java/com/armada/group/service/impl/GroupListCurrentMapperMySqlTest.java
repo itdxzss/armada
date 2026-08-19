@@ -87,8 +87,13 @@ class GroupListCurrentMapperMySqlTest {
                 .containsExactly(202L, 201L);
         assertThat(rows).filteredOn(row -> row.getId().equals(201L)).singleElement()
                 .satisfies(row -> {
-                    assertThat(row.getCreatorPhoneRegionCode()).isEqualTo("PB");
-                    assertThat(row.getCreatorPhoneRegionName()).isEqualTo("旁遮普邦");
+                    assertThat(row.getCreatorCountryIso2()).isEqualTo("PK");
+                    assertThat(row.getCreatorContinentCode()).isEqualTo("ASIA");
+                });
+        assertThat(rows).filteredOn(row -> row.getId().equals(202L)).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getCreatorCountryIso2()).isEqualTo("US");
+                    assertThat(row.getCreatorContinentCode()).isEqualTo("EUROPE");
                 });
 
         assertValidPage(pageQuery(1, 1));
@@ -114,6 +119,12 @@ class GroupListCurrentMapperMySqlTest {
 
         assertValidPage(filtered);
         assertThat(currentMapper.count(TENANT_ID, filtered)).isEqualTo(1L);
+
+        GroupLinkQuery legacyContinent = pageQuery(1, 10);
+        legacyContinent.setContinentCode("EUROPE");
+        assertThat(currentMapper.selectPage(TENANT_ID, legacyContinent))
+                .extracting(row -> row.getId())
+                .containsExactly(202L);
 
         GroupLinkQuery chineseKeyword = pageQuery(1, 10);
         chineseKeyword.setKeyword("群");
@@ -221,10 +232,10 @@ class GroupListCurrentMapperMySqlTest {
                 VALUES
                   (7, 201, 'resolved@g.us', 'resolved-code', 'WA群名', 5,
                    '1002', 'https://cdn.example/resolved.jpg', 120,
-                   'PK', 'ASIA', 'PB', '旁遮普邦', 113600),
+                   'PK', NULL, 'PB', '旁遮普邦', 113600),
                   (7, 202, NULL, 'unresolved-code', '未解析预览群', NULL,
                    NULL, 'https://cdn.example/unresolved.jpg', 220,
-                   NULL, NULL, NULL, NULL, NULL)
+                   'US', 'EUROPE', NULL, NULL, NULL)
                 """);
         jdbc.update("""
                 INSERT INTO group_link_import_batch (id, tenant_id, source_file_name)
@@ -237,7 +248,9 @@ class GroupListCurrentMapperMySqlTest {
         jdbc.update("""
                 INSERT INTO country
                   (id, iso2, name_zh, flag, continent_code, deleted_at)
-                VALUES (21, 'PK', '巴基斯坦', '🇵🇰', 'ASIA', NULL)
+                VALUES
+                  (21, 'PK', '巴基斯坦', '🇵🇰', 'ASIA', NULL),
+                  (22, 'US', '美国', '🇺🇸', 'NORTH_AMERICA', NULL)
                 """);
         jdbc.update("""
                 INSERT INTO group_link_health

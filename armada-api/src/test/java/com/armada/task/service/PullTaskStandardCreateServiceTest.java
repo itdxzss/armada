@@ -293,7 +293,7 @@ class PullTaskStandardCreateServiceTest {
     void materialFilenameNamingStoresNoManualGroupName() {
         long taskId = seedDraftWithTwoRows(CREATOR);
         PullTaskStandardGroupSettingDTO groupSetting = new PullTaskStandardGroupSettingDTO(
-                PullTaskGroupSettingTiming.AFTER_PULL, "不应保存", true, null, null,
+                true, PullTaskGroupSettingTiming.AFTER_PULL, "不应保存", true, null, null,
                 false, false, PullTaskEditPermissionMode.UNCHANGED,
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);
@@ -414,7 +414,7 @@ class PullTaskStandardCreateServiceTest {
 
     private static PullTaskStandardGroupSettingDTO validGroupSetting() {
         return new PullTaskStandardGroupSettingDTO(
-                PullTaskGroupSettingTiming.AFTER_PULL, "客户群", false, null, null,
+                true, PullTaskGroupSettingTiming.AFTER_PULL, "客户群", false, null, null,
                 false, false, PullTaskEditPermissionMode.UNCHANGED,
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);
@@ -519,7 +519,7 @@ class PullTaskStandardCreateServiceTest {
             PullTaskStandardCreateDTO base, String avatarFileKey) {
         PullTaskStandardGroupSettingDTO current = base.groupSetting();
         PullTaskStandardGroupSettingDTO groupSetting = new PullTaskStandardGroupSettingDTO(
-                current.settingTiming(), current.groupName(),
+                true, current.settingTiming(), current.groupName(),
                 current.useMaterialFileNameAsGroupName(), avatarFileKey,
                 current.groupDescription(), current.autoCloseMuteAfterTask(),
                 current.autoCloseInviteAfterTask(), current.editPermission(), current.muteMode(),

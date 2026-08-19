@@ -8,6 +8,7 @@ import com.armada.task.model.enums.PullTaskMuteMode;
 
 /** 普通群链接任务群资料与权限设置回读。 */
 public record PullTaskStandardGroupSettingVO(
+        boolean enabled,
         PullTaskGroupSettingTiming settingTiming,
         String groupName,
         boolean useMaterialFileNameAsGroupName,

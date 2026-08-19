@@ -82,12 +82,6 @@ public class GroupLinkPreview {
     /** 严格按群主确认手机号解析的大洲代码。 */
     private String creatorContinentCode;
 
-    /** 按群主确认手机号原始号段推断的归属区代码，不表示当前所在地。 */
-    private String creatorPhoneRegionCode;
-
-    /** 按群主确认手机号原始号段推断的归属区名称，不表示当前所在地。 */
-    private String creatorPhoneRegionName;
-
     /** 本次响应是否明确观察到可用于解析地区的群主身份。 */
     private Boolean creatorCountryObserved;
 
@@ -320,22 +314,6 @@ public class GroupLinkPreview {
 
     public void setCreatorContinentCode(String creatorContinentCode) {
         this.creatorContinentCode = creatorContinentCode;
-    }
-
-    public String getCreatorPhoneRegionCode() {
-        return creatorPhoneRegionCode;
-    }
-
-    public void setCreatorPhoneRegionCode(String creatorPhoneRegionCode) {
-        this.creatorPhoneRegionCode = creatorPhoneRegionCode;
-    }
-
-    public String getCreatorPhoneRegionName() {
-        return creatorPhoneRegionName;
-    }
-
-    public void setCreatorPhoneRegionName(String creatorPhoneRegionName) {
-        this.creatorPhoneRegionName = creatorPhoneRegionName;
     }
 
     public Boolean getCreatorCountryObserved() {

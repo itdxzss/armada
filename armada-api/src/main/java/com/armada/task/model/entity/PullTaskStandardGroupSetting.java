@@ -6,6 +6,7 @@ public class PullTaskStandardGroupSetting {
     private Long id;
     private Long tenantId;
     private Long taskId;
+    private Integer groupSettingEnabled;
     private Integer settingTiming;
     private String groupName;
     private Integer materialFilenameAsGroupName;
@@ -26,6 +27,8 @@ public class PullTaskStandardGroupSetting {
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
     public Long getTaskId() { return taskId; }
     public void setTaskId(Long taskId) { this.taskId = taskId; }
+    public Integer getGroupSettingEnabled() { return groupSettingEnabled; }
+    public void setGroupSettingEnabled(Integer value) { this.groupSettingEnabled = value; }
     public Integer getSettingTiming() { return settingTiming; }
     public void setSettingTiming(Integer value) { this.settingTiming = value; }
     public String getGroupName() { return groupName; }

@@ -75,6 +75,18 @@ class GroupMetadataSyncTaskMapperDbTest {
     }
 
     @Test
+    void inviteOnlyEnqueuePersistsCompletedMetadataScope() {
+        GroupMetadataSyncTask inviteOnly =
+                pendingTask(GroupMetadataSyncTrigger.BASELINE_CAPTURED, 1_000L);
+        inviteOnly.setCompletedScopeMask(1);
+
+        mapper.enqueue(inviteOnly, GroupMetadataSyncStatus.RUNNING.code());
+
+        GroupMetadataSyncTask task = mapper.selectByGroupLinkId(GROUP_LINK_ID);
+        assertThat(task.getCompletedScopeMask()).isEqualTo(1);
+    }
+
+    @Test
     void enqueueDuringRunningOnlyRequestsRerunAndPreservesLease() throws SQLException {
         GroupMetadataSyncTask running = storedTask(GroupMetadataSyncStatus.RUNNING, 1_000L);
         running.setAttemptCount(3);
@@ -412,6 +424,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         row.setAttemptCount(0);
         row.setNextRunAt(now);
         row.setRerunRequested(false);
+        row.setCompletedScopeMask(0);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;

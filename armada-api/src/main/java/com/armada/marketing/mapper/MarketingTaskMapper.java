@@ -32,11 +32,16 @@ public interface MarketingTaskMapper {
     /** 按 ID 查未删任务。 */
     MarketingTask selectTaskById(@Param("id") Long id);
 
+    /** 锁定任务主记录，作为暂停、关闭、结束与延迟到期提交的统一串行化边界。 */
+    MarketingTask selectTaskByIdForUpdate(@Param("id") Long id);
+
     /** 按任务 ID 查目标明细。 */
     List<MarketingTaskTarget> selectTargetsByTaskId(@Param("taskId") Long taskId);
 
     /**
-     * 查询账号当前占用的发送中账号动态 target。
+     * 查询账号当前占用且可登记新群的账号动态 target。
+     *
+     * <p>发送中任务始终可匹配；暂停任务仅在新群延迟开启时匹配，避免暂停期间即时发送。</p>
      *
      * @param accountId 账号 ID
      * @param now       检测时间(epoch 毫秒)
@@ -89,6 +94,49 @@ public interface MarketingTaskMapper {
 
     /** 按 ID 查询发送尝试，供即时发送结果判断是否仍可重试。 */
     MarketingTaskSendAttempt selectSendAttemptById(@Param("attemptId") Long attemptId);
+
+    /** 跨租户扫描已到计划时间且任务仍在发送中的新群等待记录。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<MarketingTaskSendAttempt> selectDueWaitingNewGroupAttempts(@Param("now") long now,
+                                                                    @Param("limit") int limit);
+
+    /** 在当前租户事务中锁定指定的等待记录，供多实例幂等提交。 */
+    List<MarketingTaskSendAttempt> selectWaitingAttemptsForUpdate(
+            @Param("taskId") Long taskId,
+            @Param("attemptIds") List<Long> attemptIds,
+            @Param("now") long now);
+
+    /** 判断同一动态目标和群是否已被普通轮次成功提交或发送成功。 */
+    int countOrdinarySubmittedOrSuccessfulAttempts(@Param("targetId") Long targetId,
+                                                    @Param("groupJid") String groupJid);
+
+    /** 记录普通或即时 attempt 已被 Outbox 接受的不可变事实。 */
+    int markAttemptOutboxAccepted(@Param("attemptId") Long attemptId,
+                                  @Param("commandId") String commandId,
+                                  @Param("acceptedAt") long acceptedAt);
+
+    /** Outbox 接受后把等待记录原子切换为已提交。 */
+    int markWaitingAttemptSubmitted(@Param("attemptId") Long attemptId,
+                                    @Param("commandId") String commandId,
+                                    @Param("submittedAt") long submittedAt);
+
+    /** 把等待记录收口为业务跳过。 */
+    int markWaitingAttemptSkipped(@Param("attemptId") Long attemptId,
+                                  @Param("reasonCode") String reasonCode,
+                                  @Param("reasonMessage") String reasonMessage,
+                                  @Param("resultAt") long resultAt);
+
+    /** 把等待阶段的本地提交失败收口为失败。 */
+    int markWaitingAttemptFailed(@Param("attemptId") Long attemptId,
+                                 @Param("reasonCode") String reasonCode,
+                                 @Param("reasonMessage") String reasonMessage,
+                                 @Param("resultAt") long resultAt);
+
+    /** 任务关闭或结束时批量跳过尚未写入 Outbox 的等待记录。 */
+    int markTaskWaitingAttemptsSkipped(@Param("taskId") Long taskId,
+                                       @Param("reasonCode") String reasonCode,
+                                       @Param("reasonMessage") String reasonMessage,
+                                       @Param("resultAt") long resultAt);
 
     /** 按 ID 查询目标及账号当前协议路由事实。 */
     MarketingTaskTarget selectTargetById(@Param("targetId") Long targetId);
@@ -291,7 +339,8 @@ public interface MarketingTaskMapper {
                                                              List<Integer> selectableAccountStates);
 
     /** 查询账号动态目标在发送时间边界内的当前群。 */
-    List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("accountId") Long accountId,
+    List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("targetId") Long targetId,
+                                                                @Param("accountId") Long accountId,
                                                                 @Param("accountGroupSendAt") Long accountGroupSendAt);
 
     /** 查询固定群组目标在发送前是否仍是账号当前可发送群。 */

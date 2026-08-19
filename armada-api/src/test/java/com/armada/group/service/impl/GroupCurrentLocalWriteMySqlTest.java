@@ -29,6 +29,7 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.WhatsappGroupBusinessDepartureService;
 import com.armada.group.service.GroupInviteLinkService;
+import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
@@ -1176,6 +1177,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 previewMapper,
                 labelMapper,
                 mock(GroupConverter.class),
+                mock(CountryService.class),
                 mock(AccountMapper.class),
                 mock(GroupPreviewPort.class),
                 mock(GroupProfilePort.class),

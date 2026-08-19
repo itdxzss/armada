@@ -8,6 +8,8 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskGroupSettingTiming;
+import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -35,6 +37,7 @@ public class PullTaskPullWaveSettlementTransactionService {
     private final PullTaskPullWaveSettlementResources resources;
     private final PullTaskPullWavePlanningTransactionService planning;
     private final PullTaskExecutionDispatchProperties properties;
+    private final PullTaskGroupProfileDispatcher groupProfileDispatcher;
 
     /**
      * @param resources 波次结算数据访问依赖
@@ -44,10 +47,12 @@ public class PullTaskPullWaveSettlementTransactionService {
     public PullTaskPullWaveSettlementTransactionService(
             PullTaskPullWaveSettlementResources resources,
             PullTaskPullWavePlanningTransactionService planning,
-            PullTaskExecutionDispatchProperties properties) {
+            PullTaskExecutionDispatchProperties properties,
+            PullTaskGroupProfileDispatcher groupProfileDispatcher) {
         this.resources = resources;
         this.planning = planning;
         this.properties = properties;
+        this.groupProfileDispatcher = groupProfileDispatcher;
     }
 
     /**
@@ -162,6 +167,10 @@ public class PullTaskPullWaveSettlementTransactionService {
                 ? PullTaskExecutionStage.CLOSING.code()
                 : PullTaskExecutionStage.MATERIAL_ADMIN.code();
         replaceActiveWave(execution, settledWaveId, null, nextStage, 0L, now);
+        // 这条执行行刚拉完人，正是「拉完人后」设置群资料的时刻；不能拖到收口，否则运营要
+        // 看着旧群名度过整个料子管理员阶段。
+        groupProfileDispatcher.dispatchIfDue(
+                execution, PullTaskGroupSettingTiming.AFTER_PULL, now);
         log.info("event=pull_wave_settled tenantId={} taskId={} executionId={} "
                         + "waveId={} retryCandidateCount=0 nextStage={}",
                 execution.getTenantId(), execution.getTaskId(), execution.getId(),

@@ -605,6 +605,30 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 preview.getGroupJid(), participants, snapshotAt, snapshotVersion, preview);
     }
 
+    /**
+     * 只填建群时间；已有值时不覆盖。
+     *
+     * <p>建群时间建群时定死、此后不变，与可变的资料字段不是同一生命周期，因此不进
+     * fieldMask 也不参与版本比较——先到先得即可。</p>
+     *
+     * @param groupJid    群 JID
+     * @param waCreatedAt WhatsApp 建群时间(epoch 毫秒)
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void fillGroupCreatedAt(String groupJid, Long waCreatedAt) {
+        if (waCreatedAt == null || waCreatedAt <= 0) {
+            return;
+        }
+        Long tenantId = requiredTenantId();
+        long now = System.currentTimeMillis();
+        String normalizedJid = participantGroupJid(groupJid);
+        Long groupId = resolveGroupIds(tenantId, List.of(normalizedJid), now).get(normalizedJid);
+        if (groupId == null) {
+            return;
+        }
+        mapper.fillGroupCreatedAt(groupId, waCreatedAt, now);
+    }
+
     /** 将协议回读已确认的群资料单字段立即写入新模型。 */
     @Transactional(rollbackFor = Exception.class)
     public void applyConfirmedMetadata(GroupLinkPreview preview) {
@@ -932,6 +956,15 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             participantJid = participantJid.substring(0, device) + participantJid.substring(at);
         }
         if (participantJid.endsWith("@s.whatsapp.net")) {
+            // 只判后缀不够：拼了两遍后缀的 "号码@s.whatsapp.net@s.whatsapp.net" 同样以它结尾，
+            // 却会在 pn_jid 上开出一行永远匹配不上的身份（绑定按 pn_jid 等值关联）。
+            // PN 的用户部分必然是纯数字，据此把畸形值挡在落库之前。
+            String user = participantJid.substring(
+                    0, participantJid.length() - "@s.whatsapp.net".length());
+            if (user.isEmpty() || !user.chars().allMatch(Character::isDigit)) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION, "群成员事件 participantJid 非法: " + participantJid);
+            }
             return new ParticipantIdentity(participantJid, null);
         }
         if (participantJid.endsWith("@lid")) {

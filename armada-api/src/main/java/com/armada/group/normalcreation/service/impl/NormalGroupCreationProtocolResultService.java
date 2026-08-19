@@ -472,7 +472,8 @@ public class NormalGroupCreationProtocolResultService
                     groupLinkId, item.groupJid(), member.memberAccountId(),
                     secondaryAdmins.isEmpty() && "SUCCESS".equals(leaveStatus) && index == 0, now);
         }
-        metadataSyncTaskService.enqueue(
+        // 建群响应和设置结果已经提供完整资料，只需单独补邀请码，不再重复读取 metadata。
+        metadataSyncTaskService.enqueueInviteCode(
                 groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, now);
         if (mapper.completeProtocolFlow(
                 item.id(), expectedStep, event.commandId(), leaveStatus,

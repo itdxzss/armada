@@ -33,7 +33,7 @@ public class PullTaskStandardCreateDTOTest {
                 + "\"concurrentGroupCount\":1,"
                 + "\"managerGroupId\":11,\"pullerGroupId\":12,\"stationGroupId\":null,"
                 + "\"managerFinishGroupId\":14,\"pullerFinishGroupId\":15,"
-                + "\"groupSetting\":{\"settingTiming\":\"AFTER_PULL\","
+                + "\"groupSetting\":{\"enabled\":true,\"settingTiming\":\"AFTER_PULL\","
                 + "\"groupName\":\"客户群\",\"useMaterialFileNameAsGroupName\":false,"
                 + "\"avatarFileKey\":\"avatar.png\",\"groupDescription\":\"说明\","
                 + "\"autoCloseMuteAfterTask\":true,\"autoCloseInviteAfterTask\":true,"
@@ -46,7 +46,7 @@ public class PullTaskStandardCreateDTOTest {
 
     public static PullTaskStandardCreateDTO request() {
         PullTaskStandardGroupSettingDTO groupSetting = new PullTaskStandardGroupSettingDTO(
-                PullTaskGroupSettingTiming.AFTER_PULL, "客户群", false, "avatar.png", "说明",
+                true, PullTaskGroupSettingTiming.AFTER_PULL, "客户群", false, "avatar.png", "说明",
                 true, true, PullTaskEditPermissionMode.DISALLOW, PullTaskMuteMode.MUTE,
                 PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.SEVEN_DAYS);

@@ -231,6 +231,7 @@ class GroupDetailServiceImplTest {
                 org.mockito.ArgumentCaptor.forClass(GroupLinkPreview.class);
         verify(currentSnapshotPersistence).applyConfirmedMetadata(currentCaptor.capture());
         assertThat(currentCaptor.getValue().getWaSubject()).isEqualTo("新群名");
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -606,6 +607,7 @@ class GroupDetailServiceImplTest {
             assertThat(observation.source()).isEqualTo(WhatsappGroupMemberStateSource.ROLE_EVENT);
         });
         verify(selector).require(10L);
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test
@@ -782,6 +784,7 @@ class GroupDetailServiceImplTest {
                         com.armada.group.model.dto.GroupCurrentLocalProfileWrite.class);
         verify(currentLocalPersistence).applyProfile(profile.capture());
         assertThat(profile.getValue().avatarUrl()).isEqualTo("https://pps.whatsapp.net/new.jpg");
+        verifyNoInteractions(metadataSyncTaskService);
     }
 
     @Test

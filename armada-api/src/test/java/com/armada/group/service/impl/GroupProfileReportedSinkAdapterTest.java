@@ -14,9 +14,7 @@ import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -57,9 +55,6 @@ class GroupProfileReportedSinkAdapterTest {
 
     @Mock
     private GroupCreatorCompatibilityWriter creatorWriter;
-
-    @Mock
-    private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     @Mock
     private GroupParticipantObservationService participantObservationService;
@@ -285,31 +280,6 @@ class GroupProfileReportedSinkAdapterTest {
         adapter.handleProfileReported(event(true, List.of(
                 new ProtocolGroupProfileReportedEvent.Member(
                         "923048826465@s.whatsapp.net", null, "923048826465", true, true, "superadmin"))));
-
-        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
-    }
-
-    @Test
-    void inviteCodeFetchIsQueuedInsteadOfCalledInline() {
-        // 取邀请码要发一次 WhatsApp 请求；同步等会把消费线程卡住，21 人群的 21 条建档事件
-        // 就会把后面所有群一起堵上。这里只入队，由后台任务慢慢取。
-        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
-                anyString(), any(), any(), anyLong())).thenReturn(77L);
-
-        adapter.handleProfileReported(event(true, List.of()));
-
-        verify(metadataSyncTaskService).enqueue(
-                eq(77L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
-    }
-
-    @Test
-    void inviteCodeQueueFailureDoesNotDropTheProfileFacts() {
-        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
-                anyString(), any(), any(), anyLong())).thenReturn(77L);
-        org.mockito.Mockito.doThrow(new RuntimeException("queue down"))
-                .when(metadataSyncTaskService).enqueue(anyLong(), any(), anyLong());
-
-        adapter.handleProfileReported(event(true, List.of()));
 
         verify(patchService).applyPatch(any(GroupMetadataPatch.class));
     }

@@ -13,10 +13,10 @@
   <insert id="enqueue" useGeneratedKeys="true" keyProperty="row.id">
     INSERT INTO group_metadata_sync_task (
       group_link_id, status, trigger_source, attempt_count, next_run_at,
-      rerun_requested, created_at, updated_at
+      rerun_requested, completed_scope_mask, created_at, updated_at
     ) VALUES (
       #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
-      #{row.nextRunAt}, FALSE, #{row.createdAt}, #{row.updatedAt}
+      #{row.nextRunAt}, FALSE, #{row.completedScopeMask}, #{row.createdAt}, #{row.updatedAt}
     )
     ON DUPLICATE KEY UPDATE
       trigger_source = VALUES(trigger_source),
@@ -33,7 +33,7 @@
         WHEN status = #{runningStatus} THEN requested_scope_mask ELSE 0
       END,
       completed_scope_mask = CASE
-        WHEN status = #{runningStatus} THEN completed_scope_mask ELSE 0
+        WHEN status = #{runningStatus} THEN completed_scope_mask ELSE VALUES(completed_scope_mask)
       END,
       candidate_cursor = CASE
         WHEN status = #{runningStatus} THEN candidate_cursor ELSE 0

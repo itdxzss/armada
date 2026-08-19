@@ -81,6 +81,30 @@ class GroupSnapshotDispatchServiceTest {
         verify(taskMapper, never()).markAwaitingResult(any(), anyInt());
     }
 
+    @Test
+    void dispatchInviteOnlyTaskDoesNotRequestMetadataAgain() {
+        GroupMetadataSyncTask task = task();
+        task.setCompletedScopeMask(GroupSnapshotDispatchService.SCOPE_METADATA);
+        GroupExecutionAccount account = new GroupExecutionAccount(
+                100L, "WEB", "acc-100", "919000000100", true);
+        when(taskService.claim(eq(task), eq(account), eq(1_000L), eq(121_000L), any()))
+                .thenReturn(true);
+        when(outboxService.enqueueGroupSnapshotCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd-invite"), 1));
+        when(taskMapper.markAwaitingResult(any(), anyInt())).thenReturn(1);
+        GroupSnapshotDispatchService service = new GroupSnapshotDispatchService(
+                taskService, taskMapper, outboxService, new GroupSnapshotMetrics());
+
+        assertThat(service.dispatchMetadataTask(
+                task, account, 1_000L, 121_000L, new GroupMetadataSyncLimits(3, 1))).isTrue();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolGroupSnapshotCommandRequest>> commandCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueGroupSnapshotCommands(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().get(0).scopes()).containsExactly("INVITE_CODE");
+    }
+
     private static GroupMetadataSyncTask task() {
         GroupMetadataSyncTask task = new GroupMetadataSyncTask();
         task.setId(91L);

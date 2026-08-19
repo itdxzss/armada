@@ -1,5 +1,7 @@
 package com.armada.group.model.dto;
 
+import java.util.List;
+
 /** 新群模型账号快照批量持久化使用的最小行模型。 */
 public final class AccountGroupCurrentSnapshotRows {
 
@@ -30,6 +32,7 @@ public final class AccountGroupCurrentSnapshotRows {
             Long bindingId,
             Integer wasInInitialBaseline,
             Long firstPostControlObservedAt,
+            Long membershipActiveSinceAt,
             Long deletedAt) {
     }
 
@@ -130,6 +133,15 @@ public final class AccountGroupCurrentSnapshotRows {
             long lastReportedAt,
             boolean snapshotComplete,
             Long lastCompleteAt,
+            long now) {
+    }
+
+    /** 被 participant 当前事实确认接受的退出周期清理参数。 */
+    public record MembershipExitWrite(
+            Long accountId,
+            List<Long> groupIds,
+            String presenceSource,
+            long observedAt,
             long now) {
     }
 }

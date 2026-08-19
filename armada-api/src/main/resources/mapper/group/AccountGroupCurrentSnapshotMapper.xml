@@ -36,6 +36,7 @@
            b.id AS bindingId,
            b.was_in_initial_baseline AS wasInInitialBaseline,
            b.first_post_control_observed_at AS firstPostControlObservedAt,
+           b.membership_active_since_at AS membershipActiveSinceAt,
            g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
@@ -60,6 +61,46 @@
     ORDER BY g.group_jid ASC
   </select>
 
+  <select id="selectExistingForUpdate"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
+    SELECT g.group_jid AS groupJid,
+           g.id AS groupId,
+           p.id AS participantId,
+           p.presence_status AS presenceStatus,
+           p.presence_source AS presenceSource,
+           p.presence_observed_at AS presenceObservedAt,
+           b.id AS bindingId,
+           b.was_in_initial_baseline AS wasInInitialBaseline,
+           b.first_post_control_observed_at AS firstPostControlObservedAt,
+           b.membership_active_since_at AS membershipActiveSinceAt,
+           g.deleted_at AS deletedAt
+    FROM wa_group g
+    LEFT JOIN wa_group_participant p
+      ON p.tenant_id = #{tenantId}
+     AND p.group_id = g.id
+     AND p.pn_jid = #{pnJid}
+    LEFT JOIN wa_account_group_binding b
+      ON b.tenant_id = #{tenantId}
+     AND b.account_id = #{accountId}
+     AND b.group_id = g.id
+    WHERE g.tenant_id = #{tenantId}
+      AND
+    <choose>
+      <when test="groupJids != null and !groupJids.isEmpty()">
+        (g.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          #{groupJid}
+        </foreach>
+        OR b.id IS NOT NULL)
+      </when>
+      <otherwise>
+        b.id IS NOT NULL
+      </otherwise>
+    </choose>
+    ORDER BY g.group_jid ASC
+    FOR UPDATE
+  </select>
+
   <select id="selectSelfMembershipExisting"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
     SELECT g.group_jid AS groupJid,
@@ -71,6 +112,7 @@
            b.id AS bindingId,
            b.was_in_initial_baseline AS wasInInitialBaseline,
            b.first_post_control_observed_at AS firstPostControlObservedAt,
+           b.membership_active_since_at AS membershipActiveSinceAt,
            g.deleted_at AS deletedAt
     FROM wa_group g
     LEFT JOIN wa_group_participant p
@@ -81,6 +123,34 @@
      AND b.group_id = g.id
     WHERE g.group_jid = #{groupJid}
     LIMIT 1
+  </select>
+
+  <select id="selectSelfMembershipExistingForUpdate"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
+    SELECT g.group_jid AS groupJid,
+           g.id AS groupId,
+           p.id AS participantId,
+           p.presence_status AS presenceStatus,
+           p.presence_source AS presenceSource,
+           p.presence_observed_at AS presenceObservedAt,
+           b.id AS bindingId,
+           b.was_in_initial_baseline AS wasInInitialBaseline,
+           b.first_post_control_observed_at AS firstPostControlObservedAt,
+           b.membership_active_since_at AS membershipActiveSinceAt,
+           g.deleted_at AS deletedAt
+    FROM wa_group g
+    LEFT JOIN wa_group_participant p
+      ON p.tenant_id = #{tenantId}
+     AND p.group_id = g.id
+     AND p.pn_jid = #{pnJid}
+    LEFT JOIN wa_account_group_binding b
+      ON b.tenant_id = #{tenantId}
+     AND b.account_id = #{accountId}
+     AND b.group_id = g.id
+    WHERE g.tenant_id = #{tenantId}
+      AND g.group_jid = #{groupJid}
+    LIMIT 1
+    FOR UPDATE
   </select>
 
   <insert id="insertMissingGroups">
@@ -737,6 +807,23 @@
       )
   </update>
 
+  <!--
+    同一账号/群可能由 JOINED 结果、participant ADD 和完整快照并发补关系起点。
+    关系起点按最早可信事实收敛，避免最后提交者覆盖导致普通轮次资格随提交顺序漂移。
+  -->
+  <sql id="earliestMembershipActiveSince">
+    CASE
+      WHEN wa_account_group_binding.membership_active_since_at IS NULL
+        THEN VALUES(membership_active_since_at)
+      WHEN VALUES(membership_active_since_at) IS NULL
+        THEN wa_account_group_binding.membership_active_since_at
+      ELSE LEAST(
+        wa_account_group_binding.membership_active_since_at,
+        VALUES(membership_active_since_at)
+      )
+    END
+  </sql>
+
   <insert id="upsertBindings">
     INSERT INTO wa_account_group_binding (
       tenant_id, account_id, group_id, participant_id,
@@ -777,11 +864,7 @@
         wa_account_group_binding.baseline_subject_snapshot,
         VALUES(baseline_subject_snapshot)
       ),
-      membership_active_since_at = CASE
-        WHEN VALUES(membership_active_since_at) IS NOT NULL
-          THEN VALUES(membership_active_since_at)
-        ELSE wa_account_group_binding.membership_active_since_at
-      END,
+      membership_active_since_at = <include refid="earliestMembershipActiveSince"/>,
       last_observed_at = GREATEST(
         COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
         VALUES(last_observed_at)
@@ -810,8 +893,7 @@
                   AND participant.presence_observed_at = #{row.occurredAt}
                 THEN #{row.baselineSubjectSnapshot} ELSE NULL END,
            CASE WHEN participant.presence_status = 1
-                  AND participant.presence_source = #{row.presenceSource}
-                  AND participant.presence_observed_at = #{row.occurredAt}
+                  AND #{row.membershipActiveSinceAt} IS NOT NULL
                 THEN #{row.membershipActiveSinceAt} ELSE NULL END,
            #{row.occurredAt},
            CASE WHEN participant.presence_status = 1
@@ -833,10 +915,7 @@
         wa_account_group_binding.baseline_subject_snapshot,
         VALUES(baseline_subject_snapshot)
       ),
-      membership_active_since_at = COALESCE(
-        VALUES(membership_active_since_at),
-        wa_account_group_binding.membership_active_since_at
-      ),
+      membership_active_since_at = <include refid="earliestMembershipActiveSince"/>,
       last_observed_at = GREATEST(
         COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
         VALUES(last_observed_at)
@@ -847,6 +926,24 @@
       ),
       updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
   </insert>
+
+  <update id="clearMembershipActiveSinceForAcceptedExit">
+    UPDATE wa_account_group_binding binding
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = binding.tenant_id
+     AND participant.id = binding.participant_id
+    SET binding.membership_active_since_at = NULL,
+        binding.updated_at = GREATEST(binding.updated_at, #{exit.now})
+    WHERE binding.tenant_id = #{tenantId}
+      AND binding.account_id = #{exit.accountId}
+      AND binding.group_id IN
+    <foreach collection="exit.groupIds" item="groupId" open="(" separator="," close=")">
+      #{groupId}
+    </foreach>
+      AND participant.presence_status = 2
+      AND participant.presence_source = #{exit.presenceSource}
+      AND participant.presence_observed_at = #{exit.observedAt}
+  </update>
 
   <insert id="upsertSyncState">
     INSERT INTO account_group_sync_state (

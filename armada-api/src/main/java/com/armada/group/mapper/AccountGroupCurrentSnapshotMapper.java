@@ -4,6 +4,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
@@ -36,7 +37,28 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("pnJid") String pnJid,
             @Param("groupJids") List<String> groupJids);
 
+    /** 按群 JID 顺序锁定可见群及账号现有绑定，供完整快照基于数据库当前事实归约。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Existing> selectExistingForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("accountId") Long accountId,
+            @Param("pnJid") String pnJid,
+            @Param("groupJids") List<String> groupJids);
+
     Existing selectSelfMembershipExisting(
+            @Param("accountId") Long accountId,
+            @Param("pnJid") String pnJid,
+            @Param("groupJid") String groupJid);
+
+    /**
+     * 以当前读锁定单个群的账号自身成员事实，串行化同群 ADD/EXIT 的周期判定。
+     *
+     * <p>调用前必须确保群行已经存在；FOR UPDATE 会锁住群行以及已存在的 participant/binding，
+     * 后续进群周期起点必须只基于本查询返回的数据库最新事实计算。</p>
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    Existing selectSelfMembershipExistingForUpdate(
+            @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("pnJid") String pnJid,
             @Param("groupJid") String groupJid);
@@ -133,6 +155,12 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("row") ParticipantPresenceWrite row);
+
+    /** 仅当 participant 当前仍是指定退出事实时，清空这些群的当前在群周期起点。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int clearMembershipActiveSinceForAcceptedExit(
+            @Param("tenantId") Long tenantId,
+            @Param("exit") MembershipExitWrite exit);
 
     int upsertSyncState(@Param("row") SyncStateWrite row);
 }

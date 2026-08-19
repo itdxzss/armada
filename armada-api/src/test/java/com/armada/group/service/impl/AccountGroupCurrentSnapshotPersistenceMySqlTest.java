@@ -274,16 +274,19 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         assertThat(statements).hasSizeLessThanOrEqualTo(10);
         String classificationRead = statements.stream()
                 .filter(sql -> sql.contains("FROM WA_GROUP G")
-                        && sql.contains("WA_ACCOUNT_GROUP_BINDING"))
+                        && sql.contains("WA_ACCOUNT_GROUP_BINDING")
+                        && !sql.contains("FOR UPDATE"))
                 .findFirst()
                 .orElseThrow();
         assertThat(classificationRead).doesNotContain("FOR UPDATE");
-        String groupIdCurrentRead = statements.stream()
-                .filter(sql -> sql.startsWith("SELECT GROUP_JID AS GROUPJID"))
+        String lockedCurrentRead = statements.stream()
+                .filter(sql -> sql.contains("FROM WA_GROUP G")
+                        && sql.contains("WA_ACCOUNT_GROUP_BINDING")
+                        && sql.contains("FOR UPDATE"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(groupIdCurrentRead)
-                .contains("ORDER BY GROUP_JID ASC FOR UPDATE");
+        assertThat(lockedCurrentRead)
+                .contains("ORDER BY G.GROUP_JID ASC FOR UPDATE");
         int firstBindingDml = firstIndexContaining(statements, "wa_account_group_binding", "INSERT");
         int lastParticipantDml = lastDmlIndexContaining(statements, "wa_group_participant");
         assertThat(lastParticipantDml).isGreaterThanOrEqualTo(0);
@@ -428,6 +431,86 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 .containsEntry("membership_active_since_at", null)
                 .containsEntry("first_post_control_observed_at", null)
                 .containsEntry("last_observed_at", 2_000L);
+    }
+
+    @Test
+    void preciseSelfAddRepairsMissingMembershipActiveSinceWithoutOverwritingItOnReplay()
+            throws Exception {
+        seedCapturedAccount(118L, "923300000118", List.of(groupJid(0)));
+        String joinedGroupJid = groupJid(18);
+        writeControlledParticipantObservation(
+                118L, joinedGroupJid, true, false,
+                2_000L, "wgp2-observation", "WGP2_OBSERVATION");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT b.membership_active_since_at
+                FROM wa_account_group_binding b
+                JOIN wa_group g ON g.id = b.group_id
+                WHERE b.account_id = 118 AND g.group_jid = ?
+                """, Long.class, joinedGroupJid)).isNull();
+
+        writeSelfMembership(
+                118L, joinedGroupJid, AccountGroupMembershipStatus.IN_GROUP,
+                3_000L, "wgp2-add", "WGP2_ADD");
+        writeSelfMembership(
+                118L, joinedGroupJid, AccountGroupMembershipStatus.IN_GROUP,
+                4_000L, "wgp2-add-replay", "WGP2_ADD");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT b.membership_active_since_at
+                FROM wa_account_group_binding b
+                JOIN wa_group g ON g.id = b.group_id
+                WHERE b.account_id = 118 AND g.group_jid = ?
+                """, Long.class, joinedGroupJid)).isEqualTo(3_000L);
+    }
+
+    @Test
+    void delayedPreciseAddRepairsActiveSinceWithoutReplacingNewerInGroupObservation()
+            throws Exception {
+        seedCapturedAccount(119L, "923300000119", List.of(groupJid(0)));
+        String joinedGroupJid = groupJid(19);
+        writeControlledParticipantObservation(
+                119L, joinedGroupJid, true, true,
+                4_000L, "wgp2-promote", "WGP2_PROMOTE");
+
+        writeControlledParticipantObservation(
+                119L, joinedGroupJid, true, false,
+                3_000L, "delayed-wgp2-add", "WGP2_ADD");
+
+        assertThat(jdbc.queryForMap("""
+                SELECT p.presence_source, p.presence_observed_at,
+                       b.membership_active_since_at
+                FROM wa_account_group_binding b
+                JOIN wa_group g ON g.id = b.group_id
+                JOIN wa_group_participant p ON p.id = b.participant_id
+                WHERE b.account_id = 119 AND g.group_jid = ?
+                """, joinedGroupJid))
+                .containsEntry("presence_source", "WGP2_PROMOTE")
+                .containsEntry("presence_observed_at", 4_000L)
+                .containsEntry("membership_active_since_at", 3_000L);
+    }
+
+    @Test
+    void acceptedExitStartsANewMembershipActiveSinceCycleOnNextAdd() throws Exception {
+        seedCapturedAccount(120L, "923300000120", List.of(groupJid(0)));
+        String joinedGroupJid = groupJid(20);
+
+        writeControlledParticipantObservation(
+                120L, joinedGroupJid, true, false,
+                1_000L, "first-add", "WGP2_ADD");
+        writeControlledParticipantObservation(
+                120L, joinedGroupJid, false, false,
+                2_000L, "remove", "WGP2_REMOVE");
+        writeControlledParticipantObservation(
+                120L, joinedGroupJid, true, false,
+                3_000L, "second-add", "WGP2_ADD");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT b.membership_active_since_at
+                FROM wa_account_group_binding b
+                JOIN wa_group g ON g.id = b.group_id
+                WHERE b.account_id = 120 AND g.group_jid = ?
+                """, Long.class, joinedGroupJid)).isEqualTo(3_000L);
     }
 
     @Test

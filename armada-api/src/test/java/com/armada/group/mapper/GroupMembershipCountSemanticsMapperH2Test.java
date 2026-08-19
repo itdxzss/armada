@@ -133,6 +133,22 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     }
 
     @Test
+    void dynamicRoundAdmitsNewGroupAfterPreciseMembershipTimeIsRecorded() throws SQLException {
+        execute("UPDATE wa_account_group_binding "
+                + "SET membership_active_since_at = NULL WHERE id = 101");
+
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+                .isEmpty();
+
+        execute("UPDATE wa_account_group_binding "
+                + "SET membership_active_since_at = 200 WHERE id = 101");
+
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+    }
+
+    @Test
     void ordinaryAttemptRemainsCoverageAfterAcceptedOutboxLaterFails() throws SQLException {
         execute("""
                 INSERT INTO marketing_task_send_attempt

@@ -128,6 +128,6 @@ class GroupClassificationServiceImplTest {
     private static Existing existing(String jid, int baseline, Long postControlAt) {
         return new Existing(
                 jid, 1L, 2L, 1, "GROUP_SNAPSHOT", 1_500L,
-                3L, baseline, postControlAt, null);
+                3L, baseline, postControlAt, null, null);
     }
 }

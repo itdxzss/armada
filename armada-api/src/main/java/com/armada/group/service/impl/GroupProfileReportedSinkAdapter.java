@@ -6,7 +6,9 @@ import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedSink;
 import com.armada.platform.protocol.exception.ProtocolException;
@@ -46,6 +48,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupBatchTaskItemMapper batchItemMapper;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupCreatorCompatibilityWriter creatorWriter;
+    private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
@@ -53,13 +56,15 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             GroupMetadataSyncTaskMapper taskMapper,
             GroupBatchTaskItemMapper batchItemMapper,
             GroupLinkRegistryService groupLinkRegistryService,
-            GroupCreatorCompatibilityWriter creatorWriter) {
+            GroupCreatorCompatibilityWriter creatorWriter,
+            GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
         this.batchItemMapper = batchItemMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.creatorWriter = creatorWriter;
+        this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     @Override
@@ -69,6 +74,7 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             Long groupLinkId = registerGroupLink(event);
             writeCreator(event, groupLinkId);
+            queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
             snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
@@ -121,6 +127,31 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
         } catch (RuntimeException e) {
             log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={} reason={}",
+                    event.eventId(), event.groupJid(), e.getMessage());
+        }
+    }
+
+    /**
+     * 入队邀请码抓取，不在本线程取。
+     *
+     * <p>邀请码要向 WhatsApp 发一次请求，同步等会把 Kafka 消费线程卡在网络往返上——
+     * 一个 21 人群会产生 21 条建档事件，逐条同步取会把后面所有群的建档一起堵住。
+     * 这里只写一行任务（毫秒级），由既有的群快照调度器带并发控制地慢慢取。</p>
+     *
+     * <p>任务表按 (tenant_id, group_link_id) 唯一，同群的 21 次入队天然合并成一条，
+     * 不必在这里另做去重。</p>
+     *
+     * <p>入队失败只告警：邀请码是补充事实，不该让整条资料事件重投。</p>
+     */
+    private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+        if (groupLinkId == null) {
+            return;
+        }
+        try {
+            metadataSyncTaskService.enqueue(
+                    groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, event.occurredAt());
+        } catch (RuntimeException e) {
+            log.warn("协议群资料上报入队邀请码抓取失败,其余事实照常落库 eventId={} groupJid={} reason={}",
                     event.eventId(), event.groupJid(), e.getMessage());
         }
     }

@@ -166,6 +166,18 @@
     ORDER BY id ASC
   </update>
 
+  <!--
+    建群时间只填一次：它建群时定死、此后不变，重复上报不该反复改写。
+    用 wa_created_at IS NULL 兜住并发重复事件，天然幂等。
+  -->
+  <update id="fillGroupCreatedAt">
+    UPDATE wa_group_profile
+       SET wa_created_at = #{waCreatedAt},
+           updated_at = #{now}
+     WHERE group_id = #{groupId}
+       AND wa_created_at IS NULL
+  </update>
+
   <insert id="upsertProfiles">
     INSERT INTO wa_group_profile (
       group_id, subject, description, member_count, checked_member_count,

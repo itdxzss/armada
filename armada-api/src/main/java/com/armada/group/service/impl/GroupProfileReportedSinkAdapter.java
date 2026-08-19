@@ -65,6 +65,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         TenantContext.set(event.tenantId());
         try {
             registerGroupLink(event);
+            // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
+            snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
             applyProfileFields(event);
             applyMembers(event);
             if (event.commandId() != null && !event.commandId().isBlank()) {

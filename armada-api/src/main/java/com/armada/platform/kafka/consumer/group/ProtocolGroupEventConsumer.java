@@ -552,6 +552,10 @@ public class ProtocolGroupEventConsumer {
                 membersComplete,
                 requiredText(data, "source", "协议群资料上报事件缺少 data.source"),
                 occurredAt,
+                // 建群时间与创建者不进 fieldMask：它们建群时定死、此后不变，
+                // 与可变的群资料字段不是一个生命周期。
+                positiveLong(data, "groupCreatedAt"),
+                text(data, "creatorPhone"),
                 text(envelope, "workerId"),
                 text(data, "commandId"));
         log.info("协议群资料上报事件收到 eventId={} tenantId={} accountId={} backend={} "
@@ -1097,6 +1101,17 @@ public class ProtocolGroupEventConsumer {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群组事件缺少或非法字段: " + fieldName);
         }
         return value;
+    }
+
+    /**
+     * 读取可选的正数时间字段。
+     *
+     * <p>缺失、非数字或非正数一律按未观察返回 null，不抛错：建群时间是锦上添花的展示字段，
+     * 不该让整条资料事件因为它进不了库。</p>
+     */
+    private static Long positiveLong(JsonNode node, String fieldName) {
+        Long value = longValue(node, fieldName);
+        return value == null || value <= 0 ? null : value;
     }
 
     private static Boolean booleanValue(JsonNode node, String fieldName) {

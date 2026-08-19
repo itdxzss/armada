@@ -19,6 +19,18 @@ public interface AccountGroupCurrentSnapshotMapper {
 
     Context selectContext(@Param("accountId") Long accountId);
 
+    /**
+     * 写入建群时间，只在当前为空时填充。
+     *
+     * @param groupId       群主键
+     * @param waCreatedAt   WhatsApp 建群时间(epoch 毫秒)
+     * @param now           当前时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int fillGroupCreatedAt(@Param("groupId") Long groupId,
+                           @Param("waCreatedAt") Long waCreatedAt,
+                           @Param("now") long now);
+
     List<Existing> selectExisting(
             @Param("accountId") Long accountId,
             @Param("pnJid") String pnJid,

@@ -218,6 +218,28 @@ class GroupProfileReportedSinkAdapterTest {
 
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete, List<ProtocolGroupProfileReportedEvent.Member> members) {
+        return event(membersComplete, members, null);
+    }
+
+    @Test
+    void creationTimeIsPersistedSoTheListCanShowIt() {
+        adapter.handleProfileReported(event(true, List.of(), 1_787_096_047_000L));
+
+        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", 1_787_096_047_000L);
+    }
+
+    @Test
+    void missingCreationTimeIsPassedThroughAsUnobserved() {
+        // 未观察写 null 而不是 0：0 会被当成 1970 年建群。
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", null);
+    }
+
+    private static ProtocolGroupProfileReportedEvent event(
+            boolean membersComplete,
+            List<ProtocolGroupProfileReportedEvent.Member> members,
+            Long groupCreatedAt) {
         return new ProtocolGroupProfileReportedEvent(
                 "acc-100:group.profile_reported:1",
                 1L,
@@ -232,6 +254,8 @@ class GroupProfileReportedSinkAdapterTest {
                 membersComplete,
                 "online_full_metadata",
                 2_000L,
+                groupCreatedAt,
+                null,
                 "worker-1",
                 null);
     }

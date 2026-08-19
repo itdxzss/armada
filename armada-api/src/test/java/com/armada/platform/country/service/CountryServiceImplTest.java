@@ -213,10 +213,12 @@ class CountryServiceImplTest {
         Map<String, CountryReferenceVO> result = service.resolveActiveCountriesByPhoneNumbers(
                 List.of(
                         "5214438673076@s.whatsapp.net",
+                        "5217541087825",
                         "+524438673076"));
 
         assertThat(result).containsOnlyKeys(
                 "5214438673076@s.whatsapp.net",
+                "5217541087825",
                 "+524438673076");
         assertThat(result.values())
                 .allSatisfy(country -> {

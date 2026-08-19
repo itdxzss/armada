@@ -40,6 +40,8 @@ import com.armada.group.model.vo.GroupLinkVoRow;
 import com.armada.group.service.impl.GroupLinkServiceImpl;
 import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.group.service.impl.GroupCurrentInvitePersistence;
+import com.armada.platform.country.model.vo.CountryReferenceVO;
+import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.result.GroupPreviewResult;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.port.GroupProfilePort;
@@ -87,6 +89,9 @@ class GroupLinkServiceImplTest {
     private GroupConverter converter;
 
     @Mock
+    private CountryService countryService;
+
+    @Mock
     private AccountMapper accountMapper;
 
     @Mock
@@ -108,7 +113,7 @@ class GroupLinkServiceImplTest {
         TenantContext.set(TENANT_ID);
         service = new GroupLinkServiceImpl(
                 groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, labelMapper,
-                converter, accountMapper, groupPreviewPort, groupProfilePort,
+                converter, countryService, accountMapper, groupPreviewPort, groupProfilePort,
                 currentLocalPersistence, currentInvitePersistence);
     }
 
@@ -178,6 +183,42 @@ class GroupLinkServiceImplTest {
         verify(groupListCurrentMapper).selectPage(TENANT_ID, query);
         verifyNoMoreInteractions(groupLinkMapper);
         verify(converter).toGroupLinkVOList(List.of(row));
+    }
+
+    @Test
+    void listByLabel_enrichesMissingCreatorCountryFromPagePhonesInOneBatch() {
+        GroupLinkQuery query = new GroupLinkQuery();
+        GroupLinkVoRow mexico = new GroupLinkVoRow();
+        mexico.setId(11L);
+        mexico.setOwnerPhone("5217541087825");
+        GroupLinkVoRow india = new GroupLinkVoRow();
+        india.setId(12L);
+        india.setOwnerPhone("919875053006");
+        india.setCreatorCountryIso2("IN");
+        india.setCreatorCountryName("印度");
+        india.setCreatorCountryFlag("🇮🇳");
+        india.setCreatorContinentCode("ASIA");
+        List<GroupLinkVoRow> pageRows = List.of(mexico, india);
+        CountryReferenceVO mexicoCountry = new CountryReferenceVO(
+                484L, "MX", "墨西哥", "+52", "🇲🇽", "NORTH_AMERICA");
+        when(groupListCurrentMapper.count(TENANT_ID, query)).thenReturn(2L);
+        when(groupListCurrentMapper.selectPage(TENANT_ID, query)).thenReturn(pageRows);
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("5217541087825")))
+                .thenReturn(Map.of("5217541087825", mexicoCountry));
+        when(converter.toGroupLinkVOList(pageRows)).thenReturn(List.of());
+
+        service.listByLabel(query);
+
+        assertThat(mexico.getCreatorCountryIso2()).isEqualTo("MX");
+        assertThat(mexico.getCreatorCountryName()).isEqualTo("墨西哥");
+        assertThat(mexico.getCreatorCountryFlag()).isEqualTo("🇲🇽");
+        assertThat(mexico.getCreatorContinentCode()).isEqualTo("NORTH_AMERICA");
+        assertThat(india.getCreatorCountryIso2()).isEqualTo("IN");
+        assertThat(india.getCreatorCountryName()).isEqualTo("印度");
+        assertThat(india.getCreatorCountryFlag()).isEqualTo("🇮🇳");
+        assertThat(india.getCreatorContinentCode()).isEqualTo("ASIA");
+        verify(countryService).resolveActiveCountriesByPhoneNumbers(List.of("5217541087825"));
+        verify(converter).toGroupLinkVOList(pageRows);
     }
 
     @Test

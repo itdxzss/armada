@@ -106,7 +106,9 @@ class GroupListCurrentMapperSqlShapeTest {
                     .contains("current_profile.member_count")
                     .contains("input_invite.checked_member_count")
                     .contains("legacy_preview.creator_country_iso2 = ?")
-                    .contains("legacy_preview.creator_continent_code = ?")
+                    .contains("LEFT JOIN country filter_country")
+                    .contains("COALESCE(legacy_preview.creator_continent_code, "
+                            + "filter_country.continent_code) = ?")
                     .contains("legacy_preview.owner_phone LIKE CONCAT('%', ?, '%')")
                     .contains("current_profile.health_status")
                     .contains("input_invite.health_status")
@@ -120,6 +122,8 @@ class GroupListCurrentMapperSqlShapeTest {
                 .contains("CAST(participant.phone AS CHAR)");
         assertThat(pageSql)
                 .contains("WITH page_ids AS")
+                .contains("COALESCE(legacy_preview.creator_continent_code, "
+                        + "country.continent_code) AS creatorContinentCode")
                 .contains("LIMIT ?, ?")
                 .contains("FROM page_groups page_group")
                 .contains("STRAIGHT_JOIN wa_group_participant participant")

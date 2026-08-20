@@ -146,14 +146,24 @@ class MarketingTaskWhatsAppMemberProviderTest {
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        List<MarketingTaskCountryEntryExportRow> countryEntries = new java.util.ArrayList<>();
         provider().streamFull(
-                request(phone -> null),
+                request(phone -> new CountryOptionVO(
+                        "IN", "IN", "印度", "India", "+91", "", false, "ASIA")),
                 new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+        provider().streamCountry(
+                request(phone -> new CountryOptionVO(
+                        "IN", "IN", "印度", "India", "+91", "", false, "ASIA")),
+                new MarketingTaskWhatsAppMemberProvider.CountryOutput(
+                        ignored -> { }, countryEntries::add));
 
         assertThat(groups).singleElement()
                 .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
-        assertThat(members).hasSize(2);
+        assertThat(members).singleElement()
+                .satisfies(row -> assertThat(row.getMemberPhone()).isEqualTo("919092192314"));
         assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
+        assertThat(countryEntries).singleElement()
+                .satisfies(row -> assertThat(row.getActualPhone()).isEqualTo("919092192314"));
     }
 
     @Test

@@ -309,15 +309,14 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         Set<WhatsappGroupDepartedMemberVO> distinctDepartures =
                 new LinkedHashSet<>(latestDepartures.values());
-        long currentMemberCount = snapshot.cached().members().stream()
+        List<WhatsappGroupMemberStateVO> deduplicatedMembers =
+                distinctMembers(snapshot.cached().members());
+        long currentMemberCount = deduplicatedMembers.stream()
                 .filter(WhatsappGroupMemberStateVO::inGroup)
-                .map(MarketingTaskWhatsAppMemberProvider::memberIdentity)
-                .filter(java.util.Objects::nonNull)
-                .distinct()
                 .count();
         snapshot.group().setGroupMemberCount(Math.toIntExact(currentMemberCount));
         rows.addGroup(snapshot.group());
-        for (WhatsappGroupMemberStateVO participant : snapshot.cached().members()) {
+        for (WhatsappGroupMemberStateVO participant : deduplicatedMembers) {
             WhatsappGroupJoinFactVO join = joinFor(
                     latestJoins, participant.phone(), participant.participantJid());
             WhatsappGroupDepartedMemberVO departure = departureFor(
@@ -581,6 +580,26 @@ public class MarketingTaskWhatsAppMemberProvider {
     private static String memberIdentity(WhatsappGroupMemberStateVO participant) {
         String phoneIdentity = identity(participant.phone());
         return phoneIdentity == null ? identity(participant.participantJid()) : phoneIdentity;
+    }
+
+    private static List<WhatsappGroupMemberStateVO> distinctMembers(
+            List<WhatsappGroupMemberStateVO> members) {
+        Map<String, WhatsappGroupMemberStateVO> distinct = new LinkedHashMap<>();
+        int unidentifiedIndex = 0;
+        for (WhatsappGroupMemberStateVO member : members) {
+            String memberIdentity = memberIdentity(member);
+            String key = memberIdentity == null
+                    ? "unidentified:" + unidentifiedIndex++
+                    : memberIdentity;
+            distinct.merge(key, member, MarketingTaskWhatsAppMemberProvider::preferCurrentMember);
+        }
+        return new ArrayList<>(distinct.values());
+    }
+
+    private static WhatsappGroupMemberStateVO preferCurrentMember(
+            WhatsappGroupMemberStateVO current,
+            WhatsappGroupMemberStateVO candidate) {
+        return !current.inGroup() && candidate.inGroup() ? candidate : current;
     }
 
     private static void addIdentity(Set<String> identities, String value) {

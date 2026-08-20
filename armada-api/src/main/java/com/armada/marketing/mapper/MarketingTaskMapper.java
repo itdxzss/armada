@@ -348,11 +348,13 @@ public interface MarketingTaskMapper {
      * 查询账号动态目标在发送时间边界内的当前群。
      *
      * <p>第 0 轮已结束的群本身就是任务期内新增群的持久化事实；即使精确入群时间缺失，
-     * 后续普通轮次也必须继续纳入。仍处于 WAITING 的群继续排除，避免同一发送点双发。</p>
+     * 后续普通轮次也必须继续纳入。只有存在延迟首发记录的同一群才应用首发时间边界：WAITING
+     * 时排除，首发处理时间未早于本轮计划点时从下一轮开始纳入；其他普通群保持原查询口径。</p>
      */
     List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("targetId") Long targetId,
                                                                 @Param("accountId") Long accountId,
-                                                                @Param("accountGroupSendAt") Long accountGroupSendAt);
+                                                                @Param("accountGroupSendAt") Long accountGroupSendAt,
+                                                                @Param("ordinaryRoundDueAt") Long ordinaryRoundDueAt);
 
     /** 查询固定群组目标在发送前是否仍是账号当前可发送群。 */
     MarketingTargetCandidateRow selectCurrentTargetGroup(@Param("accountId") Long accountId,

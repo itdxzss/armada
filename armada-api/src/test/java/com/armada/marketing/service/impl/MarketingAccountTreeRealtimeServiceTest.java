@@ -120,7 +120,7 @@ class MarketingAccountTreeRealtimeServiceTest {
         MarketingAccountTreeAccountRow row = accountRow(3L, "923300000003", 2);
         row.setGroupCount(1);
         when(taskMapper.selectAccountTreeAccount(3L)).thenReturn(row);
-        when(taskMapper.selectDynamicTargetGroups(null, 3L, null))
+        when(taskMapper.selectDynamicTargetGroups(null, 3L, null, null))
                 .thenReturn(List.of(groupRow(31L, "120363031@g.us", "新群31")));
 
         var account = service.accountGroups(3L);

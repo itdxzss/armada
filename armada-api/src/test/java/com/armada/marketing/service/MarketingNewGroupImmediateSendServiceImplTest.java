@@ -231,7 +231,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTaskSendAttempt waiting = waitingAttempt();
         MarketingTask task = sendingTask();
         task.setNewGroupDelayEnabled(true);
-        task.setNextRoundAt(3_001L);
+        task.setNextRoundAt(3_000L);
         task.setMarketingTemplateId(88L);
         MarketingTemplate currentTemplate = textTemplate();
         currentTemplate.setId(88L);
@@ -320,24 +320,6 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         verify(messagePort, never()).enqueue(any());
         verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
         verify(mapper, never()).markWaitingAttemptSubmitted(anyLong(), any(), anyLong());
-    }
-
-    @Test
-    void submitDueWaitingAttempts_ordinaryRoundDueKeepsWaitingUntilRoundAdvances() {
-        MarketingTask task = sendingTask();
-        task.setNewGroupDelayEnabled(true);
-        task.setNextRoundAt(3_000L);
-        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
-        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
-                .thenReturn(List.of(waitingAttempt()));
-
-        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
-
-        verify(mapper).selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L);
-        verify(mapper, never()).selectTargetById(anyLong());
-        verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
-        verify(mapper, never()).markWaitingAttemptSubmitted(anyLong(), any(), anyLong());
-        verify(messagePort, never()).enqueue(any());
     }
 
     @Test

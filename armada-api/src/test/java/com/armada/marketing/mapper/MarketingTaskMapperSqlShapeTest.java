@@ -626,7 +626,9 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("first_send.target_id = #{targetId}")
                 .contains("first_send.round_no = 0")
                 .contains("first_send.group_jid) = TRIM(current_group.group_jid)")
-                .contains("waiting.status = 4");
+                .contains("delayed_send.scheduled_send_at &gt; delayed_send.detected_at")
+                .contains("delayed_send.status = 4")
+                .contains("delayed_send.attempted_at &gt;= #{ordinaryRoundDueAt}");
     }
 
     private static String selectBlock(String xml, String id) {

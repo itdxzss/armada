@@ -106,7 +106,7 @@ public class MarketingAccountTreeRealtimeService {
             if (!selectable(account, status(account), owner)) {
                 return toAccountVO(account, owner, false, List.of());
             }
-            List<MarketingTreeGroupVO> groups = taskMapper.selectDynamicTargetGroups(null, accountId, null)
+            List<MarketingTreeGroupVO> groups = taskMapper.selectDynamicTargetGroups(null, accountId, null, null)
                     .stream()
                     .map(MarketingAccountTreeRealtimeService::toGroupVO)
                     .toList();

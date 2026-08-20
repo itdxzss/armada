@@ -100,7 +100,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         assertThat(current).isNotNull();
         assertThat(current.getGroupJid()).isEqualTo("in-group@g.us");
         assertThat(current.getMembershipStatus()).isEqualTo(1);
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, 100L))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, 100L, null))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly("in-group@g.us");
 
@@ -112,7 +112,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 """);
 
         assertThat(marketingTaskMapper.selectCurrentTargetGroup(501L, 2001L)).isNull();
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, null))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(null, 501L, null, null))
                 .singleElement()
                 .satisfies(row -> assertThat(row.getMembershipStatus()).isEqualTo(3));
     }
@@ -121,14 +121,37 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     void dynamicRoundExcludesGroupWhileNewGroupFirstSendIsWaiting() throws SQLException {
         execute("""
                 INSERT INTO marketing_task_send_attempt
-                  (id, tenant_id, target_id, group_jid, round_no, status)
-                VALUES (9001, 7, 701, 'in-group@g.us', 0, 4)
+                  (id, tenant_id, target_id, group_jid, round_no, status, detected_at, scheduled_send_at)
+                VALUES (9001, 7, 701, 'in-group@g.us', 0, 4, 1000, 1900)
                 """);
 
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null)).isEmpty();
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 1_500L)).isEmpty();
 
-        execute("UPDATE marketing_task_send_attempt SET status = 0 WHERE id = 9001");
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null))
+        execute("UPDATE marketing_task_send_attempt SET status = 0, attempted_at = 2000 WHERE id = 9001");
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 1_500L)).isEmpty();
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 2_000L)).isEmpty();
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 2_500L))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+    }
+
+    @Test
+    void dynamicRoundKeepsHistoricalGroupWhenNoDelayedFirstSendExists() {
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 1_500L))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+    }
+
+    @Test
+    void dynamicRoundKeepsImmediateFirstSendWhenDelayIsDisabled() throws SQLException {
+        execute("""
+                INSERT INTO marketing_task_send_attempt
+                  (id, tenant_id, target_id, group_jid, round_no, status,
+                   detected_at, scheduled_send_at, attempted_at)
+                VALUES (9004, 7, 701, 'in-group@g.us', 0, 0, 2000, 2000, 2000)
+                """);
+
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, null, 1_500L))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly("in-group@g.us");
     }
@@ -138,13 +161,13 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         execute("UPDATE wa_account_group_binding "
                 + "SET membership_active_since_at = NULL WHERE id = 101");
 
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L, null))
                 .isEmpty();
 
         execute("UPDATE wa_account_group_binding "
                 + "SET membership_active_since_at = 200 WHERE id = 101");
 
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L, 1_500L))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly("in-group@g.us");
     }
@@ -155,11 +178,12 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 + "SET membership_active_since_at = NULL WHERE id = 101");
         execute("""
                 INSERT INTO marketing_task_send_attempt
-                  (id, tenant_id, target_id, group_jid, round_no, status)
-                VALUES (9003, 7, 701, 'in-group@g.us', 0, 2)
+                  (id, tenant_id, target_id, group_jid, round_no, status,
+                   detected_at, attempted_at, scheduled_send_at)
+                VALUES (9003, 7, 701, 'in-group@g.us', 0, 2, 1000, 2000, 1900)
                 """);
 
-        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L, 2_500L))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly("in-group@g.us");
     }
@@ -374,7 +398,8 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 CREATE TABLE marketing_task_send_attempt (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, target_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) NOT NULL, round_no BIGINT NOT NULL, status TINYINT NOT NULL,
-                  outbox_accepted_at BIGINT
+                  outbox_accepted_at BIGINT, detected_at BIGINT,
+                  attempted_at BIGINT, scheduled_send_at BIGINT
                 )
                 """, """
                 CREATE TABLE wa_account_group_binding (

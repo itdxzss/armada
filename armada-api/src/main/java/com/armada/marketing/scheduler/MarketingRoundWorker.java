@@ -313,7 +313,7 @@ public class MarketingRoundWorker {
                                                  MarketingTaskTarget target,
                                                  List<MarketingResolvedTarget> sendTargets) {
         List<MarketingTargetCandidateRow> groups = taskMapper.selectDynamicTargetGroups(
-                target.getId(), target.getAccountId(), task.getAccountGroupSendAt());
+                target.getId(), target.getAccountId(), task.getAccountGroupSendAt(), task.getNextRoundAt());
         if (groups.isEmpty()) {
             log.debug("营销账号动态目标本轮无可发送群 tenantId={} taskId={} targetId={} accountId={}",
                     target.getTenantId(), target.getMarketingTaskId(), target.getId(), target.getAccountId());

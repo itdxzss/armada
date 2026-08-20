@@ -115,7 +115,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         insertMembership(accountId, baselineGroupId, baselineJid);
         insertMembership(accountId, joinedAfterImportGroupId, joinedAfterImportJid);
 
-        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(null, accountId, null);
+        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(null, accountId, null, null);
 
         assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly(baselineJid, joinedAfterImportJid);
@@ -134,7 +134,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         insertMembership(accountId, oldGroupId, oldJid, cutoff - 1_000L);
         insertMembership(accountId, newGroupId, newJid, cutoff + 1_000L);
 
-        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(null, accountId, cutoff);
+        List<MarketingTargetCandidateRow> rows = mapper.selectDynamicTargetGroups(null, accountId, cutoff, null);
 
         assertThat(rows).extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly(newJid);
@@ -164,7 +164,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
                 WHERE group_link_id = ?
                 """, now, groupId);
 
-        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null))
+        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null, null))
                 .extracting(MarketingTargetCandidateRow::getGroupJid)
                 .containsExactly(groupJid);
 
@@ -180,7 +180,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
                 WHERE binding.account_id = ? AND handle.id = ?
                 """, accountId, groupId);
 
-        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null)).isEmpty();
+        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null, null)).isEmpty();
     }
 
     @Test
@@ -192,7 +192,7 @@ class MarketingRoundMapperDbTest extends DbTestBase {
         insertMembership(accountId, groupId, groupJid);
         jdbc.update("UPDATE account SET protocol_account_id = NULL WHERE id = ?", accountId);
 
-        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null)).isEmpty();
+        assertThat(mapper.selectDynamicTargetGroups(null, accountId, null, null)).isEmpty();
     }
 
     @Test

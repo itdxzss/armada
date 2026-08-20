@@ -478,10 +478,11 @@ class MarketingRoundWorkerTest {
         properties.setBacklogMultiplier(2);
 
         MarketingTask task = task();
+        task.setNextRoundAt(1_500L);
         MarketingTaskTarget target = dynamicTarget();
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
-        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L)).thenReturn(List.of(
+        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L, 1_500L)).thenReturn(List.of(
                 dynamicGroup(8101L, "12036308101@g.us", "新增群A"),
                 dynamicGroup(8102L, "12036308102@g.us", "新增群B")));
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
@@ -528,9 +529,10 @@ class MarketingRoundWorkerTest {
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
 
         MarketingTask task = task();
+        task.setNextRoundAt(900L);
         when(taskMapper.selectTaskById(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(dynamicTarget()));
-        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L)).thenReturn(List.of());
+        when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L, 900L)).thenReturn(List.of());
 
         MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
         worker.runRound(1L, 42L);

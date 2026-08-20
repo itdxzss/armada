@@ -1347,11 +1347,17 @@
           <if test="targetId != null">
               AND NOT EXISTS (
                   SELECT 1
-                  FROM marketing_task_send_attempt waiting
-                  WHERE waiting.target_id = #{targetId}
-                    AND waiting.round_no = 0
-                    AND waiting.status = 4
-                    AND TRIM(waiting.group_jid) = TRIM(current_group.group_jid)
+                  FROM marketing_task_send_attempt delayed_send
+                  WHERE delayed_send.target_id = #{targetId}
+                    AND delayed_send.round_no = 0
+                    AND delayed_send.scheduled_send_at &gt; delayed_send.detected_at
+                    AND TRIM(delayed_send.group_jid) = TRIM(current_group.group_jid)
+                    AND (
+                        delayed_send.status = 4
+                        <if test="ordinaryRoundDueAt != null">
+                            OR delayed_send.attempted_at &gt;= #{ordinaryRoundDueAt}
+                        </if>
+                    )
               )
           </if>
         ORDER BY g.id ASC

@@ -309,12 +309,13 @@ public class MarketingTaskWhatsAppMemberProvider {
         }
         Set<WhatsappGroupDepartedMemberVO> distinctDepartures =
                 new LinkedHashSet<>(latestDepartures.values());
-        long departedOnlyCount = distinctDepartures.stream()
-                .filter(participant -> !containsIdentity(cachedIdentities, participant.participantJid()))
-                .filter(participant -> !containsIdentity(cachedIdentities, participant.phone()))
+        long currentMemberCount = snapshot.cached().members().stream()
+                .filter(WhatsappGroupMemberStateVO::inGroup)
+                .map(MarketingTaskWhatsAppMemberProvider::memberIdentity)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
                 .count();
-        snapshot.group().setGroupMemberCount(Math.toIntExact(
-                snapshot.cached().members().size() + departedOnlyCount));
+        snapshot.group().setGroupMemberCount(Math.toIntExact(currentMemberCount));
         rows.addGroup(snapshot.group());
         for (WhatsappGroupMemberStateVO participant : snapshot.cached().members()) {
             WhatsappGroupJoinFactVO join = joinFor(
@@ -575,6 +576,11 @@ public class MarketingTaskWhatsAppMemberProvider {
             return "phone:" + user;
         }
         return "jid:" + user + "@" + server;
+    }
+
+    private static String memberIdentity(WhatsappGroupMemberStateVO participant) {
+        String phoneIdentity = identity(participant.phone());
+        return phoneIdentity == null ? identity(participant.participantJid()) : phoneIdentity;
     }
 
     private static void addIdentity(Set<String> identities, String value) {

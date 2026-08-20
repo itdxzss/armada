@@ -96,12 +96,12 @@ class MarketingTaskWhatsAppMemberProviderTest {
 
         assertThat(groups).singleElement().satisfies(row -> {
             assertThat(row.getGroupName()).isEqualTo("WhatsApp真实群");
-            assertThat(row.getGroupMemberCount()).isEqualTo(3);
+            assertThat(row.getGroupMemberCount()).isEqualTo(2);
             assertThat(row.getSpeechPermission()).isEqualTo("仅管理员可发言（发送账号可发言）");
             assertThat(row.getJoinedPhoneCount()).isEqualTo(2);
         });
         assertThat(members).hasSize(3);
-        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(3));
+        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(2));
         assertThat(members).extracting(row -> row.getMemberPhone())
                 .containsExactlyInAnyOrder("15550000001", "551100000002", "521100000003");
         assertThat(members).filteredOn(row -> "否".equals(row.getInGroup()))
@@ -120,7 +120,40 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(countryEntries).allSatisfy(
                 row -> assertThat(row.getJoinedPhoneCount()).isEqualTo(2));
         assertThat(countryGroups).singleElement()
-                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(3));
+                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(2));
+    }
+
+    @Test
+    void collectDeduplicatesCurrentPnAndLidRowsByTrustedPhone() {
+        MarketingTaskGroupExportRow group = group();
+        WhatsappGroupMemberCacheSnapshotVO cache = new WhatsappGroupMemberCacheSnapshotVO(
+                "120363-test@g.us", "群", false, 1_000L, null,
+                List.of(
+                        new WhatsappGroupMemberStateVO(
+                                "919092192314@s.whatsapp.net", "919092192314",
+                                false, false, "member", true, "WGP2_ADD", 900L),
+                        new WhatsappGroupMemberStateVO(
+                                "198135464861889@lid", "919092192314",
+                                false, false, "member", true, "ADD_EVENT", 950L)));
+
+        when(mapper.selectGroupRowsList(7L, List.of(179L), 1_000L)).thenReturn(List.of(group));
+        when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(Map.of("120363-test@g.us", cache));
+        when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+        when(joinFactService.findByGroupJids(7L, List.of("120363-test@g.us")))
+                .thenReturn(List.of());
+
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
+        provider().streamFull(
+                request(phone -> null),
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
+
+        assertThat(groups).singleElement()
+                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
+        assertThat(members).hasSize(2);
+        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
     }
 
     @Test
@@ -364,8 +397,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
                 new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
 
         assertThat(groups).singleElement()
-                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(5));
-        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(5));
+                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
+        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(1));
         assertThat(members).extracting(row -> row.getMemberPhone())
                 .containsExactlyInAnyOrder(
                         "current@s.whatsapp.net", "departed@s.whatsapp.net",

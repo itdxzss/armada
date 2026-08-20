@@ -2,6 +2,7 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.entity.AccountGroupMembership;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMessageSendPermissionRow;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.model.vo.HistoricalGroupAccountPhoneRow;
@@ -177,6 +178,15 @@ public interface AccountGroupMembershipMapper {
      * @return 当前状态行
      */
     List<AccountGroupMembershipStatusRow> selectCurrentStatuses(
+            @Param("lookups") List<AccountGroupMembershipLookup> lookups);
+
+    /**
+     * 批量查询当前租户内账号群发言权限。
+     *
+     * @param lookups 账号 ID 与群 JID 复合键
+     * @return 当前发言权限行；权限或账号角色事实不足时允许值为空
+     */
+    List<AccountGroupMessageSendPermissionRow> selectCurrentMessageSendPermissions(
             @Param("lookups") List<AccountGroupMembershipLookup> lookups);
 
     /**

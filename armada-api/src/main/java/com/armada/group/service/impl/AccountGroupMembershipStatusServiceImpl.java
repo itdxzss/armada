@@ -6,6 +6,7 @@ import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMessageSendPermissionSnapshot;
 import com.armada.group.model.vo.AccountGroupMembershipStatusSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipStatusService;
@@ -98,6 +99,28 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
                         row.groupJid(),
                         AccountGroupMembershipStatus.fromCode(row.membershipStatus()),
                         row.statusUpdatedAt()))
+                .toList();
+    }
+
+    /**
+     * 批量查询当前租户内指定账号与群的当前发言权限。
+     *
+     * <p>只有群明确为管理员发言且账号明确为普通成员时返回 {@code false}；权限或角色事实不足时
+     * 保留空值，由发送方按不误拦截策略处理。</p>
+     *
+     * @param lookups 账号 ID 与群 JID 复合键，可空
+     * @return 已存在关系的发言权限快照；没有有效输入时返回空列表
+     */
+    @Override
+    public List<AccountGroupMessageSendPermissionSnapshot> findCurrentMessageSendPermissions(
+            List<AccountGroupMembershipLookup> lookups) {
+        List<AccountGroupMembershipLookup> normalized = normalizeLookups(lookups);
+        if (normalized.isEmpty()) {
+            return List.of();
+        }
+        return membershipMapper.selectCurrentMessageSendPermissions(normalized).stream()
+                .map(row -> new AccountGroupMessageSendPermissionSnapshot(
+                        row.accountId(), row.groupJid(), row.messageSendAllowed()))
                 .toList();
     }
 

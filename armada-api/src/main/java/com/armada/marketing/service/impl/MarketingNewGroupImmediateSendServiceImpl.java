@@ -1,5 +1,8 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMessageSendPermissionSnapshot;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.model.entity.MarketingTask;
@@ -63,6 +66,8 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
     private static final String REASON_ACCOUNT_NOT_OWNED = "ACCOUNT_NOT_OWNED";
     private static final String REASON_ACCOUNT_NOT_ELIGIBLE = "ACCOUNT_NOT_ELIGIBLE";
     private static final String REASON_GROUP_NOT_SENDABLE = "GROUP_NOT_SENDABLE";
+    private static final String REASON_NO_PERMISSION = "NO_PERMISSION";
+    private static final String MESSAGE_NO_PERMISSION = "当前账号没有发言权限";
 
     /** 营销任务、目标和发送尝试数据访问。 */
     private final MarketingTaskMapper taskMapper;
@@ -79,6 +84,9 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
     /** 普通营销账号占用关系，用于到期时重新确认任务仍持有账号。 */
     private final MarketingAccountOccupancyService occupancyService;
 
+    /** 当前账号群关系和发言权限快照查询入口。 */
+    private final AccountGroupMembershipStatusService membershipStatusService;
+
     /**
      * 创建新群即时营销服务。
      *
@@ -87,17 +95,20 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
      * @param messageSendPort 统一消息发送端口
      * @param schedulerProperties 普通营销现有 outbox 分批配置
      * @param occupancyService 普通营销账号占用服务
+     * @param membershipStatusService 当前账号群关系和发言权限快照服务
      */
     public MarketingNewGroupImmediateSendServiceImpl(MarketingTaskMapper taskMapper,
                                                      MarketingMessageCommandFactory messageFactory,
                                                      MessageSendPort messageSendPort,
                                                      MarketingRoundSchedulerProperties schedulerProperties,
-                                                     MarketingAccountOccupancyService occupancyService) {
+                                                     MarketingAccountOccupancyService occupancyService,
+                                                     AccountGroupMembershipStatusService membershipStatusService) {
         this.taskMapper = taskMapper;
         this.messageFactory = messageFactory;
         this.messageSendPort = messageSendPort;
         this.schedulerProperties = schedulerProperties;
         this.occupancyService = occupancyService;
+        this.membershipStatusService = membershipStatusService;
     }
 
     /**
@@ -271,6 +282,10 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         if (sendable.attempts().isEmpty()) {
             return;
         }
+        sendable = excludeKnownNoPermission(task, target, sendable, submittedAt);
+        if (sendable.attempts().isEmpty()) {
+            return;
+        }
         MarketingMessageComposer.ComposedMessage message;
         try {
             message = messageFactory.composeTaskMessage(task);
@@ -282,6 +297,49 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             attempt.setCommandId(messageFactory.newCommandId());
         }
         enqueueClaimed(task, sendable.targets(), sendable.attempts(), message, submittedAt);
+    }
+
+    /**
+     * 仅在数据库明确确认群为管理员发言且当前账号是普通成员时，收口本次延迟首发为无权限。
+     *
+     * <p>群权限或账号角色事实缺失时继续走原协议发送链路，避免事件延迟误拦截；该失败只终结第 0 轮
+     * 延迟记录，不改变目标资格，后续普通轮次仍会重新发送。</p>
+     */
+    private ClaimedImmediateTargets excludeKnownNoPermission(
+            MarketingTask task,
+            MarketingTaskTarget target,
+            ClaimedImmediateTargets candidates,
+            long resultAt) {
+        List<AccountGroupMembershipLookup> lookups = candidates.targets().stream()
+                .map(candidate -> new AccountGroupMembershipLookup(
+                        target.getAccountId(), normalizeGroupJid(candidate.groupJid())))
+                .distinct()
+                .toList();
+        Map<String, Boolean> permissions = new LinkedHashMap<>();
+        for (AccountGroupMessageSendPermissionSnapshot snapshot
+                : membershipStatusService.findCurrentMessageSendPermissions(lookups)) {
+            permissions.put(normalizeGroupJid(snapshot.groupJid()), snapshot.messageSendAllowed());
+        }
+        List<MarketingResolvedTarget> sendableTargets = new ArrayList<>();
+        List<MarketingTaskSendAttempt> sendableAttempts = new ArrayList<>();
+        int failed = 0;
+        for (int index = 0; index < candidates.attempts().size(); index++) {
+            MarketingResolvedTarget candidate = candidates.targets().get(index);
+            MarketingTaskSendAttempt attempt = candidates.attempts().get(index);
+            if (Boolean.FALSE.equals(permissions.get(normalizeGroupJid(candidate.groupJid())))) {
+                if (finalizeLocalFailure(
+                        attempt, REASON_NO_PERMISSION, MESSAGE_NO_PERMISSION, resultAt)) {
+                    failed++;
+                }
+                continue;
+            }
+            sendableTargets.add(candidate);
+            sendableAttempts.add(attempt);
+        }
+        if (failed > 0) {
+            taskMapper.incrementTaskSendCounters(task.getId(), 0, failed, resultAt);
+        }
+        return new ClaimedImmediateTargets(sendableTargets, sendableAttempts);
     }
 
     /**

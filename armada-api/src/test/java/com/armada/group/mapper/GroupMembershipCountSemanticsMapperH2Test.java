@@ -212,6 +212,25 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                     assertThat(row.statusUpdatedAt()).isEqualTo(100L);
                 });
 
+        assertThat(accountGroupMembershipMapper.selectCurrentMessageSendPermissions(lookups))
+                .singleElement()
+                .satisfies(row -> assertThat(row.messageSendAllowed()).isTrue());
+        execute("UPDATE wa_group_profile SET announce_only = 1 WHERE group_id = 1001");
+        execute("UPDATE wa_group_participant SET role = 1 WHERE id = 3001");
+        assertThat(accountGroupMembershipMapper.selectCurrentMessageSendPermissions(lookups))
+                .singleElement()
+                .satisfies(row -> assertThat(row.messageSendAllowed()).isFalse());
+
+        execute("UPDATE wa_group_participant SET role = 2 WHERE id = 3001");
+        assertThat(accountGroupMembershipMapper.selectCurrentMessageSendPermissions(lookups))
+                .singleElement()
+                .satisfies(row -> assertThat(row.messageSendAllowed()).isTrue());
+
+        execute("UPDATE wa_group_participant SET role = 0 WHERE id = 3001");
+        assertThat(accountGroupMembershipMapper.selectCurrentMessageSendPermissions(lookups))
+                .singleElement()
+                .satisfies(row -> assertThat(row.messageSendAllowed()).isNull());
+
         execute("""
                 UPDATE wa_group_participant
                 SET presence_status = 2, last_exit_type = 'LEFT',

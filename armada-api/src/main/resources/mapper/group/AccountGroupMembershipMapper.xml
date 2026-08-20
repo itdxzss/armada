@@ -398,6 +398,36 @@
       </foreach>
   </select>
 
+  <select id="selectCurrentMessageSendPermissions"
+          resultType="com.armada.group.model.vo.AccountGroupMessageSendPermissionRow">
+    SELECT binding.account_id AS accountId,
+           current_group.group_jid AS groupJid,
+           CASE
+             WHEN self_participant.presence_status &lt;&gt; 1 THEN NULL
+             WHEN current_profile.announce_only = 0 THEN TRUE
+             WHEN current_profile.announce_only = 1
+              AND self_participant.role IN (2, 3) THEN TRUE
+             WHEN current_profile.announce_only = 1
+              AND self_participant.role = 1 THEN FALSE
+             ELSE NULL
+           END AS messageSendAllowed
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+    LEFT JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = binding.tenant_id
+     AND current_profile.group_id = binding.group_id
+    WHERE (binding.account_id, current_group.group_jid) IN
+      <foreach collection="lookups" item="lookup" open="(" separator="," close=")">
+        (#{lookup.accountId}, #{lookup.groupJid})
+      </foreach>
+  </select>
+
   <sql id="groupExecutionAccountColumnsAndJoins">
     SELECT a.id AS accountId,
            a.protocol_id AS protocolId,

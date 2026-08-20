@@ -12,6 +12,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMessageSendPermissionSnapshot;
+import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -47,6 +50,8 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private final MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
     private final MessageSendPort messagePort = mock(MessageSendPort.class);
     private final MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
+    private final AccountGroupMembershipStatusService membershipStatusService =
+            mock(AccountGroupMembershipStatusService.class);
     private final MarketingMessageCommandFactory messageFactory = new MarketingMessageCommandFactory(
             templateMapper,
             fileMapper,
@@ -54,12 +59,14 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private final MarketingRoundSchedulerProperties schedulerProperties = schedulerProperties();
     private final MarketingNewGroupImmediateSendServiceImpl service =
             new MarketingNewGroupImmediateSendServiceImpl(
-                    mapper, messageFactory, messagePort, schedulerProperties, occupancyService);
+                    mapper, messageFactory, messagePort, schedulerProperties,
+                    occupancyService, membershipStatusService);
 
     @BeforeEach
     void setUp() {
         when(templateMapper.selectById(77L)).thenReturn(textTemplate());
         when(mapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
+        when(membershipStatusService.findCurrentMessageSendPermissions(any())).thenReturn(List.of());
     }
 
     @Test
@@ -271,6 +278,82 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         verify(templateMapper).selectById(88L);
         verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
         verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_knownAnnounceOnlyNonAdminRecordsNoPermissionForThisAttempt() {
+        MarketingTaskSendAttempt waiting = waitingAttempt();
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        MarketingTaskTarget target = dynamicTarget();
+        MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
+        owner.setAccountId(target.getAccountId());
+        owner.setMarketingTaskId(task.getId());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waiting));
+        when(mapper.selectTargetById(501L)).thenReturn(target);
+        when(occupancyService.loadActiveOwners(List.of(5_001L)))
+                .thenReturn(Map.of(5_001L, owner));
+        when(mapper.selectAccountTargetCandidate(eq(8L), eq(5_001L), any()))
+                .thenReturn(accountCandidate());
+        when(mapper.selectCurrentTargetGroup(5_001L, 301L)).thenReturn(groupCandidate());
+        when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))
+                .thenReturn(0);
+        when(membershipStatusService.findCurrentMessageSendPermissions(List.of(
+                new AccountGroupMembershipLookup(5_001L, "120363a@g.us"))))
+                .thenReturn(List.of(new AccountGroupMessageSendPermissionSnapshot(
+                        5_001L,
+                        "120363a@g.us",
+                        Boolean.FALSE)));
+        when(mapper.markWaitingAttemptFailed(
+                9_001L, "NO_PERMISSION", "当前账号没有发言权限", 3_000L)).thenReturn(1);
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        verify(mapper).markWaitingAttemptFailed(
+                9_001L, "NO_PERMISSION", "当前账号没有发言权限", 3_000L);
+        verify(mapper).markTargetFailedFromAttempt(
+                501L, 9_001L, "NO_PERMISSION", "当前账号没有发言权限", 3_000L);
+        verify(mapper).incrementTaskSendCounters(42L, 0, 1, 3_000L);
+        verify(messagePort, never()).enqueue(any());
+        verify(templateMapper, never()).selectById(anyLong());
+    }
+
+    @Test
+    void submitDueWaitingAttempts_allMembersAllowedStillUsesSharedOutboxSubmission() {
+        MarketingTaskSendAttempt waiting = waitingAttempt();
+        MarketingTask task = sendingTask();
+        task.setNewGroupDelayEnabled(true);
+        MarketingTaskTarget target = dynamicTarget();
+        MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
+        owner.setAccountId(target.getAccountId());
+        owner.setMarketingTaskId(task.getId());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        when(mapper.selectWaitingAttemptsForUpdate(1L, 42L, List.of(9_001L), 3_000L))
+                .thenReturn(List.of(waiting));
+        when(mapper.selectTargetById(501L)).thenReturn(target);
+        when(occupancyService.loadActiveOwners(List.of(5_001L)))
+                .thenReturn(Map.of(5_001L, owner));
+        when(mapper.selectAccountTargetCandidate(eq(8L), eq(5_001L), any()))
+                .thenReturn(accountCandidate());
+        when(mapper.selectCurrentTargetGroup(5_001L, 301L)).thenReturn(groupCandidate());
+        when(mapper.countOrdinarySubmittedOrSuccessfulAttempts(501L, "120363a@g.us"))
+                .thenReturn(0);
+        when(membershipStatusService.findCurrentMessageSendPermissions(List.of(
+                new AccountGroupMembershipLookup(5_001L, "120363a@g.us"))))
+                .thenReturn(List.of(new AccountGroupMessageSendPermissionSnapshot(
+                        5_001L,
+                        "120363a@g.us",
+                        Boolean.TRUE)));
+        when(mapper.markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L))).thenReturn(1);
+        when(messagePort.enqueue(any())).thenAnswer(invocation -> acceptAll(invocation.getArgument(0)));
+
+        service.submitDueWaitingAttempts(1L, 42L, List.of(9_001L), 3_000L);
+
+        verify(messagePort).enqueue(any());
+        verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
+        verify(mapper, never()).markWaitingAttemptFailed(anyLong(), any(), any(), anyLong());
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.vo.AccountGroupMembershipLookup;
+import com.armada.group.model.vo.AccountGroupMessageSendPermissionRow;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
@@ -105,6 +106,20 @@ class AccountGroupMembershipStatusServiceImplTest {
 
         assertThat(result).singleElement().satisfies(status ->
                 assertThat(status.status()).isEqualTo(AccountGroupMembershipStatus.KICKED_OUT));
+    }
+
+    @Test
+    void findCurrentMessageSendPermissionsKeepsExplicitFalse() {
+        List<AccountGroupMembershipLookup> normalized = List.of(
+                new AccountGroupMembershipLookup(10L, "120363001@g.us"));
+        Mockito.when(mapper.selectCurrentMessageSendPermissions(normalized)).thenReturn(List.of(
+                new AccountGroupMessageSendPermissionRow(
+                        10L, "120363001@g.us", Boolean.FALSE)));
+
+        var result = service.findCurrentMessageSendPermissions(normalized);
+
+        assertThat(result).singleElement().satisfies(permission ->
+                assertThat(permission.messageSendAllowed()).isFalse());
     }
 
     private static Context context() {

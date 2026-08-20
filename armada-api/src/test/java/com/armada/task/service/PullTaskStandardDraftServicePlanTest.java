@@ -15,6 +15,8 @@ import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.model.entity.PullTaskMaterialMember;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskStandardLinkLineStatus;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionRowVO;
@@ -87,11 +89,12 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void createsOneRowPerMatchAndReportsRemainingLinks() {
-        PullTaskStandardDraftVO view = service.plan(
+        PullTaskStandardDraftVO view = linkPlan(
                 null, LINK_A + "\n" + LINK_B,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.draftTaskId()).isNotNull();
+        assertThat(view.creationMode()).isEqualTo(PullTaskCreationMode.PASTED_LINK);
         assertThat(view.matchedCount()).isEqualTo(1);
         assertThat(view.remainingLinkCount()).isEqualTo(1);
         assertThat(view.ignoredFileCount()).isZero();
@@ -100,11 +103,34 @@ class PullTaskStandardDraftServicePlanTest {
     }
 
     @Test
+    void newGroupModeCreatesOneExecutionPerAcceptedTxtWithoutLinks() {
+        PullTaskStandardDraftVO view = service.plan(
+                PullTaskCreationMode.NEW_GROUP, null, null,
+                List.of(txt("a.txt", "8613800138001\n"),
+                        txt("b.txt", "8613800138002\n")),
+                CREATOR, OPERATOR);
+
+        assertThat(view.matchedCount()).isEqualTo(2);
+        assertThat(view.creationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
+        assertThat(view.remainingLinkCount()).isZero();
+        assertThat(view.ignoredFileCount()).isZero();
+        assertThat(executionMapper.selectByTaskId(view.draftTaskId()))
+                .allSatisfy(row -> {
+                    assertThat(row.getNormalizedLink()).isNull();
+                    assertThat(row.getInviteCode()).isNull();
+                    assertThat(row.getSourceLinkLineNo()).isNull();
+                    assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+                })
+                .extracting(row -> row.getSourceFileName())
+                .containsExactly("a.txt", "b.txt");
+    }
+
+    @Test
     void appendsIncrementallyWithoutDisturbingExistingRows() {
-        service.plan(null, LINK_A,
+        linkPlan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
-        PullTaskStandardDraftVO view = service.plan(
+        PullTaskStandardDraftVO view = linkPlan(
                 null, LINK_A + "\n" + LINK_B,
                 List.of(txt("b.txt", "8613800138002\n")), CREATOR, OPERATOR);
 
@@ -120,7 +146,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void ignoresTrailingFilesWhenRemainingLinksRunOut() {
-        PullTaskStandardDraftVO view = service.plan(null, LINK_A,
+        PullTaskStandardDraftVO view = linkPlan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n"), txt("b.txt", "8613800138002\n")),
                 CREATOR, OPERATOR);
 
@@ -130,7 +156,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void rejectsZeroValidFileFromThePoolButStillReportsIt() {
-        PullTaskStandardDraftVO view = service.plan(null, LINK_A,
+        PullTaskStandardDraftVO view = linkPlan(null, LINK_A,
                 List.of(txt("empty.txt", "abc\n\n")), CREATOR, OPERATOR);
 
         assertThat(view.matchedCount()).isZero();
@@ -143,7 +169,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void persistsMembersWithAdminFlagAndLineNumbers() {
-        service.plan(null, LINK_A,
+        linkPlan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n8613800138002A\n")),
                 CREATOR, OPERATOR);
 
@@ -161,7 +187,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void keepsEveryFormatValidLinkInThePoolForProtocolValidation() {
-        PullTaskStandardDraftVO view = service.plan(null, LINK_A + "\n" + LINK_B,
+        PullTaskStandardDraftVO view = linkPlan(null, LINK_A + "\n" + LINK_B,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
@@ -173,11 +199,11 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void marksLinkOccupiedByAnotherRunningTask() {
-        service.plan(null, LINK_A,
+        linkPlan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
         executionMapper.freezeDraftRows(service.current(CREATOR).draftTaskId(), 900L);
 
-        PullTaskStandardDraftVO view = service.plan(null, LINK_A + "\n" + LINK_C,
+        PullTaskStandardDraftVO view = linkPlan(null, LINK_A + "\n" + LINK_C,
                 List.of(txt("c.txt", "8613800138003\n")), 602L, "运营乙");
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
@@ -189,7 +215,7 @@ class PullTaskStandardDraftServicePlanTest {
 
     @Test
     void rejectsNonTxtUpload() {
-        assertThatThrownBy(() -> service.plan(null, LINK_A,
+        assertThatThrownBy(() -> linkPlan(null, LINK_A,
                 List.of(new MockMultipartFile("files", "a.csv", "text/csv",
                         "8613800138001".getBytes(StandardCharsets.UTF_8))), CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class)
@@ -203,7 +229,7 @@ class PullTaskStandardDraftServicePlanTest {
                 .map(MultipartFile.class::cast)
                 .toList();
 
-        assertThatThrownBy(() -> service.plan(null, LINK_A, files, CREATOR, OPERATOR))
+        assertThatThrownBy(() -> linkPlan(null, LINK_A, files, CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("50");
     }
@@ -213,14 +239,14 @@ class PullTaskStandardDraftServicePlanTest {
         MockMultipartFile binary = new MockMultipartFile("files", "a.txt", "text/plain",
                 new byte[] {0x00, 0x01, 0x02});
 
-        assertThatThrownBy(() -> service.plan(
+        assertThatThrownBy(() -> linkPlan(
                 null, LINK_A, List.of(binary), CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class);
     }
 
     @Test
     void planWithNoFilesOnlyReportsLinkJudgementWithoutCreatingRows() {
-        PullTaskStandardDraftVO view = service.plan(
+        PullTaskStandardDraftVO view = linkPlan(
                 null, LINK_A, List.of(), CREATOR, OPERATOR);
 
         assertThat(view.draftTaskId()).isNotNull();
@@ -233,7 +259,7 @@ class PullTaskStandardDraftServicePlanTest {
     void plansWithLinksFromSelectedGroupFolderOnly() {
         when(groupFolderService.usableLinks(18L)).thenReturn(List.of(LINK_A));
 
-        PullTaskStandardDraftVO view = service.plan(
+        PullTaskStandardDraftVO view = linkPlan(
                 18L, null, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.rows()).singleElement()
@@ -244,7 +270,7 @@ class PullTaskStandardDraftServicePlanTest {
     void deduplicatesFolderAndPastedLinksBeforeMatching() {
         when(groupFolderService.usableLinks(18L)).thenReturn(List.of(LINK_A));
 
-        PullTaskStandardDraftVO view = service.plan(
+        PullTaskStandardDraftVO view = linkPlan(
                 18L, LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
 
         assertThat(view.rows()).hasSize(1);
@@ -256,7 +282,7 @@ class PullTaskStandardDraftServicePlanTest {
         when(groupFolderService.usableLinks(18L)).thenThrow(
                 new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在: 18"));
 
-        assertThatThrownBy(() -> service.plan(
+        assertThatThrownBy(() -> linkPlan(
                 18L, LINK_A, List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
@@ -266,6 +292,16 @@ class PullTaskStandardDraftServicePlanTest {
     private static MockMultipartFile txt(String fileName, String content) {
         return new MockMultipartFile("files", fileName, "text/plain",
                 content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private PullTaskStandardDraftVO linkPlan(
+            Long groupFolderId,
+            String linksText,
+            List<? extends MultipartFile> files,
+            long userId,
+            String operatorName) {
+        return service.plan(PullTaskCreationMode.PASTED_LINK, groupFolderId, linksText,
+                List.copyOf(files), userId, operatorName);
     }
 
     @Configuration(proxyBeanMethods = false)

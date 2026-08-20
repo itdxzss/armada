@@ -8,7 +8,15 @@ public enum PullTaskAccountEntryMode {
     /** 由当前管理账号邀请加入。 */
     MANAGER_INVITE(2),
     /** 站台随拉手的批量成员调用加入。 */
-    PULLER_ADD(3);
+    PULLER_ADD(3),
+    /**
+     * 站台随建群调用作为初始成员加入；新群模式专有。
+     *
+     * <p>这样进群的站台必须写 {@code membership_status=IN_GROUP}。
+     * {@code PullTaskStationSelectionService} 的可复用判定要求
+     * {@code membership_status=NOT_JOINED}，写错会让该站台被后续拉人调用重新选中并重复提交。</p>
+     */
+    GROUP_CREATE_INITIAL(4);
 
     private final int code;
 

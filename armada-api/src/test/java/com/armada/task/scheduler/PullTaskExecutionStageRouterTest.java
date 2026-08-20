@@ -12,6 +12,27 @@ import org.junit.jupiter.api.Test;
 class PullTaskExecutionStageRouterTest {
 
     @Test
+    void routesGroupCreateInsteadOfSilentlyDroppingStageNine() {
+        PullTaskGroupCreateProcessor groupCreate = mock(PullTaskGroupCreateProcessor.class);
+        PullTaskExecutionStageRouter router = new PullTaskExecutionStageRouter(
+                mock(PullTaskLinkValidationProcessor.class),
+                mock(PullTaskManagerJoinProcessor.class),
+                mock(PullTaskManagerAdminProcessor.class),
+                mock(PullTaskManagerPullerContactProcessor.class),
+                mock(PullTaskPullerInviteProcessor.class),
+                mock(PullTaskPullExecutionProcessor.class),
+                mock(PullTaskMaterialAdminProcessor.class), groupCreate);
+        PullTaskGroupExecution candidate = new PullTaskGroupExecution();
+        candidate.setStage(PullTaskExecutionStage.GROUP_CREATE.code());
+        when(groupCreate.process(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+
+        assertThat(router.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        verify(groupCreate).process(candidate, "worker-1", 1_000L);
+    }
+
+    @Test
     void routesManagerPullerContactThroughTheSharedStageRouter() {
         PullTaskLinkValidationProcessor link = mock(PullTaskLinkValidationProcessor.class);
         PullTaskManagerJoinProcessor manager = mock(PullTaskManagerJoinProcessor.class);
@@ -22,7 +43,8 @@ class PullTaskExecutionStageRouterTest {
                         link, manager, mock(PullTaskManagerAdminProcessor.class), contact,
                         mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
-                        mock(PullTaskMaterialAdminProcessor.class));
+                        mock(PullTaskMaterialAdminProcessor.class),
+                        mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         when(contact.process(candidate, "worker-1", 1_000L))
@@ -44,7 +66,8 @@ class PullTaskExecutionStageRouterTest {
                 new PullTaskExecutionStageRouter(
                         link, manager, mock(PullTaskManagerAdminProcessor.class), contact, invite,
                         mock(PullTaskPullExecutionProcessor.class),
-                        mock(PullTaskMaterialAdminProcessor.class));
+                        mock(PullTaskMaterialAdminProcessor.class),
+                        mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
         when(invite.process(candidate, "worker-1", 1_000L))
@@ -65,7 +88,8 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
-                mock(PullTaskMaterialAdminProcessor.class));
+                mock(PullTaskMaterialAdminProcessor.class),
+                mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         when(pullExecution.process(candidate, "worker-1", 1_000L))
@@ -86,7 +110,8 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
-                mock(PullTaskPullExecutionProcessor.class), materialAdmin);
+                mock(PullTaskPullExecutionProcessor.class), materialAdmin,
+                mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MATERIAL_ADMIN.code());
         when(materialAdmin.process(candidate, "worker-1", 1_000L))
@@ -107,7 +132,8 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerAdminProcessor.class),
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
-                mock(PullTaskMaterialAdminProcessor.class));
+                mock(PullTaskMaterialAdminProcessor.class),
+                mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.CLOSING.code());
         when(pullExecution.close(candidate, "worker-1", 1_000L))
@@ -128,7 +154,8 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerJoinProcessor.class), managerAdmin, contact,
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),
-                mock(PullTaskMaterialAdminProcessor.class));
+                mock(PullTaskMaterialAdminProcessor.class),
+                mock(PullTaskGroupCreateProcessor.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
         when(managerAdmin.process(candidate, "worker-1", 1_000L))

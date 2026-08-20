@@ -943,11 +943,17 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskManagerPullerContactProcessor managerPullerContactProcessor,
                 PullTaskPullerInviteProcessor pullerInviteProcessor,
                 PullTaskPullExecutionProcessor pullExecutionProcessor,
-                PullTaskMaterialAdminProcessor materialAdminProcessor) {
+                PullTaskMaterialAdminProcessor materialAdminProcessor,
+                PullTaskGroupCreateProcessor groupCreateProcessor) {
             return new PullTaskExecutionStageRouter(
                     linkProcessor, managerJoinProcessor, managerAdminProcessor,
                     managerPullerContactProcessor,
-                    pullerInviteProcessor, pullExecutionProcessor, materialAdminProcessor);
+                    pullerInviteProcessor, pullExecutionProcessor, materialAdminProcessor,
+                    groupCreateProcessor);
+        }
+
+        @Bean PullTaskGroupCreateProcessor groupCreateProcessor() {
+            return mock(PullTaskGroupCreateProcessor.class);
         }
 
         @Bean GroupExecutionAccountSelector promoterSelector() {

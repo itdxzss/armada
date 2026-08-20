@@ -5,6 +5,7 @@ import com.armada.task.model.dto.PullTaskExecutionAbandon;
 import com.armada.task.model.dto.PullTaskExecutionManualChange;
 import com.armada.task.model.dto.PullTaskExecutionManualTransition;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
+import com.armada.task.model.dto.PullTaskGroupCreateTransition;
 import com.armada.task.model.dto.PullTaskManagerSupplementTransition;
 import com.armada.task.model.dto.PullTaskManagerJoinResultTransition;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
@@ -46,7 +47,17 @@ public interface PullTaskGroupExecutionMapper {
     /** 初始化草稿行后写入，避免 Mapper XML 固化业务值。 */
     default int insertDraft(PullTaskGroupExecution row) {
         row.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
-        row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        if (row.getStage() == null) {
+            row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        }
+        if (row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()) {
+            if (row.getCreateStep() == null) {
+                row.setCreateStep(1);
+            }
+        }
+        if (row.getCreateAttemptCount() == null) {
+            row.setCreateAttemptCount(0);
+        }
         row.setManualPaused(0);
         row.setNextManagerIndex(0);
         row.setNextPullerIndex(0);
@@ -279,6 +290,9 @@ public interface PullTaskGroupExecutionMapper {
     int transitionClaimed(@Param("row") PullTaskGroupExecution row,
                           @Param("expectedExecutionStatus") int expectedExecutionStatus,
                           @Param("expectedStage") int expectedStage);
+
+    /** 以当前有效租约、版本和建群步骤 CAS 推进建群内部检查点。 */
+    int transitionGroupCreate(@Param("transition") PullTaskGroupCreateTransition transition);
 
     /** 执行中阶段的兼容入口；期望状态仍由 Java 显式传给 XML。 */
     default int transitionClaimed(PullTaskGroupExecution row, int expectedStage) {

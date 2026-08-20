@@ -14,6 +14,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardGroupSetting;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
@@ -91,22 +92,22 @@ public class PullTaskGroupProfileDispatcher {
         if (!existing.isEmpty()) {
             return;
         }
-        PullTaskGroupAccount manager = availableManager(execution.getId());
-        if (manager == null) {
-            // 没有可用管理员就跳过：群资料是展示需求，不值得为它卡住执行行。
-            log.info("群信息设置跳过：无可用任务管理员 executionId={}", execution.getId());
+        PullTaskGroupAccount actor = availableSettingsActor(execution);
+        if (actor == null) {
+            // 没有可用执行账号就跳过：群资料是展示需求，不值得为它卡住执行行。
+            log.info("群信息设置跳过：无可用群设置执行账号 executionId={}", execution.getId());
             return;
         }
         ProtocolAccountRef account = accountLookup
-                .findActiveProtocolRefs(List.of(manager.getAccountId())).stream()
-                .filter(ref -> Objects.equals(ref.armadaAccountId(), manager.getAccountId()))
+                .findActiveProtocolRefs(List.of(actor.getAccountId())).stream()
+                .filter(ref -> Objects.equals(ref.armadaAccountId(), actor.getAccountId()))
                 .findFirst()
                 .orElse(null);
         if (account == null) {
-            log.info("群信息设置跳过：管理员协议账号不可用 executionId={}", execution.getId());
+            log.info("群信息设置跳过：执行账号协议身份不可用 executionId={}", execution.getId());
             return;
         }
-        Long actionId = insertAction(execution, manager, now);
+        Long actionId = insertAction(execution, actor, now);
         if (actionId == null) {
             return;
         }
@@ -125,30 +126,41 @@ public class PullTaskGroupProfileDispatcher {
                 execution.getId(), actionId, timing);
     }
 
-    /** 群设置没有对象账号，actor 与 target 同为管理员角色行本身。 */
+    /** 群设置没有对象账号，actor 与 target 同为执行账号角色行本身。 */
     private Long insertAction(
-            PullTaskGroupExecution execution, PullTaskGroupAccount manager, long now) {
+            PullTaskGroupExecution execution, PullTaskGroupAccount actor, long now) {
         PullTaskAccountAction row = new PullTaskAccountAction();
         row.setTenantId(execution.getTenantId());
         row.setTaskId(execution.getTaskId());
         row.setGroupExecutionId(execution.getId());
         row.setActionType(PullTaskAccountActionType.APPLY_GROUP_SETTINGS.code());
-        row.setActorGroupAccountId(manager.getId());
-        row.setTargetGroupAccountId(manager.getId());
+        row.setActorGroupAccountId(actor.getId());
+        row.setTargetGroupAccountId(actor.getId());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return actionMapper.insertIfAbsent(row) == 1 ? row.getId() : null;
     }
 
     /**
-     * 取一个可执行的任务管理员；没有则返回 null。
+     * 取一个有权执行群设置的账号；没有则返回 null。
      *
-     * <p>只要求角色行存在且未被移出：更细的在群与在线判断留给协议层——群资料设置不阻断执行行，
+     * <p>建群阶段使用角色 4 建群人，其它阶段使用角色 1 次管理员。只要求角色行存在且未被移出：
+     * 更细的在群与在线判断留给协议层——群资料设置不阻断执行行，
      * 在这里预判反而会让本该发出去的命令被静默丢掉。</p>
      */
-    private PullTaskGroupAccount availableManager(long executionId) {
+    private PullTaskGroupAccount availableSettingsActor(PullTaskGroupExecution execution) {
+        if (Objects.equals(execution.getStage(), PullTaskExecutionStage.GROUP_CREATE.code())) {
+            return availableRole(execution.getId(), PullTaskGroupAccountRole.PROMOTER);
+        }
+        return availableRole(execution.getId(), PullTaskGroupAccountRole.MANAGER);
+    }
+
+    /** 建群阶段只有建群人确定具备群主管理权限；既有阶段继续使用任务管理员。 */
+    private PullTaskGroupAccount availableRole(
+            long executionId,
+            PullTaskGroupAccountRole role) {
         return groupAccountMapper.selectByExecutionAndRole(
-                        executionId, PullTaskGroupAccountRole.MANAGER.code()).stream()
+                        executionId, role.code()).stream()
                 .filter(row -> !Objects.equals(row.getAvailabilityStatus(),
                         PullTaskGroupAccountAvailability.REMOVED.code()))
                 .findFirst()

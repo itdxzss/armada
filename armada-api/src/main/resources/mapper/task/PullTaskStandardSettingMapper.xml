@@ -18,10 +18,11 @@
       early_pull_count, early_pull_call_count,
       pull_count_min, pull_count_max,
       pull_interval_seconds, puller_count_per_group, station_count_per_call,
+      initial_station_count,
       concurrent_group_count, puller_risk_minutes, required_manager_count,
-      manager_group_id, puller_group_id, station_group_id,
+      manager_group_id, puller_group_id, station_group_id, creator_group_id,
       manager_finish_group_id, puller_finish_group_id,
-      manager_group_name, puller_group_name, station_group_name,
+      manager_group_name, puller_group_name, station_group_name, creator_group_name,
       manager_finish_group_name, puller_finish_group_name,
       created_at, updated_at
     ) VALUES (
@@ -31,10 +32,11 @@
       #{earlyPullCount}, #{earlyPullCallCount},
       #{pullCountMin}, #{pullCountMax},
       #{pullIntervalSeconds}, #{pullerCountPerGroup}, #{stationCountPerCall},
+      #{initialStationCount},
       #{concurrentGroupCount}, #{pullerRiskMinutes}, #{requiredManagerCount},
-      #{managerGroupId}, #{pullerGroupId}, #{stationGroupId},
+      #{managerGroupId}, #{pullerGroupId}, #{stationGroupId}, #{creatorGroupId},
       #{managerFinishGroupId}, #{pullerFinishGroupId},
-      #{managerGroupName}, #{pullerGroupName}, #{stationGroupName},
+      #{managerGroupName}, #{pullerGroupName}, #{stationGroupName}, #{creatorGroupName},
       #{managerFinishGroupName}, #{pullerFinishGroupName},
       #{createdAt}, #{updatedAt}
     )

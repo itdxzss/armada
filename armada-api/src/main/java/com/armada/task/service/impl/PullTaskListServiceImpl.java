@@ -144,7 +144,8 @@ public class PullTaskListServiceImpl implements PullTaskListService {
             PullTaskStandardTaskAggregate standard) {
         return new PullTaskListVO(
                 task.getId(), task.getTaskName(), task.getGroupName(), task.getMode(),
-                task.getTaskType(), task.getGroupSource(), task.getStatus(), task.getPrimaryStage(),
+                task.getCreationMode(), task.getTaskType(), task.getGroupSource(),
+                task.getStatus(), task.getPrimaryStage(),
                 task.getBlockingReason(), task.getOperatorName(), task.getGroupCount(),
                 task.getExpectedPullCount(), task.getRemark(),
                 standard == null ? groupProgress(summary) : groupProgress(standard),

@@ -11,6 +11,8 @@ package com.armada.task.model.vo;
  * @param sourceFileName  创建任务时与该群链接匹配的料子包原始文件名
  * @param executionStatus 执行状态码
  * @param stage           当前业务阶段码
+ * @param createStep      建群阶段内步骤；非新群模式或建群完成后可为空
+ * @param groupSubject    建群时使用的群名称
  * @param manualPaused    是否被人工暂停；与资源等待独立
  * @param waitResourceType 当前等待的资源类型；非资源等待时为空
  * @param validMemberCount 有效料子人数
@@ -27,6 +29,8 @@ public record PullTaskStandardExecutionSummaryVO(
         String sourceFileName,
         int executionStatus,
         int stage,
+        Integer createStep,
+        String groupSubject,
         boolean manualPaused,
         Integer waitResourceType,
         int validMemberCount,
@@ -52,7 +56,7 @@ public record PullTaskStandardExecutionSummaryVO(
             String reasonMessage,
             Long lastBusinessExecutedAt) {
         this(executionId, seq, normalizedLink, groupJid, null, null, executionStatus, stage,
-                manualPaused, null, validMemberCount, reasonCode, reasonMessage,
+                null, null, manualPaused, null, validMemberCount, reasonCode, reasonMessage,
                 lastBusinessExecutedAt, null, null, null, null);
     }
 }

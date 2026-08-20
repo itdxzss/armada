@@ -143,6 +143,7 @@
         version = version + 1,
         task_name = #{row.taskName},
         remark = #{row.remark},
+        creation_mode = #{row.creationMode},
         group_count = #{row.groupCount},
         expected_pull_count = #{row.expectedPullCount},
         updated_at = #{now}
@@ -153,7 +154,7 @@
   </update>
 
   <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
-    SELECT id, tenant_id, task_type, task_name, mode, status,
+    SELECT id, tenant_id, task_type, task_name, mode, creation_mode, status,
            primary_stage, blocking_reason, started_at, finished_at, version,
            group_count, expected_pull_count, created_by, remark,
            created_at, updated_at

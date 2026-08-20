@@ -168,6 +168,38 @@ class PullTaskExecutionTransactionServiceTest {
         assertThat(saved.getLockOwner()).isNull();
     }
 
+    @Test
+    void newGroupRowWithoutALinkCanClaimItsSlotAndStayAtGroupCreate() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        PullTaskGroupExecution row = new PullTaskGroupExecution();
+        row.setTaskId(100L);
+        row.setSeq(1);
+        row.setSourceFileIndex(1);
+        row.setSourceFileName("material-1.txt");
+        row.setStage(PullTaskExecutionStage.GROUP_CREATE.code());
+        row.setTotalLineCount(1);
+        row.setValidMemberCount(1);
+        row.setInvalidLineCount(0);
+        row.setDuplicateLineCount(0);
+        row.setCreatedAt(100L);
+        row.setUpdatedAt(100L);
+        executionMapper.insertDraft(row);
+        executionMapper.freezeDraftRows(100L, 500L);
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        PullTaskExecutionWork work = transactionService
+                .prepare(claimed, "worker-1", 600L).orElseThrow();
+
+        assertThat(work.normalizedLink()).isNull();
+        assertThat(work.expectedVersion()).isEqualTo(2);
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(row.getId());
+        assertThat(saved.getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        assertThat(saved.getCreateStep()).isEqualTo(1);
+    }
+
     private PullTaskExecutionWork prepareLegacySingle(String lockOwner) throws SQLException {
         seedParent(100L, "EXECUTING");
         insertAndFreeze(100L, 1, LINK);
@@ -185,11 +217,13 @@ class PullTaskExecutionTransactionServiceTest {
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_START.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code())),
+                                        PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                        PullTaskExecutionStage.GROUP_CREATE.code())),
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.EXECUTING.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                        PullTaskExecutionStage.MANAGER_JOIN.code()))),
+                                        PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                        PullTaskExecutionStage.GROUP_CREATE.code()))),
                 new PullTaskExecutionClaimCriteria.Parent(
                         PullTaskType.STANDARD.name(), "NORMAL_LINK",
                         PullTaskStandardStatus.EXECUTING.name())));

@@ -3,6 +3,21 @@ package com.armada.task.model.enums;
 /** 普通群链接执行链路的持久化原因码与脱敏说明。 */
 public enum PullTaskExecutionReasonCode {
 
+    /** 建群人分组当前没有可用于同步建群调用的在线正常账号。 */
+    GROUP_CREATOR_UNAVAILABLE("当前没有可用建群人"),
+
+    /** 协议明确确认本次没有创建群，可继续复用同一幂等键重试。 */
+    GROUP_CREATE_FAILED("建群明确失败，稍后重试"),
+
+    /** 建群可能已经成功，执行行自动暂停并等待人工核对。 */
+    GROUP_CREATE_RESULT_UNCONFIRMED("建群结果未知，已停止自动重建，请人工核对"),
+
+    /** 群已经创建，但邀请链接暂时无法读取。 */
+    GROUP_INVITE_LINK_UNAVAILABLE("群邀请链接暂时无法生成"),
+
+    /** 建群阶段持久化配置或检查点不完整，需要人工核对。 */
+    GROUP_CREATE_CONFIGURATION_INVALID("建群配置不完整，已暂停等待人工处理"),
+
     /** 历史兼容原因码；新任务由协议进群结果判断链接是否失效。 */
     LINK_INVALID("群链接已失效"),
 

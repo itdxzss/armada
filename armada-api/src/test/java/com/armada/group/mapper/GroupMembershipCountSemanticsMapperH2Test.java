@@ -150,6 +150,21 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     }
 
     @Test
+    void dynamicRoundAdmitsCompletedFirstSendWhenPreciseMembershipTimeIsMissing() throws SQLException {
+        execute("UPDATE wa_account_group_binding "
+                + "SET membership_active_since_at = NULL WHERE id = 101");
+        execute("""
+                INSERT INTO marketing_task_send_attempt
+                  (id, tenant_id, target_id, group_jid, round_no, status)
+                VALUES (9003, 7, 701, 'in-group@g.us', 0, 2)
+                """);
+
+        assertThat(marketingTaskMapper.selectDynamicTargetGroups(701L, 501L, 100L))
+                .extracting(MarketingTargetCandidateRow::getGroupJid)
+                .containsExactly("in-group@g.us");
+    }
+
+    @Test
     void ordinaryAttemptRemainsCoverageAfterAcceptedOutboxLaterFails() throws SQLException {
         execute("""
                 INSERT INTO marketing_task_send_attempt

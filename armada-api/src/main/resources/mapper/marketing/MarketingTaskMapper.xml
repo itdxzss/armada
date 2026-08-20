@@ -1331,8 +1331,19 @@
           AND a.deleted_at IS NULL
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
-          AND (#{accountGroupSendAt} IS NULL
-               OR binding.membership_active_since_at &gt;= #{accountGroupSendAt})
+          AND (
+              #{accountGroupSendAt} IS NULL
+              OR binding.membership_active_since_at &gt;= #{accountGroupSendAt}
+              <if test="targetId != null">
+                  OR EXISTS (
+                      SELECT 1
+                      FROM marketing_task_send_attempt first_send
+                      WHERE first_send.target_id = #{targetId}
+                        AND first_send.round_no = 0
+                        AND TRIM(first_send.group_jid) = TRIM(current_group.group_jid)
+                  )
+              </if>
+          )
           <if test="targetId != null">
               AND NOT EXISTS (
                   SELECT 1

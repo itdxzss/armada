@@ -245,6 +245,14 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             skipAttempts(waiting, REASON_TASK_EXPIRED, "营销任务已结束", submittedAt);
             return;
         }
+        // 普通轮次与延迟扫描共用任务主记录作为串行化边界。普通轮次已经到期时先保留 WAITING，
+        // 让该轮在解析动态群时排除第 0 轮；普通轮次推进 next_round_at 后，下次延迟扫描再提交，
+        // 避免“第 0 轮先提交、普通轮次紧接着又发送”的反向竞态双发。
+        if (task.getNextRoundAt() != null && task.getNextRoundAt() <= submittedAt) {
+            log.debug("新群延迟发送等待普通轮次先推进 tenantId={} taskId={} nextRoundAt={} submittedAt={} attempts={}",
+                    tenantId, marketingTaskId, task.getNextRoundAt(), submittedAt, waiting.size());
+            return;
+        }
         MarketingTaskTarget target = taskMapper.selectTargetById(waiting.get(0).getTargetId());
         if (!validDynamicTarget(task, target, waiting)) {
             skipAttempts(waiting, REASON_GROUP_NOT_SENDABLE, "新群不再属于当前账号动态目标", submittedAt);

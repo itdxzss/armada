@@ -344,7 +344,12 @@ public interface MarketingTaskMapper {
                                                              @Param("selectableAccountStates")
                                                              List<Integer> selectableAccountStates);
 
-    /** 查询账号动态目标在发送时间边界内的当前群。 */
+    /**
+     * 查询账号动态目标在发送时间边界内的当前群。
+     *
+     * <p>第 0 轮已结束的群本身就是任务期内新增群的持久化事实；即使精确入群时间缺失，
+     * 后续普通轮次也必须继续纳入。仍处于 WAITING 的群继续排除，避免同一发送点双发。</p>
+     */
     List<MarketingTargetCandidateRow> selectDynamicTargetGroups(@Param("targetId") Long targetId,
                                                                 @Param("accountId") Long accountId,
                                                                 @Param("accountGroupSendAt") Long accountGroupSendAt);

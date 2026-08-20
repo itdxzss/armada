@@ -611,6 +611,24 @@ class MarketingTaskMapperSqlShapeTest {
                 .contains("NULLIF(TRIM(t.group_name), '')");
     }
 
+    @Test
+    void dynamicTargetUsesCompletedFirstSendAsMembershipTimeFallback() throws IOException {
+        String xml = new String(
+                getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
+                StandardCharsets.UTF_8);
+
+        String sql = selectBlock(xml, "selectDynamicTargetGroups");
+
+        assertThat(sql)
+                .contains("OR EXISTS (\n"
+                        + "                      SELECT 1\n"
+                        + "                      FROM marketing_task_send_attempt first_send")
+                .contains("first_send.target_id = #{targetId}")
+                .contains("first_send.round_no = 0")
+                .contains("first_send.group_jid) = TRIM(current_group.group_jid)")
+                .contains("waiting.status = 4");
+    }
+
     private static String selectBlock(String xml, String id) {
         String startTag = "<select id=\"" + id + "\"";
         int start = xml.indexOf(startTag);

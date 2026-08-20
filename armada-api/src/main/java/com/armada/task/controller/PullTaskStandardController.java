@@ -8,6 +8,7 @@ import com.armada.task.model.dto.PullTaskManagerSupplementDTO;
 import com.armada.task.model.dto.PullTaskPullerSupplementDTO;
 import com.armada.task.model.dto.PullTaskStationSupplementDTO;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionDetailVO;
@@ -80,11 +81,13 @@ public class PullTaskStandardController {
     @PostMapping("/draft/plan")
     @PreAuthorize("hasAuthority('tenant:pull_task:create')")
     public ApiResponse<PullTaskStandardDraftVO> plan(
+            @RequestParam(value = "creationMode", required = false)
+            PullTaskCreationMode creationMode,
             @RequestParam(value = "groupFolderId", required = false) Long groupFolderId,
             @RequestParam(value = "linksText", required = false) String linksText,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        return ApiResponse.ok(draftService.plan(groupFolderId, linksText, toList(files),
+        return ApiResponse.ok(draftService.plan(creationMode, groupFolderId, linksText, toList(files),
                 principal.userId(), displayName(principal)));
     }
 

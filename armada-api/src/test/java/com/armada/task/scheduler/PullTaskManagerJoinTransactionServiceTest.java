@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -180,6 +181,44 @@ class PullTaskManagerJoinTransactionServiceTest {
                 null, null, NOW);
         verify(groupAccountMapper).updateMembership(501L,
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), NOW, NOW);
+    }
+
+    @Test
+    void managerAlreadyInNewlyCreatedGroupAdvancesWithoutSubmittingJoinCommand() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setGroupJid("120363group@g.us");
+        seedDispatchableParent(candidate);
+        PullTaskGroupAccount manager = manager();
+        manager.setMembershipStatus(PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
+        when(groupAccountMapper.selectByExecutionAndRole(11L, 1))
+                .thenReturn(List.of(manager));
+        when(actionMapper.selectByExecutionAndType(
+                11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
+                .thenReturn(List.of());
+        doAnswer(invocation -> {
+            invocation.<PullTaskAccountAction>getArgument(0).setId(601L);
+            return 1;
+        }).when(actionMapper).insertIfAbsent(any(PullTaskAccountAction.class));
+        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account()));
+        when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
+        when(actionMapper.writeBackResult(601L, PullTaskActionStatus.SUCCESS.code(),
+                null, null, NOW)).thenReturn(1);
+        when(groupAccountMapper.updateMembership(501L,
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), NOW, NOW)).thenReturn(1);
+
+        PullTaskManagerJoinPreparation prepared =
+                service.prepare(candidate, "worker-1", NOW);
+
+        assertThat(prepared.ready()).isFalse();
+        assertThat(prepared.result()).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        ArgumentCaptor<PullTaskGroupExecution> update =
+                ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executionMapper).transitionClaimed(update.capture(),
+                eq(PullTaskExecutionStage.MANAGER_JOIN.code()));
+        assertThat(update.getValue().getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        verify(outboxService, never()).enqueuePullTaskGroupJoinCommands(any());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.armada.task.model.vo;
 
+import com.armada.task.model.enums.PullTaskCreationMode;
 import java.util.List;
 
 /** 普通群链接任务 M1 最小详情。 */
@@ -7,6 +8,7 @@ public record PullTaskStandardTaskDetailVO(
         long taskId,
         String taskName,
         String status,
+        PullTaskCreationMode creationMode,
         int groupCount,
         int expectedPullCount,
         Long startedAt,
@@ -35,8 +37,9 @@ public record PullTaskStandardTaskDetailVO(
             Long createdAt,
             String remark,
             List<PullTaskStandardExecutionSummaryVO> executions) {
-        this(taskId, taskName, status, groupCount, expectedPullCount,
-                startedAt, finishedAt, createdAt, remark, executions, null, null, null);
+        this(taskId, taskName, status, PullTaskCreationMode.PASTED_LINK,
+                groupCount, expectedPullCount, startedAt, finishedAt, createdAt, remark,
+                executions, null, null, null);
     }
 
     /** 聚合兼容构造；设置尚未装配的旧调用保持可编译。 */
@@ -52,7 +55,8 @@ public record PullTaskStandardTaskDetailVO(
             String remark,
             List<PullTaskStandardExecutionSummaryVO> executions,
             PullTaskStandardTaskSummaryVO summary) {
-        this(taskId, taskName, status, groupCount, expectedPullCount,
-                startedAt, finishedAt, createdAt, remark, executions, summary, null, null);
+        this(taskId, taskName, status, PullTaskCreationMode.PASTED_LINK,
+                groupCount, expectedPullCount, startedAt, finishedAt, createdAt, remark,
+                executions, summary, null, null);
     }
 }

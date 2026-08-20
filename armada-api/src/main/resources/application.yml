@@ -51,6 +51,9 @@ armada:
     max-candidates: ${GROUP_SNAPSHOT_MAX_CANDIDATES:4}
     # 仅人工单群刷新紧急回退同步 HTTP；不覆盖批量 Worker。
     http-fallback-enabled: ${GROUP_SNAPSHOT_HTTP_FALLBACK_ENABLED:false}
+  group-metadata-sync:
+    # 分类任务附近已经落过完整成员快照时直接复用，只补缺失的邀请码。
+    profile-freshness-ms: ${GROUP_METADATA_SYNC_PROFILE_FRESHNESS_MS:120000}
   normal-group-creation:
     kafka:
       web-command-topic: ${NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC:protocol.web.normal-group.commands.v1}

@@ -15,6 +15,8 @@ import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
+import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
@@ -60,12 +62,69 @@ class GroupProfileReportedSinkAdapterTest {
     @Mock
     private AccountMapper accountMapper;
 
+    @Mock
+    private GroupMetadataSyncTaskService metadataSyncTaskService;
+
     @InjectMocks
     private GroupProfileReportedSinkAdapter adapter;
 
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    /**
+     * 外部建的群也要入队抓邀请码。
+     *
+     * <p>普通建群链路建完会自己调 enqueueInviteCode,但外部用控端账号建群走的是本事件
+     * (安卓上报 group.profile_reported),不经过那条链路。少了这一步,群组列表的邀请链接
+     * 与状态两列永远为空——邀请码只在 WhatsApp 主动推 invite 通知时才更新,建群与进群都不带。</p>
+     *
+     * <p>走 enqueueInviteCode 而非 enqueue:建档已带回完整资料,只差邀请码,
+     * 不必再拉一次全量 metadata。</p>
+     */
+    @Test
+    void externallyCreatedGroupQueuesInviteCodeFetch() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(metadataSyncTaskService).enqueueInviteCode(
+                eq(77L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
+    }
+
+    /**
+     * 入队失败不能连累资料落库。
+     *
+     * <p>邀请码是补充事实;为它让整条资料事件重投,会把群名与成员一起卡住。</p>
+     */
+    @Test
+    void inviteCodeQueueFailureDoesNotDropTheProfileFacts() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+        org.mockito.Mockito.doThrow(new RuntimeException("queue down"))
+                .when(metadataSyncTaskService)
+                .enqueueInviteCode(anyLong(), any(), anyLong());
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(patchService).applyPatch(any(GroupMetadataPatch.class));
+    }
+
+    /**
+     * 群入口没登记成时不入队。
+     *
+     * <p>groupLinkId 为空说明 group_link 那行还不存在,此时入队会插出一条指向不存在入口的任务。</p>
+     */
+    @Test
+    void missingGroupLinkSkipsInviteCodeQueue() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(null);
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        verify(metadataSyncTaskService, never()).enqueueInviteCode(any(), any(), anyLong());
     }
 
     @Test

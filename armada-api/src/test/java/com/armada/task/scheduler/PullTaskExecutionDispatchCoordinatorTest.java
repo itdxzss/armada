@@ -41,7 +41,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         mock(PullTaskManagerAdminProcessor.class), contactProcessor,
                         mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
-                        mock(PullTaskMaterialAdminProcessor.class)),
+                        mock(PullTaskMaterialAdminProcessor.class),
+                        mock(PullTaskGroupCreateProcessor.class)),
                 mock(PullTaskResourceRecoveryTransactionService.class),
                 properties(), "worker-fixed");
 
@@ -62,7 +63,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         PullTaskExecutionStage.PULLER_INVITE.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code(),
-                        PullTaskExecutionStage.CLOSING.code());
+                        PullTaskExecutionStage.CLOSING.code(),
+                        PullTaskExecutionStage.GROUP_CREATE.code());
         assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
                         == PullTaskExecutionStatus.WAIT_START.code())
@@ -70,7 +72,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 .extracting(PullTaskExecutionClaimState::stages)
                 .asList()
                 .containsExactly(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                        PullTaskExecutionStage.MANAGER_JOIN.code());
+                        PullTaskExecutionStage.MANAGER_JOIN.code(),
+                        PullTaskExecutionStage.GROUP_CREATE.code());
         assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
                         == PullTaskExecutionStatus.WAIT_RESOURCE.code())
@@ -325,7 +328,8 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),
-                mock(PullTaskMaterialAdminProcessor.class));
+                mock(PullTaskMaterialAdminProcessor.class),
+                mock(PullTaskGroupCreateProcessor.class));
     }
 
     private static PullTaskGroupExecution claimed(long id, long tenantId, String link) {

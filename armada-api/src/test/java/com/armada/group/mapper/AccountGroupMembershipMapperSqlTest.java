@@ -41,7 +41,8 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(xml.contains("current_group.group_jid = #{groupJid}"));
         assertTrue(xml.contains("self_participant.role IN (2, 3)"));
         assertTrue(xml.contains("s.login_state = #{onlineLoginState}"));
-        assertTrue(xml.contains("s.account_state = #{normalAccountState}"));
+        assertTrue(xml.contains("s.account_state IN"));
+        assertTrue(xml.contains("collection=\"executableAccountStates\""));
         assertTrue(xml.contains("<select id=\"selectPullTaskAdminDiscoveryCandidatesByTenant\""));
     }
 

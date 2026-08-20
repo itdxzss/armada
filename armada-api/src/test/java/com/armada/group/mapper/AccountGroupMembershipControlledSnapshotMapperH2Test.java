@@ -1,5 +1,6 @@
 package com.armada.group.mapper;
 
+import com.armada.group.service.GroupExecutableAccountStates;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
@@ -75,7 +76,7 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
     @Test
     void selectsFreshMetadataAdminBeforeMembershipSnapshotIsPersisted() {
         assertThat(mapper.selectGroupExecutionAccountsByPhones(
-                201L, List.of("1001", "1002", "1003", "1004"), 1, 2, 4))
+                201L, List.of("1001", "1002", "1003", "1004"), 1, GroupExecutableAccountStates.executable(), 4))
                 .containsExactly(new GroupExecutionAccount(
                         301L, "WEB", "acc_1001", "1001", true));
     }

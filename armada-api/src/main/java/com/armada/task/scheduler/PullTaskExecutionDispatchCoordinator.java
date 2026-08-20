@@ -145,6 +145,7 @@ public class PullTaskExecutionDispatchCoordinator {
                 new PullTaskExecutionClaimState(
                         PullTaskExecutionStatus.EXECUTING.code(),
                         List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                PullTaskExecutionStage.GROUP_CREATE.code(),
                                 PullTaskExecutionStage.MANAGER_JOIN.code(),
                                 PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                 PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
@@ -172,7 +173,8 @@ public class PullTaskExecutionDispatchCoordinator {
                 new PullTaskExecutionClaimState(
                         PullTaskExecutionStatus.WAIT_START.code(),
                         List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
-                                PullTaskExecutionStage.MANAGER_JOIN.code())));
+                                PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.GROUP_CREATE.code())));
     }
 
     private PullTaskExecutionClaimCriteria claimCriteria(

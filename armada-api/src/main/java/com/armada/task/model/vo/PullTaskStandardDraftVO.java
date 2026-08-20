@@ -1,5 +1,6 @@
 package com.armada.task.model.vo;
 
+import com.armada.task.model.enums.PullTaskCreationMode;
 import java.util.List;
 
 /**
@@ -9,6 +10,7 @@ import java.util.List;
  * 只有本次请求才会带上它们；前端需要自行用 sessionStorage 恢复链接框内容。</p>
  *
  * @param draftTaskId        草稿任务 ID；用户还没有草稿时为 null
+ * @param creationMode       草稿执行行所属创建模式
  * @param rows               已冻结的执行行，按 seq 升序
  * @param linkLines          本次请求的链接逐行判定结果
  * @param fileResults        本次请求的 TXT 逐文件解析结果
@@ -17,6 +19,7 @@ import java.util.List;
  * @param ignoredFileCount   本次因剩余链接不足被忽略的文件数
  */
 public record PullTaskStandardDraftVO(Long draftTaskId,
+                                      PullTaskCreationMode creationMode,
                                       List<PullTaskStandardExecutionRowVO> rows,
                                       List<PullTaskStandardLinkLineVO> linkLines,
                                       List<PullTaskStandardFileResultVO> fileResults,

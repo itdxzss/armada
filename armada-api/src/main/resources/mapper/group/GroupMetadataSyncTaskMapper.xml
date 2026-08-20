@@ -106,6 +106,7 @@
            task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
            task.last_started_at, task.last_success_at,
            task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
+           current_profile.member_snapshot_at AS memberSnapshotAt,
            COALESCE(
              NULLIF(TRIM(current_group.group_jid), ''),
              CASE

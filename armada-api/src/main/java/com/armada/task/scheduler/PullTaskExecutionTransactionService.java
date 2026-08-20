@@ -158,6 +158,7 @@ public class PullTaskExecutionTransactionService {
         boolean supportedStatus = row.getExecutionStatus() == PullTaskExecutionStatus.WAIT_START.code()
                 || row.getExecutionStatus() == PullTaskExecutionStatus.EXECUTING.code();
         boolean supportedStage = row.getStage() == PullTaskExecutionStage.LINK_VALIDATION.code()
+                || row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()
                 || (row.getExecutionStatus() == PullTaskExecutionStatus.WAIT_START.code()
                 && row.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code());
         return supportedStatus && supportedStage

@@ -31,6 +31,7 @@ import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.entity.PullTaskStandardGroupSetting;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
@@ -114,6 +115,7 @@ class PullTaskStandardReadServiceTest {
                 .thenReturn(Map.of(21L, "WhatsApp 详情群名"));
 
         assertThat(service.task(100L).executions()).isEmpty();
+        assertThat(service.task(100L).creationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
         assertThat(service.task(100L).summary().successfulMemberCount()).isEqualTo(1);
         assertThat(service.task(100L).standardSetting().pullerSyncMode().name())
                 .isEqualTo("BATCH");
@@ -121,6 +123,9 @@ class PullTaskStandardReadServiceTest {
         assertThat(service.task(100L).standardSetting().earlyPullCallCount()).isEqualTo(2);
         assertThat(service.task(100L).standardSetting().pullerJoinByLink()).isTrue();
         assertThat(service.task(100L).standardSetting().groupFolderName()).isEqualTo("印度群");
+        assertThat(service.task(100L).standardSetting().creatorGroupId()).isEqualTo(16L);
+        assertThat(service.task(100L).standardSetting().creatorGroupName()).isEqualTo("建群人组");
+        assertThat(service.task(100L).standardSetting().initialStationCount()).isEqualTo(2);
         assertThat(service.task(100L).groupSetting().settingTiming().name())
                 .isEqualTo("AFTER_PULL");
         assertThat(service.task(100L).groupSetting().avatarPreviewUrl())
@@ -131,6 +136,8 @@ class PullTaskStandardReadServiceTest {
         assertThat(detail.execution().groupName()).isEqualTo("WhatsApp 详情群名");
         assertThat(detail.execution().normalizedLink()).isEqualTo("chat.whatsapp.com/AAAA");
         assertThat(detail.execution().sourceFileName()).isEqualTo("印度料子包.txt");
+        assertThat(detail.execution().createStep()).isEqualTo(4);
+        assertThat(detail.execution().groupSubject()).isEqualTo("印度料子包");
         assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
                 .singleElement()
@@ -224,6 +231,7 @@ class PullTaskStandardReadServiceTest {
         row.setId(100L);
         row.setTaskType(PullTaskType.STANDARD);
         row.setMode("NORMAL_LINK");
+        row.setCreationMode(PullTaskCreationMode.NEW_GROUP);
         row.setTaskName("真实任务");
         row.setStatus("EXECUTING");
         row.setGroupCount(1);
@@ -241,6 +249,8 @@ class PullTaskStandardReadServiceTest {
         row.setGroupJid("120363000000000000@g.us");
         row.setExecutionStatus(2);
         row.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
+        row.setCreateStep(4);
+        row.setGroupSubject("印度料子包");
         row.setManualPaused(1);
         row.setWaitResourceType(1);
         row.setValidMemberCount(1);
@@ -337,6 +347,9 @@ class PullTaskStandardReadServiceTest {
         row.setPullerCountPerGroup(2);
         row.setStationCountPerCall(0);
         row.setConcurrentGroupCount(1);
+        row.setInitialStationCount(2);
+        row.setCreatorGroupId(16L);
+        row.setCreatorGroupName("建群人组");
         row.setPullerRiskMinutes(10);
         row.setManagerGroupId(11L);
         row.setManagerGroupName("管理组");

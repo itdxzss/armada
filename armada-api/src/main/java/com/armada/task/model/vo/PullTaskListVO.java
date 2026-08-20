@@ -1,5 +1,6 @@
 package com.armada.task.model.vo;
 
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskGroupSource;
 import com.armada.task.model.enums.PullTaskListAction;
 import com.armada.task.model.enums.PullTaskResourceShortageType;
@@ -17,6 +18,7 @@ public record PullTaskListVO(
         String taskName,
         String groupName,
         String mode,
+        PullTaskCreationMode creationMode,
         PullTaskType taskType,
         PullTaskGroupSource groupSource,
         String status,

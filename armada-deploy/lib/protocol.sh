@@ -4,11 +4,24 @@ protocol_remote_deploy_payload='
 set -eu
 remote_dir="$1"
 preferred_pm2_config="$2"
+traffic_enabled="$3"
+traffic_retention_max_bytes="$4"
+traffic_retention_max_age_ms="$5"
+traffic_dashboard_port="$6"
+traffic_dir="${remote_dir}/traffic-capture"
 cd "${remote_dir}/protocol-layer"
 test -f .env || { echo "远端缺少协议配置: ${remote_dir}/protocol-layer/.env" >&2; exit 36; }
 set -a
 . ./.env
 set +a
+export TRAFFIC_ENABLED="${traffic_enabled}"
+export TRAFFIC_DIR="${traffic_dir}"
+export TRAFFIC_RETENTION_MAX_BYTES="${traffic_retention_max_bytes}"
+export TRAFFIC_RETENTION_MAX_AGE_MS="${traffic_retention_max_age_ms}"
+export TRAFFIC_DASHBOARD_HOST=127.0.0.1
+export TRAFFIC_DASHBOARD_PORT="${traffic_dashboard_port}"
+mkdir -p "${traffic_dir}"
+chmod 700 "${traffic_dir}"
 command -v npm >/dev/null 2>&1 || { echo "远端缺少 npm" >&2; exit 30; }
 command -v pm2 >/dev/null 2>&1 || { echo "远端缺少 pm2" >&2; exit 31; }
 node_version="$(node --version)"
@@ -46,6 +59,9 @@ else
   exit 32
 fi
 pm2 startOrReload "${pm2_config}" --update-env
+test -f deploy/traffic-dashboard.pm2.config.cjs \
+  || { echo "远端缺少协议流量看板 PM2 配置" >&2; exit 37; }
+pm2 startOrReload deploy/traffic-dashboard.pm2.config.cjs --update-env
 pm2 jlist | node -e "
 let input = \"\"
 process.stdin.on(\"data\", chunk => { input += chunk })
@@ -70,6 +86,26 @@ process.stdin.on(\"end\", () => {
   console.log(\"协议 PM2 应用校验通过: \" + apps.map(app => app.name).join(\",\"))
 })
 "
+pm2 jlist | node -e "
+let input = \"\"
+process.stdin.on(\"data\", chunk => { input += chunk })
+process.stdin.on(\"end\", () => {
+  const app = JSON.parse(input).find(item => item.name === \"protocol-traffic-dashboard\")
+  if (app?.pm2_env?.status !== \"online\" || !String(app?.pm2_env?.node_version ?? \"\").startsWith(\"24.\")) {
+    console.error(\"协议流量看板必须在线并运行在 Node.js 24.x\")
+    process.exit(38)
+  }
+})
+"
+attempt=1
+until curl -fsS -m 8 "http://127.0.0.1:${traffic_dashboard_port}/api/overview" >/dev/null; do
+  if [ "${attempt}" -ge 12 ]; then
+    echo "协议流量看板未在时限内就绪" >&2
+    exit 39
+  fi
+  sleep 2
+  attempt=$((attempt + 1))
+done
 pm2 save >/dev/null 2>&1 || true
 '
 
@@ -138,12 +174,15 @@ protocol_sync_source() {
 }
 
 protocol_deploy_remote() {
-  protocol_ssh_run "bash -s -- '${PROTOCOL_REMOTE_DIR}' '${PROTOCOL_PM2_CONFIG}'" <<<"${protocol_remote_deploy_payload}"
+  protocol_ssh_run \
+    "bash -s -- '${PROTOCOL_REMOTE_DIR}' '${PROTOCOL_PM2_CONFIG}' '${PROTOCOL_TRAFFIC_ENABLED}' '${PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES}' '${PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS}' '${PROTOCOL_TRAFFIC_DASHBOARD_PORT}'" \
+    <<<"${protocol_remote_deploy_payload}"
 }
 
 protocol_verify_health() {
   protocol_ssh_run "pm2 describe armada-protocol-master >/dev/null 2>&1 || pm2 describe protocol-master >/dev/null 2>&1"
   protocol_ssh_run "curl -fsS -m 8 http://127.0.0.1:${PROTOCOL_HEALTH_PORT}/readyz >/dev/null"
+  protocol_ssh_run "curl -fsS -m 8 http://127.0.0.1:${PROTOCOL_TRAFFIC_DASHBOARD_PORT}/api/overview >/dev/null"
 }
 
 protocol_tail_logs() {

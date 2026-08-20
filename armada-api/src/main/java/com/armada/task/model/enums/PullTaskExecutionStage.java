@@ -18,7 +18,15 @@ public enum PullTaskExecutionStage {
     /** 料子提权：给带 A/a 标识且已成功入群的料子设置群管理员。 */
     MATERIAL_ADMIN(7),
     /** 收口：本行全部动作终态，写入完成状态。 */
-    CLOSING(8);
+    CLOSING(8),
+    /**
+     * 建群：新群模式的起始阶段，由建群人创建群、设群资料、生成邀请链接。
+     *
+     * <p>取值排在最后是为了纯追加，不改动既有 1..8 的语义；执行顺序上它最先。
+     * 新群模式执行行以本阶段起步，完成后直接置为 {@link #MANAGER_JOIN}，
+     * 跳过 {@link #LINK_VALIDATION}——链接由本任务生成，无需校验。</p>
+     */
+    GROUP_CREATE(9);
 
     private final int code;
 

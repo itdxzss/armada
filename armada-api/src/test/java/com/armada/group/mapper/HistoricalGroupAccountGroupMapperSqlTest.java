@@ -81,7 +81,8 @@ class HistoricalGroupAccountGroupMapperSqlTest {
                 .contains("self_participant.presence_status = 1")
                 .contains("self_participant.role IN (2, 3)")
                 .contains("s.login_state = #{onlineLoginState}")
-                .contains("s.account_state = #{normalAccountState}")
+                .contains("s.account_state IN")
+                .contains("collection=\"executableAccountStates\"")
                 .doesNotContain("JSON_CONTAINS");
     }
 

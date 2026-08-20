@@ -65,9 +65,13 @@ class PullTaskManagerAdminStageMigrationSqlTest {
 
     @Test
     void javaEnumsMatchTheEightPersistedStages() {
+        // V102 重排出的八个阶段编号必须原封不动、顺序一致——存量执行行的 stage 按它解读，
+        // 改动任何一个都会让线上数据整体语义漂移。
+        // 用 startsWith 而不是 containsExactly，是为了允许后续迁移在尾部追加新阶段：
+        // V131 追加了 GROUP_CREATE(9)（新群模式起始阶段，纯追加不影响 1..8）。
         assertThat(PullTaskExecutionStage.values())
                 .extracting(PullTaskExecutionStage::code)
-                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8);
+                .startsWith(1, 2, 3, 4, 5, 6, 7, 8);
         assertThat(PullTaskExecutionStage.MANAGER_ADMIN.code()).isEqualTo(3);
         assertThat(PullTaskGroupAccountRole.PROMOTER.code()).isEqualTo(4);
         assertThat(PullTaskAccountActionType.PROMOTE_MANAGER.code()).isEqualTo(4);

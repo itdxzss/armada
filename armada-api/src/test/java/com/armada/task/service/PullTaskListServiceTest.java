@@ -16,6 +16,7 @@ import com.armada.task.model.dto.PullTaskQuery;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupMarketingSummary;
 import com.armada.task.model.enums.PullTaskListAction;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskResourceShortageType;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskListVO;
@@ -43,6 +44,7 @@ class PullTaskListServiceTest {
         marketing.setLastBusinessExecutedAt(8_000L);
         PullTask standard = task(11L, PullTaskType.STANDARD, "WAIT_START");
         standard.setMode("NORMAL_LINK");
+        standard.setCreationMode(PullTaskCreationMode.NEW_GROUP);
         standard.setCreatedAt(1_000L);
         standard.setUpdatedAt(2_000L);
         PullTaskGroupMarketingSummary summary = summary(12L);
@@ -69,6 +71,7 @@ class PullTaskListServiceTest {
 
         PullTaskListVO standardRow = result.list().get(1);
         assertThat(standardRow.groupProgress().processedGroupCount()).isEqualTo(2);
+        assertThat(standardRow.creationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
         assertThat(standardRow.pullResult().joinedSuccessCount()).isEqualTo(7);
         assertThat(standardRow.pullResult().failedCount()).isEqualTo(2);
         assertThat(standardRow.marketingProgress()).isNull();

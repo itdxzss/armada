@@ -1,0 +1,202 @@
+# 拉群任务「新群模式」剩余工作清单
+
+> 日期：2026-08-20
+> 分支：`feat/pull-task-new-group-mode`，worktree `armada/.worktrees/pulltask-new-group-mode`
+> 开工时已有 12 个本地提交，**未推送**；本轮实现仍在工作区，远端还没有这个分支。
+>
+> 本文是给下一个执行者（Codex）的施工单，写明「还剩什么、怎么做、坑在哪」。
+> 背景与已完成部分见 `2026-08-19-pull-task-new-group-mode-handoff.md`（进度与坑）
+> 和 `docs/business/pull-task-new-group-mode-development-design.md`（实施规格）、`docs/adr/0010`~`0013`（四条决策）。
+> **本文不重复那三份的内容，但会在每项里指明该读它们的哪一节。**
+
+## 2026-08-20 实施结果
+
+用户已确认并按以下口径实现：
+
+1. 一个成功接收的 TXT 文件对应一个新群和一条执行行，不增加“建群数量”字段。
+2. 新群模式的群信息设置总开关默认开启；显式关闭时仍以 TXT 文件名作为建群群名，开关只控制后续群资料与权限下发。
+3. 次管理员固定作为建群初始成员，`initialStationCount` 只统计站台；建群回执明确成功的次管理员和站台写 `IN_GROUP`。
+4. 建群阶段的群资料与权限由仍持有群主权限的建群人执行；次管理员提权完成后，建群人退出后续执行。
+
+①~⑥ 的代码和本地自动化验证已完成：新群草稿可提交、站台容量校验已接入、阶段 9 已进入认领与分派、七步建群阶段已实现、前端 Tab/表单/详情已接通。⑦ 仍受本文记录的 test1 在线账号资源阻塞，不能据此宣称真环境闭环通过。
+
+## 0. 开工前必须知道的五条
+
+这五条踩中任何一条都会返工，且其中三条**不报错**，只是功能静默不工作。
+
+1. **`"NORMAL_LINK"` 是执行链路开关，不是群来源。** 硬编码在 26 个主代码文件里（调度器认领条件、全部 `*TransactionService` 准入闸门、列表筛选、各读服务）。新群模式的 `pull_task.mode` **必须仍是 `NORMAL_LINK`**，模式区分走 `creation_mode` 列。改掉 `mode` 的后果：调度器不认领执行行，任务建完一步不动，**且不报错**，只是永远停在待启动。
+2. **不要碰 `pull_task.group_source` 列。** 那是 V088 给拉群营销定义的历史群/自收群来源，名字相近、语义无关，复用会污染营销的任务列表筛选。
+3. **H2 测试表结构是手工维护的**，在 `armada-api/src/test/java/com/armada/task/mapper/PullTaskNormalLinkSchema.java`。Flyway 脚本**不在 H2 上跑**。加列只写迁移不改这里，Mapper 测试会拿着过期结构照样通过——**假绿**。（V133~V136 的列已经同步过了，新增列时才需要动。）
+4. **迁移版本号必须在落盘当刻复查**，昨天查过不算。这个仓库改表的人多，两天之内撞号两次（V130 被 delaySend 占、V132 被群设置总开关占）。核对命令在规格 4.4。撞号的后果是容器 crash-loop、整站 502。
+5. **共享工作区禁止 `git add .`**，只能精确加路径，否则会卷进别人的在途改动。
+
+**测试基线：本分支本来就带 6 个红，不是你弄坏的。**
+
+```
+PullTaskMapperBusinessConditionTest.businessStatusConditionsMustComeFromJavaParameters
+PullTaskClosingTransactionServiceTest.closesLastExecutionAndCompletesParentTaskWithCas
+PullTaskStationSupplementServiceTest.rejectsOverfillAndManualAccountsOutsideCurrentCandidates
+PullTaskStationSupplementServiceTest.automaticSupplementFreezesTheRequestedNumberOfCandidates
+PullTaskStationSupplementServiceTest.manualSupplementLocksOnlyTheStationAndPreservesManualPause
+PullTaskNormalLinkCollationDbTest.inviteCodesDifferingOnlyByCaseAreDistinctLinks（要连真库，本地起不来上下文）
+```
+
+跑法与当前数：
+
+```bash
+cd armada-api && mvn -Dtest='PullTask*Test,*PullTask*Test' -DfailIfNoTests=false test
+# 2026-08-20 现状：760 个，3 failures + 3 errors，与基线一致
+```
+
+判断「有没有弄坏东西」= 跟这 6 个逐条比对，不是「有红就是我的锅」。
+
+---
+
+## ① 第 2 刀(b)：新群模式现在提交不了 —— 已完成
+
+**现状**：`PullTaskStandardCreateTransactionService.submit()` 第 75~78 行：
+
+```java
+List<PullTaskGroupExecution> rows = executionMapper.selectByTaskId(task.getId());
+if (rows.isEmpty()) {
+    throw new BusinessException(ErrorCode.VALIDATION, "至少需要一条群链接与 TXT 的匹配");
+}
+```
+
+新群模式没有粘贴的链接，执行行一条也生成不出来，**整个模式卡在创建这一步，后面全部免谈**。
+
+**已确认口径：**
+
+> 新群模式下，**建几个群 = 成功接收了几个 TXT 料子文件**，不单独填写「建群数量」。
+
+实现按每个解析通过的 TXT 直接生成一条 `stage=9` 的无链接执行行；提交时按创建模式校验草稿行形状，群链接模式原校验仍保留。
+
+**需要读的现有代码**：
+- `PullTaskStandardDraftServiceImpl.plan()`（草稿态收料子与配对的全流程，461 行，重点看 100~137 行）
+- `PullTaskLinkMatcher.match()`（1:1 随机配对，ADR-0005）
+- `PullTaskStandardDraftServiceImpl.toExecution()`（第 301 行，执行行怎么组装）
+
+**改动要点**：
+- 新群模式下，链接三列（`normalized_link`/`invite_code`/`source_link_line_no`）留空。V133 已经把这三列改成可空了，不用再动表。
+- `source_file_index` 与 `uq_pull_task_execution_file` 保持不变，新群模式仍绑定料子 TXT。
+- 执行行初始 `stage` 写 `9`（`GROUP_CREATE`），不是 1。
+- 那道 `rows.isEmpty()` 的校验对新群模式要换成别的判据（比如「至少上传一个料子文件」），**不要直接删掉**——群链接模式仍然需要它。
+- 提交时 `submitTask()` 里的 `expectedPullCount` 是各执行行 `valid_member_count` 之和，这条对两个模式都成立，不用改。
+
+**验证**：`PullTaskStandardCreateServiceTest`（H2 跑真 SQL，已有 20 个用例可参照）+ `PullTaskStandardDraftServiceImpl` 的草稿测试。
+
+---
+
+## ② 站台双笔校验没接上 —— 已完成
+
+**现状**：`PullTaskNewGroupModeValidator.stationDemand(initialStationCount, stationCountPerCall)` 已经写好并有单测（`PullTaskNewGroupModeValidatorTest:80`），**但全仓没有任何生产代码调用它**（已 grep 确认）。等于白写。
+
+**后果**：用户配「建群带 3 个站台 + 每次拉人 5 个站台」，而站台分组只有 4 个可用号——创建时不报错，启动后执行行卡在「等待站台」，运营看不出哪里配错了。
+
+创建校验已接入严格可执行在线账号口径：
+
+```
+站台分组可用数 >= max(initialStationCount, stationCountPerCall)
+```
+
+取 max 不是相加，理由见 `stationDemand` 的 javadoc（建群时进群的站台会落成 `IN_GROUP` 的站台角色行，拉人选号逻辑会把本执行行已有的站台角色行全部排除，不会重复占用；相加会凭空抬高门槛，把本可执行的配置拦在创建阶段）。
+
+规格 5.3 还要求在确认页提示：建群时占用的站台会减少后续拉人调用的可选站台；分组偏小时执行行会进入「等待站台」。这条属于前端（第 ⑥ 项）。
+
+---
+
+## ③④ 建群阶段本身 —— 已完成本地实现与自动化验证
+
+规格 6.2 有完整的七步序列表格，**照着做，本文不重抄**。这里只讲规格里没有、必须读代码才知道的事。
+
+### ⚠️ 两处「阶段 9 静默失踪」，改不到就整块不工作
+
+新群模式执行行的 `stage=9`，而：
+
+**(1) 调度器认领白名单里没有 9。** `PullTaskExecutionDispatchCoordinator.advancingStates()`（第 143 行）与 `startingStates()`（第 170 行）用 `List.of(...)` 逐个列出允许调度的阶段码，当前只有 1~8。`stage=9` 的执行行**连认领都轮不上**。
+
+**(2) StageRouter 分派不到 9。** `PullTaskExecutionStageRouter.process()`（第 45~78 行）是 8 个 `if` 顺序比对阶段码，最后 `return PullTaskExecutionDispatchResult.LOST`。就算改了 (1)，到这里也会掉进 LOST 被静默丢弃。
+
+**两处都得加，缺一个都是「任务在跑但执行行一动不动，且不报错」。** 这是本项最容易漏的坑。
+
+### 复用，不要重造
+
+- **第 4、6 步（群资料、拉人前群设置）直接调 `PullTaskGroupProfileDispatcher.dispatchIfDue(执行行, 时机, now)`**，主线提交 `ca267059` 已经接通。它自己读配置、判总开关与 `setting_timing`、查是否已发过、挑可用管理员、入队命令，调用方只需在正确时机喊一声。该方法不区分群来源，只要执行行有 `group_jid` 就能用。详见规格 3.1.2。
+- **不要复用建群链路的 `GROUP_SETTINGS_APPLY`**，主线已确认三处冲突（建群 parsePayload 硬判 source、correlation 形状互斥、群名只在 autoGeneratedSubject 时才设）。正确的命令是 `group.profile.apply`，来源 `pull_task_group_profile`。
+- **建群人落既有 `role_type=4`**（V102 引入的「提权管理员」槽位），不新增角色取值，`MANAGER_ADMIN` 阶段代码不改。建群阶段由它应用群资料/权限并给次管理员提权；提权完成后即退居二线，不参与邀请拉手。ADR-0011。
+- 建群调 `IdempotentGroupCreatePort.create`（`com.armada.platform.protocol.idempotency`），`operationId` 取执行行的 `create_operation_id`，`participants` 一次性带全部初始站台。该 Port 自带严格幂等：可能已创建群的异常会保留 PROCESSING，阻止同 operationId 二次建群。
+
+### 三条硬约束
+
+1. **初始站台的 `membership_status` 必须写 `IN_GROUP`**（仅限建群回执明确成功的那些）。写成 `NOT_JOINED` 会被后续拉人调用重新选中、重复提交同一个号。判定逻辑见规格 3.2（`PullTaskStationSelectionService.findCandidates` 的 `reusableStation` 条件）。未成功的保持 `NOT_JOINED`，由既有机制自然补足。
+2. **第 5 步（生成邀请链接）是硬门槛。** 失败即阻断次管理员进群、补充拉手（ADR-0006 第 45 条固定踩链接）、补充管理员的踩链接分支。**不允许把链接生成延后到后续阶段。**
+3. **第 2 步的失败分类严格按 ADR-0013**：确定未创建的错误码允许重试并累加 `create_attempt_count`；其余一律转「结果未知」并停止，不自动重建。（`IdempotentGroupCreatePort` 里的 `DEFINITELY_NOT_CREATED` 枚举集就是这个分类。）
+
+WhatsApp 副作用节点之间沿用 ADR-0006 第 50 条的 3~5 秒持久化随机静默。
+
+全部七步做完置 `stage=2`（MANAGER_JOIN），**跳过 `stage=1`（LINK_VALIDATION）**——链接是本任务自己生成的，无需校验。
+
+---
+
+## ⑤ 第 5 刀：群设置总开关的默认值 —— 已确认并完成
+
+新群模式创建入口默认开启；用户显式关闭时仍以 TXT 文件名作为建群群名。群链接模式和存量任务继续默认关闭。
+
+---
+
+## ⑥ 第 6 刀：前端 —— 已完成本地实现与自动化验证
+
+**现状**：`wheel-saas-pure-web/src/views/task/pull-task/components/PullTaskCreateDrawer.vue:76`
+
+```vue
+<el-tab-pane name="new" label="新群模式（后期）" disabled />
+```
+
+Tab 是灰的、点不动。要做：
+- 去掉「（后期）」字样，解除 `disabled`。
+- 建群配置表单：`creatorGroupId`（建群人分组，必填）、`initialStationCount`（建群时初始站台数，默认 0）。群名/头像/描述/时机/权限项**沿用既有 `groupSetting` 块，字段一个不加**。
+- 站台容量提示按第 ② 项与规格 5.3。
+- 任务列表与详情按 `creationMode` 区分展示。**新群模式的执行行在建群完成前没有群链接，列表不得显示空链接或占位文本，应显示当前建群步骤。**
+- 沿用既有 `data-testid` 约定，供 e2e 断言。
+
+出入参 camelCase，时间值 epoch 毫秒。
+
+---
+
+## ⑦ 第 7 刀：test1 真环境闭环 —— 前置条件卡在用户身上
+
+Playwright 驱动 test1 已部署前端，真后端、真协议、真发 WhatsApp。断言分三层（页面元素与文本、API 响应体、数据库事实），参照 `wheel-saas-pure-web/e2e/group-marketing.spec.ts`。诊断复用 `armada-deploy/tools/pull-task-diagnose.sh`。
+
+**前置条件（0818 实测，尚未满足，用户已表示由他处理）：**
+- `108 拉群测试-站台分组` 20 个账号 **0 在线**
+- `117 测试拉手分组` 6 个 **0 在线**；`145 8-12默念第二批（拉手）` 87 个仅 1 在线
+- 环境有人在用（当时 `#167` 正在 EXECUTING），需要为验证圈出专属账号分组避免抢号
+
+不解决则执行行会停在「等待拉手」，**拉人段根本验不到**。
+
+料子号码是硬消耗：拉进群的号不能再用，按每轮 5~10 人计，一个 40 人文件够跑四到八轮。
+
+**验证判据**（逐条为真才算通过）：群已创建且能查到 JID；群名、头像、描述与配置一致；邀请链接已生成；次管理员在群内且已是管理员；建群时的初始站台在群内；拉手在群内；料子按配置数量进群；拉人时的站台也已进群；群设置按所选时机生效。
+
+**判据必须以 WhatsApp 实时群元数据为准**，不能只读本系统写入的状态——「库里成功、群里没人」是本系统最典型的假成功模式。
+
+---
+
+## 两条已知缺口：**不要为新群模式单独补**
+
+1. **群设置结果回不来。** 协议事件的 source 白名单没加 `pull_task_group_profile`，协议侧也没有「哪一项失败」字段。发出去只知道发了，不知道成没成。建群阶段第 4、6 步因此**只能发完即过**，不能等结果。影响可控：这块本来就是「失败不阻断执行行」的设计。
+2. **失败不自动重发是 2026-08-19 的明确取舍，不是缺口。** 协议侧对这类失败恒回 UNKNOWN，无次数上限就会无限重发；运营在执行明细里看得见哪一项没设上，手动重来即可。
+
+这两条对两个模式一视同仁，单独补会让两个模式分叉。
+
+---
+
+## 环境遗留
+
+本机 MySQL 上有两个临时验证库未清理：`armada_ddl_probe_v131`、`armada_ddl_probe_v133`（0818 验 V133 迁移时建的）。可直接 drop，但**删除属于破坏性操作，执行前须取得用户明确同意**。
+
+本机库凭证在 `armada-api/.env`（gitignored，worktree 里没有，从主 checkout 读），指向 `localhost:3306`。
+
+**改列 / 生成列 / 索引类的迁移，务必在本机 MySQL 实跑一遍再合并**——H2 上 Flyway 根本不执行，迁移文本测试只能断言脚本写了什么，不能断言 MySQL 认不认。迁移失败会 crash-loop 全站 502。做法见规格 4.1 的验证记录。
+
+部署前必须 `mvn -pl armada-api clean`，不清理会带上 worktree 里的过期迁移文件，同样导致 crash-loop。

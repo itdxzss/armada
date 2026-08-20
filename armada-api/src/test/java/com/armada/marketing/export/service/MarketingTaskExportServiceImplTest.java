@@ -4,6 +4,7 @@ import com.armada.marketing.export.mapper.MarketingTaskExportMapper;
 import com.armada.marketing.export.model.dto.MarketingTaskExportRequestDTO;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
 import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
+import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
 import com.armada.marketing.export.service.impl.MarketingTaskExportServiceImpl;
 import com.armada.marketing.export.service.impl.MarketingTaskWhatsAppMemberProvider;
 import com.armada.marketing.export.writer.MarketingTaskExportWorkbookWriter;
@@ -370,6 +371,10 @@ class MarketingTaskExportServiceImplTest {
         sourceRow.setCountryPhonePrefix("+62");
         CountryOptionVO indonesia = new CountryOptionVO(
                 "IN", "ID", "印度尼西亚", "Indonesia", "+62", "🇮🇩", false, "ASIA");
+        MarketingTaskGroupExportRow sourceGroup = new MarketingTaskGroupExportRow();
+        sourceGroup.setTaskId(9L);
+        sourceGroup.setGroupMemberCount(18);
+        List<MarketingTaskGroupExportRow> writtenGroups = new ArrayList<>();
         List<MarketingTaskCountryEntryExportRow> writtenRows = new ArrayList<>();
 
         when(mapper.selectExpiredFiles(FIXED_CLOCK.millis(), 20)).thenReturn(List.of());
@@ -384,31 +389,34 @@ class MarketingTaskExportServiceImplTest {
                 .thenReturn(1);
         when(countryService.activePhonePrefixResolver()).thenReturn(phone -> indonesia);
         doAnswer(invocation -> {
-            java.util.function.Consumer<MarketingTaskCountryEntryExportRow> consumer =
+            MarketingTaskWhatsAppMemberProvider.CountryOutput output =
                     invocation.getArgument(1);
-            consumer.accept(sourceRow);
+            output.groupConsumer().accept(sourceGroup);
+            output.countryConsumer().accept(sourceRow);
             return null;
         }).when(whatsAppMemberProvider).streamCountry(
                 any(MarketingTaskWhatsAppMemberProvider.ExportRequest.class),
-                any(java.util.function.Consumer.class));
+                any(MarketingTaskWhatsAppMemberProvider.CountryOutput.class));
         when(workbookWriter.writeCountryEntry(
                 any(Path.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
+                any(MarketingTaskExportWorkbookWriter.CountryRowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
                 .thenAnswer(invocation -> {
                     Path output = invocation.getArgument(0);
-                    MarketingTaskExportWorkbookWriter.RowSource<MarketingTaskCountryEntryExportRow> rows =
+                    MarketingTaskExportWorkbookWriter.CountryRowSource rows =
                             invocation.getArgument(1);
-                    rows.forEach(writtenRows::add);
+                    rows.forEach(writtenGroups::add, writtenRows::add);
                     Files.write(output, new byte[] {1, 2, 3});
-                    return new MarketingTaskExportWorkbookWriter.WriteResult(0, writtenRows.size());
+                    return new MarketingTaskExportWorkbookWriter.WriteResult(
+                            writtenGroups.size(), writtenRows.size());
                 });
         when(mapper.markJobSuccess(any(MarketingTaskExportJob.class)))
                 .thenReturn(1);
 
         service.processPendingJobs(1);
 
+        assertThat(writtenGroups).containsExactly(sourceGroup);
         assertThat(writtenRows).containsExactly(sourceRow);
         assertThat(sourceRow.getCountryName()).isEqualTo("印度尼西亚");
         assertThat(sourceRow.getCountryPhonePrefix()).isEqualTo("+62");
@@ -417,14 +425,14 @@ class MarketingTaskExportServiceImplTest {
                 argThat(request -> request.tenantId().equals(3L)
                         && request.taskIds().equals(List.of(9L))
                         && request.snapshotAt() == FIXED_CLOCK.millis()),
-                any(java.util.function.Consumer.class));
+                any(MarketingTaskWhatsAppMemberProvider.CountryOutput.class));
         ArgumentCaptor<MarketingTaskExportJob> completedJob =
                 ArgumentCaptor.forClass(MarketingTaskExportJob.class);
         verify(mapper).markJobSuccess(completedJob.capture());
         assertThat(completedJob.getValue().getFileName())
                 .isEqualTo("营销任务按国家进群明细_20260729_112000.xlsx");
         assertThat(completedJob.getValue().getFileSize()).isEqualTo(3L);
-        assertThat(completedJob.getValue().getSummaryRowCount()).isZero();
+        assertThat(completedJob.getValue().getSummaryRowCount()).isEqualTo(1);
         assertThat(completedJob.getValue().getDetailRowCount()).isEqualTo(1);
     }
 
@@ -486,7 +494,7 @@ class MarketingTaskExportServiceImplTest {
                 .thenReturn(1);
         when(workbookWriter.writeCountryEntry(
                 any(Path.class),
-                any(MarketingTaskExportWorkbookWriter.RowSource.class),
+                any(MarketingTaskExportWorkbookWriter.CountryRowSource.class),
                 eq(FIXED_CLOCK.instant()),
                 eq(FIXED_CLOCK.instant())))
                 .thenReturn(new MarketingTaskExportWorkbookWriter.WriteResult(0, 0));

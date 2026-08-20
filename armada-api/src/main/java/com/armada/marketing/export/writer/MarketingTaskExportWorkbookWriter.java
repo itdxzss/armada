@@ -41,6 +41,13 @@ public class MarketingTaskExportWorkbookWriter {
                      Consumer<MarketingTaskGroupMemberExportRow> memberConsumer);
     }
 
+    /** 一次数据遍历同时向群统计和国家进群明细工作表推送。 */
+    @FunctionalInterface
+    public interface CountryRowSource {
+        void forEach(Consumer<MarketingTaskGroupExportRow> groupConsumer,
+                     Consumer<MarketingTaskCountryEntryExportRow> countryConsumer);
+    }
+
     /** 工作簿实际写入的数据行数。 */
     public record WriteResult(int summaryRowCount, int detailRowCount) {
     }
@@ -69,29 +76,39 @@ public class MarketingTaskExportWorkbookWriter {
             "任务 ID", "任务名称", "群名称", "群组链接", "群状态", "群人数", "群成员", "角色",
             "国家/地区", "是否在群", "退出方式", "进群时间", "退群时间", "本任务进群状态");
 
-    /** 写出按国家成功进群明细工作簿。 */
+    /** 写出营销群组统计和按国家成功进群明细工作簿。 */
     public WriteResult writeCountryEntry(Path output,
-                                         List<MarketingTaskCountryEntryExportRow> rows,
+                                         List<MarketingTaskGroupExportRow> groups,
+                                         List<MarketingTaskCountryEntryExportRow> countryEntries,
                                          Instant snapshotAt,
                                          Instant generatedAt) throws IOException {
-        return writeCountryEntry(output, consumer -> safe(rows).forEach(consumer), snapshotAt, generatedAt);
+        return writeCountryEntry(output, (groupConsumer, countryConsumer) -> {
+            safe(groups).forEach(groupConsumer);
+            safe(countryEntries).forEach(countryConsumer);
+        }, snapshotAt, generatedAt);
     }
 
-    /** 逐行写出按国家成功进群明细，内存中不保留完整结果集。 */
+    /** 单次遍历同时逐行写出群统计和按国家成功进群明细。 */
     public WriteResult writeCountryEntry(Path output,
-                                         RowSource<MarketingTaskCountryEntryExportRow> rows,
+                                         CountryRowSource rows,
                                          Instant snapshotAt,
                                          Instant generatedAt) throws IOException {
+        String snapshotText = TIME_FORMAT.format(snapshotAt);
         try (SXSSFWorkbook workbook = workbook(); OutputStream stream = Files.newOutputStream(output)) {
-            int detailCount = writeSplitSheets(
-                    workbook, "国家进群数据", COUNTRY_HEADERS, rows, row -> List.of(
+            StreamingSheetWriter<MarketingTaskGroupExportRow> groupWriter =
+                    groupStatisticsWriter(workbook, snapshotText);
+            StreamingSheetWriter<MarketingTaskCountryEntryExportRow> countryWriter =
+                    new StreamingSheetWriter<>(workbook, "国家进群数据", COUNTRY_HEADERS, row -> List.of(
                     time(row.getJoinedAt()), value(row.getTaskId()), text(row.getTaskName()),
                     text(row.getCountryName()), text(row.getCountryPhonePrefix()), digits(row.getActualPhone()),
                     text(row.getGroupName()), text(row.getGroupLink()), text(row.getGroupStatus()),
                     text(row.getSpeechPermission()), digits(row.getSenderPhone()),
                     number(row.getJoinedPhoneCount()), number(row.getMarketingCount())));
+            rows.forEach(groupWriter, countryWriter);
+            groupWriter.finish();
+            countryWriter.finish();
             workbook.write(stream);
-            return new WriteResult(0, detailCount);
+            return new WriteResult(groupWriter.totalRows(), countryWriter.totalRows());
         }
     }
 
@@ -128,16 +145,8 @@ public class MarketingTaskExportWorkbookWriter {
                                  Instant generatedAt) throws IOException {
         String snapshotText = TIME_FORMAT.format(snapshotAt);
         try (SXSSFWorkbook workbook = workbook(); OutputStream stream = Files.newOutputStream(output)) {
-            StreamingSheetWriter<MarketingTaskGroupExportRow> groupWriter = new StreamingSheetWriter<>(
-                    workbook, "营销群组统计", GROUP_HEADERS, row -> List.of(
-                    value(row.getTaskId()), text(row.getTaskName()), text(row.getGroupName()),
-                    text(row.getGroupLink()), time(row.getJoinedTaskAt()), text(row.getGroupStatus()),
-                    text(row.getSpeechPermission()), nullableNumber(row.getGroupMemberCount()),
-                    number(row.getJoinedPhoneCount()), number(row.getPlannedCount()),
-                    number(row.getSuccessCount()), number(row.getFailedCount()), number(row.getUnknownCount()),
-                    digits(row.getSenderPhone()), text(row.getAccountStatus()), time(row.getFirstSentAt()),
-                    time(row.getLastSentAt()), text(row.getSendStatus()), text(row.getFailureReason()),
-                    snapshotText, text(row.getRemark())));
+            StreamingSheetWriter<MarketingTaskGroupExportRow> groupWriter =
+                    groupStatisticsWriter(workbook, snapshotText);
             StreamingSheetWriter<MarketingTaskGroupMemberExportRow> memberWriter = new StreamingSheetWriter<>(
                     workbook, "群组成员明细", MEMBER_HEADERS, row -> List.of(
                     value(row.getTaskId()), text(row.getTaskName()), text(row.getGroupName()),
@@ -160,16 +169,19 @@ public class MarketingTaskExportWorkbookWriter {
         return workbook;
     }
 
-    private static <T> int writeSplitSheets(SXSSFWorkbook workbook,
-                                            String baseName,
-                                            List<String> headers,
-                                            RowSource<T> rows,
-                                            Function<T, List<Object>> converter) {
-        StreamingSheetWriter<T> writer = new StreamingSheetWriter<>(
-                workbook, baseName, headers, converter);
-        rows.forEach(writer);
-        writer.finish();
-        return writer.totalRows();
+    private static StreamingSheetWriter<MarketingTaskGroupExportRow> groupStatisticsWriter(
+            SXSSFWorkbook workbook,
+            String snapshotText) {
+        return new StreamingSheetWriter<>(
+                workbook, "营销群组统计", GROUP_HEADERS, row -> List.of(
+                value(row.getTaskId()), text(row.getTaskName()), text(row.getGroupName()),
+                text(row.getGroupLink()), time(row.getJoinedTaskAt()), text(row.getGroupStatus()),
+                text(row.getSpeechPermission()), nullableNumber(row.getGroupMemberCount()),
+                number(row.getJoinedPhoneCount()), number(row.getPlannedCount()),
+                number(row.getSuccessCount()), number(row.getFailedCount()), number(row.getUnknownCount()),
+                digits(row.getSenderPhone()), text(row.getAccountStatus()), time(row.getFirstSentAt()),
+                time(row.getLastSentAt()), text(row.getSendStatus()), text(row.getFailureReason()),
+                snapshotText, text(row.getRemark())));
     }
 
     private static final class StreamingSheetWriter<T> implements Consumer<T> {

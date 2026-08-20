@@ -86,8 +86,9 @@ public class MarketingTaskWhatsAppMemberProvider {
     /** 构建按国家导出所需的 WhatsApp 当前/历史成员数据。 */
     public void streamCountry(
             ExportRequest request,
-            Consumer<MarketingTaskCountryEntryExportRow> countryConsumer) {
-        collect(request, ExportSink.country(request.countryResolver(), countryConsumer));
+            CountryOutput output) {
+        collect(request, ExportSink.country(
+                request.countryResolver(), output.groupConsumer(), output.countryConsumer()));
     }
 
     private void collect(ExportRequest request, ExportSink rows) {
@@ -160,7 +161,6 @@ public class MarketingTaskWhatsAppMemberProvider {
                     List<WhatsappGroupJoinFactVO> joins = joinsByGroup.getOrDefault(
                             snapshot.group().getGroupJid(), List.of());
                     applyJoinedPhoneCount(snapshot.group(), joins, snapshotAt);
-                    rows.addGroup(snapshot.group());
                     mergeGroup(
                             snapshot,
                             departedByGroup.getOrDefault(snapshot.group().getGroupJid(), List.of()),
@@ -306,6 +306,17 @@ public class MarketingTaskWhatsAppMemberProvider {
         for (WhatsappGroupMemberStateVO participant : snapshot.cached().members()) {
             addIdentity(cachedIdentities, participant.participantJid());
             addIdentity(cachedIdentities, participant.phone());
+        }
+        Set<WhatsappGroupDepartedMemberVO> distinctDepartures =
+                new LinkedHashSet<>(latestDepartures.values());
+        long departedOnlyCount = distinctDepartures.stream()
+                .filter(participant -> !containsIdentity(cachedIdentities, participant.participantJid()))
+                .filter(participant -> !containsIdentity(cachedIdentities, participant.phone()))
+                .count();
+        snapshot.group().setGroupMemberCount(Math.toIntExact(
+                snapshot.cached().members().size() + departedOnlyCount));
+        rows.addGroup(snapshot.group());
+        for (WhatsappGroupMemberStateVO participant : snapshot.cached().members()) {
             WhatsappGroupJoinFactVO join = joinFor(
                     latestJoins, participant.phone(), participant.participantJid());
             WhatsappGroupDepartedMemberVO departure = departureFor(
@@ -318,7 +329,7 @@ public class MarketingTaskWhatsAppMemberProvider {
                             join == null ? null : join.joinedAt(),
                             inGroup || departure == null ? null : departure.exitedAt()));
         }
-        for (WhatsappGroupDepartedMemberVO participant : new LinkedHashSet<>(latestDepartures.values())) {
+        for (WhatsappGroupDepartedMemberVO participant : distinctDepartures) {
             if (containsIdentity(cachedIdentities, participant.participantJid())
                     || containsIdentity(cachedIdentities, participant.phone())) {
                 continue;
@@ -680,6 +691,12 @@ public class MarketingTaskWhatsAppMemberProvider {
             Consumer<MarketingTaskGroupMemberExportRow> memberConsumer) {
     }
 
+    /** 按国家导出的群统计和国家进群明细逐行输出边界。 */
+    public record CountryOutput(
+            Consumer<MarketingTaskGroupExportRow> groupConsumer,
+            Consumer<MarketingTaskCountryEntryExportRow> countryConsumer) {
+    }
+
     private record MemberState(
             String role,
             boolean inGroup,
@@ -715,8 +732,9 @@ public class MarketingTaskWhatsAppMemberProvider {
 
         private static ExportSink country(
                 CountryService.PhonePrefixResolver countryResolver,
+                Consumer<MarketingTaskGroupExportRow> groupConsumer,
                 Consumer<MarketingTaskCountryEntryExportRow> countryConsumer) {
-            return new ExportSink(countryResolver, null, null, countryConsumer);
+            return new ExportSink(countryResolver, groupConsumer, null, countryConsumer);
         }
 
         private void addGroup(MarketingTaskGroupExportRow group) {

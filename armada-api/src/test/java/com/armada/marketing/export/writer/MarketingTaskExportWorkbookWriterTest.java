@@ -21,25 +21,42 @@ class MarketingTaskExportWorkbookWriterTest {
     private final MarketingTaskExportWorkbookWriter writer = new MarketingTaskExportWorkbookWriter();
 
     @Test
-    void countryEntryWorkbookContainsOneSheetAndProductHeaders() throws Exception {
+    void countryEntryWorkbookContainsSharedGroupStatisticsAndCountryDetailSheets() throws Exception {
         Path file = tempDir.resolve("country.xlsx");
+        MarketingTaskGroupExportRow group = new MarketingTaskGroupExportRow();
+        group.setTaskId(83L);
+        group.setGroupName("群 89");
+        group.setGroupMemberCount(18);
+        MarketingTaskCountryEntryExportRow countryEntry = new MarketingTaskCountryEntryExportRow();
+        countryEntry.setTaskId(83L);
+        countryEntry.setTaskName("营销任务");
+        countryEntry.setActualPhone("628123456789");
 
         writer.writeCountryEntry(
                 file,
-                java.util.List.of(),
+                java.util.List.of(group),
+                java.util.List.of(countryEntry),
                 Instant.parse("2026-07-29T03:20:00Z"),
                 Instant.parse("2026-07-29T03:21:00Z"));
 
         try (InputStream input = Files.newInputStream(file);
              var workbook = WorkbookFactory.create(input)) {
-            assertThat(workbook.getNumberOfSheets()).isEqualTo(1);
-            assertThat(workbook.getSheetName(0)).isEqualTo("国家进群数据");
-            var header = workbook.getSheetAt(0).getRow(0);
-            assertThat(header.getLastCellNum()).isEqualTo((short) 13);
-            assertThat(header.getCell(0).getStringCellValue()).isEqualTo("进群时间");
-            assertThat(header.getCell(5).getStringCellValue()).isEqualTo("实际进群号码");
-            assertThat(header.getCell(11).getStringCellValue()).isEqualTo("累计成功进群号码数量");
-            assertThat(header.getCell(12).getStringCellValue()).isEqualTo("营销条数");
+            assertThat(workbook.getNumberOfSheets()).isEqualTo(2);
+            assertThat(workbook.getSheetName(0)).isEqualTo("营销群组统计");
+            assertThat(workbook.getSheetName(1)).isEqualTo("国家进群数据");
+            var groupHeader = workbook.getSheetAt(0).getRow(0);
+            assertThat(groupHeader.getLastCellNum()).isEqualTo((short) 21);
+            assertThat(groupHeader.getCell(0).getStringCellValue()).isEqualTo("任务 ID");
+            assertThat(groupHeader.getCell(7).getStringCellValue()).isEqualTo("群人数");
+            assertThat(groupHeader.getCell(19).getStringCellValue()).isEqualTo("数据统计截止时间");
+            assertThat(workbook.getSheetAt(0).getRow(1).getCell(7).getNumericCellValue())
+                    .isEqualTo(18D);
+            var countryHeader = workbook.getSheetAt(1).getRow(0);
+            assertThat(countryHeader.getLastCellNum()).isEqualTo((short) 13);
+            assertThat(countryHeader.getCell(0).getStringCellValue()).isEqualTo("进群时间");
+            assertThat(countryHeader.getCell(5).getStringCellValue()).isEqualTo("实际进群号码");
+            assertThat(countryHeader.getCell(11).getStringCellValue()).isEqualTo("累计成功进群号码数量");
+            assertThat(countryHeader.getCell(12).getStringCellValue()).isEqualTo("营销条数");
         }
     }
 
@@ -96,13 +113,14 @@ class MarketingTaskExportWorkbookWriterTest {
 
         writer.writeCountryEntry(
                 file,
+                java.util.List.of(),
                 java.util.List.of(row),
                 Instant.parse("2026-07-29T03:20:00Z"),
                 Instant.parse("2026-07-29T03:21:00Z"));
 
         try (InputStream input = Files.newInputStream(file);
              var workbook = WorkbookFactory.create(input)) {
-            var data = workbook.getSheetAt(0).getRow(1);
+            var data = workbook.getSheetAt(1).getRow(1);
             assertThat(data.getCell(2).getStringCellValue()).startsWith("'=");
             assertThat(data.getCell(6).getStringCellValue()).startsWith("'+");
         }

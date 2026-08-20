@@ -83,21 +83,25 @@ class MarketingTaskWhatsAppMemberProviderTest {
                         "US", "US", "美国", "United States", "+1", "", false, "NORTH_AMERICA");
 
         List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
+        List<MarketingTaskGroupExportRow> countryGroups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
         List<MarketingTaskCountryEntryExportRow> countryEntries = new java.util.ArrayList<>();
         provider.streamFull(
                 request(countries),
                 new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
         provider.streamCountry(
-                request(countries), countryEntries::add);
+                request(countries),
+                new MarketingTaskWhatsAppMemberProvider.CountryOutput(
+                        countryGroups::add, countryEntries::add));
 
         assertThat(groups).singleElement().satisfies(row -> {
             assertThat(row.getGroupName()).isEqualTo("WhatsApp真实群");
-            assertThat(row.getGroupMemberCount()).isEqualTo(2);
+            assertThat(row.getGroupMemberCount()).isEqualTo(3);
             assertThat(row.getSpeechPermission()).isEqualTo("仅管理员可发言（发送账号可发言）");
             assertThat(row.getJoinedPhoneCount()).isEqualTo(2);
         });
         assertThat(members).hasSize(3);
+        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(3));
         assertThat(members).extracting(row -> row.getMemberPhone())
                 .containsExactlyInAnyOrder("15550000001", "551100000002", "521100000003");
         assertThat(members).filteredOn(row -> "否".equals(row.getInGroup()))
@@ -115,6 +119,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
         assertThat(countryEntries).allSatisfy(row -> assertThat(row.getJoinedAt()).isNotNull());
         assertThat(countryEntries).allSatisfy(
                 row -> assertThat(row.getJoinedPhoneCount()).isEqualTo(2));
+        assertThat(countryGroups).singleElement()
+                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(3));
     }
 
     @Test
@@ -351,11 +357,15 @@ class MarketingTaskWhatsAppMemberProviderTest {
 
         MarketingTaskWhatsAppMemberProvider provider = provider();
 
+        List<MarketingTaskGroupExportRow> groups = new java.util.ArrayList<>();
         List<MarketingTaskGroupMemberExportRow> members = new java.util.ArrayList<>();
         provider.streamFull(
                 request(phone -> null),
-                new MarketingTaskWhatsAppMemberProvider.FullOutput(ignored -> { }, members::add));
+                new MarketingTaskWhatsAppMemberProvider.FullOutput(groups::add, members::add));
 
+        assertThat(groups).singleElement()
+                .satisfies(row -> assertThat(row.getGroupMemberCount()).isEqualTo(5));
+        assertThat(members).allSatisfy(row -> assertThat(row.getGroupMemberCount()).isEqualTo(5));
         assertThat(members).extracting(row -> row.getMemberPhone())
                 .containsExactlyInAnyOrder(
                         "current@s.whatsapp.net", "departed@s.whatsapp.net",
@@ -398,7 +408,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
         provider.streamCountry(
                 request(phone -> new CountryOptionVO(
                         "US", "US", "美国", "United States", "+1", "", false, "NORTH_AMERICA")),
-                countryEntries::add);
+                new MarketingTaskWhatsAppMemberProvider.CountryOutput(
+                        ignored -> { }, countryEntries::add));
 
         assertThat(countryEntries).isEmpty();
     }

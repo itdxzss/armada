@@ -232,13 +232,19 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
                 Set<String> selected = new LinkedHashSet<>(selectedCountries);
                 writeResult = workbookWriter.writeCountryEntry(
                         temporaryFile,
-                        consumer -> whatsAppMemberProvider.streamCountry(
-                                exportRequest, row -> {
-                                    heartbeat.renewIfDue();
-                                    if (selected.contains(row.getCountryIso2())) {
-                                        consumer.accept(row);
-                                    }
-                                }),
+                        (groupConsumer, countryConsumer) -> whatsAppMemberProvider.streamCountry(
+                                exportRequest,
+                                new MarketingTaskWhatsAppMemberProvider.CountryOutput(
+                                        row -> {
+                                            heartbeat.renewIfDue();
+                                            groupConsumer.accept(row);
+                                        },
+                                        row -> {
+                                            heartbeat.renewIfDue();
+                                            if (selected.contains(row.getCountryIso2())) {
+                                                countryConsumer.accept(row);
+                                            }
+                                        })),
                         snapshotAt,
                         generatedAt);
                 if (writeResult.detailRowCount() == 0) {

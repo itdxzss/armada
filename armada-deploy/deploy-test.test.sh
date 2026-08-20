@@ -285,6 +285,7 @@ setup_protocol_command_fixture() {
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/package.json"
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/package-lock.json"
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/tsconfig.json"
+  : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/deploy/traffic-dashboard.pm2.config.cjs"
   : >"${PROTOCOL_FIXTURE_KEY}"
   : >"${PROTOCOL_FIXTURE_JUMP_KEY}"
   : >"${PROTOCOL_FIXTURE_COMMAND_LOG}"
@@ -446,7 +447,7 @@ run_zhuan_with_command_stubs() {
 }
 
 test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
-  local build_line config_line deps_line health_line main_line migrate_line command_log payload_log
+  local build_line config_line dashboard_line deps_line health_line main_line migrate_line command_log payload_log
   setup_zhuan_command_fixture
   run_zhuan_with_command_stubs --env perf2 --zhuan -y >/dev/null
   command_log="$(cat "${ZHUAN_FIXTURE_COMMAND_LOG}")"
@@ -464,18 +465,22 @@ test_zhuan_command_flow_uses_protected_rsync_and_ordered_payload() {
   assert_contains "${command_log}" "<tester@127.0.0.1:/home/app/zhuan-safe/>"
   assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod'
   assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" up -d --force-recreate whatsapp-android-zhuan'
+  assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" config --services | grep -Fx traffic-dashboard'
+  assert_contains "${payload_log}" 'sudo docker compose -f "${compose_file}" up -d --force-recreate traffic-dashboard'
 
   config_line="$(awk 'index($0, "config --quiet") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   build_line="$(awk 'index($0, "build whatsapp-android-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   deps_line="$(awk 'index($0, "up -d ${start_services}") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   migrate_line="$(awk 'index($0, "run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   main_line="$(awk 'index($0, "up -d --force-recreate whatsapp-android-zhuan") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
+  dashboard_line="$(awk 'index($0, "up -d --force-recreate traffic-dashboard") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   health_line="$(awk 'index($0, "swagger/index.html") { print NR; exit }' "${ZHUAN_FIXTURE_PAYLOAD_LOG}")"
   [ "${config_line}" -lt "${build_line}" ] || fail "expected Compose config before build"
   [ "${build_line}" -lt "${deps_line}" ] || fail "expected build before dependency startup"
   [ "${deps_line}" -lt "${migrate_line}" ] || fail "expected dependencies before migration"
   [ "${migrate_line}" -lt "${main_line}" ] || fail "expected migration before main service startup"
-  [ "${main_line}" -lt "${health_line}" ] || fail "expected main service startup before health check"
+  [ "${main_line}" -lt "${dashboard_line}" ] || fail "expected main service startup before traffic dashboard"
+  [ "${dashboard_line}" -lt "${health_line}" ] || fail "expected traffic dashboard before health check"
   assert_contains "${payload_log}" "set -eu"
   cleanup_zhuan_command_fixture
 }
@@ -563,6 +568,7 @@ test_zhuan_perf_uses_perf_compose_without_local_redis() {
   assert_contains "${payload_log}" "whatsapp_android_zhuan_perf"
   assert_contains "${payload_log}" "android-zhuan-perf:"
   assert_contains "${payload_log}" "检测到 perf2 禁止的本地 redis-zhuan 容器"
+  assert_contains "$(cat "${SCRIPT_DIR}/envs/perf2.conf")" 'PROFILE_ZHUAN_HEALTH_SERVICES="callback-zhuan whatsapp-android-zhuan traffic-dashboard-zhuan"'
 }
 
 test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
@@ -1110,6 +1116,26 @@ test_protocol_remote_deploy_verifies_node_24_apps_after_reload() {
   assert_contains "${script_content}" '/readyz'
 }
 
+test_protocol_remote_deploy_enables_persistent_traffic_dashboard() {
+  local perf_profile script_content test_profile
+  script_content="$(cat "${SCRIPT_DIR}/lib/protocol.sh")"
+  test_profile="$(cat "${SCRIPT_DIR}/envs/test1.conf")"
+  perf_profile="$(cat "${SCRIPT_DIR}/envs/perf2.conf")"
+
+  assert_contains "${script_content}" 'export TRAFFIC_ENABLED="${traffic_enabled}"'
+  assert_contains "${script_content}" 'traffic_dir="${remote_dir}/traffic-capture"'
+  assert_contains "${script_content}" 'chmod 700 "${traffic_dir}"'
+  assert_contains "${script_content}" 'pm2 startOrReload deploy/traffic-dashboard.pm2.config.cjs --update-env'
+  assert_contains "${script_content}" 'protocol-traffic-dashboard'
+  assert_contains "${script_content}" '/api/overview'
+  for profile_content in "${test_profile}" "${perf_profile}"; do
+    assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_ENABLED=true'
+    assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES=8589934592'
+    assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS=604800000'
+    assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_DASHBOARD_PORT=18080'
+  done
+}
+
 test_protocol_remote_deploy_loads_preserved_environment() {
   local script_content
   script_content="$(cat "${SCRIPT_DIR}/lib/protocol.sh")"
@@ -1548,6 +1574,7 @@ test_sh_invocation_reexecs_bash_for_help
 test_protocol_remote_deploy_requires_node_24_toolchain
 test_protocol_local_toolchain_discovers_keg_only_node24
 test_protocol_remote_deploy_verifies_node_24_apps_after_reload
+test_protocol_remote_deploy_enables_persistent_traffic_dashboard
 test_protocol_remote_deploy_loads_preserved_environment
 test_main_orchestrator_uses_protocol_module_and_dependency_order
 test_zhuan_sync_preserves_remote_runtime_files

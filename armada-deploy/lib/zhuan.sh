@@ -204,6 +204,9 @@ if [ -n "${start_services}" ]; then
 fi
 sudo docker compose -f "${compose_file}" run --rm --interactive=false whatsapp-android-zhuan /app/whatsapp-migrate -env prod
 sudo docker compose -f "${compose_file}" up -d --force-recreate whatsapp-android-zhuan
+if sudo docker compose -f "${compose_file}" config --services | grep -Fx traffic-dashboard >/dev/null; then
+  sudo docker compose -f "${compose_file}" up -d --force-recreate traffic-dashboard
+fi
 '
 
 zhuan_remote_health_check_payload='

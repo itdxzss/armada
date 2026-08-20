@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupFolderService;
@@ -30,6 +31,8 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskDisappearingMessageMode;
 import com.armada.task.model.enums.PullTaskEditPermissionMode;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
@@ -37,6 +40,8 @@ import com.armada.task.model.enums.PullTaskLinkPermissionMode;
 import com.armada.task.model.enums.PullTaskMuteMode;
 import com.armada.task.model.enums.PullTaskPullerSyncMode;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.task.service.impl.PullTaskStandardCreateServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardDraftServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardDraftWriter;
@@ -239,6 +244,91 @@ class PullTaskStandardCreateServiceTest {
     }
 
     @Test
+    void newGroupModeFreezesCreationModeAndCreatorConfigOnSubmit() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        AccountGroup creatorGroup = new AccountGroup();
+        creatorGroup.setName("建群人组");
+        when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
+
+        service.create(newGroupRequest(taskId), CREATOR);
+
+        // mode 必须仍是 NORMAL_LINK：它是执行链路开关，改掉调度器就不认领执行行了。
+        PullTask task = pullTaskMapper.selectLifecycle(taskId);
+        assertThat(task.getMode()).isEqualTo("NORMAL_LINK");
+        assertThat(task.getCreationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getCreatorGroupId()).isEqualTo(16L);
+        assertThat(setting.getCreatorGroupName()).isEqualTo("建群人组");
+        assertThat(setting.getInitialStationCount()).isEqualTo(2);
+        assertThat(executionMapper.selectByTaskId(taskId)).allSatisfy(row -> {
+            assertThat(row.getExecutionStatus()).isEqualTo(1);
+            assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+            assertThat(row.getGroupLinkId()).isNull();
+            assertThat(row.getNormalizedLink()).isNull();
+        });
+    }
+
+    @Test
+    void newGroupModeDefaultsTheGroupSettingSwitchOnWhenItIsOmitted() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        AccountGroup creatorGroup = new AccountGroup();
+        creatorGroup.setName("建群人组");
+        when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
+        PullTaskStandardGroupSettingDTO current = validGroupSetting();
+        PullTaskStandardGroupSettingDTO withoutExplicitSwitch =
+                new PullTaskStandardGroupSettingDTO(
+                        null, current.settingTiming(), current.groupName(),
+                        current.useMaterialFileNameAsGroupName(), current.avatarFileKey(),
+                        current.groupDescription(), current.autoCloseMuteAfterTask(),
+                        current.autoCloseInviteAfterTask(), current.editPermission(),
+                        current.muteMode(), current.linkPermission(),
+                        current.disappearingMessage());
+
+        service.create(withGroupSetting(
+                newGroupRequest(taskId), withoutExplicitSwitch), CREATOR);
+
+        assertThat(groupSettingMapper.selectByTaskId(taskId).getGroupSettingEnabled()).isOne();
+    }
+
+    @Test
+    void linkModeSubmitLeavesCreationModeAtItsColumnDefault() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+
+        service.create(validRequest(taskId), CREATOR);
+
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getCreationMode())
+                .isEqualTo(PullTaskCreationMode.PASTED_LINK);
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getCreatorGroupId()).isNull();
+        assertThat(setting.getInitialStationCount()).isZero();
+    }
+
+    @Test
+    void newGroupModeWithoutCreatorGroupIsRejected() {
+        long taskId = seedDraftWithTwoRows(CREATOR);
+        PullTaskStandardCreateDTO request = newGroupRequest(taskId);
+        PullTaskStandardCreateDTO withoutCreator = new PullTaskStandardCreateDTO(
+                request.draftTaskId(), request.taskName(), request.remark(), request.autoStart(),
+                request.groupFolderId(), request.pullerSyncMode(), request.materialAdminTiming(),
+                request.clearExistingMembers(), request.pullerJoinByLink(),
+                request.earlyPullCount(), request.earlyPullCallCount(), request.pullCountMin(),
+                request.pullCountMax(), request.pullIntervalSeconds(),
+                request.pullerCountPerGroup(), request.stationCountPerCall(),
+                request.concurrentGroupCount(), request.managerGroupId(), request.pullerGroupId(),
+                request.stationGroupId(), request.managerFinishGroupId(),
+                request.pullerFinishGroupId(), request.groupSetting(), request.creationMode(),
+                null, request.initialStationCount());
+
+        assertThatThrownBy(() -> service.create(withoutCreator, CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("建群人");
+
+        // 整单回滚：任务仍是草稿，配置一行没落。
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
+        assertThat(settingMapper.selectByTaskId(taskId)).isNull();
+    }
+
+    @Test
     void rejectsPullCountRangeWithMinGreaterThanMax() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
@@ -377,6 +467,33 @@ class PullTaskStandardCreateServiceTest {
         return taskId;
     }
 
+    private long seedNewGroupDraft(long creator) {
+        long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
+        writer.append(taskId, List.of(
+                newGroupAppendRow(1, "a.txt", "8613800138001"),
+                newGroupAppendRow(2, "b.txt", "8613800138002")), 200L);
+        return taskId;
+    }
+
+    private static AppendRow newGroupAppendRow(int seq, String fileName, String phone) {
+        PullTaskGroupExecution execution = new PullTaskGroupExecution();
+        execution.setSeq(seq);
+        execution.setStage(PullTaskExecutionStage.GROUP_CREATE.code());
+        execution.setSourceFileIndex(seq);
+        execution.setSourceFileName(fileName);
+        execution.setTotalLineCount(1);
+        execution.setValidMemberCount(1);
+        execution.setInvalidLineCount(0);
+        execution.setDuplicateLineCount(0);
+
+        PullTaskMaterialMember member = new PullTaskMaterialMember();
+        member.setMemberSeq(1);
+        member.setSourceLineNo(1);
+        member.setNormalizedPhone(phone);
+        member.setAdminRequired(0);
+        return new AppendRow(execution, List.of(member));
+    }
+
     private static AppendRow appendRow(int seq, String link, String fileName,
                                        int fileIndex, String phone) {
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
@@ -409,7 +526,8 @@ class PullTaskStandardCreateServiceTest {
         return new PullTaskStandardCreateDTO(
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
-                11L, 12L, 13L, null, null, validGroupSetting());
+                11L, 12L, 13L, null, null, validGroupSetting(),
+                null, null, null);
     }
 
     private static PullTaskStandardGroupSettingDTO validGroupSetting() {
@@ -418,6 +536,20 @@ class PullTaskStandardCreateServiceTest {
                 false, false, PullTaskEditPermissionMode.UNCHANGED,
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);
+    }
+
+    /**
+     * 新群模式入参：建群人分组 16，建群时带 2 个初始站台。
+     *
+     * @param taskId 草稿任务 ID
+     * @return 新群模式整单提交入参
+     */
+    private static PullTaskStandardCreateDTO newGroupRequest(long taskId) {
+        return new PullTaskStandardCreateDTO(
+                taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
+                1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
+                11L, 12L, 13L, null, null, validGroupSetting(),
+                PullTaskCreationMode.NEW_GROUP, 16L, 2);
     }
 
     /**
@@ -438,7 +570,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withEarlyPull(
@@ -451,7 +584,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     /**
@@ -471,7 +605,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 managerGroupId, base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withAutoStart(PullTaskStandardCreateDTO base,
@@ -484,7 +619,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withStation(
@@ -498,7 +634,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 stationCount, base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), stationGroupId,
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting());
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
+                base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withGroupSetting(
@@ -512,7 +649,8 @@ class PullTaskStandardCreateServiceTest {
                 base.pullCountMax(), base.pullIntervalSeconds(), base.pullerCountPerGroup(),
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
-                base.managerFinishGroupId(), base.pullerFinishGroupId(), groupSetting);
+                base.managerFinishGroupId(), base.pullerFinishGroupId(), groupSetting,
+                base.creationMode(), base.creatorGroupId(), base.initialStationCount());
     }
 
     private static PullTaskStandardCreateDTO withAvatar(
@@ -635,6 +773,14 @@ class PullTaskStandardCreateServiceTest {
         }
 
         @Bean
+        AccountProtocolLookupService accountProtocolLookupService() {
+            AccountProtocolLookupService mock = mock(AccountProtocolLookupService.class);
+            when(mock.findOnlineNormalStrictByGroupId(anyLong())).thenReturn(List.of(
+                    protocolRef(101L), protocolRef(102L), protocolRef(103L)));
+            return mock;
+        }
+
+        @Bean
         GroupLinkRegistryService groupLinkRegistryService(AtomicBoolean registryFailure) {
             GroupLinkRegistryService mock = mock(GroupLinkRegistryService.class);
             AtomicLong sequence = new AtomicLong(1000);
@@ -660,9 +806,10 @@ class PullTaskStandardCreateServiceTest {
         @Bean
         PullTaskStandardSettingWriter settingWriter(PullTaskStandardSettingMapper settingMapper,
                                                      AccountGroupService accountGroupService,
-                                                     GroupFolderService groupFolderService) {
+                                                     GroupFolderService groupFolderService,
+                                                     AccountProtocolLookupService accountLookup) {
             return new PullTaskStandardSettingWriter(
-                    settingMapper, accountGroupService, groupFolderService);
+                    settingMapper, accountGroupService, groupFolderService, accountLookup);
         }
 
         @Bean
@@ -706,5 +853,10 @@ class PullTaskStandardCreateServiceTest {
             return new PullTaskStandardCreateServiceImpl(
                     transactionService, pullTaskMapper, settingMapper, startService);
         }
+    }
+
+    private static ProtocolAccountRef protocolRef(long accountId) {
+        String phone = "8613800" + accountId;
+        return new ProtocolAccountRef(accountId, ProtocolBackend.WEB, phone, phone);
     }
 }

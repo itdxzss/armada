@@ -15,6 +15,7 @@ public class PullTaskExecutionStageRouter {
     private final PullTaskPullerInviteProcessor pullerInviteProcessor;
     private final PullTaskPullExecutionProcessor pullExecutionProcessor;
     private final PullTaskMaterialAdminProcessor materialAdminProcessor;
+    private final PullTaskGroupCreateProcessor groupCreateProcessor;
 
     /**
      * @param linkValidationProcessor      链接校验处理器
@@ -32,7 +33,8 @@ public class PullTaskExecutionStageRouter {
             PullTaskManagerPullerContactProcessor managerPullerContactProcessor,
             PullTaskPullerInviteProcessor pullerInviteProcessor,
             PullTaskPullExecutionProcessor pullExecutionProcessor,
-            PullTaskMaterialAdminProcessor materialAdminProcessor) {
+            PullTaskMaterialAdminProcessor materialAdminProcessor,
+            PullTaskGroupCreateProcessor groupCreateProcessor) {
         this.linkValidationProcessor = linkValidationProcessor;
         this.managerJoinProcessor = managerJoinProcessor;
         this.managerAdminProcessor = managerAdminProcessor;
@@ -40,6 +42,7 @@ public class PullTaskExecutionStageRouter {
         this.pullerInviteProcessor = pullerInviteProcessor;
         this.pullExecutionProcessor = pullExecutionProcessor;
         this.materialAdminProcessor = materialAdminProcessor;
+        this.groupCreateProcessor = groupCreateProcessor;
     }
 
     /** 根据持久化阶段执行一次有界动作。 */
@@ -47,6 +50,9 @@ public class PullTaskExecutionStageRouter {
             PullTaskGroupExecution candidate,
             String lockOwner,
             long now) {
+        if (candidate.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()) {
+            return groupCreateProcessor.process(candidate, lockOwner, now);
+        }
         if (candidate.getStage() == PullTaskExecutionStage.LINK_VALIDATION.code()) {
             return linkValidationProcessor.process(candidate, lockOwner, now);
         }

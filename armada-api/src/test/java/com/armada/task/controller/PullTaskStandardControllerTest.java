@@ -8,37 +8,38 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.shared.security.AuthPrincipal;
 import com.armada.shared.response.PageResult;
-import com.armada.task.model.dto.PullTaskStandardCreateDTO;
+import com.armada.shared.security.AuthPrincipal;
 import com.armada.task.model.dto.PullTaskManagerSupplementDTO;
 import com.armada.task.model.dto.PullTaskPullerSupplementDTO;
 import com.armada.task.model.dto.PullTaskStationSupplementDTO;
+import com.armada.task.model.dto.PullTaskStandardCreateDTO;
+import com.armada.task.model.dto.PullTaskStandardCreateDTOTest;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
-import com.armada.task.model.dto.PullTaskStandardCreateDTOTest;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskSelectionMode;
+import com.armada.task.model.vo.PullTaskManagerSupplementOptionsVO;
+import com.armada.task.model.vo.PullTaskPullerSupplementOptionsVO;
+import com.armada.task.model.vo.PullTaskStationSupplementOptionsVO;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionDetailVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionSummaryVO;
 import com.armada.task.model.vo.PullTaskStandardMemberVO;
 import com.armada.task.model.vo.PullTaskStandardTaskDetailVO;
-import com.armada.task.model.vo.PullTaskManagerSupplementOptionsVO;
-import com.armada.task.model.vo.PullTaskPullerSupplementOptionsVO;
-import com.armada.task.model.vo.PullTaskStationSupplementOptionsVO;
 import com.armada.task.service.PullTaskManagerSupplementService;
 import com.armada.task.service.PullTaskPullerSupplementService;
 import com.armada.task.service.PullTaskStationSupplementService;
 import com.armada.task.service.PullTaskStandardCreateService;
 import com.armada.task.service.PullTaskStandardDraftService;
 import com.armada.task.service.PullTaskStandardExecutionLifecycleService;
-import com.armada.task.service.PullTaskStandardReadService;
 import com.armada.task.service.PullTaskStandardLifecycleService;
+import com.armada.task.service.PullTaskStandardReadService;
 import com.armada.task.service.PullTaskStandardStartService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,7 +50,8 @@ import org.springframework.web.multipart.MultipartFile;
 class PullTaskStandardControllerTest {
 
     private static final PullTaskStandardDraftVO EMPTY_VIEW = new PullTaskStandardDraftVO(
-            1L, List.of(), List.of(), List.of(), 0, 0, 0);
+            1L, PullTaskCreationMode.PASTED_LINK,
+            List.of(), List.of(), List.of(), 0, 0, 0);
 
     private PullTaskStandardDraftService draftService;
     private PullTaskStandardCreateService createService;
@@ -92,50 +94,55 @@ class PullTaskStandardControllerTest {
 
     @Test
     void planPassesEmptyListWhenNoFileUploaded() {
-        when(draftService.plan(any(), anyString(), any(), anyLong(), anyString()))
+        when(draftService.plan(any(), any(), anyString(), any(), anyLong(), anyString()))
                 .thenReturn(EMPTY_VIEW);
 
-        controller.plan(null, "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA",
+        controller.plan(null, null, "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA",
                 null, principal("小王", "wang"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
         verify(draftService).plan(
-                any(), anyString(), captor.capture(), anyLong(), anyString());
+                any(), any(), anyString(), captor.capture(), anyLong(), anyString());
         // 禁止把 null 透传进 Service，空列表才是"本次没传文件"的正确表达。
         assertThat(captor.getValue()).isEmpty();
     }
 
     @Test
     void planForwardsUploadedFilesInOrder() {
-        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), any(), any(), any(), anyLong(), anyString()))
+                .thenReturn(EMPTY_VIEW);
         MultipartFile[] files = {txt("a.txt"), txt("b.txt")};
 
-        controller.plan(null, null, files, principal("小王", "wang"));
+        controller.plan(null, null, null, files, principal("小王", "wang"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MultipartFile>> captor = ArgumentCaptor.forClass(List.class);
-        verify(draftService).plan(any(), any(), captor.capture(), anyLong(), anyString());
+        verify(draftService).plan(any(), any(), any(), captor.capture(), anyLong(), anyString());
         assertThat(captor.getValue()).extracting(MultipartFile::getOriginalFilename)
                 .containsExactly("a.txt", "b.txt");
     }
 
     @Test
     void planForwardsGroupFolderAndUsesNicknameAsOperatorName() {
-        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), any(), any(), any(), anyLong(), anyString()))
+                .thenReturn(EMPTY_VIEW);
 
-        controller.plan(18L, null, null, principal("小王", "wang"));
+        controller.plan(PullTaskCreationMode.NEW_GROUP, 18L, null, null,
+                principal("小王", "wang"));
 
-        verify(draftService).plan(18L, null, List.of(), 501L, "小王");
+        verify(draftService).plan(
+                PullTaskCreationMode.NEW_GROUP, 18L, null, List.of(), 501L, "小王");
     }
 
     @Test
     void planFallsBackToUsernameWhenNicknameIsBlank() {
-        when(draftService.plan(any(), any(), any(), anyLong(), anyString())).thenReturn(EMPTY_VIEW);
+        when(draftService.plan(any(), any(), any(), any(), anyLong(), anyString()))
+                .thenReturn(EMPTY_VIEW);
 
-        controller.plan(null, null, null, principal("  ", "wang"));
+        controller.plan(null, null, null, null, principal("  ", "wang"));
 
-        verify(draftService).plan(null, null, List.of(), 501L, "wang");
+        verify(draftService).plan(null, null, null, List.of(), 501L, "wang");
     }
 
     @Test

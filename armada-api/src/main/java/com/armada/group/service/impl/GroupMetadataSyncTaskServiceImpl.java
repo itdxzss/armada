@@ -29,24 +29,31 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
             GroupMetadataSyncTrigger.PARTICIPANT_CHANGED.code(),
             GroupMetadataSyncTrigger.METADATA_CHANGED.code(),
             GroupMetadataSyncTrigger.MANUAL_REFRESH.code());
+    private static final List<Integer> CLASSIFICATION_TRIGGERS = List.of(
+            GroupMetadataSyncTrigger.BASELINE_CAPTURED.code(),
+            GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED.code());
     private static final List<Integer> CLAIMABLE_STATUSES = List.of(
             GroupMetadataSyncStatus.PENDING.code(),
             GroupMetadataSyncStatus.RETRY_WAIT.code());
 
     private final GroupMetadataSyncTaskMapper mapper;
     private final long changeDebounceMs;
+    private final long profileFreshnessMs;
 
     /**
      * 创建同步任务状态机。
      *
      * @param mapper 同步任务数据访问
      * @param changeDebounceMs 群变更事件合并窗口
+     * @param profileFreshnessMs 分类任务复用完整成员快照的时间容差
      */
     public GroupMetadataSyncTaskServiceImpl(
             GroupMetadataSyncTaskMapper mapper,
-            @Value("${armada.group-metadata-sync.change-debounce-ms:2000}") long changeDebounceMs) {
+            @Value("${armada.group-metadata-sync.change-debounce-ms:2000}") long changeDebounceMs,
+            @Value("${armada.group-metadata-sync.profile-freshness-ms:120000}") long profileFreshnessMs) {
         this.mapper = mapper;
         this.changeDebounceMs = Math.max(0L, changeDebounceMs);
+        this.profileFreshnessMs = Math.max(0L, profileFreshnessMs);
     }
 
     @Override
@@ -130,6 +137,7 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         List<GroupMetadataSyncTask> due = new ArrayList<>();
         GroupMetadataSyncTask refreshCandidate = null;
         for (GroupMetadataSyncTask candidate : candidates) {
+            completeMetadataFromFreshClassificationProfile(candidate);
             if (isForegroundTask(candidate)) {
                 due.add(candidate);
                 if (due.size() >= pageSize) {
@@ -231,6 +239,24 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
     private static boolean isChangeTrigger(GroupMetadataSyncTrigger trigger) {
         return trigger == GroupMetadataSyncTrigger.PARTICIPANT_CHANGED
                 || trigger == GroupMetadataSyncTrigger.METADATA_CHANGED;
+    }
+
+    private void completeMetadataFromFreshClassificationProfile(GroupMetadataSyncTask task) {
+        Integer triggerSource = task.getTriggerSource();
+        Long taskTriggeredAt = task.getUpdatedAt();
+        Long memberSnapshotAt = task.getMemberSnapshotAt();
+        if (triggerSource == null
+                || !CLASSIFICATION_TRIGGERS.contains(triggerSource)
+                || taskTriggeredAt == null
+                || memberSnapshotAt == null) {
+            return;
+        }
+        long freshnessCutoff = Math.max(0L, taskTriggeredAt - profileFreshnessMs);
+        if (memberSnapshotAt < freshnessCutoff) {
+            return;
+        }
+        task.setCompletedScopeMask(
+                valueOrZero(task.getCompletedScopeMask()) | GroupSnapshotDispatchService.SCOPE_METADATA);
     }
 
     private static boolean isForegroundTask(GroupMetadataSyncTask task) {

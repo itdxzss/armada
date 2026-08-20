@@ -9,14 +9,18 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskPullerSyncMode;
 import com.armada.task.service.impl.PullTaskStandardSettingWriter;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -27,15 +31,22 @@ class PullTaskStandardSettingWriterTest {
     private final PullTaskStandardSettingMapper mapper = mock(PullTaskStandardSettingMapper.class);
     private final AccountGroupService accountGroupService = mock(AccountGroupService.class);
     private final GroupFolderService groupFolderService = mock(GroupFolderService.class);
+    private final AccountProtocolLookupService accountLookup =
+            mock(AccountProtocolLookupService.class);
     private final PullTaskStandardSettingWriter writer =
-            new PullTaskStandardSettingWriter(mapper, accountGroupService, groupFolderService);
+            new PullTaskStandardSettingWriter(
+                    mapper, accountGroupService, groupFolderService, accountLookup);
 
     @BeforeEach
     void setUp() {
         when(accountGroupService.requireExisting(11L)).thenReturn(group("管理组"));
         when(accountGroupService.requireExisting(12L)).thenReturn(group("拉手组"));
+        when(accountGroupService.requireExisting(13L)).thenReturn(group("站台组"));
         when(accountGroupService.requireExisting(14L)).thenReturn(group("管理完成组"));
         when(accountGroupService.requireExisting(15L)).thenReturn(group("拉手完成组"));
+        when(accountGroupService.requireExisting(16L)).thenReturn(group("建群人组"));
+        when(accountLookup.findOnlineNormalStrictByGroupId(13L)).thenReturn(
+                java.util.List.of(ref(101L), ref(102L), ref(103L)));
         when(groupFolderService.requireExisting(18L))
                 .thenReturn(new GroupFolderOptionVO(18L, "印度群"));
     }
@@ -87,6 +98,75 @@ class PullTaskStandardSettingWriterTest {
         assertThat(captor.getValue().getPullerJoinByLink()).isZero();
     }
 
+    @Test
+    void newGroupModePersistsCreatorGroupWithServerSideNameSnapshot() {
+        PullTaskStandardCreateDTO request = request(2, 13L);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(3);
+
+        writer.insert(request, 9L);
+
+        PullTaskStandardSetting saved = captureSaved();
+        assertThat(saved.getCreatorGroupId()).isEqualTo(16L);
+        // 分组名是服务端快照，不接受前端传值，与 managerGroupName 等既有列同款。
+        assertThat(saved.getCreatorGroupName()).isEqualTo("建群人组");
+        assertThat(saved.getInitialStationCount()).isEqualTo(3);
+    }
+
+    @Test
+    void rejectsStationGroupWhoseOnlineNormalCountIsBelowCombinedDemand() {
+        PullTaskStandardCreateDTO request = request(2, 13L);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(3);
+        when(accountLookup.findOnlineNormalStrictByGroupId(13L)).thenReturn(
+                java.util.List.of(ref(101L), ref(102L)));
+
+        assertThatThrownBy(() -> writer.insert(request, 9L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("需要 3")
+                .hasMessageContaining("当前可用 2");
+        verify(mapper, never()).insert(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void linkModeLeavesCreatorColumnsEmptyEvenIfClientSendsThem() {
+        // 群链接模式下建群配置无意义；前端误传也不得落库，否则读服务会把它当成新群模式的配置。
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.PASTED_LINK);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(3);
+
+        writer.insert(request, 9L);
+
+        PullTaskStandardSetting saved = captureSaved();
+        assertThat(saved.getCreatorGroupId()).isNull();
+        assertThat(saved.getCreatorGroupName()).isNull();
+        assertThat(saved.getInitialStationCount()).isZero();
+        verify(accountGroupService, never()).requireExisting(16L);
+    }
+
+    @Test
+    void omittedInitialStationCountFallsBackToZeroRatherThanNull() {
+        // 列是 NOT NULL DEFAULT 0；写 null 会在真库直接抛，H2 上却可能放过。
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.initialStationCount()).thenReturn(null);
+
+        writer.insert(request, 9L);
+
+        assertThat(captureSaved().getInitialStationCount()).isZero();
+    }
+
+    private PullTaskStandardSetting captureSaved() {
+        ArgumentCaptor<PullTaskStandardSetting> captor =
+                ArgumentCaptor.forClass(PullTaskStandardSetting.class);
+        verify(mapper).insert(captor.capture());
+        return captor.getValue();
+    }
+
     private PullTaskStandardCreateDTO request(int stationCount, Long stationGroupId) {
         PullTaskStandardCreateDTO request = mock(PullTaskStandardCreateDTO.class);
         when(request.autoStart()).thenReturn(0);
@@ -115,5 +195,10 @@ class PullTaskStandardSettingWriterTest {
         AccountGroup group = new AccountGroup();
         group.setName(name);
         return group;
+    }
+
+    private static ProtocolAccountRef ref(long accountId) {
+        String phone = "8613800" + accountId;
+        return new ProtocolAccountRef(accountId, ProtocolBackend.WEB, phone, phone);
     }
 }

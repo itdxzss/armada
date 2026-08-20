@@ -91,8 +91,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务完整设置不存在");
         }
         return new PullTaskStandardTaskDetailVO(
-                task.getId(), task.getTaskName(), task.getStatus(), task.getGroupCount(),
-                task.getExpectedPullCount(), task.getStartedAt(), task.getFinishedAt(),
+                task.getId(), task.getTaskName(), task.getStatus(), task.getCreationMode(),
+                task.getGroupCount(), task.getExpectedPullCount(), task.getStartedAt(), task.getFinishedAt(),
                 task.getCreatedAt(), task.getRemark(), List.of(), taskSummary(aggregate),
                 standardSetting(setting), groupSetting(groupSetting));
     }
@@ -215,6 +215,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
                 groupName, row.getSourceFileName(),
                 value(row.getExecutionStatus()), value(row.getStage()),
+                row.getCreateStep(), row.getGroupSubject(),
                 Integer.valueOf(1).equals(row.getManualPaused()),
                 row.getWaitResourceType(),
                 value(row.getValidMemberCount()), row.getReasonCode(), row.getReasonMessage(),
@@ -283,6 +284,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 value(row.getPullCountMax()), value(row.getPullIntervalSeconds()),
                 value(row.getPullerCountPerGroup()), value(row.getStationCountPerCall()),
                 value(row.getConcurrentGroupCount()),
+                value(row.getInitialStationCount()), row.getCreatorGroupId(),
+                row.getCreatorGroupName(),
                 row.getManagerGroupId(), row.getManagerGroupName(),
                 row.getPullerGroupId(), row.getPullerGroupName(),
                 row.getStationGroupId(), row.getStationGroupName(),

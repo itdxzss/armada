@@ -14,7 +14,7 @@ package com.armada.task.model.vo;
  * @param duplicateLineCount 文件内重复号码行数
  */
 public record PullTaskStandardExecutionRowVO(Long rowId, int seq, String normalizedLink,
-                                             int sourceLinkLineNo, String sourceFileName,
+                                             Integer sourceLinkLineNo, String sourceFileName,
                                              int totalLineCount, int validMemberCount,
                                              int invalidLineCount, int duplicateLineCount) {
 }

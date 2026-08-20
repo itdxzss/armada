@@ -55,6 +55,8 @@ for required_profile_var in \
   PROFILE_PROTOCOL_HOST PROFILE_PROTOCOL_USER PROFILE_PROTOCOL_KEY_REL \
   PROFILE_PROTOCOL_REMOTE_DIR PROFILE_PROTOCOL_PM2_CONFIG \
   PROFILE_PROTOCOL_HEALTH_PORT PROFILE_PROTOCOL_TRANSPORT \
+  PROFILE_PROTOCOL_TRAFFIC_ENABLED PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES \
+  PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS PROFILE_PROTOCOL_TRAFFIC_DASHBOARD_PORT \
   PROFILE_ZHUAN_DEPLOY_MODE \
   EXPECTED_ARMADA_DB_SCHEMA EXPECTED_ANDROID_TOPIC_PREFIX \
   EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC \
@@ -68,6 +70,18 @@ case "${PROFILE_PROTOCOL_TRANSPORT}" in
   direct|jump) ;;
   *) profile_die "协议连接模式只允许 direct 或 jump: ${PROFILE_PROTOCOL_TRANSPORT}" ;;
 esac
+case "${PROFILE_PROTOCOL_TRAFFIC_ENABLED}" in
+  true|false) ;;
+  *) profile_die "协议流量采集开关只允许 true 或 false" ;;
+esac
+for numeric_profile_var in \
+  PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES \
+  PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS \
+  PROFILE_PROTOCOL_TRAFFIC_DASHBOARD_PORT; do
+  case "${!numeric_profile_var}" in
+    ''|*[!0-9]*|0) profile_die "${numeric_profile_var} 必须是正整数" ;;
+  esac
+done
 case "${PROFILE_ZHUAN_DEPLOY_MODE}" in
   fleet)
     for required_profile_var in \
@@ -121,6 +135,10 @@ PROTOCOL_REMOTE_DIR="${ARMADA_PROTOCOL_DEPLOY_REMOTE_DIR:-${PROFILE_PROTOCOL_REM
 PROTOCOL_PM2_CONFIG="${ARMADA_PROTOCOL_PM2_CONFIG:-${PROFILE_PROTOCOL_PM2_CONFIG}}"
 PROTOCOL_HEALTH_PORT="${ARMADA_PROTOCOL_HEALTH_PORT:-${PROFILE_PROTOCOL_HEALTH_PORT}}"
 PROTOCOL_TRANSPORT="${ARMADA_PROTOCOL_TRANSPORT:-${PROFILE_PROTOCOL_TRANSPORT}}"
+PROTOCOL_TRAFFIC_ENABLED="${PROFILE_PROTOCOL_TRAFFIC_ENABLED}"
+PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES="${PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES}"
+PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS="${PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_AGE_MS}"
+PROTOCOL_TRAFFIC_DASHBOARD_PORT="${PROFILE_PROTOCOL_TRAFFIC_DASHBOARD_PORT}"
 PROTOCOL_JUMP_HOST="${ARMADA_PROTOCOL_JUMP_HOST:-${PROFILE_PROTOCOL_JUMP_HOST}}"
 PROTOCOL_JUMP_USER="${ARMADA_PROTOCOL_JUMP_USER:-${PROFILE_PROTOCOL_JUMP_USER}}"
 PROTOCOL_JUMP_KEY="${ARMADA_PROTOCOL_JUMP_KEY:-${WORKSPACE_ROOT}/${PROFILE_PROTOCOL_JUMP_KEY_REL}}"
@@ -524,6 +542,8 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   [ -f "${PROTOCOL_LAYER_DIR}/tsconfig.json" ] || die "找不到协议层 tsconfig.json"
   [ -d "${PROTOCOL_LAYER_DIR}/src" ] || die "找不到协议层 src 目录"
   [ -d "${PROTOCOL_LAYER_DIR}/deploy" ] || die "找不到协议层 deploy 目录"
+  [ -f "${PROTOCOL_LAYER_DIR}/deploy/traffic-dashboard.pm2.config.cjs" ] \
+    || die "找不到协议流量看板 PM2 配置"
   [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"
   if [ "${DRY_RUN}" != 1 ]; then
     protocol_validate_local_toolchain
@@ -658,6 +678,8 @@ print_plan() {
       printf '  协议连接      : direct\n'
     fi
     printf '  协议 PM2      : %s\n' "${PROTOCOL_PM2_CONFIG}"
+    printf '  协议流量监控  : enabled=%s / dashboard=127.0.0.1:%s / retention=7d,8GiB\n' \
+      "${PROTOCOL_TRAFFIC_ENABLED}" "${PROTOCOL_TRAFFIC_DASHBOARD_PORT}"
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     printf '  Zhuan 目录     : %s\n' "${ZHUAN_DIR}"
@@ -710,6 +732,7 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将同步协议层源码到 ${PROTOCOL_REMOTE_DIR}"
     info "[dry-run] 将在远端构建协议层: cd ${PROTOCOL_REMOTE_DIR}/protocol-layer && npm ci --no-audit --no-fund && npm run build"
     info "[dry-run] 将重载协议 PM2: pm2 startOrReload ${PROTOCOL_PM2_CONFIG} --update-env"
+    info "[dry-run] 将启用协议流量采集并托管 127.0.0.1:${PROTOCOL_TRAFFIC_DASHBOARD_PORT} 看板"
   fi
   if [ "${BUILD_ZHUAN}" = 1 ]; then
     if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then

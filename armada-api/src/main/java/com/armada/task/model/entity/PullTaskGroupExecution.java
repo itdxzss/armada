@@ -1,6 +1,6 @@
 package com.armada.task.model.entity;
 
-/** 群链接与 TXT 一对一冻结配对的执行行，映射 {@code pull_task_group_execution}。 */
+/** 普通拉群执行行；群链接模式冻结链接与 TXT，新群模式只冻结 TXT。 */
 public class PullTaskGroupExecution {
 
     /** 执行行主键。 */
@@ -18,7 +18,7 @@ public class PullTaskGroupExecution {
     /** 群入口 ID(→group_link.id)；最终创建时回填。 */
     private Long groupLinkId;
 
-    /** 归一化群链接 chat.whatsapp.com/&lt;邀请码&gt;。 */
+    /** 归一化群链接；新群模式在邀请链接生成前为空。 */
     private String normalizedLink;
 
     /** 群邀请码；大小写敏感。 */
@@ -27,7 +27,7 @@ public class PullTaskGroupExecution {
     /** 粘贴内容中的原始行号。 */
     private Integer sourceLinkLineNo;
 
-    /** WhatsApp 群 JID；启动校验时回填。 */
+    /** WhatsApp 群 JID；链接校验或建群成功时回填。 */
     private String groupJid;
 
     /** 上传 TXT 的序号。 */
@@ -53,6 +53,18 @@ public class PullTaskGroupExecution {
 
     /** 业务阶段，取值见 PullTaskExecutionStage。 */
     private Integer stage;
+
+    /** 建群阶段内部步骤游标；非新群模式为空。 */
+    private Integer createStep;
+
+    /** 建群幂等操作 ID；同一执行行的逻辑建群全程复用。 */
+    private String createOperationId;
+
+    /** 已确认未创建类失败的累计次数。 */
+    private Integer createAttemptCount;
+
+    /** 本执行行最终用于建群的群名称。 */
+    private String groupSubject;
 
     /** 是否人工暂停：0 否 1 是；与资源等待独立。 */
     private Integer manualPaused;
@@ -242,6 +254,38 @@ public class PullTaskGroupExecution {
 
     public void setStage(Integer stage) {
         this.stage = stage;
+    }
+
+    public Integer getCreateStep() {
+        return createStep;
+    }
+
+    public void setCreateStep(Integer createStep) {
+        this.createStep = createStep;
+    }
+
+    public String getCreateOperationId() {
+        return createOperationId;
+    }
+
+    public void setCreateOperationId(String createOperationId) {
+        this.createOperationId = createOperationId;
+    }
+
+    public Integer getCreateAttemptCount() {
+        return createAttemptCount;
+    }
+
+    public void setCreateAttemptCount(Integer createAttemptCount) {
+        this.createAttemptCount = createAttemptCount;
+    }
+
+    public String getGroupSubject() {
+        return groupSubject;
+    }
+
+    public void setGroupSubject(String groupSubject) {
+        this.groupSubject = groupSubject;
     }
 
     public Integer getManualPaused() {

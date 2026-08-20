@@ -208,6 +208,49 @@ class GroupMetadataSyncTaskServiceImplTest {
     }
 
     @Test
+    void findDueCompletesMetadataScopeForFreshClassificationProfile() {
+        GroupMetadataSyncTask baseline = runningTask(0);
+        baseline.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        baseline.setTriggerSource(GroupMetadataSyncTrigger.BASELINE_CAPTURED.code());
+        baseline.setUpdatedAt(10_000L);
+        baseline.setMemberSnapshotAt(9_500L);
+        when(mapper.selectDueCandidates(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 12_000L, 20))
+                .thenReturn(List.of(baseline));
+
+        assertThat(service().findDue(12_000L, 20)).containsExactly(baseline);
+        assertThat(baseline.getCompletedScopeMask()).isEqualTo(1);
+    }
+
+    @Test
+    void findDueDoesNotReuseStaleProfileOrBypassManualMetadataRefresh() {
+        GroupMetadataSyncTask staleClassification = runningTask(0);
+        staleClassification.setId(1L);
+        staleClassification.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        staleClassification.setTriggerSource(GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED.code());
+        staleClassification.setUpdatedAt(300_000L);
+        staleClassification.setMemberSnapshotAt(100_000L);
+        GroupMetadataSyncTask manualRefresh = runningTask(0);
+        manualRefresh.setId(2L);
+        manualRefresh.setStatus(GroupMetadataSyncStatus.PENDING.code());
+        manualRefresh.setTriggerSource(GroupMetadataSyncTrigger.MANUAL_REFRESH.code());
+        manualRefresh.setUpdatedAt(300_000L);
+        manualRefresh.setMemberSnapshotAt(299_500L);
+        when(mapper.selectDueCandidates(List.of(
+                GroupMetadataSyncStatus.PENDING.code(),
+                GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 301_000L, 20))
+                .thenReturn(List.of(staleClassification, manualRefresh));
+
+        assertThat(service().findDue(301_000L, 20))
+                .containsExactly(staleClassification, manualRefresh);
+        assertThat(staleClassification.getCompletedScopeMask()).isNull();
+        assertThat(manualRefresh.getCompletedScopeMask()).isNull();
+    }
+
+    @Test
     void claimOnlyAllowsTriggeredStatuses() {
         GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask pending = runningTask(0);
@@ -233,7 +276,7 @@ class GroupMetadataSyncTaskServiceImplTest {
 
     private GroupMetadataSyncTaskServiceImpl service() {
         return new GroupMetadataSyncTaskServiceImpl(
-                mapper, 2_000L);
+                mapper, 2_000L, 120_000L);
     }
 
     private static GroupMetadataSyncTask runningTask(int attempts) {

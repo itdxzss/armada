@@ -10,6 +10,8 @@ import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.dto.PullTaskStandardGroupSettingDTO;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskMaterialAdminTiming;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
@@ -74,13 +76,20 @@ public class PullTaskStandardCreateTransactionService {
         }
         List<PullTaskGroupExecution> rows = executionMapper.selectByTaskId(task.getId());
         if (rows.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "至少需要一条群链接与 TXT 的匹配");
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    creationMode(request).isNewGroup()
+                            ? "新群模式至少需要上传一个有效 TXT 料子文件"
+                            : "至少需要一条群链接与 TXT 的匹配");
         }
+        validateExecutionRows(rows, creationMode(request));
 
-        validateAvatar(request.groupSetting());
+        PullTaskStandardGroupSettingDTO groupSetting = groupSettingWithModeDefault(request);
+        validateAvatar(groupSetting);
         settingWriter.insert(request, task.getId());
-        insertGroupSetting(request.groupSetting(), task.getId());
-        fillGroupLinkIds(rows);
+        insertGroupSetting(groupSetting, task.getId());
+        if (!creationMode(request).isNewGroup()) {
+            fillGroupLinkIds(rows);
+        }
         freezeRows(task.getId());
         return new SubmissionResult(submitTask(task, request, rows), true);
     }
@@ -100,6 +109,7 @@ public class PullTaskStandardCreateTransactionService {
         }
         validateRanges(request);
         validateOptions(request);
+        PullTaskNewGroupModeValidator.validateRequest(request);
     }
 
     private void validateRanges(PullTaskStandardCreateDTO request) {
@@ -170,6 +180,21 @@ public class PullTaskStandardCreateTransactionService {
         }
     }
 
+    /** 新群模式没有显式传总开关时默认开启；显式关闭仍以用户选择为准。 */
+    private static PullTaskStandardGroupSettingDTO groupSettingWithModeDefault(
+            PullTaskStandardCreateDTO request) {
+        PullTaskStandardGroupSettingDTO setting = request.groupSetting();
+        if (!creationMode(request).isNewGroup() || setting.enabled() != null) {
+            return setting;
+        }
+        return new PullTaskStandardGroupSettingDTO(
+                true, setting.settingTiming(), setting.groupName(),
+                setting.useMaterialFileNameAsGroupName(), setting.avatarFileKey(),
+                setting.groupDescription(), setting.autoCloseMuteAfterTask(),
+                setting.autoCloseInviteAfterTask(), setting.editPermission(),
+                setting.muteMode(), setting.linkPermission(), setting.disappearingMessage());
+    }
+
     private void fillGroupLinkIds(List<PullTaskGroupExecution> rows) {
         long now = System.currentTimeMillis();
         List<String> links = rows.stream().map(PullTaskGroupExecution::getNormalizedLink).toList();
@@ -180,6 +205,37 @@ public class PullTaskStandardCreateTransactionService {
                 executionMapper.updateGroupLinkId(row.getId(), groupLinkId, now);
             }
         }
+    }
+
+    /** 提交模式必须与草稿行形状一致，禁止把两种模式的行混在一个任务里冻结。 */
+    private static void validateExecutionRows(
+            List<PullTaskGroupExecution> rows,
+            PullTaskCreationMode mode) {
+        if (mode.isNewGroup()) {
+            boolean invalid = rows.stream().anyMatch(row ->
+                    row.getStage() == null
+                            || row.getStage() != PullTaskExecutionStage.GROUP_CREATE.code()
+                            || row.getNormalizedLink() != null
+                            || row.getSourceFileName() == null);
+            if (invalid) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "新群模式草稿包含非建群执行行，请清空草稿后重新上传料子");
+            }
+            return;
+        }
+        boolean invalid = rows.stream().anyMatch(row ->
+                row.getStage() == null
+                        || row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()
+                        || row.getNormalizedLink() == null
+                        || row.getNormalizedLink().isBlank());
+        if (invalid) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "群链接模式草稿包含无链接执行行，请清空草稿后重新匹配");
+        }
+    }
+
+    private static PullTaskCreationMode creationMode(PullTaskStandardCreateDTO request) {
+        return PullTaskCreationMode.fromNullable(request.creationMode());
     }
 
     private void freezeRows(long taskId) {
@@ -200,6 +256,8 @@ public class PullTaskStandardCreateTransactionService {
         update.setId(task.getId());
         update.setTaskName(request.taskName().trim());
         update.setRemark(request.remark());
+        // 模式在提交这一刻冻结；mode 不动，它是执行链路开关，两个模式共用 NORMAL_LINK。
+        update.setCreationMode(PullTaskCreationMode.fromNullable(request.creationMode()));
         update.setGroupCount(rows.size());
         update.setExpectedPullCount(rows.stream()
                 .mapToInt(PullTaskGroupExecution::getValidMemberCount).sum());

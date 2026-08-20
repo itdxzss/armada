@@ -1,6 +1,7 @@
 package com.armada.task.service;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,8 +29,12 @@ public interface PullTaskStandardDraftService {
      * @return 追加后的完整草稿视图
      * @throws BusinessException 文件数、大小、扩展名或有效链接数超限时
      */
-    PullTaskStandardDraftVO plan(Long groupFolderId, String linksText, List<MultipartFile> files,
-                                 long userId, String operatorName);
+    PullTaskStandardDraftVO plan(PullTaskCreationMode creationMode,
+                                 Long groupFolderId,
+                                 String linksText,
+                                 List<MultipartFile> files,
+                                 long userId,
+                                 String operatorName);
 
     /**
      * 回读当前用户的草稿。

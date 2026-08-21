@@ -7,8 +7,6 @@ import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
-import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
@@ -51,7 +49,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupCreatorCompatibilityWriter creatorWriter;
     private final AccountMapper accountMapper;
-    private final GroupMetadataSyncTaskService metadataSyncTaskService;
+    private final com.armada.group.service.GroupInviteLinkService inviteLinkService;
+    private final java.util.concurrent.Executor inviteFetchExecutor;
 
     public GroupProfileReportedSinkAdapter(
             GroupMetadataPatchService patchService,
@@ -61,7 +60,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             GroupLinkRegistryService groupLinkRegistryService,
             GroupCreatorCompatibilityWriter creatorWriter,
             AccountMapper accountMapper,
-            GroupMetadataSyncTaskService metadataSyncTaskService) {
+            com.armada.group.service.GroupInviteLinkService inviteLinkService,
+            @org.springframework.beans.factory.annotation.Qualifier("groupInviteFetchExecutor")
+            java.util.concurrent.Executor inviteFetchExecutor) {
         this.patchService = patchService;
         this.snapshotPersistence = snapshotPersistence;
         this.taskMapper = taskMapper;
@@ -69,7 +70,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.creatorWriter = creatorWriter;
         this.accountMapper = accountMapper;
-        this.metadataSyncTaskService = metadataSyncTaskService;
+        this.inviteLinkService = inviteLinkService;
+        this.inviteFetchExecutor = inviteFetchExecutor;
     }
 
     @Override
@@ -95,37 +97,47 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     }
 
     /**
-     * 入队邀请码抓取，不在本线程取。
+     * 建档后主动取一次邀请码,不依赖定时任务轮询。
      *
-     * <p>外部用控端账号建的群走本事件上报，不经过普通建群链路，因此那条链路里的
-     * enqueueInviteCode 不会被调用。少了这一步，群组列表的邀请链接与状态两列恒为空——
-     * 邀请码只在 WhatsApp 主动推 invite 通知时才带，建群与进群都不带，必须主动查一次。</p>
+     * <p>WhatsApp 只在邀请码"发生变更"时才推 group.invite_link_changed(例如有人重置群链接);
+     * 建群与进群都不推,因为对它而言邀请码一直存在、没变过。所以必须主动查一次,
+     * 否则群组列表的邀请链接与状态两列对新群永远为空。</p>
      *
-     * <p>用 enqueueInviteCode 而不是 enqueue：建档事件已带回完整资料，只差邀请码，
-     * 无须再拉一次全量 metadata。这正是 {@code 574451a5} 收窄 metadata 拉取的意图，
-     * 那一刀建好了这个精确入口，只是没在本链路挂上。</p>
+     * <p>不走入队 + 定时任务:那条路要排队等轮询,实测积压时数小时不动。这里直接提交异步任务,
+     * 进群几秒内即可落库。{@code refreshCurrentInviteCode} 内部已含选管理员号、调协议、
+     * 落库全套,WEB 与安卓按账号后端自动路由。</p>
      *
-     * <p>不同步取：取邀请码要向 WhatsApp 发一次请求，而一个 21 人群会产生 21 条建档事件，
+     * <p>不在本线程取:取邀请码要向 WhatsApp 发一次请求,而一个 21 人群会产生 21 条建档事件,
      * 逐条同步等网络往返会把 Kafka 消费线程连同后面所有群的建档一起堵住。</p>
      *
-     * <p>同群的 21 次入队由唯一键 {@code (tenant_id, group_link_id)} 在库层合并成一条，
-     * 不必另做去重；任务空闲时 upsert 会重置 next_run_at 与 attempt_count，
-     * 所以群链接以后变了仍能重新抓，任务在跑时则只置 rerun_requested 不打断。</p>
+     * <p>异步任务里要重新设置租户上下文:线程池线程没有本次事件的 TenantContext,
+     * 缺了它选号与落库都会落到错误租户或直接查不到数据。</p>
      *
-     * <p>入队失败只告警：邀请码是补充事实，不该让整条资料事件重投。</p>
+     * <p>失败只告警:取邀请码失败是常态(号掉线、非管理员、群已封),
+     * 邀请码是补充事实,不该让整条资料事件重投,把群名与成员一起卡住。</p>
      */
     private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
         if (groupLinkId == null) {
             return;
         }
+        Long tenantId = event.tenantId();
+        String groupJid = event.groupJid();
+        String eventId = event.eventId();
         try {
-            metadataSyncTaskService.enqueueInviteCode(
-                    groupLinkId,
-                    GroupMetadataSyncTrigger.BASELINE_CAPTURED,
-                    System.currentTimeMillis());
+            inviteFetchExecutor.execute(() -> {
+                TenantContext.set(tenantId);
+                try {
+                    inviteLinkService.refreshCurrentInviteCode(groupLinkId, groupJid, null);
+                } catch (RuntimeException e) {
+                    log.warn("协议群资料上报主动取邀请码失败,资料与成员照常落库 eventId={} groupLinkId={}",
+                            eventId, groupLinkId, e);
+                } finally {
+                    TenantContext.clear();
+                }
+            });
         } catch (RuntimeException e) {
-            log.warn("协议群资料上报入队邀请码抓取失败,资料与成员照常落库 eventId={} groupLinkId={}",
-                    event.eventId(), groupLinkId, e);
+            log.warn("协议群资料上报提交取邀请码任务失败,资料与成员照常落库 eventId={} groupLinkId={}",
+                    eventId, groupLinkId, e);
         }
     }
 

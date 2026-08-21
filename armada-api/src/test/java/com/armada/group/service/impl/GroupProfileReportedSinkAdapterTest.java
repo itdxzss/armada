@@ -13,9 +13,9 @@ import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.enums.GroupMetadataFieldSource;
+import com.armada.group.service.GroupInviteLinkService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataPatchService;
-import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
@@ -63,10 +63,20 @@ class GroupProfileReportedSinkAdapterTest {
     private AccountMapper accountMapper;
 
     @Mock
-    private GroupMetadataSyncTaskService metadataSyncTaskService;
+    private GroupInviteLinkService inviteLinkService;
 
-    @InjectMocks
+    /** 同线程执行,让异步取邀请码在单测里可断言。 */
+    private final java.util.concurrent.Executor inviteFetchExecutor = Runnable::run;
+
     private GroupProfileReportedSinkAdapter adapter;
+
+    @org.junit.jupiter.api.BeforeEach
+    void buildAdapter() {
+        adapter = new GroupProfileReportedSinkAdapter(
+                patchService, snapshotPersistence, taskMapper, batchItemMapper,
+                groupLinkRegistryService, creatorWriter, accountMapper,
+                inviteLinkService, inviteFetchExecutor);
+    }
 
     @AfterEach
     void clearTenant() {
@@ -74,38 +84,38 @@ class GroupProfileReportedSinkAdapterTest {
     }
 
     /**
-     * 外部建的群也要入队抓邀请码。
+     * 建档后立刻主动取一次邀请码,不依赖定时任务轮询。
      *
-     * <p>普通建群链路建完会自己调 enqueueInviteCode,但外部用控端账号建群走的是本事件
-     * (安卓上报 group.profile_reported),不经过那条链路。少了这一步,群组列表的邀请链接
-     * 与状态两列永远为空——邀请码只在 WhatsApp 主动推 invite 通知时才更新,建群与进群都不带。</p>
+     * <p>WhatsApp 只在邀请码"发生变更"时才推 group.invite_link_changed(例如有人重置群链接);
+     * 建群与进群都不推,因为对它而言邀请码一直存在、没变过。因此必须主动查一次,
+     * 否则群组列表的邀请链接一列对新群永远为空。</p>
      *
-     * <p>走 enqueueInviteCode 而非 enqueue:建档已带回完整资料,只差邀请码,
-     * 不必再拉一次全量 metadata。</p>
+     * <p>入队 + 定时任务那条路虽然也能取,但要排队等轮询;实测积压时数小时不动。
+     * 这里改为建档当场提交异步任务,进群几秒内即可落库。</p>
      */
     @Test
-    void externallyCreatedGroupQueuesInviteCodeFetch() {
+    void profileReportedTriggersActiveInviteCodeFetch() {
         org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
                 anyString(), any(), any(), anyLong())).thenReturn(77L);
 
         adapter.handleProfileReported(event(true, List.of()));
 
-        verify(metadataSyncTaskService).enqueueInviteCode(
-                eq(77L), eq(GroupMetadataSyncTrigger.BASELINE_CAPTURED), anyLong());
+        verify(inviteLinkService).refreshCurrentInviteCode(eq(77L), eq("120363-abc@g.us"), eq(null));
     }
 
     /**
-     * 入队失败不能连累资料落库。
+     * 主动取邀请码失败不能连累资料落库。
      *
-     * <p>邀请码是补充事实;为它让整条资料事件重投,会把群名与成员一起卡住。</p>
+     * <p>取邀请码要向 WhatsApp 发一次请求,失败是常态(号掉线、非管理员、群已封)。
+     * 邀请码是补充事实,不该让整条资料事件重投,把群名与成员一起卡住。</p>
      */
     @Test
-    void inviteCodeQueueFailureDoesNotDropTheProfileFacts() {
+    void activeInviteFetchFailureDoesNotDropTheProfileFacts() {
         org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
                 anyString(), any(), any(), anyLong())).thenReturn(77L);
-        org.mockito.Mockito.doThrow(new RuntimeException("queue down"))
-                .when(metadataSyncTaskService)
-                .enqueueInviteCode(anyLong(), any(), anyLong());
+        org.mockito.Mockito.doThrow(new RuntimeException("protocol down"))
+                .when(inviteLinkService)
+                .refreshCurrentInviteCode(anyLong(), anyString(), any());
 
         adapter.handleProfileReported(event(true, List.of()));
 
@@ -113,18 +123,18 @@ class GroupProfileReportedSinkAdapterTest {
     }
 
     /**
-     * 群入口没登记成时不入队。
+     * 群入口没登记成时不主动取。
      *
-     * <p>groupLinkId 为空说明 group_link 那行还不存在,此时入队会插出一条指向不存在入口的任务。</p>
+     * <p>groupLinkId 为空时选号与落库都无处落脚,取回来也没地方写。</p>
      */
     @Test
-    void missingGroupLinkSkipsInviteCodeQueue() {
+    void missingGroupLinkSkipsActiveInviteFetch() {
         org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
                 anyString(), any(), any(), anyLong())).thenReturn(null);
 
         adapter.handleProfileReported(event(true, List.of()));
 
-        verify(metadataSyncTaskService, never()).enqueueInviteCode(any(), any(), anyLong());
+        verify(inviteLinkService, never()).refreshCurrentInviteCode(any(), anyString(), any());
     }
 
     @Test

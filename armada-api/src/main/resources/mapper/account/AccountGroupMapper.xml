@@ -30,7 +30,7 @@
               INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
              WHERE a.account_group_id = g.id
                AND a.deleted_at IS NULL
-               AND s.account_state = 1
+               AND s.account_state = 2
                AND s.login_state = 1
                AND a.ws_phone IS NOT NULL
                AND TRIM(a.ws_phone) &lt;&gt; ''

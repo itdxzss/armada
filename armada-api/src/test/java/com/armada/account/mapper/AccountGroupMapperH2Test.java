@@ -3,6 +3,8 @@ package com.armada.account.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.model.dto.AccountGroupQuery;
+import com.armada.account.model.entity.AccountLoginStateCode;
+import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountGroupVoRow;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
@@ -97,12 +99,20 @@ class AccountGroupMapperH2Test {
     @Test
     void selectPageCountsOnlyNormalOnlineAccountsWithCompleteSupportedProtocolIdentityAsExecutable()
             throws SQLException {
-        insertAccount(1, "10001", "web-1", "WEB", 1, 1);
-        insertAccount(2, "10002", "android-2", " android ", 1, 1);
-        insertAccount(3, "10003", "unknown-3", "DESKTOP", 1, 1);
-        insertAccount(4, "10004", "abnormal-4", "WEB", 3, 1);
-        insertAccount(5, "10005", "offline-5", "ANDROID", 1, 2);
-        insertAccount(6, "10006", " ", "WEB", 1, 1);
+        insertAccount(1, "10001", "web-1", "WEB",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(2, "10002", "android-2", " android ",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(3, "10003", "unknown-3", "DESKTOP",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(4, "10004", "abnormal-4", "WEB",
+                AccountStateCode.BANNED, AccountLoginStateCode.ONLINE);
+        insertAccount(5, "10005", "offline-5", "ANDROID",
+                AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE);
+        insertAccount(6, "10006", " ", "WEB",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(7, "10007", "new-7", "WEB",
+                AccountStateCode.NEW, AccountLoginStateCode.ONLINE);
 
         AccountGroupQuery query = new AccountGroupQuery();
         query.setId(10L);
@@ -110,7 +120,7 @@ class AccountGroupMapperH2Test {
 
         AccountGroupVoRow row = mapper.selectPage(query).get(0);
 
-        assertThat(row.getOnlineCount()).isEqualTo(5L);
+        assertThat(row.getOnlineCount()).isEqualTo(6L);
         assertThat(row.getExecutableOnlineCount()).isEqualTo(2L);
     }
 

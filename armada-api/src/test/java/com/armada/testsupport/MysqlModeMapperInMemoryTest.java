@@ -47,6 +47,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -55,6 +56,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -144,6 +147,35 @@ public class MysqlModeMapperInMemoryTest {
         assertThat(groups).extracting(AccountGroup::getId).containsExactly(11L);
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 AccountGroupMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupLinkSoftDeleteAcceptsMoreThanOneHundredIdsAndKeepsTenantBoundary() throws SQLException {
+        String currentTenantRows = LongStream.rangeClosed(1, 101)
+                .mapToObj(id -> "(%d, 7, 'wa://group/delete-%d', 5, 2, 1, 1)".formatted(id, id))
+                .collect(Collectors.joining(","));
+        executeSql(
+                """
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, origin, membership_state, created_at, updated_at)
+                VALUES
+                """ + currentTenantRows,
+                """
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, origin, membership_state, created_at, updated_at)
+                VALUES
+                    (1001, 8, 'wa://group/delete-other-tenant', 5, 2, 1, 1)
+                """);
+        List<Long> ids = new ArrayList<>(LongStream.rangeClosed(1, 101).boxed().toList());
+        ids.add(1001L);
+
+        int deleted = groupLinkMapper.softDeleteByIds(ids, 2L);
+
+        assertThat(deleted).isEqualTo(101);
+        assertThat(queryLong("SELECT COUNT(*) FROM group_link WHERE tenant_id = 7 AND deleted_at = 2"))
+                .isEqualTo(101);
+        assertThat(queryLong("SELECT COUNT(*) FROM group_link WHERE tenant_id = 8 AND deleted_at IS NULL"))
+                .isEqualTo(1);
     }
 
     @Test

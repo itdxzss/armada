@@ -92,7 +92,7 @@ public interface GroupLinkService {
     /**
      * 批量软删除群链接。
      *
-     * @param ids 群链接 ID 列表(1..100)
+     * @param ids 非空群链接 ID 列表，不限制数量
      * @return 实际删除行数
      */
     int batchDelete(List<Long> ids);

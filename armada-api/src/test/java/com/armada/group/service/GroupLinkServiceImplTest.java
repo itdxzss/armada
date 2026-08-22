@@ -571,10 +571,15 @@ class GroupLinkServiceImplTest {
     }
 
     @Test
-    void batchDelete_exceedsMax_throws() {
+    void batchDelete_moreThanOneHundred_softDeletesAll() {
         List<Long> ids = java.util.stream.LongStream.rangeClosed(1, 101).boxed().toList();
-        assertThatThrownBy(() -> service.batchDelete(ids))
-                .isInstanceOf(BusinessException.class);
+        when(groupLinkMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(101);
+
+        int result = service.batchDelete(ids);
+
+        assertThat(result).isEqualTo(101);
+        verify(groupLinkMapper).softDeleteByIds(eq(ids), anyLong());
+        verify(currentLocalPersistence).applyLegacyDeletion(eq(ids), anyLong());
     }
 
     @Test

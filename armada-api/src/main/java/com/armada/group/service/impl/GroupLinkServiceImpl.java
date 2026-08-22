@@ -63,7 +63,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupLinkServiceImpl.class);
 
-    /** 批量操作上限:防止一次操作过多造成锁竞争。 */
+    /** 迁移、预览和设置运营分组等批量操作的上限。 */
     private static final int BATCH_MAX = 100;
 
     /** group_link.group_name 列长度。 */
@@ -548,19 +548,19 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * {@inheritDoc}
      *
-     * <p>实现要点:ids 数量须在 1..{@value #BATCH_MAX} 之间,超限拒绝防锁竞争;
-     * 软删(置 deleted_at)选中的群链接,返回实际软删行数。</p>
+     * <p>实现要点:ids 不能为空且不限制数量;软删(置 deleted_at)选中的群链接,
+     * 返回实际软删行数。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int batchDelete(List<Long> ids) {
-        if (ids == null || ids.isEmpty() || ids.size() > BATCH_MAX) {
-            throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "ids 不能为空");
         }
         long now = System.currentTimeMillis();
         int n = groupLinkMapper.softDeleteByIds(ids, now);
         currentLocalPersistence.applyLegacyDeletion(ids, now);
-        log.info("群链接批量删除 count={} ids={}", n, ids);
+        log.info("群链接批量删除 count={} requestedCount={}", n, ids.size());
         return n;
     }
 

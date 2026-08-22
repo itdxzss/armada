@@ -6,7 +6,10 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.platform.kafka.consumer.group.ProtocolGroupActionResultReportedEvent;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
+import com.armada.task.model.dto.PullTaskCreatorLeaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
+import com.armada.task.model.enums.PullTaskCreatorLeaveOperation;
+import com.armada.task.model.enums.PullTaskCreatorLeaveProtocolOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
 import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
@@ -31,10 +34,50 @@ class ProtocolGroupActionResultAdapterTest {
             mock(PullTaskProtocolResultCallbackService.class);
     private final PullTaskGroupSettingsResultService groupSettingsResultService =
             mock(PullTaskGroupSettingsResultService.class);
+	private final PullTaskCreatorLeaveResultService creatorLeaveResultService =
+			mock(PullTaskCreatorLeaveResultService.class);
     private final ProtocolGroupActionResultAdapter adapter =
             new ProtocolGroupActionResultAdapter(
                     service, inviteService, managerAdminResultService,
-                    groupSettingsResultService, callbackService);
+                    groupSettingsResultService, callbackService, creatorLeaveResultService);
+
+    @Test
+    void creatorLeavePromoteEventRoutesToDedicatedStateMachine() {
+        ProtocolGroupActionResultReportedEvent event = new ProtocolGroupActionResultReportedEvent(
+                "event-leave-1", 7L, 100L, 11L, 903L,
+                "pull_task_creator_leave", "PARTICIPANT_PROMOTE", 901L, "owner-901",
+                "cmd-promote-1", 1, "SUCCESS", "919000000082@s.whatsapp.net",
+                null, null, false, 5_000L, "worker-a");
+
+        adapter.handleActionResultReported(event);
+
+        ArgumentCaptor<PullTaskCreatorLeaveCallback> captor =
+                ArgumentCaptor.forClass(PullTaskCreatorLeaveCallback.class);
+        verify(creatorLeaveResultService).apply(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new PullTaskCreatorLeaveCallback(
+                7L, 100L, 11L, 903L, 901L, "owner-901", "cmd-promote-1", 1,
+                PullTaskCreatorLeaveOperation.PROMOTE, "919000000082@s.whatsapp.net",
+                PullTaskCreatorLeaveProtocolOutcome.SUCCESS, null, null, 5_000L));
+    }
+
+    @Test
+    void creatorLeaveEventRoutesWithoutTargetJid() {
+        ProtocolGroupActionResultReportedEvent event = new ProtocolGroupActionResultReportedEvent(
+                "event-leave-2", 7L, 100L, 11L, 904L,
+                "pull_task_creator_leave", "GROUP_LEAVE", 901L, "owner-901",
+                "cmd-leave-1", 1, "FAILED", null,
+                "GROUP_LEAVE_FAILED", "failed", false, 5_001L, "worker-a");
+
+        adapter.handleActionResultReported(event);
+
+        ArgumentCaptor<PullTaskCreatorLeaveCallback> captor =
+                ArgumentCaptor.forClass(PullTaskCreatorLeaveCallback.class);
+        verify(creatorLeaveResultService).apply(captor.capture());
+        assertThat(captor.getValue().operation()).isEqualTo(PullTaskCreatorLeaveOperation.LEAVE);
+        assertThat(captor.getValue().targetJid()).isNull();
+        assertThat(captor.getValue().outcome())
+                .isEqualTo(PullTaskCreatorLeaveProtocolOutcome.FAILED);
+    }
 
     @Test
     void groupSettingsEventRoutesToGroupSettingsStateMachine() {

@@ -100,7 +100,7 @@ class PullTaskNewGroupModeValidatorTest {
                 1L, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, groupSetting(),
-                creationMode, creatorGroupId, initialStationCount);
+                creationMode, creatorGroupId, initialStationCount, false);
     }
 
     private static PullTaskStandardCreateDTO withStationGroup(
@@ -114,7 +114,7 @@ class PullTaskNewGroupModeValidatorTest {
                 base.concurrentGroupCount(), base.managerGroupId(), base.pullerGroupId(),
                 stationGroupId, base.managerFinishGroupId(), base.pullerFinishGroupId(),
                 base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount());
+                base.initialStationCount(), base.creatorLeaveAfterPull());
     }
 
     private static PullTaskStandardGroupSettingDTO groupSetting() {

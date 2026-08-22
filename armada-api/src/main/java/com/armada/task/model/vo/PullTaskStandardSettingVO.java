@@ -5,6 +5,7 @@ import com.armada.task.model.enums.PullTaskPullerSyncMode;
 /** 普通群链接任务冻结执行设置回读。 */
 public record PullTaskStandardSettingVO(
         int autoStart,
+        boolean creatorLeaveAfterPull,
         Long groupFolderId,
         String groupFolderName,
         PullTaskPullerSyncMode pullerSyncMode,

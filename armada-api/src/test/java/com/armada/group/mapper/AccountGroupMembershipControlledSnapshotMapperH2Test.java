@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.entity.AccountGroupMembership;
+import com.armada.group.model.vo.GroupCreatorLeaveAccount;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -81,6 +82,22 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                         301L, "WEB", "acc_1001", "1001", true));
     }
 
+    @Test
+    void selectsCurrentControlledParticipantsForCreatorLeaveFromLocalProjection() {
+        assertThat(mapper.selectCreatorLeaveAccounts(201L))
+                .extracting(
+                        GroupCreatorLeaveAccount::accountId,
+                        GroupCreatorLeaveAccount::participantJid,
+                        GroupCreatorLeaveAccount::role,
+                        GroupCreatorLeaveAccount::loginState,
+                        GroupCreatorLeaveAccount::membershipActiveSinceAt)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(
+                                301L, "1001@s.whatsapp.net", 3, 1, 100L),
+                        org.assertj.core.groups.Tuple.tuple(
+                                302L, "1002@lid", 1, 2, 200L));
+    }
+
     private void createSchema() throws SQLException {
         execute("""
                 CREATE TABLE account (
@@ -110,12 +127,14 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                 CREATE TABLE wa_account_group_binding (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                   account_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
-                  participant_id BIGINT NOT NULL, last_observed_at BIGINT
+                  participant_id BIGINT NOT NULL, last_observed_at BIGINT,
+                  membership_active_since_at BIGINT
                 )
                 """, """
                 CREATE TABLE wa_group_participant (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                   group_id BIGINT NOT NULL, phone VARCHAR(32),
+                  pn_jid VARCHAR(128), lid_jid VARCHAR(128),
                   presence_status TINYINT NOT NULL, role TINYINT NOT NULL
                 )
                 """, """
@@ -160,13 +179,22 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                   (1002, 8, '120363other@g.us')
                 """, """
                 INSERT INTO wa_group_participant
-                  (id, tenant_id, group_id, phone, presence_status, role)
+                  (id, tenant_id, group_id, phone, pn_jid, lid_jid, presence_status, role)
                 VALUES
-                  (5001, 7, 1001, '1001', 1, 2),
-                  (5002, 7, 1001, '1002', 1, 1),
-                  (5003, 7, 1001, '1003', 1, 2),
-                  (5004, 7, 1001, '9999', 1, 2),
-                  (5005, 8, 1002, '1004', 1, 2)
+                  (5001, 7, 1001, '1001', '1001@s.whatsapp.net', '1001@lid', 1, 3),
+                  (5002, 7, 1001, '1002', NULL, '1002@lid', 1, 1),
+                  (5003, 7, 1001, '1003', '1003@s.whatsapp.net', NULL, 1, 2),
+                  (5004, 7, 1001, '9999', '9999@s.whatsapp.net', NULL, 1, 2),
+                  (5005, 8, 1002, '1004', '1004@s.whatsapp.net', NULL, 1, 2)
+                """, """
+                INSERT INTO wa_account_group_binding
+                  (id, tenant_id, account_id, group_id, participant_id,
+                   last_observed_at, membership_active_since_at)
+                VALUES
+                  (6001, 7, 301, 1001, 5001, 300, 100),
+                  (6002, 7, 302, 1001, 5002, 300, 200),
+                  (6003, 7, 303, 1001, 5003, 300, 300),
+                  (6004, 8, 401, 1002, 5005, 300, 400)
                 """, """
                 INSERT INTO whatsapp_group_member_snapshot
                   (tenant_id, group_link_id, group_jid, participant_jid, phone, is_admin)

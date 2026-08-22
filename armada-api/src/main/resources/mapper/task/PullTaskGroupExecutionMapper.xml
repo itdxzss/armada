@@ -8,6 +8,7 @@
     total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
     execution_status, stage, create_step, create_operation_id, create_attempt_count, group_subject,
     manual_paused, wait_resource_type, reason_code, reason_message,
+    creator_leave_result, creator_leave_reason,
     next_manager_index, next_puller_index, active_pull_wave_id,
     active_puller_group_account_id, puller_assignment_seq, next_run_at,
     lock_owner, lock_expires_at, version, started_at, finished_at,
@@ -25,6 +26,7 @@
     execution_row.create_operation_id, execution_row.create_attempt_count,
     execution_row.group_subject, execution_row.manual_paused,
     execution_row.wait_resource_type, execution_row.reason_code, execution_row.reason_message,
+    execution_row.creator_leave_result, execution_row.creator_leave_reason,
     execution_row.next_manager_index, execution_row.next_puller_index,
     execution_row.active_pull_wave_id, execution_row.active_puller_group_account_id,
     execution_row.puller_assignment_seq, execution_row.next_run_at,
@@ -318,6 +320,10 @@
         wait_resource_type = #{row.waitResourceType},
         reason_code = #{row.reasonCode},
         reason_message = #{row.reasonMessage},
+        creator_leave_result = COALESCE(
+          #{row.creatorLeaveResult}, creator_leave_result),
+        creator_leave_reason = COALESCE(
+          #{row.creatorLeaveReason}, creator_leave_reason),
         next_run_at = #{row.nextRunAt},
         finished_at = #{row.finishedAt},
         last_business_executed_at = COALESCE(

@@ -77,6 +77,8 @@ public class PullTaskClosingTransactionService {
         update.setVersion(candidate.getVersion());
         update.setLockOwner(candidate.getLockOwner());
         update.setGroupJid(candidate.getGroupJid());
+        update.setCreatorLeaveResult(candidate.getCreatorLeaveResult());
+        update.setCreatorLeaveReason(candidate.getCreatorLeaveReason());
         update.setExecutionStatus(PullTaskExecutionStatus.COMPLETED.code());
         update.setStage(PullTaskExecutionStage.CLOSING.code());
         update.setNextRunAt(0L);

@@ -10,6 +10,7 @@ import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
@@ -168,6 +169,10 @@ public interface ProtocolCommandOutboxService {
     /** 写入普通拉群群成员事实查询命令。 */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskMemberQueryCommands(
             List<ProtocolPullTaskMemberQueryCommandRequest> commands);
+
+    /** 写入标准拉人任务的控端成员提权或建群者退群命令。 */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskCreatorLeaveCommands(
+            List<ProtocolPullTaskCreatorLeaveCommandRequest> commands);
 
     /**
      * 批量写入新建普群协议动作命令。

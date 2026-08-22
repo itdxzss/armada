@@ -275,7 +275,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
 
     private static PullTaskStandardSettingVO standardSetting(PullTaskStandardSetting row) {
         return new PullTaskStandardSettingVO(
-                value(row.getAutoStart()), row.getSourceGroupFolderId(),
+                value(row.getAutoStart()), enabled(row.getCreatorLeaveAfterPull()),
+                row.getSourceGroupFolderId(),
                 row.getSourceGroupFolderName(), PullTaskPullerSyncMode.fromCode(
                         value(row.getPullerSyncMode())), value(row.getMaterialAdminTiming()),
                 enabled(row.getClearExistingMembers()), enabled(row.getPullerJoinByLink()),

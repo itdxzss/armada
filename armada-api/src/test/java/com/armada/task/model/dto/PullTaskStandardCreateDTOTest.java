@@ -43,7 +43,8 @@ public class PullTaskStandardCreateDTOTest {
                 // 新群模式三个字段追加在合同末尾：既有前端不传时序列化为 null，
                 // 反序列化按群链接模式处理，对存量调用方保持兼容。
                 + "\"creationMode\":null,\"creatorGroupId\":null,"
-                + "\"initialStationCount\":null}");
+                + "\"initialStationCount\":null,"
+                + "\"creatorLeaveAfterPull\":true}");
         assertThat(json).doesNotContain("\"version\"");
         assertThat(objectMapper.readValue(json, PullTaskStandardCreateDTO.class)).isEqualTo(request);
     }
@@ -57,6 +58,6 @@ public class PullTaskStandardCreateDTOTest {
         return new PullTaskStandardCreateDTO(
                 1L, "任务", "备注", 0, 18L, PullTaskPullerSyncMode.BATCH,
                 1, true, true, 1, 2, 3, 8, 30, 2, 0, 1,
-                11L, 12L, null, 14L, 15L, groupSetting, null, null, null);
+                11L, 12L, null, 14L, 15L, groupSetting, null, null, null, true);
     }
 }

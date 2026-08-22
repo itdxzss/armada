@@ -23,11 +23,14 @@ import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.model.vo.GroupLinkMemberListVO;
 import com.armada.group.model.vo.GroupMemberBatchResultVO;
 import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
+import com.armada.group.model.vo.GroupCreatorLeaveCapabilityVO;
+import com.armada.group.model.vo.GroupCreatorLeaveResultVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.FileLinesExtractor;
 import com.armada.group.service.GroupBatchTaskService;
 import com.armada.group.service.GroupDetailService;
+import com.armada.group.service.GroupCreatorLeaveService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.response.ApiResponse;
@@ -62,17 +65,20 @@ public class GroupLinkController {
     private final GroupLinkImportService importService;
     private final FileLinesExtractor extractor;
     private final GroupBatchTaskService batchTaskService;
+    private final GroupCreatorLeaveService creatorLeaveService;
 
     public GroupLinkController(GroupLinkService groupLinkService,
                                GroupDetailService groupDetailService,
                                GroupLinkImportService importService,
                                FileLinesExtractor extractor,
-                               GroupBatchTaskService batchTaskService) {
+                               GroupBatchTaskService batchTaskService,
+                               GroupCreatorLeaveService creatorLeaveService) {
         this.groupLinkService = groupLinkService;
         this.groupDetailService = groupDetailService;
         this.importService = importService;
         this.extractor = extractor;
         this.batchTaskService = batchTaskService;
+        this.creatorLeaveService = creatorLeaveService;
     }
 
     /**
@@ -253,6 +259,18 @@ public class GroupLinkController {
     @GetMapping("/{id}/detail")
     public ApiResponse<GroupDetailVO> detail(@PathVariable Long id) {
         return ApiResponse.ok(groupDetailService.detail(id));
+    }
+
+    /** 从本地群事件投影判断群主退群按钮是否可用。 */
+    @GetMapping("/{id}/creator-leave-capability")
+    public ApiResponse<GroupCreatorLeaveCapabilityVO> creatorLeaveCapability(@PathVariable Long id) {
+        return ApiResponse.ok(creatorLeaveService.capability(id));
+    }
+
+    /** 已有我方管理员则直接退群，否则先提升我方普通成员再让建群者退出。 */
+    @PostMapping("/{id}/creator-leave")
+    public ApiResponse<GroupCreatorLeaveResultVO> creatorLeave(@PathVariable Long id) {
+        return ApiResponse.ok(creatorLeaveService.execute(id, null));
     }
 
     /** 将指定群的完整 metadata 刷新加入耐久异步队列。 */

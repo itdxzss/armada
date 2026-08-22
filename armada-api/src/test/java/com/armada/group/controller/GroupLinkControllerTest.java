@@ -23,11 +23,15 @@ import com.armada.group.model.vo.GroupLinkMemberVO;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupLinkPreviewItemVO;
 import com.armada.group.model.vo.GroupMetadataSyncAcceptedVO;
+import com.armada.group.model.vo.GroupCreatorLeaveCapabilityVO;
+import com.armada.group.model.vo.GroupCreatorLeaveResultVO;
+import com.armada.group.model.enums.GroupCreatorLeaveStatus;
 import com.armada.group.service.FileLinesExtractor;
 import com.armada.group.service.GroupBatchTaskService;
 import com.armada.group.service.GroupDetailService;
 import com.armada.group.service.GroupLinkImportService;
 import com.armada.group.service.GroupLinkService;
+import com.armada.group.service.GroupCreatorLeaveService;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,14 +64,37 @@ class GroupLinkControllerTest {
     @Mock
     private GroupBatchTaskService batchTaskService;
 
+    @Mock
+    private GroupCreatorLeaveService creatorLeaveService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new GroupLinkController(
-                        groupLinkService, groupDetailService, importService, extractor, batchTaskService))
+                        groupLinkService, groupDetailService, importService, extractor,
+                        batchTaskService, creatorLeaveService))
                 .build();
+    }
+
+    @Test
+    void creatorLeaveRoutesUseSharedService() throws Exception {
+        when(creatorLeaveService.capability(10L))
+                .thenReturn(new GroupCreatorLeaveCapabilityVO(true, null, null));
+        when(creatorLeaveService.execute(10L, null))
+                .thenReturn(new GroupCreatorLeaveResultVO(
+                        GroupCreatorLeaveStatus.SUCCESS, "群主退群成功"));
+
+        mockMvc.perform(get("/api/group-links/10/creator-leave-capability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.executable").value(true));
+        mockMvc.perform(post("/api/group-links/10/creator-leave"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUCCESS"));
+
+        verify(creatorLeaveService).capability(10L);
+        verify(creatorLeaveService).execute(10L, null);
     }
 
     @Test

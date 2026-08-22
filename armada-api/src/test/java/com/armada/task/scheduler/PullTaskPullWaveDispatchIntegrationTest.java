@@ -475,7 +475,8 @@ class PullTaskPullWaveDispatchIntegrationTest {
         @Bean PullTaskPullExecutionProcessor processor(
                 PullTaskPullExecutionDispatchResources resources) {
             return new PullTaskPullExecutionProcessor(
-                    resources, mock(PullTaskClosingTransactionService.class));
+                    resources, mock(PullTaskCreatorLeaveProcessor.class),
+                    mock(PullTaskClosingTransactionService.class));
         }
     }
 }

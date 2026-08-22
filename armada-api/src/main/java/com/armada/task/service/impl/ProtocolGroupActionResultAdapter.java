@@ -3,16 +3,20 @@ package com.armada.task.service.impl;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupActionResultReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupActionResultReportedSink;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
+import com.armada.task.model.dto.PullTaskCreatorLeaveCallback;
 import com.armada.task.model.enums.PullTaskContactSaveOutcome;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
 import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
 import com.armada.task.model.dto.PullTaskManagerAdminCallback;
 import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
+import com.armada.task.model.enums.PullTaskCreatorLeaveOperation;
+import com.armada.task.model.enums.PullTaskCreatorLeaveProtocolOutcome;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.service.PullTaskContactSaveResultService;
+import com.armada.task.service.PullTaskCreatorLeaveResultService;
 import com.armada.task.service.PullTaskPullerInviteResultService;
 import com.armada.task.service.PullTaskGroupSettingsResultService;
 import com.armada.task.service.PullTaskManagerAdminResultService;
@@ -28,6 +32,7 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
     private final PullTaskManagerAdminResultService managerAdminResultService;
     private final PullTaskGroupSettingsResultService groupSettingsResultService;
     private final PullTaskProtocolResultCallbackService callbackService;
+    private final PullTaskCreatorLeaveResultService creatorLeaveResultService;
 
     /**
      * 创建群动作结果适配器。
@@ -37,18 +42,21 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
      * @param managerAdminResultService 任务管理员提权结果状态机
      * @param groupSettingsResultService 群设置结果状态机
      * @param callbackService 批量拉人和料子提权结果状态机
+     * @param creatorLeaveResultService 群主退群结果状态机
      */
     public ProtocolGroupActionResultAdapter(
             PullTaskContactSaveResultService contactSaveResultService,
             PullTaskPullerInviteResultService pullerInviteResultService,
             PullTaskManagerAdminResultService managerAdminResultService,
             PullTaskGroupSettingsResultService groupSettingsResultService,
-            PullTaskProtocolResultCallbackService callbackService) {
+            PullTaskProtocolResultCallbackService callbackService,
+            PullTaskCreatorLeaveResultService creatorLeaveResultService) {
         this.contactSaveResultService = contactSaveResultService;
         this.pullerInviteResultService = pullerInviteResultService;
         this.managerAdminResultService = managerAdminResultService;
         this.groupSettingsResultService = groupSettingsResultService;
         this.callbackService = callbackService;
+        this.creatorLeaveResultService = creatorLeaveResultService;
     }
 
     /** {@inheritDoc} */
@@ -97,6 +105,17 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
                     event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
                     event.targetJid(), PullTaskMaterialAdminProtocolOutcome.valueOf(event.outcome()),
                     event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
+            return;
+        }
+        if ("pull_task_creator_leave".equals(event.source())) {
+            creatorLeaveResultService.apply(new PullTaskCreatorLeaveCallback(
+                    event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.actionId(),
+                    event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
+                    "PARTICIPANT_PROMOTE".equals(event.operation())
+                            ? PullTaskCreatorLeaveOperation.PROMOTE
+                            : PullTaskCreatorLeaveOperation.LEAVE,
+                    event.targetJid(), PullTaskCreatorLeaveProtocolOutcome.valueOf(event.outcome()),
+                    event.reasonCode(), event.reasonMessage(), event.timestamp()));
             return;
         }
         throw new IllegalArgumentException("不支持的群动作结果来源");

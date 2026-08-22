@@ -9,13 +9,16 @@ import org.springframework.stereotype.Component;
 public class PullTaskPullExecutionProcessor {
 
     private final PullTaskPullExecutionDispatchResources resources;
+    private final PullTaskCreatorLeaveProcessor creatorLeave;
     private final PullTaskClosingTransactionService closing;
 
     /** @param resources 波次派发路由依赖 @param closing 执行行收口事务 */
     public PullTaskPullExecutionProcessor(
             PullTaskPullExecutionDispatchResources resources,
+            PullTaskCreatorLeaveProcessor creatorLeave,
             PullTaskClosingTransactionService closing) {
         this.resources = resources;
+        this.creatorLeave = creatorLeave;
         this.closing = closing;
     }
 
@@ -53,6 +56,11 @@ public class PullTaskPullExecutionProcessor {
             PullTaskGroupExecution candidate,
             String lockOwner,
             long now) {
+        PullTaskExecutionDispatchResult creatorLeaveResult =
+                creatorLeave.process(candidate, lockOwner, now);
+        if (creatorLeaveResult != PullTaskExecutionDispatchResult.ADVANCED) {
+            return creatorLeaveResult;
+        }
         return closing.close(candidate, lockOwner, now);
     }
 }

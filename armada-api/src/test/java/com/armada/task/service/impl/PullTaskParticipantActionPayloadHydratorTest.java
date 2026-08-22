@@ -83,6 +83,28 @@ class PullTaskParticipantActionPayloadHydratorTest {
         assertThat(payload.get("source").textValue()).isEqualTo("pull_task_manager_admin");
     }
 
+    @Test
+    void hydratesCreatorLeavePromotionFromOwnerToControlledMember() throws Exception {
+        ProtocolCommandOutbox row = outbox(
+                "cmd-creator-promote-1", 712L, "owner-903", "pull_task_creator_leave");
+        when(actionMapper.selectByCommandId("cmd-creator-promote-1")).thenReturn(action(
+                712L, PullTaskAccountActionType.PROMOTE_CREATOR_SUCCESSOR, 503L, 504L,
+                "cmd-creator-promote-1", 1));
+        when(accountMapper.selectById(503L)).thenReturn(account(
+                503L, 903L, "8613800000903", PullTaskGroupAccountRole.PROMOTER));
+        when(accountMapper.selectById(504L)).thenReturn(account(
+                504L, 904L, "8613800000904", PullTaskGroupAccountRole.CONTROLLER));
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+
+        JsonNode payload = hydrator.hydrate(row, objectMapper.readTree(row.getPayloadJson()));
+
+        assertThat(payload.get("accountId").longValue()).isEqualTo(903L);
+        assertThat(payload.get("participants").get(0).textValue())
+                .isEqualTo("8613800000904@s.whatsapp.net");
+        assertThat(payload.get("action").textValue()).isEqualTo("PROMOTE");
+        assertThat(payload.get("source").textValue()).isEqualTo("pull_task_creator_leave");
+    }
+
     private static ProtocolCommandOutbox outbox(
             String commandId, long actionId, String protocolAccountId, String source) {
         ProtocolCommandOutbox row = new ProtocolCommandOutbox();

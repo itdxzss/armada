@@ -818,7 +818,12 @@ public class ProtocolGroupEventConsumer {
                 && "PARTICIPANT_PROMOTE".equals(operation);
         boolean groupSettings = "pull_task_group_settings".equals(source)
                 && "GROUP_SETTINGS_APPLY".equals(operation);
-        if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin && !groupSettings) {
+        boolean creatorLeavePromote = "pull_task_creator_leave".equals(source)
+                && "PARTICIPANT_PROMOTE".equals(operation);
+        boolean creatorLeave = "pull_task_creator_leave".equals(source)
+                && "GROUP_LEAVE".equals(operation);
+        if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin && !groupSettings
+                && !creatorLeavePromote && !creatorLeave) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果来源或动作非法");
         }
         Long accountId = requiredLong(data, "accountId");
@@ -839,7 +844,7 @@ public class ProtocolGroupEventConsumer {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果 outcome 非法");
         }
         String targetJid = text(data, "targetJid");
-        if ((pullerInvite || materialAdmin || managerAdmin)
+        if ((pullerInvite || materialAdmin || managerAdmin || creatorLeavePromote)
                 && (targetJid == null || targetJid.isBlank())) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议成员结果缺少 data.targetJid");
         }

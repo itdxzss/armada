@@ -52,12 +52,38 @@ class PullTaskClosingTransactionServiceTest {
         ArgumentCaptor<PullTaskGroupExecution> captor =
                 ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executionMapper).transitionClaimed(
-                captor.capture(), org.mockito.ArgumentMatchers.eq(7));
+                captor.capture(), org.mockito.ArgumentMatchers.eq(
+                        PullTaskExecutionStage.CLOSING.code()));
         assertThat(captor.getValue().getExecutionStatus())
                 .isEqualTo(PullTaskExecutionStatus.COMPLETED.code());
         assertThat(captor.getValue().getFinishedAt()).isEqualTo(1_000L);
         verify(accountMapper).releaseAllPullersOfExecution(11L, 1_000L);
         verify(parentCompletionService).completeIfTerminalByExecutionId(11L, 1_000L);
+    }
+
+    @Test
+    void persistsCreatorLeaveResultWithoutChangingExecutionSuccess() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setCreatorLeaveResult(5);
+        candidate.setCreatorLeaveReason("管理权限转移失败，未执行群主退群");
+        when(taskMapper.selectLifecycle(100L)).thenReturn(parent());
+        when(executionMapper.transitionClaimed(
+                any(PullTaskGroupExecution.class),
+                org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.CLOSING.code())))
+                .thenReturn(1);
+
+        assertThat(service.close(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        ArgumentCaptor<PullTaskGroupExecution> captor =
+                ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executionMapper).transitionClaimed(
+                captor.capture(), org.mockito.ArgumentMatchers.eq(
+                        PullTaskExecutionStage.CLOSING.code()));
+        assertThat(captor.getValue().getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.COMPLETED.code());
+        assertThat(captor.getValue().getCreatorLeaveResult()).isEqualTo(5);
+        assertThat(captor.getValue().getCreatorLeaveReason()).contains("权限转移失败");
     }
 
     private static PullTask parent() {

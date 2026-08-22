@@ -29,9 +29,11 @@ class PullTaskPullExecutionProcessorTest {
     private final PullTaskBatchAddProcessor batch = mock(PullTaskBatchAddProcessor.class);
     private final PullTaskClosingTransactionService closing =
             mock(PullTaskClosingTransactionService.class);
+    private final PullTaskCreatorLeaveProcessor creatorLeave =
+            mock(PullTaskCreatorLeaveProcessor.class);
     private final PullTaskPullExecutionProcessor processor = new PullTaskPullExecutionProcessor(
             new PullTaskPullExecutionDispatchResources(
-                    waves, pullers, settlement, contacts, batch), closing);
+                    waves, pullers, settlement, contacts, batch), creatorLeave, closing);
 
     @Test
     void dispatchingWaveBindsStickyPullerBeforeContactsAndBatch() {
@@ -100,6 +102,22 @@ class PullTaskPullExecutionProcessorTest {
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verifyNoInteractions(batch);
+    }
+
+    @Test
+    void closingAttemptsIndependentCreatorLeaveBeforeExistingCloseFlow() {
+        PullTaskGroupExecution candidate = candidate();
+		when(creatorLeave.process(candidate, "worker-1", 1_000L))
+				.thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+        when(closing.close(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+
+        assertThat(processor.close(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(creatorLeave, closing);
+        order.verify(creatorLeave).process(candidate, "worker-1", 1_000L);
+        order.verify(closing).close(candidate, "worker-1", 1_000L);
     }
 
     private static PullTaskGroupExecution candidate() {

@@ -1,13 +1,10 @@
 package com.armada.task.service.impl;
 
-import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskParticipantActionReference;
-import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.service.ProtocolCommandPayloadHydrator;
-import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -19,19 +16,19 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
-/** 从账号动作、角色快照和执行行补全普通拉群成员变更 Kafka payload。 */
+/** 从技术动作与冻结角色事实补全标准拉人任务的建群者退群 payload。 */
 @Component
-public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommandPayloadHydrator {
+public class PullTaskCreatorLeavePayloadHydrator implements ProtocolCommandPayloadHydrator {
 
-    private static final String COMMAND_TYPE = "group.participants.requested";
+    private static final String COMMAND_TYPE = "group.leave.requested";
     private static final String AGGREGATE_TYPE = "PULL_TASK_ACCOUNT_ACTION";
     private static final int TIMEOUT_MS = 30_000;
 
@@ -40,8 +37,8 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
     private final PullTaskGroupExecutionMapper executionMapper;
     private final ObjectMapper objectMapper;
 
-    /** 创建普通拉群成员动作 payload 补全器。 */
-    public PullTaskParticipantActionPayloadHydrator(
+    /** 创建建群者退群 payload 补全器。 */
+    public PullTaskCreatorLeavePayloadHydrator(
             PullTaskAccountActionMapper actionMapper,
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
@@ -52,7 +49,7 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
         this.objectMapper = objectMapper;
     }
 
-    /** 仅处理普通拉群账号动作聚合的成员命令。 */
+    /** 仅处理标准拉人任务账号动作聚合的退群命令。 */
     @Override
     public boolean supports(ProtocolCommandOutbox row) {
         return row != null
@@ -64,30 +61,22 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
     @Override
     public JsonNode hydrate(ProtocolCommandOutbox row, JsonNode referencePayload) {
         ProtocolPullTaskParticipantActionReference reference = parse(referencePayload);
-        ActionSpec spec = actionSpec(reference.source());
         validateReference(row, reference);
         Long previousTenant = TenantContext.get();
         TenantContext.set(reference.tenantId());
         try {
             PullTaskAccountAction action = actionMapper.selectByCommandId(row.getCommandId());
-            if (!validAction(action, row, reference, spec)) {
-                throw validation("普通拉群成员命令关联动作不一致 commandId=" + row.getCommandId());
-            }
-            PullTaskGroupAccount actor = accountMapper.selectById(action.getActorGroupAccountId());
-            PullTaskGroupAccount target = accountMapper.selectById(action.getTargetGroupAccountId());
+            PullTaskGroupAccount owner = action == null ? null
+                    : accountMapper.selectById(action.getActorGroupAccountId());
             PullTaskGroupExecution execution = executionMapper.selectById(reference.groupExecutionId());
-            if (!validAccount(actor, reference, spec.actorRole())
-                    || !validAccount(target, reference, spec.targetRole())
-                    || !validExecution(execution, reference)) {
-                throw validation("普通拉群成员命令冻结事实不完整 commandId=" + row.getCommandId());
+            if (!valid(action, owner, execution, row, reference)) {
+                throw validation("群主退群命令冻结事实不完整 commandId=" + row.getCommandId());
             }
-            int attemptNo = spec.useActionAttempt() ? action.getAttemptNo() : 1;
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
-                    reference.actionId(), actor.getAccountId(), row.getProtocolAccountId(),
-                    actor.getAccountPhone(), backend(row).name(), execution.getGroupJid(),
-                    List.of(WhatsappJids.userJid(target.getAccountPhone())), spec.wireAction(),
-                    TIMEOUT_MS, attemptNo, reference.source()));
+                    reference.actionId(), owner.getAccountId(), row.getProtocolAccountId(),
+                    owner.getAccountPhone(), backend(row).name(), execution.getGroupJid(),
+                    "LEAVE", TIMEOUT_MS, action.getAttemptNo(), reference.source()));
         } finally {
             restoreTenant(previousTenant);
         }
@@ -97,33 +86,8 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
         try {
             return objectMapper.treeToValue(payload, ProtocolPullTaskParticipantActionReference.class);
         } catch (JsonProcessingException | IllegalArgumentException ex) {
-            throw validation("普通拉群成员命令引用 payload 非法");
+            throw validation("群主退群命令引用 payload 非法");
         }
-    }
-
-    private static ActionSpec actionSpec(String source) {
-        if (ProtocolPullTaskPullerInviteCommandRequest.SOURCE.equals(source)) {
-            return new ActionSpec(
-                    PullTaskAccountActionType.INVITE_TO_GROUP,
-                    PullTaskGroupAccountRole.MANAGER,
-                    PullTaskGroupAccountRole.PULLER,
-                    "ADD", false);
-        }
-        if (ProtocolPullTaskManagerAdminCommandRequest.SOURCE.equals(source)) {
-            return new ActionSpec(
-                    PullTaskAccountActionType.PROMOTE_MANAGER,
-                    PullTaskGroupAccountRole.PROMOTER,
-                    PullTaskGroupAccountRole.MANAGER,
-                    "PROMOTE", true);
-        }
-        if (ProtocolPullTaskCreatorLeaveCommandRequest.SOURCE.equals(source)) {
-            return new ActionSpec(
-                    PullTaskAccountActionType.PROMOTE_CREATOR_SUCCESSOR,
-                    PullTaskGroupAccountRole.PROMOTER,
-                    PullTaskGroupAccountRole.CONTROLLER,
-                    "PROMOTE", true);
-        }
-        throw validation("普通拉群成员命令来源非法");
     }
 
     private static void validateReference(
@@ -134,63 +98,48 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
                 || !positive(reference.pullTaskId())
                 || !positive(reference.groupExecutionId())
                 || !positive(reference.actionId())
+                || !ProtocolPullTaskCreatorLeaveCommandRequest.SOURCE.equals(reference.source())
                 || !reference.tenantId().equals(row.getTenantId())
                 || !reference.actionId().equals(row.getAggregateId())) {
-            throw validation("普通拉群成员命令引用与 Outbox 不一致");
+            throw validation("群主退群命令引用与 Outbox 不一致");
         }
     }
 
-    private static boolean validAction(
+    private static boolean valid(
             PullTaskAccountAction action,
+            PullTaskGroupAccount owner,
+            PullTaskGroupExecution execution,
             ProtocolCommandOutbox row,
-            ProtocolPullTaskParticipantActionReference reference,
-            ActionSpec spec) {
-        return action != null
+            ProtocolPullTaskParticipantActionReference reference) {
+        return action != null && owner != null && execution != null
                 && Objects.equals(action.getId(), reference.actionId())
                 && Objects.equals(action.getTaskId(), reference.pullTaskId())
                 && Objects.equals(action.getGroupExecutionId(), reference.groupExecutionId())
                 && Objects.equals(action.getCommandId(), row.getCommandId())
-                && Objects.equals(action.getActionType(), spec.actionType().code())
+                && Objects.equals(action.getActionType(), PullTaskAccountActionType.CREATOR_LEAVE.code())
                 && Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code())
-                && (!spec.useActionAttempt() || positiveAttempt(action.getAttemptNo()));
-    }
-
-    private static boolean validAccount(
-            PullTaskGroupAccount account,
-            ProtocolPullTaskParticipantActionReference reference,
-            PullTaskGroupAccountRole expectedRole) {
-        return account != null
-                && positive(account.getAccountId())
-                && Objects.equals(account.getTaskId(), reference.pullTaskId())
-                && Objects.equals(account.getGroupExecutionId(), reference.groupExecutionId())
-                && Objects.equals(account.getRoleType(), expectedRole.code())
-                && account.getAccountPhone() != null
-                && !account.getAccountPhone().isBlank();
-    }
-
-    private static boolean validExecution(
-            PullTaskGroupExecution execution,
-            ProtocolPullTaskParticipantActionReference reference) {
-        return execution != null
+                && action.getAttemptNo() != null && action.getAttemptNo() > 0
+                && Objects.equals(action.getActorGroupAccountId(), action.getTargetGroupAccountId())
+                && Objects.equals(owner.getId(), action.getActorGroupAccountId())
+                && Objects.equals(owner.getTaskId(), reference.pullTaskId())
+                && Objects.equals(owner.getGroupExecutionId(), reference.groupExecutionId())
+                && Objects.equals(owner.getRoleType(), PullTaskGroupAccountRole.PROMOTER.code())
+                && owner.getAccountPhone() != null && !owner.getAccountPhone().isBlank()
                 && Objects.equals(execution.getId(), reference.groupExecutionId())
                 && Objects.equals(execution.getTaskId(), reference.pullTaskId())
-                && execution.getGroupJid() != null
-                && !execution.getGroupJid().isBlank();
+                && Objects.equals(execution.getStage(), PullTaskExecutionStage.CLOSING.code())
+                && execution.getGroupJid() != null && !execution.getGroupJid().isBlank();
     }
 
     private static ProtocolBackend backend(ProtocolCommandOutbox row) {
         try {
             return ProtocolBackend.valueOf(row.getProtocolBackend());
         } catch (RuntimeException ex) {
-            throw validation("普通拉群成员命令协议后端非法 commandId=" + row.getCommandId());
+            throw validation("群主退群命令协议后端非法 commandId=" + row.getCommandId());
         }
     }
 
     private static boolean positive(Long value) {
-        return value != null && value > 0;
-    }
-
-    private static boolean positiveAttempt(Integer value) {
         return value != null && value > 0;
     }
 
@@ -206,15 +155,6 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
         return new BusinessException(ErrorCode.VALIDATION, message);
     }
 
-    private record ActionSpec(
-            PullTaskAccountActionType actionType,
-            PullTaskGroupAccountRole actorRole,
-            PullTaskGroupAccountRole targetRole,
-            String wireAction,
-            boolean useActionAttempt
-    ) {
-    }
-
     private record WirePayload(
             Long tenantId,
             Long pullTaskId,
@@ -225,11 +165,9 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
             String wsPhone,
             String protocolBackend,
             String groupJid,
-            List<String> participants,
             String action,
             int timeoutMs,
             int attemptNo,
-            String source
-    ) {
+            String source) {
     }
 }

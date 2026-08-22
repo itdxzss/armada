@@ -655,6 +655,36 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
+    void onMessage_creatorLeaveResultIsAcceptedWithoutTargetJid() {
+        String raw = """
+                {
+                  "eventId":"owner-901:group.action_result_reported:cmd-leave-1",
+                  "event":"group.action_result_reported",
+                  "accountId":"owner-901",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":903,
+                    "source":"pull_task_creator_leave","operation":"GROUP_LEAVE",
+                    "accountId":901,"protocolAccountId":"owner-901",
+                    "commandId":"cmd-leave-1","attemptNo":1,
+                    "outcome":"SUCCESS","retryable":false,"timestamp":5000
+                  }
+                }
+                """;
+
+        onMessage(raw);
+
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue()).isEqualTo(new ProtocolGroupActionResultReportedEvent(
+                "owner-901:group.action_result_reported:cmd-leave-1",
+                7L, 100L, 11L, 903L, "pull_task_creator_leave", "GROUP_LEAVE",
+                901L, "owner-901", "cmd-leave-1", 1, "SUCCESS",
+                null, null, null, false, 5_000L, "worker-a"));
+    }
+
+    @Test
     void onMessage_batchAddResultDispatchesPerParticipantCorrelation() {
         String raw = """
                 {

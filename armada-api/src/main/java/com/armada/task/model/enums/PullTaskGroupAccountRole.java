@@ -10,7 +10,9 @@ public enum PullTaskGroupAccountRole {
     /** 站台：每次拉人调用叠加的陪跑账号；同群只入一次，可跨执行行复用。 */
     STATION(3),
     /** 提权管理员：群内既有的我方群主或管理员，仅负责把任务管理员设为管理员。 */
-    PROMOTER(4);
+    PROMOTER(4),
+    /** 群内没有我方管理员时选中的普通控端成员，仅在需要提升管理员时建立。 */
+    CONTROLLER(5);
 
     private final int code;
 

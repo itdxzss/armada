@@ -7,12 +7,14 @@
              autoMapping="true">
     <result column="is_clear_existing_members" property="clearExistingMembers"/>
     <result column="is_puller_join_by_link" property="pullerJoinByLink"/>
+    <result column="is_creator_leave_after_pull" property="creatorLeaveAfterPull"/>
   </resultMap>
 
   <!-- tenant_id 由租户拦截器注入，列清单里不写。 -->
   <insert id="insert">
     INSERT INTO pull_task_standard_setting (
-      task_id, auto_start, source_group_folder_id, source_group_folder_name,
+      task_id, auto_start, is_creator_leave_after_pull,
+      source_group_folder_id, source_group_folder_name,
       material_admin_timing, puller_sync_mode, is_clear_existing_members,
       is_puller_join_by_link,
       early_pull_count, early_pull_call_count,
@@ -26,7 +28,8 @@
       manager_finish_group_name, puller_finish_group_name,
       created_at, updated_at
     ) VALUES (
-      #{taskId}, #{autoStart}, #{sourceGroupFolderId}, #{sourceGroupFolderName},
+      #{taskId}, #{autoStart}, #{creatorLeaveAfterPull},
+      #{sourceGroupFolderId}, #{sourceGroupFolderName},
       #{materialAdminTiming}, #{pullerSyncMode}, #{clearExistingMembers},
       #{pullerJoinByLink},
       #{earlyPullCount}, #{earlyPullCallCount},

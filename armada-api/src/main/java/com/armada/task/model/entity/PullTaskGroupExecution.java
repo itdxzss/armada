@@ -78,6 +78,12 @@ public class PullTaskGroupExecution {
     /** 当前状态原因描述(已脱敏)。 */
     private String reasonMessage;
 
+    /** 群主退群结果：0 未执行，1-6 见 GroupCreatorLeaveStatus。 */
+    private Integer creatorLeaveResult;
+
+    /** 群主退群未执行或失败原因。 */
+    private String creatorLeaveReason;
+
     /** 管理账号轮询游标。 */
     private Integer nextManagerIndex;
 
@@ -318,6 +324,22 @@ public class PullTaskGroupExecution {
 
     public void setReasonMessage(String reasonMessage) {
         this.reasonMessage = reasonMessage;
+    }
+
+    public Integer getCreatorLeaveResult() {
+        return creatorLeaveResult;
+    }
+
+    public void setCreatorLeaveResult(Integer creatorLeaveResult) {
+        this.creatorLeaveResult = creatorLeaveResult;
+    }
+
+    public String getCreatorLeaveReason() {
+        return creatorLeaveReason;
+    }
+
+    public void setCreatorLeaveReason(String creatorLeaveReason) {
+        this.creatorLeaveReason = creatorLeaveReason;
     }
 
     public Integer getNextManagerIndex() {

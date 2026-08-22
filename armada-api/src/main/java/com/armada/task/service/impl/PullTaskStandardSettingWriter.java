@@ -52,6 +52,8 @@ public class PullTaskStandardSettingWriter {
         PullTaskStandardSetting setting = new PullTaskStandardSetting();
         setting.setTaskId(taskId);
         setting.setAutoStart(request.autoStart());
+        setting.setCreatorLeaveAfterPull(Boolean.TRUE.equals(
+                request.creatorLeaveAfterPull()) ? 1 : 0);
         setting.setSourceGroupFolderId(request.groupFolderId());
         setting.setSourceGroupFolderName(folder == null ? null : folder.name());
         setting.setMaterialAdminTiming(request.materialAdminTiming());

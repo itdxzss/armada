@@ -44,7 +44,9 @@ public record PullTaskStandardCreateDTO(
         /** 建群人账号分组；新群模式必填，群链接模式忽略。 */
         Long creatorGroupId,
         /** 建群时作为初始成员加入的站台数量；为空按 0 处理。 */
-        Integer initialStationCount) {
+        Integer initialStationCount,
+        /** 单群拉人结束后是否执行群主退群；为空按关闭处理。 */
+        Boolean creatorLeaveAfterPull) {
 
     /** 拒绝合同之外的顶层 JSON 字段。 */
     @JsonAnySetter

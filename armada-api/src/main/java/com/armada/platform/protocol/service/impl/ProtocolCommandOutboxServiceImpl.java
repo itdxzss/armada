@@ -18,6 +18,7 @@ import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolNormalGroupCreationCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
@@ -85,6 +86,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
 
     /** 群成员变更命令类型。 */
     public static final String COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED = "group.participants.requested";
+
+    /** 建群者退出群组命令类型。 */
+    public static final String COMMAND_TYPE_GROUP_LEAVE_REQUESTED = "group.leave.requested";
 
     /** 新建普群通用动作命令类型。 */
     public static final String COMMAND_TYPE_NORMAL_GROUP_CREATION_REQUESTED =
@@ -620,6 +624,31 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         return insertPendingRows(commonBatchId, commandIds, rows);
     }
 
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskCreatorLeaveCommands(
+            List<ProtocolPullTaskCreatorLeaveCommandRequest> commands) {
+        validatePullTaskCreatorLeaveCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskCreatorLeaveCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskCreatorLeaveOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
     /**
      * 批量写入协议 backend 已编码的营销消息 outbox 命令。
      *
@@ -1133,6 +1162,35 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
                 ? androidCommandProperties.getGroupActionTopic()
                 : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 把群主退群链路动作引用转换为按建群者协议后端路由的 Outbox 行。 */
+    private ProtocolCommandOutbox toPullTaskCreatorLeaveOutboxRow(
+            ProtocolPullTaskCreatorLeaveCommandRequest command,
+            String commandId,
+            long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(command.action()
+                == ProtocolPullTaskCreatorLeaveCommandRequest.Action.PROMOTE
+                ? COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED
+                : COMMAND_TYPE_GROUP_LEAVE_REQUESTED);
+        row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
         row.setKafkaKey(command.actor().protocolAccountId());
         row.setProtocolAccountId(command.actor().protocolAccountId());
         row.setProtocolBackend(command.actor().backend().name());
@@ -1795,6 +1853,37 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                     || isBlank(command.actor().wsPhone())) {
                 throw new BusinessException(ErrorCode.VALIDATION,
                         "普通拉群成员查询命令缺少必要字段或租户不一致");
+            }
+        }
+    }
+
+    /** 校验群主退群链路的动作、路由账号和当前租户。 */
+    private void validatePullTaskCreatorLeaveCommands(
+            List<ProtocolPullTaskCreatorLeaveCommandRequest> commands) {
+        if (commands == null || commands.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群主退群协议命令不能为空");
+        }
+        if (commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "群主退群协议命令不能超过 " + MAX_COMMANDS_PER_BATCH + " 条");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskCreatorLeaveCommandRequest command : commands) {
+            if (command == null
+                    || command.tenantId() == null
+                    || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null || command.pullTaskId() <= 0
+                    || command.groupExecutionId() == null || command.groupExecutionId() <= 0
+                    || command.actionId() == null || command.actionId() <= 0
+                    || command.action() == null
+                    || command.actor() == null
+                    || command.actor().armadaAccountId() == null
+                    || command.actor().armadaAccountId() <= 0
+                    || command.actor().backend() == null
+                    || isBlank(command.actor().protocolAccountId())
+                    || isBlank(command.actor().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "群主退群协议命令缺少必要字段或租户不一致");
             }
         }
     }

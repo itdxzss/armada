@@ -23,7 +23,11 @@ public enum PullTaskAccountActionType {
      * <p>每条执行行至多一行；失败不阻断执行行，且<b>只发一次</b>——协议侧回 UNKNOWN 也不重发，
      * 只留 reason_code 供排查与统计。口径与理由见 PullTaskGroupSettingsResultServiceImpl 类注释。</p>
      */
-    APPLY_GROUP_SETTINGS(7);
+    APPLY_GROUP_SETTINGS(7),
+    /** 群主退群前，把普通控端成员提升为管理员。 */
+    PROMOTE_CREATOR_SUCCESSOR(8),
+    /** 已满足控端管理员前置条件后，由建群者退出群组。 */
+    CREATOR_LEAVE(9);
 
     private final int code;
 

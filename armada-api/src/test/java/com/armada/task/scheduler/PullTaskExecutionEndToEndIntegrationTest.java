@@ -3,6 +3,7 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -883,7 +884,11 @@ class PullTaskExecutionEndToEndIntegrationTest {
         @Bean PullTaskPullExecutionProcessor pullExecutionProcessor(
                 PullTaskPullExecutionDispatchResources resources,
                 PullTaskClosingTransactionService closing) {
-            return new PullTaskPullExecutionProcessor(resources, closing);
+            PullTaskCreatorLeaveProcessor creatorLeave = mock(PullTaskCreatorLeaveProcessor.class);
+            when(creatorLeave.process(any(), any(), anyLong()))
+                    .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+            return new PullTaskPullExecutionProcessor(
+                    resources, creatorLeave, closing);
         }
 
         @Bean PullTaskUnknownResultResources unknownResultResources(

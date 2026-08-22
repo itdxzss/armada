@@ -5,6 +5,7 @@ import com.armada.group.model.vo.AccountGroupMembershipLookup;
 import com.armada.group.model.vo.AccountGroupMessageSendPermissionRow;
 import com.armada.group.model.vo.AccountGroupMembershipStatusRow;
 import com.armada.group.model.vo.GroupExecutionAccount;
+import com.armada.group.model.vo.GroupCreatorLeaveAccount;
 import com.armada.group.model.vo.HistoricalGroupAccountPhoneRow;
 import com.armada.group.model.vo.HistoricalGroupPageRow;
 import com.armada.shared.exception.BusinessException;
@@ -266,6 +267,10 @@ public interface AccountGroupMembershipMapper {
      * @return 按账号 ID 稳定排序的上控成员关系事实
      */
     List<AccountGroupMembership> selectControlledMembershipsByGroupLinkId(
+            @Param("groupLinkId") Long groupLinkId);
+
+    /** 读取群主退群所需的当前受控成员本地投影，不触发协议 metadata 查询。 */
+    List<GroupCreatorLeaveAccount> selectCreatorLeaveAccounts(
             @Param("groupLinkId") Long groupLinkId);
 
 }

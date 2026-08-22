@@ -6,6 +6,7 @@ public class PullTaskStandardSetting {
     private Long tenantId;
     private Long taskId;
     private Integer autoStart;
+    private Integer creatorLeaveAfterPull = 0;
     private Long sourceGroupFolderId;
     private String sourceGroupFolderName;
     private Integer materialAdminTiming;
@@ -45,6 +46,8 @@ public class PullTaskStandardSetting {
     public void setTaskId(Long taskId) { this.taskId = taskId; }
     public Integer getAutoStart() { return autoStart; }
     public void setAutoStart(Integer autoStart) { this.autoStart = autoStart; }
+    public Integer getCreatorLeaveAfterPull() { return creatorLeaveAfterPull; }
+    public void setCreatorLeaveAfterPull(Integer value) { this.creatorLeaveAfterPull = value; }
     public Long getSourceGroupFolderId() { return sourceGroupFolderId; }
     public void setSourceGroupFolderId(Long value) { this.sourceGroupFolderId = value; }
     public String getSourceGroupFolderName() { return sourceGroupFolderName; }

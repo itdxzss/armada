@@ -568,4 +568,45 @@
     ORDER BY controlled_account.id ASC
   </select>
 
+  <select id="selectCreatorLeaveAccounts"
+          resultType="com.armada.group.model.vo.GroupCreatorLeaveAccount">
+    SELECT controlled_account.id AS accountId,
+           controlled_account.protocol_id AS protocolId,
+           controlled_account.protocol_account_id AS protocolAccountId,
+           controlled_account.ws_phone AS wsPhone,
+           current_group.group_jid AS groupJid,
+           COALESCE(NULLIF(TRIM(member.pn_jid), ''), NULLIF(TRIM(member.lid_jid), ''))
+             AS participantJid,
+           member.role AS role,
+           controlled_state.login_state AS loginState,
+           controlled_state.account_state AS accountState,
+           binding.membership_active_since_at AS membershipActiveSinceAt
+    FROM group_link group_handle
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = group_handle.tenant_id
+     AND current_group.id = group_handle.group_id
+    INNER JOIN wa_account_group_binding binding
+      ON binding.tenant_id = current_group.tenant_id
+     AND binding.group_id = current_group.id
+    INNER JOIN wa_group_participant member
+      ON member.tenant_id = binding.tenant_id
+     AND member.group_id = binding.group_id
+     AND member.id = binding.participant_id
+     AND member.presence_status = 1
+    INNER JOIN account controlled_account
+      ON controlled_account.tenant_id = binding.tenant_id
+     AND controlled_account.id = binding.account_id
+     AND controlled_account.deleted_at IS NULL
+     AND controlled_account.protocol_account_id IS NOT NULL
+     AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''
+     AND controlled_account.ws_phone IS NOT NULL
+     AND TRIM(controlled_account.ws_phone) &lt;&gt; ''
+    LEFT JOIN account_state controlled_state
+      ON controlled_state.tenant_id = controlled_account.tenant_id
+     AND controlled_state.account_id = controlled_account.id
+    WHERE group_handle.id = #{groupLinkId}
+      AND group_handle.deleted_at IS NULL
+    ORDER BY controlled_account.id ASC
+  </select>
+
 </mapper>

@@ -28,6 +28,7 @@ import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
@@ -494,6 +495,52 @@ class ProtocolCommandOutboxServiceImplTest {
                     "groupExecutionId", 11,
                     "actionId", 811,
                     "source", "pull_task_group_settings"));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void enqueueCreatorLeaveCommandsRoutesPromotionAndLeaveByOwnerBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-promote-web", "cmd-leave-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            ProtocolCommandOutboxEnqueueResult result =
+                    service.enqueuePullTaskCreatorLeaveCommands(List.of(
+                            new ProtocolPullTaskCreatorLeaveCommandRequest(
+                                    1L, 9L, 11L, 813L,
+                                    ProtocolPullTaskCreatorLeaveCommandRequest.Action.PROMOTE,
+                                    new ProtocolAccountRef(
+                                            392L, ProtocolBackend.WEB, "owner-web", "933")),
+                            new ProtocolPullTaskCreatorLeaveCommandRequest(
+                                    1L, 9L, 12L, 814L,
+                                    ProtocolPullTaskCreatorLeaveCommandRequest.Action.LEAVE,
+                                    new ProtocolAccountRef(
+                                            393L, ProtocolBackend.ANDROID, "owner-android", "944"))));
+
+            assertThat(result.batchId()).isEqualTo("pull-task:9");
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsExactly("group.participants.requested", "group.leave.requested");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic)
+                    .containsExactly(
+                            ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                            ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaKey)
+                    .containsExactly("owner-web", "owner-android");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId)
+                    .containsExactly(813L, 814L);
+            Map<String, Object> payload = objectMapper.readValue(
+                    rows.get(1).getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "tenantId", 1,
+                    "pullTaskId", 9,
+                    "groupExecutionId", 12,
+                    "actionId", 814,
+                    "source", "pull_task_creator_leave"));
         } finally {
             TenantContext.clear();
         }

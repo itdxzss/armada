@@ -1,9 +1,11 @@
 package com.armada.account.service;
 
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -34,6 +36,8 @@ public class AccountGroupSyncCommandService {
 
     /** 定时账号群同步命令来源。 */
     public static final String SOURCE_SCHEDULED_ACCOUNT_GROUP_SYNC = "scheduled_account_group_sync";
+    /** 首次上线群基线同步命令来源。 */
+    public static final String SOURCE_INITIAL_ONLINE_GROUP_BASELINE = "initial_online_group_baseline";
 
     private static final Logger log = LoggerFactory.getLogger(AccountGroupSyncCommandService.class);
 
@@ -94,6 +98,54 @@ public class AccountGroupSyncCommandService {
         return new EnqueueResult(candidates.size(), enqueued, byTenant.size());
     }
 
+    /**
+     * 为尚未完成群基线的账号下发一次显式全量同步命令。
+     *
+     * <p>本方法在账号 ONLINE 状态事务内调用。baseline 已完成或历史上已经请求过首次全量时
+     * 直接跳过；写 Outbox 与请求水位共用当前事务，任一步失败都会回滚账号状态事件，让 Kafka
+     * 重投后能够重新建立完整指令。请求水位一旦存在，后续重连不会再次下发。</p>
+     *
+     * @param account 已通过协议账号绑定校验的当前账号
+     * @param onlineAt ONLINE 事件发生时间(epoch 毫秒)
+     * @return true 表示新写入首次全量同步命令；false 表示无需或已经请求
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean enqueueInitialBaselineSync(Account account, long onlineAt) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        if (account == null || account.getId() == null
+                || account.getProtocolAccountId() == null
+                || account.getProtocolAccountId().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "首次群全量同步缺少账号定位字段");
+        }
+        AccountGroupBaselineStateRow baseline = accountMapper
+                .selectGroupBaselineStatesByTenantAndAccountIds(tenantId, List.of(account.getId()))
+                .stream()
+                .filter(row -> account.getId().equals(row.accountId()))
+                .findFirst()
+                .orElse(null);
+        if (!needsInitialBaselineSync(baseline)) {
+            return false;
+        }
+        ProtocolAccountGroupSyncCommandRequest command = new ProtocolAccountGroupSyncCommandRequest(
+                tenantId,
+                account.getId(),
+                account.getProtocolAccountId(),
+                ProtocolBackend.fromProtocolId(account.getProtocolId()),
+                SOURCE_INITIAL_ONLINE_GROUP_BASELINE);
+        ProtocolCommandOutboxEnqueueResult result =
+                outboxService.enqueueAccountGroupSyncCommands(List.of(command));
+        if (result.inserted() != 1 || result.commandIds().size() != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "首次群全量同步 Outbox 写入结果不完整");
+        }
+        markRequested(List.of(command), onlineAt);
+        log.info("首次上线群全量同步已入队 tenantId={} accountId={} protocolBackend={} onlineAt={}",
+                tenantId, account.getId(), command.protocolBackend(), onlineAt);
+        return true;
+    }
+
     private static Map<Long, List<ProtocolAccountGroupSyncCommandRequest>> groupByTenant(
             List<AccountGroupSyncCandidate> candidates) {
         Map<Long, List<ProtocolAccountGroupSyncCommandRequest>> byTenant = new LinkedHashMap<>();
@@ -131,7 +183,10 @@ public class AccountGroupSyncCommandService {
     }
 
     private void markRequested(List<ProtocolAccountGroupSyncCommandRequest> commands) {
-        long requestedAt = System.currentTimeMillis();
+        markRequested(commands, System.currentTimeMillis());
+    }
+
+    private void markRequested(List<ProtocolAccountGroupSyncCommandRequest> commands, long requestedAt) {
         List<Long> accountIds = accountIds(commands);
         int currentUpdated = accountMapper.markCurrentGroupSyncRequested(
                 TenantContext.get(), accountIds, requestedAt);
@@ -140,6 +195,15 @@ public class AccountGroupSyncCommandService {
                     "新账号群同步水位更新数量不一致: expected=" + accountIds.size()
                             + ", updated=" + currentUpdated);
         }
+    }
+
+    private static boolean needsInitialBaselineSync(AccountGroupBaselineStateRow baseline) {
+        if (baseline != null
+                && baseline.groupBaselineState() != null
+                && baseline.groupBaselineState() != AccountGroupBaselineStateCode.PENDING) {
+            return false;
+        }
+        return baseline == null || baseline.lastSyncRequestedAt() == null;
     }
 
     private static List<Long> accountIds(List<ProtocolAccountGroupSyncCommandRequest> commands) {

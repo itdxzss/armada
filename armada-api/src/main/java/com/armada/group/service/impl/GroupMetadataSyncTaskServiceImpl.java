@@ -95,14 +95,17 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
 
     @Override
     @Transactional
-    public void resumeDeferredForAccount(Long accountId, long now) {
+    public void resumeDeferredInviteCodeForAccount(Long accountId, long now) {
         if (accountId == null) {
             return;
         }
+        // 重连只恢复邀请码单项；metadata 未完成的任务必须等待显式触发，不能借 ONLINE 重查。
         // 先用普通一致性读定位本账号的候选主键，再只锁这些主键。
         // 合成一条带 EXISTS 的宽 UPDATE 会锁住全部 DEFERRED 行，多个账号同时上线必然互锁。
-        List<Long> deferredTaskIds = mapper.selectDeferredTaskIdsForAccount(
-                accountId, GroupMetadataSyncStatus.DEFERRED.code());
+        List<Long> deferredTaskIds = mapper.selectDeferredInviteTaskIdsForAccount(
+                accountId,
+                GroupMetadataSyncStatus.DEFERRED.code(),
+                GroupSnapshotDispatchService.SCOPE_METADATA);
         if (deferredTaskIds.isEmpty()) {
             return;
         }

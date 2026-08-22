@@ -82,15 +82,15 @@ class GroupMetadataSyncTaskServiceImplTest {
     }
 
     @Test
-    void deferDoesNotConsumeAnAttemptAndOnlineResumesMatchingGroups() {
+    void deferDoesNotConsumeAnAttemptAndOnlineResumesInviteOnlyTasks() {
         GroupMetadataSyncTaskServiceImpl service = service();
         GroupMetadataSyncTask task = runningTask(0);
         task.setStatus(GroupMetadataSyncStatus.PENDING.code());
 
         service.defer(task, 5_000L);
-        when(mapper.selectDeferredTaskIdsForAccount(
-                77L, GroupMetadataSyncStatus.DEFERRED.code())).thenReturn(List.of(11L, 12L));
-        service.resumeDeferredForAccount(77L, 6_000L);
+        when(mapper.selectDeferredInviteTaskIdsForAccount(
+                77L, GroupMetadataSyncStatus.DEFERRED.code(), 1)).thenReturn(List.of(11L, 12L));
+        service.resumeDeferredInviteCodeForAccount(77L, 6_000L);
 
         ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
         verify(mapper).defer(captor.capture(), eq(List.of(
@@ -110,10 +110,10 @@ class GroupMetadataSyncTaskServiceImplTest {
     @Test
     void onlineResumeSkipsTheWriteWhenAccountHasNoDeferredGroup() {
         GroupMetadataSyncTaskServiceImpl service = service();
-        when(mapper.selectDeferredTaskIdsForAccount(
-                77L, GroupMetadataSyncStatus.DEFERRED.code())).thenReturn(List.of());
+        when(mapper.selectDeferredInviteTaskIdsForAccount(
+                77L, GroupMetadataSyncStatus.DEFERRED.code(), 1)).thenReturn(List.of());
 
-        service.resumeDeferredForAccount(77L, 6_000L);
+        service.resumeDeferredInviteCodeForAccount(77L, 6_000L);
 
         verify(mapper, never()).resumeDeferredByIds(any(), anyInt(), anyInt(), anyInt(), anyLong());
     }

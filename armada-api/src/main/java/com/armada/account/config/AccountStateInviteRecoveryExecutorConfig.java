@@ -5,9 +5,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
-/** 账号 ONLINE 后群元数据恢复任务的有界后台执行器配置。 */
+/** 账号上线后邀请码延期任务恢复线程池配置。 */
 @Configuration
-public class AccountStateMetadataRecoveryExecutorConfig {
+public class AccountStateInviteRecoveryExecutorConfig {
 
     /** 后台恢复并发数；限制锁竞争，同时与 Kafka 消费线程彻底隔离。 */
     private static final int POOL_SIZE = 2;
@@ -19,14 +19,14 @@ public class AccountStateMetadataRecoveryExecutorConfig {
     private static final int SHUTDOWN_AWAIT_SECONDS = 30;
 
     /**
-     * 创建账号状态群元数据恢复执行器。
+     * 创建不阻塞账号状态 Kafka 消费线程的邀请码恢复执行器。
      *
-     * @return 支持优雅停机的有界后台执行器
+     * @return 群邀请码恢复后台执行器
      */
-    @Bean(name = "accountStateMetadataRecoveryExecutor")
-    public Executor accountStateMetadataRecoveryExecutor() {
+    @Bean(name = "accountStateInviteRecoveryExecutor")
+    public Executor accountStateInviteRecoveryExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setThreadNamePrefix("account-metadata-recovery-");
+        executor.setThreadNamePrefix("account-invite-recovery-");
         executor.setCorePoolSize(POOL_SIZE);
         executor.setMaxPoolSize(POOL_SIZE);
         executor.setQueueCapacity(QUEUE_CAPACITY);

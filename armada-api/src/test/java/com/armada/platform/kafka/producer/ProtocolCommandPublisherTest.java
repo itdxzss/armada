@@ -671,9 +671,11 @@ class ProtocolCommandPublisherTest {
                         proxy(9L, 202L, 1, "proxy-c.internal", 1080, "user-c", "pass_session-Ccc333", "印度")));
         when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(1L, List.of(200L, 201L, 202L)))
                 .thenReturn(List.of(
-                        new AccountGroupBaselineStateRow(200L, AccountGroupBaselineStateCode.CAPTURED),
-                        new AccountGroupBaselineStateRow(201L, AccountGroupBaselineStateCode.PENDING)));
-        when(kafkaTemplate.send(eq("protocol.account.commands.v1"), any(), any()))
+                        new AccountGroupBaselineStateRow(
+                                200L, AccountGroupBaselineStateCode.CAPTURED, null),
+                        new AccountGroupBaselineStateRow(
+                                201L, AccountGroupBaselineStateCode.PENDING, null)));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
                 .thenReturn(CompletableFuture.completedFuture(null));
 
         // Act
@@ -682,18 +684,16 @@ class ProtocolCommandPublisherTest {
 
         // Assert
         assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.succeeded()).isTrue());
-        assertThat(baselineReadyOf("acc_200")).isTrue();
-        assertThat(baselineReadyOf("acc_201")).isFalse();
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate, times(3)).send(captor.capture());
+        Map<String, Boolean> baselineReadyByProtocolAccountId = captor.getAllValues().stream()
+                .collect(Collectors.toMap(
+                        ProducerRecord::key,
+                        record -> record.value().payload().get("groupBaselineReady").asBoolean()));
+        assertThat(baselineReadyByProtocolAccountId.get("acc_200")).isTrue();
+        assertThat(baselineReadyByProtocolAccountId.get("acc_201")).isFalse();
         // 查不到基线行时必须保守判为未就绪，让协议层退化为读取成员明细。
-        assertThat(baselineReadyOf("acc_202")).isFalse();
-    }
-
-    private boolean baselineReadyOf(String protocolAccountId) {
-        ArgumentCaptor<ProtocolCommandEnvelope> captor =
-                ArgumentCaptor.forClass(ProtocolCommandEnvelope.class);
-        verify(kafkaTemplate).send(
-                eq("protocol.account.commands.v1"), eq(protocolAccountId), captor.capture());
-        return captor.getValue().payload().get("groupBaselineReady").asBoolean();
+        assertThat(baselineReadyByProtocolAccountId.get("acc_202")).isFalse();
     }
 
     private ProtocolCommandPublisher publisherWithMaxInFlight(int maxInFlight) {

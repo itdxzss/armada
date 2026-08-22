@@ -15,7 +15,13 @@ public interface GroupMetadataSyncTaskService {
     void enqueueInviteCode(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt);
 
     /** 恢复当前账号在群范围内的延期任务。 */
-    void resumeDeferredForAccount(Long accountId, long now);
+    /**
+     * 账号上线后只恢复已完成 metadata、尚缺邀请码的延期任务。
+     *
+     * @param accountId 上线账号 ID
+     * @param now 当前时间(epoch 毫秒)
+     */
+    void resumeDeferredInviteCodeForAccount(Long accountId, long now);
 
     /** 跨租户恢复过期运行租约。 */
     int recoverExpiredLeases(long now);

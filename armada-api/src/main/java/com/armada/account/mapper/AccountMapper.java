@@ -205,11 +205,10 @@ public interface AccountMapper {
             @Param("baselineCapturedState") int baselineCapturedState);
 
     /**
-     * 批量读取账号群基线状态,供上线命令判定协议层是否需要读取群成员明细。
+     * 批量读取账号群基线状态与请求水位,供上线链路判定是否需要下发首次全量同步。
      *
      * <p>命令发布运行在 Kafka 生产循环中,不保证处于请求作用域,因此显式接收 tenantId 并
-     * 关闭租户拦截器,与同一批次的凭据、代理查询保持一致。账号缺失或已软删时不返回对应行,
-     * 调用方须按基线未建立处理,退化为读取明细的保守行为。</p>
+     * 关闭租户拦截器,与同一批次的凭据、代理查询保持一致。账号缺失或已软删时不返回对应行。</p>
      *
      * @param tenantId   租户 ID
      * @param accountIds 本批次账号 ID 列表

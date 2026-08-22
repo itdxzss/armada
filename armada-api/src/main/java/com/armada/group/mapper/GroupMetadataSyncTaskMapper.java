@@ -122,17 +122,20 @@ public interface GroupMetadataSyncTaskMapper {
               @Param("eligibleStatuses") List<Integer> eligibleStatuses);
 
     /**
-     * 读取该账号当前仍在群范围内的延期任务主键，按主键升序返回。
+     * 读取该账号当前仍在群范围内、只缺邀请码的延期任务主键，按主键升序返回。
      *
      * <p>普通一致性读不加锁，把跨 group_link、账号群关系和成员在群态的存在性判断留在读阶段，
      * 使后续写只需锁本次已确定的少量主键。</p>
      *
      * @param accountId 上线账号
      * @param deferredStatus DEFERRED 稳定码
+     * @param metadataCompleteMask metadata 已完成的 scope 位掩码
      * @return 升序任务主键；无候选返回空列表
      */
-    List<Long> selectDeferredTaskIdsForAccount(@Param("accountId") Long accountId,
-                                               @Param("deferredStatus") int deferredStatus);
+    List<Long> selectDeferredInviteTaskIdsForAccount(
+            @Param("accountId") Long accountId,
+            @Param("deferredStatus") int deferredStatus,
+            @Param("metadataCompleteMask") int metadataCompleteMask);
 
     /**
      * 按已确定的主键集合恢复延期任务。

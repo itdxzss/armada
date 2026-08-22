@@ -42,7 +42,7 @@ class AccountStateChangedSinkAdapterTest {
     private GroupMetadataSyncTaskService metadataSyncTaskService;
 
     @Mock
-    private Executor metadataRecoveryExecutor;
+    private Executor inviteRecoveryExecutor;
 
     @InjectMocks
     private AccountStateChangedSinkAdapter adapter;
@@ -108,7 +108,7 @@ class AccountStateChangedSinkAdapterTest {
     }
 
     @Test
-    void handleStateChanged_appliedOnlineSubmitsMetadataResumeWithoutRunningOnConsumerThread() {
+    void handleStateChanged_appliedOnlineSubmitsInviteOnlyResumeWithoutRunningOnConsumerThread() {
         ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
                 "evt-online", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
@@ -117,43 +117,43 @@ class AccountStateChangedSinkAdapterTest {
         adapter.handleStateChanged(platformEvent);
 
         ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(metadataRecoveryExecutor).execute(taskCaptor.capture());
+        verify(inviteRecoveryExecutor).execute(taskCaptor.capture());
         verifyNoInteractions(metadataSyncTaskService);
 
         taskCaptor.getValue().run();
 
-        verify(metadataSyncTaskService).resumeDeferredForAccount(100L, 1782626401000L);
+        verify(metadataSyncTaskService).resumeDeferredInviteCodeForAccount(100L, 1782626401000L);
     }
 
     @Test
-    void handleStateChanged_metadataResumeFailureDoesNotFailStateConsumption() {
+    void handleStateChanged_inviteResumeFailureDoesNotFailStateConsumption() {
         ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
                 "evt-online-lock", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
         doThrow(new CannotAcquireLockException("group metadata lock timeout"))
-                .when(metadataSyncTaskService).resumeDeferredForAccount(100L, 1782626401000L);
+                .when(metadataSyncTaskService).resumeDeferredInviteCodeForAccount(100L, 1782626401000L);
 
         assertThatCode(() -> adapter.handleStateChanged(platformEvent))
                 .doesNotThrowAnyException();
 
         ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
-        verify(metadataRecoveryExecutor).execute(taskCaptor.capture());
+        verify(inviteRecoveryExecutor).execute(taskCaptor.capture());
         assertThatCode(() -> taskCaptor.getValue().run())
                 .doesNotThrowAnyException();
 
         verify(service).applyStateChanged(any());
-        verify(metadataSyncTaskService).resumeDeferredForAccount(100L, 1782626401000L);
+        verify(metadataSyncTaskService).resumeDeferredInviteCodeForAccount(100L, 1782626401000L);
     }
 
     @Test
-    void handleStateChanged_metadataResumeSubmissionRejectedDoesNotFailStateConsumption() {
+    void handleStateChanged_inviteResumeSubmissionRejectedDoesNotFailStateConsumption() {
         ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
                 "evt-online-rejected", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
         doThrow(new RejectedExecutionException("metadata recovery queue full"))
-                .when(metadataRecoveryExecutor).execute(any(Runnable.class));
+                .when(inviteRecoveryExecutor).execute(any(Runnable.class));
 
         assertThatCode(() -> adapter.handleStateChanged(platformEvent))
                 .doesNotThrowAnyException();

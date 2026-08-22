@@ -856,12 +856,13 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             boolean snapshotComplete,
             long syncAt,
             long now) {
+        boolean baselineCaptured = capturingBaseline && snapshotComplete;
         return new SyncStateWrite(
                 context.accountId(),
-                capturingBaseline ? AccountGroupBaselineStateCode.CAPTURED : baseline.state(),
-                capturingBaseline ? 1 : baseline.completeness(),
-                capturingBaseline ? Long.valueOf(syncAt) : baseline.capturedAt(),
-                capturingBaseline ? Integer.valueOf(visibleGroupCount) : baseline.groupCount(),
+                baselineCaptured ? AccountGroupBaselineStateCode.CAPTURED : baseline.state(),
+                baselineCaptured ? 1 : baseline.completeness(),
+                baselineCaptured ? Long.valueOf(syncAt) : baseline.capturedAt(),
+                baselineCaptured ? Integer.valueOf(visibleGroupCount) : baseline.groupCount(),
                 context.lastSyncRequestedAt(),
                 syncAt,
                 snapshotComplete,

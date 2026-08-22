@@ -444,10 +444,11 @@ public class ProtocolCommandPublisher {
     }
 
     /**
-     * 判定账号群基线是否已建立,决定协议层上线快照是否可以跳过群成员明细。
+     * 判定账号群基线是否已建立,填充上线命令的滚动升级兼容字段。
      *
      * <p>与 {@code selectGroupSyncCandidates} 保持同一约定:已拍(CAPTURED)与已停用(DISABLED)
-     * 都视为基线已定,只有待拍(PENDING)以及历史空值需要读取明细一次性建立底数。</p>
+     * 都视为基线已定。新版协议层不再由 ONLINE 自发查群；该字段暂时保留，避免后端先发布时
+     * 旧版协议层对已完成基线的账号重复读取成员明细。</p>
      *
      * @param groupBaselineState 群基线状态码,可空
      * @return 基线已建立返回 true
@@ -675,9 +676,8 @@ public class ProtocolCommandPublisher {
             String previousOnlineAttemptId,
             String protocolBackend,
             /*
-             * 群基线已建立时,协议层上线快照不再读取群成员明细,改由 <group> 的建群人属性判定角色。
-             * 字段取"已就绪"语义:协议层收不到该字段时零值 false 退化为读取明细的旧行为,
-             * 只多花流量,不会漏建基线。
+             * 滚动升级兼容字段：旧版协议层用它减少 ONLINE 自发快照的成员读取；新版协议层
+             * ONLINE 不再查群，首次全量完全由 account.groups_sync.requested 显式命令触发。
              */
             @JsonInclude(JsonInclude.Include.ALWAYS)
             boolean groupBaselineReady

@@ -3,7 +3,7 @@ package com.armada.account.model.enums;
 /**
  * 账号群基线状态码。
  *
- * <p>对应 account.group_baseline_state。账号群基线由营销账号树实时协议查询捕获;
+ * <p>对应 account.group_baseline_state。账号群基线由首次 ONLINE 后控端显式下发的全量协议查询捕获；
  * 定时账号群同步不得抢拍待拍账号的 baseline。</p>
  */
 public final class AccountGroupBaselineStateCode {

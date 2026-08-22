@@ -298,7 +298,7 @@
   </select>
 
   <!--
-    批量读取账号群基线状态,供上线命令判定协议层是否需要读取群成员明细。
+    批量读取账号群基线状态与首次请求水位，供上线命令兼容字段和首次全量指令判定使用。
     发布链路不保证处于请求作用域,故显式按 tenant_id 过滤并在 Mapper 上关闭租户拦截器。
     账号缺失或已软删时不返回行,调用方按基线未建立处理,退化为读取明细的保守行为。
   -->
@@ -306,7 +306,8 @@
           resultType="com.armada.account.model.vo.AccountGroupBaselineStateRow">
     <if test="accountIds != null and accountIds.size() &gt; 0">
     SELECT account.id AS accountId,
-           current_sync.baseline_state AS groupBaselineState
+           current_sync.baseline_state AS groupBaselineState,
+           current_sync.last_sync_requested_at AS lastSyncRequestedAt
     FROM account
     LEFT JOIN account_group_sync_state current_sync
       ON current_sync.tenant_id = account.tenant_id
@@ -317,7 +318,8 @@
     <foreach collection="accountIds" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>
     <if test="accountIds == null or accountIds.size() == 0">
-    SELECT NULL AS accountId, NULL AS groupBaselineState FROM account WHERE 1=0
+    SELECT NULL AS accountId, NULL AS groupBaselineState, NULL AS lastSyncRequestedAt
+    FROM account WHERE 1=0
     </if>
   </select>
 

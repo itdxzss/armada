@@ -13,6 +13,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
@@ -88,6 +89,31 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 List.of(currentGroup()));
 
         assertThat(result.addedGroups()).isEmpty();
+    }
+
+    @Test
+    void incompleteFirstSnapshotKeepsBaselinePending() {
+        when(mapper.selectContext(ACCOUNT_ID)).thenReturn(new Context(
+                ACCOUNT_ID,
+                "923300000010",
+                "ANDROID",
+                "acc-10",
+                AccountGroupBaselineStateCode.PENDING,
+                0,
+                null,
+                null,
+                null));
+
+        persistence.replaceVisibleGroups(
+                ACCOUNT_ID, List.of(), false, 2_100L, "snapshot-incomplete", List.of());
+
+        ArgumentCaptor<SyncStateWrite> state = ArgumentCaptor.forClass(SyncStateWrite.class);
+        verify(mapper).upsertSyncState(state.capture());
+        assertThat(state.getValue().baselineState()).isEqualTo(AccountGroupBaselineStateCode.PENDING);
+        assertThat(state.getValue().baselineCompleteness()).isZero();
+        assertThat(state.getValue().baselineCapturedAt()).isNull();
+        assertThat(state.getValue().baselineGroupCount()).isNull();
+        assertThat(state.getValue().snapshotComplete()).isFalse();
     }
 
     @Test

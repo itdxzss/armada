@@ -2,9 +2,13 @@ package com.armada.account.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -92,5 +96,61 @@ class AccountGroupSyncCommandServiceTest {
                         ProtocolAccountGroupSyncCommandRequest::accountId,
                         ProtocolAccountGroupSyncCommandRequest::protocolAccountId)
                 .containsExactly(org.assertj.core.groups.Tuple.tuple(2L, 201L, "acc_201"));
+    }
+
+    @Test
+    void enqueueInitialBaselineSync_enqueuesPendingAccountOnlyOnFirstOnline() {
+        TenantContext.set(7L);
+        Account account = account(101L, "acc_101", "ANDROID");
+        when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(7L, List.of(101L)))
+                .thenReturn(List.of(new AccountGroupBaselineStateRow(
+                        101L, AccountGroupBaselineStateCode.PENDING, null)));
+        when(outboxService.enqueueAccountGroupSyncCommands(Mockito.anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd-101"), 1));
+        when(accountMapper.markCurrentGroupSyncRequested(7L, List.of(101L), 2_000L))
+                .thenReturn(1);
+
+        assertThat(service.enqueueInitialBaselineSync(account, 2_000L)).isTrue();
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolAccountGroupSyncCommandRequest>> captor =
+                ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueAccountGroupSyncCommands(captor.capture());
+        assertThat(captor.getValue()).singleElement().satisfies(command -> {
+            assertThat(command.tenantId()).isEqualTo(7L);
+            assertThat(command.accountId()).isEqualTo(101L);
+            assertThat(command.protocolAccountId()).isEqualTo("acc_101");
+            assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.ANDROID);
+            assertThat(command.source()).isEqualTo("initial_online_group_baseline");
+        });
+        verify(accountMapper).markCurrentGroupSyncRequested(7L, List.of(101L), 2_000L);
+    }
+
+    @Test
+    void enqueueInitialBaselineSync_skipsCapturedAndPendingBaselineRequestedByEarlierOnline() {
+        TenantContext.set(7L);
+        Account captured = account(101L, "acc_101", "ANDROID");
+        when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(7L, List.of(101L)))
+                .thenReturn(List.of(new AccountGroupBaselineStateRow(
+                        101L, AccountGroupBaselineStateCode.CAPTURED, 1_000L)));
+
+        assertThat(service.enqueueInitialBaselineSync(captured, 2_000L)).isFalse();
+        verifyNoInteractions(outboxService);
+
+        Account pending = account(102L, "acc_102", "WEB");
+        when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(7L, List.of(102L)))
+                .thenReturn(List.of(new AccountGroupBaselineStateRow(
+                        102L, AccountGroupBaselineStateCode.PENDING, 1_000L)));
+
+        assertThat(service.enqueueInitialBaselineSync(pending, 2_000L)).isFalse();
+        verifyNoInteractions(outboxService);
+    }
+
+    private static Account account(long accountId, String protocolAccountId, String protocolId) {
+        Account account = new Account();
+        account.setId(accountId);
+        account.setProtocolAccountId(protocolAccountId);
+        account.setProtocolId(protocolId);
+        return account;
     }
 }

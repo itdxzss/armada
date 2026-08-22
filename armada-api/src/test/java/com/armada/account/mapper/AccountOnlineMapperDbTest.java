@@ -11,6 +11,7 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.testsupport.DbTestBase;
@@ -165,6 +166,14 @@ class AccountOnlineMapperDbTest extends DbTestBase {
                 FROM account_group_sync_state
                 WHERE account_id = ?
                 """, Long.class, pending.getId())).isEqualTo(now + 1_000);
+
+        List<AccountGroupBaselineStateRow> baselines =
+                accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(
+                        TEST_TENANT_ID, List.of(pending.getId()));
+        assertThat(baselines).singleElement().satisfies(row -> {
+            assertThat(row.groupBaselineState()).isEqualTo(AccountGroupBaselineStateCode.PENDING);
+            assertThat(row.lastSyncRequestedAt()).isEqualTo(now + 1_000);
+        });
     }
 
     @Test

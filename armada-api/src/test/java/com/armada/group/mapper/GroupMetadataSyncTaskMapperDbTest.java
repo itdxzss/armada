@@ -236,11 +236,13 @@ class GroupMetadataSyncTaskMapperDbTest {
     }
 
     @Test
-    void resumeDeferredUsesCurrentSelfPresenceInsteadOfStaleLegacyMembership()
+    void resumeDeferredInviteUsesCurrentSelfPresenceInsteadOfStaleLegacyMembership()
             throws SQLException {
         insertGroupLink("wa://group/resume-current@g.us", 4,
                 "resume-current@g.us", null);
-        insertTask(TENANT_ID, storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L));
+        GroupMetadataSyncTask inviteOnly = storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L);
+        inviteOnly.setCompletedScopeMask(1);
+        insertTask(TENANT_ID, inviteOnly);
         execute("""
                 INSERT INTO wa_group_participant
                   (id, tenant_id, group_id, presence_status)
@@ -251,25 +253,46 @@ class GroupMetadataSyncTaskMapperDbTest {
                   (tenant_id, account_id, group_id, participant_id)
                 VALUES (7, 501, 101, 801)
                 """);
+        insertGroupLink(102L, "wa://group/resume-metadata@g.us", 4,
+                "resume-metadata@g.us", null);
+        GroupMetadataSyncTask metadataPending = storedTask(
+                GroupMetadataSyncStatus.DEFERRED, 1_000L);
+        metadataPending.setGroupLinkId(102L);
+        metadataPending.setCompletedScopeMask(0);
+        insertTask(TENANT_ID, metadataPending);
+        execute("""
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, presence_status)
+                VALUES (802, 7, 102, 1)
+                """);
+        execute("""
+                INSERT INTO wa_account_group_binding
+                  (tenant_id, account_id, group_id, participant_id)
+                VALUES (7, 501, 102, 802)
+                """);
         execute("""
                 INSERT INTO account_group_membership
                   (tenant_id, account_id, group_link_id, membership_status, deleted_at)
                 VALUES (7, 501, 101, 3, NULL)
                 """);
 
-        assertThat(resumeDeferredForAccount(501L, 2_000L)).isEqualTo(1);
+        assertThat(resumeDeferredInviteForAccount(501L, 2_000L)).isEqualTo(1);
+        assertThat(mapper.selectByGroupLinkId(102L).getStatus())
+                .isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
 
         execute("UPDATE group_metadata_sync_task SET status = 5 WHERE group_link_id = 101");
         execute("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 801");
         execute("UPDATE account_group_membership SET membership_status = 1");
 
-        assertThat(resumeDeferredForAccount(501L, 3_000L)).isZero();
+        assertThat(resumeDeferredInviteForAccount(501L, 3_000L)).isZero();
     }
 
     @Test
-    void resumeDeferredOnlyLocksTheAccountsOwnDeferredTasks() throws SQLException {
+    void resumeDeferredInviteOnlyLocksTheAccountsOwnInviteTasks() throws SQLException {
         insertGroupLink("wa://group/resume-mine@g.us", 4, "resume-mine@g.us", null);
-        insertTask(TENANT_ID, storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L));
+        GroupMetadataSyncTask inviteOnly = storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L);
+        inviteOnly.setCompletedScopeMask(1);
+        insertTask(TENANT_ID, inviteOnly);
         execute("""
                 INSERT INTO wa_group_participant
                   (id, tenant_id, group_id, presence_status)
@@ -284,11 +307,12 @@ class GroupMetadataSyncTaskMapperDbTest {
         insertGroupLink(102L, "wa://group/resume-others@g.us", 4, "resume-others@g.us", null);
         GroupMetadataSyncTask foreign = storedTask(GroupMetadataSyncStatus.DEFERRED, 1_000L);
         foreign.setGroupLinkId(102L);
+        foreign.setCompletedScopeMask(1);
         insertTask(TENANT_ID, foreign);
 
-        assertThat(mapper.selectDeferredTaskIdsForAccount(
-                501L, GroupMetadataSyncStatus.DEFERRED.code())).hasSize(1);
-        assertThat(resumeDeferredForAccount(501L, 2_000L)).isEqualTo(1);
+        assertThat(mapper.selectDeferredInviteTaskIdsForAccount(
+                501L, GroupMetadataSyncStatus.DEFERRED.code(), 1)).hasSize(1);
+        assertThat(resumeDeferredInviteForAccount(501L, 2_000L)).isEqualTo(1);
 
         // 不属于该账号的延期任务既不进入候选主键，也不被写入。
         assertThat(mapper.selectByGroupLinkId(101L).getStatus())
@@ -298,9 +322,9 @@ class GroupMetadataSyncTaskMapperDbTest {
     }
 
     /** 复现 service 的两步恢复：先读候选主键，再只按主键写。 */
-    private int resumeDeferredForAccount(long accountId, long now) {
-        java.util.List<Long> ids = mapper.selectDeferredTaskIdsForAccount(
-                accountId, GroupMetadataSyncStatus.DEFERRED.code());
+    private int resumeDeferredInviteForAccount(long accountId, long now) {
+        java.util.List<Long> ids = mapper.selectDeferredInviteTaskIdsForAccount(
+                accountId, GroupMetadataSyncStatus.DEFERRED.code(), 1);
         if (ids.isEmpty()) {
             return 0;
         }
@@ -462,8 +486,9 @@ class GroupMetadataSyncTaskMapperDbTest {
                      INSERT INTO group_metadata_sync_task (
                          tenant_id, group_link_id, status, trigger_source, attempt_count,
                          next_run_at, lease_until, execution_account_id, rerun_requested,
-                         last_success_at, last_error_code, last_error_message, created_at, updated_at
-                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OLD_ERROR', '旧错误', ?, ?)
+                         completed_scope_mask, last_success_at, last_error_code, last_error_message,
+                         created_at, updated_at
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OLD_ERROR', '旧错误', ?, ?)
                      """)) {
             statement.setLong(1, tenantId);
             statement.setLong(2, task.getGroupLinkId());
@@ -474,9 +499,10 @@ class GroupMetadataSyncTaskMapperDbTest {
             statement.setObject(7, task.getLeaseUntil());
             statement.setObject(8, task.getExecutionAccountId());
             statement.setBoolean(9, Boolean.TRUE.equals(task.getRerunRequested()));
-            statement.setObject(10, task.getLastSuccessAt());
-            statement.setLong(11, task.getCreatedAt());
-            statement.setLong(12, task.getUpdatedAt());
+            statement.setInt(10, task.getCompletedScopeMask() == null ? 0 : task.getCompletedScopeMask());
+            statement.setObject(11, task.getLastSuccessAt());
+            statement.setLong(12, task.getCreatedAt());
+            statement.setLong(13, task.getUpdatedAt());
             statement.executeUpdate();
         }
     }

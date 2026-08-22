@@ -58,9 +58,12 @@ else
   echo "远端缺少 PM2 配置: ${preferred_pm2_config} 或 deploy/pm2.config.cjs" >&2
   exit 32
 fi
-pm2 startOrReload "${pm2_config}" --update-env
+test -f deploy/traffic-enabled.pm2.config.cjs \
+  || { echo "远端缺少协议流量采集 PM2 包装配置" >&2; exit 37; }
+export ARMADA_PROTOCOL_BASE_PM2_CONFIG="${pm2_config}"
+pm2 startOrReload deploy/traffic-enabled.pm2.config.cjs --update-env
 test -f deploy/traffic-dashboard.pm2.config.cjs \
-  || { echo "远端缺少协议流量看板 PM2 配置" >&2; exit 37; }
+  || { echo "远端缺少协议流量看板 PM2 配置" >&2; exit 40; }
 pm2 startOrReload deploy/traffic-dashboard.pm2.config.cjs --update-env
 pm2 jlist | node -e "
 let input = \"\"
@@ -98,9 +101,27 @@ process.stdin.on(\"end\", () => {
 })
 "
 attempt=1
-until curl -fsS -m 8 "http://127.0.0.1:${traffic_dashboard_port}/api/overview" >/dev/null; do
+while :; do
+  overview="$(curl -fsS -m 8 "http://127.0.0.1:${traffic_dashboard_port}/api/overview" 2>/dev/null || true)"
+  if printf "%s" "${overview}" | node -e "
+let input = \"\"
+process.stdin.on(\"data\", chunk => { input += chunk })
+process.stdin.on(\"end\", () => {
+  try {
+    const health = JSON.parse(input).health
+    const now = Date.now()
+    if (!Array.isArray(health) || health.length !== 5 || health.some(item => now - Number(item.snapshot?.updatedAt ?? 0) > 30_000)) {
+      process.exit(1)
+    }
+  } catch {
+    process.exit(1)
+  }
+})
+"; then
+    break
+  fi
   if [ "${attempt}" -ge 12 ]; then
-    echo "协议流量看板未在时限内就绪" >&2
+    echo "协议流量采集未在时限内生成 5 份实时快照" >&2
     exit 39
   fi
   sleep 2

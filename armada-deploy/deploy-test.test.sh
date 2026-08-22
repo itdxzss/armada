@@ -285,6 +285,7 @@ setup_protocol_command_fixture() {
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/package.json"
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/package-lock.json"
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/tsconfig.json"
+  : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/deploy/traffic-enabled.pm2.config.cjs"
   : >"${PROTOCOL_FIXTURE_DIR}/protocol-layer/deploy/traffic-dashboard.pm2.config.cjs"
   : >"${PROTOCOL_FIXTURE_KEY}"
   : >"${PROTOCOL_FIXTURE_JUMP_KEY}"
@@ -1125,9 +1126,13 @@ test_protocol_remote_deploy_enables_persistent_traffic_dashboard() {
   assert_contains "${script_content}" 'export TRAFFIC_ENABLED="${traffic_enabled}"'
   assert_contains "${script_content}" 'traffic_dir="${remote_dir}/traffic-capture"'
   assert_contains "${script_content}" 'chmod 700 "${traffic_dir}"'
+  assert_contains "${script_content}" 'export ARMADA_PROTOCOL_BASE_PM2_CONFIG="${pm2_config}"'
+  assert_contains "${script_content}" 'pm2 startOrReload deploy/traffic-enabled.pm2.config.cjs --update-env'
   assert_contains "${script_content}" 'pm2 startOrReload deploy/traffic-dashboard.pm2.config.cjs --update-env'
   assert_contains "${script_content}" 'protocol-traffic-dashboard'
   assert_contains "${script_content}" '/api/overview'
+  assert_contains "${script_content}" 'health.length !== 5'
+  assert_contains "${script_content}" 'updatedAt ?? 0) > 30_000'
   for profile_content in "${test_profile}" "${perf_profile}"; do
     assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_ENABLED=true'
     assert_contains "${profile_content}" 'PROFILE_PROTOCOL_TRAFFIC_RETENTION_MAX_BYTES=8589934592'

@@ -542,6 +542,8 @@ if [ "${BUILD_PROTOCOL}" = 1 ]; then
   [ -f "${PROTOCOL_LAYER_DIR}/tsconfig.json" ] || die "找不到协议层 tsconfig.json"
   [ -d "${PROTOCOL_LAYER_DIR}/src" ] || die "找不到协议层 src 目录"
   [ -d "${PROTOCOL_LAYER_DIR}/deploy" ] || die "找不到协议层 deploy 目录"
+  [ -f "${PROTOCOL_LAYER_DIR}/deploy/traffic-enabled.pm2.config.cjs" ] \
+    || die "找不到协议流量采集 PM2 包装配置"
   [ -f "${PROTOCOL_LAYER_DIR}/deploy/traffic-dashboard.pm2.config.cjs" ] \
     || die "找不到协议流量看板 PM2 配置"
   [ -d "${PROTOCOL_DIR}/openapi" ] || die "找不到协议 openapi 目录"

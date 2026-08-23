@@ -245,7 +245,8 @@ public class GroupSnapshotResultReportedSinkAdapter
                 ? selector.find(item.getGroupLinkId(), nextCursor)
                 : Optional.empty();
         if (next.isEmpty()) {
-            settleBatchTerminal(item, task, false, errorCode, "群快照候选账号已耗尽", now);
+            settleBatchTerminal(item, task, false, errorCode,
+                    exhaustedDescription(type, errorCode), now);
             return;
         }
         metrics.recordCandidateSwitch(errorCode);
@@ -304,10 +305,6 @@ public class GroupSnapshotResultReportedSinkAdapter
                 || event.attemptNo() != valueOrZero(item.getAttemptCount())) {
             throw new IllegalArgumentException("批量群快照结算任务关联不一致");
         }
-        long dispatchedAt = item.getUpdatedAt() == null ? 0L : item.getUpdatedAt();
-        if (event.scopes().values().stream().anyMatch(result -> result.completedAt() < dispatchedAt)) {
-            throw new IllegalArgumentException("批量群快照结算 completedAt 早于当前尝试");
-        }
     }
 
     private static GroupBatchTaskItem batchIdentity(GroupBatchTaskItem item) {
@@ -327,7 +324,7 @@ public class GroupSnapshotResultReportedSinkAdapter
                 : Optional.empty();
         if (next.isEmpty()) {
             settleTerminal(task, GroupMetadataSyncStatus.FAILED, errorCode,
-                    "群快照候选账号已耗尽", now);
+                    "获取群信息失败，且没有其他可用账号可重试", now);
             return;
         }
         metrics.recordCandidateSwitch(errorCode);
@@ -350,6 +347,14 @@ public class GroupSnapshotResultReportedSinkAdapter
                 "INVITE_CANDIDATE_ROTATION")) {
             throw new IllegalStateException("群快照候选轮换领取失败");
         }
+    }
+
+    private static String exhaustedDescription(GroupBatchTaskType type, String errorCode) {
+        String operation = type == GroupBatchTaskType.REFRESH_LINK
+                ? "获取群邀请链接"
+                : "获取群信息";
+        String outcome = "TIMEOUT".equals(errorCode) ? "超时" : "失败";
+        return operation + outcome + "，且没有其他可用账号可重试";
     }
 
     private void settleTerminal(
@@ -384,10 +389,6 @@ public class GroupSnapshotResultReportedSinkAdapter
                 || !event.groupJid().equalsIgnoreCase(task.getGroupJid())
                 || event.attemptNo() != valueOrZero(task.getCandidateCursor()) + 1) {
             throw new IllegalArgumentException("群快照结算任务关联不一致");
-        }
-        long startedAt = task.getLastStartedAt() == null ? 0L : task.getLastStartedAt();
-        if (event.scopes().values().stream().anyMatch(result -> result.completedAt() < startedAt)) {
-            throw new IllegalArgumentException("群快照结算 completedAt 早于当前尝试");
         }
     }
 

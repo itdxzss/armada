@@ -83,7 +83,7 @@ public class GroupBatchSnapshotDispatchService {
                 new ProtocolGroupSnapshotCommandRequest(
                         tenantId(item), account.accountId(), item.getGroupLinkId(), groupJid,
                         scopes, source, "GROUP_BATCH_TASK_ITEM", item.getId(), attempt,
-                        account.protocolAccountId(), account.protocolRef().backend())));
+                        account.protocolAccountId(), account.wsPhone(), account.protocolRef().backend())));
         if (result.inserted() != 1 || result.commandIds().size() != 1) {
             throw new IllegalStateException("批量群快照 Outbox 写入结果不完整");
         }
@@ -141,7 +141,10 @@ public class GroupBatchSnapshotDispatchService {
         outcome.setCurrentCommandId(item.getCurrentCommandId());
         outcome.setStatus(GroupBatchTaskItemStatus.FAILED.code());
         outcome.setErrorCode("TIMEOUT");
-        outcome.setDescription("群快照结果超时且候选账号已耗尽");
+        String operation = type == GroupBatchTaskType.REFRESH_LINK
+                ? "获取群邀请链接"
+                : "获取群信息";
+        outcome.setDescription(operation + "超时，且没有其他可用账号可重试");
         outcome.setOperatedAt(now);
         outcome.setUpdatedAt(now);
         int settled = itemMapper.settleCurrentCommand(

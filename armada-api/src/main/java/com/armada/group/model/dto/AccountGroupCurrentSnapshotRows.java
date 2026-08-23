@@ -40,6 +40,26 @@ public final class AccountGroupCurrentSnapshotRows {
     public record GroupId(String groupJid, Long groupId) {
     }
 
+    /** 按本次明确 PN/LID 锁定的现有成员身份行。 */
+    public record ParticipantIdentityRow(
+            Long id,
+            Long groupId,
+            String pnJid,
+            String lidJid) {
+    }
+
+    /** 将已经分裂的 PN 行归并进 LID canonical 行所需的最小写入参数。 */
+    public record ParticipantIdentityMergeWrite(
+            Long tenantId,
+            Long groupId,
+            Long canonicalId,
+            Long duplicateId,
+            String pnJid,
+            String lidJid,
+            String phone,
+            long now) {
+    }
+
     /** 旧 API 本次已经选中的群入口到新模型群主键。 */
     public record LegacyGroupReference(Long groupLinkId, Long groupId) {
     }

@@ -5,6 +5,8 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityRow;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
@@ -99,6 +101,28 @@ public interface AccountGroupCurrentSnapshotMapper {
     int upsertParticipants(@Param("rows") List<Write> rows);
 
     int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
+
+    /** 按本次明确给出的 PN/LID 批量锁定现有成员行，供双行定点归并。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<ParticipantIdentityRow> selectParticipantIdentityRowsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("rows") List<ParticipantPresenceWrite> rows);
+
+    /** 按事实时间和来源优先级把 PN 重复行事实并入 LID canonical 行。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int mergeSplitParticipantFacts(@Param("row") ParticipantIdentityMergeWrite row);
+
+    /** 将账号群绑定从待删除 PN 行改指 LID canonical 行。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int repointSplitParticipantBindings(@Param("row") ParticipantIdentityMergeWrite row);
+
+    /** 删除事实和绑定均已迁移的 PN 重复行。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int deleteSplitParticipantDuplicate(@Param("row") ParticipantIdentityMergeWrite row);
+
+    /** 在 PN 重复行删除后补齐 LID canonical 行的完整身份。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int completeSplitParticipantIdentity(@Param("row") ParticipantIdentityMergeWrite row);
 
     /**
      * 只把同一个人的 PN/LID 身份与号码补进同一行，不改 presence 与 role。

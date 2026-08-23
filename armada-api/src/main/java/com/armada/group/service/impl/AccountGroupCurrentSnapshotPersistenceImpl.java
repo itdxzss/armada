@@ -7,6 +7,8 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityRow;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
@@ -38,6 +40,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -518,7 +521,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             participantGroupJid(fact.groupJid()),
                             identity.pnJid(),
                             identity.lidJid(),
-                            blankToNull(fact.phone()),
+                            normalizedPhone(fact.phone()),
                             1,
                             "ADD_EVENT",
                             clamp(blankToNull(fact.sourceEventId()), EVENT_ID_MAX_LENGTH),
@@ -561,7 +564,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             participantGroupJid(fact.groupJid()),
                             identity.pnJid(),
                             identity.lidJid(),
-                            blankToNull(fact.phone()),
+                            normalizedPhone(fact.phone()),
                             2,
                             departurePresenceSource(fact.sourceType(), exitType),
                             clamp(blankToNull(fact.sourceEventId()), EVENT_ID_MAX_LENGTH),
@@ -606,8 +609,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      * <p>协议 modify 事件只说明成员身份形态变了，没有观察到在群与否和角色。写进群/退群那条
      * 语句会把已知的在群态覆盖成未知，所以走单独的身份合并语句。</p>
      *
-     * <p>调用方必须先确认同一个人在库里只有一行；分裂成两行时本方法会因为同时命中 PN 与 LID
-     * 两个唯一键而报重复键错误。</p>
+     * <p>写入前会按本次明确提供的 PN/LID 定点归并既有双行，再补齐身份，不改变未观察到的
+     * presence 与 role。</p>
      *
      * @param facts 身份合并事实，两个身份至少各有一个才有合并意义
      */
@@ -634,9 +637,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 .sorted()
                 .toList();
         Map<String, Long> groupIds = resolveGroupIds(tenantId, groupJids, now);
-        mapper.mergeParticipantIdentities(rows.stream()
+        List<ParticipantPresenceWrite> resolvedRows = rows.stream()
                 .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
-                .toList());
+                .toList();
+        mergeParticipantIdentitiesWithRetry(tenantId, resolvedRows);
     }
 
     /** 身份合并只填 groupId/pnJid/lidJid/phone/now，其余列对应语句一律不写。 */
@@ -654,7 +658,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 participantGroupJid(fact.groupJid()),
                 pn.pnJid(),
                 lid.lidJid(),
-                blankToNull(fact.phone()),
+                normalizedPhone(fact.phone()),
                 null, null, null,
                 requiredFactTime(fact.eventAt()),
                 now,
@@ -767,7 +771,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (!normalizedVersion.equals(winningVersion)) {
             return;
         }
-        upsertParticipantFactsInBatches(rows);
+        upsertParticipantFactsInBatches(tenantId, rows);
         mapper.markParticipantSnapshotMissing(
                 groupId,
                 snapshotAt,
@@ -795,7 +799,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                         .thenComparing(AccountGroupCurrentSnapshotPersistenceImpl::participantIdentityKey)
                         .thenComparingLong(ParticipantPresenceWrite::occurredAt))
                 .toList();
-        upsertParticipantFactsInBatches(rows);
+        upsertParticipantFactsInBatches(tenantId, rows);
     }
 
     private Map<String, Long> resolveGroupIds(
@@ -826,11 +830,112 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         return groupIds;
     }
 
-    private void upsertParticipantFactsInBatches(List<ParticipantPresenceWrite> rows) {
+    private void upsertParticipantFactsInBatches(
+            Long tenantId,
+            List<ParticipantPresenceWrite> rows) {
         for (int start = 0; start < rows.size(); start += PARTICIPANT_WRITE_BATCH_SIZE) {
-            mapper.upsertParticipantFacts(rows.subList(
-                    start, Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, rows.size())));
+            List<ParticipantPresenceWrite> batch = rows.subList(
+                    start, Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, rows.size()));
+            mergeSplitParticipantIdentities(tenantId, batch);
+            try {
+                mapper.upsertParticipantFacts(batch);
+            } catch (DuplicateKeyException exception) {
+                log.warn("群成员事实并发命中分裂身份,定点归并后重试一次 rowCount={}", batch.size());
+                mergeSplitParticipantIdentities(tenantId, batch);
+                mapper.upsertParticipantFacts(batch);
+            }
         }
+    }
+
+    private void mergeParticipantIdentitiesWithRetry(
+            Long tenantId,
+            List<ParticipantPresenceWrite> rows) {
+        mergeSplitParticipantIdentities(tenantId, rows);
+        try {
+            mapper.mergeParticipantIdentities(rows);
+        } catch (DuplicateKeyException exception) {
+            log.warn("群成员身份合并并发命中分裂身份,定点归并后重试一次 rowCount={}", rows.size());
+            mergeSplitParticipantIdentities(tenantId, rows);
+            mapper.mergeParticipantIdentities(rows);
+        }
+    }
+
+    /** 将本次已明确关联的 PN/LID 双行归并到 LID canonical 行。 */
+    private void mergeSplitParticipantIdentities(
+            Long tenantId,
+            List<ParticipantPresenceWrite> rows) {
+        Map<String, ParticipantPresenceWrite> candidates = new LinkedHashMap<>();
+        for (ParticipantPresenceWrite row : rows) {
+            if (row.groupId() != null && row.pnJid() != null && row.lidJid() != null) {
+                candidates.putIfAbsent(
+                        identityPairKey(row.groupId(), row.pnJid(), row.lidJid()), row);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return;
+        }
+        List<ParticipantPresenceWrite> candidateRows = List.copyOf(candidates.values());
+        List<ParticipantIdentityRow> existing = mapper.selectParticipantIdentityRowsForUpdate(
+                tenantId, candidateRows);
+        Map<String, ParticipantIdentityRow> byPn = new LinkedHashMap<>();
+        Map<String, ParticipantIdentityRow> byLid = new LinkedHashMap<>();
+        for (ParticipantIdentityRow row : existing) {
+            if (row.pnJid() != null) {
+                byPn.put(identityRowKey(row.groupId(), row.pnJid()), row);
+            }
+            if (row.lidJid() != null) {
+                byLid.put(identityRowKey(row.groupId(), row.lidJid()), row);
+            }
+        }
+        int merged = 0;
+        for (ParticipantPresenceWrite candidate : candidateRows) {
+            ParticipantIdentityRow duplicate = byPn.get(
+                    identityRowKey(candidate.groupId(), candidate.pnJid()));
+            ParticipantIdentityRow canonical = byLid.get(
+                    identityRowKey(candidate.groupId(), candidate.lidJid()));
+            if (duplicate == null || canonical == null
+                    || Objects.equals(duplicate.id(), canonical.id())) {
+                continue;
+            }
+            if (duplicate.lidJid() != null || canonical.pnJid() != null) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT, "群成员 PN/LID 身份映射与既有完整身份冲突");
+            }
+            mergeSplitParticipantIdentity(tenantId, candidate, canonical.id(), duplicate.id());
+            merged++;
+        }
+        if (merged > 0) {
+            log.info("群成员 PN/LID 双行已定点归并 count={}", merged);
+        }
+    }
+
+    private void mergeSplitParticipantIdentity(
+            Long tenantId,
+            ParticipantPresenceWrite candidate,
+            Long canonicalId,
+            Long duplicateId) {
+        String phone = normalizedPhone(candidate.phone());
+        if (phone == null) {
+            phone = normalizedPhone(candidate.pnJid());
+        }
+        ParticipantIdentityMergeWrite merge = new ParticipantIdentityMergeWrite(
+                tenantId, candidate.groupId(), canonicalId, duplicateId,
+                candidate.pnJid(), candidate.lidJid(), phone, candidate.now());
+        int factRows = mapper.mergeSplitParticipantFacts(merge);
+        mapper.repointSplitParticipantBindings(merge);
+        int deletedRows = mapper.deleteSplitParticipantDuplicate(merge);
+        int identityRows = mapper.completeSplitParticipantIdentity(merge);
+        if (factRows != 1 || deletedRows != 1 || identityRows != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "群成员 PN/LID 双行归并状态冲突");
+        }
+    }
+
+    private static String identityPairKey(Long groupId, String pnJid, String lidJid) {
+        return identityRowKey(groupId, pnJid) + '\u0000' + lidJid;
+    }
+
+    private static String identityRowKey(Long groupId, String jid) {
+        return groupId + "\u0000" + jid;
     }
 
     private BaselineEvidence baselineEvidenceForPreciseEvent(Context context) {
@@ -1093,7 +1198,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 participantGroupJid(observation.groupJid()),
                 identity.pnJid(),
                 identity.lidJid(),
-                blankToNull(observation.phone()),
+                normalizedPhone(observation.phone()),
                 observation.inGroup() ? 1 : 2,
                 source,
                 clamp(blankToNull(observation.sourceEventId()), EVENT_ID_MAX_LENGTH),

@@ -408,6 +408,88 @@
     )
   </sql>
 
+  <sql id="duplicatePresenceWins">
+    (
+      duplicate.presence_observed_at &gt; COALESCE(canonical.presence_observed_at, -1)
+      OR (
+        duplicate.presence_observed_at = canonical.presence_observed_at
+        AND (
+          CASE duplicate.presence_source
+            WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+            WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 5 WHEN 'GROUP_SNAPSHOT_NOT_JOINED' THEN 5
+            WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+            WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
+            WHEN 'GROUP_MEMBER_QUERY' THEN 2
+            WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
+            WHEN 'GROUP_SNAPSHOT' THEN 1 ELSE 0
+          END
+          &gt; CASE canonical.presence_source
+            WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
+            WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
+            WHEN 'UNKNOWN_EXIT_EVENT' THEN 5 WHEN 'GROUP_SNAPSHOT_NOT_JOINED' THEN 5
+            WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+            WHEN 'WGP2_ADD' THEN 3 WHEN 'ADD_EVENT' THEN 3
+            WHEN 'GROUP_MEMBER_QUERY' THEN 2
+            WHEN 'FULL_SNAPSHOT' THEN 2 WHEN 'SNAPSHOT_ABSENT' THEN 2
+            WHEN 'GROUP_SNAPSHOT' THEN 1 ELSE 0
+          END
+          OR (
+            duplicate.presence_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+            AND canonical.presence_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+            AND CAST(COALESCE(duplicate.last_snapshot_version, '') AS BINARY)
+                &gt; CAST(COALESCE(canonical.last_snapshot_version, '') AS BINARY)
+          )
+        )
+      )
+    )
+  </sql>
+
+  <sql id="duplicateRoleTier">
+    CASE duplicate.role_source
+      WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2 WHEN 'FULL_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_MEMBER_SNAPSHOT' THEN 2 WHEN 'LEGACY_METADATA_OWNER' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1 ELSE 0
+    END
+  </sql>
+
+  <sql id="canonicalRoleTier">
+    CASE canonical.role_source
+      WHEN 'WGP2_PROMOTE' THEN 4 WHEN 'WGP2_DEMOTE' THEN 4
+      WHEN 'WGP2_ADD' THEN 3
+      WHEN 'GROUP_MEMBER_QUERY' THEN 2 WHEN 'FULL_SNAPSHOT' THEN 2
+      WHEN 'LEGACY_MEMBER_SNAPSHOT' THEN 2 WHEN 'LEGACY_METADATA_OWNER' THEN 2
+      WHEN 'GROUP_SNAPSHOT' THEN 1 ELSE 0
+    END
+  </sql>
+
+  <sql id="duplicateRoleWins">
+    (
+      duplicate.role &lt;&gt; 0
+      AND NOT (
+        canonical.role &lt;&gt; 0
+        AND <include refid="duplicateRoleTier"/> &lt; <include refid="canonicalRoleTier"/>
+      )
+      AND (
+        duplicate.role_observed_at &gt; COALESCE(canonical.role_observed_at, -1)
+        OR (
+          duplicate.role_observed_at = canonical.role_observed_at
+          AND (
+            <include refid="duplicateRoleTier"/> &gt; <include refid="canonicalRoleTier"/>
+            OR (
+              duplicate.role_source = 'FULL_SNAPSHOT'
+              AND canonical.role_source = 'FULL_SNAPSHOT'
+              AND CAST(COALESCE(duplicate.last_snapshot_version, '') AS BINARY)
+                  &gt; CAST(COALESCE(canonical.last_snapshot_version, '') AS BINARY)
+            )
+          )
+        )
+      )
+    )
+  </sql>
+
   <insert id="upsertParticipants">
     INSERT INTO wa_group_participant (
       group_id, pn_jid, phone,
@@ -586,6 +668,156 @@
       ),
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
+
+  <select id="selectParticipantIdentityRowsForUpdate"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$ParticipantIdentityRow">
+    SELECT id, group_id AS groupId, pn_jid AS pnJid, lid_jid AS lidJid
+    FROM wa_group_participant
+    WHERE tenant_id = #{tenantId}
+      AND (
+      <foreach collection="rows" item="row" separator=" OR ">
+        (group_id = #{row.groupId}
+         AND (pn_jid = #{row.pnJid} OR lid_jid = #{row.lidJid}))
+      </foreach>
+      )
+    ORDER BY group_id ASC, id ASC
+    FOR UPDATE
+  </select>
+
+  <update id="mergeSplitParticipantFacts">
+    UPDATE wa_group_participant canonical
+    INNER JOIN wa_group_participant duplicate
+      ON duplicate.tenant_id = #{row.tenantId}
+     AND duplicate.group_id = #{row.groupId}
+     AND duplicate.id = #{row.duplicateId}
+    SET canonical.phone = COALESCE(canonical.phone, duplicate.phone),
+        canonical.phone_country_iso2 = COALESCE(
+          canonical.phone_country_iso2, duplicate.phone_country_iso2
+        ),
+        canonical.presence_status = CASE
+          WHEN <include refid="duplicatePresenceWins"/> THEN duplicate.presence_status
+          ELSE canonical.presence_status
+        END,
+        canonical.presence_source = CASE
+          WHEN <include refid="duplicatePresenceWins"/> THEN duplicate.presence_source
+          ELSE canonical.presence_source
+        END,
+        canonical.presence_observed_at = CASE
+          WHEN <include refid="duplicatePresenceWins"/> THEN duplicate.presence_observed_at
+          ELSE canonical.presence_observed_at
+        END,
+        canonical.presence_event_id = CASE
+          WHEN <include refid="duplicatePresenceWins"/> THEN duplicate.presence_event_id
+          ELSE canonical.presence_event_id
+        END,
+        canonical.last_joined_at = CASE
+          WHEN duplicate.last_join_event_at IS NOT NULL
+           AND (canonical.last_join_event_at IS NULL
+                OR duplicate.last_join_event_at &gt;= canonical.last_join_event_at)
+            THEN duplicate.last_joined_at ELSE canonical.last_joined_at
+        END,
+        canonical.last_join_event_at = CASE
+          WHEN duplicate.last_join_event_at IS NOT NULL
+           AND (canonical.last_join_event_at IS NULL
+                OR duplicate.last_join_event_at &gt;= canonical.last_join_event_at)
+            THEN duplicate.last_join_event_at ELSE canonical.last_join_event_at
+        END,
+        canonical.last_join_source_event_id = CASE
+          WHEN duplicate.last_join_event_at IS NOT NULL
+           AND (canonical.last_join_event_at IS NULL
+                OR duplicate.last_join_event_at &gt;= canonical.last_join_event_at)
+            THEN duplicate.last_join_source_event_id ELSE canonical.last_join_source_event_id
+        END,
+        canonical.last_exited_at = CASE
+          WHEN duplicate.last_exit_event_at IS NOT NULL
+           AND (canonical.last_exit_event_at IS NULL
+                OR duplicate.last_exit_event_at &gt;= canonical.last_exit_event_at)
+            THEN duplicate.last_exited_at ELSE canonical.last_exited_at
+        END,
+        canonical.last_exit_type = CASE
+          WHEN duplicate.last_exit_event_at IS NOT NULL
+           AND (canonical.last_exit_event_at IS NULL
+                OR duplicate.last_exit_event_at &gt;= canonical.last_exit_event_at)
+            THEN duplicate.last_exit_type ELSE canonical.last_exit_type
+        END,
+        canonical.last_exit_event_at = CASE
+          WHEN duplicate.last_exit_event_at IS NOT NULL
+           AND (canonical.last_exit_event_at IS NULL
+                OR duplicate.last_exit_event_at &gt;= canonical.last_exit_event_at)
+            THEN duplicate.last_exit_event_at ELSE canonical.last_exit_event_at
+        END,
+        canonical.last_exit_source_event_id = CASE
+          WHEN duplicate.last_exit_event_at IS NOT NULL
+           AND (canonical.last_exit_event_at IS NULL
+                OR duplicate.last_exit_event_at &gt;= canonical.last_exit_event_at)
+            THEN duplicate.last_exit_source_event_id ELSE canonical.last_exit_source_event_id
+        END,
+        canonical.last_exit_source_type = CASE
+          WHEN duplicate.last_exit_event_at IS NOT NULL
+           AND (canonical.last_exit_event_at IS NULL
+                OR duplicate.last_exit_event_at &gt;= canonical.last_exit_event_at)
+            THEN duplicate.last_exit_source_type ELSE canonical.last_exit_source_type
+        END,
+        canonical.role = CASE
+          WHEN <include refid="duplicateRoleWins"/> THEN duplicate.role
+          ELSE canonical.role
+        END,
+        canonical.role_source = CASE
+          WHEN <include refid="duplicateRoleWins"/> THEN duplicate.role_source
+          ELSE canonical.role_source
+        END,
+        canonical.role_observed_at = CASE
+          WHEN <include refid="duplicateRoleWins"/> THEN duplicate.role_observed_at
+          ELSE canonical.role_observed_at
+        END,
+        canonical.role_event_id = CASE
+          WHEN <include refid="duplicateRoleWins"/> THEN duplicate.role_event_id
+          ELSE canonical.role_event_id
+        END,
+        canonical.last_snapshot_version = CASE
+          WHEN canonical.last_snapshot_version IS NULL THEN duplicate.last_snapshot_version
+          WHEN duplicate.last_snapshot_version IS NULL THEN canonical.last_snapshot_version
+          WHEN CAST(duplicate.last_snapshot_version AS BINARY)
+              &gt; CAST(canonical.last_snapshot_version AS BINARY)
+            THEN duplicate.last_snapshot_version
+          ELSE canonical.last_snapshot_version
+        END,
+        canonical.updated_at = GREATEST(
+          canonical.updated_at, duplicate.updated_at, #{row.now}
+        )
+    WHERE canonical.tenant_id = #{row.tenantId}
+      AND canonical.group_id = #{row.groupId}
+      AND canonical.id = #{row.canonicalId}
+  </update>
+
+  <update id="repointSplitParticipantBindings">
+    UPDATE wa_account_group_binding
+    SET participant_id = #{row.canonicalId},
+        updated_at = GREATEST(updated_at, #{row.now})
+    WHERE tenant_id = #{row.tenantId}
+      AND group_id = #{row.groupId}
+      AND participant_id = #{row.duplicateId}
+  </update>
+
+  <delete id="deleteSplitParticipantDuplicate">
+    DELETE FROM wa_group_participant
+    WHERE tenant_id = #{row.tenantId}
+      AND group_id = #{row.groupId}
+      AND id = #{row.duplicateId}
+  </delete>
+
+  <update id="completeSplitParticipantIdentity">
+    UPDATE wa_group_participant
+    SET pn_jid = COALESCE(pn_jid, #{row.pnJid}),
+        lid_jid = COALESCE(lid_jid, #{row.lidJid}),
+        phone = COALESCE(phone, #{row.phone}),
+        updated_at = GREATEST(updated_at, #{row.now})
+    WHERE tenant_id = #{row.tenantId}
+      AND group_id = #{row.groupId}
+      AND id = #{row.canonicalId}
+      AND (pn_jid IS NULL OR pn_jid = #{row.pnJid})
+      AND (lid_jid IS NULL OR lid_jid = #{row.lidJid})
+  </update>
 
   <insert id="mergeParticipantIdentities">
     <!--

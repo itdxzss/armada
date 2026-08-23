@@ -1,8 +1,11 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,13 +15,18 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityRow;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.GroupParticipantObservation;
+import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 /** 新模型独占新增群资格判断的快速单元回归。 */
 @ExtendWith(MockitoExtension.class)
@@ -135,6 +144,137 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
             assertThat(row.role()).isEqualTo(2);
             assertThat(row.roleObservedAt()).isEqualTo(5_000L);
         });
+    }
+
+    @Test
+    void identityMergeCollapsesExistingPnAndLidRowsBeforeCompletingIdentity() {
+        String pnJid = "15550000002@s.whatsapp.net";
+        String lidJid = "123456789012345@lid";
+        stubGroupId();
+        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of(
+                        new ParticipantIdentityRow(301L, 100L, pnJid, null),
+                        new ParticipantIdentityRow(302L, 100L, null, lidJid)));
+        when(mapper.mergeSplitParticipantFacts(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.deleteSplitParticipantDuplicate(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.completeSplitParticipantIdentity(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+
+        persistence.applyParticipantIdentityMerges(List.of(new WhatsappGroupIdentityMergeFact(
+                TENANT_ID, GROUP_JID, pnJid, lidJid, "15550000002", 5_000L, "modify-1")));
+
+        ArgumentCaptor<ParticipantIdentityMergeWrite> merge =
+                ArgumentCaptor.forClass(ParticipantIdentityMergeWrite.class);
+        InOrder writes = inOrder(mapper);
+        writes.verify(mapper).mergeSplitParticipantFacts(merge.capture());
+        writes.verify(mapper).repointSplitParticipantBindings(merge.getValue());
+        writes.verify(mapper).deleteSplitParticipantDuplicate(merge.getValue());
+        writes.verify(mapper).completeSplitParticipantIdentity(merge.getValue());
+        writes.verify(mapper).mergeParticipantIdentities(anyList());
+        assertThat(merge.getValue().canonicalId()).isEqualTo(302L);
+        assertThat(merge.getValue().duplicateId()).isEqualTo(301L);
+        assertThat(merge.getValue().phone()).isEqualTo("15550000002");
+    }
+
+    @Test
+    void identityMergeRejectsRowsThatAlreadyPointAtDifferentCompleteIdentities() {
+        String pnJid = "15550000002@s.whatsapp.net";
+        String lidJid = "123456789012345@lid";
+        stubGroupId();
+        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of(
+                        new ParticipantIdentityRow(
+                                301L, 100L, pnJid, "different@lid"),
+                        new ParticipantIdentityRow(
+                                302L, 100L, "15559999999@s.whatsapp.net", lidJid)));
+
+        assertThatThrownBy(() -> persistence.applyParticipantIdentityMerges(List.of(
+                new WhatsappGroupIdentityMergeFact(
+                        TENANT_ID, GROUP_JID, pnJid, lidJid,
+                        "15550000002", 5_000L, "modify-conflict"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("身份映射与既有完整身份冲突");
+        verify(mapper, org.mockito.Mockito.never()).mergeSplitParticipantFacts(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class));
+    }
+
+    @Test
+    void identityMergeRetriesOnceWhenRowsSplitAfterInitialLockCheck() {
+        String pnJid = "15550000004@s.whatsapp.net";
+        String lidJid = "323456789012345@lid";
+        stubGroupId();
+        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of())
+                .thenReturn(List.of(
+                        new ParticipantIdentityRow(321L, 100L, pnJid, null),
+                        new ParticipantIdentityRow(322L, 100L, null, lidJid)));
+        when(mapper.mergeSplitParticipantFacts(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.deleteSplitParticipantDuplicate(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.completeSplitParticipantIdentity(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.mergeParticipantIdentities(anyList()))
+                .thenThrow(new DuplicateKeyException("split identity"))
+                .thenReturn(1);
+
+        persistence.applyParticipantIdentityMerges(List.of(new WhatsappGroupIdentityMergeFact(
+                TENANT_ID, GROUP_JID, pnJid, lidJid, "+1 555-000-0004",
+                5_000L, "modify-race")));
+
+        verify(mapper, times(2)).selectParticipantIdentityRowsForUpdate(
+                eq(TENANT_ID), anyList());
+        ArgumentCaptor<ParticipantIdentityMergeWrite> merge =
+                ArgumentCaptor.forClass(ParticipantIdentityMergeWrite.class);
+        verify(mapper).mergeSplitParticipantFacts(merge.capture());
+        assertThat(merge.getValue().phone()).isEqualTo("15550000004");
+        verify(mapper, times(2)).mergeParticipantIdentities(anyList());
+    }
+
+    @Test
+    void participantSnapshotRetriesOnceAfterConcurrentIdentitySplit() {
+        String pnJid = "15550000003@s.whatsapp.net";
+        String lidJid = "223456789012345@lid";
+        stubGroupId();
+        when(mapper.selectParticipantSnapshotVersionForUpdate(100L)).thenReturn("snapshot-1");
+        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of())
+                .thenReturn(List.of(
+                        new ParticipantIdentityRow(311L, 100L, pnJid, null),
+                        new ParticipantIdentityRow(312L, 100L, null, lidJid)));
+        when(mapper.mergeSplitParticipantFacts(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.deleteSplitParticipantDuplicate(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.completeSplitParticipantIdentity(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class)))
+                .thenReturn(1);
+        when(mapper.upsertParticipantFacts(anyList()))
+                .thenThrow(new DuplicateKeyException("split identity"))
+                .thenReturn(1);
+
+        persistence.replaceCompleteParticipantSnapshot(
+                GROUP_JID,
+                List.of(new GroupParticipantResult(
+                        lidJid, pnJid, "15550000003", false, false, null)),
+                6_000L,
+                "snapshot-1");
+
+        verify(mapper, times(2)).selectParticipantIdentityRowsForUpdate(
+                eq(TENANT_ID), anyList());
+        verify(mapper).mergeSplitParticipantFacts(
+                org.mockito.ArgumentMatchers.any(ParticipantIdentityMergeWrite.class));
+        verify(mapper, times(2)).upsertParticipantFacts(anyList());
     }
 
     @Test

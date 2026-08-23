@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityRow;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -25,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -56,7 +60,8 @@ class AccountGroupCurrentSnapshotMapperH2Test {
                 """, """
                 CREATE TABLE wa_group_participant (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  group_id BIGINT NOT NULL, pn_jid VARCHAR(128),
+                  group_id BIGINT NOT NULL, pn_jid VARCHAR(128), lid_jid VARCHAR(128),
+                  phone VARCHAR(32), updated_at BIGINT DEFAULT 0,
                   presence_status TINYINT, presence_source VARCHAR(64),
                   presence_observed_at BIGINT
                 )
@@ -66,7 +71,7 @@ class AccountGroupCurrentSnapshotMapperH2Test {
                   account_id BIGINT NOT NULL, group_id BIGINT NOT NULL,
                   participant_id BIGINT NOT NULL, was_in_initial_baseline TINYINT,
                   first_post_control_observed_at BIGINT,
-                  membership_active_since_at BIGINT
+                  membership_active_since_at BIGINT, updated_at BIGINT DEFAULT 0
                 )
                 """, """
                 INSERT INTO wa_group (id, tenant_id, group_jid, deleted_at)
@@ -136,6 +141,51 @@ class AccountGroupCurrentSnapshotMapperH2Test {
                 .contains("AND participant.presence_status = 2 "
                         + "AND participant.presence_source = #{exit.presenceSource} "
                         + "AND participant.presence_observed_at = #{exit.observedAt}");
+    }
+
+    @Test
+    void identityMergeSelectsBothRowsThenRepointsDeletesAndCompletesCanonicalIdentity()
+            throws SQLException {
+        String pnJid = "919000000002@s.whatsapp.net";
+        String lidJid = "123456789012345@lid";
+        execute("""
+                INSERT INTO wa_group_participant
+                  (id, tenant_id, group_id, pn_jid, lid_jid, phone, updated_at)
+                VALUES (302, 7, 101, '919000000002@s.whatsapp.net', NULL,
+                        '919000000002', 100),
+                       (303, 7, 101, NULL, '123456789012345@lid',
+                        '919000000002', 200)
+                """, """
+                INSERT INTO wa_account_group_binding
+                  (id, tenant_id, account_id, group_id, participant_id, updated_at)
+                VALUES (502, 7, 1002, 101, 302, 100)
+                """);
+        ParticipantPresenceWrite candidate = new ParticipantPresenceWrite(
+                101L, "new-group@g.us", pnJid, lidJid, "919000000002",
+                1, "FULL_SNAPSHOT", "snapshot-1", 300L, 300L,
+                null, null, null, null, 1, "FULL_SNAPSHOT", 300L,
+                "snapshot-1", "snapshot-1", null, null, null, null);
+
+        List<ParticipantIdentityRow> identities =
+                mapper.selectParticipantIdentityRowsForUpdate(TENANT_ID, List.of(candidate));
+
+        assertThat(identities).extracting(ParticipantIdentityRow::id)
+                .containsExactly(302L, 303L);
+        ParticipantIdentityMergeWrite merge = new ParticipantIdentityMergeWrite(
+                TENANT_ID, 101L, 303L, 302L, pnJid, lidJid, "919000000002", 300L);
+        assertThat(mapper.repointSplitParticipantBindings(merge)).isOne();
+        assertThat(mapper.deleteSplitParticipantDuplicate(merge)).isOne();
+        assertThat(mapper.completeSplitParticipantIdentity(merge)).isOne();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject(
+                "SELECT participant_id FROM wa_account_group_binding WHERE id = 502",
+                Long.class)).isEqualTo(303L);
+        assertThat(jdbc.queryForMap(
+                "SELECT pn_jid, lid_jid, phone FROM wa_group_participant WHERE id = 303"))
+                .containsEntry("pn_jid", pnJid)
+                .containsEntry("lid_jid", lidJid)
+                .containsEntry("phone", "919000000002");
     }
 
     private void execute(String... statements) throws SQLException {

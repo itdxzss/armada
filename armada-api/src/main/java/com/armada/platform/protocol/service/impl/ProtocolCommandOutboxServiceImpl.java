@@ -1492,6 +1492,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                     || !allowedTaskTypes.contains(command.taskType())
                     || command.taskId() == null || command.taskId() <= 0
                     || command.attemptNo() <= 0 || isBlank(command.protocolAccountId())
+                    || isBlank(command.wsPhone())
                     || command.protocolBackend() == null) {
                 throw new BusinessException(ErrorCode.VALIDATION, "群快照命令缺少必要字段或字段非法");
             }

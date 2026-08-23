@@ -54,6 +54,7 @@ class GroupSnapshotDispatchServiceTest {
         verify(outboxService).enqueueGroupSnapshotCommands(commandCaptor.capture());
         ProtocolGroupSnapshotCommandRequest command = commandCaptor.getValue().get(0);
         assertThat(command.scopes()).containsExactly("METADATA", "INVITE_CODE");
+        assertThat(command.wsPhone()).isEqualTo("919000000100");
         assertThat(command.protocolBackend().name()).isEqualTo("ANDROID");
         assertThat(command.taskType()).isEqualTo("GROUP_METADATA_SYNC");
         assertThat(command.taskId()).isEqualTo(91L);

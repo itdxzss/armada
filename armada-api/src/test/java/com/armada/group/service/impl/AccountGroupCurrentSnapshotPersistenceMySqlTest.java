@@ -958,6 +958,60 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
+    void completeSnapshotMergesExistingPnAndLidRowsBeforeWritingFacts() throws Exception {
+        String phone = "919000000003";
+        String pnJid = phone + "@s.whatsapp.net";
+        String lidJid = "323456789012345@lid";
+        String currentGroupJid = groupJid(43);
+        seedCapturedAccount(143L, phone, List.of());
+
+        writeSelfMembership(
+                143L, currentGroupJid, AccountGroupMembershipStatus.IN_GROUP,
+                1_000L, "self-add-43", "WGP2_ADD");
+        Long pnParticipantId = jdbc.queryForObject(
+                "SELECT id FROM wa_group_participant WHERE pn_jid = ?",
+                Long.class,
+                pnJid);
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, currentGroupJid, lidJid, phone,
+                1_100L, 1_100L, "member-add-43", 143L)));
+        Long lidParticipantId = jdbc.queryForObject(
+                "SELECT id FROM wa_group_participant WHERE lid_jid = ?",
+                Long.class,
+                lidJid);
+
+        assertThat(count("wa_group_participant")).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT participant_id FROM wa_account_group_binding WHERE account_id = 143",
+                Long.class)).isEqualTo(pnParticipantId);
+
+        writeParticipantSnapshot(
+                currentGroupJid,
+                List.of(new GroupParticipantResult(
+                        lidJid, pnJid, phone, true, false, "admin")),
+                2_000L,
+                "snapshot-merge-43");
+
+        assertThat(count("wa_group_participant")).isOne();
+        assertThat(jdbc.queryForMap("""
+                SELECT id, pn_jid, lid_jid, phone, presence_source, role,
+                       last_joined_at, last_snapshot_version
+                FROM wa_group_participant
+                """))
+                .containsEntry("id", lidParticipantId)
+                .containsEntry("pn_jid", pnJid)
+                .containsEntry("lid_jid", lidJid)
+                .containsEntry("phone", phone)
+                .containsEntry("presence_source", "FULL_SNAPSHOT")
+                .containsEntry("role", 2)
+                .containsEntry("last_joined_at", 1_100L)
+                .containsEntry("last_snapshot_version", "snapshot-merge-43");
+        assertThat(jdbc.queryForObject(
+                "SELECT participant_id FROM wa_account_group_binding WHERE account_id = 143",
+                Long.class)).isEqualTo(lidParticipantId);
+    }
+
+    @Test
     void identityMergeForAnUnseenPersonLandsAsUnknownPresenceAndRole() {
         writeParticipantIdentityMerges(List.of(new WhatsappGroupIdentityMergeFact(
                 TENANT_ID, groupJid(42), "919000000002@s.whatsapp.net",

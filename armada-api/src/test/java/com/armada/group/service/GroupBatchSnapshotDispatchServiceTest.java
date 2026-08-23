@@ -67,6 +67,7 @@ class GroupBatchSnapshotDispatchServiceTest {
         assertThat(command.taskType()).isEqualTo("GROUP_BATCH_TASK_ITEM");
         assertThat(command.taskId()).isEqualTo(9L);
         assertThat(command.scopes()).containsExactly("METADATA");
+        assertThat(command.wsPhone()).isEqualTo("919");
         assertThat(command.protocolBackend().name()).isEqualTo("ANDROID");
         verify(itemMapper).markWaitingResult(
                 any(), eq(GroupBatchTaskItemStatus.PENDING.code()),

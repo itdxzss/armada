@@ -72,7 +72,7 @@ public class GroupSnapshotDispatchService {
                         task.getTenantId(), account.accountId(), task.getGroupLinkId(), task.getGroupJid(),
                         scopes, sourceOverride == null ? source(task.getTriggerSource()) : sourceOverride,
                         "GROUP_METADATA_SYNC", task.getId(),
-                        cursor + 1, account.protocolAccountId(), account.protocolRef().backend())));
+                        cursor + 1, account.protocolAccountId(), account.wsPhone(), account.protocolRef().backend())));
         if (result.inserted() != 1 || result.commandIds().size() != 1) {
             throw new IllegalStateException("群快照 Outbox 写入结果不完整");
         }

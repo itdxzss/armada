@@ -15,5 +15,6 @@ public record ProtocolGroupSnapshotCommandRequest(
         Long taskId,
         int attemptNo,
         String protocolAccountId,
+        String wsPhone,
         ProtocolBackend protocolBackend) {
 }

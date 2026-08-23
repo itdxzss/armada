@@ -103,7 +103,8 @@ class ProtocolCommandOutboxServiceImplTest {
                     .containsEntry("taskType", "GROUP_METADATA_SYNC")
                     .containsEntry("taskId", 9002)
                     .containsEntry("attemptNo", 1)
-                    .containsEntry("protocolAccountId", "acc-android");
+                    .containsEntry("protocolAccountId", "acc-android")
+                    .containsEntry("wsPhone", "919000000101");
             assertThat(payload.get("scopes")).isEqualTo(List.of("METADATA", "INVITE_CODE"));
         } finally {
             TenantContext.clear();
@@ -1430,7 +1431,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 1L, accountId, groupLinkId, "120363000@g.us",
                 List.of("METADATA", "INVITE_CODE"), "MANUAL_INFO_REFRESH",
                 "GROUP_METADATA_SYNC", 9001L + (groupLinkId - 5001L), 1,
-                protocolAccountId, backend);
+                protocolAccountId, "919000000" + accountId, backend);
     }
 
     private static final class TestableProtocolCommandOutboxService extends ProtocolCommandOutboxServiceImpl {

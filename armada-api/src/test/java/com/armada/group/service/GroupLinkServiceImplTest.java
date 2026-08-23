@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -49,6 +50,7 @@ import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -108,13 +110,16 @@ class GroupLinkServiceImplTest {
     @Mock
     private GroupCurrentInvitePersistence currentInvitePersistence;
 
+    @Mock
+    private PullTaskGroupOccupancyService taskGroupOccupancyService;
+
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
         service = new GroupLinkServiceImpl(
                 groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, labelMapper,
                 converter, countryService, accountMapper, groupPreviewPort, groupProfilePort,
-                currentLocalPersistence, currentInvitePersistence);
+                currentLocalPersistence, currentInvitePersistence, taskGroupOccupancyService);
     }
 
     @AfterEach
@@ -344,12 +349,42 @@ class GroupLinkServiceImplTest {
     }
 
     @Test
+    void assignFolderRejectsGroupsOccupiedByPullTasks() {
+        GroupLink group = new GroupLink();
+        group.setId(101L);
+        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+                .thenReturn(List.of(group));
+        doThrow(new BusinessException(com.armada.shared.exception.ErrorCode.CONFLICT,
+                "群组正在被任务使用"))
+                .when(taskGroupOccupancyService).requireUnoccupied(List.of(101L));
+
+        assertThatThrownBy(() -> service.assignFolder(List.of(101L), null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("正在被任务使用");
+        verify(groupLinkMapper, never()).assignFolder(any(), any(), anyLong());
+    }
+
+    @Test
     void assignFolderRejectsMissingTargetFolder() {
         when(folderMapper.selectActiveByIdsForUpdate(List.of(10L))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.assignFolder(List.of(101L), 10L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("目标群组分组不存在");
+        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any());
+    }
+
+    @Test
+    void assignFolderRejectsSystemUsedFolder() {
+        GroupFolder used = new GroupFolder();
+        used.setId(99L);
+        used.setSystemBuiltin(true);
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L)))
+                .thenReturn(List.of(used));
+
+        assertThatThrownBy(() -> service.assignFolder(List.of(101L), 99L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("系统分组");
         verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any());
     }
 

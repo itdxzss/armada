@@ -628,7 +628,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskExecutionTransactionService(
-                    taskMapper, settingMapper, executionMapper);
+                    taskMapper, settingMapper, executionMapper,
+                    org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class));
         }
 
         @Bean PullTaskLinkValidationProcessor linkProcessor(
@@ -868,7 +869,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskClosingTransactionService(
-                    taskMapper, executionMapper, accountMapper, parentCompletion);
+                    taskMapper, executionMapper, accountMapper, parentCompletion,
+                    org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class));
         }
 
         @Bean PullTaskPullExecutionDispatchResources pullDispatchResources(

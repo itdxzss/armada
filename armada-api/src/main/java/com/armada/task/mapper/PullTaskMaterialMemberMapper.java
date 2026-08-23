@@ -46,6 +46,26 @@ public interface PullTaskMaterialMemberMapper {
      */
     List<PullTaskMaterialMember> selectByExecution(@Param("groupExecutionId") long groupExecutionId);
 
+    /** 复制原 TXT 号码到新执行记录，并从第一个号码重新开始。 */
+    int copyForRetryInitialized(
+            @Param("sourceExecutionId") long sourceExecutionId,
+            @Param("targetExecutionId") long targetExecutionId,
+            @Param("pullStatus") int pullStatus,
+            @Param("adminPendingStatus") int adminPendingStatus,
+            @Param("adminNotRequiredStatus") int adminNotRequiredStatus,
+            @Param("now") long now);
+
+    /** 使用料子初始状态复制同一 TXT。 */
+    default int copyForRetry(long sourceExecutionId, long targetExecutionId, long now) {
+        return copyForRetryInitialized(
+                sourceExecutionId,
+                targetExecutionId,
+                PullTaskMaterialPullStatus.UNCONSUMED.code(),
+                PullTaskMaterialAdminStatus.PENDING.code(),
+                PullTaskMaterialAdminStatus.NOT_REQUIRED.code(),
+                now);
+    }
+
     /**
      * 删除某条执行行下的全部料子成员。
      *

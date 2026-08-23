@@ -533,7 +533,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 org.mockito.ArgumentMatchers.eq(java.util.List.of(40L)),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
-        new GroupFolderServiceImpl(folderMapper, groupLinkMapper, currentLocalPersistence)
+        new GroupFolderServiceImpl(folderMapper, groupLinkMapper, currentLocalPersistence,
+                mock(com.armada.task.service.PullTaskGroupOccupancyService.class))
                 .batchDelete(java.util.List.of(40L));
 
         assertThat(jdbc.queryForObject("""
@@ -1182,7 +1183,8 @@ class GroupCurrentLocalWriteMySqlTest {
                 mock(GroupPreviewPort.class),
                 mock(GroupProfilePort.class),
                 currentLocalPersistence,
-                mock(GroupCurrentInvitePersistence.class));
+                mock(GroupCurrentInvitePersistence.class),
+                mock(com.armada.task.service.PullTaskGroupOccupancyService.class));
     }
 
     private static GroupLinkLabelServiceImpl labelService() {

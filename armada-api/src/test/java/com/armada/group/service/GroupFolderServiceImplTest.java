@@ -15,6 +15,7 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
@@ -22,6 +23,7 @@ import com.armada.group.service.impl.GroupFolderServiceImpl;
 import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,12 +46,16 @@ class GroupFolderServiceImplTest {
     @Mock
     private GroupCurrentLocalPersistence currentLocalPersistence;
 
+    @Mock
+    private PullTaskGroupOccupancyService taskGroupOccupancyService;
+
     private GroupFolderServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new GroupFolderServiceImpl(
-                folderMapper, groupLinkMapper, currentLocalPersistence);
+                folderMapper, groupLinkMapper, currentLocalPersistence,
+                taskGroupOccupancyService);
     }
 
     @Test
@@ -117,6 +123,33 @@ class GroupFolderServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已存在");
         verify(folderMapper, never()).insert(any());
+    }
+
+    @Test
+    void systemFolderCannotBeCreatedRenamedDeletedOrSelectedAsResourcePool() {
+        GroupFolder used = folder(99L, "已使用群组");
+        used.setSystemBuiltin(true);
+
+        assertThatThrownBy(() -> service.create(
+                new GroupFolderWriteDTO("已使用群组"), 501L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("系统分组");
+
+        when(folderMapper.selectById(99L)).thenReturn(used);
+        assertThatThrownBy(() -> service.update(
+                99L, new GroupFolderWriteDTO("改名")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("系统分组");
+        assertThatThrownBy(() -> service.requireExisting(99L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("资源池");
+
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L)))
+                .thenReturn(List.of(used));
+        assertThatThrownBy(() -> service.batchDelete(List.of(99L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("系统分组");
+        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
     }
 
     @Test
@@ -209,6 +242,26 @@ class GroupFolderServiceImplTest {
         assertThatThrownBy(() -> service.requireExisting(8L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
+    }
+
+    @Test
+    void moveToUsedCreatesSystemFolderAndMovesOnlyTheCompletedGroup() {
+        GroupFolder used = folder(99L, "已使用群组");
+        used.setSystemBuiltin(true);
+        GroupLink group = new GroupLink();
+        group.setId(501L);
+        when(folderMapper.selectActiveByName("已使用群组")).thenReturn(used);
+        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L))).thenReturn(List.of(used));
+        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(501L)))
+                .thenReturn(List.of(group));
+        when(groupLinkMapper.assignFolder(eq(List.of(501L)), eq(99L), anyLong()))
+                .thenReturn(1);
+
+        service.moveToUsed(501L);
+
+        verify(folderMapper).upsertUsedSystemFolder(eq("已使用群组"), anyLong());
+        verify(groupLinkMapper).assignFolder(eq(List.of(501L)), eq(99L), anyLong());
+        verify(currentLocalPersistence).applyGroupFolder(eq(List.of(501L)), eq(99L), anyLong());
     }
 
     private static GroupFolder folder(long id, String name) {

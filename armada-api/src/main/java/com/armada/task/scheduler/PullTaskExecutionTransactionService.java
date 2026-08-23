@@ -1,10 +1,13 @@
 package com.armada.task.scheduler;
 
+import com.armada.group.service.GroupFolderService;
+import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskExecutionLease;
+import com.armada.task.model.dto.PullTaskLifecycleTransition;
 import com.armada.task.model.dto.PullTaskExecutionSlotClaim;
 import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.entity.PullTask;
@@ -12,9 +15,14 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,10 +37,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class PullTaskExecutionTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
+    private static final String WAIT_GROUP_REASON = "当前群组资源池暂无可用群组";
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final GroupFolderService groupFolderService;
 
     /**
      * @param taskMapper      父任务生命周期 Mapper
@@ -41,10 +51,12 @@ public class PullTaskExecutionTransactionService {
      */
     public PullTaskExecutionTransactionService(PullTaskMapper taskMapper,
                                                PullTaskStandardSettingMapper settingMapper,
-                                               PullTaskGroupExecutionMapper executionMapper) {
+                                               PullTaskGroupExecutionMapper executionMapper,
+                                               GroupFolderService groupFolderService) {
         this.taskMapper = taskMapper;
         this.settingMapper = settingMapper;
         this.executionMapper = executionMapper;
+        this.groupFolderService = groupFolderService;
     }
 
     /**
@@ -73,6 +85,13 @@ public class PullTaskExecutionTransactionService {
             if (candidate.getExecutionStatus() == PullTaskExecutionStatus.WAIT_START.code()) {
                 PullTaskStandardSetting setting =
                         settingMapper.selectByTaskId(candidate.getTaskId());
+                GroupPoolResourceVO resource = requiresRuntimeGroup(parent, candidate)
+                        ? nextAvailableResource(setting) : null;
+                if (requiresRuntimeGroup(parent, candidate) && resource == null) {
+                    waitForGroupResource(parent, now);
+                    release(candidate.getId(), lockOwner, now);
+                    return Optional.empty();
+                }
                 if (!hasConcurrentPolicy(setting)
                         || !acquireExecutionSlot(
                         parent, candidate, setting.getConcurrentGroupCount(), now)) {
@@ -81,13 +100,24 @@ public class PullTaskExecutionTransactionService {
                 }
                 candidate.setStartedAt(now);
                 candidate.setUpdatedAt(now);
-                if (executionMapper.startClaimed(
-                        candidate,
-                        PullTaskExecutionStatus.WAIT_START.code(),
-                        candidate.getStage(),
-                        PullTaskExecutionStatus.EXECUTING.code()) != 1) {
+                int started = resource == null
+                        ? executionMapper.startClaimed(
+                                candidate,
+                                PullTaskExecutionStatus.WAIT_START.code(),
+                                candidate.getStage(),
+                                PullTaskExecutionStatus.EXECUTING.code())
+                        : bindGroupAndStart(candidate, resource);
+                if (started != 1) {
                     release(candidate.getId(), lockOwner, now);
                     return Optional.empty();
+                }
+                if (resource != null) {
+                    GroupPoolResourceVO locked = groupFolderService
+                            .requireUsableResourceForUpdate(
+                                    setting.getSourceGroupFolderId(), resource.groupLinkId());
+                    if (!resource.equals(locked)) {
+                        throw new IllegalStateException("领取群组期间群组身份已变化");
+                    }
                 }
                 expectedVersion = Math.addExact(expectedVersion, 1);
             }
@@ -97,6 +127,71 @@ public class PullTaskExecutionTransactionService {
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private void waitForGroupResource(PullTask parent, long now) {
+        boolean anotherTxtIsRunning = executionMapper.selectByTaskId(parent.getId()).stream()
+                .anyMatch(row -> row.getExecutionStatus()
+                        == PullTaskExecutionStatus.EXECUTING.code());
+        if (anotherTxtIsRunning) {
+            return;
+        }
+        taskMapper.transitionLifecycle(new PullTaskLifecycleTransition(
+                parent.getId(),
+                PullTaskStandardStatus.EXECUTING.name(),
+                PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name(),
+                parent.getVersion(),
+                WAIT_GROUP_REASON,
+                null,
+                null,
+                now));
+    }
+
+    private int bindGroupAndStart(
+            PullTaskGroupExecution candidate,
+            GroupPoolResourceVO resource) {
+        candidate.setGroupLinkId(resource.groupLinkId());
+        candidate.setGroupJid(resource.groupJid());
+        candidate.setNormalizedLink(resource.normalizedLink());
+        candidate.setInviteCode(resource.inviteCode());
+        try {
+            return executionMapper.bindGroupAndStartClaimed(
+                    candidate,
+                    PullTaskExecutionStatus.WAIT_START.code(),
+                    candidate.getStage(),
+                    PullTaskExecutionStatus.EXECUTING.code());
+        } catch (DuplicateKeyException conflict) {
+            return 0;
+        }
+    }
+
+    private GroupPoolResourceVO nextAvailableResource(PullTaskStandardSetting setting) {
+        if (setting == null || setting.getSourceGroupFolderId() == null) {
+            return null;
+        }
+        List<GroupPoolResourceVO> resources =
+                groupFolderService.usableResources(setting.getSourceGroupFolderId());
+        if (resources == null || resources.isEmpty()) {
+            return null;
+        }
+        List<String> groupJids = resources.stream()
+                .map(GroupPoolResourceVO::groupJid)
+                .toList();
+        Set<String> occupied = new HashSet<>(
+                executionMapper.selectOccupiedGroupJids(groupJids));
+        return resources.stream()
+                .filter(resource -> !occupied.contains(resource.groupJid()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static boolean requiresRuntimeGroup(
+            PullTask parent,
+            PullTaskGroupExecution candidate) {
+        return parent.getCreationMode() == PullTaskCreationMode.RESOURCE_POOL
+                && candidate.getGroupLinkId() == null
+                && candidate.getGroupJid() == null
+                && candidate.getStage() != PullTaskExecutionStage.GROUP_CREATE.code();
     }
 
     private boolean acquireExecutionSlot(

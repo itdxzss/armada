@@ -12,6 +12,9 @@ public class GroupFolder {
     /** 分组名称。 */
     private String name;
 
+    /** 是否系统内置分组。 */
+    private Boolean systemBuiltin;
+
     /** 创建时间，epoch 毫秒。 */
     private Long createdAt;
 
@@ -46,6 +49,14 @@ public class GroupFolder {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public Boolean getSystemBuiltin() {
+        return systemBuiltin;
+    }
+
+    public void setSystemBuiltin(Boolean systemBuiltin) {
+        this.systemBuiltin = systemBuiltin;
     }
 
     public Long getCreatedAt() {

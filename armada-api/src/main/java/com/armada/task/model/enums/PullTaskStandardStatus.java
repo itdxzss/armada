@@ -15,6 +15,9 @@ public enum PullTaskStandardStatus {
     /** 已暂停。 */
     PAUSED,
 
+    /** 自定义分组暂无可用群，等待用户补群后手动继续。 */
+    WAIT_GROUP_RESOURCE,
+
     /** 已中断。 */
     INTERRUPTED,
 

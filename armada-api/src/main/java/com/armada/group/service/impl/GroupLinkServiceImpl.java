@@ -16,6 +16,7 @@ import com.armada.group.model.dto.GroupLinkProfileDTO;
 import com.armada.group.model.dto.GroupLinkPreviewDTO;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.dto.GroupPictureCommandDTO;
+import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -40,6 +41,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -102,6 +104,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupProfilePort groupProfilePort;
     private final GroupCurrentLocalPersistence currentLocalPersistence;
     private final GroupCurrentInvitePersistence currentInvitePersistence;
+    private final PullTaskGroupOccupancyService taskGroupOccupancyService;
 
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupListCurrentMapper groupListCurrentMapper,
@@ -114,7 +117,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                                 GroupPreviewPort groupPreviewPort,
                                 GroupProfilePort groupProfilePort,
                                 GroupCurrentLocalPersistence currentLocalPersistence,
-                                GroupCurrentInvitePersistence currentInvitePersistence) {
+                                GroupCurrentInvitePersistence currentInvitePersistence,
+                                PullTaskGroupOccupancyService taskGroupOccupancyService) {
         this.groupLinkMapper = groupLinkMapper;
         this.groupListCurrentMapper = groupListCurrentMapper;
         this.folderMapper = folderMapper;
@@ -127,6 +131,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.groupProfilePort = groupProfilePort;
         this.currentLocalPersistence = currentLocalPersistence;
         this.currentInvitePersistence = currentInvitePersistence;
+        this.taskGroupOccupancyService = taskGroupOccupancyService;
     }
 
     /**
@@ -578,8 +583,13 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             if (folderId <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION, "目标群组分组 ID 必须为正整数");
             }
-            if (folderMapper.selectActiveByIdsForUpdate(List.of(folderId)).size() != 1) {
+            List<GroupFolder> targetFolders =
+                    folderMapper.selectActiveByIdsForUpdate(List.of(folderId));
+            if (targetFolders.size() != 1) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "目标群组分组不存在或已删除");
+            }
+            if (Boolean.TRUE.equals(targetFolders.get(0).getSystemBuiltin())) {
+                throw new BusinessException(ErrorCode.CONFLICT, "不能手工移动群组到系统分组");
             }
         }
 
@@ -587,6 +597,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (groups.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组不存在或已删除，请刷新后重试");
         }
+        taskGroupOccupancyService.requireUnoccupied(normalizedIds);
         long now = System.currentTimeMillis();
         int updated = groupLinkMapper.assignFolder(normalizedIds, folderId, now);
         currentLocalPersistence.applyGroupFolder(normalizedIds, folderId, now);

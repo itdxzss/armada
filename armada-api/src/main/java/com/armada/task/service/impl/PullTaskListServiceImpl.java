@@ -385,6 +385,10 @@ public class PullTaskListServiceImpl implements PullTaskListService {
                 return List.of(PullTaskListAction.DETAIL,
                         PullTaskListAction.RESUME, PullTaskListAction.END);
             }
+            if (PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name().equals(task.getStatus())) {
+                return List.of(PullTaskListAction.DETAIL,
+                        PullTaskListAction.RESUME, PullTaskListAction.END);
+            }
         }
         if (deletable(task)) {
             return List.of(PullTaskListAction.DETAIL, PullTaskListAction.DELETE);

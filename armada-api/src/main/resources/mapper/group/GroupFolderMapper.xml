@@ -32,6 +32,7 @@
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupFolderVO">
     SELECT f.id,
            f.name,
+           f.system_builtin AS systemBuiltin,
            COUNT(CASE
              WHEN g.id IS NOT NULL
               AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
@@ -61,7 +62,7 @@
       ON input_invite.tenant_id = g.tenant_id
      AND input_invite.id = g.group_invite_id
     WHERE <include refid="activeFolderFilter"/>
-    GROUP BY f.id, f.name, f.created_at, f.updated_at
+    GROUP BY f.id, f.name, f.system_builtin, f.created_at, f.updated_at
     ORDER BY f.created_at DESC, f.id DESC
     LIMIT #{offset}, #{pageSize}
   </select>
@@ -70,6 +71,7 @@
     SELECT id, name
     FROM group_folder
     WHERE deleted_at IS NULL
+      AND system_builtin = 0
     ORDER BY created_at DESC, id DESC
   </select>
 
@@ -120,6 +122,15 @@
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_folder (name, created_at, updated_at, created_by)
     VALUES (#{name}, #{createdAt}, #{updatedAt}, #{createdBy})
+  </insert>
+
+  <insert id="upsertUsedSystemFolder">
+    INSERT INTO group_folder (name, system_builtin, created_at, updated_at)
+    VALUES (#{name}, 1, #{now}, #{now})
+    ON DUPLICATE KEY UPDATE
+      system_builtin = 1,
+      deleted_at = NULL,
+      updated_at = #{now}
   </insert>
 
   <update id="revive">
@@ -180,6 +191,61 @@
       AND <include refid="currentHealthStatus"/> = 1
       AND COALESCE(<include refid="currentBanned"/>, 0) = 0
     ORDER BY g.id ASC
+  </select>
+
+  <sql id="usableResourceColumns">
+    g.id AS groupLinkId,
+    current_group.group_jid AS groupJid,
+    CONCAT('chat.whatsapp.com/', TRIM(<include refid="currentInviteCode"/>))
+      AS normalizedLink,
+    TRIM(<include refid="currentInviteCode"/>) AS inviteCode
+  </sql>
+
+  <sql id="usableResourceJoins">
+    FROM group_link g
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = g.tenant_id
+     AND current_group.id = g.group_id
+     AND current_group.deleted_at IS NULL
+    INNER JOIN wa_group_profile current_profile
+      ON current_profile.tenant_id = current_group.tenant_id
+     AND current_profile.group_id = current_group.id
+    LEFT JOIN wa_group_invite current_invite
+      ON current_invite.tenant_id = current_profile.tenant_id
+     AND current_invite.id = current_profile.current_invite_id
+     AND current_invite.deleted_at IS NULL
+    LEFT JOIN wa_group_invite input_invite
+      ON input_invite.tenant_id = g.tenant_id
+     AND input_invite.id = g.group_invite_id
+     AND input_invite.deleted_at IS NULL
+  </sql>
+
+  <sql id="usableResourceConditions">
+    g.deleted_at IS NULL
+    AND g.folder_id = #{folderId}
+    AND NULLIF(TRIM(current_group.group_jid), '') IS NOT NULL
+    AND NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL
+    AND current_profile.health_status = 1
+    AND COALESCE(current_profile.banned, 0) = 0
+  </sql>
+
+  <select id="selectUsableResources"
+          resultType="com.armada.group.model.vo.GroupPoolResourceVO">
+    SELECT <include refid="usableResourceColumns"/>
+    <include refid="usableResourceJoins"/>
+    WHERE <include refid="usableResourceConditions"/>
+    ORDER BY g.id ASC
+  </select>
+
+  <select id="selectByTenantFolderAndResourceForUpdate"
+          resultType="com.armada.group.model.vo.GroupPoolResourceVO">
+    SELECT <include refid="usableResourceColumns"/>
+    <include refid="usableResourceJoins"/>
+    WHERE <include refid="usableResourceConditions"/>
+      AND g.id = #{groupLinkId}
+      AND g.tenant_id = #{tenantId}
+    LIMIT 1
+    FOR UPDATE
   </select>
 
 </mapper>

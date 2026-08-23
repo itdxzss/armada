@@ -8,11 +8,14 @@ import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
+import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.util.List;
+import java.util.Set;
 import java.util.TreeSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,18 +30,23 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     private static final Logger log = LoggerFactory.getLogger(GroupFolderServiceImpl.class);
     private static final int NAME_MAX_LENGTH = 100;
     private static final int BATCH_MAX = 100;
+    private static final String USED_FOLDER_NAME = "已使用群组";
+    private static final Set<String> SYSTEM_FOLDER_NAMES = Set.of(USED_FOLDER_NAME, "未分组");
 
     private final GroupFolderMapper folderMapper;
     private final GroupLinkMapper groupLinkMapper;
     private final GroupCurrentLocalPersistence currentLocalPersistence;
+    private final PullTaskGroupOccupancyService taskGroupOccupancyService;
 
     public GroupFolderServiceImpl(
             GroupFolderMapper folderMapper,
             GroupLinkMapper groupLinkMapper,
-            GroupCurrentLocalPersistence currentLocalPersistence) {
+            GroupCurrentLocalPersistence currentLocalPersistence,
+            PullTaskGroupOccupancyService taskGroupOccupancyService) {
         this.folderMapper = folderMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.currentLocalPersistence = currentLocalPersistence;
+        this.taskGroupOccupancyService = taskGroupOccupancyService;
     }
 
     /** {@inheritDoc} */
@@ -89,7 +97,7 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         } catch (DuplicateKeyException exception) {
             throw duplicateName();
         }
-        return new GroupFolderVO(row.getId(), name, 0L, row.getCreatedAt(), now);
+        return new GroupFolderVO(row.getId(), name, false, 0L, row.getCreatedAt(), now);
     }
 
     /** {@inheritDoc} */
@@ -97,6 +105,9 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Transactional(rollbackFor = Exception.class)
     public void update(long id, GroupFolderWriteDTO request) {
         GroupFolder current = requireEntity(id);
+        if (Boolean.TRUE.equals(current.getSystemBuiltin())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "系统分组不允许修改名称");
+        }
         String name = normalizeName(request);
         GroupFolder owner = folderMapper.selectAnyByName(name);
         if (owner != null && !current.getId().equals(owner.getId())) {
@@ -121,6 +132,10 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         if (folders.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组分组不存在或已删除，请刷新后重试");
         }
+        if (folders.stream().anyMatch(folder -> Boolean.TRUE.equals(folder.getSystemBuiltin()))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "系统分组不允许删除");
+        }
+        taskGroupOccupancyService.requireFoldersNotInUse(normalizedIds);
 
         int groupCount = groupLinkMapper.countActiveByFolderIds(normalizedIds);
         long now = System.currentTimeMillis();
@@ -141,15 +156,79 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     /** {@inheritDoc} */
     @Override
     public GroupFolderOptionVO requireExisting(long id) {
-        GroupFolder row = requireEntity(id);
+        GroupFolder row = requireCustomFolder(id);
         return new GroupFolderOptionVO(row.getId(), row.getName());
     }
 
     /** {@inheritDoc} */
     @Override
     public List<String> usableLinks(long id) {
-        requireEntity(id);
+        requireCustomFolder(id);
         return folderMapper.selectUsableLinks(id);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<GroupPoolResourceVO> usableResources(long id) {
+        requireCustomFolder(id);
+        return folderMapper.selectUsableResources(id);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public GroupPoolResourceVO requireUsableResourceForUpdate(long folderId, long groupLinkId) {
+        requireCustomFolder(folderId);
+        if (groupLinkId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群组 ID 必须为正整数");
+        }
+        GroupPoolResourceVO resource =
+                folderMapper.selectUsableResourceForUpdate(folderId, groupLinkId);
+        if (resource == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "群组已移出资源池或当前不可用");
+        }
+        return resource;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void moveToUsed(long groupLinkId) {
+        requirePositiveGroupId(groupLinkId);
+        long now = System.currentTimeMillis();
+        folderMapper.upsertUsedSystemFolder(USED_FOLDER_NAME, now);
+        GroupFolder used = folderMapper.selectActiveByName(USED_FOLDER_NAME);
+        if (used == null || !Boolean.TRUE.equals(used.getSystemBuiltin())) {
+            throw new IllegalStateException("系统已使用群组创建失败");
+        }
+        if (folderMapper.selectActiveByIdsForUpdate(List.of(used.getId())).size() != 1) {
+            throw new IllegalStateException("系统已使用群组状态发生变化");
+        }
+        assignSingleGroup(groupLinkId, used.getId(), now);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void moveToUngrouped(long groupLinkId) {
+        requirePositiveGroupId(groupLinkId);
+        assignSingleGroup(groupLinkId, null, System.currentTimeMillis());
+    }
+
+    private void assignSingleGroup(long groupLinkId, Long folderId, long now) {
+        List<Long> ids = List.of(groupLinkId);
+        if (groupLinkMapper.selectActiveByIdsForUpdate(ids).size() != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群组不存在或已删除: " + groupLinkId);
+        }
+        if (groupLinkMapper.assignFolder(ids, folderId, now) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "群组分组关系已变化，请刷新后重试");
+        }
+        currentLocalPersistence.applyGroupFolder(ids, folderId, now);
+    }
+
+    private static void requirePositiveGroupId(long groupLinkId) {
+        if (groupLinkId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群组 ID 必须为正整数");
+        }
     }
 
     private GroupFolder requireEntity(long id) {
@@ -163,11 +242,22 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         return row;
     }
 
+    private GroupFolder requireCustomFolder(long id) {
+        GroupFolder row = requireEntity(id);
+        if (Boolean.TRUE.equals(row.getSystemBuiltin())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "系统分组不能作为任务资源池");
+        }
+        return row;
+    }
+
     private static String normalizeName(GroupFolderWriteDTO request) {
         if (request == null || request.name() == null || request.name().trim().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群组分组名称不能为空");
         }
         String name = request.name().trim();
+        if (SYSTEM_FOLDER_NAMES.contains(name)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "系统分组名称不允许用户创建或修改");
+        }
         if (name.length() > NAME_MAX_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "群组分组名称不能超过" + NAME_MAX_LENGTH + "个字符");

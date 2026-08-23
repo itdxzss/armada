@@ -7,11 +7,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.shared.tenant.TenantContext;
+import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskType;
@@ -27,9 +29,11 @@ class PullTaskClosingTransactionServiceTest {
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
     private final PullTaskParentCompletionService parentCompletionService =
             mock(PullTaskParentCompletionService.class);
+    private final GroupFolderService groupFolderService = mock(GroupFolderService.class);
     private final PullTaskClosingTransactionService service =
             new PullTaskClosingTransactionService(
-                    taskMapper, executionMapper, accountMapper, parentCompletionService);
+                    taskMapper, executionMapper, accountMapper, parentCompletionService,
+                    groupFolderService);
 
     @AfterEach
     void clearTenant() {
@@ -58,6 +62,7 @@ class PullTaskClosingTransactionServiceTest {
                 .isEqualTo(PullTaskExecutionStatus.COMPLETED.code());
         assertThat(captor.getValue().getFinishedAt()).isEqualTo(1_000L);
         verify(accountMapper).releaseAllPullersOfExecution(11L, 1_000L);
+        verify(groupFolderService).moveToUsed(901L);
         verify(parentCompletionService).completeIfTerminalByExecutionId(11L, 1_000L);
     }
 
@@ -91,6 +96,7 @@ class PullTaskClosingTransactionServiceTest {
         row.setId(100L);
         row.setTaskType(PullTaskType.STANDARD);
         row.setMode("NORMAL_LINK");
+        row.setCreationMode(PullTaskCreationMode.RESOURCE_POOL);
         row.setStatus("EXECUTING");
         row.setVersion(9);
         return row;
@@ -106,6 +112,7 @@ class PullTaskClosingTransactionServiceTest {
         row.setVersion(6);
         row.setLockOwner("worker-1");
         row.setGroupJid("120363group@g.us");
+        row.setGroupLinkId(901L);
         return row;
     }
 }

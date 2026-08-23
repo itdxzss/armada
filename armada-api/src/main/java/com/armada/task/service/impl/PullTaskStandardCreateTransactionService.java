@@ -76,10 +76,13 @@ public class PullTaskStandardCreateTransactionService {
         }
         List<PullTaskGroupExecution> rows = executionMapper.selectByTaskId(task.getId());
         if (rows.isEmpty()) {
+            PullTaskCreationMode mode = creationMode(request);
             throw new BusinessException(ErrorCode.VALIDATION,
-                    creationMode(request).isNewGroup()
+                    mode.isNewGroup()
                             ? "新群模式至少需要上传一个有效 TXT 料子文件"
-                            : "至少需要一条群链接与 TXT 的匹配");
+                            : mode.isResourcePool()
+                                    ? "资源池模式至少需要上传一个有效 TXT 料子文件"
+                                    : "至少需要一条群链接与 TXT 的匹配");
         }
         validateExecutionRows(rows, creationMode(request));
 
@@ -87,7 +90,7 @@ public class PullTaskStandardCreateTransactionService {
         validateAvatar(groupSetting);
         settingWriter.insert(request, task.getId());
         insertGroupSetting(groupSetting, task.getId());
-        if (!creationMode(request).isNewGroup()) {
+        if (creationMode(request) == PullTaskCreationMode.PASTED_LINK) {
             fillGroupLinkIds(rows);
         }
         freezeRows(task.getId());
@@ -150,6 +153,9 @@ public class PullTaskStandardCreateTransactionService {
                 || request.groupSetting() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "完整拉群设置不能为空");
         }
+        if (creationMode(request).isResourcePool() && request.groupFolderId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "拉人模式必须选择群组资源池");
+        }
     }
 
     private PullTask requireOwnTask(long taskId, long userId) {
@@ -195,18 +201,6 @@ public class PullTaskStandardCreateTransactionService {
                 setting.muteMode(), setting.linkPermission(), setting.disappearingMessage());
     }
 
-    private void fillGroupLinkIds(List<PullTaskGroupExecution> rows) {
-        long now = System.currentTimeMillis();
-        List<String> links = rows.stream().map(PullTaskGroupExecution::getNormalizedLink).toList();
-        Map<String, Long> ids = groupLinkRegistryService.registerPullTaskTargets(links, now);
-        for (PullTaskGroupExecution row : rows) {
-            Long groupLinkId = ids.get(row.getNormalizedLink());
-            if (groupLinkId != null) {
-                executionMapper.updateGroupLinkId(row.getId(), groupLinkId, now);
-            }
-        }
-    }
-
     /** 提交模式必须与草稿行形状一致，禁止把两种模式的行混在一个任务里冻结。 */
     private static void validateExecutionRows(
             List<PullTaskGroupExecution> rows,
@@ -223,14 +217,41 @@ public class PullTaskStandardCreateTransactionService {
             }
             return;
         }
+        if (mode == PullTaskCreationMode.PASTED_LINK) {
+            boolean invalid = rows.stream().anyMatch(row ->
+                    row.getStage() == null
+                            || row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()
+                            || row.getNormalizedLink() == null
+                            || row.getNormalizedLink().isBlank());
+            if (invalid) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "群链接模式草稿包含无链接执行行，请清空草稿后重新匹配");
+            }
+            return;
+        }
         boolean invalid = rows.stream().anyMatch(row ->
                 row.getStage() == null
                         || row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()
-                        || row.getNormalizedLink() == null
-                        || row.getNormalizedLink().isBlank());
+                        || row.getGroupLinkId() != null
+                        || row.getGroupJid() != null
+                        || row.getNormalizedLink() != null
+                        || row.getInviteCode() != null
+                        || row.getSourceFileName() == null);
         if (invalid) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "群链接模式草稿包含无链接执行行，请清空草稿后重新匹配");
+                    "拉人模式草稿包含已绑定群组，请清空草稿后重新上传 TXT");
+        }
+    }
+
+    private void fillGroupLinkIds(List<PullTaskGroupExecution> rows) {
+        long now = System.currentTimeMillis();
+        List<String> links = rows.stream().map(PullTaskGroupExecution::getNormalizedLink).toList();
+        Map<String, Long> ids = groupLinkRegistryService.registerPullTaskTargets(links, now);
+        for (PullTaskGroupExecution row : rows) {
+            Long groupLinkId = ids.get(row.getNormalizedLink());
+            if (groupLinkId != null) {
+                executionMapper.updateGroupLinkId(row.getId(), groupLinkId, now);
+            }
         }
     }
 

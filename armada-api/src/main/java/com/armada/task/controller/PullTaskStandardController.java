@@ -70,10 +70,10 @@ public class PullTaskStandardController {
     }
 
     /**
-     * 解析本次粘贴的链接与上传的 TXT，把新配对增量追加到草稿。
+     * 解析上传的 TXT，把有效文件增量追加到草稿。
      *
-     * @param groupFolderId 群组列表运营分组 ID，可为空
-     * @param linksText 链接框全量文本，每次请求都要带
+     * @param groupFolderId 兼容旧前端的参数；最终提交时才冻结分组
+     * @param linksText 兼容旧前端的参数；资源池模式不使用粘贴链接
      * @param files     本次新增的 .txt 料子文件，可为空
      * @param principal 当前可信登录身份
      * @return 追加后的完整草稿视图

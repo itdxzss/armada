@@ -4,6 +4,7 @@ import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
+import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -61,6 +62,11 @@ public interface GroupFolderMapper {
     /** 新增分组。 */
     int insert(GroupFolder row);
 
+    /** 幂等创建或复活当前租户的系统“已使用群组”。 */
+    int upsertUsedSystemFolder(
+            @Param("name") String name,
+            @Param("now") long now);
+
     /** 复活并更新指定软删除分组。 */
     int revive(GroupFolder row);
 
@@ -77,4 +83,23 @@ public interface GroupFolderMapper {
 
     /** 查询分组内当前健康、未封禁的邀请链接；内部群入口按预览邀请码转换。 */
     List<String> selectUsableLinks(@Param("folderId") long folderId);
+
+    /** 查询资源池内当前可领取的群组，按群组 ID 升序。 */
+    List<GroupPoolResourceVO> selectUsableResources(@Param("folderId") long folderId);
+
+    /** 锁定并复核指定群组仍属于资源池且当前可用。 */
+    default GroupPoolResourceVO selectUsableResourceForUpdate(long folderId, long groupLinkId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectByTenantFolderAndResourceForUpdate(tenantId, folderId, groupLinkId);
+    }
+
+    /** 显式租户锁行查询，避免租户插件改写 {@code FOR UPDATE} 尾句。 */
+    @InterceptorIgnore(tenantLine = "true")
+    GroupPoolResourceVO selectByTenantFolderAndResourceForUpdate(
+            @Param("tenantId") long tenantId,
+            @Param("folderId") long folderId,
+            @Param("groupLinkId") long groupLinkId);
 }

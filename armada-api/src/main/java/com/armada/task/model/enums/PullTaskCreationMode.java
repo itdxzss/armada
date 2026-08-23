@@ -12,6 +12,8 @@ public enum PullTaskCreationMode {
 
     /** 群链接模式：群链接由用户粘贴或从群组分组选择。 */
     PASTED_LINK,
+    /** 资源池模式：任务选择群组分组，执行时动态领取群组。 */
+    RESOURCE_POOL,
     /** 新群模式：由建群人现场创建群，建群成功后回填链接。 */
     NEW_GROUP;
 
@@ -28,5 +30,10 @@ public enum PullTaskCreationMode {
     /** @return 是否为新群模式 */
     public boolean isNewGroup() {
         return this == NEW_GROUP;
+    }
+
+    /** @return 是否为运行时动态取群的资源池模式 */
+    public boolean isResourcePool() {
+        return this == RESOURCE_POOL;
     }
 }

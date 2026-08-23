@@ -1,6 +1,6 @@
 package com.armada.task.model.entity;
 
-/** 普通拉群执行行；群链接模式冻结链接与 TXT，新群模式只冻结 TXT。 */
+/** 普通拉群执行行；资源池模式草稿只冻结 TXT，运行时领取群组。 */
 public class PullTaskGroupExecution {
 
     /** 执行行主键。 */
@@ -15,7 +15,7 @@ public class PullTaskGroupExecution {
     /** 任务内展示与执行顺序。 */
     private Integer seq;
 
-    /** 群入口 ID(→group_link.id)；最终创建时回填。 */
+    /** 群入口 ID(→group_link.id)；资源池模式运行时回填。 */
     private Long groupLinkId;
 
     /** 归一化群链接；新群模式在邀请链接生成前为空。 */
@@ -32,6 +32,9 @@ public class PullTaskGroupExecution {
 
     /** 上传 TXT 的序号。 */
     private Integer sourceFileIndex;
+
+    /** 同一 TXT 的执行次数；群组封禁后递增并从头重试。 */
+    private Integer attemptNo;
 
     /** TXT 原始文件名。 */
     private String sourceFileName;
@@ -204,6 +207,14 @@ public class PullTaskGroupExecution {
 
     public void setSourceFileIndex(Integer sourceFileIndex) {
         this.sourceFileIndex = sourceFileIndex;
+    }
+
+    public Integer getAttemptNo() {
+        return attemptNo;
+    }
+
+    public void setAttemptNo(Integer attemptNo) {
+        this.attemptNo = attemptNo;
     }
 
     public String getSourceFileName() {

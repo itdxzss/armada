@@ -8,6 +8,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
@@ -60,6 +61,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     @Autowired private PullTaskGroupBanTerminationService banTerminationService;
     @Autowired private PullTaskExecutionDispatchTrigger dispatchTrigger;
     @Autowired private ProtocolCommandOutboxService outboxService;
+    @Autowired private GroupFolderService groupFolderService;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -80,8 +82,10 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 puller(101L, 7L, 1L, 11L, 501L, null),
                 puller(102L, 7L, 1L, 12L, 502L, null),
                 puller(201L, 7L, 2L, 21L, 601L, 700L));
+        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id IN (1, 2, 5)");
         reset(dispatchTrigger);
         reset(outboxService);
+        reset(groupFolderService);
     }
 
     @AfterEach
@@ -183,14 +187,31 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
         assertThat(longColumn("released_at", "pull_task_group_account", 102L)).isNull();
         assertThat(intColumn("wave_status", "pull_task_pull_wave", 801L)).isEqualTo(4);
+        Long retryId = jdbc.queryForObject(
+                "SELECT id FROM pull_task_group_execution WHERE task_id = 1 AND seq = 1 AND attempt_no = 2",
+                Long.class);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", retryId)).isEqualTo(1);
+        assertThat(intColumn("stage", "pull_task_group_execution", retryId)).isEqualTo(2);
+        assertThat(longColumn("group_link_id", "pull_task_group_execution", retryId)).isNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_material_member WHERE group_execution_id = ?",
+                Integer.class, retryId)).isEqualTo(2);
+        assertThat(jdbc.queryForList(
+                "SELECT pull_status FROM pull_task_material_member WHERE group_execution_id = ? ORDER BY member_seq",
+                Integer.class, retryId)).containsOnly(0);
+        assertThat(jdbc.queryForList(
+                "SELECT normalized_phone FROM pull_task_material_member WHERE group_execution_id = ? ORDER BY member_seq",
+                String.class, retryId)).containsExactly("861001", "861002");
         assertThat(TenantContext.get()).isEqualTo(99L);
         TenantContext.set(7L);
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
         verify(outboxService).cancelPendingPullTaskCommands(1L, 11L, 900L);
+        verify(groupFolderService).moveToUngrouped(9011L);
+        verify(dispatchTrigger).dispatchAfterCommit();
     }
 
     @Test
-    void repeatedGroupBanIsIdempotentAndLastGroupCompletesParent() {
+    void repeatedGroupBanIsIdempotentAndKeepsTxtWaitingForAnotherGroup() {
         banTerminationService.terminateBannedGroup(7L, 9021L);
         int version = intColumn("version", "pull_task_group_execution", 21L);
         banTerminationService.terminateBannedGroup(7L, 9021L);
@@ -199,8 +220,13 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(stringColumn("reason_code", 21L)).isEqualTo("GROUP_BANNED");
         assertThat(intColumn("manual_paused", "pull_task_group_execution", 21L)).isZero();
         assertThat(intColumn("version", "pull_task_group_execution", 21L)).isEqualTo(version);
-        assertThat(taskMapper.selectLifecycle(2L).getStatus()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 2 AND seq = 1 AND attempt_no = 2",
+                Integer.class)).isEqualTo(1);
+        assertThat(taskMapper.selectLifecycle(2L).getStatus()).isEqualTo("EXECUTING");
         verify(outboxService, times(1)).cancelPendingPullTaskCommands(2L, 21L, 900L);
+        verify(groupFolderService, times(1)).moveToUngrouped(9021L);
+        verify(dispatchTrigger, times(1)).dispatchAfterCommit();
     }
 
     @Test
@@ -209,7 +235,11 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
         assertThat(intColumn("execution_status", "pull_task_group_execution", 51L)).isEqualTo(5);
         assertThat(stringColumn("reason_code", 51L)).isEqualTo("GROUP_BANNED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 5 AND seq = 1 AND attempt_no = 2",
+                Integer.class)).isEqualTo(1);
         assertThat(taskMapper.selectLifecycle(5L).getStatus()).isEqualTo("PAUSED");
+        verify(groupFolderService).moveToUngrouped(9051L);
     }
 
     @Test
@@ -437,9 +467,15 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 PullTaskMapper taskMapper,
                 PullTaskStandardExecutionLifecycleResources resources,
                 PullTaskParentCompletionService completionService,
-                PullTaskExecutionDispatchTrigger dispatchTrigger) {
+                PullTaskExecutionDispatchTrigger dispatchTrigger,
+                GroupFolderService groupFolderService) {
             return new PullTaskStandardExecutionLifecycleServiceImpl(
-                    taskMapper, resources, completionService, dispatchTrigger, () -> 900L);
+                    taskMapper, resources, completionService, dispatchTrigger,
+                    groupFolderService, () -> 900L);
+        }
+
+        @Bean GroupFolderService groupFolderService() {
+            return mock(GroupFolderService.class);
         }
     }
 }

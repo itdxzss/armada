@@ -126,6 +126,27 @@ class PullTaskStandardDraftServicePlanTest {
     }
 
     @Test
+    void resourcePoolModeCreatesOneUnboundExecutionPerAcceptedTxt() {
+        PullTaskStandardDraftVO view = service.plan(
+                PullTaskCreationMode.RESOURCE_POOL, 18L, null,
+                List.of(txt("a.txt", "8613800138001\n"),
+                        txt("b.txt", "8613800138002\n")),
+                CREATOR, OPERATOR);
+
+        assertThat(view.creationMode()).isEqualTo(PullTaskCreationMode.RESOURCE_POOL);
+        assertThat(view.matchedCount()).isEqualTo(2);
+        assertThat(view.linkLines()).isEmpty();
+        assertThat(executionMapper.selectByTaskId(view.draftTaskId()))
+                .allSatisfy(row -> {
+                    assertThat(row.getGroupLinkId()).isNull();
+                    assertThat(row.getGroupJid()).isNull();
+                    assertThat(row.getNormalizedLink()).isNull();
+                    assertThat(row.getStage()).isEqualTo(
+                            PullTaskExecutionStage.MANAGER_JOIN.code());
+                });
+    }
+
+    @Test
     void appendsIncrementallyWithoutDisturbingExistingRows() {
         linkPlan(null, LINK_A,
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);

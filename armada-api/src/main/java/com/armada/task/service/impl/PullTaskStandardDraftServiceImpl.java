@@ -43,9 +43,7 @@ import org.springframework.web.multipart.MultipartFile;
 /**
  * 普通群链接创建页草稿编排实现。
  *
- * <p>本类<b>刻意不标 {@code @Transactional}</b>：匹配追加流程里包含最坏 40 秒的公开邀请页
- * 预检，事务包住外部 HTTP 会让数据库连接被网络阻塞占用。全部写操作委托给
- * {@link PullTaskStandardDraftWriter}，事务边界落在那个 bean 上。</p>
+ * <p>本类不直接持有事务，全部写操作委托给 {@link PullTaskStandardDraftWriter}。</p>
  */
 @Service
 public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftService {
@@ -106,10 +104,8 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                                         List<MultipartFile> files,
                                         long userId, String operatorName) {
         PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(creationMode);
-        String mergedLinksText = mode.isNewGroup()
-                ? null : mergeSourceLinks(groupFolderId, linksText);
-
-        // 1. 上传校验与解析：纯 CPU，事务外。
+        String mergedLinksText = mode == PullTaskCreationMode.PASTED_LINK
+                ? mergeSourceLinks(groupFolderId, linksText) : null;
         List<ParsedUpload> uploads = parseUploads(files);
 
         long now = System.currentTimeMillis();
@@ -117,13 +113,11 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         List<PullTaskGroupExecution> existingRows = executionMapper.selectByTaskId(draft.getId());
         requireConsistentMode(existingRows, mode);
 
-        if (mode.isNewGroup()) {
-            return planNewGroups(draft, uploads, existingRows, now, userId);
+        if (mode.isNewGroup() || mode.isResourcePool()) {
+            return appendUnboundExecutions(draft, uploads, existingRows, mode, now, userId);
         }
 
-        // 2. 归一化与占用查询：只做本地计划，不在创建阶段访问 WhatsApp。
         ProbeResult probe = probeLinks(mergedLinksText);
-
         Set<String> usedLinks = new LinkedHashSet<>();
         int maxSeq = 0;
         for (PullTaskGroupExecution row : existingRows) {
@@ -134,24 +128,23 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                 .filter(link -> !usedLinks.contains(link))
                 .toList();
         List<ParsedUpload> accepted = uploads.stream().filter(ParsedUpload::accepted).toList();
-
-        // 3. 不放回随机匹配，已成行的链接不参与，因此已有执行行不会被扰动。
         MatchResult match = PullTaskLinkMatcher.match(
                 remainingLinks, fileKeys(accepted.size()), maxSeq + 1, ThreadLocalRandom.current());
         writer.append(draft.getId(), toAppendRows(match, accepted, lineNoByLink(probe)), now);
 
-        log.info("创建页追加执行行 taskId={} matched={} remainingLinks={} ignoredFiles={} operatorId={}",
+        log.info("创建页追加群链接执行行 taskId={} matched={} remainingLinks={} ignoredFiles={} operatorId={}",
                 draft.getId(), match.pairings().size(), match.unmatchedLinks().size(),
                 match.unmatchedFileKeys().size(), userId);
         return toView(draft, toLinkLineViews(probe), toFileResultViews(uploads),
                 match.unmatchedLinks().size(), match.unmatchedFileKeys().size());
     }
 
-    /** 新群模式按每个成功接收的 TXT 直接生成一条无链接执行行。 */
-    private PullTaskStandardDraftVO planNewGroups(
+    /** 新群和资源池模式按每个成功接收的 TXT 生成一条无群绑定执行行。 */
+    private PullTaskStandardDraftVO appendUnboundExecutions(
             PullTask draft,
             List<ParsedUpload> uploads,
             List<PullTaskGroupExecution> existingRows,
+            PullTaskCreationMode mode,
             long now,
             long userId) {
         int maxSeq = existingRows.stream()
@@ -164,39 +157,36 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         for (int index = 0; index < accepted.size(); index++) {
             ParseResult parsed = accepted.get(index).parsed();
             rows.add(new PullTaskStandardDraftWriter.AppendRow(
-                    toNewGroupExecution(maxSeq + index + 1, parsed),
+                    toUnboundExecution(maxSeq + index + 1, parsed, mode),
                     toMembers(parsed.members())));
         }
         writer.append(draft.getId(), rows, now);
-        log.info("创建页追加新群执行行 taskId={} rows={} rejectedFiles={} operatorId={}",
-                draft.getId(), rows.size(), uploads.size() - accepted.size(), userId);
+        log.info("创建页追加 TXT 执行行 taskId={} mode={} rows={} rejectedFiles={} operatorId={}",
+                draft.getId(), mode, rows.size(), uploads.size() - accepted.size(), userId);
         return toView(draft, List.of(), toFileResultViews(uploads), 0, 0);
     }
 
-    /** 草稿不能混入两种模式的执行行，切换模式前必须先清空。 */
+    /** 草稿不能混入不同模式的执行行，切换模式前必须先清空。 */
     private static void requireConsistentMode(
             List<PullTaskGroupExecution> existingRows,
             PullTaskCreationMode mode) {
-        boolean expectsGroupCreate = mode.isNewGroup();
-        boolean mixed = existingRows.stream().anyMatch(row ->
-                (row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code())
-                        != expectsGroupCreate);
+        boolean mixed = existingRows.stream().anyMatch(row -> rowMode(row) != mode);
         if (mixed) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "当前草稿属于另一种创建模式，请先清空草稿再切换");
         }
     }
 
-    /**
-     * 合并运营分组内的可用链接与本次手工粘贴链接。
-     *
-     * <p>分组存在性和租户隔离由群组域 Service 保证；后续统一交给链接判定服务去重，
-     * 避免任务域直接依赖群组域 Mapper 或实体。</p>
-     *
-     * @param groupFolderId 运营分组 ID，可为空
-     * @param linksText     手工粘贴文本，可为空
-     * @return 可交给链接判定服务的合并文本
-     */
+    private static PullTaskCreationMode rowMode(PullTaskGroupExecution row) {
+        if (row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()) {
+            return PullTaskCreationMode.NEW_GROUP;
+        }
+        return row.getNormalizedLink() == null
+                ? PullTaskCreationMode.RESOURCE_POOL
+                : PullTaskCreationMode.PASTED_LINK;
+    }
+
+    /** 合并旧群链接模式的分组链接和手工粘贴链接。 */
     private String mergeSourceLinks(Long groupFolderId, String linksText) {
         if (groupFolderId == null) {
             return linksText;
@@ -277,27 +267,14 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         return content;
     }
 
-    /**
-     * 查询归一化链接占用，并生成本地计划。
-     *
-     * @param linksText 链接框全量文本
-     * @return 逐行判定与匹配池
-     */
     private ProbeResult probeLinks(String linksText) {
         Set<String> candidates = PullTaskLinkProbeService.candidateLinks(linksText);
-        // foreach 遇空集合会生成非法 SQL，必须在这里判空。
         Set<String> occupied = candidates.isEmpty()
                 ? Set.of()
                 : Set.copyOf(executionMapper.selectOccupiedLinks(List.copyOf(candidates)));
         return probeService.probe(linksText, occupied);
     }
 
-    /**
-     * 生成匹配器用的文件键：已接受文件在列表中的下标。
-     *
-     * @param acceptedCount 已接受文件数
-     * @return 下标字符串列表
-     */
     private static List<String> fileKeys(int acceptedCount) {
         List<String> keys = new ArrayList<>(acceptedCount);
         for (int index = 0; index < acceptedCount; index++) {
@@ -306,12 +283,6 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         return keys;
     }
 
-    /**
-     * 取每条归一化链接首次出现的行号。
-     *
-     * @param probe 逐行判定结果
-     * @return 链接到原始行号的映射
-     */
     private static Map<String, Integer> lineNoByLink(ProbeResult probe) {
         Map<String, Integer> lineNos = new LinkedHashMap<>();
         for (LinkLine line : probe.lines()) {
@@ -322,43 +293,26 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         return lineNos;
     }
 
-    /**
-     * 把匹配结果转成待写入的执行行与料子。
-     *
-     * @param match        匹配结果
-     * @param accepted     已接受的文件，下标与 fileKey 对应
-     * @param lineNoByLink 链接到原始行号的映射
-     * @return 待写入批次
-     */
     private static List<PullTaskStandardDraftWriter.AppendRow> toAppendRows(
             MatchResult match, List<ParsedUpload> accepted, Map<String, Integer> lineNoByLink) {
         List<PullTaskStandardDraftWriter.AppendRow> rows = new ArrayList<>(match.pairings().size());
         for (Pairing pairing : match.pairings()) {
             ParseResult parsed = accepted.get(Integer.parseInt(pairing.fileKey())).parsed();
             rows.add(new PullTaskStandardDraftWriter.AppendRow(
-                    toExecution(pairing, parsed, lineNoByLink), toMembers(parsed.members())));
+                    toLinkedExecution(pairing, parsed, lineNoByLink),
+                    toMembers(parsed.members())));
         }
         return rows;
     }
 
-    /**
-     * 组装一条草稿执行行。
-     *
-     * @param pairing      配对结果
-     * @param parsed       配对到的 TXT 解析结果
-     * @param lineNoByLink 链接到原始行号的映射
-     * @return 执行行实体；taskId 与时间戳由写入组件补齐
-     */
-    private static PullTaskGroupExecution toExecution(Pairing pairing, ParseResult parsed,
-                                                      Map<String, Integer> lineNoByLink) {
+    private static PullTaskGroupExecution toLinkedExecution(
+            Pairing pairing, ParseResult parsed, Map<String, Integer> lineNoByLink) {
         String link = pairing.normalizedLink();
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setSeq(pairing.seq());
         execution.setNormalizedLink(link);
         execution.setInviteCode(link.substring(link.lastIndexOf('/') + 1));
         execution.setSourceLinkLineNo(lineNoByLink.get(link));
-        // source_file_index 在任务内唯一。增量上传没有全局上传序号可用，
-        // 取与 seq 相同的值，语义是"第几个进入计划的文件"。
         execution.setSourceFileIndex(pairing.seq());
         execution.setSourceFileName(parsed.fileName());
         execution.setTotalLineCount(parsed.totalLineCount());
@@ -368,11 +322,14 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         return execution;
     }
 
-    /** 组装新群模式草稿行；邀请链接相关列在建群阶段生成前保持为空。 */
-    private static PullTaskGroupExecution toNewGroupExecution(int seq, ParseResult parsed) {
+    /** 组装无群绑定草稿行；拉人模式运行时领群，新群模式运行时建群。 */
+    private static PullTaskGroupExecution toUnboundExecution(
+            int seq, ParseResult parsed, PullTaskCreationMode mode) {
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setSeq(seq);
-        execution.setStage(PullTaskExecutionStage.GROUP_CREATE.code());
+        execution.setStage(mode.isNewGroup()
+                ? PullTaskExecutionStage.GROUP_CREATE.code()
+                : PullTaskExecutionStage.MANAGER_JOIN.code());
         execution.setSourceFileIndex(seq);
         execution.setSourceFileName(parsed.fileName());
         execution.setTotalLineCount(parsed.totalLineCount());
@@ -402,19 +359,6 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
     }
 
     /**
-     * 链接逐行判定转出参。
-     *
-     * @param probe 判定结果
-     * @return 逐行出参
-     */
-    private static List<PullTaskStandardLinkLineVO> toLinkLineViews(ProbeResult probe) {
-        return probe.lines().stream()
-                .map(line -> new PullTaskStandardLinkLineVO(line.lineNo(), line.raw(),
-                        line.normalizedLink(), line.status(), line.reason()))
-                .toList();
-    }
-
-    /**
      * 逐文件解析结果转出参。
      *
      * @param uploads 本次上传的解析结果
@@ -431,6 +375,13 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                                     error.lineNo(), error.reason()))
                             .toList());
         }).toList();
+    }
+
+    private static List<PullTaskStandardLinkLineVO> toLinkLineViews(ProbeResult probe) {
+        return probe.lines().stream()
+                .map(line -> new PullTaskStandardLinkLineVO(line.lineNo(), line.raw(),
+                        line.normalizedLink(), line.status(), line.reason()))
+                .toList();
     }
 
     /**
@@ -503,9 +454,9 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                                    int remainingLinkCount,
                                    int ignoredFileCount) {
         List<PullTaskGroupExecution> executions = executionMapper.selectByTaskId(draft.getId());
-        PullTaskCreationMode creationMode = executions.stream().anyMatch(row ->
-                row.getStage() == PullTaskExecutionStage.GROUP_CREATE.code())
-                ? PullTaskCreationMode.NEW_GROUP : PullTaskCreationMode.PASTED_LINK;
+        PullTaskCreationMode creationMode = executions.isEmpty()
+                ? PullTaskCreationMode.fromNullable(draft.getCreationMode())
+                : rowMode(executions.get(0));
         List<PullTaskStandardExecutionRowVO> rows = executions
                 .stream()
                 .map(PullTaskStandardDraftServiceImpl::toRowView)

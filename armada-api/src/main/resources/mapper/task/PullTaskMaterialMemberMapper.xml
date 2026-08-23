@@ -23,6 +23,21 @@
     ORDER BY member_seq ASC
   </select>
 
+  <insert id="copyForRetryInitialized">
+    INSERT INTO pull_task_material_member (
+      group_execution_id, member_seq, source_line_no, normalized_phone, admin_required,
+      pull_status, admin_status, created_at, updated_at
+    )
+    SELECT #{targetExecutionId}, member_seq, source_line_no, normalized_phone, admin_required,
+           #{pullStatus},
+           CASE WHEN admin_required = 1
+             THEN #{adminPendingStatus} ELSE #{adminNotRequiredStatus} END,
+           #{now}, #{now}
+    FROM pull_task_material_member
+    WHERE group_execution_id = #{sourceExecutionId}
+    ORDER BY member_seq ASC
+  </insert>
+
   <delete id="deleteByExecution">
     DELETE FROM pull_task_material_member
     WHERE group_execution_id = #{groupExecutionId}

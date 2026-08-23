@@ -46,7 +46,8 @@ public class PullTaskStandardLifecycleServiceImpl
             PullTaskExecutionStatus.WAIT_RESOURCE.code());
     private static final Set<String> ENDABLE_STATUSES = Set.of(
             PullTaskStandardStatus.EXECUTING.name(),
-            PullTaskStandardStatus.PAUSED.name());
+            PullTaskStandardStatus.PAUSED.name(),
+            PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name());
     private static final List<Integer> ACTIVE_WAVE_STATUSES = List.of(
             PullTaskPullWaveStatus.DISPATCHING.code(),
             PullTaskPullWaveStatus.COLLECTING.code());
@@ -100,7 +101,9 @@ public class PullTaskStandardLifecycleServiceImpl
             resources.dispatchTrigger().dispatchAfterCommit();
             return;
         }
-        requireStatus(task, Set.of(PullTaskStandardStatus.PAUSED.name()), "恢复");
+        requireStatus(task, Set.of(
+                PullTaskStandardStatus.PAUSED.name(),
+                PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name()), "恢复");
         long now = currentTimeMillis.getAsLong();
         transition(task, PullTaskStandardStatus.EXECUTING, null, null, now);
         completionService.completeIfTerminalByTaskId(taskId, now);

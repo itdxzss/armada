@@ -113,6 +113,26 @@ class GroupFolderMapperInMemoryTest {
     }
 
     @Test
+    void usableResourcesExposeCurrentGroupIdentityForRuntimeClaim() throws SQLException {
+        GroupFolder folder = folder("任务资源池", 100L);
+        mapper.insert(folder);
+        insertLink(1L, 7L, folder.getId(), "wa://group/120363001@g.us", null);
+        insertPreview(1L, 7L, 1L, "CurrentInviteCode0001");
+        insertHealth(1L, 7L, 1L, 1, 0);
+
+        assertThat(mapper.selectUsableResources(folder.getId())).singleElement()
+                .satisfies(resource -> {
+                    assertThat(resource.groupLinkId()).isEqualTo(1L);
+                    assertThat(resource.groupJid()).isEqualTo("120363001@g.us");
+                    assertThat(resource.normalizedLink())
+                            .isEqualTo("chat.whatsapp.com/CurrentInviteCode0001");
+                    assertThat(resource.inviteCode()).isEqualTo("CurrentInviteCode0001");
+                });
+        assertThat(mapper.selectUsableResourceForUpdate(folder.getId(), 1L))
+                .isEqualTo(mapper.selectUsableResources(folder.getId()).get(0));
+    }
+
+    @Test
     void usableLinksPreferObservedCurrentInviteForImportedEntry() throws SQLException {
         GroupFolder folder = folder("轮换链接群", 100L);
         mapper.insert(folder);
@@ -169,6 +189,19 @@ class GroupFolderMapperInMemoryTest {
         assertThat(mapper.softDeleteByIds(List.of(folder.getId()), 500L)).isZero();
     }
 
+    @Test
+    void taskFolderOptionsExcludeSystemUsedFolder() throws SQLException {
+        GroupFolder custom = folder("今日待拉群", 100L);
+        mapper.insert(custom);
+        execute("INSERT INTO group_folder "
+                + "(tenant_id, name, system_builtin, created_at, updated_at) "
+                + "VALUES (7, '已使用群组', 1, 100, 100)");
+
+        assertThat(mapper.selectOptions())
+                .containsExactly(new com.armada.group.model.vo.GroupFolderOptionVO(
+                        custom.getId(), "今日待拉群"));
+    }
+
     private GroupFolder folder(String name, long now) {
         GroupFolder row = new GroupFolder();
         row.setName(name);
@@ -185,6 +218,7 @@ class GroupFolderMapperInMemoryTest {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     name VARCHAR(100) NOT NULL,
+                    system_builtin TINYINT NOT NULL DEFAULT 0,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     created_by BIGINT,
@@ -208,6 +242,7 @@ class GroupFolderMapperInMemoryTest {
                 CREATE TABLE wa_group (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    group_jid VARCHAR(128),
                     folder_id BIGINT,
                     deleted_at BIGINT
                 )
@@ -269,8 +304,9 @@ class GroupFolderMapperInMemoryTest {
                 + ", '" + link + "', " + folderId + ", 100, "
                 + (deletedAt == null ? "NULL" : deletedAt) + ")");
         if (internalGroup) {
-            execute("INSERT INTO wa_group (id, tenant_id, folder_id, deleted_at) VALUES ("
-                    + id + ", " + tenantId + ", " + folderId + ", "
+            execute("INSERT INTO wa_group (id, tenant_id, group_jid, folder_id, deleted_at) VALUES ("
+                    + id + ", " + tenantId + ", '" + link.substring("wa://group/".length())
+                    + "', " + folderId + ", "
                     + sqlLong(deletedAt) + ")");
             execute("INSERT INTO wa_group_profile (tenant_id, group_id) VALUES ("
                     + tenantId + ", " + id + ")");

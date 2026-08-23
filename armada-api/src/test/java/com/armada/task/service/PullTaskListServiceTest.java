@@ -120,13 +120,14 @@ class PullTaskListServiceTest {
         PullTask waitStart = normalLinkTask(21L, "WAIT_START");
         PullTask executing = normalLinkTask(22L, "EXECUTING");
         PullTask paused = normalLinkTask(23L, "PAUSED");
+        PullTask waitGroup = normalLinkTask(26L, "WAIT_GROUP_RESOURCE");
         PullTask completed = normalLinkTask(24L, "COMPLETED");
         PullTask ended = normalLinkTask(25L, "ENDED");
         PullTaskQuery query = new PullTaskQuery();
         PullTaskFilter filter = query.toFilter();
-        when(taskMapper.countPage(filter)).thenReturn(5L);
+        when(taskMapper.countPage(filter)).thenReturn(6L);
         when(taskMapper.selectPage(filter, 0, 10))
-                .thenReturn(List.of(waitStart, executing, paused, completed, ended));
+                .thenReturn(List.of(waitStart, executing, paused, waitGroup, completed, ended));
 
         List<PullTaskListVO> rows = service.list(query).list();
 
@@ -137,8 +138,10 @@ class PullTaskListServiceTest {
         assertThat(rows.get(2).allowedActions()).containsExactly(
                 PullTaskListAction.DETAIL, PullTaskListAction.RESUME, PullTaskListAction.END);
         assertThat(rows.get(3).allowedActions()).containsExactly(
-                PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
+                PullTaskListAction.DETAIL, PullTaskListAction.RESUME, PullTaskListAction.END);
         assertThat(rows.get(4).allowedActions()).containsExactly(
+                PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
+        assertThat(rows.get(5).allowedActions()).containsExactly(
                 PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
     }
 

@@ -15,6 +15,7 @@ public record PullTaskStandardCreateDTO(
         String taskName,
         String remark,
         Integer autoStart,
+        /** 拉人模式必填的自定义群组资源池；新群模式忽略。 */
         Long groupFolderId,
         PullTaskPullerSyncMode pullerSyncMode,
         Integer materialAdminTiming,

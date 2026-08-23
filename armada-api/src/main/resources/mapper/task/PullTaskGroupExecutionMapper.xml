@@ -4,7 +4,7 @@
 
   <sql id="BaseColumns">
     id, tenant_id, task_id, seq, group_link_id, normalized_link, invite_code,
-    source_link_line_no, group_jid, source_file_index, source_file_name,
+    source_link_line_no, group_jid, source_file_index, attempt_no, source_file_name,
     total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
     execution_status, stage, create_step, create_operation_id, create_attempt_count, group_subject,
     manual_paused, wait_resource_type, reason_code, reason_message,
@@ -19,7 +19,7 @@
     execution_row.id, execution_row.tenant_id, execution_row.task_id, execution_row.seq,
     execution_row.group_link_id, execution_row.normalized_link, execution_row.invite_code,
     execution_row.source_link_line_no, execution_row.group_jid,
-    execution_row.source_file_index, execution_row.source_file_name,
+    execution_row.source_file_index, execution_row.attempt_no, execution_row.source_file_name,
     execution_row.total_line_count, execution_row.valid_member_count,
     execution_row.invalid_line_count, execution_row.duplicate_line_count,
     execution_row.execution_status, execution_row.stage, execution_row.create_step,
@@ -39,7 +39,7 @@
   <insert id="insertDraftInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
       task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
-      source_file_index, source_file_name, total_line_count, valid_member_count,
+      source_file_index, attempt_no, source_file_name, total_line_count, valid_member_count,
       invalid_line_count, duplicate_line_count, execution_status, stage,
       create_step, create_operation_id, create_attempt_count, group_subject, manual_paused,
       next_manager_index, next_puller_index, active_pull_wave_id,
@@ -48,7 +48,7 @@
     ) VALUES (
       #{taskId}, #{seq}, #{groupLinkId}, #{normalizedLink}, #{inviteCode},
       #{sourceLinkLineNo}, #{groupJid},
-      #{sourceFileIndex}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
+      #{sourceFileIndex}, #{attemptNo}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
       #{invalidLineCount}, #{duplicateLineCount}, #{executionStatus}, #{stage},
       #{createStep}, #{createOperationId}, #{createAttemptCount}, #{groupSubject},
       #{manualPaused}, #{nextManagerIndex}, #{nextPullerIndex}, #{activePullWaveId},
@@ -57,11 +57,27 @@
     )
   </insert>
 
+  <insert id="insertRetryInitialized" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_group_execution (
+      task_id, seq, source_file_index, attempt_no, source_file_name,
+      total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
+      execution_status, stage, group_subject, manual_paused,
+      next_manager_index, next_puller_index, puller_assignment_seq,
+      next_run_at, version, created_at, updated_at
+    ) VALUES (
+      #{taskId}, #{seq}, #{sourceFileIndex}, #{attemptNo}, #{sourceFileName},
+      #{totalLineCount}, #{validMemberCount}, #{invalidLineCount}, #{duplicateLineCount},
+      #{executionStatus}, #{stage}, #{groupSubject}, #{manualPaused},
+      #{nextManagerIndex}, #{nextPullerIndex}, #{pullerAssignmentSeq},
+      #{nextRunAt}, #{version}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
   <select id="selectByTaskId" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
     SELECT <include refid="BaseColumns"/>
     FROM pull_task_group_execution
     WHERE task_id = #{taskId}
-    ORDER BY seq ASC
+    ORDER BY seq ASC, attempt_no ASC
   </select>
 
   <select id="selectById" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
@@ -115,6 +131,45 @@
                open="(" separator="," close=")">#{status}</foreach>
       AND normalized_link IN
       <foreach collection="links" item="link" open="(" separator="," close=")">#{link}</foreach>
+  </select>
+
+  <select id="selectOccupiedGroupJids" resultType="java.lang.String">
+    SELECT group_jid
+    FROM pull_task_group_execution
+    WHERE execution_status IN
+      <foreach collection="executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND group_jid IN
+      <foreach collection="groupJids" item="groupJid"
+               open="(" separator="," close=")">#{groupJid}</foreach>
+  </select>
+
+  <select id="countActiveByGroupLinkIds" resultType="int">
+    SELECT COUNT(*)
+    FROM pull_task_group_execution
+    WHERE group_link_id IN
+      <foreach collection="groupLinkIds" item="groupLinkId"
+               open="(" separator="," close=")">#{groupLinkId}</foreach>
+      AND group_jid IS NOT NULL
+      AND execution_status IN
+      <foreach collection="executionStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </select>
+
+  <select id="countTasksUsingFolders" resultType="int">
+    SELECT COUNT(DISTINCT parent_task.id)
+    FROM pull_task parent_task
+    INNER JOIN pull_task_standard_setting task_setting
+      ON task_setting.tenant_id = parent_task.tenant_id
+     AND task_setting.task_id = parent_task.id
+    WHERE parent_task.deleted_at IS NULL
+      AND parent_task.creation_mode = 'RESOURCE_POOL'
+      AND parent_task.status IN
+      <foreach collection="parentStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+      AND task_setting.source_group_folder_id IN
+      <foreach collection="folderIds" item="folderId"
+               open="(" separator="," close=")">#{folderId}</foreach>
   </select>
 
   <update id="updateGroupLinkId">
@@ -303,6 +358,26 @@
         version = version + 1,
         updated_at = #{row.updatedAt}
     WHERE id = #{row.id}
+      AND execution_status = #{expectedExecutionStatus}
+      AND stage = #{expectedStage}
+      AND version = #{row.version}
+      AND lock_owner = #{row.lockOwner}
+      AND lock_expires_at &gt; #{row.updatedAt}
+  </update>
+
+  <update id="bindGroupAndStartClaimed">
+    UPDATE pull_task_group_execution
+    SET group_link_id = #{row.groupLinkId},
+        normalized_link = #{row.normalizedLink},
+        invite_code = #{row.inviteCode},
+        group_jid = #{row.groupJid},
+        execution_status = #{targetExecutionStatus},
+        started_at = COALESCE(started_at, #{row.startedAt}),
+        version = version + 1,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND group_link_id IS NULL
+      AND group_jid IS NULL
       AND execution_status = #{expectedExecutionStatus}
       AND stage = #{expectedStage}
       AND version = #{row.version}

@@ -69,12 +69,14 @@ class PullTaskStandardLifecycleServiceTest {
                 task(3L, 7L, "COMPLETED"),
                 task(4L, 8L, "EXECUTING"),
                 task(5L, 7L, "PAUSED"),
+                task(6L, 7L, "WAIT_GROUP_RESOURCE"),
                 execution(11L, 7L, 1L, 1, 2, 4, 0),
                 execution(12L, 7L, 1L, 2, 3, 5, 0),
                 execution(13L, 7L, 1L, 3, 4, 7, 0),
                 execution(21L, 7L, 2L, 1, 2, 4, 1),
                 execution(22L, 7L, 2L, 2, 3, 5, 1),
                 execution(51L, 7L, 5L, 1, 6, 5, 0),
+                execution(61L, 7L, 6L, 1, 1, 2, 0),
                 puller(101L, 7L, 1L, 11L, 501L, null),
                 puller(102L, 7L, 1L, 12L, 502L, null),
                 puller(201L, 7L, 2L, 21L, 601L, 700L));
@@ -124,6 +126,16 @@ class PullTaskStandardLifecycleServiceTest {
         assertThat(intColumn("manual_paused", 22L)).isEqualTo(1);
         assertThat(longColumn("released_at", "pull_task_group_account", 201L))
                 .isEqualTo(700L);
+        verify(dispatchTrigger).dispatchAfterCommit();
+    }
+
+    @Test
+    void userCanResumeAGroupResourceWaitingTask() {
+        lifecycleService.resume(6L);
+
+        PullTask task = taskMapper.selectLifecycle(6L);
+        assertThat(task.getStatus()).isEqualTo("EXECUTING");
+        assertThat(task.getBlockingReason()).isNull();
         verify(dispatchTrigger).dispatchAfterCommit();
     }
 

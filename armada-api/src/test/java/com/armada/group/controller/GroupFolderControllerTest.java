@@ -62,7 +62,7 @@ class GroupFolderControllerTest {
     @Test
     void createUsesAuthenticatedUserAndReturnsCreatedFolder() {
         GroupFolderWriteDTO request = new GroupFolderWriteDTO("印度组");
-        GroupFolderVO created = new GroupFolderVO(8L, "印度组", 0L, 100L, 100L);
+        GroupFolderVO created = new GroupFolderVO(8L, "印度组", false, 0L, 100L, 100L);
         when(service.create(request, 501L)).thenReturn(created);
 
         assertThat(controller.create(request, principal()).data()).isEqualTo(created);

@@ -47,7 +47,8 @@
     SELECT
       task_row.id, task_row.tenant_id, task_row.task_type, task_row.group_source,
       task_row.task_name, (<include refid="effectiveGroupName"/>) AS group_name,
-      task_row.mode, task_row.status, task_row.primary_stage, task_row.blocking_reason,
+      task_row.mode, task_row.creation_mode, task_row.status,
+      task_row.primary_stage, task_row.blocking_reason,
       task_row.started_at, task_row.finished_at, task_row.version,
       task_row.group_count, task_row.expected_pull_count, task_row.operator_name,
       task_row.created_at, task_row.updated_at, task_row.last_business_executed_at,

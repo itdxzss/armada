@@ -5,6 +5,7 @@ import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
+import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.shared.response.PageResult;
 import java.util.List;
 
@@ -31,4 +32,16 @@ public interface GroupFolderService {
 
     /** 查询分组内当前健康、未封禁的邀请链接；内部群入口按预览邀请码转换。 */
     List<String> usableLinks(long id);
+
+    /** 查询分组内当前可用于拉人任务的群组资源。 */
+    List<GroupPoolResourceVO> usableResources(long id);
+
+    /** 锁定并复核群组仍在指定资源池且可用。 */
+    GroupPoolResourceVO requireUsableResourceForUpdate(long folderId, long groupLinkId);
+
+    /** 任务成功后把群组转入系统“已使用群组”。 */
+    void moveToUsed(long groupLinkId);
+
+    /** 群组封禁后把群组转入“未分组”。 */
+    void moveToUngrouped(long groupLinkId);
 }

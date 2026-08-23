@@ -15,11 +15,10 @@ import org.springframework.web.multipart.MultipartFile;
 public interface PullTaskStandardDraftService {
 
     /**
-     * 解析本次粘贴的链接与上传的 TXT，把新配对增量追加到草稿。
+     * 解析上传的 TXT，并按每个有效文件增量追加一条草稿执行行。
      *
-     * <p>链接框文本每次请求全量携带，服务端用"有效链接 − 已成行链接"得到剩余链接池；
-     * 剩余链接不足时多出的 TXT 当场拒绝并计入 {@code ignoredFileCount}，由前端保留文件对象、
-     * 待用户补粘链接后重发。已成行的执行行不参与重新随机。</p>
+     * <p>拉人模式的分组在最终提交时冻结，具体群组在运行时领取；为兼容旧前端，
+     * {@code groupFolderId} 与 {@code linksText} 参数暂时保留，但草稿阶段不读取。</p>
      *
      * @param groupFolderId 群组列表运营分组 ID，允许为空
      * @param linksText    创建页链接框的全量文本，允许为空
@@ -27,7 +26,7 @@ public interface PullTaskStandardDraftService {
      * @param userId       当前登录用户 ID
      * @param operatorName 操作员展示名快照，建草稿时写入
      * @return 追加后的完整草稿视图
-     * @throws BusinessException 文件数、大小、扩展名或有效链接数超限时
+     * @throws BusinessException 文件数、大小、扩展名或内容不合法时
      */
     PullTaskStandardDraftVO plan(PullTaskCreationMode creationMode,
                                  Long groupFolderId,
@@ -45,7 +44,7 @@ public interface PullTaskStandardDraftService {
     PullTaskStandardDraftVO current(long userId);
 
     /**
-     * 移除草稿中的单条执行行，链接与 TXT 一并丢弃、不回匹配池。
+     * 移除草稿中的单条 TXT 执行行。
      *
      * @param rowId  执行行 ID
      * @param userId 当前登录用户 ID

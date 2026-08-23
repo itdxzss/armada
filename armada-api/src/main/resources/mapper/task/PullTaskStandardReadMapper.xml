@@ -59,6 +59,14 @@
              MAX(execution_row.last_business_executed_at) AS last_executed_at
       FROM pull_task_group_execution execution_row
       WHERE execution_row.task_id IN <include refid="taskIds"/>
+        AND NOT EXISTS (
+          SELECT 1
+          FROM pull_task_group_execution newer_execution
+          WHERE newer_execution.tenant_id = execution_row.tenant_id
+            AND newer_execution.task_id = execution_row.task_id
+            AND newer_execution.seq = execution_row.seq
+            AND newer_execution.attempt_no &gt; execution_row.attempt_no
+        )
       GROUP BY execution_row.task_id
     ) execution_facts
     LEFT JOIN (
@@ -81,6 +89,14 @@
         ON material_execution.id = material_row.group_execution_id
        AND material_execution.tenant_id = material_row.tenant_id
       WHERE material_execution.task_id IN <include refid="taskIds"/>
+        AND NOT EXISTS (
+          SELECT 1
+          FROM pull_task_group_execution newer_execution
+          WHERE newer_execution.tenant_id = material_execution.tenant_id
+            AND newer_execution.task_id = material_execution.task_id
+            AND newer_execution.seq = material_execution.seq
+            AND newer_execution.attempt_no &gt; material_execution.attempt_no
+        )
       GROUP BY material_execution.task_id
     ) material_facts ON material_facts.task_id = execution_facts.task_id
     LEFT JOIN (

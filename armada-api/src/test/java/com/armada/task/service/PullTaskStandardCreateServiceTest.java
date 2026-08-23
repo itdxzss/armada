@@ -155,6 +155,34 @@ class PullTaskStandardCreateServiceTest {
     }
 
     @Test
+    void resourcePoolSubmitRequiresFolderAndKeepsTxtRowsUnbound() {
+        long taskId = seedResourcePoolDraft(CREATOR);
+
+        service.create(resourcePoolRequest(taskId, 18L), CREATOR);
+
+        PullTask task = pullTaskMapper.selectLifecycle(taskId);
+        assertThat(task.getCreationMode()).isEqualTo(PullTaskCreationMode.RESOURCE_POOL);
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getSourceGroupFolderId()).isEqualTo(18L);
+        assertThat(executionMapper.selectByTaskId(taskId)).allSatisfy(row -> {
+            assertThat(row.getExecutionStatus()).isEqualTo(1);
+            assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+            assertThat(row.getGroupLinkId()).isNull();
+            assertThat(row.getGroupJid()).isNull();
+            assertThat(row.getNormalizedLink()).isNull();
+        });
+    }
+
+    @Test
+    void resourcePoolSubmitRejectsMissingFolder() {
+        long taskId = seedResourcePoolDraft(CREATOR);
+
+        assertThatThrownBy(() -> service.create(resourcePoolRequest(taskId, null), CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("资源池");
+    }
+
+    @Test
     void autoStartUsesTheSharedStartServiceAfterFreezingTheTask() {
         long taskId = seedDraftWithTwoRows(CREATOR);
 
@@ -477,6 +505,33 @@ class PullTaskStandardCreateServiceTest {
         return taskId;
     }
 
+    private long seedResourcePoolDraft(long creator) {
+        long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
+        writer.append(taskId, List.of(
+                resourcePoolAppendRow(1, "a.txt", "8613800138001"),
+                resourcePoolAppendRow(2, "b.txt", "8613800138002")), 200L);
+        return taskId;
+    }
+
+    private static AppendRow resourcePoolAppendRow(int seq, String fileName, String phone) {
+        PullTaskGroupExecution execution = new PullTaskGroupExecution();
+        execution.setSeq(seq);
+        execution.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        execution.setSourceFileIndex(seq);
+        execution.setSourceFileName(fileName);
+        execution.setTotalLineCount(1);
+        execution.setValidMemberCount(1);
+        execution.setInvalidLineCount(0);
+        execution.setDuplicateLineCount(0);
+
+        PullTaskMaterialMember member = new PullTaskMaterialMember();
+        member.setMemberSeq(1);
+        member.setSourceLineNo(1);
+        member.setNormalizedPhone(phone);
+        member.setAdminRequired(0);
+        return new AppendRow(execution, List.of(member));
+    }
+
     private static AppendRow newGroupAppendRow(int seq, String fileName, String phone) {
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setSeq(seq);
@@ -530,6 +585,16 @@ class PullTaskStandardCreateServiceTest {
                 1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting(),
                 null, null, null, false);
+    }
+
+    private static PullTaskStandardCreateDTO resourcePoolRequest(
+            long taskId, Long groupFolderId) {
+        return new PullTaskStandardCreateDTO(
+                taskId, "资源池任务", null, 0, groupFolderId,
+                PullTaskPullerSyncMode.SINGLE, 1, false, false,
+                1, 2, 3, 8, 30, 2, 2, 1,
+                11L, 12L, 13L, null, null, validGroupSetting(),
+                PullTaskCreationMode.RESOURCE_POOL, null, null, false);
     }
 
     private static PullTaskStandardGroupSettingDTO validGroupSetting() {

@@ -127,7 +127,7 @@ public final class PullTaskNormalLinkSchema {
             )
             """;
 
-    /** 群链接与 TXT 一对一冻结配对的执行行；含链接跨任务占用生成列。 */
+    /** TXT 执行尝试；群组在运行时领取，含群组跨任务占用生成列。 */
     static final String GROUP_EXECUTION = """
             CREATE TABLE pull_task_group_execution (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -140,6 +140,7 @@ public final class PullTaskNormalLinkSchema {
                 source_link_line_no INT,
                 group_jid VARCHAR(128),
                 source_file_index INT NOT NULL,
+                attempt_no INT NOT NULL DEFAULT 1,
                 source_file_name VARCHAR(255) NOT NULL,
                 total_line_count INT NOT NULL DEFAULT 0,
                 valid_member_count INT NOT NULL DEFAULT 0,
@@ -172,11 +173,20 @@ public final class PullTaskNormalLinkSchema {
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 link_occupancy_key VARCHAR(255) GENERATED ALWAYS AS (
-                    CASE WHEN execution_status IN (1, 2, 3) THEN normalized_link ELSE NULL END
+                    CASE WHEN execution_status IN (1, 2, 3) THEN
+                        CASE
+                            WHEN NULLIF(group_jid, '') IS NOT NULL
+                                THEN CONCAT('jid:', group_jid)
+                            WHEN NULLIF(normalized_link, '') IS NOT NULL
+                                THEN CONCAT('link:', normalized_link)
+                            ELSE NULL
+                        END
+                    ELSE NULL END
                 ),
-                CONSTRAINT uq_pull_task_execution_seq UNIQUE (tenant_id, task_id, seq),
+                CONSTRAINT uq_pull_task_execution_seq UNIQUE (tenant_id, task_id, seq, attempt_no),
                 CONSTRAINT uq_pull_task_execution_link UNIQUE (tenant_id, task_id, normalized_link),
-                CONSTRAINT uq_pull_task_execution_file UNIQUE (tenant_id, task_id, source_file_index),
+                CONSTRAINT uq_pull_task_execution_file
+                    UNIQUE (tenant_id, task_id, source_file_index, attempt_no),
                 CONSTRAINT uq_pull_task_execution_link_occupancy
                     UNIQUE (tenant_id, link_occupancy_key)
             )

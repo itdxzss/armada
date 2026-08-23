@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import com.armada.shared.tenant.TenantContext;
+import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -8,6 +9,7 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,7 @@ public class PullTaskClosingTransactionService {
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskParentCompletionService parentCompletionService;
+    private final GroupFolderService groupFolderService;
 
     /**
      * @param taskMapper      父任务 Mapper
@@ -34,11 +37,13 @@ public class PullTaskClosingTransactionService {
             PullTaskMapper taskMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskGroupAccountMapper accountMapper,
-            PullTaskParentCompletionService parentCompletionService) {
+            PullTaskParentCompletionService parentCompletionService,
+            GroupFolderService groupFolderService) {
         this.taskMapper = taskMapper;
         this.executionMapper = executionMapper;
         this.accountMapper = accountMapper;
         this.parentCompletionService = parentCompletionService;
+        this.groupFolderService = groupFolderService;
     }
 
     /** 把一条 CLOSING 行推进完成，并按真实执行行终态聚合父任务。 */
@@ -63,6 +68,10 @@ public class PullTaskClosingTransactionService {
                 return PullTaskExecutionDispatchResult.LOST;
             }
             accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+            if (parent.getCreationMode() == PullTaskCreationMode.RESOURCE_POOL
+                    && candidate.getGroupLinkId() != null) {
+                groupFolderService.moveToUsed(candidate.getGroupLinkId());
+            }
             parentCompletionService.completeIfTerminalByExecutionId(candidate.getId(), now);
             return PullTaskExecutionDispatchResult.ADVANCED;
         } finally {

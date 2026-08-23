@@ -1,8 +1,13 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.service.GroupFolderService;
+import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -52,8 +57,10 @@ class PullTaskExecutionTransactionServiceTest {
     private static final String LINK = "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA";
 
     @Autowired private DataSource dataSource;
+    @Autowired private PullTaskMapper taskMapper;
     @Autowired private PullTaskGroupExecutionMapper executionMapper;
     @Autowired private PullTaskExecutionTransactionService transactionService;
+    @Autowired private GroupFolderService groupFolderService;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -200,6 +207,72 @@ class PullTaskExecutionTransactionServiceTest {
         assertThat(saved.getCreateStep()).isEqualTo(1);
     }
 
+    @Test
+    void unboundTxtClaimsAGroupFromTheCurrentFolderAtRuntime() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
+                + "WHERE task_id = 100");
+        insertUnboundAndFreeze(100L, 1);
+        GroupPoolResourceVO resource = new GroupPoolResourceVO(
+                901L, "120363000000901@g.us",
+                "chat.whatsapp.com/POOL01", "POOL01");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(resource));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 901L))
+                .thenReturn(resource);
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        PullTaskExecutionWork work = transactionService
+                .prepare(claimed, "worker-1", 600L).orElseThrow();
+
+        assertThat(work.normalizedLink()).isEqualTo("chat.whatsapp.com/POOL01");
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(claimed.getId());
+        assertThat(saved.getGroupLinkId()).isEqualTo(901L);
+        assertThat(saved.getGroupJid()).isEqualTo("120363000000901@g.us");
+        assertThat(saved.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        verify(groupFolderService).requireUsableResourceForUpdate(18L, 901L);
+    }
+
+    @Test
+    void emptyFolderMovesParentToWaitGroupResource() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
+                + "WHERE task_id = 100");
+        insertUnboundAndFreeze(100L, 1);
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of());
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        assertThat(transactionService.prepare(claimed, "worker-1", 600L)).isEmpty();
+
+        TenantContext.set(7L);
+        assertThat(taskMapper.selectLifecycle(100L).getStatus())
+                .isEqualTo(PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name());
+        assertThat(executionMapper.selectById(claimed.getId()).getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_START.code());
+    }
+
+    @Test
+    void emptyFolderDoesNotPauseParentWhileAnotherTxtIsStillExecuting() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
+                + "WHERE task_id = 100");
+        insertUnboundAndFreeze(100L, 1);
+        insertUnboundAndFreeze(100L, 2);
+        execute("UPDATE pull_task_group_execution SET execution_status = 2, stage = 6 "
+                + "WHERE task_id = 100 AND seq = 1");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of());
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        assertThat(transactionService.prepare(claimed, "worker-1", 600L)).isEmpty();
+
+        TenantContext.set(7L);
+        assertThat(taskMapper.selectLifecycle(100L).getStatus())
+                .isEqualTo(PullTaskStandardStatus.EXECUTING.name());
+    }
+
     private PullTaskExecutionWork prepareLegacySingle(String lockOwner) throws SQLException {
         seedParent(100L, "EXECUTING");
         insertAndFreeze(100L, 1, LINK);
@@ -253,6 +326,23 @@ class PullTaskExecutionTransactionServiceTest {
         row.setNormalizedLink(link);
         row.setInviteCode(link.substring(link.lastIndexOf('/') + 1));
         row.setSourceLinkLineNo(seq);
+        row.setSourceFileIndex(seq);
+        row.setSourceFileName("material-" + seq + ".txt");
+        row.setTotalLineCount(1);
+        row.setValidMemberCount(1);
+        row.setInvalidLineCount(0);
+        row.setDuplicateLineCount(0);
+        row.setCreatedAt(100L);
+        row.setUpdatedAt(100L);
+        executionMapper.insertDraft(row);
+        executionMapper.freezeDraftRows(taskId, 500L);
+    }
+
+    private void insertUnboundAndFreeze(long taskId, int seq) {
+        PullTaskGroupExecution row = new PullTaskGroupExecution();
+        row.setTaskId(taskId);
+        row.setSeq(seq);
+        row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
         row.setSourceFileIndex(seq);
         row.setSourceFileName("material-" + seq + ".txt");
         row.setTotalLineCount(1);
@@ -342,9 +432,15 @@ class PullTaskExecutionTransactionServiceTest {
         @Bean
         PullTaskExecutionTransactionService transactionService(PullTaskMapper taskMapper,
                 PullTaskStandardSettingMapper settingMapper,
-                PullTaskGroupExecutionMapper executionMapper) {
+                PullTaskGroupExecutionMapper executionMapper,
+                GroupFolderService groupFolderService) {
             return new PullTaskExecutionTransactionService(
-                    taskMapper, settingMapper, executionMapper);
+                    taskMapper, settingMapper, executionMapper, groupFolderService);
+        }
+
+        @Bean
+        GroupFolderService groupFolderService() {
+            return mock(GroupFolderService.class);
         }
     }
 }

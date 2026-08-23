@@ -49,7 +49,7 @@ import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
-/** 群链接执行行 Mapper 的 H2 MySQL 模式测试：链接占用、跨租户调度扫描与调度锁。 */
+/** 群组执行行 Mapper 的 H2 MySQL 模式测试：群组占用、跨租户调度扫描与调度锁。 */
 @SpringJUnitConfig(PullTaskGroupExecutionMapperInMemoryTest.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -88,7 +88,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         assertThat(saved).hasSize(1);
         // group_link_id/group_jid 是真实绑定的参数（非强制写死列），必须原样回读。
         assertThat(saved.get(0).getGroupLinkId()).isEqualTo(9000L);
-        assertThat(saved.get(0).getGroupJid()).isEqualTo("120363000000000000@g.us");
+        assertThat(saved.get(0).getGroupJid()).isEqualTo(row.getGroupJid());
     }
 
     @Test
@@ -752,7 +752,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         row.setNormalizedLink(link);
         row.setInviteCode(link.substring(link.lastIndexOf('/') + 1));
         row.setSourceLinkLineNo(seq);
-        row.setGroupJid("120363000000000000@g.us");
+        row.setGroupJid("120363" + Integer.toUnsignedString(link.hashCode()) + "@g.us");
         row.setSourceFileIndex(fileIndex);
         row.setSourceFileName("material-" + fileIndex + ".txt");
         row.setTotalLineCount(10);

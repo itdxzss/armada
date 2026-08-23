@@ -44,6 +44,9 @@ public interface PullTaskGroupExecutionMapper {
      */
     int insertDraftInitialized(PullTaskGroupExecution row);
 
+    /** 群组封禁后写入同一 TXT 的下一次待启动执行记录。 */
+    int insertRetryInitialized(PullTaskGroupExecution row);
+
     /** 初始化草稿行后写入，避免 Mapper XML 固化业务值。 */
     default int insertDraft(PullTaskGroupExecution row) {
         row.setExecutionStatus(PullTaskExecutionStatus.DRAFT.code());
@@ -58,6 +61,9 @@ public interface PullTaskGroupExecutionMapper {
         if (row.getCreateAttemptCount() == null) {
             row.setCreateAttemptCount(0);
         }
+        if (row.getAttemptNo() == null) {
+            row.setAttemptNo(1);
+        }
         row.setManualPaused(0);
         row.setNextManagerIndex(0);
         row.setNextPullerIndex(0);
@@ -68,7 +74,7 @@ public interface PullTaskGroupExecutionMapper {
     }
 
     /**
-     * 读取任务的全部执行行，按 seq 升序。
+     * 读取任务的全部执行行，按 seq、attemptNo 升序。
      *
      * @param taskId 拉群任务 ID
      * @return 执行行列表
@@ -160,6 +166,31 @@ public interface PullTaskGroupExecutionMapper {
                         PullTaskExecutionStatus.EXECUTING.code(),
                         PullTaskExecutionStatus.WAIT_RESOURCE.code()));
     }
+
+    /** 查询候选群 JID 中已经被活动执行行占用的部分；调用方保证参数非空。 */
+    List<String> selectOccupiedGroupJids(
+            @Param("groupJids") List<String> groupJids,
+            @Param("executionStatuses") List<Integer> executionStatuses);
+
+    /** 活动群组占用兼容入口；状态集合与生成列保持一致。 */
+    default List<String> selectOccupiedGroupJids(List<String> groupJids) {
+        return selectOccupiedGroupJids(
+                groupJids,
+                List.of(
+                        PullTaskExecutionStatus.WAIT_START.code(),
+                        PullTaskExecutionStatus.EXECUTING.code(),
+                        PullTaskExecutionStatus.WAIT_RESOURCE.code()));
+    }
+
+    /** 统计指定群组中当前被活动执行行占用的数量。 */
+    int countActiveByGroupLinkIds(
+            @Param("groupLinkIds") List<Long> groupLinkIds,
+            @Param("executionStatuses") List<Integer> executionStatuses);
+
+    /** 统计引用指定来源分组且尚未结束的父任务数量。 */
+    int countTasksUsingFolders(
+            @Param("folderIds") List<Long> folderIds,
+            @Param("parentStatuses") List<String> parentStatuses);
 
     /**
      * 回填执行行的群入口 ID。
@@ -265,6 +296,15 @@ public interface PullTaskGroupExecutionMapper {
      * @return 1 表示成功；0 表示状态、版本、租约或租户已变化
      */
     int startClaimed(
+            @Param("row") PullTaskGroupExecution row,
+            @Param("expectedExecutionStatus") int expectedExecutionStatus,
+            @Param("expectedStage") int expectedStage,
+            @Param("targetExecutionStatus") int targetExecutionStatus);
+
+    /**
+     * 把本实例持有租约的待启动 TXT 绑定到运行时领取的群组，并推进为执行中。
+     */
+    int bindGroupAndStartClaimed(
             @Param("row") PullTaskGroupExecution row,
             @Param("expectedExecutionStatus") int expectedExecutionStatus,
             @Param("expectedStage") int expectedStage,

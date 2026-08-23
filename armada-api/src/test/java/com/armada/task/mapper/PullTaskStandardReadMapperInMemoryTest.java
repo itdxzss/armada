@@ -74,14 +74,30 @@ class PullTaskStandardReadMapperInMemoryTest {
     }
 
     @Test
-    void retryableCurrentFactsAndAttemptHistoryDoNotInflateTerminalCounts() {
+    void retryableCurrentFactsAndAttemptHistoryDoNotInflateTerminalCounts() throws SQLException {
+        execute("UPDATE pull_task_group_execution SET execution_status = 5 "
+                + "WHERE id = 12");
+        execute("INSERT INTO pull_task_group_execution "
+                + "(id, tenant_id, task_id, seq, source_file_index, attempt_no, source_file_name, "
+                + "execution_status, stage, manual_paused, created_at, updated_at) VALUES "
+                + "(14, 7, 100, 2, 2, 2, 'b.txt', 1, 2, 0, 2, 2)");
+        execute("INSERT INTO pull_task_material_member "
+                + "(tenant_id, group_execution_id, member_seq, source_line_no, normalized_phone, "
+                + "pull_status, pull_failure_count, created_at, updated_at) VALUES "
+                + "(7, 14, 1, 1, '863', 0, 0, 2, 2),"
+                + "(7, 14, 2, 2, '864', 0, 0, 2, 2)");
+
         PullTaskStandardTaskAggregate row = mapper.selectTaskAggregates(criteria(List.of(100L)))
                 .get(0);
 
+        assertThat(row.getTotalGroupCount()).isEqualTo(3);
+        assertThat(row.getFailedGroupCount()).isZero();
+        assertThat(row.getWaitingGroupCount()).isEqualTo(1);
         assertThat(row.getTotalMemberCount()).isEqualTo(5);
         assertThat(row.getSuccessfulMemberCount()).isEqualTo(2);
-        assertThat(row.getFailedMemberCount()).isEqualTo(1);
-        assertThat(row.getUnconsumedMemberCount()).isEqualTo(1);
+        assertThat(row.getFailedMemberCount()).isZero();
+        assertThat(row.getUnknownMemberCount()).isZero();
+        assertThat(row.getUnconsumedMemberCount()).isEqualTo(3);
     }
 
     @Test

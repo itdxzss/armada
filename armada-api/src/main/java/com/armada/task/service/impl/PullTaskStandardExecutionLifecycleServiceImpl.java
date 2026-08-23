@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -10,6 +11,8 @@ import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskActionStatus;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
@@ -58,6 +61,7 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     private final PullTaskStandardExecutionLifecycleResources resources;
     private final PullTaskParentCompletionService completionService;
     private final PullTaskExecutionDispatchTrigger dispatchTrigger;
+    private final GroupFolderService groupFolderService;
     private final LongSupplier currentTimeMillis;
 
     /** 生产构造器。 */
@@ -66,9 +70,10 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
             PullTaskMapper taskMapper,
             PullTaskStandardExecutionLifecycleResources resources,
             PullTaskParentCompletionService completionService,
-            PullTaskExecutionDispatchTrigger dispatchTrigger) {
+            PullTaskExecutionDispatchTrigger dispatchTrigger,
+            GroupFolderService groupFolderService) {
         this(taskMapper, resources, completionService,
-                dispatchTrigger, System::currentTimeMillis);
+                dispatchTrigger, groupFolderService, System::currentTimeMillis);
     }
 
     /** 可注入时钟的测试构造器。 */
@@ -77,11 +82,13 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
             PullTaskStandardExecutionLifecycleResources resources,
             PullTaskParentCompletionService completionService,
             PullTaskExecutionDispatchTrigger dispatchTrigger,
+            GroupFolderService groupFolderService,
             LongSupplier currentTimeMillis) {
         this.taskMapper = taskMapper;
         this.resources = resources;
         this.completionService = completionService;
         this.dispatchTrigger = dispatchTrigger;
+        this.groupFolderService = groupFolderService;
         this.currentTimeMillis = currentTimeMillis;
     }
 
@@ -183,7 +190,46 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
         }
         cancelNotSubmitted(execution.getTaskId(), execution.getId(), now);
         releasePullers(execution.getId(), now);
+        PullTask parent = requiredTask(execution.getTaskId());
+        if (PullTaskCreationMode.RESOURCE_POOL == parent.getCreationMode()) {
+            retryTxtWithAnotherGroup(parent, execution, now);
+            return;
+        }
         completionService.completeIfTerminalByExecutionId(execution.getId(), now);
+    }
+
+    /** 群资源池模式下，封禁只淘汰当前群，同一 TXT 生成下一次从头执行记录。 */
+    private void retryTxtWithAnotherGroup(
+            PullTask parent, PullTaskGroupExecution failed, long now) {
+        if (failed.getGroupLinkId() != null) {
+            groupFolderService.moveToUngrouped(failed.getGroupLinkId());
+        }
+        PullTaskGroupExecution retry = new PullTaskGroupExecution();
+        retry.setTaskId(failed.getTaskId());
+        retry.setSeq(failed.getSeq());
+        retry.setSourceFileIndex(failed.getSourceFileIndex());
+        retry.setAttemptNo(failed.getAttemptNo() == null ? 2 : failed.getAttemptNo() + 1);
+        retry.setSourceFileName(failed.getSourceFileName());
+        retry.setTotalLineCount(failed.getTotalLineCount());
+        retry.setValidMemberCount(failed.getValidMemberCount());
+        retry.setInvalidLineCount(failed.getInvalidLineCount());
+        retry.setDuplicateLineCount(failed.getDuplicateLineCount());
+        retry.setExecutionStatus(PullTaskExecutionStatus.WAIT_START.code());
+        retry.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        retry.setGroupSubject(failed.getGroupSubject());
+        retry.setManualPaused(NOT_PAUSED);
+        retry.setNextManagerIndex(0);
+        retry.setNextPullerIndex(0);
+        retry.setPullerAssignmentSeq(0L);
+        retry.setNextRunAt(0L);
+        retry.setVersion(1);
+        retry.setCreatedAt(now);
+        retry.setUpdatedAt(now);
+        if (resources.executionMapper().insertRetryInitialized(retry) != 1) {
+            throw new IllegalStateException("群封禁后创建 TXT 重试记录失败");
+        }
+        resources.pull().materialMapper().copyForRetry(failed.getId(), retry.getId(), now);
+        dispatchIfRunning(parent);
     }
 
     private void cancelNotSubmitted(long taskId, long executionId, long now) {

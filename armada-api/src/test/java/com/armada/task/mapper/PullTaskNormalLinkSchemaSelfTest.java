@@ -69,11 +69,10 @@ class PullTaskNormalLinkSchemaSelfTest {
     }
 
     @Test
-    void draftExecutionRowsDoNotOccupyTheGroupLink() throws SQLException {
-        // execution_status=0 草稿的 link_occupancy_key 为 NULL，
-        // 两个用户的草稿可以同时贴同一条链接。
-        insertExecution(1, 100, 0, "chat.whatsapp.com/AAA");
-        insertExecution(2, 200, 0, "chat.whatsapp.com/AAA");
+    void unboundExecutionRowsDoNotOccupyAGroup() throws SQLException {
+        // TXT 草稿与待启动行尚未领取群，group_jid 为 NULL，不参与唯一约束。
+        insertExecution(1, 100, 1, 1, null, null);
+        insertExecution(2, 200, 1, 1, null, null);
 
         assertThat(countRows(
                 "SELECT COUNT(*) FROM pull_task_group_execution WHERE link_occupancy_key IS NULL"))
@@ -81,20 +80,39 @@ class PullTaskNormalLinkSchemaSelfTest {
     }
 
     @Test
-    void twoLiveTasksCannotHoldTheSameGroupLink() throws SQLException {
-        insertExecution(1, 100, 1, "chat.whatsapp.com/AAA");
+    void twoLiveTasksCannotHoldTheSameGroupJid() throws SQLException {
+        insertExecution(1, 100, 1, 1, "chat.whatsapp.com/AAA", "120363001@g.us");
 
-        assertThatThrownBy(() -> insertExecution(2, 200, 1, "chat.whatsapp.com/AAA"))
+        assertThatThrownBy(() -> insertExecution(
+                2, 200, 1, 1, "chat.whatsapp.com/BBB", "120363001@g.us"))
                 .isInstanceOf(SQLException.class);
     }
 
     @Test
-    void terminalExecutionRowReleasesTheGroupLink() throws SQLException {
-        insertExecution(1, 100, 4, "chat.whatsapp.com/AAA");
+    void legacyLinkRowsStillOccupyBeforeGroupJidIsKnown() throws SQLException {
+        insertExecution(1, 100, 1, 1, "chat.whatsapp.com/AAA", null);
 
-        // execution_status=4 已完成，占用已释放，另一个任务可以接手同一条链接。
-        insertExecution(2, 200, 1, "chat.whatsapp.com/AAA");
+        assertThatThrownBy(() -> insertExecution(
+                2, 200, 1, 1, "chat.whatsapp.com/AAA", null))
+                .isInstanceOf(SQLException.class);
+    }
+
+    @Test
+    void terminalExecutionRowReleasesTheGroupJid() throws SQLException {
+        insertExecution(1, 100, 1, 4, "chat.whatsapp.com/AAA", "120363001@g.us");
+
+        // execution_status=4 已完成，占用已释放，历史记录仍可保留原群 JID。
+        insertExecution(2, 200, 1, 1, "chat.whatsapp.com/BBB", "120363001@g.us");
         assertThat(countRows("SELECT COUNT(*) FROM pull_task_group_execution")).isEqualTo(2);
+    }
+
+    @Test
+    void failedAttemptAllowsSameTxtToCreateANewAttempt() throws SQLException {
+        insertExecution(1, 100, 1, 5, "chat.whatsapp.com/AAA", "120363001@g.us");
+        insertExecution(2, 100, 2, 0, null, null);
+
+        assertThat(countRows("SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 100"))
+                .isEqualTo(2);
     }
 
     private void insertGroupAccount(long id, long accountId, int roleType,
@@ -107,14 +125,21 @@ class PullTaskNormalLinkSchemaSelfTest {
                 + (releasedAt == null ? "NULL" : releasedAt) + ")");
     }
 
-    private void insertExecution(long id, long taskId, int status, String link)
+    private void insertExecution(long id, long taskId, int attemptNo, int status,
+                                 String link, String groupJid)
             throws SQLException {
         execute("INSERT INTO pull_task_group_execution "
-                + "(id, tenant_id, task_id, seq, normalized_link, invite_code, "
-                + " source_link_line_no, source_file_index, source_file_name, "
+                + "(id, tenant_id, task_id, seq, normalized_link, invite_code, group_jid, "
+                + " source_link_line_no, source_file_index, attempt_no, source_file_name, "
                 + " execution_status, created_at, updated_at) VALUES ("
-                + id + ", 7, " + taskId + ", 1, '" + link + "', 'AAA', 1, 1, 'a.txt', "
+                + id + ", 7, " + taskId + ", 1, " + sqlString(link) + ", "
+                + (link == null ? "NULL" : "'AAA'") + ", " + sqlString(groupJid)
+                + ", NULL, 1, " + attemptNo + ", 'a.txt', "
                 + status + ", 100, 100)");
+    }
+
+    private String sqlString(String value) {
+        return value == null ? "NULL" : "'" + value + "'";
     }
 
     private void execute(String sql) throws SQLException {

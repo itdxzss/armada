@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.group.service.GroupFolderService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -47,6 +48,7 @@ class PullTaskGroupBanTerminationServiceTest {
     @Mock private ProtocolCommandOutboxService outboxService;
     @Mock private PullTaskParentCompletionService completionService;
     @Mock private PullTaskExecutionDispatchTrigger dispatchTrigger;
+    @Mock private GroupFolderService groupFolderService;
 
     private PullTaskStandardExecutionLifecycleServiceImpl service;
 
@@ -60,7 +62,8 @@ class PullTaskGroupBanTerminationServiceTest {
                                 materialMapper, waveMapper),
                         outboxService);
         service = new PullTaskStandardExecutionLifecycleServiceImpl(
-                taskMapper, resources, completionService, dispatchTrigger, () -> 900L);
+                taskMapper, resources, completionService, dispatchTrigger,
+                groupFolderService, () -> 900L);
         TenantContext.set(99L);
     }
 

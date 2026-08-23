@@ -190,7 +190,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BACKFILL, 1_000L),
                 GroupMetadataSyncStatus.RUNNING.code());
 
-        GroupMetadataSyncTask missingInvite = mapper.selectDueCandidates(
+        GroupMetadataSyncTask missingInvite = selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(missingInvite.getGroupJid()).isEqualTo("120363created@g.us");
@@ -199,7 +199,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         execute("UPDATE group_link_preview SET invite_code = 'INVITE-CODE'");
         insertCurrentInvite(GROUP_LINK_ID, "INVITE-CODE");
 
-        GroupMetadataSyncTask withInvite = mapper.selectDueCandidates(
+        GroupMetadataSyncTask withInvite = selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(withInvite.getInviteRequired()).isFalse();
@@ -213,7 +213,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BACKFILL, 1_000L),
                 GroupMetadataSyncStatus.RUNNING.code());
 
-        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+        GroupMetadataSyncTask due = selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
 
@@ -228,7 +228,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.BASELINE_CAPTURED, 10_000L),
                 GroupMetadataSyncStatus.RUNNING.code());
 
-        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+        GroupMetadataSyncTask due = selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 10).get(0);
 
@@ -347,7 +347,7 @@ class GroupMetadataSyncTaskMapperDbTest {
         succeeded.setLastSuccessAt(800L);
         insertTask(TENANT_ID, succeeded);
 
-        GroupMetadataSyncTask due = mapper.selectDueCandidates(
+        GroupMetadataSyncTask due = selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         GroupMetadataSyncTask claim = new GroupMetadataSyncTask();
@@ -380,10 +380,10 @@ class GroupMetadataSyncTaskMapperDbTest {
         succeeded.setLastSuccessAt(1_000L);
         insertTask(TENANT_ID, succeeded);
 
-        assertThat(mapper.selectDueCandidates(
+        assertThat(selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_999L, 10)).isEmpty();
-        assertThat(mapper.selectDueCandidates(
+        assertThat(selectDueCandidates(
                 java.util.List.of(GroupMetadataSyncStatus.SUCCEEDED.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10)).hasSize(1);
     }
@@ -412,13 +412,37 @@ class GroupMetadataSyncTaskMapperDbTest {
         participantChanged.setLastSuccessAt(1_400L);
         insertTask(TENANT_ID, participantChanged);
 
-        assertThat(mapper.selectDueCandidates(
+        assertThat(selectDueCandidates(
                 java.util.List.of(
                         GroupMetadataSyncStatus.PENDING.code(),
                         GroupMetadataSyncStatus.RETRY_WAIT.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 10))
                 .extracting(GroupMetadataSyncTask::getGroupLinkId)
                 .containsExactly(newGroupLinkId, changedGroupLinkId, GROUP_LINK_ID);
+    }
+
+    @Test
+    void manualRefreshIsNotStarvedByOlderAutomaticInitialSync() throws SQLException {
+        insertGroupLink("wa://group/automatic-initial@g.us", 4,
+                "automatic-initial@g.us", "AUTOMATIC-INVITE-CODE");
+        mapper.enqueue(pendingTask(GroupMetadataSyncTrigger.ACCOUNT_ONLINE, 1_000L),
+                GroupMetadataSyncStatus.RUNNING.code());
+
+        long manualGroupLinkId = 102L;
+        insertGroupLink(manualGroupLinkId, "wa://group/manual-refresh@g.us", 4,
+                "manual-refresh@g.us", "MANUAL-INVITE-CODE");
+        GroupMetadataSyncTask manualRefresh = pendingTask(
+                GroupMetadataSyncTrigger.MANUAL_REFRESH, 2_000L);
+        manualRefresh.setGroupLinkId(manualGroupLinkId);
+        insertTask(TENANT_ID, manualRefresh);
+
+        assertThat(selectDueCandidates(
+                java.util.List.of(
+                        GroupMetadataSyncStatus.PENDING.code(),
+                        GroupMetadataSyncStatus.RETRY_WAIT.code()),
+                GroupMetadataSyncStatus.SUCCEEDED.code(), 2_000L, 1))
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(manualGroupLinkId);
     }
 
     @Test
@@ -451,6 +475,19 @@ class GroupMetadataSyncTaskMapperDbTest {
         TenantContext.set(OTHER_TENANT_ID);
         assertThat(mapper.selectByCurrentCommandIdUnscoped("cmd-1").getTenantId())
                 .isEqualTo(TENANT_ID);
+    }
+
+    private java.util.List<GroupMetadataSyncTask> selectDueCandidates(
+            java.util.List<Integer> statuses,
+            int periodicStatus,
+            long now,
+            int limit) {
+        return mapper.selectDueCandidates(
+                statuses,
+                periodicStatus,
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(),
+                now,
+                limit);
     }
 
     private static GroupMetadataSyncTask pendingTask(

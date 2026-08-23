@@ -1,6 +1,7 @@
 package com.armada.group.scheduler;
 
 import com.armada.group.model.entity.GroupMetadataSyncTask;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
 import com.armada.group.observability.GroupSnapshotMetrics;
@@ -93,7 +94,8 @@ public class GroupMetadataSyncJob {
 
     private TaskResult process(GroupMetadataSyncTask task) {
         long now = System.currentTimeMillis();
-        int candidateCursor = snapshotProperties.enabled()
+        boolean snapshotDispatchEnabled = snapshotDispatchEnabled(task);
+        int candidateCursor = snapshotDispatchEnabled
                 ? valueOrZero(task.getCandidateCursor())
                 : valueOrZero(task.getAttemptCount());
         Optional<GroupExecutionAccount> selected = selector.find(
@@ -108,10 +110,10 @@ public class GroupMetadataSyncJob {
         long leaseUntil = now + Math.max(1L, properties.leaseMs());
         GroupMetadataSyncLimits limits = new GroupMetadataSyncLimits(
                 Math.max(1, properties.tenantConcurrency()),
-                Math.max(1, snapshotProperties.enabled()
+                Math.max(1, snapshotDispatchEnabled
                         ? snapshotProperties.accountConcurrency()
                         : properties.accountConcurrency()));
-        if (snapshotProperties.enabled()) {
+        if (snapshotDispatchEnabled) {
             long resultDeadlineAt = now + Math.max(1L, snapshotProperties.resultTimeoutMs());
             long startedAt = System.currentTimeMillis();
             try {
@@ -150,6 +152,13 @@ public class GroupMetadataSyncJob {
             metrics.recordDuration(System.currentTimeMillis() - startedAt);
         }
         return TaskResult.EXECUTED;
+    }
+
+    /** 页面手动刷新固定走 Outbox；全局开关仅控制自动单群任务。 */
+    private boolean snapshotDispatchEnabled(GroupMetadataSyncTask task) {
+        return snapshotProperties.enabled()
+                || Integer.valueOf(GroupMetadataSyncTrigger.MANUAL_REFRESH.code())
+                        .equals(task.getTriggerSource());
     }
 
     private static <T> T withTenant(Long tenantId, java.util.function.Supplier<T> action) {

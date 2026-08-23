@@ -154,12 +154,14 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(), 10_000L, 20))
                 .thenReturn(List.of(triggered));
 
         assertThat(service.findDue(10_000L, 20)).containsExactly(triggered);
         verify(mapper, never()).selectDueCandidates(
                 eq(List.of(GroupMetadataSyncStatus.SUCCEEDED.code())),
+                anyInt(),
                 anyInt(),
                 eq(10_000L),
                 anyInt());
@@ -179,7 +181,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(), 10_000L, 20))
                 .thenReturn(List.of(firstRefresh, secondRefresh));
 
         assertThat(service.findDue(10_000L, 20)).containsExactly(firstRefresh);
@@ -200,7 +203,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 10_000L, 20))
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(), 10_000L, 20))
                 .thenReturn(List.of(participantChanged, manualRefresh));
 
         assertThat(service().findDue(10_000L, 20))
@@ -217,7 +221,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 12_000L, 20))
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(), 12_000L, 20))
                 .thenReturn(List.of(baseline));
 
         assertThat(service().findDue(12_000L, 20)).containsExactly(baseline);
@@ -241,7 +246,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         when(mapper.selectDueCandidates(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
                 GroupMetadataSyncStatus.RETRY_WAIT.code()),
-                GroupMetadataSyncStatus.SUCCEEDED.code(), 301_000L, 20))
+                GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(), 301_000L, 20))
                 .thenReturn(List.of(staleClassification, manualRefresh));
 
         assertThat(service().findDue(301_000L, 20))

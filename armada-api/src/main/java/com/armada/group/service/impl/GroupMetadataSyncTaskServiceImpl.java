@@ -135,6 +135,7 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         List<GroupMetadataSyncTask> candidates = mapper.selectDueCandidates(
                 TRIGGERED_STATUSES,
                 GroupMetadataSyncStatus.SUCCEEDED.code(),
+                GroupMetadataSyncTrigger.MANUAL_REFRESH.code(),
                 now,
                 pageSize);
         List<GroupMetadataSyncTask> due = new ArrayList<>();

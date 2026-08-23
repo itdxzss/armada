@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
 
 import com.armada.group.model.entity.GroupMetadataSyncTask;
+import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.observability.GroupMetadataSyncMetrics;
 import com.armada.group.observability.GroupSnapshotMetrics;
@@ -98,6 +99,7 @@ class GroupMetadataSyncJobTest {
     @Test
     void bothSnapshotAndHttpFallbackSwitchesOffLeaveTaskPending() {
         GroupMetadataSyncTask pending = task(1L, 7L, 10L);
+        pending.setTriggerSource(GroupMetadataSyncTrigger.ACCOUNT_ONLINE.code());
         GroupExecutionAccount account = new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
         when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
                 .thenReturn(List.of(pending));
@@ -108,6 +110,32 @@ class GroupMetadataSyncJobTest {
         verify(snapshotDispatchService, never()).dispatchMetadataTask(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(taskService, never()).claim(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(executor, never()).execute(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void manualRefreshDispatchesSnapshotWhenBothGlobalSwitchesAreOff() {
+        GroupMetadataSyncTask manual = task(1L, 7L, 10L);
+        manual.setTriggerSource(GroupMetadataSyncTrigger.MANUAL_REFRESH.code());
+        manual.setAttemptCount(8);
+        manual.setCandidateCursor(2);
+        GroupExecutionAccount account = new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(manual));
+        when(selector.find(10L, 2)).thenReturn(Optional.of(account));
+        when(snapshotDispatchService.dispatchMetadataTask(
+                eq(manual), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(true);
+
+        job(new GroupSnapshotProperties(false, 20, 1, 120_000L, 4, false)).runOnce();
+
+        verify(selector).find(10L, 2);
+        verify(snapshotDispatchService).dispatchMetadataTask(
+                eq(manual), eq(account), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
         verify(taskService, never()).claim(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());

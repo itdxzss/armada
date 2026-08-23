@@ -149,11 +149,12 @@
         (task.next_run_at IS NOT NULL AND task.next_run_at &lt;= #{now})
         OR (task.status = #{periodicStatus} AND task.next_run_at IS NULL)
       )
-    <!-- 1=PENDING；3/4/6=成员变化、metadata变化、手动刷新，保持原有实时吞吐。 -->
+    <!-- 手动刷新优先于首次自动同步；1=PENDING，3/4=成员变化、metadata 变化。 -->
     ORDER BY CASE
-               WHEN task.last_success_at IS NULL THEN 0
-               WHEN task.status = 1 AND task.trigger_source IN (3, 4, 6) THEN 1
-               ELSE 2
+               WHEN task.trigger_source = #{manualTrigger} THEN 0
+               WHEN task.last_success_at IS NULL THEN 1
+               WHEN task.status = 1 AND task.trigger_source IN (3, 4) THEN 2
+               ELSE 3
              END ASC,
              task.next_run_at ASC,
              task.id ASC

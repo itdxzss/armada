@@ -43,13 +43,13 @@ server:
 
 armada:
   group-snapshot:
-    # 主链默认关闭；批量任务 V128 后始终走 Outbox，不受该人工单群灰度开关影响。
+    # 自动单群主链默认关闭；页面手动刷新和批量任务始终走 Outbox，不受该开关影响。
     enabled: ${GROUP_SNAPSHOT_ENABLED:false}
     dispatch-batch-size: ${GROUP_SNAPSHOT_DISPATCH_BATCH_SIZE:20}
     account-concurrency: ${GROUP_SNAPSHOT_ACCOUNT_CONCURRENCY:1}
     result-timeout-ms: ${GROUP_SNAPSHOT_RESULT_TIMEOUT_MS:120000}
     max-candidates: ${GROUP_SNAPSHOT_MAX_CANDIDATES:4}
-    # 仅人工单群刷新紧急回退同步 HTTP；不覆盖批量 Worker。
+    # 仅供自动单群任务紧急回退同步 HTTP；页面手动刷新不走该路径。
     http-fallback-enabled: ${GROUP_SNAPSHOT_HTTP_FALLBACK_ENABLED:false}
   group-metadata-sync:
     # 分类任务附近已经落过完整成员快照时直接复用，只补缺失的邀请码。

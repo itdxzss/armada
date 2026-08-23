@@ -48,6 +48,7 @@ public interface GroupMetadataSyncTaskMapper {
      *
      * @param statuses 本次允许读取的状态
      * @param periodicStatus 周期对账使用的成功状态码
+     * @param manualTrigger 手动刷新触发来源稳定码
      * @param now 当前时间(epoch 毫秒)
      * @param limit 最多读取行数
      * @return 按到期时间排序的候选任务
@@ -56,6 +57,7 @@ public interface GroupMetadataSyncTaskMapper {
     List<GroupMetadataSyncTask> selectDueCandidates(
             @Param("statuses") List<Integer> statuses,
             @Param("periodicStatus") int periodicStatus,
+            @Param("manualTrigger") int manualTrigger,
             @Param("now") long now,
             @Param("limit") int limit);
 

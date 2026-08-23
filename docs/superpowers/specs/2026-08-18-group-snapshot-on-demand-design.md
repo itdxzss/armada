@@ -28,7 +28,7 @@
    不重复携带任何群业务字段。事实与结算彻底分离。
 6. 不新建 topic、不新建 Outbox 表、**不做持久化的同群折叠**（去重只在派发时内存内做，先观测再决定）；
 7. 安卓本期补两件事：`group.profile_reported` 发布（数据已在手，只是事件契约丢弃了）、
-   `GetGroupCode` 接入 Kafka 命令。安卓协议解析层不需要改动。
+   邀请链接读取改用只读 MEX，HTTP 与 Kafka 命令共用同一实现；资料解析层不改动。
 
 ### 修订记录
 
@@ -36,6 +36,10 @@
   （为未量化的问题引入的复杂度，见 §9.2）；安卓资料上报从第 9 刀提到第 1 刀；
   补 §13.1 成员 `owner`/`role` 映射（原稿遗漏，会导致安卓来源群主恒为 0）；
   补 §12 校验失败必须发结算、错误归一禁止匹配英文文案两条约束。
+- **2026-08-23 修订二**：test2 真实日志确认 Android 旧 `w:g2 <invite/>` 查询收到
+  WhatsApp `410 gone`，而同群 metadata 与管理员身份均正常。Android 邀请码读取改用只读
+  MEX `fetchMexGroupInviteCode`；`400/410` 只归一为 `GROUP_INVITE_LINK_UNAVAILABLE`，
+  不再误报整群 `GROUP_UNAVAILABLE`，也不自动创建、撤销或重置邀请链接。
 
 ---
 
@@ -104,7 +108,7 @@
 | group-action 命令 | `internal/armada/group_action_command.go:8-19` | 仅 4 个：`contact.save.requested`、`group.participants.requested`、`group.settings.requested`、`group.normal_creation.requested` |
 | 全量群查询 | `internal/armada/groups_fetcher.go:63,270` | 固定调 `GetAllGroup(true)`，**participants 已取回** |
 | 单群查询 | `internal/service/app/group.go:56 GetGroupMember(groupId)` | 单群 metadata IQ，已存在 |
-| 邀请码 | `internal/service/app/group.go:70 GetGroupCode(groupId)` | 已存在，**仅 HTTP `POST /qrcode/:key`，未接 Kafka** |
+| 邀请码 | `internal/service/app/safemex.go SendGroupInviteCodeQuery(groupId)` | HTTP 与 Kafka 共用只读 MEX 查询，不重置链接 |
 | 群资料结构 | `internal/service/entity/entity.go:37 GroupInfo` | `Creator/Creation/Subject/Participants/GroupJoinState/MemberAddMode/MemberLinkMode/AddressingMode/Announce/Locked/Suspended/Terminated`；**无 `description`、无 `ephemeralDuration`** |
 | 成员结构 | `internal/service/entity/entity.go:25 ParticipantAttr` | `Jid/Type/Err/PhoneNumber`；**无独立 LID 字段** |
 | 上报契约 | `internal/armada/event.go:33-52 ReportedGroup` | 仅 `groupJid/subject/admin/announceOnly/adminOnlyEditInfo/memberAddMode/joinApprovalMode`；注释明写**"不携带 participant 列表或原始 IQ 数据"** |
@@ -342,6 +346,7 @@
 | `GROUP_PERMISSION_DENIED` | 当前账号无权读取该 scope | 保留已成功 scope，换下一候选，只重试失败 scope |
 | `GROUP_NOT_JOINED` | 当前账号不在群 | 校准该账号群关系，换候选 |
 | `GROUP_UNAVAILABLE` | 群被封禁/终止/不可访问 | 更新群健康，停止普通重试 |
+| `GROUP_INVITE_LINK_UNAVAILABLE` | 当前群没有返回有效邀请链接 | 保留群资料和群健康状态，友好提示；不自动重置链接 |
 | `ACCOUNT_NOT_ONLINE` | 协议账号当前不可执行 | 换在线候选；无候选则置 DEFERRED |
 | `ACCOUNT_BUSY` | 账号正在执行互斥动作 | 短退避后重试同一账号 |
 | `ACCOUNT_BINDING_MISMATCH` | envelope 绑定与当前实际绑定不符 | 不重试，重新选号后新建命令 |
@@ -579,9 +584,10 @@ protocol_backend   = WEB | ANDROID
    与对应 source 常量；
 2. 按 `protocolAccountId` 定位账号运行实例；
 3. `METADATA` → 调 `GetGroupMember(groupJid)`（单群 metadata IQ），映射同 §13.1；
-4. `INVITE_CODE` → 调 `GetGroupCode(groupJid)`，成功发 `group.invite_link_changed`（附 `commandId`）；
-5. 错误归一：403 → `GROUP_PERMISSION_DENIED`；不在群 → `GROUP_NOT_JOINED`；
-   离线 → `ACCOUNT_NOT_ONLINE`；超时 → `TIMEOUT`。**尽量区分"无权限"与"已不在群"**，
+4. `INVITE_CODE` → 调只读 MEX 邀请码查询，成功发 `group.invite_link_changed`（附 `commandId`）；
+5. 错误归一：403 → `GROUP_PERMISSION_DENIED`；邀请链接查询 400/410 或空 code →
+   `GROUP_INVITE_LINK_UNAVAILABLE`；不在群 → `GROUP_NOT_JOINED`；离线 →
+   `ACCOUNT_NOT_ONLINE`；超时 → `TIMEOUT`。**尽量区分"无权限"与"已不在群"**，
    区分不了时用 `UNKNOWN` 并打日志，不要猜；
 6. 幂等：复用 `join_state.go` 的 `RedisGroupJoinCommandStateStore` 模式新建
    `group_snapshot_state.go`；
@@ -724,7 +730,7 @@ protocol_backend   = WEB | ANDROID
 7. armada：`group_batch_task_item` 从 HTTP Worker 改为 Outbox + 等结果；
 8. Web：`group-snapshot-executor` + `group-snapshot-state` + `commandId` 透传
    + 校验失败结算 + 结构化错误归一；
-9. 安卓：单群命令接入 + `GetGroupCode` 接 Kafka + `group_snapshot_state`；
+9. 安卓：单群命令接入 + 只读 MEX 邀请码查询接 Kafka + `group_snapshot_state`；
 10. 监控、开关、DLT；
 11. test1 联调 + 真实 fixture 测 payload 大小并回填 §15 阈值 + 核对 §12 错误码映射表。
 
@@ -772,7 +778,8 @@ protocol_backend   = WEB | ANDROID
 - `description` / `ephemeralDurationSeconds` **不出现在 payload 也不出现在 fieldMask**；
 - `account.groups_reported` 形状未变（回归保护）；
 - group-action consumer 接受新命令并调用正确账号；
-- `GetGroupCode` 成功发 `invite_link_changed`，403 归一为 `GROUP_PERMISSION_DENIED`；
+- 只读 MEX 邀请码查询成功发 `invite_link_changed`，403 归一为
+  `GROUP_PERMISSION_DENIED`，400/410 或空邀请码归一为 `GROUP_INVITE_LINK_UNAVAILABLE`；
 - Kafka/DLQ 与输入 offset 提交顺序正确；
 - 节点后缀 topic 下命令仍能被正确节点消费。
 

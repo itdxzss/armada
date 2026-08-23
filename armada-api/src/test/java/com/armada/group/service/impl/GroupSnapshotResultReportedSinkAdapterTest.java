@@ -1,5 +1,6 @@
 package com.armada.group.service.impl;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -217,6 +218,47 @@ class GroupSnapshotResultReportedSinkAdapterTest {
         verify(batchTaskMapper).applyItemOutcome(
                 eq(900L), eq(true), eq(GroupBatchTaskStatus.COMPLETED.code()),
                 eq(GroupBatchTaskStatus.RUNNING.code()), anyLong());
+    }
+
+    @Test
+    void unavailableInviteLinkSettlesBatchWithFriendlyReason() {
+        GroupBatchTaskItem item = new GroupBatchTaskItem();
+        item.setId(20L);
+        item.setTenantId(1L);
+        item.setTaskId(901L);
+        item.setGroupLinkId(5001L);
+        item.setGroupJid("120363000@g.us");
+        item.setAccountId(100L);
+        item.setStatus(GroupBatchTaskItemStatus.WAITING_RESULT.code());
+        item.setCurrentCommandId("cmd-invite");
+        item.setAttemptCount(1);
+        item.setCompletedScopeMask(0);
+        item.setUpdatedAt(1_000L);
+        GroupBatchTask batch = new GroupBatchTask();
+        batch.setId(901L);
+        batch.setTaskType(GroupBatchTaskType.REFRESH_LINK.code());
+        batch.setStatus(GroupBatchTaskStatus.RUNNING.code());
+        when(batchItemMapper.selectByCurrentCommandId(1L, "cmd-invite")).thenReturn(item);
+        when(batchTaskMapper.selectById(901L)).thenReturn(batch);
+        when(batchItemMapper.settleCurrentCommand(
+                any(), eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()))).thenReturn(1);
+
+        adapter().handleSnapshotResult(new ProtocolGroupSnapshotResultReportedEvent(
+                "evt-invite", 1L, 100L, "acc-100", "WEB", 5001L,
+                "120363000@g.us", "GROUP_BATCH_TASK_ITEM", 20L, 1,
+                "cmd-invite", Map.of("INVITE_CODE", failed(
+                        2_000L, "GROUP_INVITE_LINK_UNAVAILABLE")), "worker-1"));
+
+        ArgumentCaptor<GroupBatchTaskItem> captor = ArgumentCaptor.forClass(GroupBatchTaskItem.class);
+        verify(batchItemMapper).settleCurrentCommand(
+                captor.capture(), eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()));
+        assertThat(captor.getValue())
+                .extracting(GroupBatchTaskItem::getStatus,
+                        GroupBatchTaskItem::getErrorCode,
+                        GroupBatchTaskItem::getDescription)
+                .containsExactly(GroupBatchTaskItemStatus.FAILED.code(),
+                        "GROUP_INVITE_LINK_UNAVAILABLE", "当前群没有可用邀请链接");
+        verify(selector, never()).find(anyLong(), anyInt());
     }
 
     private GroupSnapshotResultReportedSinkAdapter adapter() {

@@ -102,6 +102,30 @@ class ProtocolGroupEventConsumerTest {
     }
 
     @Test
+    void onMessage_snapshotResultAcceptsUnavailableInviteLink() {
+        onMessage("""
+                {
+                  "eventId":"acc-901:group.snapshot_result_reported:cmd-link-unavailable",
+                  "event":"group.snapshot_result_reported","version":"v1",
+                  "accountId":"acc-901","occurredAt":"2026-08-23T00:00:00Z",
+                  "workerId":"android-worker",
+                  "data":{"commandId":"cmd-link-unavailable","tenantId":7,"accountId":901,
+                    "protocolAccountId":"acc-901","protocolBackend":"ANDROID",
+                    "groupLinkId":5001,"groupJid":"120363000@g.us",
+                    "taskType":"GROUP_BATCH_TASK_ITEM","taskId":20,"attemptNo":1,
+                    "scopes":{"INVITE_CODE":{"outcome":"FAILED","completedAt":1787443200000,
+                      "errorCode":"GROUP_INVITE_LINK_UNAVAILABLE"}}}
+                }
+                """);
+
+        verify(snapshotResultReportedSink).handleSnapshotResult(
+                org.mockito.ArgumentMatchers.argThat(event ->
+                        event.commandId().equals("cmd-link-unavailable")
+                                && event.scopes().get("INVITE_CODE").errorCode()
+                                .equals("GROUP_INVITE_LINK_UNAVAILABLE")));
+    }
+
+    @Test
     void onMessage_invalidPayloadSettlementAllowsRequestedUnknownScopeAndBadGroupJid() {
         onMessage("""
                 {

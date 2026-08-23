@@ -19,6 +19,10 @@
 - [x] Web 增加单群快照 executor、Redis 幂等状态与 `commandId` 透传
 - [x] Android 发布逐群 `group.profile_reported` 并接入单群快照命令
 - [x] 增加业务开关、指标和失败路径验证
+- [x] Android HTTP 与 Kafka 邀请码读取统一切换到只读 MEX
+- [x] `400/410` 归一为 `GROUP_INVITE_LINK_UNAVAILABLE`，不再误判群不可用
+- [x] 控端 Kafka consumer 接受新错误码并透传到结算层
+- [x] 批量刷新链接对邀请码不可用返回“当前群没有可用邀请链接”
 - [ ] 在 test1 完成真实 fixture 消息大小与实际错误码验证
 
 ## 关键设计决策
@@ -28,6 +32,8 @@
 - 任务表保持按 `group_link_id` 唯一；只在单轮调度内按 `group_jid` 去重，不新增 peer 列、等待状态或广播结算。
 - Web 命令走 master topic，Android 命令走 group-action topic；Kafka key 均为 `protocolAccountId`。
 - 所有开关默认关闭，滚动发布先上 consumer，再上两端 executor，最后灰度派发。
+- 邀请链接刷新只读取当前 code；MEX 返回空 code 或 `400/410` 时保留群资料与群健康状态，
+  不创建、不撤销、不重置链接，也不再把该结果结算为 `GROUP_UNAVAILABLE`。
 
 ## 验证（evidence-before-done）
 
@@ -35,6 +41,9 @@
 - Web：快照/命令路由/配置相关 5 suites、87 tests 全部通过；`npm run build` 通过。
 - Android：`go test ./internal/armada` 通过；其中完整群资料映射覆盖 `owner` / `role`。
 - 三个仓库均执行 `git diff --check`，退出码 0。
+- 2026-08-23 回归：Android `go vet ./...`、`go build ./...` 通过，相关包测试通过；全仓
+  `go test ./...` 仅被既有 Promise 异步日志与 Noise 向量测试阻断。Armada consumer + 结算层
+  相关测试共 41 个通过；全仓测试因本机无集成测试数据库而在连接重试阶段停止。
 
 ## 部署
 

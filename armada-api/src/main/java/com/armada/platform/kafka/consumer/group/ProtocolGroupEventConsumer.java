@@ -98,6 +98,7 @@ public class ProtocolGroupEventConsumer {
     private static final Set<String> SUPPORTED_SNAPSHOT_ERROR_CODES = Set.of(
             "ACCOUNT_NOT_ONLINE", "ACCOUNT_BUSY", "ACCOUNT_BINDING_MISMATCH",
             "GROUP_PERMISSION_DENIED", "GROUP_NOT_JOINED", "GROUP_UNAVAILABLE",
+            "GROUP_INVITE_LINK_UNAVAILABLE",
             "INVALID_PAYLOAD", "TIMEOUT", "NETWORK", "RESULT_PUBLISH_FAILED",
             "PAYLOAD_TOO_LARGE", "UNKNOWN");
 

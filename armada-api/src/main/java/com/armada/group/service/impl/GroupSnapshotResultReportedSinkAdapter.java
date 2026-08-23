@@ -40,6 +40,10 @@ public class GroupSnapshotResultReportedSinkAdapter
 
     private static final Logger log =
             LoggerFactory.getLogger(GroupSnapshotResultReportedSinkAdapter.class);
+    private static final String GROUP_INVITE_LINK_UNAVAILABLE =
+            "GROUP_INVITE_LINK_UNAVAILABLE";
+    private static final String INVITE_LINK_UNAVAILABLE_DESCRIPTION =
+            "当前群没有可用邀请链接";
     private static final Set<String> NON_RETRYABLE_ERRORS =
             Set.of("GROUP_UNAVAILABLE", "INVALID_PAYLOAD", "PAYLOAD_TOO_LARGE");
 
@@ -138,6 +142,11 @@ public class GroupSnapshotResultReportedSinkAdapter
         }
         String errorCode = firstFailureCode(event.scopes());
         calibrateNotJoined(event);
+        if (GROUP_INVITE_LINK_UNAVAILABLE.equals(errorCode)) {
+            settleTerminal(task, GroupMetadataSyncStatus.FAILED, errorCode,
+                    INVITE_LINK_UNAVAILABLE_DESCRIPTION, System.currentTimeMillis());
+            return;
+        }
         if (NON_RETRYABLE_ERRORS.contains(errorCode)) {
             settleTerminal(task, GroupMetadataSyncStatus.FAILED, errorCode,
                     "群快照协议返回不可重试失败", System.currentTimeMillis());
@@ -212,6 +221,11 @@ public class GroupSnapshotResultReportedSinkAdapter
         }
         String errorCode = firstFailureCode(event.scopes());
         calibrateNotJoined(event);
+        if (GROUP_INVITE_LINK_UNAVAILABLE.equals(errorCode)) {
+            settleBatchTerminal(item, task, false, errorCode,
+                    INVITE_LINK_UNAVAILABLE_DESCRIPTION, now);
+            return;
+        }
         if (NON_RETRYABLE_ERRORS.contains(errorCode)) {
             settleBatchTerminal(item, task, false, errorCode, "群快照协议返回不可重试失败", now);
             return;

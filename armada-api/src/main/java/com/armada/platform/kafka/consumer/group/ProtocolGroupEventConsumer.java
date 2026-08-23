@@ -496,10 +496,51 @@ public class ProtocolGroupEventConsumer {
     }
 
     /**
+     * 过滤完整资料快照中类型非法的单个资料字段。
+     *
+     * <p>资料快照还承载建群时间、创建者与完整成员列表。一个可选资料字段不合法时，只移除该字段并
+     * 告警，避免无关事实随整条消息进入 DLT；字段级变更事件仍直接使用严格校验，不走此降级路径。</p>
+     */
+    private static List<String> tolerantProfileFieldMask(
+            JsonNode data, List<String> fieldMask, String eventId,
+            String protocolBackend, String groupJid) {
+        List<String> accepted = new ArrayList<>(fieldMask.size());
+        for (String fieldName : fieldMask) {
+            try {
+                validateProfileMetadataField(data, fieldName);
+                accepted.add(fieldName);
+            } catch (BusinessException e) {
+                log.warn("协议群资料上报字段非法,已跳过该字段 eventId={} backend={} groupJid={} "
+                                + "fieldName={} rejectReason={}",
+                        eventId, protocolBackend, groupJid, fieldName, e.getMessage());
+            }
+        }
+        return List.copyOf(accepted);
+    }
+
+    /** 使用资料变更事件的同一类型规则校验完整快照中的一个已知字段；未知字段交给 group 域过滤。 */
+    private static void validateProfileMetadataField(JsonNode data, String fieldName) {
+        List<String> singleFieldMask = List.of(fieldName);
+        switch (fieldName.toLowerCase(Locale.ROOT)) {
+            case "subject" -> maskedText(data, singleFieldMask, "subject", true);
+            case "description" -> maskedText(data, singleFieldMask, "description", false);
+            case "announceonly" -> maskedBoolean(data, singleFieldMask, "announceOnly");
+            case "adminonlyeditinfo" -> maskedBoolean(data, singleFieldMask, "adminOnlyEditInfo");
+            case "memberaddmode" -> maskedBoolean(data, singleFieldMask, "memberAddMode");
+            case "joinapprovalmode" -> maskedBoolean(data, singleFieldMask, "joinApprovalMode");
+            case "ephemeraldurationseconds" -> maskedEphemeralDuration(data, singleFieldMask);
+            default -> {
+                // 未知字段由 group 域计数并跳过，不能阻塞同一快照里的已知事实。
+            }
+        }
+    }
+
+    /**
      * 校验并分派单群完整资料上报事件。
      *
-     * <p>资料字段沿用 {@code group.metadata_updated} 的 fieldMask 语义与类型校验；成员列表是本事件
-     * 独有的部分，允许缺省（表示本次只观察资料），但一旦出现就必须每项至少有一个合法身份。</p>
+     * <p>资料字段沿用 {@code group.metadata_updated} 的 fieldMask 语义与类型规则，但完整快照还承载
+     * 创建信息和成员事实，因此单个资料字段非法时只跳过该字段并告警。成员列表是本事件独有的部分，
+     * 允许缺省（表示本次只观察资料），但一旦出现就必须每项至少有一个合法身份。</p>
      *
      * <p>{@code membersComplete} 缺省为 false：退群判定必须由协议明确授权，缺字段时按"不能判定"
      * 处理，宁可漏判也不误判——误判会把在群成员标记为已退群，直接影响选号与拉群。</p>
@@ -524,7 +565,12 @@ public class ProtocolGroupEventConsumer {
             throw validation("协议群资料上报事件 groupJid 非法");
         }
         long occurredAt = requiredOccurredAt(envelope, data, "协议群资料上报事件 occurredAt 非法");
-        List<String> fieldMask = metadataFieldMask(data.path("fieldMask"));
+        List<String> fieldMask = tolerantProfileFieldMask(
+                data,
+                metadataFieldMask(data.path("fieldMask")),
+                eventId,
+                protocolBackend,
+                groupJid);
         List<ProtocolGroupProfileReportedEvent.Member> members =
                 snapshotMembers(data.path("members"));
         boolean membersComplete = data.path("membersComplete").isBoolean()

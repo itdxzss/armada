@@ -21,9 +21,10 @@ import org.mockito.quality.Strictness;
 /**
  * 锁定 group.profile_reported 的协议契约校验。
  *
- * <p>该事件是首次建档的逐群上报，同时承载资料字段与成员列表。最关键的约束是
- * {@code membersComplete}：它是退群判定的授权开关，缺省必须按"不能判定"处理，声明完整却给空列表
- * 必须直接拒绝——否则控端会把全群成员判为已退群。</p>
+ * <p>该事件是首次建档的逐群上报，同时承载资料字段与成员列表。单个资料字段不合法时只跳过该字段，
+ * 避免创建信息和成员事实被连带丢弃。最关键的结构约束仍是 {@code membersComplete}：它是退群判定的
+ * 授权开关，缺省必须按"不能判定"处理，声明完整却给空列表必须直接拒绝——否则控端会把全群成员
+ * 判为已退群。</p>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -137,18 +138,29 @@ class ProtocolGroupProfileReportedConsumerTest {
     }
 
     @Test
-    void reusesMetadataFieldValidationRules() {
-        // 资料字段的类型校验与 group.metadata_updated 共用同一套规则。
-        assertThatThrownBy(() -> consumer.onMessage(envelope("""
-                "fieldMask": ["announceOnly"],
-                "announceOnly": null
-                """), null))
-                .isInstanceOf(BusinessException.class);
-        assertThatThrownBy(() -> consumer.onMessage(envelope("""
-                "fieldMask": ["ephemeralDurationSeconds"],
-                "ephemeralDurationSeconds": -1
-                """), null))
-                .isInstanceOf(BusinessException.class);
+    void skipsInvalidProfileFieldsAndKeepsIndependentFacts() {
+        consumer.onMessage(envelope("""
+                "fieldMask": ["subject", "description", "announceOnly", "ephemeralDurationSeconds"],
+                "description": null,
+                "announceOnly": null,
+                "ephemeralDurationSeconds": -1,
+                "groupCreatedAt": 1787420521000,
+                "creatorPhone": "923206788780",
+                "membersComplete": true,
+                "members": [{"jid":"919000000002@s.whatsapp.net","phone":"919000000002"}]
+                """), null);
+
+        ProtocolGroupProfileReportedEvent event = captured();
+        assertThat(event.fieldMask())
+                .as("资料快照中的坏字段只跳过自身，合法字段继续落库")
+                .containsExactly("description");
+        assertThat(event.subject()).isNull();
+        assertThat(event.announceOnly()).isNull();
+        assertThat(event.ephemeralDurationSeconds()).isNull();
+        assertThat(event.groupCreatedAt()).isEqualTo(1787420521000L);
+        assertThat(event.creatorPhone()).isEqualTo("923206788780");
+        assertThat(event.membersComplete()).isTrue();
+        assertThat(event.members()).hasSize(1);
     }
 
     private ProtocolGroupProfileReportedEvent captured() {

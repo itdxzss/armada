@@ -4,7 +4,7 @@
   "environment": "test1",
   "safety": "read-only",
   "builds": {
-    "backend": "68140ac8c0d295a817e41e6e740568d69e7f1405",
+    "backend": "e30cd101a9c4cb1e36a8d17238b6e8000340354e",
     "frontend": "0bec41d0dcc2c89dad25ae5167eb6a22f7f107fa",
     "webProtocol": "068d5c256b2400924534281003e5f0680d82d158",
     "androidProtocol": "421830fd63609eaf5eda3ecfdd9b8e2a1eeb20ff"

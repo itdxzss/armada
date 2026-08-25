@@ -273,7 +273,7 @@ class QuickWrapperTest(unittest.TestCase):
         evaluator = next(row for row in calls if row["client"] == "evaluator")["arguments"]
         self.assertEqual(15, evaluator.count("--input"))
         self.assertEqual(6, evaluator.count("--expected-kafka-pair"))
-        self.assertEqual(6, evaluator.count("--expected-host-process"))
+        self.assertEqual(7, evaluator.count("--expected-host-process"))
         self.assertEqual(5, evaluator.count("--expected-redis-source"))
         self.assertEqual(5, evaluator.count("--expected-redis-node"))
         self.assertIn("default=primary", evaluator)

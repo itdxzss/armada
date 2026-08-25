@@ -29,11 +29,12 @@ KAFKA_PAIRS = (
     "protocol.normal-group.events.v1=armada-api-normal-group-results",
 )
 PM2_PROCESSES = (
-    "protocol-master",
-    "protocol-worker-1",
-    "protocol-worker-2",
-    "protocol-worker-3",
-    "protocol-worker-4",
+    "armada-protocol-master",
+    "armada-protocol-worker-1",
+    "armada-protocol-worker-2",
+    "armada-protocol-worker-3",
+    "armada-protocol-worker-4",
+    "protocol-runtime-collector",
     "protocol-traffic-dashboard",
 )
 REDIS_SOURCES = (

@@ -54,11 +54,12 @@ KAFKA_PAIRS = (
 )
 REDIS_SOURCES = ("default", "registry", "keys", "rate-limit", "runtime")
 WEB_PROCESSES = (
-    "protocol-master",
-    "protocol-worker-1",
-    "protocol-worker-2",
-    "protocol-worker-3",
-    "protocol-worker-4",
+    "armada-protocol-master",
+    "armada-protocol-worker-1",
+    "armada-protocol-worker-2",
+    "armada-protocol-worker-3",
+    "armada-protocol-worker-4",
+    "protocol-runtime-collector",
     "protocol-traffic-dashboard",
 )
 

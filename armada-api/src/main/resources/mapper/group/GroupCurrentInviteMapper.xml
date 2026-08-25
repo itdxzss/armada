@@ -2,12 +2,29 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupCurrentInviteMapper">
 
+  <select id="selectLegacyGroupLinkIdByIdForUpdate" resultType="java.lang.Long">
+    SELECT id
+    FROM group_link FORCE INDEX (PRIMARY)
+    WHERE tenant_id = #{tenantId}
+      AND id = #{groupLinkId}
+    ORDER BY id ASC
+    FOR UPDATE
+  </select>
+
   <select id="selectGroupId" resultType="java.lang.Long">
     SELECT id
     FROM wa_group
     WHERE tenant_id = #{tenantId}
       AND group_jid = #{groupJid}
       AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <select id="selectAnyGroupId" resultType="java.lang.Long">
+    SELECT id
+    FROM wa_group
+    WHERE tenant_id = #{tenantId}
+      AND group_jid = #{groupJid}
     LIMIT 1
   </select>
 
@@ -31,8 +48,17 @@
     FOR UPDATE
   </select>
 
+  <select id="selectGroupIdByIdForUpdate" resultType="java.lang.Long">
+    SELECT id
+    FROM wa_group FORCE INDEX (PRIMARY)
+    WHERE tenant_id = #{tenantId}
+      AND id = #{groupId}
+    ORDER BY id ASC
+    FOR UPDATE
+  </select>
+
   <insert id="lockProfile">
-    <!-- 先取得 wa_group_profile 行锁，再写 wa_group_invite，统一锁顺序。 -->
+    <!-- GL、G PRIMARY 均已锁定；随后固定 PROFILE→INVITE。 -->
     INSERT INTO wa_group_profile (
       tenant_id, group_id, created_at, updated_at
     ) VALUES (
@@ -128,21 +154,18 @@
   </update>
 
   <update id="updateGroupHealth">
-    UPDATE wa_group_profile profile
-    INNER JOIN wa_group wa_group
-      ON wa_group.tenant_id = profile.tenant_id
-     AND wa_group.id = profile.group_id
-    SET profile.health_status = #{health.healthStatus},
-        profile.banned = #{health.banned},
-        profile.checked_member_count = COALESCE(
-          #{health.currentCount}, profile.checked_member_count
+    UPDATE wa_group_profile
+    SET health_status = #{health.healthStatus},
+        banned = #{health.banned},
+        checked_member_count = COALESCE(
+          #{health.currentCount}, checked_member_count
         ),
-        profile.last_checked_at = #{health.lastCheckAt},
-        profile.last_error_code = LEFT(#{health.lastHealthError}, 64),
-        profile.failure_count = #{health.healthFailureCount},
-        profile.updated_at = #{now}
-    WHERE profile.tenant_id = #{tenantId}
-      AND wa_group.group_jid = #{groupJid}
+        last_checked_at = #{health.lastCheckAt},
+        last_error_code = LEFT(#{health.lastHealthError}, 64),
+        failure_count = #{health.healthFailureCount},
+        updated_at = #{now}
+    WHERE tenant_id = #{tenantId}
+      AND group_id = #{groupId}
   </update>
 
   <select id="selectGroupHealth"

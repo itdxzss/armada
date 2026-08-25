@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-08-26 / `codex/fix-account-group-sync-backlog` / `account-group-sync-backlog-1.0.3`
 - 需求来源: test1 `protocol.account.group-sync.events.v1` / `armada-api-account-group-sync-events` 实测积压与锁等待诊断
-- 状态: test1 首轮反馈已修复并完成本地独立审查，待重新提交与部署验证
+- 状态: test1 两轮候选均因真实并发死锁判定 FAIL；第三轮锁序修复已完成本地独立审查，待提交与部署验证
 
 ## 目标（一句话）
 
@@ -102,6 +102,15 @@ DOCKER_HOST=unix:///Users/daishuaishuai/.orbstack/run/docker.sock \
 - 独立审查：PASS，0 BLOCKER / 0 IMPORTANT。
 - 验证：Unit/H2/migration 21/21；核心 MySQL 7/7；soft-delete 锁序 1/1；`GroupCurrentLocalWriteMySqlTest` 25/25；snapshot MySQL 31 项中 28 通过，剩余 3 项已在未修改基线、同一 MySQL 8.4.8 中逐字复现。
 
+### test1 第二轮反馈与第三轮修复
+
+- 第二轮候选启动后，严格按新容器 `startedAt` 观察到 16 个唯一 deadlock；全部发生在 `GROUP_REPORT`，受害 SQL 均为 `wa_group_profile` 批量 upsert。每个事件都在 Kafka 下一次投递成功，未观察到 lock timeout、phone 唯一键冲突或 DLT，但并发正确性门禁仍判定 FAIL。
+- 门禁窗口内 group-sync lag 为 `12,914 → 11,075 → 10,736`，其余 5 个 consumer group 始终为 0；容器 restart=0、OOM=false。成功处理样本 p50=664 ms、p95=5,205 ms、max=14,777 ms，后端 CPU 一度接近 99%。lag 下降不能覆盖死锁事实，因此没有启动正式 Quick、WhatsApp canary 或 soak。
+- 运行账号没有 MySQL `PROCESS` 权限，且 `innodb_print_all_deadlocks=0`，无法从历史事件恢复完整 wait graph。本轮不声称已识别线上每一次 deadlock 的确切对手 SQL；修复依据是生产调用链中可证明的反向锁序，并用真实 MySQL 8.4.8 RR 确定性 barrier 逐条复现。
+- 当前邀请码、资料上报和健康写统一锁序：显式邀请码 `GL → G(PRIMARY) → PROFILE → INVITE`；已有群 `G → PROFILE → INVITE`；软删群先锁 G 主键再复活；公开预览 `GL → INVITE`；群绑定 `GL → G`；资料上报在任何 PROFILE/P/B 写前建立 `GL → G` 边界；健康写为 `G(PRIMARY) → PROFILE`。
+- 红灯覆盖：显式邀请码 `GL ↔ PROFILE`、metadata `G ↔ PROFILE`、缺建群时间的 profile-reported `G ↔ PROFILE`、bindGroup `G ↔ GL`、公开预览 `INVITE ↔ GL`，旧实现均由 production mapper + MySQL RR barrier 稳定触发真实 deadlock 或顺序失败；修复后对应 barrier 与 SQL 顺序全部转绿，没有加入重试掩盖锁环。
+- 第三轮冻结验证：相关单测 68/68；主控独立选择的 14 条核心 MySQL 并发/锁序 14/14；`GroupCurrentLocalWriteMySqlTest` 25/25；snapshot MySQL 40 项中 38 通过，唯一 2 个失败已在未修改基线逐字复现；`mvn -DskipTests package`、mapper XML、`git diff --check` 均通过。独立审查结论 PASS，0 BLOCKER / 0 IMPORTANT。
+
 ## 独立审查
 
 - 结论：**PASS，0 BLOCKER / 0 IMPORTANT**。
@@ -110,7 +119,7 @@ DOCKER_HOST=unix:///Users/daishuaishuai/.orbstack/run/docker.sock \
 
 ## 遗留 / 跟进
 
-- test1 部署已获用户授权，但本轮未执行；部署时保留现有 4 consumer 与 offset/DLT，部署后立即观察 lock wait、单条消费耗时和 lag，异常则停止后续 canary/soak。
+- 第三轮 test1 部署已获用户授权但尚未执行；部署时保留现有 4 consumer 与 offset/DLT，部署后至少观察 500 个唯一群报告且不少于 5 分钟，同时检查 deadlock、DuplicateKey、lock timeout、DLT、单条耗时、CPU/内存和 lag。任一 deadlock 或版本/观测证据不完整，都停止后续 Quick/canary/soak。
 - 阶段间短暂可见和 DLT 残留是有意风险边界；若业务不能接受辅助句柄/分类先可见，需要更大范围的 outbox/状态机设计，不属于本次止血修复。
 - 为统一 GL→W 锁序，phase2 会按主键升序预锁本事件涉及的 legacy GL，并持有到当前事实事务提交。它消除了已复现的环，但共享群仍会串行；本地并发回归不能替代测试环境对单条消费耗时、InnoDB lock wait、lag 下降和 1h/6h/24h soak 的观察。
 - 模块全量 DB 测试需要项目统一提供隔离测试数据源/schema，不能用本次修复顺手扩大处理。

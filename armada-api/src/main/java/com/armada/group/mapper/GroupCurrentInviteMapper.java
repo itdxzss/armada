@@ -11,7 +11,15 @@ import org.apache.ibatis.annotations.Param;
 @InterceptorIgnore(tenantLine = "true")
 public interface GroupCurrentInviteMapper {
 
+    Long selectLegacyGroupLinkIdByIdForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("groupLinkId") Long groupLinkId);
+
     Long selectGroupId(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJid") String groupJid);
+
+    Long selectAnyGroupId(
             @Param("tenantId") Long tenantId,
             @Param("groupJid") String groupJid);
 
@@ -23,6 +31,10 @@ public interface GroupCurrentInviteMapper {
     Long selectGroupIdForUpdate(
             @Param("tenantId") Long tenantId,
             @Param("groupJid") String groupJid);
+
+    Long selectGroupIdByIdForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("groupId") Long groupId);
 
     int lockProfile(
             @Param("tenantId") Long tenantId,
@@ -65,7 +77,7 @@ public interface GroupCurrentInviteMapper {
 
     int updateGroupHealth(
             @Param("tenantId") Long tenantId,
-            @Param("groupJid") String groupJid,
+            @Param("groupId") Long groupId,
             @Param("health") GroupLinkHealth health,
             @Param("now") long now);
 

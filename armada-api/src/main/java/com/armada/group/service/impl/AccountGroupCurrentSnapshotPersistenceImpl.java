@@ -706,6 +706,37 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         replaceCompleteSnapshot(groupJid, participants, snapshotAt, snapshotVersion, null);
     }
 
+    /**
+     * 在单群资料上报写 PROFILE/P/B 前建立统一的旧句柄、群主键写入边界。
+     *
+     * <p>资料字段 patch 本身只按 JID 普通读取群主键，不能承担锁序；完整成员快照又会在之后才锁
+     * {@code wa_group}。入口必须先走 GL→G(PRIMARY)，否则缺少建群时间的事件会形成
+     * PROFILE→G，与账号群报告的 G→PROFILE 反向。</p>
+     *
+     * @param groupLinkId 本事件刚登记或复用的兼容群句柄，可空
+     * @param groupJid WhatsApp 群 JID
+     * @return 已锁定的 {@code wa_group.id}
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long lockGroupWriteBoundary(Long groupLinkId, String groupJid) {
+        Long tenantId = requiredTenantId();
+        String normalizedGroupJid = participantGroupJid(groupJid);
+        if (groupLinkId != null) {
+            List<Long> lockedIds = mapper.selectLegacyGroupHandleIdsByIdsForUpdate(
+                    tenantId, List.of(groupLinkId));
+            if (lockedIds.size() != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定资料上报的旧群句柄");
+            }
+        }
+        Long groupId = resolveGroupIds(
+                tenantId, List.of(normalizedGroupJid), System.currentTimeMillis())
+                .get(normalizedGroupJid);
+        if (groupId == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定资料上报的群写入边界");
+        }
+        return groupId;
+    }
+
     /** 将现有群详情成功结果同步写入新模型群资料和完整成员快照。 */
     @Transactional(rollbackFor = Exception.class)
     public void replaceCompleteGroupMetadataSnapshot(

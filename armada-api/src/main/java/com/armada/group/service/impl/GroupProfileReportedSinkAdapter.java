@@ -80,6 +80,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         TenantContext.set(event.tenantId());
         try {
             Long groupLinkId = registerGroupLink(event);
+            // 任何 PROFILE/P/B 写之前先统一取得 GL→G(PRIMARY)；groupCreatedAt 为空也不能跳过。
+            snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
             writeCreator(event, groupLinkId);
             queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。

@@ -372,6 +372,23 @@ class GroupProfileReportedSinkAdapterTest {
         verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", null);
     }
 
+    @Test
+    void missingCreationTimeStillLocksGroupBeforeProfileAndMembers() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(snapshotPersistence, patchService);
+        order.verify(snapshotPersistence)
+                .lockGroupWriteBoundary(77L, "120363-abc@g.us");
+        order.verify(snapshotPersistence)
+                .fillGroupCreatedAt("120363-abc@g.us", null);
+        order.verify(patchService).applyPatch(any(GroupMetadataPatch.class));
+        order.verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
+                anyString(), any(), anyLong(), anyString());
+    }
+
     private static ProtocolGroupProfileReportedEvent event(
             boolean membersComplete,
             List<ProtocolGroupProfileReportedEvent.Member> members,

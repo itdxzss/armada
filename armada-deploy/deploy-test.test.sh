@@ -688,7 +688,7 @@ test_protocol_dry_run_is_protocol_only() {
   assert_not_contains "${out}" "前端构建"
 }
 
-test_protocol_transport_is_direct_for_test1() {
+test_protocol_transport_uses_test1_jump_for_ssh_and_rsync() {
   local command_log
   setup_protocol_command_fixture
   run_protocol_with_command_stubs --env test1 --protocol -y >/dev/null
@@ -697,7 +697,11 @@ test_protocol_transport_is_direct_for_test1() {
 
   assert_contains "${command_log}" "SSH <-i> <${PROTOCOL_FIXTURE_KEY}>"
   assert_contains "${command_log}" "RSYNC <--stats> <-az> <--delete> <-e> <ssh -i '${PROTOCOL_FIXTURE_KEY}'"
-  assert_not_contains "${command_log}" "ProxyCommand="
+  assert_contains "${command_log}" "ProxyCommand=ssh"
+  assert_contains "${command_log}" "${PROTOCOL_FIXTURE_JUMP_KEY}"
+  assert_contains "${command_log}" "ubuntu@65.2.123.53"
+  [ "$(grep -c 'ProxyCommand=ssh' <<<"${command_log}")" -ge 2 ] \
+    || fail "expected test1 jump ProxyCommand in both ssh and rsync"
 }
 
 test_protocol_transport_uses_perf2_jump_for_ssh_and_rsync() {
@@ -845,6 +849,7 @@ test_test1_profile_uses_three_node_android_fleet() {
   assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_EXPECTED_NODES=3"
   assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_COORDINATOR_PORT=9100"
   assert_contains "${profile_content}" "EXPECTED_ANDROID_BASE_URL=http://172.31.13.65:9100"
+  assert_contains "${profile_content}" "EXPECTED_PROTOCOL_BASE_URL=http://172.31.3.208:8080"
   assert_not_contains "${profile_content}" "PROFILE_ZHUAN_HOST="
   assert_not_contains "${profile_content}" "PROFILE_ZHUAN_COMPOSE_FILE="
 }
@@ -1550,7 +1555,7 @@ test_zhuan_perf_uses_perf_compose_without_local_redis
 test_zhuan_rsync_filters_preserve_runtime_files_and_modes
 test_help_mentions_protocol_scope
 test_protocol_dry_run_is_protocol_only
-test_protocol_transport_is_direct_for_test1
+test_protocol_transport_uses_test1_jump_for_ssh_and_rsync
 test_protocol_transport_uses_perf2_jump_for_ssh_and_rsync
 test_protocol_local_build_failure_prevents_remote_commands
 test_protocol_local_build_precedes_remote_sync

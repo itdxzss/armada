@@ -221,10 +221,11 @@ deep_check_zhuan() {
 }
 
 deep_check_cross_component() {
-  local android_url_quoted protocol_host_quoted public_url_quoted
+  local android_url_quoted protocol_health_url protocol_health_url_quoted public_host public_host_quoted
   info "[check] Cross-component"
-  protocol_host_quoted="$(shell_single_quote "${PROTOCOL_SSH_HOST}")"
-  ssh_run "curl -fsS -m 8 'http://${protocol_host_quoted}:${PROTOCOL_HEALTH_PORT}/readyz' >/dev/null"
+  protocol_health_url="${EXPECTED_PROTOCOL_BASE_URL:-http://${PROTOCOL_SSH_HOST}:${PROTOCOL_HEALTH_PORT}}"
+  protocol_health_url_quoted="$(shell_single_quote "${protocol_health_url}")"
+  ssh_run "curl -fsS -m 8 '${protocol_health_url_quoted}/readyz' >/dev/null"
   if [ -n "${EXPECTED_ANDROID_BASE_URL}" ]; then
     android_url_quoted="$(shell_single_quote "${EXPECTED_ANDROID_BASE_URL}")"
     if [ "${ZHUAN_DEPLOY_MODE}" = fleet ]; then
@@ -233,8 +234,11 @@ deep_check_cross_component() {
       ssh_run "curl -fsS -m 8 '${android_url_quoted}/swagger/index.html' >/dev/null"
     fi
   fi
-  public_url_quoted="$(shell_single_quote "${PUBLIC_URL}")"
-  curl -fsS -m 8 "${public_url_quoted}" >/dev/null
+  public_host="${PUBLIC_URL#http://}"
+  public_host="${public_host%%/*}"
+  public_host_quoted="$(shell_single_quote "${public_host}")"
+  # EC2 访问自身公网地址可能不支持 hairpin；从目标机经本机 Nginx 并带真实 Host 头验证同一站点路由。
+  ssh_run "curl -fsS -m 8 -H 'Host: ${public_host_quoted}' http://127.0.0.1/ >/dev/null"
   ok "[check] Cross-component"
 }
 

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "profile": "test1-quick",
+  "environment": "test1",
+  "safety": "read-only",
+  "builds": {
+    "backend": "95562d64d7cd7cbb8bb0235dded692c781a39bdc",
+    "frontend": "0bec41d0dcc2c89dad25ae5167eb6a22f7f107fa",
+    "webProtocol": "14017901177527757d8e56922475e9c461e4c547",
+    "androidProtocol": "c66ca97aad18a49ce59a0aab762c70c58d13fee1"
+  },
+  "stages": [
+    {
+      "id": "candidate-bind",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 30
+    },
+    {
+      "id": "deep-check",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "runtime-versions",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 120
+    },
+    {
+      "id": "ui-smoke",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "observe-start",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 660
+    },
+    {
+      "id": "quick-midpoint",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 45
+    },
+    {
+      "id": "observe-peak",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 660
+    },
+    {
+      "id": "quick-endpoint",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 45
+    },
+    {
+      "id": "observe-end",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 660
+    },
+    {
+      "id": "evaluate-quick",
+      "command": [
+        "/usr/local/libexec/staging-accept/test1-quick"
+      ],
+      "timeoutSeconds": 120
+    }
+  ]
+}

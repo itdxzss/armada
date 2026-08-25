@@ -163,6 +163,33 @@ class ProtocolGroupProfileReportedConsumerTest {
         assertThat(event.members()).hasSize(1);
     }
 
+    @Test
+    void acceptsLegacyCreatedAtDuringRollingProtocolUpgrade() {
+        consumer.onMessage(envelope("""
+                "fieldMask": ["subject"],
+                "subject": "Alpha",
+                "createdAt": 1787393306000
+                """), null);
+
+        assertThat(captured().groupCreatedAt())
+                .as("旧 Web worker 在滚动升级期间仍可能发送 createdAt")
+                .isEqualTo(1787393306000L);
+    }
+
+    @Test
+    void prefersCanonicalGroupCreatedAtWhenBothFieldsArePresent() {
+        consumer.onMessage(envelope("""
+                "fieldMask": ["subject"],
+                "subject": "Alpha",
+                "groupCreatedAt": 1787393306000,
+                "createdAt": 1787393046000
+                """), null);
+
+        assertThat(captured().groupCreatedAt())
+                .as("新旧 worker 字段同时出现时必须以统一契约字段为准")
+                .isEqualTo(1787393306000L);
+    }
+
     private ProtocolGroupProfileReportedEvent captured() {
         ArgumentCaptor<ProtocolGroupProfileReportedEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupProfileReportedEvent.class);

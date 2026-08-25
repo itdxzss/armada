@@ -601,7 +601,7 @@ public class ProtocolGroupEventConsumer {
                 occurredAt,
                 // 建群时间与创建者不进 fieldMask：它们建群时定死、此后不变，
                 // 与可变的群资料字段不是一个生命周期。
-                positiveLong(data, "groupCreatedAt"),
+                groupCreatedAt(data),
                 text(data, "creatorPhone"),
                 text(envelope, "workerId"),
                 text(data, "commandId"));
@@ -1178,6 +1178,17 @@ public class ProtocolGroupEventConsumer {
     private static Long positiveLong(JsonNode node, String fieldName) {
         Long value = longValue(node, fieldName);
         return value == null || value <= 0 ? null : value;
+    }
+
+    /**
+     * 读取群创建时间，优先使用统一契约字段并兼容旧 Web worker 字段。
+     *
+     * <p>协议 worker 滚动部署期间两种字段会短暂并存；后端先兼容旧字段，才能保证旧 worker
+     * 与 Kafka 中尚未消费的旧消息不会继续丢失建群时间。</p>
+     */
+    private static Long groupCreatedAt(JsonNode data) {
+        Long canonicalValue = positiveLong(data, "groupCreatedAt");
+        return canonicalValue != null ? canonicalValue : positiveLong(data, "createdAt");
     }
 
     private static Boolean booleanValue(JsonNode node, String fieldName) {

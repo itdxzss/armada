@@ -1,5 +1,6 @@
 readonly TEST1_BASE_URL_HTTP='http://armada.65.2.123.53.nip.io/'
 readonly TEST1_BASE_URL_HTTPS='https://armada.65.2.123.53.nip.io/'
+readonly TEST1_BASE_URL_LOOPBACK_HTTP='http://127.0.0.1/'
 
 fail() {
   printf 'ui-smoke: %s\n' "$1" >&2
@@ -160,7 +161,8 @@ validate_target() {
 
   [ "${ENVIRONMENT}" = 'test1' ] || fail 'ENVIRONMENT must be test1'
   if [ "${ARMADA_E2E_BASE_URL}" = "${TEST1_BASE_URL_HTTP}" ] \
-    || [ "${ARMADA_E2E_BASE_URL}" = "${TEST1_BASE_URL_HTTPS}" ]; then
+    || [ "${ARMADA_E2E_BASE_URL}" = "${TEST1_BASE_URL_HTTPS}" ] \
+    || [ "${ARMADA_E2E_BASE_URL}" = "${TEST1_BASE_URL_LOOPBACK_HTTP}" ]; then
     return
   fi
   if [ "${test_mode}" = '1' ] \

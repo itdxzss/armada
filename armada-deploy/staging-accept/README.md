@@ -62,14 +62,16 @@ Runner 启动 stage 时继承 daemon 的现有环境，并只替换以下三个 
 `wrappers/ui-smoke.sh` 是 Runner 调用 Playwright 的固定、无参数入口。正式模式只使用
 `/var/lib/staging-accept/workspace/wheel-saas-pure-web`、`/usr/local/bin/pnpm` 和已下载到
 `/var/lib/staging-accept/.cache/ms-playwright` 的 Chromium；测试目标只允许
-`http(s)://armada.65.2.123.53.nip.io/`，且 `ENVIRONMENT` 必须为 `test1`。
+`http(s)://armada.65.2.123.53.nip.io/` 或同机 nginx 的固定 `http://127.0.0.1/`（不接受端口或
+`localhost` 别名），且 `ENVIRONMENT` 必须为 `test1`。loopback 只验证应用、nginx 与 API 代理，
+不代表公网入口或安全组连通。
 
 凭据保存在 `/etc/staging-accept/ui-smoke.env`，文件必须是 `root:staging-accept`、权限 `0640`，
 并且只能包含以下四个键（值可用一对单引号或双引号包裹，内容不会做 shell 展开）：
 
 ```dotenv
 ENVIRONMENT=test1
-ARMADA_E2E_BASE_URL=http://armada.65.2.123.53.nip.io/
+ARMADA_E2E_BASE_URL=http://127.0.0.1/
 ARMADA_E2E_USERNAME=<dedicated-test-user>
 ARMADA_E2E_PASSWORD=<dedicated-test-password>
 ```

@@ -116,6 +116,12 @@ expect_failure() {
   fi
 }
 
+production_target_is_valid() (
+  ENVIRONMENT='test1'
+  ARMADA_E2E_BASE_URL="$1"
+  validate_target 0
+)
+
 test_missing_secret_file_fails_closed() {
   expect_failure "missing secret file" \
     run_wrapper "${FIXTURE_ROOT}/missing.env" "${RUN_DIR}"
@@ -155,6 +161,26 @@ test_non_test1_url_is_rejected() {
   expect_failure "non-test1 environment" \
     run_wrapper "${SECRET_FILE}" "${RUN_DIR}"
   assert_contains "${OUTPUT_LOG}" 'ENVIRONMENT must be test1'
+}
+
+test_production_loopback_target_is_exact() {
+  production_target_is_valid 'http://127.0.0.1/'
+
+  expect_failure "loopback URL without trailing slash" \
+    production_target_is_valid 'http://127.0.0.1'
+  assert_contains "${OUTPUT_LOG}" 'base URL must be the fixed test1 URL'
+
+  expect_failure "loopback URL with explicit port" \
+    production_target_is_valid 'http://127.0.0.1:80/'
+  assert_contains "${OUTPUT_LOG}" 'base URL must be the fixed test1 URL'
+
+  expect_failure "HTTPS loopback URL" \
+    production_target_is_valid 'https://127.0.0.1/'
+  assert_contains "${OUTPUT_LOG}" 'base URL must be the fixed test1 URL'
+
+  expect_failure "localhost alias" \
+    production_target_is_valid 'http://localhost/'
+  assert_contains "${OUTPUT_LOG}" 'base URL must be the fixed test1 URL'
 }
 
 test_run_directory_traversal_and_symlink_escape_are_rejected() {
@@ -220,6 +246,7 @@ test_missing_secret_file_fails_closed
 test_unsafe_secret_permissions_fail_closed
 test_secret_symlink_is_rejected
 test_non_test1_url_is_rejected
+test_production_loopback_target_is_exact
 test_run_directory_traversal_and_symlink_escape_are_rejected
 test_command_is_fixed_and_secrets_are_not_logged
 test_playwright_failure_exit_is_preserved

@@ -1,0 +1,1 @@
+{"updatedAt":1799999995000,"running":true,"collector":{"dropped":0,"sinkFailures":0},"writer":{"writeFailures":0,"serializeFailures":0,"filesDropped":0},"aggregator":{"overflowed":0},"redundancy":{"pendingDropped":0}}

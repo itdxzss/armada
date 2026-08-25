@@ -1,0 +1,20 @@
+# Server
+redis_version:7.2.5
+# Clients
+connected_clients:42
+blocked_clients:0
+# Memory
+used_memory:104857600
+used_memory_rss:125829120
+used_memory_peak:157286400
+maxmemory:1073741824
+# Stats
+instantaneous_ops_per_sec:321
+total_net_input_bytes:987654321
+total_net_output_bytes:1234567890
+total_commands_processed:7654321
+evicted_keys:0
+expired_keys:4567
+keyspace_hits:900000
+keyspace_misses:100000
+rejected_connections:0

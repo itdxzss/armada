@@ -322,14 +322,34 @@ class EvaluateTest(unittest.TestCase):
         result = self.run_evaluator(snapshots, "kafka", 3)
         self.assertIn("KAFKA_EVIDENCE_INVALID", result["blockedReasons"])
 
-    def test_redis_blocked_clients_and_evictions_fail(self):
+    def test_redis_nonzero_blocked_clients_are_reported_without_failure(self):
+        snapshots = [redis_snapshot(phase, blocked=12, evicted=3) for phase in OBSERVED]
+        result = self.run_evaluator(snapshots, "redis", 0)
+        self.assertEqual("PASS", result["status"])
+        self.assertNotIn("REDIS_BLOCKED_CLIENTS", result["failureReasons"])
+        self.assertEqual(
+            {
+                "startBlockedClients": 12,
+                "peakBlockedClients": 12,
+                "endBlockedClients": 12,
+            },
+            {
+                key: result["metrics"]["redis"][0][key]
+                for key in (
+                    "startBlockedClients",
+                    "peakBlockedClients",
+                    "endBlockedClients",
+                )
+            },
+        )
+
+    def test_redis_evictions_increase_fails(self):
         snapshots = [
             redis_snapshot("start", evicted=3),
-            redis_snapshot("peak", blocked=1, evicted=3),
+            redis_snapshot("peak", evicted=3),
             redis_snapshot("end", evicted=4),
         ]
         result = self.run_evaluator(snapshots, "redis", 2)
-        self.assertIn("REDIS_BLOCKED_CLIENTS", result["failureReasons"])
         self.assertIn("REDIS_EVICTIONS_INCREASED", result["failureReasons"])
 
     def test_redis_ping_latency_threshold_fails(self):

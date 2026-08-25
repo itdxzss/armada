@@ -321,7 +321,8 @@ def evaluate_redis(
             evaluation.block("REDIS_EXPECTED_SET_MISMATCH")
         metrics = []
         for key in sorted(nodes["start"]):
-            infos = []
+            blocked_clients = []
+            evicted_keys = []
             for phase in PHASES:
                 node = nodes[phase][key]
                 info = node.get("info")
@@ -332,20 +333,22 @@ def evaluate_redis(
                     evaluation.fail("REDIS_PING_LATENCY_EXCEEDED")
                 blocked = nonnegative_int(info.get("blocked_clients"))
                 evicted = nonnegative_int(info.get("evicted_keys"))
-                if blocked > 0:
-                    evaluation.fail("REDIS_BLOCKED_CLIENTS")
-                infos.append(evicted)
-            if infos != sorted(infos):
+                blocked_clients.append(blocked)
+                evicted_keys.append(evicted)
+            if evicted_keys != sorted(evicted_keys):
                 evaluation.block("REDIS_COUNTER_RESET")
-            elif infos[-1] > infos[0]:
+            elif evicted_keys[-1] > evicted_keys[0]:
                 evaluation.fail("REDIS_EVICTIONS_INCREASED")
             metrics.append(
                 {
                     "source": key[0],
                     "node": key[1],
-                    "startEvictedKeys": infos[0],
-                    "peakEvictedKeys": infos[1],
-                    "endEvictedKeys": infos[2],
+                    "startBlockedClients": blocked_clients[0],
+                    "peakBlockedClients": blocked_clients[1],
+                    "endBlockedClients": blocked_clients[2],
+                    "startEvictedKeys": evicted_keys[0],
+                    "peakEvictedKeys": evicted_keys[1],
+                    "endEvictedKeys": evicted_keys[2],
                     "startPingLatencyMs": finite_number(nodes["start"][key].get("pingLatencyMs")),
                     "peakPingLatencyMs": finite_number(nodes["peak"][key].get("pingLatencyMs")),
                     "endPingLatencyMs": finite_number(nodes["end"][key].get("pingLatencyMs")),

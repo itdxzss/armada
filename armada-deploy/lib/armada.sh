@@ -105,8 +105,8 @@ armada_sync_backend() {
 }
 
 armada_sync_frontend() {
-  # Keep old hashed chunks because browsers may still reference cached entry bundles.
-  armada_rsync "frontend dist" -az -e "${RSYNC_SSH}" \
+  # Mirror only the explicit dist root so stale Vite hash assets cannot accumulate remotely.
+  armada_rsync "frontend dist" -az --delete-delay -e "${RSYNC_SSH}" \
     "${FRONTEND_DIR}/dist/" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/wheel-saas-pure-web/dist/"
 }

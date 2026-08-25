@@ -1351,6 +1351,36 @@ test_armada_start_applies_normal_group_environment_contract() {
   rm -f "${command_log}"
 }
 
+test_armada_frontend_sync_mirrors_only_remote_dist() {
+  local command_log
+  command_log="$(mktemp)"
+  ARMADA_TEST_LOG="${command_log}" bash -c '
+    set -euo pipefail
+    . "'"${SCRIPT_DIR}"'/lib/armada.sh"
+    FRONTEND_DIR=/workspace/wheel-saas-pure-web
+    SSH_USER=ubuntu
+    SSH_HOST=192.0.2.10
+    REMOTE_DIR=/home/app/armada-deploy
+    RSYNC_SSH="ssh transport"
+    armada_rsync() { printf "%s\n" "$@" >"${ARMADA_TEST_LOG}"; }
+    armada_sync_frontend
+  '
+
+  [ "$(wc -l <"${command_log}" | tr -d "[:space:]")" = 7 ] \
+    || fail "expected seven frontend rsync arguments"
+  [ "$(sed -n '1p' "${command_log}")" = "frontend dist" ] \
+    || fail "expected frontend rsync label"
+  [ "$(sed -n '2p' "${command_log}")" = "-az" ] \
+    || fail "expected frontend archive/compression flags"
+  [ "$(sed -n '3p' "${command_log}")" = "--delete-delay" ] \
+    || fail "expected delayed deletion of stale frontend assets"
+  [ "$(sed -n '6p' "${command_log}")" = "/workspace/wheel-saas-pure-web/dist/" ] \
+    || fail "expected local dist as the mirrored source"
+  [ "$(sed -n '7p' "${command_log}")" = "ubuntu@192.0.2.10:/home/app/armada-deploy/wheel-saas-pure-web/dist/" ] \
+    || fail "expected deletion scope to be the explicit remote dist directory"
+  rm -f "${command_log}"
+}
+
 test_armada_module_checks_frontend_title_and_api_proxy() {
   local command_log content
   command_log="$(mktemp)"
@@ -1596,6 +1626,7 @@ test_armada_backend_readiness_is_bounded
 test_armada_backend_readiness_stops_after_success
 test_armada_perf_runtime_contract_checks_android_url_and_topics
 test_armada_start_applies_normal_group_environment_contract
+test_armada_frontend_sync_mirrors_only_remote_dist
 test_armada_module_checks_frontend_title_and_api_proxy
 test_armada_module_preserves_unauthenticated_response_body
 test_deep_check_preserves_unauthenticated_response_body

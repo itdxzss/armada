@@ -17,9 +17,13 @@ public class ProtocolAccountGroupSyncEventConsumerProperties {
     /** 默认单实例 listener 并发数。 */
     public static final int DEFAULT_CONCURRENCY = 4;
 
+    /** 默认每次 poll 只取一条重型群快照，避免批处理超过 Kafka poll 超时。 */
+    public static final int DEFAULT_MAX_POLL_RECORDS = 1;
+
     private String topic = DEFAULT_TOPIC;
     private String groupId = DEFAULT_GROUP_ID;
     private int concurrency = DEFAULT_CONCURRENCY;
+    private int maxPollRecords = DEFAULT_MAX_POLL_RECORDS;
 
     /**
      * 获取账号群同步事件 topic。
@@ -73,5 +77,23 @@ public class ProtocolAccountGroupSyncEventConsumerProperties {
      */
     public void setConcurrency(int concurrency) {
         this.concurrency = concurrency;
+    }
+
+    /**
+     * 获取单次 poll 最大群同步事件数。
+     *
+     * @return 单次 poll 最大记录数
+     */
+    public int getMaxPollRecords() {
+        return maxPollRecords;
+    }
+
+    /**
+     * 设置单次 poll 最大群同步事件数。
+     *
+     * @param maxPollRecords 单次 poll 最大记录数
+     */
+    public void setMaxPollRecords(int maxPollRecords) {
+        this.maxPollRecords = maxPollRecords;
     }
 }

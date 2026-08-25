@@ -48,6 +48,9 @@ class ProtocolAccountEventConsumerPropertiesTest {
                     .containsProperty("armada.protocol.kafka.account-group-sync-events.concurrency"))
                     .isTrue();
             assertThat(context.getEnvironment()
+                    .containsProperty("armada.protocol.kafka.account-group-sync-events.max-poll-records"))
+                    .isTrue();
+            assertThat(context.getEnvironment()
                     .containsProperty("armada.protocol.kafka.account-event-errors.retry-interval-ms"))
                     .isTrue();
 
@@ -69,6 +72,8 @@ class ProtocolAccountEventConsumerPropertiesTest {
                     .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_GROUP_ID);
             assertThat(groupSyncProperties.getConcurrency())
                     .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_CONCURRENCY);
+            assertThat(groupSyncProperties.getMaxPollRecords())
+                    .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_MAX_POLL_RECORDS);
             assertThat(errorProperties.getRetryIntervalMs())
                     .isEqualTo(ProtocolAccountEventErrorProperties.DEFAULT_RETRY_INTERVAL_MS);
             assertThat(errorProperties.getMaxRetryAttempts())

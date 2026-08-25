@@ -155,7 +155,8 @@ public class ProtocolAccountEventConsumer {
     @KafkaListener(
             topics = "${armada.protocol.kafka.account-group-sync-events.topic:protocol.account.group-sync.events.v1}",
             groupId = "${armada.protocol.kafka.account-group-sync-events.group-id:armada-api-account-group-sync-events}",
-            concurrency = "${armada.protocol.kafka.account-group-sync-events.concurrency:4}")
+            concurrency = "${armada.protocol.kafka.account-group-sync-events.concurrency:4}",
+            properties = "max.poll.records=${armada.protocol.kafka.account-group-sync-events.max-poll-records:1}")
     public void onGroupSyncMessage(
             String rawMessage,
             @Header(name = TraceIds.KAFKA_HEADER, required = false) String headerTraceId) {

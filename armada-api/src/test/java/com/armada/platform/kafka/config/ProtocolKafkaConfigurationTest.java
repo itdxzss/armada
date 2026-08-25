@@ -57,6 +57,7 @@ class ProtocolKafkaConfigurationTest {
             assertThat(groupSyncProperties.getTopic())
                     .isEqualTo(ProtocolAccountGroupSyncEventConsumerProperties.DEFAULT_TOPIC);
             assertThat(groupSyncProperties.getConcurrency()).isEqualTo(4);
+            assertThat(groupSyncProperties.getMaxPollRecords()).isEqualTo(1);
             assertThat(context.getBean(ProtocolGroupEventConsumerProperties.class).getTopic())
                     .isEqualTo(ProtocolGroupEventConsumerProperties.DEFAULT_TOPIC);
             assertThat(context).hasBean("protocolCommandDispatchExecutor");
@@ -84,6 +85,7 @@ class ProtocolKafkaConfigurationTest {
                         "armada.protocol.kafka.account-group-sync-events.topic=protocol.account.group-sync.events.test",
                         "armada.protocol.kafka.account-group-sync-events.group-id=armada-api-account-group-sync-events-test",
                         "armada.protocol.kafka.account-group-sync-events.concurrency=3",
+                        "armada.protocol.kafka.account-group-sync-events.max-poll-records=2",
                         "armada.protocol.kafka.account-event-errors.retry-interval-ms=250",
                         "armada.protocol.kafka.account-event-errors.max-retry-attempts=5",
                         "armada.protocol.kafka.account-event-errors.dead-letter-topic-suffix=.dead")
@@ -102,6 +104,7 @@ class ProtocolKafkaConfigurationTest {
                     assertThat(groupSyncProperties.getGroupId())
                             .isEqualTo("armada-api-account-group-sync-events-test");
                     assertThat(groupSyncProperties.getConcurrency()).isEqualTo(3);
+                    assertThat(groupSyncProperties.getMaxPollRecords()).isEqualTo(2);
                     assertThat(errorProperties.getRetryIntervalMs()).isEqualTo(250L);
                     assertThat(errorProperties.getMaxRetryAttempts()).isEqualTo(5L);
                     assertThat(errorProperties.getDeadLetterTopicSuffix()).isEqualTo(".dead");

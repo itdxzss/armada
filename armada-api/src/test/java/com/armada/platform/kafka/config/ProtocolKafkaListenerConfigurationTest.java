@@ -30,12 +30,17 @@ class ProtocolKafkaListenerConfigurationTest {
                 "${armada.protocol.kafka.account-group-sync-events.topic:protocol.account.group-sync.events.v1}",
                 "${armada.protocol.kafka.account-group-sync-events.group-id:armada-api-account-group-sync-events}",
                 "${armada.protocol.kafka.account-group-sync-events.concurrency:4}");
+        assertThat(listener(
+                ProtocolAccountEventConsumer.class,
+                "onGroupSyncMessage").properties())
+                .containsExactly(
+                        "max.poll.records=${armada.protocol.kafka.account-group-sync-events.max-poll-records:1}");
         assertListenerUsesProperties(
                 ProtocolGroupEventConsumer.class,
                 "onMessage",
                 "${armada.protocol.kafka.group-events.topic:protocol.group.events.v1}",
                 "${armada.protocol.kafka.group-events.group-id:armada-api-group-events}",
-                "");
+                "${armada.protocol.kafka.group-events.concurrency:3}");
         assertListenerUsesProperties(
                 ProtocolNormalGroupCreationEventConsumer.class,
                 "onMessage",
@@ -61,12 +66,17 @@ class ProtocolKafkaListenerConfigurationTest {
                                                      String expectedTopic,
                                                      String expectedGroupId,
                                                      String expectedConcurrency) throws NoSuchMethodException {
-        Method onMessage = listenerType.getDeclaredMethod(methodName, String.class, String.class);
-        KafkaListener listener = onMessage.getAnnotation(KafkaListener.class);
+        KafkaListener listener = listener(listenerType, methodName);
 
         assertThat(listener).isNotNull();
         assertThat(listener.topics()).containsExactly(expectedTopic);
         assertThat(listener.groupId()).isEqualTo(expectedGroupId);
         assertThat(listener.concurrency()).isEqualTo(expectedConcurrency);
+    }
+
+    private static KafkaListener listener(Class<?> listenerType,
+                                          String methodName) throws NoSuchMethodException {
+        Method onMessage = listenerType.getDeclaredMethod(methodName, String.class, String.class);
+        return onMessage.getAnnotation(KafkaListener.class);
     }
 }

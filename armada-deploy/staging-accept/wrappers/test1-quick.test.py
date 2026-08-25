@@ -221,6 +221,97 @@ class QuickWrapperTest(unittest.TestCase):
             self.assertEqual(0, status, f"stage={stage}\n{output}")
         return candidate_hash
 
+    def _evaluator_arguments(self) -> list[str]:
+        self._run_complete_fixture()
+        status, output = self._run("evaluate-quick")
+        self.assertEqual(0, status, output)
+        calls = [json.loads(line) for line in self.call_log.read_text().splitlines()]
+        return next(row for row in calls if row["client"] == "evaluator")["arguments"]
+
+    def test_is_executable_accepts_absolute_regular_executable(self) -> None:
+        executable = self._executable("direct-executable", "#!/bin/sh\nexit 0\n")
+        self.assertTrue(quick.Controller._is_executable(executable))
+
+    def test_is_executable_accepts_absolute_symlink_to_regular_executable(self) -> None:
+        executable = self._executable("symlink-target", "#!/bin/sh\nexit 0\n")
+        symlink = self.root / "symlink-executable"
+        symlink.symlink_to(executable.name)
+        self.assertTrue(quick.Controller._is_executable(symlink))
+
+    def test_is_executable_rejects_relative_path(self) -> None:
+        self.assertFalse(quick.Controller._is_executable(Path("relative-executable")))
+
+    def test_is_executable_rejects_dangling_symlink(self) -> None:
+        symlink = self.root / "dangling-executable"
+        symlink.symlink_to("missing-target")
+        self.assertFalse(quick.Controller._is_executable(symlink))
+
+    def test_is_executable_rejects_directory(self) -> None:
+        directory = self.root / "executable-directory"
+        directory.mkdir(mode=0o755)
+        self.assertFalse(quick.Controller._is_executable(directory))
+
+    def test_is_executable_rejects_symlink_to_directory(self) -> None:
+        directory = self.root / "target-directory"
+        directory.mkdir(mode=0o755)
+        symlink = self.root / "directory-symlink"
+        symlink.symlink_to(directory.name)
+        self.assertFalse(quick.Controller._is_executable(symlink))
+
+    def test_is_executable_rejects_non_executable_regular_file(self) -> None:
+        file = self.root / "non-executable"
+        file.write_text("fixture\n", encoding="utf-8")
+        file.chmod(0o644)
+        self.assertFalse(quick.Controller._is_executable(file))
+
+    def test_is_executable_rejects_symlink_to_non_executable_regular_file(self) -> None:
+        file = self.root / "non-executable-target"
+        file.write_text("fixture\n", encoding="utf-8")
+        file.chmod(0o644)
+        symlink = self.root / "non-executable-symlink"
+        symlink.symlink_to(file.name)
+        self.assertFalse(quick.Controller._is_executable(symlink))
+
+    def test_evaluator_expected_kafka_pairs_are_topic_to_group(self) -> None:
+        arguments = self._evaluator_arguments()
+        pairs = [
+            arguments[index + 1]
+            for index, value in enumerate(arguments)
+            if value == "--expected-kafka-pair"
+        ]
+        self.assertEqual(
+            [f"{topic}={group}" for group, topic in quick.KAFKA_PAIRS],
+            pairs,
+        )
+
+    def test_evaluator_expected_redis_nodes_are_master_1_for_all_sources(self) -> None:
+        arguments = self._evaluator_arguments()
+        nodes = [
+            arguments[index + 1]
+            for index, value in enumerate(arguments)
+            if value == "--expected-redis-node"
+        ]
+        self.assertEqual(
+            [f"{source}=master-1" for source in quick.REDIS_SOURCES],
+            nodes,
+        )
+
+    def test_evaluator_expected_backend_containers_are_exact(self) -> None:
+        arguments = self._evaluator_arguments()
+        containers = [
+            arguments[index + 1]
+            for index, value in enumerate(arguments)
+            if value == "--expected-host-container"
+        ]
+        self.assertEqual(
+            [
+                "backend=armada-backend",
+                "backend=armada-nginx",
+                "backend=zhuan-native-probe-mysql",
+            ],
+            containers,
+        )
+
     def test_plan_is_fixed_read_only_and_contains_no_active_or_credential_path(self) -> None:
         plan = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
         self.assertEqual("test1-quick", plan["profile"])
@@ -290,9 +381,11 @@ class QuickWrapperTest(unittest.TestCase):
         self.assertEqual(7, evaluator.count("--expected-host-process"))
         self.assertEqual(5, evaluator.count("--expected-redis-source"))
         self.assertEqual(5, evaluator.count("--expected-redis-node"))
-        self.assertIn("default=primary", evaluator)
-        self.assertIn("runtime=primary", evaluator)
+        self.assertIn("default=master-1", evaluator)
+        self.assertIn("runtime=master-1", evaluator)
         self.assertIn("backend=armada-backend", evaluator)
+        self.assertIn("backend=armada-nginx", evaluator)
+        self.assertIn("backend=zhuan-native-probe-mysql", evaluator)
         self.assertNotIn("--test-mode", evaluator)
         summary = json.loads((self.run_dir / "quick-summary.json").read_text())
         self.assertEqual("PASS", summary["outcome"])

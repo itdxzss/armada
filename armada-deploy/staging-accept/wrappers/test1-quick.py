@@ -66,6 +66,12 @@ KAFKA_PAIRS = (
     ("armada-api-normal-group-results", "protocol.normal-group.events.v1"),
 )
 REDIS_SOURCES = ("default", "registry", "keys", "rate-limit", "runtime")
+REDIS_CLUSTER_NODE = "master-1"
+BACKEND_CONTAINERS = (
+    "armada-backend",
+    "armada-nginx",
+    "zhuan-native-probe-mysql",
+)
 WEB_PROCESSES = (
     "armada-protocol-master",
     "armada-protocol-worker-1",
@@ -429,13 +435,16 @@ class Controller:
         for collector in ("kafka", "redis", "host-resource", "web-traffic"):
             command.extend(("--require-collector", collector))
         for group, topic in KAFKA_PAIRS:
-            command.extend(("--expected-kafka-pair", f"{group}={topic}"))
+            command.extend(("--expected-kafka-pair", f"{topic}={group}"))
         for source in REDIS_SOURCES:
             command.extend(("--expected-redis-source", source))
-            command.extend(("--expected-redis-node", f"{source}=primary"))
+            command.extend(
+                ("--expected-redis-node", f"{source}={REDIS_CLUSTER_NODE}")
+            )
         for source in ("backend", "web"):
             command.extend(("--expected-host-source", source))
-        command.extend(("--expected-host-container", "backend=armada-backend"))
+        for container in BACKEND_CONTAINERS:
+            command.extend(("--expected-host-container", f"backend={container}"))
         for process in WEB_PROCESSES:
             command.extend(("--expected-host-process", f"web={process}"))
 
@@ -707,7 +716,14 @@ class Controller:
 
     @classmethod
     def _is_executable(cls, path: Path) -> bool:
-        return path.is_absolute() and cls._is_regular(path) and os.access(path, os.X_OK)
+        if not path.is_absolute():
+            return False
+        try:
+            resolved = path.resolve(strict=True)
+            mode = resolved.stat().st_mode
+        except OSError:
+            return False
+        return stat.S_ISREG(mode) and os.access(resolved, os.X_OK)
 
     @classmethod
     def _read_regular_bytes(cls, path: Path, max_bytes: int) -> bytes:

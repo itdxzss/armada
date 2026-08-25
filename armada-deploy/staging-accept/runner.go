@@ -7,12 +7,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
 var errDaemonStopped = errors.New("runner daemon stopped")
+
+const (
+	stageRunIDEnvironment  = "STAGING_ACCEPT_RUN_ID"
+	stageIDEnvironment     = "STAGING_ACCEPT_STAGE_ID"
+	stageRunDirEnvironment = "STAGING_ACCEPT_RUN_DIR"
+)
 
 type daemon struct {
 	store             *Store
@@ -113,6 +120,14 @@ func (d *daemon) Serve(ctx context.Context, once bool) error {
 
 func (d *daemon) executeRun(ctx context.Context, detail RunDetail) error {
 	runID := detail.Run.ID
+	runDirectory, err := d.evidence.runDir(runID)
+	if err != nil {
+		return err
+	}
+	runDirectory, err = filepath.Abs(filepath.Clean(runDirectory))
+	if err != nil {
+		return fmt.Errorf("resolve run evidence directory: %w", err)
+	}
 	if err := d.evidence.AppendEvent(eventRecord{
 		RunID: runID, Type: "run_started", Status: string(RunRunning),
 	}); err != nil {
@@ -161,12 +176,8 @@ func (d *daemon) executeRun(ctx context.Context, detail RunDetail) error {
 			return err
 		}
 
-		outcome := d.executeStage(ctx, runID, detail.Run.Plan.Stages[index], log)
+		outcome := d.executeStage(ctx, runID, runDirectory, detail.Run.Plan.Stages[index], log)
 		if err := log.Close(); err != nil {
-			return err
-		}
-		runDirectory, err := d.evidence.runDir(runID)
-		if err != nil {
 			return err
 		}
 		logHash, err := hashFile(filepath.Join(runDirectory, filepath.FromSlash(relativeLog)))
@@ -222,10 +233,11 @@ func (d *daemon) stopBeforeStage(detail RunDetail) error {
 func (d *daemon) executeStage(
 	ctx context.Context,
 	runID string,
+	runDirectory string,
 	stage StageSpec,
 	log *stageLog,
 ) stageOutcome {
-	command, done, err := startProcess(stage, log)
+	command, done, err := startProcess(stage, log, runID, runDirectory)
 	if err != nil {
 		_ = log.WriteLine("runner", "command start failed")
 		return stageOutcome{stageStatus: StageFailed, runStatus: RunFailed, reason: "START_FAILED"}
@@ -368,9 +380,19 @@ func (d *daemon) finalizePendingTerminals() error {
 	return nil
 }
 
-func startProcess(stage StageSpec, log *stageLog) (*exec.Cmd, <-chan processResult, error) {
+func startProcess(
+	stage StageSpec,
+	log *stageLog,
+	runID string,
+	runDirectory string,
+) (*exec.Cmd, <-chan processResult, error) {
+	environment, err := buildStageEnvironment(os.Environ(), runID, stage.ID, runDirectory)
+	if err != nil {
+		return nil, nil, err
+	}
 	command := exec.Command(stage.Command[0], stage.Command[1:]...)
 	command.Dir = stage.WorkingDirectory
+	command.Env = environment
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
@@ -408,6 +430,35 @@ func startProcess(stage StageSpec, log *stageLog) (*exec.Cmd, <-chan processResu
 		done <- processResult{exitCode: exitCode, err: err}
 	}()
 	return command, done, nil
+}
+
+func buildStageEnvironment(parent []string, runID string, stageID string, runDirectory string) ([]string, error) {
+	if !runIDPattern.MatchString(runID) {
+		return nil, errors.New("stage context run id is invalid")
+	}
+	if !safeIDPattern.MatchString(stageID) {
+		return nil, errors.New("stage context stage id is invalid")
+	}
+	if !filepath.IsAbs(runDirectory) || filepath.Clean(runDirectory) != runDirectory {
+		return nil, errors.New("stage context run directory must be an absolute clean path")
+	}
+
+	environment := make([]string, 0, len(parent)+3)
+	for _, entry := range parent {
+		name, _, _ := strings.Cut(entry, "=")
+		switch name {
+		case stageRunIDEnvironment, stageIDEnvironment, stageRunDirEnvironment:
+			continue
+		default:
+			environment = append(environment, entry)
+		}
+	}
+	return append(
+		environment,
+		stageRunIDEnvironment+"="+runID,
+		stageIDEnvironment+"="+stageID,
+		stageRunDirEnvironment+"="+runDirectory,
+	), nil
 }
 
 func terminateProcess(command *exec.Cmd, done <-chan processResult, grace time.Duration) {

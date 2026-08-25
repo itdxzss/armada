@@ -202,6 +202,112 @@ func TestFailureResumeSkipsPassedStage(t *testing.T) {
 	}
 }
 
+func TestStageProcessContextIsAbsoluteInheritedAndStableAcrossRetry(t *testing.T) {
+	stateDir := t.TempDir()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeStateDir, err := filepath.Rel(workingDirectory, stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, runtimeStore, _, err := openRuntime(relativeStateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtimeStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	contextOutput := filepath.Join(t.TempDir(), "stage-context.txt")
+	retryGate := filepath.Join(t.TempDir(), "retry.ready")
+	secret := "stage-context-secret-7e21"
+	t.Setenv("STAGING_ACCEPT_EXISTING_ENV", "inherited-value")
+	t.Setenv("STAGING_ACCEPT_EXPECTED_ENV", "inherited-value")
+	t.Setenv("STAGING_ACCEPT_TEST_SECRET", secret)
+	t.Setenv("STAGING_ACCEPT_EXPECTED_SECRET", secret)
+	t.Setenv("STAGING_ACCEPT_CONTEXT_OUTPUT", contextOutput)
+	t.Setenv("STAGING_ACCEPT_CONTEXT_GATE", retryGate)
+	t.Setenv("STAGING_ACCEPT_RUN_ID", "forged-run")
+	t.Setenv("STAGING_ACCEPT_STAGE_ID", "forged-stage")
+	t.Setenv("STAGING_ACCEPT_RUN_DIR", "/forged/run")
+	plan := validPlan([]StageSpec{{
+		ID: "retry-context",
+		Command: []string{
+			"/bin/sh", "-c", `
+test "$STAGING_ACCEPT_EXISTING_ENV" = "$STAGING_ACCEPT_EXPECTED_ENV" || exit 20
+test "$STAGING_ACCEPT_TEST_SECRET" = "$STAGING_ACCEPT_EXPECTED_SECRET" || exit 21
+case "$STAGING_ACCEPT_RUN_DIR" in /*) ;; *) exit 22 ;; esac
+printf '%s\t%s\t%s\n' "$STAGING_ACCEPT_RUN_ID" "$STAGING_ACCEPT_STAGE_ID" "$STAGING_ACCEPT_RUN_DIR" >> "$STAGING_ACCEPT_CONTEXT_OUTPUT"
+if [ ! -e "$STAGING_ACCEPT_CONTEXT_GATE" ]; then
+  touch "$STAGING_ACCEPT_CONTEXT_GATE"
+  exit 7
+fi
+`,
+		},
+		TimeoutSeconds: 5,
+	}})
+	const runID = "20260825T070707Z-abcdef19"
+	store, evidence, _ := enqueueTestRun(t, root, plan, runID)
+	defer store.Close()
+	runner := newDaemon(store, evidence, root)
+	runner.heartbeatInterval = 20 * time.Millisecond
+	if err := runner.Serve(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := store.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Run.Status != RunFailed || failed.Stages[0].Attempts != 1 {
+		t.Fatalf("first attempt = %#v / %#v", failed.Run, failed.Stages[0])
+	}
+	if err := store.Resume(runID); err != nil {
+		t.Fatal(err)
+	}
+	if err := evidence.AppendEvent(eventRecord{RunID: runID, Type: "run_resumed", Status: string(RunQueued)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Serve(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	passed, err := store.Get(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if passed.Run.Status != RunPassed || passed.Stages[0].Attempts != 2 {
+		t.Fatalf("resumed attempt = %#v / %#v", passed.Run, passed.Stages[0])
+	}
+
+	wantRunDir := filepath.Join(root, "runs", runID)
+	if !filepath.IsAbs(wantRunDir) {
+		t.Fatalf("expected run directory is not absolute: %s", wantRunDir)
+	}
+	wantLine := strings.Join([]string{runID, "retry-context", wantRunDir}, "\t")
+	lines := strings.Split(strings.TrimSpace(mustRead(t, contextOutput)), "\n")
+	if len(lines) != 2 || lines[0] != wantLine || lines[1] != wantLine {
+		t.Fatalf("attempt contexts = %#v, want two copies of %q", lines, wantLine)
+	}
+	assertTreeExcludes(t, root, secret)
+}
+
+func TestBuildStageEnvironmentRejectsUnsafeRunDirectory(t *testing.T) {
+	for _, runDirectory := range []string{"relative/run", "/safe/../escape"} {
+		t.Run(runDirectory, func(t *testing.T) {
+			_, err := buildStageEnvironment(
+				[]string{"PATH=/usr/bin"},
+				"20260825T070707Z-abcdef19",
+				"preflight",
+				runDirectory,
+			)
+			if err == nil || !strings.Contains(err.Error(), "absolute clean path") {
+				t.Fatalf("buildStageEnvironment(%q) error = %v", runDirectory, err)
+			}
+		})
+	}
+}
+
 func TestRunningCancelKillsProcessGroupAndReports(t *testing.T) {
 	stateDir := t.TempDir()
 	pidFile := filepath.Join(stateDir, "child.pid")

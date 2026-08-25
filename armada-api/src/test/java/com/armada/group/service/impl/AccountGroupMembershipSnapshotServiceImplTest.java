@@ -13,6 +13,7 @@ import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -30,16 +31,16 @@ class AccountGroupMembershipSnapshotServiceImplTest {
 
     @Test
     void resolvesStableHandleAndWritesOnlyCreatorCompatibility() {
-        when(registry.registerAccountObservedGroup(
-                org.mockito.ArgumentMatchers.eq("120363001@g.us"),
-                org.mockito.ArgumentMatchers.eq("群一"),
+        when(registry.registerAccountObservedGroups(
+                org.mockito.ArgumentMatchers.eq(Map.of("120363001@g.us", "群一")),
                 org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB),
-                org.mockito.ArgumentMatchers.anyLong())).thenReturn(20L);
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(Map.of("120363001@g.us", 20L));
         GroupLink handle = new GroupLink();
         handle.setId(20L);
         handle.setLinkUrl("wa://group/120363001@g.us");
         handle.setGroupName("群一");
-        when(groupLinkMapper.selectActiveById(20L)).thenReturn(handle);
+        when(groupLinkMapper.selectActiveByIds(List.of(20L))).thenReturn(List.of(handle));
 
         var result = service().replaceVisibleGroups(
                 10L,
@@ -60,6 +61,10 @@ class AccountGroupMembershipSnapshotServiceImplTest {
             assertThat(row.getOwnerPhone()).isEqualTo("15550000001");
             assertThat(row.getLastPreviewAt()).isEqualTo(2_000L);
         });
+        verify(registry).registerAccountObservedGroups(
+                org.mockito.ArgumentMatchers.eq(Map.of("120363001@g.us", "群一")),
+                org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB),
+                org.mockito.ArgumentMatchers.anyLong());
     }
 
     private AccountGroupMembershipSnapshotServiceImpl service() {

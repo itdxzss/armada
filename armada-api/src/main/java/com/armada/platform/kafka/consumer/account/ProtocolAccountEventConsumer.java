@@ -246,13 +246,17 @@ public class ProtocolAccountEventConsumer {
         JsonNode data = dataNode(envelope);
         Long tenantId = requiredLong(data, "tenantId", "协议账号群列表事件缺少 data.tenantId");
         Long accountId = requiredLong(data, "accountId", "协议账号群列表事件缺少 data.accountId");
+        Long reportedAt = occurredAt(envelope);
+        if (reportedAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群列表事件缺少 occurredAt");
+        }
         List<ProtocolAccountGroupsReportedEvent.Group> groups = groups(data.path("groups"));
         return new ProtocolAccountGroupsReportedEvent(
                 text(envelope, "eventId"),
                 tenantId,
                 accountId,
                 requiredText(envelope, "accountId", "协议账号群列表事件缺少 accountId"),
-                occurredAt(envelope),
+                reportedAt,
                 text(data, "source"),
                 bool(data, "snapshotComplete"),
                 integer(data, "skippedGroupCount"),

@@ -54,6 +54,22 @@ public interface GroupLinkRegistryService {
                                       long now);
 
     /**
+     * 按群 JID 稳定顺序批量登记账号快照观察到的群。
+     *
+     * <p>该入口与单群登记语义一致，但用集合 SQL 解析、创建和刷新兼容句柄，避免完整快照
+     * 对每个群重复执行查询与更新。返回映射按规范化群 JID 升序排列。</p>
+     *
+     * @param groupNamesByJid 群 JID 到协议观察群名；群名可空
+     * @param observedBackend 本次观察群的协议后端
+     * @param now 本地登记时间(epoch 毫秒)
+     * @return 规范化群 JID 到稳定兼容句柄 ID 的映射
+     */
+    Map<String, Long> registerAccountObservedGroups(
+            Map<String, String> groupNamesByJid,
+            ProtocolBackend observedBackend,
+            long now);
+
+    /**
      * 登记业务流程刚创建成功的自建群及建群账号在群关系。
      *
      * @param groupJid WhatsApp 群 JID，不能为空

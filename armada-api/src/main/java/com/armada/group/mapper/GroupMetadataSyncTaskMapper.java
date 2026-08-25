@@ -21,6 +21,35 @@ public interface GroupMetadataSyncTaskMapper {
                 @Param("runningStatus") int runningStatus);
 
     /**
+     * 按群入口主键升序一次幂等排队多条分类同步任务。
+     *
+     * @param rows 已按句柄 ID 升序排列的任务行
+     * @param runningStatus RUNNING 稳定码
+     * @return MySQL 影响行数
+     */
+    int enqueueBatch(@Param("rows") List<GroupMetadataSyncTask> rows,
+                     @Param("runningStatus") int runningStatus);
+
+    /**
+     * 按群入口集合普通读取当前租户已有任务主键。
+     *
+     * @param groupLinkIds 已按群入口主键升序排列
+     * @return 已有任务主键
+     */
+    List<Long> selectTaskIdsByGroupLinkIds(@Param("groupLinkIds") List<Long> groupLinkIds);
+
+    /**
+     * 按任务主键升序锁定当前租户已有任务。
+     *
+     * @param tenantId 当前租户 ID
+     * @param ids 已去重并升序排列的任务主键
+     * @return 实际锁定的任务主键
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Long> selectTaskIdsForUpdate(@Param("tenantId") Long tenantId,
+                                      @Param("ids") List<Long> ids);
+
+    /**
      * 按群入口查询当前租户任务。
      *
      * @param groupLinkId 群入口 ID
@@ -121,7 +150,9 @@ public interface GroupMetadataSyncTaskMapper {
     /** 尚未领取且无可用账号时进入延期状态。 */
     @InterceptorIgnore(tenantLine = "true")
     int defer(@Param("row") GroupMetadataSyncTask row,
-              @Param("eligibleStatuses") List<Integer> eligibleStatuses);
+              @Param("eligibleStatuses") List<Integer> eligibleStatuses,
+              @Param("onlineLoginState") int onlineLoginState,
+              @Param("executableAccountStates") List<Integer> executableAccountStates);
 
     /**
      * 读取该账号当前仍在群范围内、只缺邀请码的延期任务主键，按主键升序返回。
@@ -157,4 +188,10 @@ public interface GroupMetadataSyncTaskMapper {
                             @Param("pendingStatus") int pendingStatus,
                             @Param("triggerSource") int triggerSource,
                             @Param("now") long now);
+
+    /** 缺失时插入、DEFERRED 时恢复；其余状态不扰动。 */
+    int reconcileClassificationBatch(
+            @Param("rows") List<GroupMetadataSyncTask> rows,
+            @Param("deferredStatus") int deferredStatus,
+            @Param("pendingStatus") int pendingStatus);
 }

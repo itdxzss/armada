@@ -75,7 +75,7 @@ class AccountGroupMembershipStatusServiceImplTest {
     }
 
     @Test
-    void preciseAddClassifiesBeforeWritingCurrentMembership() {
+    void preciseAddWritesCurrentMembershipBeforeClassificationTask() {
         Mockito.when(currentMapper.selectContext(10L)).thenReturn(context());
         Mockito.when(registry.registerAccountObservedGroup(
                 Mockito.anyString(), Mockito.isNull(), Mockito.any(), Mockito.anyLong()))
@@ -84,13 +84,13 @@ class AccountGroupMembershipStatusServiceImplTest {
         service.applyMembershipChanged(event("add"));
 
         org.mockito.InOrder order = Mockito.inOrder(classification, persistence);
+        order.verify(persistence).applySelfMembershipChanged(
+                10L, "120363001@g.us", AccountGroupMembershipStatus.IN_GROUP,
+                2_000L, "event-10", "WGP2_ADD");
         order.verify(classification).classifyMembershipAdded(
                 Mockito.eq(10L),
                 Mockito.eq(new GroupClassificationCandidate(20L, "120363001@g.us", null)),
                 Mockito.eq(2_000L), Mockito.anyLong());
-        order.verify(persistence).applySelfMembershipChanged(
-                10L, "120363001@g.us", AccountGroupMembershipStatus.IN_GROUP,
-                2_000L, "event-10", "WGP2_ADD");
     }
 
     @Test
@@ -124,7 +124,7 @@ class AccountGroupMembershipStatusServiceImplTest {
 
     private static Context context() {
         return new Context(10L, "15550000001", "ANDROID", "protocol-account-10",
-                2, 1, 0, 1_000L, null);
+                2, 1, 0, 1_000L, null, null);
     }
 
     private static AccountGroupMembershipChangedEvent event(String action) {

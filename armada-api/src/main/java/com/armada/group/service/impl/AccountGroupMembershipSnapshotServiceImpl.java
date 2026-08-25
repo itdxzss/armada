@@ -6,7 +6,9 @@ import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.AccountGroupCompatibilitySnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
+import com.armada.group.model.vo.GroupClassificationPlan;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -17,6 +19,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -72,34 +75,85 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             String eventId,
             String source,
             ProtocolBackend observedBackend) {
+        return prepareVisibleGroupsInternal(
+                accountId, groups, snapshotComplete, syncAt,
+                eventId, source, observedBackend, true).groups();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountGroupCompatibilitySnapshot prepareVisibleGroups(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
+            long syncAt,
+            String eventId,
+            String source,
+            ProtocolBackend observedBackend) {
+        return prepareVisibleGroupsInternal(
+                accountId, groups, snapshotComplete, syncAt,
+                eventId, source, observedBackend, false);
+    }
+
+    private AccountGroupCompatibilitySnapshot prepareVisibleGroupsInternal(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
+            long syncAt,
+            String eventId,
+            String source,
+            ProtocolBackend observedBackend,
+            boolean enqueueClassificationTasks) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群关系写入缺少 accountId");
         }
         long now = System.currentTimeMillis();
         Map<String, AccountGroupsReportedEvent.Group> visibleGroups = normalizeVisibleGroups(groups);
         List<ResolvedGroup> resolvedGroups = resolveGroups(visibleGroups, observedBackend, now);
-        classificationService.classifyVisibleGroups(
-                accountId,
-                resolvedGroups.stream()
-                        .map(resolved -> new GroupClassificationCandidate(
-                                resolved.groupLinkId(),
-                                resolved.groupJid(),
-                                blankToNull(resolved.group().subject())))
-                        .toList(),
-                now);
+        List<ResolvedGroup> groupsByHandle = resolvedGroups.stream()
+                .sorted(Comparator.comparing(ResolvedGroup::groupLinkId)
+                        .thenComparing(ResolvedGroup::groupJid))
+                .toList();
+        Map<Long, GroupLink> handlesById = groupLinkMapper.selectActiveByIds(
+                        groupsByHandle.stream().map(ResolvedGroup::groupLinkId).distinct().toList())
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        GroupLink::getId,
+                        java.util.function.Function.identity(),
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        if (handlesById.size() != groupsByHandle.stream()
+                .map(ResolvedGroup::groupLinkId).distinct().count()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "账号群入口批量读取结果不完整");
+        }
+        List<GroupClassificationCandidate> classificationCandidates = groupsByHandle.stream()
+                .map(resolved -> new GroupClassificationCandidate(
+                        resolved.groupLinkId(),
+                        resolved.groupJid(),
+                        blankToNull(resolved.group().subject())))
+                .toList();
+        GroupClassificationPlan classificationPlan;
+        if (enqueueClassificationTasks) {
+            classificationService.classifyVisibleGroups(
+                    accountId, classificationCandidates, syncAt);
+            classificationPlan = GroupClassificationPlan.empty();
+        } else {
+            classificationPlan = classificationService.stageVisibleGroups(
+                    accountId, classificationCandidates, syncAt);
+        }
         List<ResolvedGroup> groupsByJid = resolvedGroups.stream()
                 .sorted(Comparator.comparing(ResolvedGroup::groupJid))
                 .toList();
         persistCreatorCompatibility(groupsByJid, syncAt, now);
         List<AccountGroupMembershipSnapshot> snapshots = groupsByJid.stream()
                 .map(resolved -> toSnapshot(
-                        resolved.groupLinkId(), resolved.groupJid(), resolved.group()))
+                        handlesById.get(resolved.groupLinkId()), resolved.groupJid(), resolved.group()))
                 .toList();
         log.info("账号可见群兼容句柄已刷新 eventId={} source={} accountId={} visibleGroups={} "
                         + "visibleGroupJidSample={} snapshotComplete={} syncAt={}",
                 eventId, source, accountId, visibleGroups.size(),
                 jidSample(visibleGroups.keySet()), snapshotComplete, syncAt);
-        return snapshots;
+        return new AccountGroupCompatibilitySnapshot(snapshots, classificationPlan);
     }
 
     /**
@@ -138,10 +192,18 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             ProtocolBackend observedBackend,
             long now) {
         List<ResolvedGroup> resolvedGroups = new ArrayList<>(visibleGroups.size());
+        Map<String, String> groupNames = new LinkedHashMap<>();
+        for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visibleGroups.entrySet()) {
+            groupNames.put(entry.getKey(), entry.getValue().subject());
+        }
+        Map<String, Long> idsByJid = groupLinkRegistryService.registerAccountObservedGroups(
+                groupNames, observedBackend, now);
         for (Map.Entry<String, AccountGroupsReportedEvent.Group> entry : visibleGroups.entrySet()) {
             AccountGroupsReportedEvent.Group group = entry.getValue();
-            Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
-                    entry.getKey(), group.subject(), observedBackend, now);
+            Long groupLinkId = idsByJid.get(entry.getKey());
+            if (groupLinkId == null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "账号群入口批量登记缺少群 JID");
+            }
             resolvedGroups.add(new ResolvedGroup(groupLinkId, entry.getKey(), group));
         }
         return resolvedGroups;
@@ -181,12 +243,12 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             AccountGroupsReportedEvent.Group group) {
     }
 
-    private AccountGroupMembershipSnapshot toSnapshot(Long groupLinkId,
+    private AccountGroupMembershipSnapshot toSnapshot(GroupLink link,
                                                       String groupJid,
                                                       AccountGroupsReportedEvent.Group group) {
-        GroupLink link = groupLinkMapper.selectActiveById(groupLinkId);
-        String linkUrl = link == null ? accountSyncLinkUrl(groupJid) : link.getLinkUrl();
-        String groupName = link == null ? null : blankToNull(link.getGroupName());
+        Long groupLinkId = link.getId();
+        String linkUrl = link.getLinkUrl() == null ? accountSyncLinkUrl(groupJid) : link.getLinkUrl();
+        String groupName = blankToNull(link.getGroupName());
         if (groupName == null) {
             groupName = blankToNull(group.subject());
         }

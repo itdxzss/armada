@@ -12,13 +12,38 @@
            s.baseline_completeness AS baselineCompleteness,
            s.baseline_group_count AS baselineGroupCount,
            s.baseline_captured_at AS baselineCapturedAt,
-           s.last_sync_requested_at AS lastSyncRequestedAt
+           s.last_sync_requested_at AS lastSyncRequestedAt,
+           s.last_complete_at AS lastCompleteAt
     FROM account a
     LEFT JOIN account_group_sync_state s
       ON s.account_id = a.id
     WHERE a.id = #{accountId}
       AND a.deleted_at IS NULL
     LIMIT 1
+  </select>
+
+  <!-- 串行化同账号 phase1/phase2 的绑定校验与完整快照水位判定。 -->
+  <select id="selectContextForUpdateByTenant"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
+    SELECT a.id AS accountId,
+           a.ws_phone AS wsPhone,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           s.baseline_state AS baselineState,
+           s.baseline_completeness AS baselineCompleteness,
+           s.baseline_group_count AS baselineGroupCount,
+           s.baseline_captured_at AS baselineCapturedAt,
+           s.last_sync_requested_at AS lastSyncRequestedAt,
+           s.last_complete_at AS lastCompleteAt
+    FROM account a
+    LEFT JOIN account_group_sync_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    WHERE a.id = #{accountId}
+      AND a.tenant_id = #{tenantId}
+      AND a.deleted_at IS NULL
+    LIMIT 1
+    FOR UPDATE
   </select>
 
   <!--

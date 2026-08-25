@@ -11,6 +11,9 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPre
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -21,6 +24,21 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountGroupCurrentSnapshotMapper {
 
     Context selectContext(@Param("accountId") Long accountId);
+
+    /** 在账号群回报写事务内锁定账号绑定与已接受完整快照水位。 */
+    default Context selectContextForUpdate(Long accountId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectContextForUpdateByTenant(tenantId, accountId);
+    }
+
+    /** 显式租户条件避免租户插件把 MySQL 的 LIMIT ... FOR UPDATE 改为非法语序。 */
+    @InterceptorIgnore(tenantLine = "true")
+    Context selectContextForUpdateByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("accountId") Long accountId);
 
     /**
      * 写入建群时间，只在当前为空时填充。

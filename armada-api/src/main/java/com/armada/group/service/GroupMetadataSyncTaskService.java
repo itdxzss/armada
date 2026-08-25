@@ -4,12 +4,30 @@ import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import java.util.List;
+import java.util.Map;
 
 /** 群详情耐久同步任务状态机。 */
 public interface GroupMetadataSyncTaskService {
 
     /** 幂等排队单群同步任务。 */
     void enqueue(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt);
+
+    /**
+     * 按群入口主键升序一次排队本轮新固化分类的详情任务。
+     *
+     * @param triggersByGroupLinkId 句柄 ID 到分类触发来源的映射
+     * @param triggeredAt 分类触发时间(epoch毫秒)
+     */
+    void enqueueClassifications(
+            Map<Long, GroupMetadataSyncTrigger> triggersByGroupLinkId,
+            long triggeredAt);
+
+    /**
+     * phase2 绑定提交前补建缺失分类任务或恢复延期分类任务；其它既有状态保持不变。
+     */
+    void reconcileClassifications(
+            Map<Long, GroupMetadataSyncTrigger> triggersByGroupLinkId,
+            long triggeredAt);
 
     /** 幂等排队单群邀请码读取；metadata 已由当前业务事实确认，不再重复请求。 */
     void enqueueInviteCode(Long groupLinkId, GroupMetadataSyncTrigger trigger, long triggeredAt);

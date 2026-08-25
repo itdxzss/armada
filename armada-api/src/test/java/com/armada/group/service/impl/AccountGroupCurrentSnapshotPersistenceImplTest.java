@@ -111,6 +111,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 0,
                 null,
                 null,
+                null,
                 null));
 
         persistence.replaceVisibleGroups(
@@ -448,6 +449,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 AccountGroupBaselineStateCode.DISABLED,
                 0,
                 0,
+                null,
                 null,
                 null));
     }

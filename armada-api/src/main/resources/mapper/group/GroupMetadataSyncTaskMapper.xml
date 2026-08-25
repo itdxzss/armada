@@ -10,14 +10,7 @@
     created_at, updated_at
   </sql>
 
-  <insert id="enqueue" useGeneratedKeys="true" keyProperty="row.id">
-    INSERT INTO group_metadata_sync_task (
-      group_link_id, status, trigger_source, attempt_count, next_run_at,
-      rerun_requested, completed_scope_mask, created_at, updated_at
-    ) VALUES (
-      #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
-      #{row.nextRunAt}, FALSE, #{row.completedScopeMask}, #{row.createdAt}, #{row.updatedAt}
-    )
+  <sql id="EnqueueOnDuplicate">
     ON DUPLICATE KEY UPDATE
       trigger_source = VALUES(trigger_source),
       attempt_count = CASE WHEN status = #{runningStatus} THEN attempt_count ELSE 0 END,
@@ -46,7 +39,57 @@
       last_error_message = CASE WHEN status = #{runningStatus} THEN last_error_message ELSE NULL END,
       status = CASE WHEN status = #{runningStatus} THEN status ELSE VALUES(status) END,
       updated_at = VALUES(updated_at)
+  </sql>
+
+  <insert id="enqueue" useGeneratedKeys="true" keyProperty="row.id">
+    INSERT INTO group_metadata_sync_task (
+      group_link_id, status, trigger_source, attempt_count, next_run_at,
+      rerun_requested, completed_scope_mask, created_at, updated_at
+    ) VALUES (
+      #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
+      #{row.nextRunAt}, FALSE, #{row.completedScopeMask}, #{row.createdAt}, #{row.updatedAt}
+    )
+    <include refid="EnqueueOnDuplicate"/>
   </insert>
+
+  <!-- 分类群按稳定句柄主键顺序一次排队，语义与单群 enqueue 完全一致。 -->
+  <insert id="enqueueBatch">
+    INSERT INTO group_metadata_sync_task (
+      group_link_id, status, trigger_source, attempt_count, next_run_at,
+      rerun_requested, completed_scope_mask, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
+        #{row.nextRunAt}, FALSE, #{row.completedScopeMask}, #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
+    <include refid="EnqueueOnDuplicate"/>
+  </insert>
+
+  <!-- 普通读只发现已有 task；不存在的群仍由后续稳定 group_link_id 顺序插入。 -->
+  <select id="selectTaskIdsByGroupLinkIds" resultType="java.lang.Long">
+    SELECT task.id
+    FROM group_metadata_sync_task task
+    WHERE task.group_link_id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+    ORDER BY task.id ASC
+  </select>
+
+  <!-- classification 与 ONLINE resume 统一按 task PRIMARY 升序持锁。 -->
+  <select id="selectTaskIdsForUpdate" resultType="java.lang.Long">
+    SELECT task.id
+    FROM group_metadata_sync_task task FORCE INDEX (PRIMARY)
+    WHERE task.tenant_id = #{tenantId}
+      AND task.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">
+      #{id}
+    </foreach>
+    ORDER BY task.id ASC
+    FOR UPDATE
+  </select>
 
   <select id="selectByGroupLinkId"
           resultType="com.armada.group.model.entity.GroupMetadataSyncTask">
@@ -345,6 +388,36 @@
       <foreach collection="eligibleStatuses" item="status" open="(" separator="," close=")">
         #{status}
       </foreach>
+      AND NOT EXISTS (
+        SELECT 1
+        FROM group_link group_handle
+        INNER JOIN wa_account_group_binding binding
+          ON binding.tenant_id = group_handle.tenant_id
+         AND binding.group_id = group_handle.group_id
+        INNER JOIN wa_group_participant self_participant
+          ON self_participant.tenant_id = binding.tenant_id
+         AND self_participant.group_id = binding.group_id
+         AND self_participant.id = binding.participant_id
+         AND self_participant.presence_status = 1
+        INNER JOIN account a
+          ON a.tenant_id = binding.tenant_id
+         AND a.id = binding.account_id
+         AND a.deleted_at IS NULL
+         AND a.protocol_account_id IS NOT NULL
+         AND a.protocol_account_id != ''
+         AND a.ws_phone IS NOT NULL
+         AND a.ws_phone != ''
+        INNER JOIN account_state s
+          ON s.tenant_id = a.tenant_id
+         AND s.account_id = a.id
+         AND s.login_state = #{onlineLoginState}
+         AND s.account_state IN
+        <foreach collection="executableAccountStates" item="accountState"
+                 open="(" separator="," close=")">#{accountState}</foreach>
+        WHERE group_handle.tenant_id = #{row.tenantId}
+          AND group_handle.id = #{row.groupLinkId}
+          AND group_handle.deleted_at IS NULL
+      )
   </update>
 
   <select id="selectDeferredInviteTaskIdsForAccount" resultType="java.lang.Long">
@@ -388,6 +461,46 @@
       AND task.id IN
       <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
+
+  <!-- phase2 后才让分类任务可见；重放仅补缺失或 DEFERRED，避免已成功任务风暴。 -->
+  <insert id="reconcileClassificationBatch">
+    INSERT INTO group_metadata_sync_task (
+      group_link_id, status, trigger_source, attempt_count, next_run_at,
+      rerun_requested, completed_scope_mask, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.groupLinkId}, #{row.status}, #{row.triggerSource}, #{row.attemptCount},
+        #{row.nextRunAt}, FALSE, #{row.completedScopeMask}, #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      trigger_source = CASE WHEN status = #{deferredStatus}
+        THEN VALUES(trigger_source) ELSE trigger_source END,
+      attempt_count = CASE WHEN status = #{deferredStatus} THEN 0 ELSE attempt_count END,
+      next_run_at = CASE WHEN status = #{deferredStatus}
+        THEN VALUES(next_run_at) ELSE next_run_at END,
+      lease_until = CASE WHEN status = #{deferredStatus} THEN NULL ELSE lease_until END,
+      execution_account_id = CASE WHEN status = #{deferredStatus}
+        THEN NULL ELSE execution_account_id END,
+      current_command_id = CASE WHEN status = #{deferredStatus}
+        THEN NULL ELSE current_command_id END,
+      requested_scope_mask = CASE WHEN status = #{deferredStatus}
+        THEN 0 ELSE requested_scope_mask END,
+      candidate_cursor = CASE WHEN status = #{deferredStatus}
+        THEN 0 ELSE candidate_cursor END,
+      result_deadline_at = CASE WHEN status = #{deferredStatus}
+        THEN NULL ELSE result_deadline_at END,
+      rerun_requested = CASE WHEN status = #{deferredStatus}
+        THEN FALSE ELSE rerun_requested END,
+      last_error_code = CASE WHEN status = #{deferredStatus}
+        THEN NULL ELSE last_error_code END,
+      last_error_message = CASE WHEN status = #{deferredStatus}
+        THEN NULL ELSE last_error_message END,
+      updated_at = CASE WHEN status = #{deferredStatus}
+        THEN VALUES(updated_at) ELSE updated_at END,
+      status = CASE WHEN status = #{deferredStatus} THEN #{pendingStatus} ELSE status END
+  </insert>
 
 
 </mapper>

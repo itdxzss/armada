@@ -1,6 +1,7 @@
 package com.armada.group.service;
 
 import com.armada.group.model.vo.GroupClassificationCandidate;
+import com.armada.group.model.vo.GroupClassificationPlan;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
 
@@ -18,6 +19,12 @@ public interface GroupClassificationService {
                                    ProtocolBackend observedBackend,
                                    long now);
 
+    /** phase1 仅固化历史分类，任务留待当前绑定事务提交。 */
+    GroupClassificationPlan stageHistoricalBaseline(
+            List<GroupClassificationCandidate> groups,
+            ProtocolBackend observedBackend,
+            long now);
+
     /**
      * 按已固化 baseline 分类当前完整或增量可见群。
      *
@@ -28,6 +35,12 @@ public interface GroupClassificationService {
     void classifyVisibleGroups(Long accountId,
                                List<GroupClassificationCandidate> groups,
                                long now);
+
+    /** phase1 仅固化当前可见群分类，任务留待当前绑定事务提交。 */
+    GroupClassificationPlan stageVisibleGroups(
+            Long accountId,
+            List<GroupClassificationCandidate> groups,
+            long now);
 
     /**
      * 按可靠 self add 事实分类单个上控后群。

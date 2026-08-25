@@ -216,6 +216,31 @@ class ProtocolAccountEventConsumerTest {
     }
 
     @Test
+    void onMessage_groupsReportedRejectsMissingOccurredAt() {
+        assertThatThrownBy(() -> onGroupSyncMessage("""
+                {
+                  "eventId": "evt-groups-missing-time",
+                  "event": "account.groups_reported",
+                  "version": "v1",
+                  "accountId": "acc_861800000001",
+                  "workerId": "worker-a",
+                  "data": {
+                    "tenantId": 1,
+                    "accountId": 100,
+                    "source": "wa_groups_dirty",
+                    "snapshotComplete": true,
+                    "skippedGroupCount": 0,
+                    "groups": []
+                  }
+                }
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号群列表事件缺少 occurredAt");
+
+        verifyNoInteractions(groupsReportedSink);
+    }
+
+    @Test
     void onMessage_membershipChangedDispatchesSafeEvent() {
         onGroupSyncMessage("""
                 {"eventId":"evt-membership-1","event":"account.group_membership_changed","version":"v1",

@@ -8,7 +8,7 @@ import java.util.List;
  * @param tenantId          租户 ID
  * @param accountId         Armada 本地账号 ID
  * @param protocolAccountId 协议账号句柄,仅用于日志
- * @param reportedAt        协议层同步时间(epoch 毫秒),可空
+ * @param reportedAt        协议层同步时间(epoch 毫秒),不可空
  * @param groups            协议层返回的账号当前参与群列表
  * @param eventId           协议层事件 ID,仅用于日志
  * @param source            群列表同步来源,仅用于日志

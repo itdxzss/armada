@@ -18,7 +18,8 @@ public final class AccountGroupCurrentSnapshotRows {
             Integer baselineCompleteness,
             Integer baselineGroupCount,
             Long baselineCapturedAt,
-            Long lastSyncRequestedAt) {
+            Long lastSyncRequestedAt,
+            Long lastCompleteAt) {
     }
 
     /** 写前普通一致性读得到的已有 G/self-M/B 状态。 */

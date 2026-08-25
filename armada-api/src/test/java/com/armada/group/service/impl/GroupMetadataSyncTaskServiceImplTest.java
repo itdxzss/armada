@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -15,10 +16,16 @@ import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupMetadataSyncLimits;
+import com.armada.shared.tenant.TenantContext;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -28,6 +35,16 @@ class GroupMetadataSyncTaskServiceImplTest {
 
     @Mock
     private GroupMetadataSyncTaskMapper mapper;
+
+    @BeforeEach
+    void setTenant() {
+        TenantContext.set(7L);
+    }
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
 
     @Test
     void enqueueDebouncesChangeEventsButRunsDurableFactsImmediately() {
@@ -56,6 +73,76 @@ class GroupMetadataSyncTaskServiceImplTest {
         verify(mapper).enqueue(captor.capture(), anyInt());
         assertThat(captor.getValue().getGroupLinkId()).isEqualTo(11L);
         assertThat(captor.getValue().getCompletedScopeMask()).isEqualTo(1);
+    }
+
+    @Test
+    void classificationBatchIsQueuedOnceInStableGroupLinkOrder() {
+        Map<Long, GroupMetadataSyncTrigger> triggers = new LinkedHashMap<>();
+        triggers.put(12L, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED);
+        triggers.put(10L, GroupMetadataSyncTrigger.BASELINE_CAPTURED);
+        when(mapper.selectTaskIdsByGroupLinkIds(List.of(10L, 12L)))
+                .thenReturn(List.of(9L, 3L));
+
+        service().enqueueClassifications(triggers, 1_000L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupMetadataSyncTask>> rows = ArgumentCaptor.forClass(List.class);
+        verify(mapper).enqueueBatch(rows.capture(), eq(GroupMetadataSyncStatus.RUNNING.code()));
+        assertThat(rows.getValue())
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(10L, 12L);
+        assertThat(rows.getValue())
+                .extracting(GroupMetadataSyncTask::getTriggerSource)
+                .containsExactly(
+                        GroupMetadataSyncTrigger.BASELINE_CAPTURED.code(),
+                        GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED.code());
+        assertThat(rows.getValue())
+                .extracting(GroupMetadataSyncTask::getNextRunAt)
+                .containsOnly(1_000L);
+        InOrder lockOrder = inOrder(mapper);
+        lockOrder.verify(mapper).selectTaskIdsByGroupLinkIds(List.of(10L, 12L));
+        lockOrder.verify(mapper).selectTaskIdsForUpdate(7L, List.of(3L, 9L));
+        lockOrder.verify(mapper).enqueueBatch(
+                org.mockito.ArgumentMatchers.anyList(),
+                eq(GroupMetadataSyncStatus.RUNNING.code()));
+    }
+
+    @Test
+    void classificationBatchFiltersNullKeysBeforeSorting() {
+        Map<Long, GroupMetadataSyncTrigger> triggers = new LinkedHashMap<>();
+        triggers.put(null, GroupMetadataSyncTrigger.BASELINE_CAPTURED);
+        triggers.put(10L, GroupMetadataSyncTrigger.BASELINE_CAPTURED);
+        when(mapper.selectTaskIdsByGroupLinkIds(List.of(10L))).thenReturn(List.of());
+
+        service().enqueueClassifications(triggers, 1_000L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupMetadataSyncTask>> rows = ArgumentCaptor.forClass(List.class);
+        verify(mapper).enqueueBatch(rows.capture(), eq(GroupMetadataSyncStatus.RUNNING.code()));
+        assertThat(rows.getValue())
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(10L);
+    }
+
+    @Test
+    void warmReplayReconcilesClassificationTasksInStableGroupOrder() {
+        when(mapper.selectTaskIdsByGroupLinkIds(List.of(10L, 12L)))
+                .thenReturn(List.of(8L, 2L));
+
+        service().reconcileClassifications(Map.of(
+                12L, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED,
+                10L, GroupMetadataSyncTrigger.BASELINE_CAPTURED), 2_000L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupMetadataSyncTask>> rows = ArgumentCaptor.forClass(List.class);
+        verify(mapper).reconcileClassificationBatch(
+                rows.capture(),
+                eq(GroupMetadataSyncStatus.DEFERRED.code()),
+                eq(GroupMetadataSyncStatus.PENDING.code()));
+        assertThat(rows.getValue())
+                .extracting(GroupMetadataSyncTask::getGroupLinkId)
+                .containsExactly(10L, 12L);
+        verify(mapper).selectTaskIdsForUpdate(7L, List.of(2L, 8L));
     }
 
     @Test
@@ -95,7 +182,8 @@ class GroupMetadataSyncTaskServiceImplTest {
         ArgumentCaptor<GroupMetadataSyncTask> captor = ArgumentCaptor.forClass(GroupMetadataSyncTask.class);
         verify(mapper).defer(captor.capture(), eq(List.of(
                 GroupMetadataSyncStatus.PENDING.code(),
-                GroupMetadataSyncStatus.RETRY_WAIT.code())));
+                GroupMetadataSyncStatus.RETRY_WAIT.code())),
+                anyInt(), org.mockito.ArgumentMatchers.anyList());
         assertThat(captor.getValue().getStatus()).isEqualTo(GroupMetadataSyncStatus.DEFERRED.code());
         assertThat(captor.getValue().getAttemptCount()).isZero();
         // 恢复只按已定位的主键写，不再用一条宽 UPDATE 扫锁全部延期行。
@@ -127,7 +215,7 @@ class GroupMetadataSyncTaskServiceImplTest {
 
         service.defer(task, 5_000L);
 
-        verify(mapper, never()).defer(any(), any());
+        verify(mapper, never()).defer(any(), any(), anyInt(), any());
     }
 
     @Test

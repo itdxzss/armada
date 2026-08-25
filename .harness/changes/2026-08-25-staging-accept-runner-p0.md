@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-08-25 / `1.0.3-snapshot` / 主工作区
 - 需求来源: 用户要求开始编写 Runner，并明确“不要过度设计”
-- 状态: 已完成（仅本地，未部署）
+- 状态: 已完成并部署到 `test1`
 
 ## 目标（一句话）
 
@@ -51,6 +51,31 @@ PASS
 独立审查最终通过，无阻断或重要发现。空/漏项 manifest、未登记证据、attempt SHA、取消竞态、
 双崩溃恢复和 retry 尚未启动再次崩溃均有回归测试。
 
+目标 Linux（Ubuntu 26.04 / amd64 / Go 1.26.0 / GCC 15.2.0）原生验证：
+
+```text
+go test -count=1 ./...       PASS
+go test -race -count=1 ./... PASS
+go vet ./...                 PASS
+go build -trimpath .         PASS
+
+linux-pass
+20260825T044059Z-f3b197b1  PASS，2/2 stages，通过 manifest 校验
+
+linux-timeout
+20260825T044215Z-6aeb5763  FAIL / STAGE_TIMEOUT（预期），后续 stage 未运行，进程组已清理
+
+linux-cancel
+20260825T044259Z-6616db6f  CANCELLED / CANCEL_REQUESTED（预期），进程组已清理
+
+linux-crash-resume
+20260825T044423Z-f3715af7  kill -9 后先恢复为 FAIL / RUNNER_INTERRUPTED；
+                           systemd 自动拉起，旧 cgroup 已清理；显式 resume 后 PASS；
+                           已 PASS checkpoint attempts=1，中断 stage attempts=2
+```
+
+四个 run 的 `checksums.sha256` 均再次验证通过；状态目录为 `0700`，数据库和证据文件为 `0600`。
+
 ## 影响与变更
 
 - 影响模块: `armada-deploy/staging-accept/`
@@ -62,10 +87,15 @@ PASS
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未提交、未部署；真实 Linux/systemd 验证待明确测试主机后执行
+- commit: `3c156feddcd076f8a7c20afb1136a7a320478ee4`
+- 环境: `test1`（`ip-172-31-13-65`）
+- 安装: `/usr/local/bin/staging-accept` + `staging-acceptd.service`，专用 `staging-accept` 非 root 用户
+- 二进制 SHA-256: `bb00193f5f605c2c4390e82224b87e978f696590784bc12040f0a0b4b1ec07a3`
+- systemd: `enabled / active`，`Restart=on-failure`，`KillMode=control-group`
+- 证据: `/var/lib/staging-accept/runs/<run-id>/`，本次验证占用约 `632K`
+- 部署后验证: PASS、超时、运行中取消、kill -9 自动拉起、显式 resume 和 checksum 均符合预期
 
 ## 遗留 / 跟进
 
-- 在已确认的测试 Linux 上验证 CGO 构建、systemd 自动拉起与 cgroup 子进程清场。
 - P1 再把现有 deep-check、版本核对和 UI smoke 作为外部 stage 接入。
 - 总存储保留/磁盘告警暂由主机运维负责，后续依据真实运行量再增加清理策略。

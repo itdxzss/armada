@@ -71,7 +71,7 @@
       "command": [
         "/usr/local/libexec/staging-accept/test1-quick"
       ],
-      "timeoutSeconds": 660
+      "timeoutSeconds": 900
     },
     {
       "id": "evaluate-quick",

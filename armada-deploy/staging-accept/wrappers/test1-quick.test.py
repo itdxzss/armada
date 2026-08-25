@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -224,7 +225,10 @@ class QuickWrapperTest(unittest.TestCase):
         plan = json.loads(PLAN_PATH.read_text(encoding="utf-8"))
         self.assertEqual("test1-quick", plan["profile"])
         self.assertEqual("read-only", plan["safety"])
-        self.assertEqual([stage for stage, _ in quick.QUICK_STAGES], [row["id"] for row in plan["stages"]])
+        self.assertEqual(
+            list(quick.QUICK_STAGES),
+            [(row["id"], row["timeoutSeconds"]) for row in plan["stages"]],
+        )
         self.assertTrue(all(row["command"] == ["/usr/local/libexec/staging-accept/test1-quick"] for row in plan["stages"]))
         serialized = json.dumps(plan).lower()
         for forbidden in ("canary", "soak", ".pem", "private key", "password", "token", "secret", "ssh"):
@@ -268,6 +272,16 @@ class QuickWrapperTest(unittest.TestCase):
             self.assertNotIn(RUN_ID, arguments)
             self.assertNotIn(candidate_hash, arguments)
             self.assertNotIn(str(self.run_dir), arguments)
+        web_end = next(
+            row["arguments"]
+            for row in web_calls
+            if row["arguments"][1] == "web-traffic"
+            and row["arguments"][3] == "end"
+        )
+        self.assertEqual(
+            str(self.config.profile_seconds + quick.WEB_WINDOW_BOUNDARY_SECONDS),
+            web_end[5],
+        )
         self.assertTrue(all(not row["arguments"] for row in calls if row["client"] == "backend"))
 
         evaluator = next(row for row in calls if row["client"] == "evaluator")["arguments"]
@@ -282,6 +296,104 @@ class QuickWrapperTest(unittest.TestCase):
         self.assertNotIn("--test-mode", evaluator)
         summary = json.loads((self.run_dir / "quick-summary.json").read_text())
         self.assertEqual("PASS", summary["outcome"])
+        self.assertEqual(
+            {
+                "rawTotals": "diagnostic-minute-envelope",
+                "watermarks": "watermark-health-only",
+                "runAttribution": "not-attributed",
+            },
+            summary["webTrafficSemantics"],
+        )
+        rendered_summary = json.dumps(summary).lower()
+        for prohibited in (
+            "acceptance-run",
+            "acceptance run bytes",
+            "acceptancerunbytes",
+        ):
+            self.assertNotIn(prohibited, rendered_summary)
+
+    def test_web_traffic_timeout_hierarchy_is_bounded_without_waiting(self) -> None:
+        self.assertEqual(120, quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS)
+        self.assertLess(
+            quick.WEB_CAPTURE_WATERMARK_WAIT_SECONDS,
+            quick.WEB_OBSERVER_DISPATCH_TIMEOUT_SECONDS,
+        )
+        self.assertLess(
+            quick.WEB_OBSERVER_DISPATCH_TIMEOUT_SECONDS,
+            quick.WEB_OBSERVER_TRANSPORT_TIMEOUT_SECONDS,
+        )
+        self.assertLess(
+            quick.WEB_OBSERVER_TRANSPORT_TIMEOUT_SECONDS,
+            quick.WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS,
+        )
+        plan_timeouts = dict(quick.QUICK_STAGES)
+        self.assertEqual(900, plan_timeouts["observe-end"])
+
+        controller = quick.Controller(self.config)
+        controller.run_dir = self.run_dir
+        observed: dict[str, list[tuple[str, int]]] = {}
+        for phase in ("start", "peak", "end"):
+            calls: list[tuple[str, int]] = []
+
+            def record_timeout(
+                executable, arguments, blockers, failures, prefix, timeout_seconds
+            ):
+                action = arguments[1] if arguments else "backend"
+                calls.append((action, timeout_seconds))
+                return None
+
+            with mock.patch.object(
+                controller, "_run_observer", side_effect=record_timeout
+            ), mock.patch.object(controller, "_check_snapshot"):
+                controller._observe(phase)
+            observed[phase] = calls
+
+        default_calls = [
+            ("kafka", quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS),
+            ("redis", quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS),
+            ("host", quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS),
+            ("web-traffic", quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS),
+            ("backend", quick.DEFAULT_OBSERVER_TIMEOUT_SECONDS),
+        ]
+        self.assertEqual(default_calls, observed["start"])
+        self.assertEqual(default_calls, observed["peak"])
+        self.assertEqual(
+            [
+                *default_calls[:3],
+                ("web-traffic", quick.WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS),
+                default_calls[4],
+            ],
+            observed["end"],
+        )
+
+        self._executable(self.web_client.name, "#!/bin/sh\nexit 0\n")
+        controller = quick.Controller(self.config)
+        blockers: list[str] = []
+        failures: list[str] = []
+        started = time.monotonic()
+        with mock.patch.object(
+            quick.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired(
+                "fixture-web-traffic", quick.WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS
+            ),
+        ) as run:
+            status = controller._run_observer(
+                self.web_client,
+                ("--action", "web-traffic", "--phase", "end", "--window-seconds", "61"),
+                blockers,
+                failures,
+                "WEB_OBSERVER",
+                quick.WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS,
+            )
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertIsNone(status)
+        self.assertEqual(["WEB_OBSERVER_CLIENT_UNAVAILABLE"], blockers)
+        self.assertEqual([], failures)
+        self.assertEqual(
+            quick.WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS,
+            run.call_args.kwargs["timeout"],
+        )
 
     def test_missing_deep_client_continues_and_final_summary_is_blocked(self) -> None:
         self._run_complete_fixture(missing_deep=True)

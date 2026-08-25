@@ -538,11 +538,11 @@ def evaluate_web(
     if phases is None:
         return
     try:
-        minimum_window_seconds = max(minimum_window_seconds, evaluation.profile_seconds)
         start_at = parse_timestamp(phases["start"].get("observedAt"))
         end_at = parse_timestamp(phases["end"].get("observedAt"))
-        start_minute = int(start_at.timestamp() * 1000) // 60_000 * 60_000
-        end_minute = int(end_at.timestamp() * 1000) // 60_000 * 60_000
+        required_window = max(minimum_window_seconds, evaluation.profile_seconds)
+        if (end_at - start_at).total_seconds() < required_window:
+            evaluation.block("WEB_TRAFFIC_WINDOW_INCOMPLETE")
         sources = {
             phase: rows_by_key(phases[phase].get("raw", {}).get("sources"), ("label",))
             for phase in PHASES
@@ -552,13 +552,32 @@ def evaluate_web(
         if not sources["end"]:
             raise EvidenceError("Web sources missing")
         metrics = []
-        required_minutes = math.ceil(minimum_window_seconds / 60)
         for key in sorted(sources["end"]):
+            source_rows = [sources[phase][key] for phase in PHASES]
+            if any(row.get("captureMode") != "capture-directory" for row in source_rows):
+                evaluation.block("WEB_SUMMARY_WATERMARK_UNAVAILABLE")
+                continue
+            if any(row.get("summaryLineageMode") != "current-run-only" for row in source_rows):
+                evaluation.block("WEB_SUMMARY_LINEAGE_INVALID")
+                continue
+            targets = [nonnegative_int(row.get("summaryTargetBeforeMs")) for row in source_rows]
+            if any(value % 60_000 != 0 for value in targets) or targets != sorted(targets):
+                raise EvidenceError("Web summary targets invalid")
+            end_observed_ms = int(end_at.timestamp() * 1000)
+            expected_end_target = ((end_observed_ms + 59_999) // 60_000) * 60_000
+            if targets[-1] != expected_end_target:
+                raise EvidenceError("Web end summary target does not match observation")
+            workers = {
+                phase: rows_by_key(sources[phase][key].get("workers"), ("workerId",))
+                for phase in PHASES
+            }
+            if not workers["end"]:
+                raise EvidenceError("Web worker evidence missing")
+            if len({frozenset(value) for value in workers.values()}) != 1:
+                evaluation.block("WEB_WORKER_SET_CHANGED")
+                continue
             for phase in PHASES:
-                workers = rows_by_key(sources[phase][key].get("workers"), ("workerId",))
-                if not workers:
-                    raise EvidenceError("Web worker evidence missing")
-                for worker in workers.values():
+                for worker in workers[phase].values():
                     for field in (
                         "collectorDropped",
                         "collectorSinkFailures",
@@ -566,43 +585,65 @@ def evaluate_web(
                         "writerSerializeFailures",
                         "writerFilesDropped",
                         "aggregatorOverflowed",
+                        "aggregatorLateRecords",
                         "redundancyPendingDropped",
                     ):
                         if nonnegative_int(worker.get(field)) > 0:
                             evaluation.fail("WEB_COLLECTOR_DEGRADED")
-            end = sources["end"][key]
+            worker_metrics = []
+            for worker_key in sorted(workers["end"]):
+                rows = [workers[phase][worker_key] for phase in PHASES]
+                run_ids = [row.get("runId") for row in rows]
+                if any(not isinstance(value, str) or not value for value in run_ids):
+                    raise EvidenceError("Web worker run id missing")
+                if len(set(run_ids)) != 1:
+                    evaluation.block("WEB_WORKER_LINEAGE_CHANGED")
+                    continue
+                watermarks = [
+                    nonnegative_int(row.get("summaryCommittedBeforeMs")) for row in rows
+                ]
+                updated_at = [nonnegative_int(row.get("updatedAt")) for row in rows]
+                if any(value % 60_000 != 0 for value in watermarks):
+                    raise EvidenceError("Web worker watermark invalid")
+                if any(
+                    watermark > observed // 60_000 * 60_000
+                    for watermark, observed in zip(watermarks, updated_at)
+                ):
+                    raise EvidenceError("Web worker watermark is ahead of its snapshot")
+                if watermarks != sorted(watermarks):
+                    evaluation.block("WEB_SUMMARY_WATERMARK_REGRESSED")
+                if watermarks[-1] < targets[-1]:
+                    evaluation.block("WEB_SUMMARY_WATERMARK_INCOMPLETE")
+                worker_metrics.append(
+                    {
+                        "workerId": worker_key[0],
+                        "runId": run_ids[0],
+                        "summaryCommittedBeforeMs": watermarks[-1],
+                    }
+                )
+            end = source_rows[-1]
             timeline = end.get("timelineEvidence")
             if not isinstance(timeline, dict):
                 raise EvidenceError("Web timeline missing")
             count, coverage, max_gap = minute_metrics(timeline.get("minutes"))
-            minutes = timeline.get("minutes")
-            if not minutes or minutes[0] > start_minute or minutes[-1] < end_minute:
-                evaluation.block("WEB_TRAFFIC_RUN_WINDOW_NOT_COVERED")
-            if count < required_minutes or coverage < minimum_window_seconds:
-                evaluation.block("WEB_TRAFFIC_WINDOW_INCOMPLETE")
-            if max_gap > maximum_gap_seconds:
-                evaluation.block("WEB_TRAFFIC_WINDOW_DISCONTINUITY")
             worker_evidence = end.get("workerMinuteEvidence")
-            if not isinstance(worker_evidence, dict) or not worker_evidence:
-                evaluation.block("WEB_WORKER_WINDOW_COMPLETENESS_UNPROVABLE")
-            else:
-                for evidence in worker_evidence.values():
-                    if not isinstance(evidence, dict):
-                        raise EvidenceError("Web worker minutes invalid")
-                    worker_count, worker_coverage, worker_gap = minute_metrics(evidence.get("minutes"))
-                    worker_minutes = evidence.get("minutes")
-                    if (
-                        not worker_minutes
-                        or worker_minutes[0] > start_minute
-                        or worker_minutes[-1] < end_minute
-                    ):
-                        evaluation.block("WEB_WORKER_RUN_WINDOW_NOT_COVERED")
-                    if worker_count < required_minutes or worker_coverage < minimum_window_seconds:
-                        evaluation.block("WEB_WORKER_WINDOW_INCOMPLETE")
-                    if worker_gap > maximum_gap_seconds:
-                        evaluation.block("WEB_TRAFFIC_WINDOW_DISCONTINUITY")
+            if not isinstance(worker_evidence, dict) or set(worker_evidence) != {
+                value[0] for value in workers["end"]
+            }:
+                raise EvidenceError("Web worker minutes invalid")
+            for evidence in worker_evidence.values():
+                if not isinstance(evidence, dict):
+                    raise EvidenceError("Web worker minutes invalid")
+                minute_metrics(evidence.get("minutes"))
             metrics.append(
-                {"source": key[0], "minuteCount": count, "coverageSeconds": coverage, "maxGapSeconds": max_gap}
+                {
+                    "source": key[0],
+                    "summaryTargetBeforeMs": targets[-1],
+                    "minuteCount": count,
+                    "coverageSeconds": coverage,
+                    "maxGapSeconds": max_gap,
+                    "workers": worker_metrics,
+                }
             )
         evaluation.metrics["webTraffic"] = metrics
     except EvidenceError:

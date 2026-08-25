@@ -3,21 +3,77 @@
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 
 MEASURES = ("proxy_wire", "noise_frame", "node_plain")
+MINUTE_MS = 60_000
+END_WATERMARK_WAIT_SECONDS = 125
+WATERMARK_POLL_SECONDS = 1
 
 
-def load_capture_directory(directory: str, now_ms: int, window_seconds: int) -> dict[str, Any]:
+class WebCaptureError(ValueError):
+    """Sanitized capture failure suitable for the Runner evidence contract."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def load_capture_directory(
+    directory: str,
+    now_ms: int,
+    window_seconds: int,
+    *,
+    phase: str,
+    expected_workers: int,
+    wait_timeout_seconds: float = END_WATERMARK_WAIT_SECONDS,
+    poll_interval_seconds: float = WATERMARK_POLL_SECONDS,
+) -> dict[str, Any]:
     root = Path(directory)
     if not root.is_absolute() or not root.is_dir():
-        raise ValueError("capture directory unavailable")
+        raise WebCaptureError("WEB_CAPTURE_DIRECTORY_UNAVAILABLE")
+    if phase not in ("start", "peak", "end") or expected_workers <= 0:
+        raise WebCaptureError("WEB_CAPTURE_CONFIGURATION_INVALID")
+    # Freeze the first boundary at or after the observation instant. A worker
+    # watermark of M only proves records strictly before M, so an end taken at
+    # M+30s must wait for M+60 rather than accepting M.
+    target_before_ms = ((now_ms + MINUTE_MS - 1) // MINUTE_MS) * MINUTE_MS
     live = _live_snapshots(root)
-    rows = _summary_rows(root, now_ms, window_seconds)
-    return _overview(rows, live)
+    fixed_lineage = _worker_lineage(live, expected_workers)
+    observed_watermarks = _worker_watermarks(live)
+    if phase == "end":
+        live = _wait_for_end_watermark(
+            root,
+            fixed_lineage,
+            observed_watermarks,
+            target_before_ms,
+            expected_workers,
+            wait_timeout_seconds,
+            poll_interval_seconds,
+        )
+        observed_watermarks = _worker_watermarks(live)
+    rows, legacy_ignored, foreign_ignored = _summary_rows(
+        root, now_ms, window_seconds, target_before_ms, live
+    )
+    final_live = _live_snapshots(root)
+    _require_same_lineage(final_live, fixed_lineage, expected_workers)
+    final_watermarks = _worker_watermarks(final_live)
+    if phase == "end":
+        if any(final_watermarks[worker] < observed_watermarks[worker] for worker in fixed_lineage):
+            raise WebCaptureError("WEB_SUMMARY_WATERMARK_REGRESSED")
+        if not _watermarks_cover(final_live, target_before_ms):
+            raise WebCaptureError("WEB_SUMMARY_WATERMARK_REGRESSED")
+    return _overview(
+        rows,
+        final_live,
+        target_before_ms,
+        legacy_ignored,
+        foreign_ignored,
+    )
 
 
 def _live_snapshots(root: Path) -> list[dict[str, Any]]:
@@ -31,34 +87,150 @@ def _live_snapshots(root: Path) -> list[dict[str, Any]]:
     return result
 
 
-def _summary_rows(root: Path, now_ms: int, window_seconds: int) -> list[dict[str, Any]]:
-    cutoff = now_ms - max(60, window_seconds) * 1000
+def _worker_lineage(
+    live: list[dict[str, Any]], expected_workers: int
+) -> dict[str, str]:
+    if len(live) != expected_workers:
+        raise WebCaptureError("WEB_WORKER_COUNT_MISMATCH")
+    result: dict[str, str] = {}
+    for item in live:
+        worker = item.get("workerId")
+        snapshot = item.get("snapshot")
+        if not isinstance(worker, str) or not worker or not isinstance(snapshot, dict):
+            raise WebCaptureError("WEB_WORKER_LINEAGE_INVALID")
+        run_id = snapshot.get("runId")
+        watermark = snapshot.get("summaryCommittedBeforeMs")
+        updated_at = snapshot.get("updatedAt")
+        if (
+            not isinstance(run_id, str)
+            or not run_id
+            or len(run_id) > 128
+            or any(ord(character) < 32 for character in run_id)
+            or isinstance(watermark, bool)
+            or not isinstance(watermark, int)
+            or watermark < 0
+            or watermark % MINUTE_MS != 0
+            or isinstance(updated_at, bool)
+            or not isinstance(updated_at, int)
+            or watermark > updated_at // MINUTE_MS * MINUTE_MS
+        ):
+            raise WebCaptureError("WEB_WORKER_LINEAGE_INVALID")
+        result[worker] = run_id
+    return result
+
+
+def _wait_for_end_watermark(
+    root: Path,
+    fixed_lineage: dict[str, str],
+    initial_watermarks: dict[str, int],
+    target_before_ms: int,
+    expected_workers: int,
+    wait_timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> list[dict[str, Any]]:
+    deadline = time.monotonic() + max(0, wait_timeout_seconds)
+    previous_watermarks = initial_watermarks
+    while True:
+        live = _live_snapshots(root)
+        _require_same_lineage(live, fixed_lineage, expected_workers)
+        watermarks = _worker_watermarks(live)
+        if any(watermarks[worker] < previous_watermarks[worker] for worker in fixed_lineage):
+            raise WebCaptureError("WEB_SUMMARY_WATERMARK_REGRESSED")
+        if _watermarks_cover(live, target_before_ms):
+            return live
+        if time.monotonic() >= deadline:
+            raise WebCaptureError("WEB_SUMMARY_WATERMARK_TIMEOUT")
+        previous_watermarks = watermarks
+        time.sleep(max(0, poll_interval_seconds))
+
+
+def _watermarks_cover(live: list[dict[str, Any]], target_before_ms: int) -> bool:
+    return all(
+        item["snapshot"]["summaryCommittedBeforeMs"] >= target_before_ms
+        for item in live
+    )
+
+
+def _worker_watermarks(live: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        item["workerId"]: item["snapshot"]["summaryCommittedBeforeMs"]
+        for item in live
+    }
+
+
+def _require_same_lineage(
+    live: list[dict[str, Any]], fixed_lineage: dict[str, str], expected_workers: int
+) -> None:
+    try:
+        current = _worker_lineage(live, expected_workers)
+    except WebCaptureError as error:
+        if error.code == "WEB_WORKER_COUNT_MISMATCH":
+            raise WebCaptureError("WEB_WORKER_LINEAGE_CHANGED") from None
+        raise
+    if current != fixed_lineage:
+        raise WebCaptureError("WEB_WORKER_LINEAGE_CHANGED")
+
+
+def _summary_rows(
+    root: Path,
+    now_ms: int,
+    window_seconds: int,
+    target_before_ms: int,
+    live: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, int]:
+    # The summaries are whole minute buckets. Align the requested start down to
+    # its bucket boundary so a partially overlapping first minute is retained.
+    cutoff = ((now_ms - max(60, window_seconds) * 1000) // 60_000) * 60_000
+    lineages = {
+        item["workerId"]: (
+            item["snapshot"]["runId"],
+            min(item["snapshot"]["summaryCommittedBeforeMs"], target_before_ms),
+        )
+        for item in live
+    }
     result: list[dict[str, Any]] = []
+    legacy_ignored = 0
+    foreign_ignored = 0
     for path in sorted(root.glob("summary-*.jsonl")):
         worker = _worker_from_summary_name(path.name)
-        if not worker:
+        if not worker or worker not in lineages:
             continue
+        run_id, committed_before_ms = lineages[worker]
         try:
             handle = path.open("r", encoding="utf-8")
         except (OSError, UnicodeError):
-            raise ValueError("summary unavailable") from None
+            raise WebCaptureError("WEB_SUMMARY_UNAVAILABLE") from None
         with handle:
             for raw_line in handle:
                 if len(raw_line) > 1024 * 1024:
-                    raise ValueError("summary row too large")
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID")
                 try:
                     row = json.loads(raw_line)
                 except json.JSONDecodeError:
-                    continue
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID") from None
                 if not isinstance(row, dict):
-                    continue
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID")
                 minute = row.get("minute")
-                if not isinstance(minute, int) or isinstance(minute, bool) or minute < cutoff or minute > now_ms:
+                row_run_id = row.get("runId")
+                if row_run_id is None:
+                    legacy_ignored += 1
                     continue
-                normalized = _normalize_row(row)
+                if not isinstance(row_run_id, str) or not row_run_id:
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID")
+                if row_run_id != run_id:
+                    foreign_ignored += 1
+                    continue
+                if not isinstance(minute, int) or isinstance(minute, bool):
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID")
+                if minute < cutoff or minute >= committed_before_ms:
+                    continue
+                try:
+                    normalized = _normalize_row(row)
+                except ValueError:
+                    raise WebCaptureError("WEB_SUMMARY_ROW_INVALID") from None
                 normalized["workerId"] = worker
                 result.append(normalized)
-    return result
+    return result, legacy_ignored, foreign_ignored
 
 
 def _worker_from_summary_name(name: str) -> str:
@@ -98,16 +270,28 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _overview(rows: list[dict[str, Any]], live: list[dict[str, Any]]) -> dict[str, Any]:
+def _overview(
+    rows: list[dict[str, Any]],
+    live: list[dict[str, Any]],
+    target_before_ms: int,
+    legacy_ignored: int,
+    foreign_ignored: int,
+) -> dict[str, Any]:
     totals = _measure_totals(rows)
     by_worker: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_worker[row["workerId"]].append(row)
-    worker_totals = {worker: _measure_totals(worker_rows) for worker, worker_rows in sorted(by_worker.items())}
-    worker_coverage = {worker: _coverage(worker_rows) for worker, worker_rows in sorted(by_worker.items())}
+    live_workers = {
+        item.get("workerId")
+        for item in live
+        if isinstance(item.get("workerId"), str) and item.get("workerId")
+    }
+    workers = sorted(set(by_worker) | live_workers)
+    worker_totals = {worker: _measure_totals(by_worker[worker]) for worker in workers}
+    worker_coverage = {worker: _coverage(by_worker[worker]) for worker in workers}
     worker_minutes = {
-        worker: sorted({row["minute"] for row in worker_rows})
-        for worker, worker_rows in sorted(by_worker.items())
+        worker: sorted({row["minute"] for row in by_worker[worker]})
+        for worker in workers
     }
     return {
         "reconciliation": totals,
@@ -119,6 +303,10 @@ def _overview(rows: list[dict[str, Any]], live: list[dict[str, Any]]) -> dict[st
         "_workerReconciliation": worker_totals,
         "_workerCoverage": worker_coverage,
         "_workerMinuteEvidence": worker_minutes,
+        "_summaryLineageMode": "current-run-only",
+        "_summaryTargetBeforeMs": target_before_ms,
+        "_legacySummaryRowsIgnored": legacy_ignored,
+        "_foreignSummaryRowsIgnored": foreign_ignored,
     }
 
 

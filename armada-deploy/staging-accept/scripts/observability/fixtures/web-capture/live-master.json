@@ -1,1 +1,1 @@
-{"updatedAt":1799999995000,"running":true,"collector":{"dropped":0,"sinkFailures":0},"writer":{"writeFailures":0,"serializeFailures":0,"filesDropped":0},"aggregator":{"overflowed":0},"redundancy":{"pendingDropped":0}}
+{"updatedAt":1800000001000,"running":true,"runId":"master-run","summaryCommittedBeforeMs":1800000000000,"collector":{"dropped":0,"sinkFailures":0},"writer":{"writeFailures":0,"serializeFailures":0,"filesDropped":0},"aggregator":{"overflowed":0,"lateRecords":0},"redundancy":{"pendingDropped":0}}

@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from web_capture import load_capture_directory
+from web_capture import WebCaptureError, load_capture_directory
 
 
 SCHEMA_VERSION = 1
@@ -264,7 +264,9 @@ def parse_proc_stat(raw: str) -> dict[str, int]:
         raise CollectionError("INVALID_PROC_STAT") from error
     if any(value < 0 for value in values):
         raise CollectionError("INVALID_PROC_STAT")
-    return dict(zip(names, values, strict=True))
+    # test1 Web currently runs Python 3.9, where zip(strict=...) is unavailable.
+    # Both sequences are fixed to eight entries above, so the plain zip is exact.
+    return dict(zip(names, values))
 
 
 def cpu_busy_percent(before: dict[str, int], after: dict[str, int]) -> float:
@@ -514,7 +516,7 @@ def parse_web_traffic(args: argparse.Namespace) -> dict[str, Any]:
         "classifiedBytes": "Noise frame bytes with application categories",
         "cloudBilling": False,
         "warning": "values are neither EC2 TCP payload counters nor AWS/cloud invoice bytes",
-        "window": "overview is a rolling file window; coverage gate must pass before soak accounting",
+        "window": "current-worker-run statistics through the frozen end boundary; end-exclusive watermarks prove completeness",
     }
     try:
         targets, fixtures = load_sources(args, "web_traffic")
@@ -527,19 +529,32 @@ def parse_web_traffic(args: argparse.Namespace) -> dict[str, Any]:
         return result
 
     sources: list[dict[str, Any]] = []
-    now_ms = args.now_ms if args.now_ms is not None else int(time.time() * 1000)
+    frozen_now_ms = (
+        args.now_ms
+        if args.now_ms is not None
+        else int(parse_timestamp(result["observedAt"]).timestamp() * 1000)
+    )
     for label in sorted(set(targets) | set(fixtures) | set(directories)):
         try:
             if label in directories:
                 try:
                     payload = load_capture_directory(
-                        directories[label], now_ms, args.minimum_window_seconds
+                        directories[label],
+                        frozen_now_ms,
+                        args.minimum_window_seconds,
+                        phase=args.phase,
+                        expected_workers=args.expected_workers,
                     )
+                except WebCaptureError as error:
+                    raise CollectionError(error.code) from error
                 except ValueError as error:
                     raise CollectionError("WEB_CAPTURE_DIRECTORY_UNAVAILABLE") from error
             else:
                 payload = read_json(fixtures[label]) if label in fixtures else fetch_json(targets[label], args.timeout_seconds)
-            source, reasons = normalize_web_payload(label, payload, args, now_ms)
+            health_now_ms = (
+                args.now_ms if args.now_ms is not None else int(time.time() * 1000)
+            )
+            source, reasons = normalize_web_payload(label, payload, args, health_now_ms)
             sources.append(source)
             add_check(result, f"web-traffic-{label}", not reasons, reasons[0] if reasons else "")
             for reason in reasons[1:]:
@@ -559,6 +574,9 @@ def normalize_web_payload(
     timeline = payload.get("timeline")
     health = payload.get("health")
     if not isinstance(reconciliation, dict) or not isinstance(timeline, list) or not isinstance(health, list):
+        raise CollectionError("WEB_TRAFFIC_INVALID")
+    capture_mode = payload.get("_captureMode", "dashboard-api")
+    if capture_mode not in ("dashboard-api", "capture-directory"):
         raise CollectionError("WEB_TRAFFIC_INVALID")
     normalized_reconciliation = normalize_web_reconciliation(reconciliation)
 
@@ -605,12 +623,36 @@ def normalize_web_payload(
         if snapshot.get("running") is not True:
             reasons.append("WEB_COLLECTOR_NOT_RUNNING")
         updated_at = integer_number(snapshot.get("updatedAt"), "WEB_WORKER_HEALTH_INVALID")
+        lineage: dict[str, Any] = {}
+        if capture_mode == "capture-directory":
+            run_id = snapshot.get("runId")
+            if (
+                not isinstance(run_id, str)
+                or not run_id
+                or len(run_id) > 128
+                or any(ord(character) < 32 for character in run_id)
+            ):
+                raise CollectionError("WEB_WORKER_LINEAGE_INVALID")
+            watermark = integer_number(
+                snapshot.get("summaryCommittedBeforeMs"), "WEB_WORKER_LINEAGE_INVALID"
+            )
+            if watermark % 60_000 != 0:
+                raise CollectionError("WEB_WORKER_LINEAGE_INVALID")
+            lineage = {
+                "runId": run_id,
+                "summaryCommittedBeforeMs": watermark,
+            }
         age_ms = now_ms - updated_at
         collector = required_section(snapshot, "collector", ("dropped", "sinkFailures"))
         writer = required_section(
             snapshot, "writer", ("writeFailures", "serializeFailures", "filesDropped")
         )
-        aggregator = required_section(snapshot, "aggregator", ("overflowed",))
+        aggregator_fields = (
+            ("overflowed", "lateRecords")
+            if capture_mode == "capture-directory"
+            else ("overflowed",)
+        )
+        aggregator = required_section(snapshot, "aggregator", aggregator_fields)
         redundancy = required_section(snapshot, "redundancy", ("pendingDropped",))
         dropped = collector["dropped"]
         sink_failures = collector["sinkFailures"]
@@ -618,6 +660,7 @@ def normalize_web_payload(
         serialize_failures = writer["serializeFailures"]
         files_dropped = writer["filesDropped"]
         overflowed = aggregator["overflowed"]
+        late_records = aggregator.get("lateRecords", 0)
         pending_dropped = redundancy["pendingDropped"]
         if age_ms < -30_000 or age_ms > args.freshness_seconds * 1000:
             reasons.append("WEB_WORKER_STALE")
@@ -628,12 +671,14 @@ def normalize_web_payload(
             or serialize_failures
             or files_dropped
             or overflowed
+            or late_records
             or pending_dropped
         ):
             reasons.append("WEB_COLLECTOR_DEGRADED")
         worker_health.append(
             {
                 "workerId": worker_id,
+                **lineage,
                 "updatedAt": updated_at,
                 "ageMs": age_ms,
                 "collectorDropped": dropped,
@@ -642,58 +687,65 @@ def normalize_web_payload(
                 "writerSerializeFailures": serialize_failures,
                 "writerFilesDropped": files_dropped,
                 "aggregatorOverflowed": overflowed,
+                "aggregatorLateRecords": late_records,
                 "redundancyPendingDropped": pending_dropped,
             }
         )
-    if args.minimum_window_seconds and (
-        coverage_seconds < args.minimum_window_seconds
-        or timeline_evidence["minuteCount"] < math.ceil(args.minimum_window_seconds / 60)
-    ):
-        reasons.append("WEB_TRAFFIC_WINDOW_INCOMPLETE")
-    if timeline_evidence["maxGapSeconds"] > args.maximum_gap_seconds:
-        reasons.append("WEB_TRAFFIC_WINDOW_DISCONTINUITY")
-    capture_mode = payload.get("_captureMode", "dashboard-api")
-    if capture_mode not in ("dashboard-api", "capture-directory"):
-        raise CollectionError("WEB_TRAFFIC_INVALID")
+    if capture_mode != "capture-directory":
+        if args.minimum_window_seconds and (
+            coverage_seconds < args.minimum_window_seconds
+            or timeline_evidence["minuteCount"] < math.ceil(args.minimum_window_seconds / 60)
+        ):
+            reasons.append("WEB_TRAFFIC_WINDOW_INCOMPLETE")
+        if timeline_evidence["maxGapSeconds"] > args.maximum_gap_seconds:
+            reasons.append("WEB_TRAFFIC_WINDOW_DISCONTINUITY")
     worker_coverage = normalize_worker_coverage(
         payload.get("_workerCoverage", {}), seen_workers, capture_mode
     )
     worker_minutes = payload.get("_workerMinuteEvidence", {})
     normalized_worker_evidence: dict[str, dict[str, Any]] = {}
-    if args.minimum_window_seconds:
-        if capture_mode != "capture-directory" and args.expected_workers > 1:
-            reasons.append("WEB_WORKER_WINDOW_COMPLETENESS_UNPROVABLE")
-        elif capture_mode != "capture-directory":
-            normalized_worker_evidence = {
-                next(iter(seen_workers), "worker"): timeline_evidence
-            }
-        elif (
+    if capture_mode == "capture-directory":
+        if (
             not isinstance(worker_coverage, dict)
             or not isinstance(worker_minutes, dict)
             or set(worker_coverage) != seen_workers
             or set(worker_minutes) != seen_workers
         ):
-            reasons.append("WEB_WORKER_WINDOW_INCOMPLETE")
+            raise CollectionError("WEB_WORKER_EVIDENCE_INVALID")
+        for worker_id in sorted(seen_workers):
+            raw_minutes = worker_minutes[worker_id]
+            if not isinstance(raw_minutes, list):
+                raise CollectionError("WEB_WORKER_EVIDENCE_INVALID")
+            evidence = minute_evidence(raw_minutes, args.maximum_gap_seconds)
+            if worker_coverage[worker_id] != evidence["coverageSeconds"]:
+                raise CollectionError("WEB_WORKER_EVIDENCE_INVALID")
+            normalized_worker_evidence[worker_id] = evidence
+    elif args.minimum_window_seconds:
+        if args.expected_workers > 1:
+            reasons.append("WEB_WORKER_WINDOW_COMPLETENESS_UNPROVABLE")
         else:
-            for worker_id in sorted(seen_workers):
-                raw_minutes = worker_minutes[worker_id]
-                if not isinstance(raw_minutes, list):
-                    reasons.append("WEB_WORKER_WINDOW_INCOMPLETE")
-                    continue
-                try:
-                    evidence = minute_evidence(raw_minutes, args.maximum_gap_seconds)
-                except CollectionError:
-                    reasons.append("WEB_WORKER_WINDOW_INCOMPLETE")
-                    continue
-                normalized_worker_evidence[worker_id] = evidence
-                if (
-                    worker_coverage[worker_id] != evidence["coverageSeconds"]
-                    or evidence["coverageSeconds"] < args.minimum_window_seconds
-                    or evidence["minuteCount"] < math.ceil(args.minimum_window_seconds / 60)
-                ):
-                    reasons.append("WEB_WORKER_WINDOW_INCOMPLETE")
-                if evidence["maxGapSeconds"] > args.maximum_gap_seconds:
-                    reasons.append("WEB_TRAFFIC_WINDOW_DISCONTINUITY")
+            normalized_worker_evidence = {
+                next(iter(seen_workers), "worker"): timeline_evidence
+            }
+    summary_lineage_mode = ""
+    summary_target_before_ms = 0
+    legacy_summary_rows_ignored = 0
+    foreign_summary_rows_ignored = 0
+    if capture_mode == "capture-directory":
+        summary_lineage_mode = payload.get("_summaryLineageMode")
+        if summary_lineage_mode != "current-run-only":
+            raise CollectionError("WEB_SUMMARY_LINEAGE_INVALID")
+        summary_target_before_ms = integer_number(
+            payload.get("_summaryTargetBeforeMs"), "WEB_SUMMARY_WATERMARK_INVALID"
+        )
+        if summary_target_before_ms % 60_000 != 0:
+            raise CollectionError("WEB_SUMMARY_WATERMARK_INVALID")
+        legacy_summary_rows_ignored = integer_number(
+            payload.get("_legacySummaryRowsIgnored"), "WEB_SUMMARY_LINEAGE_INVALID"
+        )
+        foreign_summary_rows_ignored = integer_number(
+            payload.get("_foreignSummaryRowsIgnored"), "WEB_SUMMARY_LINEAGE_INVALID"
+        )
     reasons = list(dict.fromkeys(reasons))
     return (
         {
@@ -703,6 +755,10 @@ def normalize_web_payload(
             "coverageSeconds": coverage_seconds,
             "timelineEvidence": timeline_evidence,
             "captureMode": capture_mode,
+            "summaryLineageMode": summary_lineage_mode,
+            "summaryTargetBeforeMs": summary_target_before_ms,
+            "legacySummaryRowsIgnored": legacy_summary_rows_ignored,
+            "foreignSummaryRowsIgnored": foreign_summary_rows_ignored,
             "workerCoverageSeconds": worker_coverage,
             "workerMinuteEvidence": normalized_worker_evidence,
             "workerReconciliation": normalize_worker_reconciliation(

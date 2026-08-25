@@ -126,15 +126,27 @@ def host_snapshot(phase: str, restart: int = 2, oom: bool = False) -> dict:
     return result
 
 
-def web_snapshot(phase: str, minutes: list[int]) -> dict:
+def web_snapshot(
+    phase: str,
+    minutes: list[int],
+    run_id: str = "web-worker-run",
+    watermark: int | None = None,
+) -> dict:
+    observed_ms = int(OBSERVED_TIMES[phase].timestamp() * 1000)
+    target = ((observed_ms + 59_999) // 60_000) * 60_000
+    committed_before = target if watermark is None else watermark
     worker = {
         "workerId": "master",
+        "runId": run_id,
+        "summaryCommittedBeforeMs": committed_before,
+        "updatedAt": max(committed_before, target),
         "collectorDropped": 0,
         "collectorSinkFailures": 0,
         "writerWriteFailures": 0,
         "writerSerializeFailures": 0,
         "writerFilesDropped": 0,
         "aggregatorOverflowed": 0,
+        "aggregatorLateRecords": 0,
         "redundancyPendingDropped": 0,
     }
     evidence = {
@@ -151,6 +163,9 @@ def web_snapshot(phase: str, minutes: list[int]) -> dict:
             "sources": [
                 {
                     "label": "web",
+                    "captureMode": "capture-directory",
+                    "summaryLineageMode": "current-run-only",
+                    "summaryTargetBeforeMs": target,
                     "workers": [worker],
                     "timelineEvidence": evidence,
                     "workerMinuteEvidence": {"master": copy.deepcopy(evidence)},
@@ -370,17 +385,64 @@ class EvaluateTest(unittest.TestCase):
         )
         self.assertIn("OBSERVABILITY_FIXTURE_REJECTED", result["blockedReasons"])
 
-    def test_web_distant_points_cannot_fake_window(self):
+    def test_web_real_timeline_gaps_do_not_replace_watermark_completeness(self):
         minutes = [1_800_000_000_000, 1_800_003_600_000]
         snapshots = [web_snapshot(phase, minutes) for phase in OBSERVED]
         result = self.run_evaluator(
             snapshots,
             "web-traffic",
-            3,
+            0,
             "--minimum-traffic-window-seconds",
             "120",
         )
-        self.assertIn("WEB_TRAFFIC_WINDOW_DISCONTINUITY", result["blockedReasons"])
+        self.assertEqual("PASS", result["status"])
+
+    def test_web_idle_window_passes_on_current_lineage_watermarks(self):
+        snapshots = [web_snapshot(phase, []) for phase in OBSERVED]
+
+        result = self.run_evaluator(snapshots, "web-traffic", 0)
+
+        self.assertEqual("PASS", result["status"])
+
+    def test_web_worker_restart_between_phases_is_blocked(self):
+        snapshots = [web_snapshot(phase, []) for phase in OBSERVED]
+        snapshots[1]["raw"]["sources"][0]["workers"][0]["runId"] = "restarted-run"
+
+        result = self.run_evaluator(snapshots, "web-traffic", 3)
+
+        self.assertIn("WEB_WORKER_LINEAGE_CHANGED", result["blockedReasons"])
+
+    def test_web_watermark_must_be_monotonic_and_cover_the_frozen_end_target(self):
+        boundaries = {
+            phase: (
+                (int(OBSERVED_TIMES[phase].timestamp() * 1000) + 59_999)
+                // 60_000
+                * 60_000
+            )
+            for phase in OBSERVED
+        }
+        regressed = [
+            web_snapshot("start", [], watermark=boundaries["start"]),
+            web_snapshot("peak", [], watermark=boundaries["peak"]),
+            web_snapshot("end", [], watermark=boundaries["start"]),
+        ]
+        result = self.run_evaluator(regressed, "web-traffic", 3)
+        self.assertIn("WEB_SUMMARY_WATERMARK_REGRESSED", result["blockedReasons"])
+
+        lagging = [web_snapshot(phase, []) for phase in OBSERVED]
+        lagging[-1]["raw"]["sources"][0]["workers"][0]["summaryCommittedBeforeMs"] = (
+            lagging[-1]["raw"]["sources"][0]["summaryTargetBeforeMs"] - 60_000
+        )
+        result = self.run_evaluator(lagging, "web-traffic", 3)
+        self.assertIn("WEB_SUMMARY_WATERMARK_INCOMPLETE", result["blockedReasons"])
+
+    def test_web_write_or_drop_degradation_fails_closed(self):
+        snapshots = [web_snapshot(phase, []) for phase in OBSERVED]
+        snapshots[1]["raw"]["sources"][0]["workers"][0]["writerWriteFailures"] = 1
+
+        result = self.run_evaluator(snapshots, "web-traffic", 2)
+
+        self.assertIn("WEB_COLLECTOR_DEGRADED", result["failureReasons"])
 
     def test_web_and_android_empty_evidence_sets_are_blocked(self):
         web = [envelope("web-traffic", phase, {"sources": []}) for phase in OBSERVED]

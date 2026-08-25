@@ -4,6 +4,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import collect as collector
+from web_capture import WebCaptureError, load_capture_directory
 
 
 ROOT = Path(__file__).resolve().parent
@@ -11,6 +16,34 @@ COLLECTOR = ROOT / "collect.py"
 FIXTURES = ROOT / "fixtures"
 RUN_ID = "test-run"
 CANDIDATE = "sha256:" + "a" * 64
+
+
+def live_snapshot(now_ms: int, run_id: str = "worker-run", watermark: int | None = None) -> dict:
+    return {
+        "updatedAt": now_ms,
+        "running": True,
+        "runId": run_id,
+        "summaryCommittedBeforeMs": now_ms if watermark is None else watermark,
+        "collector": {"dropped": 0, "sinkFailures": 0},
+        "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0},
+        "aggregator": {"overflowed": 0, "lateRecords": 0},
+        "redundancy": {"pendingDropped": 0},
+    }
+
+
+def summary_row(minute: int, run_id: str = "worker-run", byte_count: int = 1) -> dict:
+    return {
+        "minute": minute,
+        "scope": "system",
+        "category": "heartbeat",
+        "frameKind": "message",
+        "direction": "up",
+        "measure": "noise_frame",
+        "channel": "ws",
+        "bytes": byte_count,
+        "count": 1,
+        "runId": run_id,
+    }
 
 
 class CollectorFixtureTest(unittest.TestCase):
@@ -154,6 +187,283 @@ class CollectorFixtureTest(unittest.TestCase):
         self.assertEqual({"master", "worker-1"}, set(source["workerReconciliation"]))
         self.assertEqual(60, source["timelineEvidence"]["maxGapSeconds"])
         self.assertEqual(3, source["workerMinuteEvidence"]["master"]["minuteCount"])
+
+    def test_web_capture_waits_for_the_frozen_end_boundary(self):
+        minute_boundary = 1_800_000_000_000
+        now_ms = minute_boundary + 30_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "live-master.json").write_text(
+                json.dumps(live_snapshot(now_ms, watermark=minute_boundary)),
+                encoding="utf-8",
+            )
+            (root / "summary-master-20270115T07Z.jsonl").write_text(
+                json.dumps(summary_row(minute_boundary - 60_000))
+                + "\n"
+                + json.dumps(summary_row(minute_boundary))
+                + "\n",
+                encoding="utf-8",
+            )
+
+            flushes = 0
+
+            def advance_watermark(_seconds: float) -> None:
+                nonlocal flushes
+                flushes += 1
+                watermark = (
+                    minute_boundary if flushes == 1 else minute_boundary + 60_000
+                )
+                (root / "live-master.json").write_text(
+                    json.dumps(
+                        live_snapshot(
+                            now_ms if flushes == 1 else minute_boundary + 61_000,
+                            watermark=watermark,
+                        )
+                    ),
+                    encoding="utf-8",
+                )
+
+            with mock.patch("web_capture.time.sleep", side_effect=advance_watermark):
+                payload = load_capture_directory(
+                    str(root),
+                    now_ms,
+                    60,
+                    phase="end",
+                    expected_workers=1,
+                    wait_timeout_seconds=1,
+                    poll_interval_seconds=0,
+                )
+
+        self.assertEqual(minute_boundary + 60_000, payload["_summaryTargetBeforeMs"])
+        self.assertEqual(2, flushes)
+        self.assertEqual(
+            [minute_boundary - 60_000, minute_boundary],
+            payload["_workerMinuteEvidence"]["master"],
+        )
+
+    def test_web_capture_idle_worker_proves_zero_without_making_timeline_rows(self):
+        now_ms = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "live-master.json").write_text(
+                json.dumps(live_snapshot(now_ms)),
+                encoding="utf-8",
+            )
+
+            payload = load_capture_directory(
+                str(root), now_ms, 180, phase="end", expected_workers=1
+            )
+
+        self.assertEqual([], payload["timeline"])
+        self.assertEqual(
+            {
+                "proxyWire": 0,
+                "noiseFrame": 0,
+                "nodePlain": 0,
+                "transportOverhead": 0,
+                "protocolOverhead": 0,
+                "attributedShare": 0,
+            },
+            payload["_workerReconciliation"]["master"],
+        )
+        self.assertEqual(0, payload["_workerCoverage"]["master"])
+        self.assertEqual([], payload["_workerMinuteEvidence"]["master"])
+        self.assertEqual("worker-run", payload["health"][0]["snapshot"]["runId"])
+        self.assertEqual(now_ms, payload["health"][0]["snapshot"]["summaryCommittedBeforeMs"])
+
+    def test_web_capture_blocks_when_a_worker_watermark_times_out(self):
+        minute_boundary = 1_800_000_000_000
+        now_ms = minute_boundary + 30_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "live-master.json").write_text(
+                json.dumps(live_snapshot(now_ms, watermark=minute_boundary)),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(WebCaptureError) as raised:
+                load_capture_directory(
+                    str(root),
+                    now_ms,
+                    60,
+                    phase="end",
+                    expected_workers=1,
+                    wait_timeout_seconds=0,
+                )
+
+        self.assertEqual("WEB_SUMMARY_WATERMARK_TIMEOUT", raised.exception.code)
+
+    def test_web_capture_uses_post_wait_clock_for_worker_freshness(self):
+        captured: dict[str, int] = {}
+
+        def capture_payload(
+            _directory: str,
+            frozen_now_ms: int,
+            _window_seconds: int,
+            **_kwargs: object,
+        ) -> dict:
+            captured["frozen"] = frozen_now_ms
+            target = ((frozen_now_ms + 59_999) // 60_000) * 60_000
+            snapshot = live_snapshot(frozen_now_ms + 60_000, watermark=target)
+            return {
+                "reconciliation": {
+                    "proxyWire": 0,
+                    "noiseFrame": 0,
+                    "nodePlain": 0,
+                    "transportOverhead": 0,
+                    "protocolOverhead": 0,
+                    "attributedShare": 0,
+                },
+                "timeline": [],
+                "byCategory": [],
+                "byScope": [],
+                "health": [{"workerId": "master", "snapshot": snapshot}],
+                "_captureMode": "capture-directory",
+                "_workerReconciliation": {"master": {
+                    "proxyWire": 0,
+                    "noiseFrame": 0,
+                    "nodePlain": 0,
+                    "transportOverhead": 0,
+                    "protocolOverhead": 0,
+                    "attributedShare": 0,
+                }},
+                "_workerCoverage": {"master": 0},
+                "_workerMinuteEvidence": {"master": []},
+                "_summaryLineageMode": "current-run-only",
+                "_summaryTargetBeforeMs": target,
+                "_legacySummaryRowsIgnored": 0,
+                "_foreignSummaryRowsIgnored": 0,
+            }
+
+        def post_wait_time() -> float:
+            return (captured["frozen"] + 61_000) / 1000
+
+        args = SimpleNamespace(
+            adapter="web-traffic",
+            environment="test1",
+            phase="end",
+            run_id=RUN_ID,
+            candidate_manifest_sha256=CANDIDATE,
+            label="default",
+            target=[],
+            json_file=[],
+            capture_directory=["web=/absolute/capture"],
+            expected_workers=1,
+            freshness_seconds=30,
+            minimum_window_seconds=0,
+            maximum_gap_seconds=60,
+            timeout_seconds=8,
+            now_ms=None,
+        )
+        with mock.patch.object(collector, "load_capture_directory", side_effect=capture_payload):
+            with mock.patch.object(collector.time, "time", side_effect=post_wait_time):
+                result = collector.parse_web_traffic(args)
+
+        self.assertEqual("COLLECTED", result["status"])
+        self.assertEqual(1_000, result["raw"]["sources"][0]["workers"][0]["ageMs"])
+
+    def test_web_capture_blocks_when_a_worker_restarts_during_end_wait(self):
+        now_ms = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live_path = root / "live-master.json"
+            live_path.write_text(
+                json.dumps(live_snapshot(now_ms, watermark=now_ms - 60_000)),
+                encoding="utf-8",
+            )
+
+            def restart_worker(_seconds: float) -> None:
+                live_path.write_text(
+                    json.dumps(live_snapshot(now_ms, run_id="restarted-run")),
+                    encoding="utf-8",
+                )
+
+            with mock.patch("web_capture.time.sleep", side_effect=restart_worker):
+                with self.assertRaises(WebCaptureError) as raised:
+                    load_capture_directory(
+                        str(root),
+                        now_ms,
+                        60,
+                        phase="end",
+                        expected_workers=1,
+                        wait_timeout_seconds=1,
+                        poll_interval_seconds=0,
+                    )
+
+        self.assertEqual("WEB_WORKER_LINEAGE_CHANGED", raised.exception.code)
+
+    def test_web_capture_ignores_legacy_and_previous_run_summary_rows(self):
+        now_ms = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "live-master.json").write_text(
+                json.dumps(live_snapshot(now_ms)), encoding="utf-8"
+            )
+            legacy = summary_row(now_ms - 60_000)
+            legacy.pop("runId")
+            rows = [
+                legacy,
+                summary_row(now_ms - 60_000, run_id="previous-run", byte_count=10),
+                summary_row(now_ms - 60_000, byte_count=2),
+                summary_row(now_ms, byte_count=100),
+            ]
+            (root / "summary-master-20270115T07Z.jsonl").write_text(
+                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+            )
+
+            payload = load_capture_directory(
+                str(root), now_ms, 60, phase="end", expected_workers=1
+            )
+
+        self.assertEqual(2, payload["reconciliation"]["noiseFrame"])
+        self.assertEqual(1, payload["_legacySummaryRowsIgnored"])
+        self.assertEqual(1, payload["_foreignSummaryRowsIgnored"])
+
+    def test_web_capture_degraded_writer_still_fails_closed(self):
+        now_ms = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            degraded = live_snapshot(now_ms)
+            degraded["writer"]["writeFailures"] = 1
+            (root / "live-master.json").write_text(json.dumps(degraded), encoding="utf-8")
+            result = self.run_collector(
+                "web-traffic",
+                "--phase",
+                "end",
+                "--capture-directory",
+                f"web={root}",
+                "--expected-workers",
+                "1",
+                "--now-ms",
+                str(now_ms),
+                "--minimum-window-seconds",
+                "180",
+                expected_code=2,
+            )
+
+        self.assertIn("WEB_COLLECTOR_DEGRADED", result["health"]["blockedReasons"])
+
+    def test_web_capture_late_summary_record_fails_closed(self):
+        now_ms = 1_800_000_000_000
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            degraded = live_snapshot(now_ms)
+            degraded["aggregator"]["lateRecords"] = 1
+            (root / "live-master.json").write_text(json.dumps(degraded), encoding="utf-8")
+            result = self.run_collector(
+                "web-traffic",
+                "--phase",
+                "end",
+                "--capture-directory",
+                f"web={root}",
+                "--expected-workers",
+                "1",
+                "--now-ms",
+                str(now_ms),
+                expected_code=2,
+            )
+
+        self.assertIn("WEB_COLLECTOR_DEGRADED", result["health"]["blockedReasons"])
 
     def test_web_two_points_cannot_fake_a_long_window(self):
         payload = json.loads((FIXTURES / "web-overview.json").read_text(encoding="utf-8"))

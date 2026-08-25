@@ -20,6 +20,13 @@ from typing import Any, Sequence
 EXIT_FAIL = 30
 EXIT_BLOCKED = 40
 MAX_JSON_BYTES = 16 * 1024 * 1024
+DEFAULT_OBSERVER_TIMEOUT_SECONDS = 120
+# Keep the orchestration timeout outside every nested Web traffic deadline:
+# capture watermark wait < remote dispatcher < SSH client < quick wrapper.
+WEB_CAPTURE_WATERMARK_WAIT_SECONDS = 125
+WEB_OBSERVER_DISPATCH_TIMEOUT_SECONDS = 240
+WEB_OBSERVER_TRANSPORT_TIMEOUT_SECONDS = 300
+WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS = 330
 RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 MANIFEST_SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -34,15 +41,21 @@ QUICK_STAGES = (
     ("quick-midpoint", 45),
     ("observe-peak", 660),
     ("quick-endpoint", 45),
-    ("observe-end", 660),
+    ("observe-end", 900),
     ("evaluate-quick", 120),
 )
 OBSERVATION_PHASES = ("start", "peak", "end")
+WEB_WINDOW_BOUNDARY_SECONDS = 60
 WEB_ACTIONS = {
     "kafka": ("kafka", ""),
     "redis": ("redis", ""),
     "host": ("host-resource", "web"),
     "web-traffic": ("web-traffic", ""),
+}
+WEB_TRAFFIC_SUMMARY_SEMANTICS = {
+    "rawTotals": "diagnostic-minute-envelope",
+    "watermarks": "watermark-health-only",
+    "runAttribution": "not-attributed",
 }
 KAFKA_PAIRS = (
     ("armada-protocol-master-commands", "armada.protocol.account.commands.v1"),
@@ -329,11 +342,22 @@ class Controller:
         if phase not in OBSERVATION_PHASES:
             raise StageResult("BLOCKED", "STAGE_CONTEXT_INVALID")
         observability = self._ensure_directory(self.run_dir / "observability")
-        window_seconds = {"start": 0, "peak": self.config.wait_seconds, "end": self.config.profile_seconds}[phase]
+        window_seconds = {
+            "start": 0,
+            "peak": self.config.wait_seconds,
+            # The runner observes whole minute buckets. Include one boundary
+            # minute so normal collector/SSH overhead cannot exclude the start.
+            "end": self.config.profile_seconds + WEB_WINDOW_BOUNDARY_SECONDS,
+        }[phase]
         blockers: list[str] = []
         failures: list[str] = []
 
         for action, (collector, source) in WEB_ACTIONS.items():
+            timeout_seconds = (
+                WEB_TRAFFIC_OBSERVER_TIMEOUT_SECONDS
+                if action == "web-traffic" and phase == "end"
+                else DEFAULT_OBSERVER_TIMEOUT_SECONDS
+            )
             status = self._run_observer(
                 self.config.web_observer_client,
                 (
@@ -347,6 +371,7 @@ class Controller:
                 blockers,
                 failures,
                 "WEB_OBSERVER",
+                timeout_seconds,
             )
             path = observability / f"{action}-{phase}.json"
             self._check_snapshot(path, collector, phase, source, status, blockers, failures)
@@ -357,6 +382,7 @@ class Controller:
             blockers,
             failures,
             "BACKEND_OBSERVER",
+            DEFAULT_OBSERVER_TIMEOUT_SECONDS,
         )
         self._check_snapshot(
             observability / f"host-backend-{phase}.json",
@@ -478,6 +504,7 @@ class Controller:
             "outcome": outcome,
             "reasonCodes": list(reason_codes),
             "stages": stage_results,
+            "webTrafficSemantics": WEB_TRAFFIC_SUMMARY_SEMANTICS,
         }
         self._write_atomic_bytes(
             self.run_dir / "quick-summary.json",
@@ -525,6 +552,7 @@ class Controller:
         blockers: list[str],
         failures: list[str],
         prefix: str,
+        timeout_seconds: int,
     ) -> int | None:
         if not self._is_executable(executable):
             blockers.append(f"{prefix}_CLIENT_UNAVAILABLE")
@@ -534,7 +562,7 @@ class Controller:
                 [str(executable), *arguments],
                 check=False,
                 stdin=subprocess.DEVNULL,
-                timeout=120,
+                timeout=timeout_seconds,
             ).returncode
         except (OSError, subprocess.SubprocessError):
             blockers.append(f"{prefix}_CLIENT_UNAVAILABLE")

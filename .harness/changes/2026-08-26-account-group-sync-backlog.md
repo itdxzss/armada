@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-08-26 / `codex/fix-account-group-sync-backlog` / `account-group-sync-backlog-1.0.3`
 - 需求来源: test1 `protocol.account.group-sync.events.v1` / `armada-api-account-group-sync-events` 实测积压与锁等待诊断
-- 状态: 本地验证与独立审查完成，待提交与 test1 部署
+- 状态: test1 首轮反馈已修复并完成本地独立审查，待重新提交与部署验证
 
 ## 目标（一句话）
 
@@ -88,7 +88,19 @@ DOCKER_HOST=unix:///Users/daishuaishuai/.orbstack/run/docker.sock \
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 未提交、未部署。
+- 首轮 commit：`68140ac8c0d295a817e41e6e740568d69e7f1405`，已部署 `test1`。
+- 容器与 API 健康检查通过；`armada-backend` restart=0、OOM=false。
+- 部署后 22 分钟日志发现 51 个 Kafka error-handler 异常块：group-report 22 次 deadlock、join 20 次 deadlock、departure 3 次 deadlock、join 6 次 `uq_wa_group_participant_phone` 冲突。group-report 首轮去重的 15 个事件均在下一次 Kafka 重试成功，未观察到 DLT 日志信号，但该候选仍判定 FAIL 并停止 Quick/canary/soak。
+- Kafka group-sync lag 从 31,512 降到 28,286，说明集合化已提升吞吐，但并发正确性门禁未通过，不能据此放行。
+
+### test1 反馈修复
+
+- 生产 `V139` 的 `(tenant_id, group_id, phone)` 唯一键此前未进入 snapshot MySQL 夹具；现已纳入，并稳定复现 LID+可信手机号命中既有 PN 行时的二次 DuplicateKey。
+- 五条 participant 写路径统一先按 PRIMARY 锁 `wa_group`，再锁/写 participant 与 binding，锁序为 `GL → G → P/B`；report 的 joined current-read 只处理已预锁 groupId 闭包并执行完整当前读锁，避免 RR 旧快照与晚扩锁。
+- soft-deleted / missing 群在任何 G mutation 前先锁既有 GL/G；删除会重新引入 `G → GL` 的宽 `UPDATE JOIN`。
+- phone-only PN/LID 身份使用同群可信手机号证据归并；冲突时明确失败，不吞异常、不盲重试。
+- 独立审查：PASS，0 BLOCKER / 0 IMPORTANT。
+- 验证：Unit/H2/migration 21/21；核心 MySQL 7/7；soft-delete 锁序 1/1；`GroupCurrentLocalWriteMySqlTest` 25/25；snapshot MySQL 31 项中 28 通过，剩余 3 项已在未修改基线、同一 MySQL 8.4.8 中逐字复现。
 
 ## 独立审查
 

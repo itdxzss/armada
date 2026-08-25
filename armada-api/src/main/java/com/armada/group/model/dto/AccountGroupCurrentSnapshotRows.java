@@ -46,7 +46,8 @@ public final class AccountGroupCurrentSnapshotRows {
             Long id,
             Long groupId,
             String pnJid,
-            String lidJid) {
+            String lidJid,
+            String phone) {
     }
 
     /** 将已经分裂的 PN 行归并进 LID canonical 行所需的最小写入参数。 */
@@ -63,6 +64,10 @@ public final class AccountGroupCurrentSnapshotRows {
 
     /** 旧 API 本次已经选中的群入口到新模型群主键。 */
     public record LegacyGroupReference(Long groupLinkId, Long groupId) {
+    }
+
+    /** 在任何新群行写入前解析并按主键锁定的内部旧群句柄。 */
+    public record LegacyGroupHandle(String groupJid, Long groupLinkId) {
     }
 
     /** 精确进退群事实写入成员当前状态时使用的行模型。 */

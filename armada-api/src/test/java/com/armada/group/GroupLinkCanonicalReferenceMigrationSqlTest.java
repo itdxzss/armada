@@ -38,14 +38,14 @@ class GroupLinkCanonicalReferenceMigrationSqlTest {
     }
 
     @Test
-    void runtimeReferenceRepairOnlyClaimsUnmappedHandles() throws IOException {
+    void runtimeReferenceRepairUsesOnlyPreselectedUnmappedHandles() throws IOException {
         String xml = Files.readString(CURRENT_SNAPSHOT_MAPPER, StandardCharsets.UTF_8);
 
         assertThat(xml)
-                .contains("<update id=\"updateLegacyGroupReferences\">")
-                .contains("AND handle.group_id IS NULL")
                 .contains("<update id=\"updateSelectedLegacyGroupReferences\">")
+                .contains("AND group_id IS NULL")
                 .contains("ORDER BY id ASC")
+                .doesNotContain("<update id=\"updateLegacyGroupReferences\">")
                 .doesNotContain("handle.group_id IS NULL OR handle.group_id &lt;&gt; current_group.id");
     }
 }

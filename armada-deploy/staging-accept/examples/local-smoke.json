@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "profile": "local-smoke",
+  "environment": "local",
+  "safety": "read-only",
+  "builds": {
+    "backend": "ea2d9a45d29b15a3af449d78f5a545bc66b26a9c",
+    "frontend": "ba211c03f6cf157973c3283b481ec22b1c85a510",
+    "webProtocol": "1bbb535bd999adae618d355c49cc607c690ee130",
+    "androidProtocol": "0ae3137950a6bf46087d4029ff90b1614036383d"
+  },
+  "stages": [
+    {
+      "id": "process-smoke",
+      "command": ["/usr/bin/env", "true"],
+      "timeoutSeconds": 10
+    },
+    {
+      "id": "evidence-smoke",
+      "command": ["/usr/bin/env", "printf", "runner smoke ok\n"],
+      "timeoutSeconds": 10
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=Armada staging acceptance runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=staging-accept
+Group=staging-accept
+UMask=0077
+StateDirectory=staging-accept
+EnvironmentFile=-/etc/staging-accept/staging-accept.env
+ExecStart=/usr/local/bin/staging-accept serve --state-dir /var/lib/staging-accept
+Restart=on-failure
+RestartSec=5s
+KillMode=control-group
+TimeoutStopSec=10s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/staging-accept
+
+[Install]
+WantedBy=multi-user.target

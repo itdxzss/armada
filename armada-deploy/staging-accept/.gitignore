@@ -1,0 +1,7 @@
+/.staging-accept/
+/staging-accept
+/*.test
+/*.db
+/*.db-shm
+/*.db-wal
+/runs/

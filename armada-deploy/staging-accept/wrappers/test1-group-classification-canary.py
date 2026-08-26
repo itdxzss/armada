@@ -25,10 +25,10 @@ SAFE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 EXPECTED_SCOPE_HASH = "316839dc898e558b494ff6835abf15cd55d942e8a730c927ba76a6c25be61825"
 EXPECTED_BUILDS = {
-    "backend": "b637cf1e8c2124e678332300d0631db3295890e6",
+    "backend": "4604be568219527e76ac0f3133864b230fcb6e79",
     "frontend": "df3799c64870c8fb893ec7fac8c426634961ae50",
     "webProtocol": "1415022fa322221eba2d6cd85b0d2e66d26429ff",
-    "androidProtocol": "9677fe69625432b004c9eb8e901c229f599ebf9a",
+    "androidProtocol": "f1faa36371ecddaeb556368cce1ee9ed90cc6866",
 }
 STAGES = (
     ("candidate-bind", 60),

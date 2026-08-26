@@ -5,10 +5,10 @@
   "safety": "controlled-canary",
   "safetyEnvelopeRef": "group-classification-v2",
   "builds": {
-    "backend": "b637cf1e8c2124e678332300d0631db3295890e6",
+    "backend": "4604be568219527e76ac0f3133864b230fcb6e79",
     "frontend": "df3799c64870c8fb893ec7fac8c426634961ae50",
     "webProtocol": "1415022fa322221eba2d6cd85b0d2e66d26429ff",
-    "androidProtocol": "9677fe69625432b004c9eb8e901c229f599ebf9a"
+    "androidProtocol": "f1faa36371ecddaeb556368cce1ee9ed90cc6866"
   },
   "stages": [
     {"id":"candidate-bind","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":60},

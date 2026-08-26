@@ -17,10 +17,12 @@ import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
+import com.armada.group.model.enums.GroupClassification;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.model.vo.GroupClassificationPlan;
+import com.armada.group.model.vo.GroupPostControlClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupLinkRegistryService;
@@ -133,6 +135,7 @@ class GroupLinkRegistryBatchMySqlTest {
         classificationService = new GroupClassificationServiceImpl(
                 currentSnapshotMapper,
                 groupLinkMapper,
+                session.getMapper(com.armada.group.mapper.GroupClassificationMapper.class),
                 mock(GroupLinkRegistryService.class),
                 metadataTaskService);
         AccountGroupMembershipSnapshotServiceImpl snapshotService =
@@ -225,7 +228,7 @@ class GroupLinkRegistryBatchMySqlTest {
     }
 
     @Test
-    void coldClassificationOf400GroupsUsesFiveStatementsAndWarmReplayUsesOne() {
+    void coldClassificationOf400GroupsUsesSixStatementsAndWarmReplayUsesThree() {
         List<GroupClassificationCandidate> candidates = new ArrayList<>();
         for (int index = 0; index < 400; index++) {
             long id = index + 1L;
@@ -245,15 +248,15 @@ class GroupLinkRegistryBatchMySqlTest {
         long coldElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - coldStartedAt);
         List<String> coldStatements = recordingDataSource.statements();
 
-        assertThat(coldStatements).hasSize(5);
+        assertThat(coldStatements).hasSize(6);
         assertThat(coldStatements)
-                .filteredOn(statement -> statement.startsWith("UPDATE GROUP_LINK"))
+                .filteredOn(statement -> statement.startsWith("UPDATE WA_GROUP"))
                 .singleElement();
         assertThat(coldStatements)
                 .filteredOn(statement -> statement.startsWith("INSERT INTO GROUP_METADATA_SYNC_TASK"))
                 .singleElement();
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM group_link WHERE is_historical = 1", Integer.class))
+                "SELECT COUNT(*) FROM wa_group WHERE group_classification = 1", Integer.class))
                 .isEqualTo(400);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM group_metadata_sync_task", Integer.class))
@@ -269,8 +272,9 @@ class GroupLinkRegistryBatchMySqlTest {
         long warmElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - warmStartedAt);
 
         assertThat(recordingDataSource.statements())
-                .hasSize(1)
-                .allMatch(statement -> statement.startsWith("SELECT"));
+                .hasSize(3)
+                .noneMatch(statement -> statement.startsWith("UPDATE WA_GROUP"))
+                .noneMatch(statement -> statement.startsWith("INSERT INTO GROUP_METADATA_SYNC_TASK"));
         assertThat(jdbc.queryForObject(
                 "SELECT MAX(updated_at) FROM group_metadata_sync_task", Long.class))
                 .isEqualTo(2_000L);
@@ -282,7 +286,63 @@ class GroupLinkRegistryBatchMySqlTest {
     }
 
     @Test
-    void completePendingCompatibilityPhaseOf400GroupsUsesEightStatementsAndWarmReplayUsesSeven() {
+    void concurrentOppositeCandidatesHaveOneCanonicalWinnerAndOneNewWritePlan()
+            throws Exception {
+        String groupJid = groupJid(999);
+        seedGroupLink(1L, groupJid);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<GroupClassificationPlan> historical = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return inTransaction(() -> classificationService.stageHistoricalBaseline(
+                        List.of(new GroupClassificationCandidate(1L, groupJid, "race")),
+                        ProtocolBackend.WEB,
+                        2_000L));
+            });
+            Future<GroupClassificationPlan> postControl = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                return inTransaction(() -> classificationService.stagePostControlEvidence(
+                        List.of(new GroupPostControlClassificationCandidate(
+                                1L, groupJid, "race", 1_500L)),
+                        2_000L));
+            });
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            List<GroupClassificationPlan> plans = List.of(
+                    historical.get(10, TimeUnit.SECONDS),
+                    postControl.get(10, TimeUnit.SECONDS));
+            int winnerCode = jdbc.queryForObject("""
+                    SELECT group_classification
+                    FROM wa_group
+                    WHERE tenant_id = ? AND group_jid = ?
+                    """, Integer.class, TENANT_ID, groupJid);
+            GroupMetadataSyncTrigger winnerTrigger = winnerCode == GroupClassification.HISTORICAL.code()
+                    ? GroupMetadataSyncTrigger.BASELINE_CAPTURED
+                    : GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED;
+
+            assertThat(winnerCode).isIn(
+                    GroupClassification.HISTORICAL.code(),
+                    GroupClassification.POST_CONTROL.code());
+            assertThat(plans)
+                    .allSatisfy(plan -> assertThat(plan.desired())
+                            .containsExactlyEntriesOf(Map.of(1L, winnerTrigger)));
+            assertThat(plans.stream()
+                    .filter(plan -> !plan.newlyPersisted().isEmpty())
+                    .count()).isOne();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void completePendingCompatibilityPhaseOf400GroupsUsesTenStatementsOnColdAndWarmPath() {
         AccountGroupsReportedEvent event = eventWithGroups(400);
         recordingDataSource.reset();
 
@@ -295,9 +355,9 @@ class GroupLinkRegistryBatchMySqlTest {
 
         assertThat(cold.accepted()).isTrue();
         assertThat(cold.groups()).hasSize(400);
-        assertThat(coldStatements).hasSize(8);
+        assertThat(coldStatements).hasSize(10);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM group_link WHERE is_historical = 1", Integer.class))
+                "SELECT COUNT(*) FROM wa_group WHERE group_classification = 1", Integer.class))
                 .isEqualTo(400);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM group_metadata_sync_task", Integer.class))
@@ -313,7 +373,7 @@ class GroupLinkRegistryBatchMySqlTest {
 
         assertThat(warm.accepted()).isTrue();
         assertThat(warm.groups()).hasSize(400);
-        assertThat(recordingDataSource.statements()).hasSize(7);
+        assertThat(recordingDataSource.statements()).hasSize(10);
         assertThat(coldElapsedMs).isLessThan(5_000L);
         assertThat(warmElapsedMs).isLessThan(2_000L);
         log.info("400群第一阶段实测 coldStatements={} coldMs={} warmStatements={} warmMs={}",
@@ -562,7 +622,7 @@ class GroupLinkRegistryBatchMySqlTest {
                 TENANT_ID, 10L, "acc-10", 4_000L,
                 List.of(new AccountGroupsReportedEvent.Group(
                         groupJid, "锁序群", 20, null, null, false, false, null)),
-                "phase-event", "test", true, 0);
+                "phase-event", "test", null, null, null, null, true, 0);
         GroupClassificationPlan phasePlan = new GroupClassificationPlan(
                 Map.of(1L, GroupMetadataSyncTrigger.BASELINE_CAPTURED),
                 Map.of(1L, GroupMetadataSyncTrigger.BASELINE_CAPTURED));
@@ -828,7 +888,7 @@ class GroupLinkRegistryBatchMySqlTest {
                 future.get(15, TimeUnit.SECONDS);
             }
             assertThat(jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM group_link WHERE is_historical = 1", Integer.class))
+                    "SELECT COUNT(*) FROM wa_group WHERE group_classification = 1", Integer.class))
                     .isEqualTo(175);
             assertThat(jdbc.queryForObject(
                     "SELECT COUNT(*) FROM group_metadata_sync_task", Integer.class))
@@ -842,7 +902,10 @@ class GroupLinkRegistryBatchMySqlTest {
                     INNER JOIN group_link link
                       ON link.tenant_id = task.tenant_id
                      AND link.id = task.group_link_id
-                    WHERE task.updated_at != link.updated_at
+                    INNER JOIN wa_group current_group
+                      ON current_group.tenant_id = link.tenant_id
+                     AND link.link_url = CONCAT('wa://group/', current_group.group_jid)
+                    WHERE task.updated_at != current_group.group_classified_at
                     """, Integer.class)).isZero();
         } finally {
             start.countDown();
@@ -884,7 +947,7 @@ class GroupLinkRegistryBatchMySqlTest {
         Collections.reverse(groups);
         return new AccountGroupsReportedEvent(
                 TENANT_ID, 10L, "acc-10", 2_000L,
-                groups, "evt-400", "test", true, 0);
+                groups, "evt-400", "test", null, null, null, null, true, 0);
     }
 
     private static String groupJid(int index) {
@@ -975,6 +1038,10 @@ class GroupLinkRegistryBatchMySqlTest {
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   tenant_id BIGINT NOT NULL,
                   group_jid VARCHAR(128) NOT NULL,
+                  origin TINYINT NOT NULL DEFAULT 5,
+                  group_classification TINYINT NOT NULL DEFAULT 0,
+                  group_classified_at BIGINT DEFAULT NULL,
+                  group_classification_source TINYINT DEFAULT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
                   deleted_at BIGINT DEFAULT NULL,
@@ -1099,6 +1166,7 @@ class GroupLinkRegistryBatchMySqlTest {
         factoryBean.setPlugins(interceptor);
         factoryBean.setMapperLocations(
                 new ClassPathResource("mapper/group/GroupLinkMapper.xml"),
+                new ClassPathResource("mapper/group/GroupClassificationMapper.xml"),
                 new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"),
                 new ClassPathResource("mapper/group/AccountGroupMembershipMapper.xml"),
                 new ClassPathResource("mapper/group/GroupMetadataSyncTaskMapper.xml"));

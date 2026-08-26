@@ -17,6 +17,7 @@ import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.AccountGroupCompatibilitySnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.model.vo.GroupClassificationPlan;
+import com.armada.group.model.vo.GroupPostControlClassificationCandidate;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupClassificationService;
@@ -63,7 +64,7 @@ class AccountGroupMembershipReportPhaseServiceTest {
                 org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB), anyLong()))
                 .thenReturn(baselinePlan);
 
-        when(currentSnapshotMapper.selectContextForUpdate(10L)).thenReturn(context("acc-10", null));
+        when(currentSnapshotMapper.selectContextForUpdate(10L)).thenReturn(pendingContext());
 
         AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult actual =
                 service().prepareCompatibility(
@@ -79,6 +80,106 @@ class AccountGroupMembershipReportPhaseServiceTest {
         assertThat(candidates.getValue()).containsExactly(
                 new GroupClassificationCandidate(20L, "120363001@g.us", "群一"));
         assertThat(actual.classificationPlan()).isEqualTo(baselinePlan);
+    }
+
+    @Test
+    void incompletePendingBaselineDoesNotClassifyAnyGroup() {
+        AccountGroupsReportedEvent event = event();
+        when(snapshotService.prepareVisibleGroups(
+                10L, event.groups(), false, 2_000L, "evt", "test", ProtocolBackend.WEB))
+                .thenReturn(new AccountGroupCompatibilitySnapshot(
+                        List.of(snapshot()), GroupClassificationPlan.empty()));
+        when(currentSnapshotMapper.selectContextForUpdate(10L))
+                .thenReturn(pendingContext());
+
+        AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult actual =
+                service().prepareCompatibility(
+                        event, ProtocolBackend.WEB, true, false, 2_000L);
+
+        assertThat(actual.accepted()).isTrue();
+        verify(classificationService, never()).stageHistoricalBaseline(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(), anyLong());
+        verify(classificationService, never()).stagePostControlEvidence(
+                org.mockito.ArgumentMatchers.anyList(), anyLong());
+    }
+
+    @Test
+    void stalePendingHintCannotReclassifyAfterAnotherSnapshotCapturedBaseline() {
+        AccountGroupsReportedEvent event = event();
+        when(snapshotService.prepareVisibleGroups(
+                10L, event.groups(), true, 2_000L, "evt", "test", ProtocolBackend.WEB))
+                .thenReturn(new AccountGroupCompatibilitySnapshot(
+                        List.of(snapshot()), GroupClassificationPlan.empty()));
+        when(currentSnapshotMapper.selectContextForUpdate(10L))
+                .thenReturn(context("acc-10", 1_000L));
+
+        AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult actual =
+                service().prepareCompatibility(
+                        event, ProtocolBackend.WEB, true, true, 2_000L);
+
+        assertThat(actual.accepted()).isTrue();
+        verify(classificationService, never()).stageHistoricalBaseline(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(), anyLong());
+    }
+
+    @Test
+    void completePendingBaselineSplitsHistoricalAndPostCutoffEvidence() {
+        AccountGroupsReportedEvent.Group historical = new AccountGroupsReportedEvent.Group(
+                "120363001@g.us", "历史群", 20, null, null, true, false, null);
+        AccountGroupsReportedEvent.Group postControl = new AccountGroupsReportedEvent.Group(
+                "120363002@g.us", "新群", 10, null, null, false, false, null,
+                null, null, null, null, false, null, null,
+                2_500L, "wgp2-self-add-1");
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 3_000L, List.of(historical, postControl),
+                "evt-race", "test", "command-1", "snapshot-1",
+                2_000L, 2_000L, true, 0);
+        AccountGroupMembershipSnapshot historicalSnapshot = new AccountGroupMembershipSnapshot(
+                20L, historical.groupJid(), historical.subject(), "wa://group/" + historical.groupJid(), true);
+        AccountGroupMembershipSnapshot postSnapshot = new AccountGroupMembershipSnapshot(
+                21L, postControl.groupJid(), postControl.subject(), "wa://group/" + postControl.groupJid(), false);
+        when(snapshotService.prepareVisibleGroups(
+                10L, event.groups(), true, 2_000L, "evt-race", "test", ProtocolBackend.WEB))
+                .thenReturn(new AccountGroupCompatibilitySnapshot(
+                        List.of(historicalSnapshot, postSnapshot), GroupClassificationPlan.empty()));
+        when(currentSnapshotMapper.selectContextForUpdate(10L))
+                .thenReturn(pendingContext());
+        GroupClassificationPlan postPlan = new GroupClassificationPlan(
+                Map.of(21L, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED),
+                Map.of(21L, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED));
+        GroupClassificationPlan historicalPlan = new GroupClassificationPlan(
+                Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED),
+                Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED));
+        when(classificationService.stagePostControlEvidence(
+                org.mockito.ArgumentMatchers.anyList(), anyLong())).thenReturn(postPlan);
+        when(classificationService.stageHistoricalBaseline(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB), anyLong()))
+                .thenReturn(historicalPlan);
+
+        AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult actual =
+                service().prepareCompatibility(
+                        event, ProtocolBackend.WEB, true, true, 2_000L);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupPostControlClassificationCandidate>> postCandidates =
+                ArgumentCaptor.forClass(List.class);
+        verify(classificationService).stagePostControlEvidence(postCandidates.capture(), anyLong());
+        assertThat(postCandidates.getValue()).containsExactly(
+                new GroupPostControlClassificationCandidate(
+                        21L, postControl.groupJid(), postControl.subject(), 2_500L));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupClassificationCandidate>> historicalCandidates =
+                ArgumentCaptor.forClass(List.class);
+        verify(classificationService).stageHistoricalBaseline(
+                historicalCandidates.capture(),
+                org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB), anyLong());
+        assertThat(historicalCandidates.getValue()).containsExactly(
+                new GroupClassificationCandidate(
+                        20L, historical.groupJid(), historical.subject()));
+        assertThat(actual.classificationPlan().desired()).containsOnlyKeys(20L, 21L);
     }
 
     @Test
@@ -166,6 +267,49 @@ class AccountGroupMembershipReportPhaseServiceTest {
     }
 
     @Test
+    void manualRefreshCapturesPendingBaselineAsHistoricalBeforeWritingCurrentFacts() {
+        AccountGroupsReportedEvent event = event();
+        AccountGroupMembershipSnapshot group = snapshot();
+        AccountGroupCompatibilitySnapshot prepared = new AccountGroupCompatibilitySnapshot(
+                List.of(group), GroupClassificationPlan.empty());
+        GroupClassificationPlan historicalPlan = new GroupClassificationPlan(
+                Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED),
+                Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED));
+        AccountGroupMembershipChangeSet changes =
+                new AccountGroupMembershipChangeSet(List.of(group), List.of());
+        when(currentSnapshotMapper.selectContextForUpdate(10L)).thenReturn(pendingContext());
+        when(classificationService.stageHistoricalBaseline(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB),
+                org.mockito.ArgumentMatchers.eq(2_000L))).thenReturn(historicalPlan);
+        when(currentSnapshotPersistence.replaceVisibleGroups(
+                10L, event.groups(), true, 2_000L, "evt", List.of(group)))
+                .thenReturn(changes);
+
+        assertThat(service().applyManualCurrentSnapshot(
+                10L, event.groups(), 2_000L, "evt", prepared)).isSameAs(changes);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupClassificationCandidate>> candidates =
+                ArgumentCaptor.forClass(List.class);
+        InOrder order = inOrder(
+                currentSnapshotMapper, groupLinkMapper, classificationService,
+                currentSnapshotPersistence, metadataSyncTaskService);
+        order.verify(currentSnapshotMapper).selectContextForUpdate(10L);
+        order.verify(groupLinkMapper).selectActiveByIdsForUpdate(List.of(20L));
+        order.verify(classificationService).stageHistoricalBaseline(
+                candidates.capture(), org.mockito.ArgumentMatchers.eq(ProtocolBackend.WEB),
+                org.mockito.ArgumentMatchers.eq(2_000L));
+        order.verify(currentSnapshotPersistence).replaceVisibleGroups(
+                10L, event.groups(), true, 2_000L, "evt", List.of(group));
+        order.verify(metadataSyncTaskService).enqueueClassifications(
+                historicalPlan.newlyPersisted(), 2_000L);
+        assertThat(candidates.getValue()).containsExactly(
+                new GroupClassificationCandidate(20L, "120363001@g.us", "群一"));
+        verifyNoInteractions(immediateSendService);
+    }
+
+    @Test
     void staleCompleteSnapshotStopsBeforeCompatibilityWrites() {
         AccountGroupsReportedEvent event = event();
         when(currentSnapshotMapper.selectContextForUpdate(10L))
@@ -223,6 +367,12 @@ class AccountGroupMembershipReportPhaseServiceTest {
                 2, 1, 0, 1_000L, null, lastCompleteAt);
     }
 
+    private static Context pendingContext() {
+        return new Context(
+                10L, "15550000001", "WEB", "acc-10",
+                1, 0, null, null, null, null);
+    }
+
     private static AccountGroupMembershipSnapshot snapshot() {
         return new AccountGroupMembershipSnapshot(
                 20L, "120363001@g.us", "群一", "wa://group/120363001@g.us", true);
@@ -233,6 +383,6 @@ class AccountGroupMembershipReportPhaseServiceTest {
                 7L, 10L, "acc-10", 2_000L,
                 List.of(new AccountGroupsReportedEvent.Group(
                         "120363001@g.us", "群一", 20, null, null, true, false, null)),
-                "evt", "test", true, 0);
+                "evt", "test", null, null, null, null, true, 0);
     }
 }

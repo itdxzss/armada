@@ -46,6 +46,6 @@ class AccountGroupMembershipChangedSinkAdapterTest {
             String action, String selfParticipation, String groupJid) {
         return new ProtocolAccountGroupMembershipChangedEvent(
                 "evt-1", 7L, 100L, "acc-1", groupJid, action,
-                selfParticipation, 2000L, "android_wgp2", "android-1");
+                selfParticipation, "wgp2-event-1", 2000L, "android_wgp2", "android-1");
     }
 }

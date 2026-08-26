@@ -296,10 +296,12 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             long now,
             String normalizedEventId) {
         boolean acceptedPresence = snapshotWins(existing, syncAt);
-        Classification classification = snapshotClassification(
-                entry.getKey(), blankToNull(entry.getValue().subject()), existing,
-                baseline, capturingBaseline, acceptedPresence, syncAt);
         AccountGroupsReportedEvent.Group group = entry.getValue();
+        Classification classification = group.postControlObservedAt() == null
+                ? snapshotClassification(
+                        entry.getKey(), blankToNull(group.subject()), existing,
+                        baseline, capturingBaseline, acceptedPresence, syncAt)
+                : new Classification(0, null, group.postControlObservedAt());
         Long activeSince = acceptedPresence
                 && (existing == null || existing.presenceStatus() == null
                 || existing.presenceStatus() != PRESENCE_IN_GROUP)

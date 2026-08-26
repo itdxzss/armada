@@ -3,6 +3,7 @@ package com.armada.group.converter;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.group.model.GroupLinkImportResult;
+import com.armada.group.model.enums.GroupClassification;
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
@@ -63,6 +64,8 @@ class GroupConverterTest {
         row.setSyncProtocolMask(3);
         row.setOrigin(GroupLinkOrigin.IMPORT.code());
         row.setMembershipState(GroupMembershipState.JOINED.code());
+        row.setGroupClassificationCode(GroupClassification.HISTORICAL.code());
+        // 旧列即使仍有迁移前双 true，API 兼容布尔也只能由 canonical 分类互斥派生。
         row.setIsHistorical(true);
         row.setIsPostControl(true);
         row.setFolderId(5L);
@@ -95,8 +98,9 @@ class GroupConverterTest {
         assertThat(vo.source()).isEqualTo("导入链接");
         assertThat(vo.membershipStateLabel()).isEqualTo("已进群");
         assertThat(vo.createdAt()).isEqualTo(EPOCH_2024_06_01_UTC);
+        assertThat(vo.groupClassification()).isEqualTo(GroupClassification.HISTORICAL);
         assertThat(vo.isHistorical()).isTrue();
-        assertThat(vo.isPostControl()).isTrue();
+        assertThat(vo.isPostControl()).isFalse();
         assertThat(vo.folderName()).isEqualTo("重点群");
         assertThat(vo.adminPhones()).containsExactly("8611111111111", "8622222222222");
         assertThat(vo.availableAdmin()).isTrue();

@@ -171,6 +171,10 @@ class ProtocolAccountEventConsumerTest {
                     "tenantId": 1,
                     "accountId": 100,
                     "source": "wa_groups_dirty",
+                    "commandId": "groups-sync-command-1",
+                    "snapshotId": "snapshot-1",
+                    "queryStartedAt": "2026-06-28T06:00:00Z",
+                    "snapshotCutoff": "2026-06-28T06:00:00Z",
                     "snapshotComplete": false,
                     "skippedGroupCount": 1,
                     "groups": [
@@ -181,7 +185,9 @@ class ProtocolAccountEventConsumerTest {
                         "ownerJid": "861300000000@s.whatsapp.net",
                         "isAdmin": true,
                         "announce": false,
-                        "avatarUrl": "https://example.test/avatar.jpg"
+                        "avatarUrl": "https://example.test/avatar.jpg",
+                        "postControlObservedAt": 1782626401000,
+                        "sourceEventId": "wgp2-self-add-1"
                       }
                     ]
                   }
@@ -201,6 +207,10 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.reportedAt()).isEqualTo(1782626401000L);
         assertThat(event.workerId()).isEqualTo("worker-a");
         assertThat(event.source()).isEqualTo("wa_groups_dirty");
+        assertThat(event.commandId()).isEqualTo("groups-sync-command-1");
+        assertThat(event.snapshotId()).isEqualTo("snapshot-1");
+        assertThat(event.queryStartedAt()).isEqualTo(1782626400000L);
+        assertThat(event.snapshotCutoff()).isEqualTo(1782626400000L);
         assertThat(event.snapshotComplete()).isFalse();
         assertThat(event.skippedGroupCount()).isEqualTo(1);
         assertThat(event.groups()).singleElement().satisfies(group -> {
@@ -211,6 +221,8 @@ class ProtocolAccountEventConsumerTest {
             assertThat(group.admin()).isTrue();
             assertThat(group.announceOnly()).isFalse();
             assertThat(group.avatarUrl()).isEqualTo("https://example.test/avatar.jpg");
+            assertThat(group.postControlObservedAt()).isEqualTo(1782626401000L);
+            assertThat(group.sourceEventId()).isEqualTo("wgp2-self-add-1");
         });
         verifyNoInteractions(sink);
     }
@@ -247,7 +259,8 @@ class ProtocolAccountEventConsumerTest {
                  "accountId":"acc_android_1","occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
                  "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
                          "groupJid":"120363001@g.us","action":"remove",
-                         "selfParticipation":"SELF","source":"android_wgp2"}}
+                         "selfParticipation":"SELF","sourceEventId":"wgp2-remove-1",
+                         "source":"android_wgp2"}}
                 """);
 
         ArgumentCaptor<ProtocolAccountGroupMembershipChangedEvent> captor =
@@ -261,9 +274,26 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.groupJid()).isEqualTo("120363001@g.us");
         assertThat(event.action()).isEqualTo("remove");
         assertThat(event.selfParticipation()).isEqualTo("SELF");
+        assertThat(event.sourceEventId()).isEqualTo("wgp2-remove-1");
         assertThat(event.occurredAt()).isEqualTo(1784685600000L);
         assertThat(event.source()).isEqualTo("android_wgp2");
         assertThat(event.workerId()).isEqualTo("android-1");
+    }
+
+    @Test
+    void onMessage_membershipChangedRejectsMissingOriginalSourceEventId() {
+        assertThatThrownBy(() -> onGroupSyncMessage("""
+                {"eventId":"evt-membership-missing-source","event":"account.group_membership_changed",
+                 "version":"v1","accountId":"acc_android_1",
+                 "occurredAt":"2026-07-22T02:00:00Z","workerId":"android-1",
+                 "data":{"tenantId":7,"accountId":100,"protocolAccountId":"acc_android_1",
+                         "groupJid":"120363001@g.us","action":"add",
+                         "selfParticipation":"SELF","source":"android_wgp2"}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("协议账号群关系事件缺少 data.sourceEventId");
+
+        verifyNoInteractions(membershipChangedSink);
     }
 
     @Test

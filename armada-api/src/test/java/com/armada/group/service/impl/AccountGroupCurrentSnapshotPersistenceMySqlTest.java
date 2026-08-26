@@ -1911,6 +1911,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 null,
                 false,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -2193,7 +2195,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return new AccountGroupsReportedEvent.Group(
                 groupJid, "Settings", 5, null, null, true,
                 announceOnly, null, null, adminOnlyEditInfo, memberAddMode,
-                null, false, null, null);
+                null, false, null, null, null, null);
     }
 
     /** 按群 JID 读取 wa_group_profile 的单个群设置列，TINYINT 以 0/1 返回。 */
@@ -2251,7 +2253,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return new AccountGroupsReportedEvent.Group(
                 groupJid, "Profile", 5, null, null, true,
                 null, null, null, null, null,
-                description, descriptionObserved, joinApprovalMode, ephemeralDurationSeconds);
+                description, descriptionObserved, joinApprovalMode, ephemeralDurationSeconds,
+                null, null);
     }
 
     /** 按群 JID 读取 wa_group_profile 的单个文本列。 */

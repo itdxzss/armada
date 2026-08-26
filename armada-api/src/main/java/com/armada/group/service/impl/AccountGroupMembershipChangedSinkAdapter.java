@@ -54,6 +54,7 @@ public class AccountGroupMembershipChangedSinkAdapter
         }
         String action = normalizeAction(event.action());
         String groupJid = normalizeGroupJid(event.groupJid());
+        normalizeRequired(event.sourceEventId(), "账号群关系事件缺少 sourceEventId");
         statusService.applyMembershipChanged(new AccountGroupMembershipChangedEvent(
                 event.tenantId(),
                 event.accountId(),

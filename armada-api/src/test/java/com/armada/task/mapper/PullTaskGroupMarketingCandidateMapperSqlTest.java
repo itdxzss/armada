@@ -23,7 +23,7 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
             "com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper.";
 
     @Test
-    void candidateQueryUsesCurrentBindingsAndMigratedHistoricalFlag()
+    void candidateQueryUsesCurrentBindingsAndCanonicalHistoricalClassification()
             throws Exception {
         BoundSql sql = boundSql(null, "countPageByTenant");
 
@@ -31,8 +31,9 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
                 .contains("FROM wa_account_group_binding binding")
                 .contains("INNER JOIN wa_group_participant self_participant")
                 .contains("self_participant.presence_status = 1")
-                .contains("handle.is_historical = 1")
+                .contains("current_group.group_classification = 1")
                 .contains("LEFT JOIN wa_group_profile current_profile")
+                .doesNotContain("handle.is_historical", "handle.is_post_control")
                 .doesNotContain("account_group_membership")
                 .doesNotContain("account_group_baseline")
                 .doesNotContain("JSON_TABLE")

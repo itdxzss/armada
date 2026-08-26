@@ -67,7 +67,8 @@ class AccountGroupMembershipReportServiceImplTest {
     void lateIncompleteReplayAlsoStopsBeforePhaseOne() {
         AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
                 7L, 10L, "acc-10", 2_000L,
-                event().groups(), "evt-incomplete", "test", false, 1);
+                event().groups(), "evt-incomplete", "test",
+                null, null, null, null, false, 1);
         when(mapper.selectContext(10L)).thenReturn(context(2, 3_000L));
 
         service().applyGroupsReported(event);
@@ -79,11 +80,106 @@ class AccountGroupMembershipReportServiceImplTest {
     void missingReportedAtIsRejectedBeforeWatermarkAndPhaseWrites() {
         AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
                 7L, 10L, "acc-10", null,
-                event().groups(), "evt-missing-time", "test", true, 0);
+                event().groups(), "evt-missing-time", "test",
+                null, null, null, null, true, 0);
 
         assertThatThrownBy(() -> service().applyGroupsReported(event))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("账号群列表事件缺少 reportedAt");
+
+        verifyNoInteractions(mapper, phaseService);
+    }
+
+    @Test
+    void legacyWebSnapshotWithoutQueryBoundaryFailsClosedAsIncomplete() {
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 2_000L,
+                event().groups(), "evt-legacy", "test",
+                null, null, null, null, true, 0);
+        when(mapper.selectContext(10L)).thenReturn(context(1));
+        when(phaseService.prepareCompatibility(
+                event, com.armada.platform.protocol.model.enums.ProtocolBackend.WEB,
+                true, false, 2_000L)).thenReturn(
+                        AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult.accepted(
+                                List.of(), GroupClassificationPlan.empty()));
+        when(phaseService.applyCurrentSnapshot(
+                event, false, 2_000L, List.of(), GroupClassificationPlan.empty(), true))
+                .thenReturn(new AccountGroupMembershipChangeSet(List.of(), List.of()));
+
+        service().applyGroupsReported(event);
+
+        verify(phaseService).applyCurrentSnapshot(
+                event, false, 2_000L, List.of(), GroupClassificationPlan.empty(), true);
+    }
+
+    @Test
+    void postControlObservationBeforeExactCutoffIsRejectedEvenWithinSameSecond() {
+        AccountGroupsReportedEvent.Group group = new AccountGroupsReportedEvent.Group(
+                "120363001@g.us", "群一", 20, null, null, true, false, null,
+                null, null, null, null, false, null, null,
+                2_200L, "wgp2-self-add-before-cutoff");
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 3_000L, List.of(group),
+                "evt-before-cutoff", "test", "groups-sync-command", "snapshot-2",
+                2_500L, 2_500L, true, 0);
+
+        assertThatThrownBy(() -> service().applyGroupsReported(event))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号群列表事件上控后证据缺少或早于查询边界");
+
+        verifyNoInteractions(mapper, phaseService);
+    }
+
+    @Test
+    void snapshotWithoutSkippedCountFailsClosedAsIncomplete() {
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 2_000L, event().groups(),
+                "evt-missing-skipped", "test", "groups-sync-command", "snapshot-3",
+                2_000L, 2_000L, true, null);
+        when(mapper.selectContext(10L)).thenReturn(context(1));
+        when(phaseService.prepareCompatibility(
+                event, com.armada.platform.protocol.model.enums.ProtocolBackend.WEB,
+                true, false, 2_000L)).thenReturn(
+                        AccountGroupMembershipReportPhaseService.CompatibilityPhaseResult.accepted(
+                                List.of(), GroupClassificationPlan.empty()));
+        when(phaseService.applyCurrentSnapshot(
+                event, false, 2_000L, List.of(), GroupClassificationPlan.empty(), true))
+                .thenReturn(new AccountGroupMembershipChangeSet(List.of(), List.of()));
+
+        service().applyGroupsReported(event);
+
+        verify(phaseService).applyCurrentSnapshot(
+                event, false, 2_000L, List.of(), GroupClassificationPlan.empty(), true);
+    }
+
+    @Test
+    void negativeSkippedCountIsRejectedBeforeAnyWrite() {
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 2_000L, event().groups(),
+                "evt-negative-skipped", "test", "groups-sync-command", "snapshot-4",
+                2_000L, 2_000L, false, -1);
+
+        assertThatThrownBy(() -> service().applyGroupsReported(event))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号群列表事件 skippedGroupCount 非法");
+
+        verifyNoInteractions(mapper, phaseService);
+    }
+
+    @Test
+    void postControlEvidenceWithoutCompleteQueryBoundaryIsRejected() {
+        AccountGroupsReportedEvent.Group group = new AccountGroupsReportedEvent.Group(
+                "120363001@g.us", "群一", 20, null, null, true, false, null,
+                null, null, null, null, false, null, null,
+                2_500L, "wgp2-self-add-without-query-start");
+        AccountGroupsReportedEvent event = new AccountGroupsReportedEvent(
+                7L, 10L, "acc-10", 3_000L, List.of(group),
+                "evt-missing-query-start", "test", "groups-sync-command", "snapshot-5",
+                null, 2_000L, false, 0);
+
+        assertThatThrownBy(() -> service().applyGroupsReported(event))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号群列表事件上控后证据缺少或早于查询边界");
 
         verifyNoInteractions(mapper, phaseService);
     }
@@ -97,7 +193,8 @@ class AccountGroupMembershipReportServiceImplTest {
                 7L, 10L, "acc-10", 2_000L,
                 List.of(new AccountGroupsReportedEvent.Group(
                         "120363001@g.us", "群一", 20, null, null, true, false, null)),
-                "evt", "test", true, 0);
+                "evt", "test", "groups-sync-command", "snapshot-1",
+                2_000L, 2_000L, true, 0);
     }
 
     private static Context context(int state) {

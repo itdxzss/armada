@@ -60,6 +60,16 @@ class GroupLinkMapperSqlShapeTest {
                 .doesNotContain("group_link_health");
     }
 
+    @Test
+    void legacyGroupLinkMapperHasNoClassificationWriter() throws IOException {
+        assertThat(mapperXml())
+                .doesNotContain("id=\"markHistorical\"")
+                .doesNotContain("id=\"markPostControl\"")
+                .doesNotContain("id=\"markClassifications\"")
+                .doesNotContain("SET is_historical = 1")
+                .doesNotContain("SET is_post_control = 1");
+    }
+
     private String mapperXml() throws IOException {
         return new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),

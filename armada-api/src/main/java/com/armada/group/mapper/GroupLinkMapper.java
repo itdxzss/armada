@@ -127,27 +127,6 @@ public interface GroupLinkMapper {
                            @Param("groupName") String groupName,
                            @Param("updatedAt") long updatedAt);
 
-    /** 把活动群入口的历史群事实提升为真；永不清除。 */
-    int markHistorical(@Param("groupLinkId") Long groupLinkId,
-                       @Param("updatedAt") long updatedAt);
-
-    /** 把活动群入口的上控后群事实提升为真；永不清除。 */
-    int markPostControl(@Param("groupLinkId") Long groupLinkId,
-                        @Param("updatedAt") long updatedAt);
-
-    /**
-     * 按主键升序一次提升完整快照中的历史群和上控后群分类。
-     *
-     * @param historicalIds 本轮需要提升为历史群的句柄 ID
-     * @param postControlIds 本轮需要提升为上控后群的句柄 ID
-     * @param updatedAt 分类事实更新时间(epoch毫秒)
-     * @return 实际提升的句柄行数
-     */
-    int markClassifications(
-            @Param("historicalIds") List<Long> historicalIds,
-            @Param("postControlIds") List<Long> postControlIds,
-            @Param("updatedAt") long updatedAt);
-
     /**
      * 按 ID 查询活跃群链接。
      *

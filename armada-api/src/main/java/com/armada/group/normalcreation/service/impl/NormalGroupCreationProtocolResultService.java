@@ -51,6 +51,9 @@ public class NormalGroupCreationProtocolResultService
     private static final String ACCOUNT_OFFLINE_STATE = "OFFLINE";
     private static final String ACCOUNT_OFFLINE_SEMANTIC = "NORMAL_GROUP_ACCOUNT_NOT_ONLINE";
     private static final String NORMAL_GROUP_CREATION_SOURCE = "normal_group_creation";
+    private static final String NO_ELIGIBLE_PARTICIPANTS = "NO_ELIGIBLE_PARTICIPANTS";
+    private static final String NO_ELIGIBLE_PARTICIPANTS_MESSAGE =
+            "好友准备完成后没有可靠的建群参与者";
 
     private final NormalGroupCreationMapper mapper;
     private final NormalGroupCreationCommandDispatcher commandDispatcher;
@@ -261,8 +264,9 @@ public class NormalGroupCreationProtocolResultService
     /**
      * 落定一个联系人方向的最终结果。
      *
-     * <p>加好友是尽力而为的前置动作：SUCCESS、FAILED、UNKNOWN 都只写回成员行，不再让整条
-     * 计划群失败。双向结果全部落定后照常下发建群命令，建群名单只保留与群主双向成功的账号。</p>
+     * <p>加好友是尽力而为的前置动作：SUCCESS、FAILED、UNKNOWN 都先写回成员行。
+     * 双向结果全部落定后，只有存在与群主双向成功的账号才下发建群；零可用参与者直接收口失败，
+     * 禁止向协议层发送空名单。</p>
      */
     private void contactSettled(
             ItemWork item,
@@ -287,7 +291,7 @@ public class NormalGroupCreationProtocolResultService
             return;
         }
         if (failure != null) {
-            log.info("新建普群加好友未成功，按可选项放行建群 tenantId={} itemId={} memberId={} "
+            log.info("新建普群加好友未成功，联系人落定后继续评估参与者 tenantId={} itemId={} memberId={} "
                             + "direction={} outcome={} reasonCode={}",
                     event.tenantId(), event.itemId(), event.memberId(), event.direction(),
                     event.outcome(), event.reasonCode());
@@ -296,10 +300,32 @@ public class NormalGroupCreationProtocolResultService
         if (mapper.countPendingContactDirections(item.id()) != 0) {
             return;
         }
+        if (!hasEligibleParticipants(item.id())) {
+            String eventId = event.eventId() == null ? event.commandId() : event.eventId();
+            if (mapper.failContactPreparation(
+                    item.id(), "FAILED", NO_ELIGIBLE_PARTICIPANTS,
+                    NO_ELIGIBLE_PARTICIPANTS_MESSAGE, eventId, now) != 1) {
+                throw unavailable("零可用参与者时无法收口好友准备阶段");
+            }
+            mapper.refreshTaskSummary(item.taskId(), now);
+            return;
+        }
         String createCommandId = commandDispatcher.enqueueCreatorAction(item, "GROUP_CREATE");
-        if (mapper.startGroupCreate(item.id(), createCommandId, System.currentTimeMillis()) != 1) {
+        if (mapper.startGroupCreate(item.id(), createCommandId, now) != 1) {
             throw unavailable("联系人方向全部落定后无法推进建群阶段");
         }
+    }
+
+    private boolean hasEligibleParticipants(Long itemId) {
+        boolean memberEligible = mapper.selectMemberWorks(itemId).stream()
+                .anyMatch(NormalGroupCreationParticipantEligibility
+                        ::memberHasMutualCreatorContact);
+        if (memberEligible) {
+            return true;
+        }
+        return mapper.selectSecondaryAdminWorks(itemId).stream()
+                .anyMatch(NormalGroupCreationParticipantEligibility
+                        ::secondaryAdminHasMutualCreatorContact);
     }
 
     private void groupCreated(

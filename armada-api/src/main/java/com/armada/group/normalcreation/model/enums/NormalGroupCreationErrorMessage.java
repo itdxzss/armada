@@ -57,6 +57,21 @@ public enum NormalGroupCreationErrorMessage {
             "CONTACT_NOT_REGISTERED",
             "目标号码未注册 WhatsApp，请检查成员号码"),
 
+    /** 所有好友准备方向落定后，没有任何与群主双向成功的建群参与者。 */
+    NO_ELIGIBLE_PARTICIPANTS(
+            "NO_ELIGIBLE_PARTICIPANTS",
+            "好友准备完成后没有可靠的建群参与者，请检查成员账号后重试"),
+
+    /** Android 凭据未携带或已丢失联系人 AppState 密钥。 */
+    APP_STATE_NOT_READY(
+            "APP_STATE_NOT_READY",
+            "Android 账号联系人同步状态未就绪，请重新导入完整凭据"),
+
+    /** Android 联系人 AppState 写入被 WhatsApp 以版本冲突拒绝。 */
+    APP_STATE_CONFLICT(
+            "APP_STATE_CONFLICT",
+            "Android 账号联系人同步版本冲突，请同步账号状态后重试"),
+
     /** 协议端没有返回可确认的群 ID。 */
     GROUP_CREATE_REJECTED(
             "GROUP_CREATE_REJECTED",

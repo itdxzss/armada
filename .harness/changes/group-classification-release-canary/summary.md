@@ -28,6 +28,15 @@
 - `python3 -m py_compile wrappers/test1-group-classification-canary.py`：通过。
 - `git diff --check`：通过。
 
+## 首次 Android Canary 发现的阻断
+
+- Runner run `20260826T134103Z-bb77871f` 在安全预检后进入执行，3 个 Android 计划群均以
+  `INVALID_GROUP_ACTION_PAYLOAD` 终止。
+- 联系人准备结果多数为 `UNKNOWN`，后端仍派发了空参与者的 `GROUP_CREATE`；Android 在原生动作前
+  拒绝 payload。数据库核对为 0 个已创建群、0 个仍运行项目。
+- 该 run 与资源租约保留为失败证据，不在原动作预算内重试。后续使用独立 Web 测试资源和 v2 安全信封
+  继续验证本次群分类主线。
+
 ## test1 结果
 
 待 Runner run 完成后补充 run ID、终态、checksums、群分类结果和版本核对。

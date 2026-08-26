@@ -269,7 +269,7 @@ class Controller:
             "schemaVersion": 1, "reference": reference,
             "changeId": "2026-08-26-group-canonical-first-classification",
             "scopeHash": EXPECTED_SCOPE_HASH, "environment": "test1",
-            "expectedProtocolBackend": "ANDROID", "maxDistinctAccounts": 6,
+            "maxDistinctAccounts": 6,
             "groupCreateCount": 3, "memberAddsPerGroup": 1, "maxContactSaves": 6,
             "messageCount": 0, "leaveActionCount": 0, "existingGroupMutationCount": 0,
             "maxConcurrency": 1, "maxDurationSeconds": 1200,
@@ -277,6 +277,8 @@ class Controller:
         }
         if any(value.get(key) != expected for key, expected in exact.items()):
             raise StageResult("BLOCKED", "SAFETY_BUDGET_MISMATCH")
+        if value.get("expectedProtocolBackend") not in {"WEB", "ANDROID"}:
+            raise StageResult("BLOCKED", "SAFETY_ENVELOPE_INVALID")
         if not RUN_ID.fullmatch(str(value.get("prerequisiteRunId", ""))):
             raise StageResult("BLOCKED", "SAFETY_ENVELOPE_INVALID")
         if not SAFE_ID.fullmatch(str(value.get("resourceAlias", ""))):
@@ -347,13 +349,14 @@ class Controller:
             "accountState": 2, "loginState": 1, "marketingOccupancyType": "FREE", "callable": "true",
         })
         rows = page.get("list") if isinstance(page, dict) else None
-        eligible = [row for row in rows or [] if isinstance(row, dict) and row.get("protocolBackend") == "ANDROID" and row.get("marketingOccupancyType") == "FREE"]
+        expected_backend = self.envelope["expectedProtocolBackend"]
+        eligible = [row for row in rows or [] if isinstance(row, dict) and row.get("protocolBackend") == expected_backend and row.get("marketingOccupancyType") == "FREE"]
         if len(eligible) < self.envelope["maxDistinctAccounts"]:
             raise StageResult("BLOCKED", "CANARY_RESOURCES_INSUFFICIENT")
         atomic_json(self.run_dir / "resource-preflight.json", {
             "schemaVersion": 1, "resourceAlias": self.envelope["resourceAlias"],
             "eligibleCount": len(eligible), "requiredCount": self.envelope["maxDistinctAccounts"],
-            "protocolBackend": "ANDROID", "status": "READY",
+            "protocolBackend": expected_backend, "status": "READY",
         })
 
     def _task_state_path(self) -> Path:
@@ -457,6 +460,7 @@ class Controller:
         atomic_json(self.run_dir / "canary-summary.json", {
             "schemaVersion": 1, "status": "PASS", "resourceAlias": self.envelope["resourceAlias"],
             "accountsBudget": 6, "groupsCreated": 3, "classification": "POST_CONTROL",
+            "protocolBackend": self.envelope["expectedProtocolBackend"],
             "messagesSent": 0, "leaveActions": 0, "existingGroupsMutated": 0,
             "cleanupPolicy": self.envelope["cleanupPolicy"],
         })

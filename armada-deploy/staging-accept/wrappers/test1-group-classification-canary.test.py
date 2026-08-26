@@ -87,6 +87,11 @@ class CanaryTests(unittest.TestCase):
         controller.envelope = {**value, "messageCount": 1}
         with self.assertRaisesRegex(canary.StageResult, "SAFETY_BUDGET_MISMATCH"):
             controller._validate_envelope("group-classification-v1")
+        controller.envelope = {**value, "expectedProtocolBackend": "WEB"}
+        controller._validate_envelope("group-classification-v1")
+        controller.envelope = {**value, "expectedProtocolBackend": "DESKTOP"}
+        with self.assertRaisesRegex(canary.StageResult, "SAFETY_ENVELOPE_INVALID"):
+            controller._validate_envelope("group-classification-v1")
 
     def test_resource_lease_is_exclusive_and_resumable_by_owner(self) -> None:
         with tempfile.TemporaryDirectory() as raw:

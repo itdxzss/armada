@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0.0",
+  "runId": "run-20260825-0001",
+  "parentRunId": null,
+  "changeId": "REQ-042",
+  "scopeHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "profile": "quick",
+  "environment": "test1",
+  "outcome": "PASS",
+  "reasonCode": null,
+  "lifecycle": {
+    "createdAt": "2026-08-25T00:00:00+08:00",
+    "startedAt": "2026-08-25T00:00:01+08:00",
+    "updatedAt": "2026-08-25T00:02:01+08:00",
+    "deadlineAt": "2026-08-25T00:07:00+08:00",
+    "heartbeatAt": "2026-08-25T00:02:00+08:00",
+    "finalizedAt": "2026-08-25T00:02:01+08:00",
+    "durationMs": 120000,
+    "resumeCount": 0
+  },
+  "candidate": {
+    "frozenAt": "2026-08-25T00:00:00+08:00",
+    "builds": [
+      {
+        "component": "backend",
+        "expected": "0123456789abcdef",
+        "observed": "0123456789abcdef",
+        "matched": true,
+        "source": "git-commit"
+      },
+      {
+        "component": "frontend",
+        "expected": "123456789abcdef0",
+        "observed": "123456789abcdef0",
+        "matched": true,
+        "source": "git-commit"
+      },
+      {
+        "component": "web-protocol",
+        "expected": "23456789abcdef01",
+        "observed": "23456789abcdef01",
+        "matched": true,
+        "source": "artifact-digest"
+      },
+      {
+        "component": "android-protocol",
+        "expected": "3456789abcdef012",
+        "observed": "3456789abcdef012",
+        "matched": true,
+        "source": "artifact-digest"
+      }
+    ],
+    "allBuildsMatched": true
+  },
+  "safetyEnvelope": null,
+  "resourceLeases": [],
+  "stages": [
+    {
+      "stageId": "version-provenance",
+      "component": "control-plane",
+      "status": "PASS",
+      "required": true,
+      "timeoutMs": 60000,
+      "attempts": [
+        {
+          "attemptNumber": 1,
+          "startedAt": "2026-08-25T00:00:01+08:00",
+          "finishedAt": "2026-08-25T00:00:03+08:00",
+          "durationMs": 2000,
+          "outcome": "PASS",
+          "exitCode": 0,
+          "seed": null,
+          "evidenceRefs": [
+            "ev-version-manifest"
+          ]
+        }
+      ],
+      "assertions": [
+        {
+          "assertionId": "four-builds-match",
+          "description": "部署中的四项目版本均与冻结候选一致",
+          "outcome": "PASS",
+          "required": true,
+          "observed": true,
+          "expected": true,
+          "reasonCode": null,
+          "evidenceRefs": [
+            "ev-version-manifest"
+          ]
+        }
+      ],
+      "dependsOn": [],
+      "startedAt": "2026-08-25T00:00:01+08:00",
+      "finishedAt": "2026-08-25T00:00:03+08:00",
+      "reasonCode": null
+    }
+  ],
+  "signals": {
+    "samples": [],
+    "kafka": [],
+    "redis": [],
+    "compute": [],
+    "traffic": []
+  },
+  "findings": [],
+  "decisionsRequired": [],
+  "evidence": {
+    "rootAlias": "acceptance-artifacts",
+    "items": [
+      {
+        "evidenceId": "ev-version-manifest",
+        "relativePath": "manifests/version-provenance.json",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sizeBytes": 2048,
+        "mediaType": "application/json",
+        "createdAt": "2026-08-25T00:00:03+08:00",
+        "redacted": true,
+        "retentionClass": "STANDARD"
+      }
+    ],
+    "indexSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "complete": true,
+    "redactionChecked": true
+  },
+  "summary": {
+    "confidence": "HIGH",
+    "evidenceCompletenessPct": 100,
+    "stageCounts": {
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "blocked": 0,
+      "running": 0,
+      "inconclusive": 0,
+      "cancelled": 0
+    },
+    "newFindingCount": 0,
+    "humanDecisionCount": 0,
+    "headline": "示例仅演示报告结构：四项目候选版本核对通过。",
+    "nextAction": "继续执行 quick profile 的其余 required stages。"
+  }
+}

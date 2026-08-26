@@ -18,6 +18,22 @@ RUN_ID = "test-run"
 CANDIDATE = "sha256:" + "a" * 64
 
 
+def android_http_envelope(node_id: str = "01") -> dict:
+    direct = json.loads((FIXTURES / "android-node1.json").read_text(encoding="utf-8"))
+    return {
+        "Code": 0,
+        "Data": {
+            "nodeId": node_id,
+            "traffic": {
+                **direct["snapshot"],
+                "health": direct["health"],
+                "privateToken": "must-not-appear",
+            },
+        },
+        "Msg": "",
+    }
+
+
 def live_snapshot(now_ms: int, run_id: str = "worker-run", watermark: int | None = None) -> dict:
     return {
         "updatedAt": now_ms,
@@ -659,6 +675,157 @@ class CollectorFixtureTest(unittest.TestCase):
         self.assertEqual(["node1", "node2", "node3"], [node["label"] for node in result["raw"]["nodes"]])
         self.assertEqual({"up": 4500, "down": 6700, "total": 11200}, result["raw"]["aggregateProxy"])
         self.assertFalse(result["semantics"]["cloudBilling"])
+
+    def test_android_http_envelope_contract_table(self):
+        direct = json.loads((FIXTURES / "android-node1.json").read_text(encoding="utf-8"))
+        valid = android_http_envelope()
+        cases = (
+            ("valid", valid, 0, None),
+            ("business-failure", {**valid, "Code": 1003}, 2, "ANDROID_TRAFFIC_INVALID"),
+            ("boolean-code", {**valid, "Code": False}, 2, "ANDROID_TRAFFIC_INVALID"),
+            (
+                "missing-code",
+                {
+                    "Data": valid["Data"],
+                    "snapshot": direct["snapshot"],
+                    "health": direct["health"],
+                },
+                2,
+                "ANDROID_TRAFFIC_INVALID",
+            ),
+            (
+                "missing-node-id",
+                {**valid, "Data": {**valid["Data"], "nodeId": ""}},
+                2,
+                "ANDROID_TRAFFIC_INVALID",
+            ),
+            (
+                "missing-traffic",
+                {**valid, "Data": {"nodeId": "01"}},
+                2,
+                "ANDROID_TRAFFIC_INVALID",
+            ),
+            (
+                "missing-health",
+                {
+                    **valid,
+                    "Data": {
+                        **valid["Data"],
+                        "traffic": direct["snapshot"],
+                    },
+                },
+                2,
+                "ANDROID_TRAFFIC_INVALID",
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            for name, payload, expected_code, reason in cases:
+                with self.subTest(name=name):
+                    path = Path(directory) / f"{name}.json"
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    result = self.run_collector(
+                        "android-traffic",
+                        "--phase",
+                        "end",
+                        "--now",
+                        "2027-01-15T08:00:00Z",
+                        "--expected-targets",
+                        "1",
+                        "--json-file",
+                        f"node1={path}",
+                        expected_code=expected_code,
+                    )
+                    if reason is None:
+                        self.assertEqual("COLLECTED", result["status"])
+                        self.assertEqual("node1-run", result["raw"]["nodes"][0]["runId"])
+                        self.assertFalse(result["raw"]["nodes"][0]["stopped"])
+                        self.assertNotIn("must-not-appear", json.dumps(result))
+                    else:
+                        self.assertIn(reason, result["health"]["blockedReasons"])
+
+    def test_android_private_dimensions_fail_without_leaking_values(self):
+        cases = {
+            "node-id": ("919000000001", "919000000001"),
+            "category": ("01", "919000000001@s.whatsapp.net"),
+            "scope": ("01", "proxyTokenMustNotAppear"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            for name, (node_id, private_value) in cases.items():
+                with self.subTest(name=name):
+                    payload = android_http_envelope(node_id)
+                    if name == "category":
+                        payload["Data"]["traffic"]["categories"] = {
+                            private_value: {"up": 1000, "down": 2000}
+                        }
+                    if name == "scope":
+                        payload["Data"]["traffic"]["scopes"] = {
+                            private_value: {"up": 1000, "down": 2000}
+                        }
+                    path = Path(directory) / f"{name}.json"
+                    path.write_text(json.dumps(payload), encoding="utf-8")
+                    result = self.run_collector(
+                        "android-traffic",
+                        "--phase",
+                        "end",
+                        "--now",
+                        "2027-01-15T08:00:00Z",
+                        "--expected-targets",
+                        "1",
+                        "--json-file",
+                        f"node1={path}",
+                        expected_code=2,
+                    )
+                    serialized = json.dumps(result)
+                    self.assertIn(
+                        "ANDROID_TRAFFIC_PRIVATE_DIMENSION",
+                        result["health"]["blockedReasons"],
+                    )
+                    self.assertNotIn(private_value, serialized)
+
+    def test_android_duplicate_endpoint_node_ids_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mappings = []
+            for label in ("node1", "node2", "node3"):
+                path = Path(directory) / f"{label}.json"
+                path.write_text(json.dumps(android_http_envelope("01")), encoding="utf-8")
+                mappings.extend(("--json-file", f"{label}={path}"))
+            result = self.run_collector(
+                "android-traffic",
+                "--phase",
+                "end",
+                "--now",
+                "2027-01-15T08:00:00Z",
+                *mappings,
+                expected_code=2,
+            )
+
+        self.assertIn("ANDROID_NODE_ID_SET_INVALID", result["health"]["blockedReasons"])
+
+    def test_android_fixed_endpoint_node_mapping_rejects_swaps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mappings = []
+            for label, node_id in (("node01", "02"), ("node02", "01"), ("node03", "03")):
+                path = Path(directory) / f"{label}.json"
+                path.write_text(json.dumps(android_http_envelope(node_id)), encoding="utf-8")
+                mappings.extend(("--json-file", f"{label}={path}"))
+            result = self.run_collector(
+                "android-traffic",
+                "--phase",
+                "end",
+                "--now",
+                "2027-01-15T08:00:00Z",
+                *mappings,
+                "--expected-node-id",
+                "node01=01",
+                "--expected-node-id",
+                "node02=02",
+                "--expected-node-id",
+                "node03=03",
+                expected_code=2,
+            )
+
+        self.assertIn("ANDROID_NODE_ID_MISMATCH", result["health"]["blockedReasons"])
 
     def test_android_lineage_must_be_old_enough_for_requested_window(self):
         payload = json.loads((FIXTURES / "android-node1.json").read_text(encoding="utf-8"))

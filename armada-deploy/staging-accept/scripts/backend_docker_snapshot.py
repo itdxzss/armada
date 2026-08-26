@@ -22,6 +22,7 @@ ALLOWED_CONTAINERS = (
     "armada-backend",
     "armada-nginx",
     "zhuan-native-probe-mysql",
+    "zhuan-coordinator",
 )
 STATS_FILE = "docker-stats.jsonl"
 INSPECT_FILE = "docker-inspect.jsonl"

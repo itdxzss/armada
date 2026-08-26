@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "profile": "test1-soak-1h",
+  "environment": "test1",
+  "safety": "read-only",
+  "builds": {
+    "backend": "5c301a1631b66304ee75ec201cc1c5a662a00dc6",
+    "frontend": "0bec41d0dcc2c89dad25ae5167eb6a22f7f107fa",
+    "webProtocol": "068d5c256b2400924534281003e5f0680d82d158",
+    "androidProtocol": "421830fd63609eaf5eda3ecfdd9b8e2a1eeb20ff"
+  },
+  "stages": [
+    {"id":"candidate-bind","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":30},
+    {"id":"verify-start","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":300},
+    {"id":"observe-start","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":900},
+    {"id":"soak-to-peak","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":1860},
+    {"id":"verify-peak","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":300},
+    {"id":"observe-peak","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":900},
+    {"id":"soak-to-end","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":1860},
+    {"id":"verify-end","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":300},
+    {"id":"observe-end","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":900},
+    {"id":"evaluate-soak","command":["/usr/local/libexec/staging-accept/test1-soak"],"timeoutSeconds":300}
+  ]
+}

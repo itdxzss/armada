@@ -1,0 +1,38 @@
+digraph staging_accept_dag {
+  graph [rankdir=TB, bgcolor="transparent", pad=0.2, nodesep=0.35, ranksep=0.45];
+  node [shape=box, style="rounded,filled", fillcolor="#F7F9FC", color="#52606D", fontname="Arial", fontsize=10];
+  edge [color="#66788A"];
+
+  create [label="Create run, lock, manifest", fillcolor="#E8F1FF"];
+  version [label="Version provenance"];
+  resource [label="Resource preflight"];
+  capability [label="Capability check"];
+  deep [label="Existing deep check"];
+  baseline [label="Telemetry baseline and collectors"];
+  ui [label="UI smoke"];
+  webcanary [label="Web WA canary"];
+  androidcanary [label="Android WA canary"];
+  reconcile [label="Reconcile and queue drain"];
+  post [label="Post telemetry and traffic delta"];
+  policy [label="Policy evaluation", fillcolor="#FFF4D6"];
+  report [label="Report and checksums", fillcolor="#E5F6ED"];
+  cleanup [label="Release, cooldown or quarantine resources"];
+
+  create -> version;
+  create -> resource;
+  create -> capability;
+  version -> deep;
+  resource -> deep;
+  capability -> deep;
+  deep -> baseline;
+  baseline -> ui;
+  baseline -> webcanary;
+  baseline -> androidcanary;
+  ui -> reconcile;
+  webcanary -> reconcile;
+  androidcanary -> reconcile;
+  reconcile -> post;
+  post -> policy;
+  policy -> report;
+  report -> cleanup;
+}

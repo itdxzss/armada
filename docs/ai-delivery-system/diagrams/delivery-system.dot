@@ -1,0 +1,43 @@
+digraph delivery_system {
+  graph [rankdir=LR, bgcolor="transparent", pad=0.2, nodesep=0.35, ranksep=0.55];
+  node [shape=box, style="rounded,filled", fillcolor="#F7F9FC", color="#52606D", fontname="Arial", fontsize=10];
+  edge [color="#66788A", fontname="Arial", fontsize=9];
+
+  business [label="Business idea"];
+  analysis [label="AI fact and\nimpact analysis"];
+  decision_pack [label="Decision pack"];
+  owner [label="Business owner /\ntechnical owner", fillcolor="#FFF4D6"];
+  scope_lock [label="Signed scope and\nacceptance contract", fillcolor="#E5F6ED"];
+  orchestrator [label="AI delivery orchestrator", fillcolor="#E8F1FF"];
+  backend [label="Backend agent"];
+  frontend [label="Frontend agent"];
+  web [label="Web protocol agent"];
+  android [label="Android protocol agent"];
+  accept [label="staging-accept", fillcolor="#E8F1FF"];
+  evidence [label="Immutable evidence bundle"];
+  verifier [label="Independent AI verifiers"];
+  result [label="Release result", shape=diamond, style="filled", fillcolor="#FFF4D6"];
+  done [label="Accepted delivery", fillcolor="#D9F2E3"];
+  repair [label="AI repair loop", fillcolor="#FDE8E8"];
+
+  business -> analysis;
+  analysis -> decision_pack;
+  decision_pack -> owner [label="business decisions only"];
+  owner -> scope_lock;
+  scope_lock -> orchestrator;
+  orchestrator -> backend;
+  orchestrator -> frontend;
+  orchestrator -> web;
+  orchestrator -> android;
+  backend -> accept;
+  frontend -> accept;
+  web -> accept;
+  android -> accept;
+  accept -> evidence;
+  evidence -> verifier;
+  verifier -> result;
+  result -> done [label="PASS"];
+  result -> repair [label="FAIL"];
+  result -> owner [label="BLOCKED / decision"];
+  repair -> accept;
+}

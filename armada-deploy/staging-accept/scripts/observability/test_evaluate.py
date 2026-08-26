@@ -76,7 +76,13 @@ def kafka_snapshot(phase: str, high: int, committed: int) -> dict:
     )
 
 
-def redis_snapshot(phase: str, blocked: int = 0, evicted: int = 0) -> dict:
+def redis_snapshot(
+    phase: str,
+    blocked: int = 0,
+    evicted: int = 0,
+    rejected: int = 0,
+    used_memory: int = 100,
+) -> dict:
     return envelope(
         "redis",
         phase,
@@ -89,7 +95,13 @@ def redis_snapshot(phase: str, blocked: int = 0, evicted: int = 0) -> dict:
                         {
                             "label": "primary",
                             "pingLatencyMs": 1.5,
-                            "info": {"blocked_clients": blocked, "evicted_keys": evicted},
+                            "info": {
+                                "blocked_clients": blocked,
+                                "evicted_keys": evicted,
+                                "rejected_connections": rejected,
+                                "used_memory": used_memory,
+                                "maxmemory": 1000,
+                            },
                         }
                     ],
                 }
@@ -184,9 +196,11 @@ def android_snapshot(phase: str, total: int, lineage: str | None = None) -> dict
             "nodes": [
                 {
                     "label": "node-01",
+                    "nodeId": "01",
                     "runId": "android-run",
                     "cumulativeStartedAt": lineage,
                     "continuous": True,
+                    "stopped": False,
                     "eventDetailDisabled": False,
                     "persistenceDisabled": False,
                     "droppedEvents": 0,
@@ -351,6 +365,17 @@ class EvaluateTest(unittest.TestCase):
         ]
         result = self.run_evaluator(snapshots, "redis", 2)
         self.assertIn("REDIS_EVICTIONS_INCREASED", result["failureReasons"])
+
+    def test_redis_rejected_connections_increase_fails_and_memory_is_reported(self):
+        snapshots = [
+            redis_snapshot("start", rejected=2, used_memory=100),
+            redis_snapshot("peak", rejected=2, used_memory=150),
+            redis_snapshot("end", rejected=3, used_memory=125),
+        ]
+        result = self.run_evaluator(snapshots, "redis", 2)
+
+        self.assertIn("REDIS_REJECTED_CONNECTIONS_INCREASED", result["failureReasons"])
+        self.assertEqual(150, result["metrics"]["redis"][0]["peakUsedMemoryBytes"])
 
     def test_redis_ping_latency_threshold_fails(self):
         snapshots = [redis_snapshot(phase) for phase in OBSERVED]
@@ -527,6 +552,19 @@ class EvaluateTest(unittest.TestCase):
         snapshots[1]["raw"]["nodes"][0]["eventDetailDisabled"] = True
         result = self.run_evaluator(snapshots, "android-traffic", 3)
         self.assertIn("ANDROID_COLLECTOR_UNHEALTHY", result["blockedReasons"])
+
+        snapshots = [android_snapshot(phase, 10 + index) for index, phase in enumerate(OBSERVED)]
+        snapshots[1]["raw"]["nodes"][0]["stopped"] = True
+        result = self.run_evaluator(snapshots, "android-traffic", 3)
+        self.assertIn("ANDROID_COLLECTOR_UNHEALTHY", result["blockedReasons"])
+
+    def test_android_node_identity_must_remain_stable(self):
+        snapshots = [android_snapshot(phase, 10 + index) for index, phase in enumerate(OBSERVED)]
+        snapshots[1]["raw"]["nodes"][0]["nodeId"] = "02"
+
+        result = self.run_evaluator(snapshots, "android-traffic", 3)
+
+        self.assertIn("ANDROID_NODE_ID_CHANGED", result["blockedReasons"])
 
 
 if __name__ == "__main__":

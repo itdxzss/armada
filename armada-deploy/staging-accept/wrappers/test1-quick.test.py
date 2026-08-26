@@ -308,6 +308,7 @@ class QuickWrapperTest(unittest.TestCase):
                 "backend=armada-backend",
                 "backend=armada-nginx",
                 "backend=zhuan-native-probe-mysql",
+                "backend=zhuan-coordinator",
             ],
             containers,
         )
@@ -386,6 +387,7 @@ class QuickWrapperTest(unittest.TestCase):
         self.assertIn("backend=armada-backend", evaluator)
         self.assertIn("backend=armada-nginx", evaluator)
         self.assertIn("backend=zhuan-native-probe-mysql", evaluator)
+        self.assertIn("backend=zhuan-coordinator", evaluator)
         self.assertNotIn("--test-mode", evaluator)
         summary = json.loads((self.run_dir / "quick-summary.json").read_text())
         self.assertEqual("PASS", summary["outcome"])

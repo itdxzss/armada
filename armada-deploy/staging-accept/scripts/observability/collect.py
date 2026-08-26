@@ -900,6 +900,16 @@ def parse_android_traffic(args: argparse.Namespace) -> dict[str, Any]:
     }
     try:
         targets, fixtures = load_sources(args, "android_traffic")
+        expected_node_ids = unique_mappings(args.expected_node_id, "android_node_id")
+        if (
+            expected_node_ids
+            and (
+                len(expected_node_ids) != args.expected_targets
+                or len(set(expected_node_ids.values())) != len(expected_node_ids)
+                or any(android_dimension(value) != value for value in expected_node_ids.values())
+            )
+        ):
+            raise CollectionError("INVALID_ANDROID_NODE_ID_MAPPING")
     except CollectionError as error:
         add_check(result, "android-inputs", False, error.code)
         return result
@@ -925,6 +935,21 @@ def parse_android_traffic(args: argparse.Namespace) -> dict[str, Any]:
                 add_check(result, f"android-traffic-{label}-{reason.lower()}", False, reason)
         except CollectionError as error:
             add_check(result, f"android-traffic-{label}", False, error.code)
+    node_ids = [node["nodeId"] for node in nodes]
+    add_check(
+        result,
+        "android-node-identities",
+        len(node_ids) == args.expected_targets and len(set(node_ids)) == len(node_ids),
+        "ANDROID_NODE_ID_SET_INVALID",
+    )
+    if expected_node_ids:
+        observed_node_ids = {node["label"]: node["nodeId"] for node in nodes}
+        add_check(
+            result,
+            "android-node-id-mapping",
+            observed_node_ids == expected_node_ids,
+            "ANDROID_NODE_ID_MISMATCH",
+        )
     result["raw"] = {"nodes": nodes, "aggregateProxy": aggregate}
     return result
 
@@ -947,13 +972,44 @@ def directional(raw: Any, code: str) -> dict[str, int]:
     return {"up": up, "down": down, "total": up + down}
 
 
+def android_dimension(raw: Any) -> str:
+    if (
+        not isinstance(raw, str)
+        or not 0 < len(raw) <= 128
+        or any(ord(character) < 32 for character in raw)
+        or PRIVATE_DIMENSION.search(raw) is not None
+    ):
+        raise CollectionError("ANDROID_TRAFFIC_PRIVATE_DIMENSION")
+    return raw
+
+
 def normalize_android_payload(
     label: str, payload: Any, args: argparse.Namespace, now: dt.datetime
 ) -> tuple[dict[str, Any], list[str]]:
-    if not isinstance(payload, dict) or not isinstance(payload.get("snapshot"), dict) or not isinstance(payload.get("health"), dict):
+    node_id = label
+    if isinstance(payload, dict) and ("Code" in payload or "Data" in payload):
+        data = payload.get("Data")
+        if (
+            type(payload.get("Code")) is not int
+            or payload["Code"] != 0
+            or not isinstance(data, dict)
+            or not isinstance(data.get("nodeId"), str)
+            or SAFE_LABEL.fullmatch(data["nodeId"]) is None
+            or not isinstance(data.get("traffic"), dict)
+            or not isinstance(data["traffic"].get("health"), dict)
+        ):
+            raise CollectionError("ANDROID_TRAFFIC_INVALID")
+        node_id = android_dimension(data["nodeId"])
+        snapshot = {name: value for name, value in data["traffic"].items() if name != "health"}
+        health = data["traffic"]["health"]
+    elif isinstance(payload, dict):
+        snapshot = payload.get("snapshot")
+        health = payload.get("health")
+    else:
+        snapshot = None
+        health = None
+    if not isinstance(snapshot, dict) or not isinstance(health, dict):
         raise CollectionError("ANDROID_TRAFFIC_INVALID")
-    snapshot = payload["snapshot"]
-    health = payload["health"]
     at = parse_timestamp(str(snapshot.get("at", "")))
     age_seconds = (now - at).total_seconds()
     run_id = snapshot.get("runId")
@@ -966,8 +1022,14 @@ def normalize_android_payload(
     scopes_raw = snapshot.get("scopes", {})
     if not isinstance(categories_raw, dict) or not isinstance(scopes_raw, dict):
         raise CollectionError("ANDROID_TRAFFIC_INVALID")
-    categories = {str(name): directional(value, "ANDROID_TRAFFIC_INVALID") for name, value in categories_raw.items()}
-    scopes = {str(name): directional(value, "ANDROID_TRAFFIC_INVALID") for name, value in scopes_raw.items()}
+    categories = {
+        android_dimension(name): directional(value, "ANDROID_TRAFFIC_INVALID")
+        for name, value in categories_raw.items()
+    }
+    scopes = {
+        android_dimension(name): directional(value, "ANDROID_TRAFFIC_INVALID")
+        for name, value in scopes_raw.items()
+    }
     category_up = sum(value["up"] for value in categories.values())
     category_down = sum(value["down"] for value in categories.values())
     reasons: list[str] = []
@@ -1010,6 +1072,7 @@ def normalize_android_payload(
     return (
         {
             "label": label,
+            "nodeId": node_id,
             "schemaVersion": schema_version,
             "runId": run_id,
             "at": at.isoformat().replace("+00:00", "Z"),
@@ -1019,6 +1082,7 @@ def normalize_android_payload(
             "checkpointRestored": bool(health.get("checkpointRestored", False)),
             "continuous": health["continuous"],
             "retentionSeconds": retention,
+            "stopped": health["stopped"],
             "proxy": proxy,
             "reconciliationGap": gap,
             "categories": categories,
@@ -1083,6 +1147,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     android.add_argument("--json-file", action="append", default=[], help="fixture label=path")
     android.add_argument("--expected-targets", type=int, default=3)
+    android.add_argument(
+        "--expected-node-id",
+        action="append",
+        default=[],
+        help="fixed endpoint label=nodeId mapping",
+    )
     android.add_argument("--freshness-seconds", type=int, default=30)
     android.add_argument("--minimum-retention-seconds", type=int, default=0)
     android.add_argument("--timeout-seconds", type=float, default=8)

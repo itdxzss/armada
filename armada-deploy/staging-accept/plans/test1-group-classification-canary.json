@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "profile": "test1-group-classification-canary",
+  "environment": "test1",
+  "safety": "controlled-canary",
+  "safetyEnvelopeRef": "group-classification-v1",
+  "builds": {
+    "backend": "b637cf1e8c2124e678332300d0631db3295890e6",
+    "frontend": "df3799c64870c8fb893ec7fac8c426634961ae50",
+    "webProtocol": "1415022fa322221eba2d6cd85b0d2e66d26429ff",
+    "androidProtocol": "9677fe69625432b004c9eb8e901c229f599ebf9a"
+  },
+  "stages": [
+    {"id":"candidate-bind","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":60},
+    {"id":"resource-preflight","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":60},
+    {"id":"execute-canary","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":1200},
+    {"id":"verify-canary","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":420},
+    {"id":"evaluate-canary","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":60},
+    {"id":"release-lease","command":["/usr/local/libexec/staging-accept/test1-group-classification-canary"],"timeoutSeconds":30}
+  ]
+}

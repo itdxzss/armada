@@ -52,19 +52,20 @@ type eventRecord struct {
 }
 
 type safeSummary struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	RunID         string          `json:"runId"`
-	Profile       string          `json:"profile"`
-	Environment   string          `json:"environment"`
-	Safety        string          `json:"safety"`
-	Status        RunStatus       `json:"status"`
-	Builds        BuildManifest   `json:"builds"`
-	CreatedAt     time.Time       `json:"createdAt"`
-	StartedAt     *time.Time      `json:"startedAt,omitempty"`
-	FinishedAt    *time.Time      `json:"finishedAt,omitempty"`
-	FailureReason string          `json:"failureReason,omitempty"`
-	Stages        []StageRecord   `json:"stages"`
-	Attempts      []AttemptRecord `json:"attempts"`
+	SchemaVersion     int             `json:"schemaVersion"`
+	RunID             string          `json:"runId"`
+	Profile           string          `json:"profile"`
+	Environment       string          `json:"environment"`
+	Safety            string          `json:"safety"`
+	SafetyEnvelopeRef string          `json:"safetyEnvelopeRef,omitempty"`
+	Status            RunStatus       `json:"status"`
+	Builds            BuildManifest   `json:"builds"`
+	CreatedAt         time.Time       `json:"createdAt"`
+	StartedAt         *time.Time      `json:"startedAt,omitempty"`
+	FinishedAt        *time.Time      `json:"finishedAt,omitempty"`
+	FailureReason     string          `json:"failureReason,omitempty"`
+	Stages            []StageRecord   `json:"stages"`
+	Attempts          []AttemptRecord `json:"attempts"`
 }
 
 func newEvidenceStore(stateDir string) *EvidenceStore {
@@ -165,19 +166,20 @@ func (e *EvidenceStore) Finalize(detail RunDetail) (string, error) {
 
 func marshalSummary(detail RunDetail) ([]byte, error) {
 	summary := safeSummary{
-		SchemaVersion: planSchemaVersion,
-		RunID:         detail.Run.ID,
-		Profile:       detail.Run.Plan.Profile,
-		Environment:   detail.Run.Plan.Environment,
-		Safety:        detail.Run.Plan.Safety,
-		Status:        detail.Run.Status,
-		Builds:        detail.Run.Plan.Builds,
-		CreatedAt:     detail.Run.CreatedAt,
-		StartedAt:     detail.Run.StartedAt,
-		FinishedAt:    detail.Run.FinishedAt,
-		FailureReason: detail.Run.FailureReason,
-		Stages:        detail.Stages,
-		Attempts:      detail.Attempts,
+		SchemaVersion:     planSchemaVersion,
+		RunID:             detail.Run.ID,
+		Profile:           detail.Run.Plan.Profile,
+		Environment:       detail.Run.Plan.Environment,
+		Safety:            detail.Run.Plan.Safety,
+		SafetyEnvelopeRef: detail.Run.Plan.SafetyEnvelopeRef,
+		Status:            detail.Run.Status,
+		Builds:            detail.Run.Plan.Builds,
+		CreatedAt:         detail.Run.CreatedAt,
+		StartedAt:         detail.Run.StartedAt,
+		FinishedAt:        detail.Run.FinishedAt,
+		FailureReason:     detail.Run.FailureReason,
+		Stages:            detail.Stages,
+		Attempts:          detail.Attempts,
 	}
 	data, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {

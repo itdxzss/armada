@@ -531,6 +531,28 @@ func TestPlanValidationAndDaemonLock(t *testing.T) {
 		t.Fatalf("trailing JSON error = %v", err)
 	}
 
+	canary := validPlan([]StageSpec{{ID: "execute", Command: []string{"/usr/bin/env", "true"}, TimeoutSeconds: 5}})
+	canary.Safety = safetyControlledCanary
+	canary.SafetyEnvelopeRef = "group-classification-v1"
+	if err := canary.Validate(); err != nil {
+		t.Fatalf("controlled canary plan validation = %v", err)
+	}
+	missingEnvelope := canary
+	missingEnvelope.SafetyEnvelopeRef = ""
+	if err := missingEnvelope.Validate(); err == nil || !strings.Contains(err.Error(), "safetyEnvelopeRef") {
+		t.Fatalf("missing canary envelope validation error = %v", err)
+	}
+	readOnlyEnvelope := validPlan([]StageSpec{{ID: "execute", Command: []string{"/usr/bin/env", "true"}, TimeoutSeconds: 5}})
+	readOnlyEnvelope.SafetyEnvelopeRef = "unexpected-envelope"
+	if err := readOnlyEnvelope.Validate(); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("read-only envelope validation error = %v", err)
+	}
+	unknownSafety := canary
+	unknownSafety.Safety = "write-enabled"
+	if err := unknownSafety.Validate(); err == nil || !strings.Contains(err.Error(), "safety") {
+		t.Fatalf("unknown safety validation error = %v", err)
+	}
+
 	stateDir := t.TempDir()
 	store, err := openStore(stateDir)
 	if err != nil {
@@ -570,6 +592,32 @@ func TestPlanValidationAndDaemonLock(t *testing.T) {
 	}
 	if got := mustRead(t, logFile.Name()); !strings.Contains(got, "[LOG_TRUNCATED]") {
 		t.Fatalf("bounded log = %q", got)
+	}
+}
+
+func TestControlledCanaryRunRequiresExplicitExecuteFlag(t *testing.T) {
+	plan := validPlan([]StageSpec{{ID: "execute", Command: []string{"/usr/bin/env", "true"}, TimeoutSeconds: 5}})
+	plan.Safety = safetyControlledCanary
+	plan.SafetyEnvelopeRef = "group-classification-v1"
+	planPath := writeTestPlan(t, plan)
+	stateDir := t.TempDir()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := runMain([]string{"run", "--state-dir", stateDir, "--plan", planPath}, &stdout, &stderr); code != 1 {
+		t.Fatalf("run without execute flag code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--execute-canary") {
+		t.Fatalf("run without execute flag stderr = %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runMain([]string{"run", "--state-dir", stateDir, "--plan", planPath, "--execute-canary"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run with execute flag code = %d, stderr = %q", code, stderr.String())
+	}
+	if !runIDPattern.MatchString(strings.TrimSpace(stdout.String())) {
+		t.Fatalf("run id = %q", stdout.String())
 	}
 }
 

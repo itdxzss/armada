@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	planSchemaVersion = 1
-	safetyReadOnly    = "read-only"
+	planSchemaVersion      = 1
+	safetyReadOnly         = "read-only"
+	safetyControlledCanary = "controlled-canary"
 )
 
 type RunStatus string
@@ -40,12 +41,13 @@ const (
 )
 
 type Plan struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	Profile       string        `json:"profile"`
-	Environment   string        `json:"environment"`
-	Safety        string        `json:"safety"`
-	Builds        BuildManifest `json:"builds"`
-	Stages        []StageSpec   `json:"stages"`
+	SchemaVersion     int           `json:"schemaVersion"`
+	Profile           string        `json:"profile"`
+	Environment       string        `json:"environment"`
+	Safety            string        `json:"safety"`
+	SafetyEnvelopeRef string        `json:"safetyEnvelopeRef,omitempty"`
+	Builds            BuildManifest `json:"builds"`
+	Stages            []StageSpec   `json:"stages"`
 }
 
 type BuildManifest struct {
@@ -156,8 +158,17 @@ func (p Plan) Validate() error {
 	if !safeIDPattern.MatchString(p.Environment) {
 		return errors.New("plan environment must match [a-z][a-z0-9-]{0,63}")
 	}
-	if p.Safety != safetyReadOnly {
-		return errors.New("P0 runner only accepts safety=read-only")
+	switch p.Safety {
+	case safetyReadOnly:
+		if p.SafetyEnvelopeRef != "" {
+			return errors.New("read-only plans must not declare safetyEnvelopeRef")
+		}
+	case safetyControlledCanary:
+		if !safeIDPattern.MatchString(p.SafetyEnvelopeRef) {
+			return errors.New("controlled-canary plans require safetyEnvelopeRef matching [a-z][a-z0-9-]{0,63}")
+		}
+	default:
+		return errors.New("plan safety must be read-only or controlled-canary")
 	}
 	for name, revision := range map[string]string{
 		"backend":         p.Builds.Backend,

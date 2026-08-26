@@ -60,6 +60,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
 	flags.SetOutput(stderr)
 	stateDir := flags.String("state-dir", defaultStateDir(), "runner state directory")
 	planPath := flags.String("plan", "", "path to the JSON plan")
+	executeCanary := flags.Bool("execute-canary", false, "explicitly authorize a controlled-canary plan")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -69,6 +70,12 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer) error {
 	plan, planJSON, err := loadPlan(*planPath)
 	if err != nil {
 		return err
+	}
+	if plan.Safety == safetyControlledCanary && !*executeCanary {
+		return errors.New("controlled-canary plans require explicit --execute-canary authorization")
+	}
+	if plan.Safety == safetyReadOnly && *executeCanary {
+		return errors.New("--execute-canary is only valid for safety=controlled-canary")
 	}
 	_, store, evidence, err := openRuntime(*stateDir)
 	if err != nil {
@@ -304,7 +311,7 @@ func printUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `staging-accept - durable, single-worker staging acceptance runner
 
 Usage:
-  staging-accept run --plan PLAN.json [--state-dir DIR]
+  staging-accept run --plan PLAN.json [--state-dir DIR] [--execute-canary]
   staging-accept serve [--once] [--state-dir DIR]
   staging-accept status [--json] [--state-dir DIR] [RUN_ID]
   staging-accept report [--state-dir DIR] RUN_ID

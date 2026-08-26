@@ -15,9 +15,11 @@ Armada 测试环境的最小持久验收 Runner。它只负责串行托管本机
 - daemon 异常退出后，原 `RUNNING` stage 记为 `INTERRUPTED`，run 记为
   `FAIL/RUNNER_INTERRUPTED`；显式 `resume` 才从首个未通过 stage 继续。
 
-`safety: read-only` 是计划声明，不是操作系统沙箱。Plan 是受信任的本机输入，daemon 必须使用
-专用非 root 用户运行；P0 不用于真实 WhatsApp 写操作。日志脱敏也是尽力而为，stage 不应主动
-输出凭据，plan/argv 中不得放密码或 token。
+`safety: read-only` 和 `safety: controlled-canary` 都是计划声明，不是操作系统沙箱。Plan 是受信任的
+本机输入，daemon 必须使用专用非 root 用户运行。`controlled-canary` 必须声明一个安全信封引用，且
+提交任务时显式传入 `--execute-canary`；Runner 只负责二次授权闸门，具体资源租约、动作预算、幂等和
+回收规则仍由固定 wrapper 根据安全信封执行。日志脱敏也是尽力而为，stage 不应主动输出凭据，
+plan/argv 中不得放密码或 token。
 
 ## 本地运行
 
@@ -102,7 +104,7 @@ bash wrappers/ui-smoke.test.sh
 ## 控制命令
 
 ```text
-staging-accept run --plan PLAN.json [--state-dir DIR]
+staging-accept run --plan PLAN.json [--state-dir DIR] [--execute-canary]
 staging-accept serve [--once] [--state-dir DIR]
 staging-accept status [--json] [--state-dir DIR] [RUN_ID]
 staging-accept report [--state-dir DIR] RUN_ID
@@ -117,6 +119,9 @@ staging-accept resume [--state-dir DIR] RUN_ID
 
 `report` 只验证现有 checksum manifest 并重建人类可读报告，不会重新计算 manifest；日志或摘要被
 修改后会直接失败。这里用于发现意外改动，不是数字签名，拥有状态目录写权限的人仍应视为可信运维者。
+
+`--execute-canary` 只接受 `safety=controlled-canary` 的新任务。只读计划传入该标志会被拒绝；任务入队
+后，`resume` 只恢复原计划及原安全信封，不扩大授权范围。
 
 ## Linux systemd
 

@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "reference": "group-classification-v1",
+  "changeId": "2026-08-26-group-canonical-first-classification",
+  "scopeHash": "316839dc898e558b494ff6835abf15cd55d942e8a730c927ba76a6c25be61825",
+  "environment": "test1",
+  "prerequisiteRunId": "YYYYMMDDTHHMMSSZ-00000000",
+  "resourceAlias": "test-account-group-alias",
+  "accountGroupId": 0,
+  "expectedProtocolBackend": "ANDROID",
+  "maxDistinctAccounts": 6,
+  "groupCreateCount": 3,
+  "memberAddsPerGroup": 1,
+  "maxContactSaves": 6,
+  "messageCount": 0,
+  "leaveActionCount": 0,
+  "existingGroupMutationCount": 0,
+  "maxConcurrency": 1,
+  "maxDurationSeconds": 1200,
+  "cleanupPolicy": "RETAIN_NAMED_CANARY_GROUPS_NO_LEAVE_NO_DELETE"
+}

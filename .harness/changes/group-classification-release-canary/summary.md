@@ -2,7 +2,7 @@
 
 - 日期 / 分支：2026-08-26 / `codex/group-classification-release-canary`
 - 环境：test1
-- 状态：本地已验证，待 Runner 远端执行
+- 状态：Web Canary 已通过；Android 普群前置链路缺陷已留证
 
 ## 目标
 
@@ -39,4 +39,16 @@
 
 ## test1 结果
 
-待 Runner run 完成后补充 run ID、终态、checksums、群分类结果和版本核对。
+- 通过 run：`20260826T134930Z-df4457fe`，六阶段全部 `PASS`，`checksums.sha256` 全量校验通过。
+- 资源：别名 `ag-77edc12751`，6 个合格 Web 测试账号；实际创建 3 个带 Canary 前缀的新群。
+- 分类：3/3 canonical `POST_CONTROL`，来源 3/3 `POST_CONTROL_DISCOVERED`，分类时间 3/3 已写入；
+  连续两次 API 读取无漂移，兼容出参均为 `isHistorical=false / isPostControl=true`。
+- 动作核对：0 条消息、0 次退群、0 个现有群修改；成功后按安全信封保留 3 个 Canary 群。
+- Flyway：V140 `success=1`，描述 `group canonical first classification`。
+- 版本：backend `b637cf1e...`、frontend `df3799c64...`、Web `1415022f...`、Android
+  `9677fe69...` 均与可信 runtime manifest 匹配；backend/frontend/Android coordinator 当前 Docker image
+  identity 也与 manifest 一致。严格 300 秒 freshness 检查因 runtime source 未自动刷新而 `BLOCKED`，
+  放宽到本次验收窗口后版本检查通过；这是观察器保鲜能力缺口，不改写 Canary 业务结论。
+- Canary 临时 RBAC 角色和两项权限已删除，重新登录替换并注销了临时提权会话。
+- 当前真实 Canary 只覆盖“首次可靠事实为上控后新增”的 Web 路径；历史群首次事实与跨账号晚到 baseline
+  不改类仍由本地迁移、Mapper、Service 并发测试覆盖，尚未做第二组真实 WhatsApp Canary。

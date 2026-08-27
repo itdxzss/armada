@@ -42,6 +42,18 @@ server:
   port: 8080
 
 armada:
+  hyperlink:
+    data-package:
+      # 防误操作的单包当前代号码安全阈值；覆盖仍采用 generation 原子切换。
+      max-phones: ${HYPERLINK_DATA_PACKAGE_MAX_PHONES:500000}
+      maintenance:
+        enabled: ${HYPERLINK_DATA_PACKAGE_MAINTENANCE_ENABLED:true}
+        retention-days: ${HYPERLINK_DATA_PACKAGE_RETENTION_DAYS:30}
+        cleanup-batch-size: ${HYPERLINK_DATA_PACKAGE_CLEANUP_BATCH_SIZE:2000}
+        cleanup-fixed-delay-ms: ${HYPERLINK_DATA_PACKAGE_CLEANUP_FIXED_DELAY_MS:3600000}
+        processing-timeout-ms: ${HYPERLINK_DATA_PACKAGE_PROCESSING_TIMEOUT_MS:1800000}
+        recovery-batch-size: ${HYPERLINK_DATA_PACKAGE_RECOVERY_BATCH_SIZE:2000}
+        recovery-fixed-delay-ms: ${HYPERLINK_DATA_PACKAGE_RECOVERY_FIXED_DELAY_MS:60000}
   group-snapshot:
     # 自动单群主链默认关闭；页面手动刷新和批量任务始终走 Outbox，不受该开关影响。
     enabled: ${GROUP_SNAPSHOT_ENABLED:false}

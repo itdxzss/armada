@@ -51,6 +51,8 @@ public class MenuManagementServiceImpl implements MenuManagementService {
             "task/group-pull-marketing/index",
             "task/group-creation-marketing/index",
             "material/marketing-template/index",
+            "hyperlink/data/index",
+            "hyperlink/templates/index",
             "resource/ip/index",
             "resource/ip-stats/index",
             "buyer/template/index",

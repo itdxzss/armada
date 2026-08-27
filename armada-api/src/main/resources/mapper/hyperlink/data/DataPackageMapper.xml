@@ -4,7 +4,7 @@
 
   <sql id="EntityColumns">
     id, tenant_id, package_name, remark, current_generation, phone_count, version,
-    created_by, created_at, updated_at, deleted_at
+    created_by, created_at, updated_at, deleted_by, deleted_at
   </sql>
 
   <sql id="SummaryColumns">
@@ -181,7 +181,8 @@
 
   <update id="softDelete">
     UPDATE data_package
-    SET deleted_at = #{deletedAt},
+    SET deleted_by = #{deletedBy},
+        deleted_at = #{deletedAt},
         updated_at = #{deletedAt}
     WHERE id = #{id}
       AND deleted_at IS NULL

@@ -27,6 +27,7 @@ class DataPackageMigrationSqlTest {
                 "unique key uq_data_package_phone (tenant_id, data_package_id, generation, phone)",
                 "key idx_data_package_phone_pick (tenant_id, data_package_id, generation, pool_status, id)",
                 "key idx_data_package_import_generation (tenant_id, data_package_id, generation, status, finished_at)");
+        assertThat(sql).contains("deleted_by bigint default null comment '删除人user_id'");
         assertThat(sql).doesNotContain(
                 "hyperlink_template",
                 "hyperlink_task",

@@ -107,8 +107,10 @@ public class DataPackageController {
     /** 软删除数据包；号码保留 30 天后由后台分批清理。 */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('tenant:hyperlink_data:delete')")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
-        service.delete(id);
+    public ApiResponse<Void> delete(
+            @PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        service.delete(id, userId(principal));
         return ApiResponse.ok();
     }
 

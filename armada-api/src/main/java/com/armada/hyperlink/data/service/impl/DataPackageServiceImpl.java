@@ -143,10 +143,10 @@ public class DataPackageServiceImpl implements DataPackageService {
     /** {@inheritDoc} */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
+    public void delete(Long id, Long deletedBy) {
         requirePositiveId(id);
         requireLocked(id);
-        if (mapper.softDelete(id, System.currentTimeMillis()) != 1) {
+        if (mapper.softDelete(id, deletedBy, System.currentTimeMillis()) != 1) {
             throw notFound();
         }
     }

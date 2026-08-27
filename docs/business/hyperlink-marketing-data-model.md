@@ -86,6 +86,7 @@
 | `version` | `INT NOT NULL DEFAULT 1` | 名称/备注乐观锁版本；统计更新不修改它 |
 | `created_by` | `BIGINT` | 创建人 user_id |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
+| `deleted_by` | `BIGINT` | 删除人 user_id |
 | `deleted_at` | `BIGINT` | 软删时间；NULL=未删 |
 | `is_active` | `TINYINT`（生成列） | 软删唯一键辅助：活行=1 软删=NULL |
 

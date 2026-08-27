@@ -61,5 +61,7 @@ public interface DataPackageMapper {
                       @Param("updatedAt") long updatedAt);
 
     /** 软删除已锁定的数据包。 */
-    int softDelete(@Param("id") Long id, @Param("deletedAt") long deletedAt);
+    int softDelete(@Param("id") Long id,
+                   @Param("deletedBy") Long deletedBy,
+                   @Param("deletedAt") long deletedAt);
 }

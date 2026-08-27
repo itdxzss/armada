@@ -229,6 +229,7 @@ flowchart LR
 | `created_by` | `BIGINT` | 创建人 |
 | `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 | `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
+| `deleted_by` | `BIGINT` | 删除人 |
 | `deleted_at` | `BIGINT` | 软删时间 |
 | `is_active` | 生成列 | 未删为 1，已删为 NULL |
 

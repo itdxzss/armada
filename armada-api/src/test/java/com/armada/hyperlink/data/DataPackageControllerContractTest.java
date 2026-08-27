@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.hyperlink.data.controller.DataPackageController;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
+import com.armada.shared.security.AuthPrincipal;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Method;
@@ -33,6 +34,8 @@ class DataPackageControllerContractTest {
         assertAuthority("update", "tenant:hyperlink_data:edit");
         assertAuthority("importPhones", "tenant:hyperlink_data:import");
         assertAuthority("delete", "tenant:hyperlink_data:delete");
+        assertThat(method("delete").getParameterTypes())
+                .containsExactly(Long.class, AuthPrincipal.class);
 
         assertThat(declaredEndpoints()).containsExactlyInAnyOrder(
                 "GET ",
@@ -67,12 +70,16 @@ class DataPackageControllerContractTest {
     }
 
     private static void assertAuthority(String methodName, String authority) {
-        Method method = java.util.Arrays.stream(DataPackageController.class.getDeclaredMethods())
+        Method method = method(methodName);
+        assertThat(method.getAnnotation(PreAuthorize.class).value())
+                .isEqualTo("hasAuthority('" + authority + "')");
+    }
+
+    private static Method method(String methodName) {
+        return java.util.Arrays.stream(DataPackageController.class.getDeclaredMethods())
                 .filter(candidate -> candidate.getName().equals(methodName))
                 .findFirst()
                 .orElseThrow();
-        assertThat(method.getAnnotation(PreAuthorize.class).value())
-                .isEqualTo("hasAuthority('" + authority + "')");
     }
 
     private static Set<String> declaredEndpoints() {

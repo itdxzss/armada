@@ -26,8 +26,8 @@ public interface DataPackageService {
     /** 按版本完整更新名称和备注。 */
     DataPackageDetailVO update(Long id, DataPackageUpdateDTO request);
 
-    /** 软删除数据包，号码由保留期任务后续清理。 */
-    void delete(Long id);
+    /** 软删除数据包并记录操作人，号码由保留期任务后续清理。 */
+    void delete(Long id, Long deletedBy);
 
     /** 查询父包当前 generation 的号码明细。 */
     PageResult<DataPackagePhoneItemVO> phones(Long id, DataPackagePhoneQuery query);

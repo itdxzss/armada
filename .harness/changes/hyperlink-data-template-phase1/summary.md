@@ -1,85 +1,97 @@
 # 变更记录：超链数据包与超链营销模板一期
 
-- 日期 / 分支 / worktree：2026-08-27 / `1.0.3-snapshot` / 主工作区
-- 需求来源：用户要求先复刻“超链数据包”和“超链营销模板”，并为后续超链任务、素材和分析留出稳定接口
-- 状态：方案设计完成，尚未进入编码
+- 日期：2026-08-27
+- 目标分支：`1.0.3-snapshot`
+- 设计：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md`
+- API 合同：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-api-contract.md`
+- 状态：前后端实现与本地集成验证完成，未部署、未连接真实数据库
 
-## 目标（一句话）
+## 变更概述
 
-在不提前实现超链任务和分析链路的前提下，交付两个可独立验收的前置资源菜单，并冻结号码快照、模板内容快照和图片稳定 ID 三条跨期契约。
+- 新增“超链数据包”资源管理：创建、编辑、软删除、分页、国家筛选、号码明细、TXT 追加/覆盖导入。
+- 覆盖导入采用 generation 原子切换；旧代号码保留 30 天后分批清理。
+- 新增“超链营销模板”管理：列表、详情、创建、完整更新、复制、软删除和任务候选接口。
+- 模板一期支持单图文、普通按钮、卡片按钮；消息类型 2（双图文）保留枚举但明确拒绝创建和编辑。
+- 图片复用 `marketing_template_file` 的稳定 ID、上传和鉴权下载能力，不改动现有群营销存储模型。
+- 新增超链顶级目录、两个页面、八个按钮权限；租户管理员沿用动态全权限规则，普通角色仍需显式授权。
 
-## 缺口拆解 / 任务清单
+## 影响模块
 
-- [x] 核对竞品数据包、模板和任务引用行为
-- [x] 核对 Armada 现有群营销模板和图片文件能力
-- [x] 明确数据包、模板与任务/素材/分析的依赖边界
-- [x] 产出详细设计文档
-- [ ] 同步目标分支并重新分配 Flyway 版本
-- [ ] 实现后端数据模型、API 和测试
-- [ ] 实现前端菜单、页面和测试
-- [ ] 完成联调、端到端验收和自动数据模型更新
+- `com.armada.hyperlink.data`：数据包 Controller / Service / Mapper / DTO / VO / 维护任务。
+- `com.armada.hyperlink.template`：模板 Controller / Service / Mapper / DTO / VO / 内容校验。
+- `marketing`：仅扩展已有图片上传、读取接口的超链权限，保留全部旧权限。
+- `admin`：菜单组件白名单新增 `hyperlink/data/index`、`hyperlink/templates/index`。
+- `db/migration`：V141～V143。
 
-## 关键设计决策
+## 数据库变更
 
-- 新建 `com.armada.hyperlink` 业务域；超链模板不合并进生产中的群营销模板。
-- 数据包号码保存当前池状态；任务执行历史未来保存在独立收件人/投递尝试表。
-- 模板保存完整推广链接和按钮目标参数；任务选择模板后复制不可变内容快照。
-- 图片一期复用 `marketing_template_file` 的 ID 和 Service，不直接改名为 `resource_asset`。
-- 一期只开放单图文、普通按钮和卡片按钮；双图文保留枚举但明确拒绝。
-- 不提前创建任务、点击、策略或分析的空表和假接口。
+- `V141__hyperlink_data_package.sql`
+  - 新建 `data_package`、`data_package_phone`、`data_package_stat`、`data_package_import`。
+  - 导入审计持久记录操作人、包 ID、模式、行数和结果。
+  - 数据包软删除持久记录 `deleted_by` 与 `deleted_at`。
+- `V142__hyperlink_template.sql`
+  - 新建 `hyperlink_template`，保存统一的消息内容和稳定图片 ID。
+- `V143__hyperlink_marketing_menu_rbac.sql`
+  - 为全部启用租户幂等写入目录、页面和按钮节点。
+- 前向执行入口见 `db-migrations.sql`；审阅用逆向脚本见 `rollback.sql`。
+- `.harness/wiki/数据模型.md` 是真实 MySQL `information_schema` 生成物。本轮未获授权连接或修改真实数据库，因此没有伪造更新；V141～V143 在确认环境落库后必须重新导出 TSV 并运行生成器。
 
-### 第三版综合评审修正（2026-08-27）
+## API 变更
 
-- 覆盖导入改为**代际切换**：新号码先写下一代，成功后原子切换 `current_generation`；旧代保留
-  30 天后每批最多 2000 行清理，避免在关键事务中删除几十万行。
-- `data_package` 只保留当前代指针、总数和元数据版本；六个池状态计数迁到一对一
-  `data_package_stat`，避免发送和 ACK 高频更新争抢包主行。
-- 统计校准是内部运维能力，不开放 `/recount` 接口，也不增加普通菜单权限。
-- 单包总量采用可配置安全阈值，默认 500000；它用于防误操作，不再承担覆盖事务正确性。
-- 任务收件人冻结包 ID、代次、导入批次、手机号和国家，不保存会随旧代清理而悬空的
-  `data_package_phone_id`；重试、双图文分片和协议消息 ID 归 `hyperlink_delivery_attempt`。
-- 模板与任务内容统一 `HyperlinkMessageContent` 字段长度和按钮 JSON，任务记录来源模板 ID/版本。
-- 图片列名固定为 `link_preview_asset_id` / `body_main_asset_id`；一期仍指向
-  `marketing_template_file.id`，未来通过兼容 Service 迁移，不能先直接改表名。
-- 国家候选接口只读国家主数据；列表国家仅对当前页、当前代查询 DISTINCT，不做全租户号码 COUNT。
-- 导入审计使用独立短事务记录 `PROCESSING` / `FAILED`，并增加超时处理中恢复机制。
-- `hyperlink-marketing-data-model.md` 已同步为全模块唯一数据模型口径，不再保留“本节失效”的冲突章节。
-- 新增 `2026-08-27-hyperlink-data-template-phase1-api-contract.md`，冻结四个开发分支共享的路径、
-  Request/Response、枚举、空值、错误码、权限和目录所有权。
+### 数据包
 
-详细设计：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md`。
+- `GET /api/data-packages`
+- `GET /api/data-packages/countries`
+- `GET /api/data-packages/{id}`
+- `POST /api/data-packages`
+- `PUT /api/data-packages/{id}`
+- `POST /api/data-packages/{id}/import`
+- `GET /api/data-packages/{id}/phones`
+- `DELETE /api/data-packages/{id}`
 
-## 验证（evidence-before-done）
+### 超链模板
 
-- 已核对 `origin/1.0.3-snapshot`：远程分支已存在 `V140__group_canonical_first_classification.sql`，因此旧超链文档的 V140 起始编号失效。
-- 已核对现有 `marketing_template_file` Controller、Service、Mapper 和群营销运行路径，确认直接表改名会影响滚动发布。
-- 本阶段只新增设计与变更记录，没有执行编译、数据库测试或前端构建。
+- `GET /api/hyperlink-templates`
+- `GET /api/hyperlink-templates/options`
+- `GET /api/hyperlink-templates/{id}`
+- `POST /api/hyperlink-templates`
+- `PUT /api/hyperlink-templates/{id}`
+- `POST /api/hyperlink-templates/{id}/copy`
+- `DELETE /api/hyperlink-templates/{id}`
 
-第二版评审复核（2026-08-27）：
+### 图片兼容
 
-- 竞品单次 TXT 上限 `1e5`：`hylbuiaxykfrontendsource/readable/assets/data-CdPwdTG4.js:863`。
-- 竞品拦截国家常量 `马来西亚、新加坡、香港、中国、澳门、台湾`：同上 `:2276`；
-  巴西为风险提醒（`:1313`）而非拦截，两者不可混为一谈。
-- 竞品模板创建下拉只开放单图文/普通按钮/卡片按钮：`templates-BLWMxusB.js:165-171`
-  （`:796-808` 的四项是筛选下拉，不是创建入口）。
-- 竞品模板确实保存 `promotion_link` 与按钮目标 URL：`templates-BLWMxusB.js:399`，
-  与页面“跳转链接在创建任务时配置”的提示冲突，以 payload 为准。
-- Armada 侧落位属实：`ApiResponse` / `PageResult` 存在于 `shared/response`；
-  `sys_menu.component_path` 格式为 `account/index/index`（`V071` 种子数据）；
-  权限键格式为 `tenant:<module>:<action>`；
-  `MarketingTemplateFileController.upload` 当前只继承类级营销模板查看权限，需要新增方法级
-  `hasAnyAuthority`；`content` 已有方法级权限列表，需要在保留原权限的基础上追加超链权限。
-- `origin/1.0.3-snapshot` 的 `V140__group_canonical_first_classification.sql` 已复核存在。
-- 已解决与 `docs/business/hyperlink-marketing-data-model.md` 的冲突：总模型与一期详细设计已统一
-  数据包四表、模板字段、任务快照和素材演进口径。
-- API 合同 11 个 JSON 示例已通过本地 `JSON.parse` 校验，Markdown 围栏成对，`git diff --check` 通过。
+- `POST /api/marketing-template-files` 增加超链模板创建/编辑权限。
+- `GET /api/marketing-template-files/{id}/content` 增加超链模板查看/创建/编辑权限。
 
-## 部署
+## Redis / Kafka / 协议层
 
-- 尚未编码或部署。
+- 无变更。两个菜单只交付前置资源，不发送 WhatsApp 消息，也不创建任务或点击事实。
 
-## 遗留 / 跟进
+## 关键约束
 
-- 编码前必须先同步后端和前端目标分支，避免基于落后工作区分配迁移号或覆盖远程文档。
-- 实施过程中按详细设计第 16 节的依赖顺序拆分任务。
-- 完成实现后补充真实 Maven、前端构建和端到端验收输出。
+- 所有业务 SQL 由租户拦截器注入 `tenant_id`，跨租户 ID 统一表现为不存在。
+- 任务未来只能复制“数据包号码快照 + 模板内容快照”，不能在运行时依赖可覆盖的数据包当前代或可编辑模板。
+- `data_package_phone.pool_status` 是当前可领取投影，不是完整投递历史。
+- 模板不创建 `task_ref_count` 死列；任务上线后由真实引用关系计算删除保护。
+- 一期不做预探测、点击、短链、发送策略、任务执行、市场分析或通用素材库改名。
+
+## 验证
+
+- 聚焦后端回归：57 条通过，0 失败、0 错误。
+- 删除审计 TDD：迁移、Controller 合同和真实 H2/MyBatis 软删除测试 4 条通过。
+- `python3 .harness/wiki/test_api_docs.py`：232 个端点生成与渲染测试通过。
+- `mvn -DskipTests package`：Spring Boot jar 构建通过。
+- `git diff --check`：通过。
+- 未运行真实 MySQL/Flyway、远程联调、预发或生产部署。
+
+## 回滚方案
+
+- 未部署时：回退本次 Java、XML、文档和迁移提交即可。
+- 已部署时：先隐藏菜单并回退依赖新表的前后端，再备份并确认不存在需要保留的数据，最后按 `rollback.sql` 逆序删除菜单和五张业务表。
+- Flyway 已登记版本的环境不能只删表；还需按部署规范处理 schema history，禁止直接修改共享库。
+
+## 后续
+
+- 在确认的隔离 MySQL 8 环境应用 V141～V143，验证生成列、JSON、CHECK、菜单幂等性，再刷新数据模型 wiki。
+- 下一阶段优先实现“即时超链任务”的任务快照与最小发送闭环，同时并行验证 Web 协议的三种消息载荷和 ACK 语义。

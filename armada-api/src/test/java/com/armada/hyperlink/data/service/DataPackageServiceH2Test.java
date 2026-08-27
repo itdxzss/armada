@@ -183,7 +183,10 @@ class DataPackageServiceH2Test {
                 first.id(), new DataPackageUpdateDTO("新名称", " 已复核 ", 1));
         assertThat(updated.version()).isEqualTo(2);
         assertThat(updated.remark()).isEqualTo("已复核");
-        service.delete(first.id());
+        service.delete(first.id(), 19L);
+        assertThat(jdbc().queryForObject(
+                "SELECT deleted_by FROM data_package WHERE id = ?",
+                Long.class, first.id())).isEqualTo(19L);
         assertThatThrownBy(() -> service.detail(first.id()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("数据包不存在或已删除");
@@ -378,6 +381,7 @@ class DataPackageServiceH2Test {
                   created_by BIGINT,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
+                  deleted_by BIGINT,
                   deleted_at BIGINT,
                   is_active TINYINT GENERATED ALWAYS AS
                     (CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END),

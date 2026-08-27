@@ -23,6 +23,8 @@ public class DataPackage {
     private Long createdAt;
     /** 更新时间（epoch 毫秒）。 */
     private Long updatedAt;
+    /** 删除用户 ID。 */
+    private Long deletedBy;
     /** 软删时间（epoch 毫秒）。 */
     private Long deletedAt;
 
@@ -46,6 +48,8 @@ public class DataPackage {
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Long updatedAt) { this.updatedAt = updatedAt; }
+    public Long getDeletedBy() { return deletedBy; }
+    public void setDeletedBy(Long deletedBy) { this.deletedBy = deletedBy; }
     public Long getDeletedAt() { return deletedAt; }
     public void setDeletedAt(Long deletedAt) { this.deletedAt = deletedAt; }
 }

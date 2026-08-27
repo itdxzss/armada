@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -101,6 +102,25 @@ class MenuManagementServiceImplTest {
 
         assertThatCode(() -> service.create(request)).doesNotThrowAnyException();
         verify(menuMapper).insert(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void createAcceptsHyperlinkPhaseOneComponents() {
+        SysMenu hyperlinkDirectory = menu(1L, 0L, "D", 1, "HyperlinkMarketing");
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(hyperlinkDirectory));
+
+        MenuCreateDTO dataPackage = new MenuCreateDTO(
+                1L, "超链数据包", "HyperlinkDataPackage", "M",
+                "/hyperlink/data", "hyperlink/data/index",
+                "tenant:hyperlink_data:view", null, 10);
+        MenuCreateDTO template = new MenuCreateDTO(
+                1L, "超链营销模板", "HyperlinkTemplate", "M",
+                "/hyperlink/templates", "hyperlink/templates/index",
+                "tenant:hyperlink_template:view", null, 20);
+
+        assertThatCode(() -> service.create(dataPackage)).doesNotThrowAnyException();
+        assertThatCode(() -> service.create(template)).doesNotThrowAnyException();
+        verify(menuMapper, times(2)).insert(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS data_package (
     created_by BIGINT DEFAULT NULL COMMENT '创建人user_id',
     created_at BIGINT NOT NULL COMMENT '创建时间(epoch毫秒)',
     updated_at BIGINT NOT NULL COMMENT '更新时间(epoch毫秒)',
+    deleted_by BIGINT DEFAULT NULL COMMENT '删除人user_id',
     deleted_at BIGINT DEFAULT NULL COMMENT '软删时间(epoch毫秒);NULL为未删',
     is_active TINYINT GENERATED ALWAYS AS (
         CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END

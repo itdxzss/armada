@@ -4,8 +4,10 @@ import com.armada.hyperlink.data.model.dto.DataPackageCreateDTO;
 import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
+import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
+import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
 import com.armada.hyperlink.data.model.vo.DataPackageListItemVO;
 import com.armada.hyperlink.data.model.vo.DataPackagePhoneItemVO;
 import com.armada.shared.response.PageResult;
@@ -31,6 +33,15 @@ public interface DataPackageService {
 
     /** 查询父包当前 generation 的号码明细。 */
     PageResult<DataPackagePhoneItemVO> phones(Long id, DataPackagePhoneQuery query);
+
+    /** 把当前代可重试失败号码恢复为未使用，未注册号码保持失败。 */
+    int resetFailed(Long id);
+
+    /** 按竞品状态口径导出当前代手机号 TXT。 */
+    DataPackageExportFile exportPhones(Long id, DataPackageUsageStatus usageStatus);
+
+    /** 按竞品状态口径批量导出多个数据包当前代手机号 TXT。 */
+    DataPackageExportFile exportPhones(List<Long> ids, DataPackageUsageStatus usageStatus);
 
     /** 读取启用国家主数据并追加 UNKNOWN 固定候选。 */
     List<DataPackageCountryOptionVO> countries();

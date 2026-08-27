@@ -9,6 +9,7 @@ import com.armada.shared.security.AuthPrincipal;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Method;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
@@ -33,6 +34,11 @@ class DataPackageControllerContractTest {
         assertAuthority("create", "tenant:hyperlink_data:create");
         assertAuthority("update", "tenant:hyperlink_data:edit");
         assertAuthority("importPhones", "tenant:hyperlink_data:import");
+        assertAuthority("resetFailed", "tenant:hyperlink_data:edit");
+        assertThat(java.util.Arrays.stream(DataPackageController.class.getDeclaredMethods())
+                .filter(candidate -> candidate.getName().equals("exportPhones")))
+                .allSatisfy(candidate -> assertThat(candidate.getAnnotation(PreAuthorize.class).value())
+                        .isEqualTo("hasAuthority('tenant:hyperlink_data:export')"));
         assertAuthority("delete", "tenant:hyperlink_data:delete");
         assertThat(method("delete").getParameterTypes())
                 .containsExactly(Long.class, AuthPrincipal.class);
@@ -45,21 +51,24 @@ class DataPackageControllerContractTest {
                 "PUT /{id}",
                 "POST /{id}/import",
                 "GET /{id}/phones",
+                "POST /{id}/reset-failed",
+                "GET /{id}/export",
+                "POST /export",
                 "DELETE /{id}");
 
         String source = Files.readString(Path.of(
                 "src/main/java/com/armada/hyperlink/data/controller/DataPackageController.java"));
-        assertThat(source).doesNotContain(
-                "/name",
-                "/recount",
-                "/export",
-                "/reset-failed");
+        assertThat(source).doesNotContain("/name", "/recount");
     }
 
     @Test
     void countryQueryIsCommaStringAndUnknownNullFieldIsAlwaysSerialized() throws Exception {
         assertThat(DataPackageQuery.class.getDeclaredField("countryIso2s").getType())
                 .isEqualTo(String.class);
+        assertThat(DataPackageQuery.class.getDeclaredField("minUvPercent").getType())
+                .isEqualTo(BigDecimal.class);
+        assertThat(DataPackageQuery.class.getDeclaredField("maxUvPercent").getType())
+                .isEqualTo(BigDecimal.class);
         ObjectMapper mapper = new ObjectMapper()
                 .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 

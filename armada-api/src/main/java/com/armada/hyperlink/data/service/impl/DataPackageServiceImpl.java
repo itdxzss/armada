@@ -11,9 +11,11 @@ import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.entity.DataPackage;
 import com.armada.hyperlink.data.model.entity.DataPackageStat;
 import com.armada.hyperlink.data.model.enums.DataPackagePoolStatus;
+import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryRow;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
+import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
 import com.armada.hyperlink.data.model.vo.DataPackageListItemVO;
 import com.armada.hyperlink.data.model.vo.DataPackageListRow;
 import com.armada.hyperlink.data.model.vo.DataPackagePhoneItemVO;
@@ -23,6 +25,8 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -47,6 +51,9 @@ public class DataPackageServiceImpl implements DataPackageService {
     private static final String UNKNOWN_COUNTRY = "UNKNOWN";
     private static final Pattern ISO2_PATTERN = Pattern.compile("^[A-Z]{2}$");
     private static final Pattern PHONE_FILTER_PATTERN = Pattern.compile("^[0-9]+$");
+    private static final String TXT_CONTENT_TYPE = "text/plain;charset=UTF-8";
+    private static final int MAX_BATCH_EXPORT_PACKAGES = 100;
+    private static final long MAX_EXPORT_PHONES = 500_000L;
 
     private final DataPackageMapper mapper;
     private final DataPackagePhoneMapper phoneMapper;
@@ -72,6 +79,11 @@ public class DataPackageServiceImpl implements DataPackageService {
     public PageResult<DataPackageListItemVO> list(DataPackageQuery query) {
         DataPackageQuery normalized = query == null ? new DataPackageQuery() : query;
         normalizeListQuery(normalized);
+        if (normalized.getMinUvPercent() != null
+                && normalized.getMinUvPercent().signum() > 0) {
+            return PageResult.of(
+                    List.of(), normalized.getPage(), normalized.getPageSize(), 0);
+        }
         long total = mapper.countPage(normalized);
         if (total == 0) {
             return PageResult.of(List.of(), normalized.getPage(), normalized.getPageSize(), 0);
@@ -80,8 +92,10 @@ public class DataPackageServiceImpl implements DataPackageService {
         Map<Long, List<String>> countries = currentCountries(
                 rows.stream().map(DataPackageListRow::getId).toList());
         List<DataPackageListItemVO> items = rows.stream()
-                .map(row -> converter.toListItem(
-                        row, countries.getOrDefault(row.getId(), List.of())))
+                .map(row -> {
+                    List<String> values = countries.getOrDefault(row.getId(), List.of());
+                    return converter.toListItem(row, values, primaryCountry(values));
+                })
                 .toList();
         return PageResult.of(items, normalized.getPage(), normalized.getPageSize(), total);
     }
@@ -173,6 +187,69 @@ public class DataPackageServiceImpl implements DataPackageService {
 
     /** {@inheritDoc} */
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int resetFailed(Long id) {
+        requirePositiveId(id);
+        DataPackage parent = requireLocked(id);
+        long now = System.currentTimeMillis();
+        int affected = phoneMapper.resetPoolStatus(
+                id,
+                parent.getCurrentGeneration(),
+                DataPackagePoolStatus.RETRYABLE_FAILED.code(),
+                DataPackagePoolStatus.UNUSED.code(),
+                now);
+        if (affected > 0 && statMapper.moveRetryableFailedToUnused(
+                id, parent.getCurrentGeneration(), affected, now) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "数据包统计状态已变化，请刷新后重试");
+        }
+        return affected;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public DataPackageExportFile exportPhones(Long id, DataPackageUsageStatus usageStatus) {
+        requirePositiveId(id);
+        DataPackage parent = mapper.selectActiveById(id);
+        if (parent == null) {
+            throw notFound();
+        }
+        DataPackageUsageStatus normalized = usageStatus == null
+                ? DataPackageUsageStatus.ALL : usageStatus;
+        requireExportSize(parent, normalized, 0);
+        List<String> phones = exportPhones(parent, normalized);
+        String safeName = parent.getPackageName().replaceAll("[\\\\/:*?\"<>|]", "_");
+        return exportFile(safeName + "_" + normalized.apiValue() + ".txt", phones);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public DataPackageExportFile exportPhones(
+            List<Long> ids,
+            DataPackageUsageStatus usageStatus) {
+        List<Long> normalizedIds = normalizeExportIds(ids);
+        DataPackageUsageStatus normalized = usageStatus == null
+                ? DataPackageUsageStatus.ALL : usageStatus;
+        List<DataPackage> parents = new ArrayList<>();
+        long exportCount = 0;
+        for (Long id : normalizedIds) {
+            DataPackage parent = mapper.selectActiveById(id);
+            if (parent == null) {
+                throw notFound();
+            }
+            exportCount = requireExportSize(parent, normalized, exportCount);
+            parents.add(parent);
+        }
+        List<String> phones = new ArrayList<>((int) exportCount);
+        for (DataPackage parent : parents) {
+            phones.addAll(exportPhones(parent, normalized));
+        }
+        String filename = "数据包号码_批量" + normalizedIds.size()
+                + "包_" + normalized.apiValue() + ".txt";
+        return exportFile(filename, phones);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public List<DataPackageCountryOptionVO> countries() {
         List<DataPackageCountryOptionVO> result = new ArrayList<>();
         for (CountryOptionVO country : countryService.options("marketing-export").rows()) {
@@ -184,8 +261,9 @@ public class DataPackageServiceImpl implements DataPackageService {
     }
 
     private DataPackageDetailVO toDetail(DataPackageListRow row) {
-        return converter.toDetail(
-                row, currentCountries(List.of(row.getId())).getOrDefault(row.getId(), List.of()));
+        List<String> countries = currentCountries(List.of(row.getId()))
+                .getOrDefault(row.getId(), List.of());
+        return converter.toDetail(row, countries, primaryCountry(countries));
     }
 
     private DataPackageListRow requireSummary(Long id) {
@@ -204,6 +282,53 @@ public class DataPackageServiceImpl implements DataPackageService {
         return entity;
     }
 
+    private List<String> exportPhones(
+            DataPackage parent,
+            DataPackageUsageStatus usageStatus) {
+        return phoneMapper.selectPhonesForExport(
+                parent.getId(), parent.getCurrentGeneration(), usageStatus.poolStatusCodes());
+    }
+
+    private long requireExportSize(
+            DataPackage parent,
+            DataPackageUsageStatus usageStatus,
+            long accumulated) {
+        long packageCount = phoneMapper.countPhonesForExport(
+                parent.getId(), parent.getCurrentGeneration(), usageStatus.poolStatusCodes());
+        long total = accumulated + packageCount;
+        if (total > MAX_EXPORT_PHONES) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION,
+                    "单次最多导出 " + MAX_EXPORT_PHONES + " 个号码，请减少数据包或分批导出");
+        }
+        return total;
+    }
+
+    private static DataPackageExportFile exportFile(String filename, List<String> phones) {
+        StringBuilder content = new StringBuilder();
+        phones.forEach(phone -> content.append(phone).append('\n'));
+        return new DataPackageExportFile(
+                filename,
+                TXT_CONTENT_TYPE,
+                content.toString().getBytes(StandardCharsets.UTF_8),
+                phones.size());
+    }
+
+    private static List<Long> normalizeExportIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请至少选择一个数据包");
+        }
+        LinkedHashSet<Long> normalized = new LinkedHashSet<>();
+        for (Long id : ids) {
+            requirePositiveId(id);
+            normalized.add(id);
+        }
+        if (normalized.size() > MAX_BATCH_EXPORT_PACKAGES) {
+            throw new BusinessException(ErrorCode.VALIDATION, "单次最多导出 100 个数据包");
+        }
+        return List.copyOf(normalized);
+    }
+
     private Map<Long, List<String>> currentCountries(List<Long> packageIds) {
         if (packageIds == null || packageIds.isEmpty()) {
             return Map.of();
@@ -219,11 +344,21 @@ public class DataPackageServiceImpl implements DataPackageService {
         return Collections.unmodifiableMap(result);
     }
 
+    private static String primaryCountry(List<String> countries) {
+        return countries == null || countries.isEmpty() ? null : countries.get(0);
+    }
+
     private static void normalizeListQuery(DataPackageQuery query) {
         query.setName(optionalText(query.getName(), "数据包名称", NAME_MAX_LENGTH));
         if (query.getCreatedFrom() != null && query.getCreatedTo() != null
                 && query.getCreatedTo() < query.getCreatedFrom()) {
             throw new BusinessException(ErrorCode.VALIDATION, "创建时间结束值不得小于开始值");
+        }
+        requirePercent(query.getMinUvPercent(), "最小 UV 占比");
+        requirePercent(query.getMaxUvPercent(), "最大 UV 占比");
+        if (query.getMinUvPercent() != null && query.getMaxUvPercent() != null
+                && query.getMinUvPercent().compareTo(query.getMaxUvPercent()) > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "最大 UV 占比不得小于最小值");
         }
         Set<String> values = new LinkedHashSet<>();
         if (StringUtils.hasText(query.getCountryIso2s())) {
@@ -297,6 +432,13 @@ public class DataPackageServiceImpl implements DataPackageService {
             throw new BusinessException(ErrorCode.VALIDATION, "version 必须大于 0");
         }
         return version;
+    }
+
+    private static void requirePercent(BigDecimal value, String field) {
+        if (value != null && (value.signum() < 0
+                || value.compareTo(BigDecimal.valueOf(100)) > 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION, field + "必须在 0～100 之间");
+        }
     }
 
     private static void requirePositiveId(Long id) {

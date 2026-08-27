@@ -30,7 +30,7 @@ public interface DataPackageMapper {
     /** 查询一个数据包与统计读模型的一对一详情投影。 */
     DataPackageListRow selectSummaryById(@Param("id") Long id);
 
-    /** 批量查询当前页数据包当前代的 DISTINCT 国家。 */
+    /** 按号码量降序批量查询当前页数据包当前代的国家分布。 */
     List<DataPackageCountryRow> selectCurrentCountries(
             @Param("packageIds") List<Long> packageIds);
 

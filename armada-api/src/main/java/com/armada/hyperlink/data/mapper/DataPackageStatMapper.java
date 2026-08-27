@@ -24,6 +24,12 @@ public interface DataPackageStatMapper {
                         @Param("unusedCount") int unusedCount,
                         @Param("updatedAt") long updatedAt);
 
+    /** 按实际恢复行数把可重试失败计数移动到未使用。 */
+    int moveRetryableFailedToUnused(@Param("dataPackageId") Long dataPackageId,
+                                    @Param("generation") int generation,
+                                    @Param("affected") int affected,
+                                    @Param("updatedAt") long updatedAt);
+
     /** 内部 reconciliation 用当前代真实聚合覆盖全部互斥计数。 */
     int replaceCounts(DataPackageStat stat);
 }

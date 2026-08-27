@@ -11,6 +11,8 @@ class DataPackageMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
             "src/main/resources/db/migration/V153__hyperlink_data_package.sql");
+    private static final Path CORRECTION_MIGRATION = Path.of(
+            "src/main/resources/db/migration/V156__hyperlink_data_package_full_replication.sql");
 
     @Test
     void migrationDefinesOnlyTheFourOwnedTablesWithGenerationAndReadModelConstraints()
@@ -33,5 +35,22 @@ class DataPackageMigrationSqlTest {
                 "hyperlink_task",
                 "hyperlink_strategy",
                 "sys_menu");
+    }
+
+    @Test
+    void correctionMigrationAddsOnlyDedicatedExportPermissionWithoutDeadClickColumns()
+            throws Exception {
+        String sql = Files.readString(CORRECTION_MIGRATION)
+                .toLowerCase()
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains(
+                "'tenant:hyperlink_data:export'",
+                "where parent.menu_key = 'hyperlinkdatapackage'");
+        assertThat(sql).doesNotContain(
+                "alter table",
+                "click_uv_count",
+                "insert into sys_role_menu",
+                "insert ignore into sys_role_menu");
     }
 }

@@ -27,6 +27,23 @@ public interface DataPackagePhoneMapper {
     /** 查询父包当前代号码明细页。 */
     List<DataPackagePhone> selectPage(@Param("q") DataPackagePhoneQuery query);
 
+    /** 把父包当前代可重试失败号码恢复为未使用。 */
+    int resetPoolStatus(@Param("dataPackageId") Long dataPackageId,
+                        @Param("generation") int generation,
+                        @Param("fromStatus") int fromStatus,
+                        @Param("toStatus") int toStatus,
+                        @Param("updatedAt") long updatedAt);
+
+    /** 按一个或多个池状态导出父包当前代号码；空状态集合表示全部。 */
+    List<String> selectPhonesForExport(@Param("dataPackageId") Long dataPackageId,
+                                       @Param("generation") int generation,
+                                       @Param("poolStatusCodes") List<Integer> poolStatusCodes);
+
+    /** 统计同一导出口径的号码数，用于在读取手机号前限制响应内存。 */
+    long countPhonesForExport(@Param("dataPackageId") Long dataPackageId,
+                              @Param("generation") int generation,
+                              @Param("poolStatusCodes") List<Integer> poolStatusCodes);
+
     /** 内部校准按互斥池状态聚合当前代号码。 */
     List<DataPackageStatusCountRow> selectStatusCounts(
             @Param("dataPackageId") Long dataPackageId,

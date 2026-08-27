@@ -14,7 +14,9 @@ import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.enums.DataPackageImportMode;
+import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
+import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
 import com.armada.hyperlink.data.model.vo.DataPackageImportResultVO;
 import com.armada.hyperlink.data.service.impl.DataPackageImportServiceImpl;
 import com.armada.hyperlink.data.service.impl.DataPackageMaintenanceServiceImpl;
@@ -29,6 +31,7 @@ import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -99,7 +102,7 @@ class DataPackageServiceH2Test {
 
         DataPackageImportResultVO first = importService.importPhones(
                 created.id(), DataPackageImportMode.APPEND,
-                txt("first.txt", "\uFEFF639171234567\n639171234567\nabc\n8613800138000\n"), 9L);
+                txt("first.txt", "\uFEFF639171234567\n639171234567\nabc\n639181234567\n"), 9L);
         assertThat(first.totalRows()).isEqualTo(4);
         assertThat(first.acceptedRows()).isEqualTo(2);
         assertThat(first.invalidRows()).isEqualTo(1);
@@ -123,6 +126,7 @@ class DataPackageServiceH2Test {
         assertThat(detail.currentGeneration()).isEqualTo(2);
         assertThat(detail.version()).isEqualTo(1);
         assertThat(detail.countries()).containsExactly("PH", null);
+        assertThat(detail.primaryCountryIso2()).isEqualTo("PH");
         assertThat(detail.metrics().totalCount()).isEqualTo(2);
         assertThat(detail.metrics().unusedCount()).isEqualTo(2);
         assertThat(detail.metrics().usedCount()).isZero();
@@ -142,7 +146,8 @@ class DataPackageServiceH2Test {
         DataPackageDetailVO tenantSeven = service.create(
                 new DataPackageCreateDTO("同名包", null), 9L);
         importService.importPhones(tenantSeven.id(), DataPackageImportMode.APPEND,
-                txt("phones.txt", "639171234567\n555555555\n"), 9L);
+                txt("phones.txt", "639171234567\n639181234567\n555555555\n"), 9L);
+        service.create(new DataPackageCreateDTO("空包", null), 9L);
 
         TenantContext.set(8L);
         DataPackageDetailVO tenantEight = service.create(
@@ -159,15 +164,49 @@ class DataPackageServiceH2Test {
         PageResult<com.armada.hyperlink.data.model.vo.DataPackageListItemVO> page = service.list(query);
         assertThat(page.total()).isEqualTo(1);
         assertThat(page.list().get(0).countries()).containsExactly("PH", null);
+        assertThat(page.list().get(0).primaryCountryIso2()).isEqualTo("PH");
+
+        DataPackageQuery unknownOnly = new DataPackageQuery();
+        unknownOnly.setCountryIso2s("UNKNOWN");
+        assertThat(service.list(unknownOnly).list()).isEmpty();
 
         jdbc().update("UPDATE data_package_phone SET pool_status = 2 WHERE tenant_id = ?", TENANT_ID);
-        jdbc().update("UPDATE data_package_stat SET unused_count = 0, claimed_count = 2 "
+        jdbc().update("UPDATE data_package_stat SET unused_count = 0, claimed_count = 3 "
                 + "WHERE tenant_id = ?", TENANT_ID);
         assertThat(service.list(query).list()).isEmpty();
         assertThat(service.countries())
                 .extracting(option -> option.value())
                 .containsExactly("PH", "CN", "UNKNOWN");
         assertThat(service.countries().get(2).countryIso2()).isNull();
+
+        DataPackageQuery uvQuery = new DataPackageQuery();
+        uvQuery.setMaxUvPercent(BigDecimal.ZERO);
+        assertThat(service.list(uvQuery).list())
+                .hasSize(2)
+                .allSatisfy(item -> assertThat(item.metrics().clickUvCount()).isZero());
+        uvQuery.setMinUvPercent(new BigDecimal("0.01"));
+        uvQuery.setMaxUvPercent(null);
+        assertThat(service.list(uvQuery).list()).isEmpty();
+    }
+
+    @Test
+    void importRejectsForbiddenCountriesBeforeWritingPhoneRows() {
+        DataPackageDetailVO dataPackage = service.create(
+                new DataPackageCreateDTO("禁导国家", null), 9L);
+
+        assertThatThrownBy(() -> importService.importPhones(
+                dataPackage.id(), DataPackageImportMode.APPEND,
+                txt("china.txt", "8613800138000\n"), 9L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("禁止上传国家")
+                .hasMessageContaining("中国（CN）");
+
+        assertThat(jdbc().queryForObject(
+                "SELECT COUNT(*) FROM data_package_phone WHERE data_package_id = ?",
+                Integer.class, dataPackage.id())).isZero();
+        assertThat(jdbc().queryForObject(
+                "SELECT status FROM data_package_import WHERE data_package_id = ?",
+                Integer.class, dataPackage.id())).isEqualTo(3);
     }
 
     @Test
@@ -192,6 +231,97 @@ class DataPackageServiceH2Test {
                 .hasMessage("数据包不存在或已删除");
         assertThat(service.create(new DataPackageCreateDTO("新名称", null), 9L).id())
                 .isNotEqualTo(first.id());
+    }
+
+    @Test
+    void resetFailedRestoresOnlyRetryableFailuresToUnused() {
+        DataPackageDetailVO dataPackage = service.create(
+                new DataPackageCreateDTO("失败重置", null), 9L);
+        importService.importPhones(dataPackage.id(), DataPackageImportMode.APPEND,
+                txt("failed.txt", "123456\n123457\n123458\n"), 9L);
+        jdbc().update("UPDATE data_package_phone SET pool_status = 5 WHERE phone IN ('123456', '123457')");
+        jdbc().update("UPDATE data_package_phone SET pool_status = 6 WHERE phone = '123458'");
+        jdbc().update("UPDATE data_package_stat SET unused_count = 0, retryable_failed_count = 2, "
+                + "unregistered_count = 1 WHERE data_package_id = ?", dataPackage.id());
+
+        assertThat(service.resetFailed(dataPackage.id())).isEqualTo(2);
+
+        assertThat(jdbc().queryForList(
+                "SELECT pool_status FROM data_package_phone ORDER BY phone", Integer.class))
+                .containsExactly(1, 1, 6);
+        DataPackageDetailVO refreshed = service.detail(dataPackage.id());
+        assertThat(refreshed.metrics().unusedCount()).isEqualTo(2);
+        assertThat(refreshed.metrics().failedCount()).isEqualTo(1);
+        assertThat(refreshed.metrics().unregisteredCount()).isEqualTo(1);
+    }
+
+    @Test
+    void resetFailedRollsBackPhoneRowsWhenStatisticsHaveDrifted() {
+        DataPackageDetailVO dataPackage = service.create(
+                new DataPackageCreateDTO("失败重置漂移", null), 9L);
+        importService.importPhones(dataPackage.id(), DataPackageImportMode.APPEND,
+                txt("drifted.txt", "123456\n"), 9L);
+        jdbc().update("UPDATE data_package_phone SET pool_status = 5 WHERE phone = '123456'");
+        jdbc().update("UPDATE data_package_stat SET unused_count = 0, retryable_failed_count = 0 "
+                + "WHERE data_package_id = ?", dataPackage.id());
+
+        assertThatThrownBy(() -> service.resetFailed(dataPackage.id()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("数据包统计状态已变化，请刷新后重试");
+        assertThat(jdbc().queryForObject(
+                "SELECT pool_status FROM data_package_phone WHERE phone = '123456'",
+                Integer.class)).isEqualTo(5);
+    }
+
+    @Test
+    void exportFiltersCurrentGenerationAndRejectsCrossTenantPackage() {
+        DataPackageDetailVO dataPackage = service.create(
+                new DataPackageCreateDTO("导出包", null), 9L);
+        importService.importPhones(dataPackage.id(), DataPackageImportMode.APPEND,
+                txt("export.txt", "123456\n123457\n123458\n"), 9L);
+        jdbc().update("UPDATE data_package_phone SET pool_status = 3 WHERE phone = '123456'");
+        jdbc().update("UPDATE data_package_phone SET pool_status = 4 WHERE phone = '123457'");
+        jdbc().update("UPDATE data_package_phone SET pool_status = 6 WHERE phone = '123458'");
+
+        DataPackageExportFile successful = service.exportPhones(
+                dataPackage.id(), DataPackageUsageStatus.SUCCESS);
+        assertThat(new String(successful.bytes(), StandardCharsets.UTF_8))
+                .isEqualTo("123456\n123457\n");
+        assertThat(successful.exportedCount()).isEqualTo(2);
+
+        DataPackageExportFile failed = service.exportPhones(
+                dataPackage.id(), DataPackageUsageStatus.FAILED);
+        assertThat(new String(failed.bytes(), StandardCharsets.UTF_8))
+                .isEqualTo("123458\n");
+
+        TenantContext.set(8L);
+        assertThatThrownBy(() -> service.exportPhones(
+                dataPackage.id(), DataPackageUsageStatus.ALL))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("数据包不存在或已删除");
+    }
+
+    @Test
+    void batchExportDeduplicatesPackagesAndKeepsSelectionOrder() {
+        DataPackageDetailVO first = service.create(
+                new DataPackageCreateDTO("批量一", null), 9L);
+        DataPackageDetailVO second = service.create(
+                new DataPackageCreateDTO("批量二", null), 9L);
+        importService.importPhones(first.id(), DataPackageImportMode.APPEND,
+                txt("first.txt", "111111\n111112\n"), 9L);
+        importService.importPhones(second.id(), DataPackageImportMode.APPEND,
+                txt("second.txt", "222221\n"), 9L);
+        jdbc().update("UPDATE data_package_phone SET pool_status = 3 "
+                + "WHERE data_package_id IN (?, ?)", first.id(), second.id());
+
+        DataPackageExportFile result = service.exportPhones(
+                List.of(second.id(), first.id(), second.id()),
+                DataPackageUsageStatus.SINGLE);
+
+        assertThat(result.exportedCount()).isEqualTo(3);
+        assertThat(result.filename()).contains("批量2包_single");
+        assertThat(new String(result.bytes(), StandardCharsets.UTF_8))
+                .isEqualTo("222221\n111111\n111112\n");
     }
 
     @Test

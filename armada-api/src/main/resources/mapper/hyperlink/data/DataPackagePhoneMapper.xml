@@ -62,6 +62,42 @@
     LIMIT #{q.pageSize} OFFSET #{q.offset}
   </select>
 
+  <update id="resetPoolStatus">
+    UPDATE data_package_phone
+    SET pool_status = #{toStatus},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND pool_status = #{fromStatus}
+  </update>
+
+  <select id="selectPhonesForExport" resultType="string">
+    SELECT phone
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+    <if test="poolStatusCodes != null and !poolStatusCodes.isEmpty()">
+      AND pool_status IN
+      <foreach collection="poolStatusCodes" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+    </if>
+    ORDER BY id ASC
+  </select>
+
+  <select id="countPhonesForExport" resultType="long">
+    SELECT COUNT(*)
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+    <if test="poolStatusCodes != null and !poolStatusCodes.isEmpty()">
+      AND pool_status IN
+      <foreach collection="poolStatusCodes" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+    </if>
+  </select>
+
   <select id="selectStatusCounts" resultType="com.armada.hyperlink.data.model.vo.DataPackageStatusCountRow">
     SELECT pool_status AS poolStatus, COUNT(*) AS rowCount
     FROM data_package_phone

@@ -15,16 +15,22 @@ import org.mapstruct.Mapper;
 public interface DataPackageConverter {
 
     /** 把一对一统计投影转换为列表项。 */
-    default DataPackageListItemVO toListItem(DataPackageListRow row, List<String> countries) {
+    default DataPackageListItemVO toListItem(
+            DataPackageListRow row,
+            List<String> countries,
+            String primaryCountryIso2) {
         return new DataPackageListItemVO(
-                row.getId(), row.getName(), row.getRemark(), countries, metrics(row),
+                row.getId(), row.getName(), row.getRemark(), countries, primaryCountryIso2, metrics(row),
                 value(row.getVersion()), value(row.getCreatedAt()), value(row.getUpdatedAt()));
     }
 
     /** 把一对一统计投影转换为详情。 */
-    default DataPackageDetailVO toDetail(DataPackageListRow row, List<String> countries) {
+    default DataPackageDetailVO toDetail(
+            DataPackageListRow row,
+            List<String> countries,
+            String primaryCountryIso2) {
         return new DataPackageDetailVO(
-                row.getId(), row.getName(), row.getRemark(), countries, metrics(row),
+                row.getId(), row.getName(), row.getRemark(), countries, primaryCountryIso2, metrics(row),
                 value(row.getVersion()), value(row.getCreatedAt()), value(row.getUpdatedAt()),
                 value(row.getCurrentGeneration()));
     }

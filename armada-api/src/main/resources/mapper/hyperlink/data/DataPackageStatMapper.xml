@@ -37,6 +37,16 @@
       AND generation = #{expectedGeneration}
   </update>
 
+  <update id="moveRetryableFailedToUnused">
+    UPDATE data_package_stat
+    SET unused_count = unused_count + #{affected},
+        retryable_failed_count = retryable_failed_count - #{affected},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND retryable_failed_count &gt;= #{affected}
+  </update>
+
   <update id="replaceCounts">
     UPDATE data_package_stat
     SET unused_count = #{unusedCount},

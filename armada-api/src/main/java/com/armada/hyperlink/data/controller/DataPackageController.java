@@ -1,12 +1,15 @@
 package com.armada.hyperlink.data.controller;
 
+import com.armada.hyperlink.data.model.dto.DataPackageBatchExportDTO;
 import com.armada.hyperlink.data.model.dto.DataPackageCreateDTO;
 import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.enums.DataPackageImportMode;
+import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
+import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
 import com.armada.hyperlink.data.model.vo.DataPackageImportResultVO;
 import com.armada.hyperlink.data.model.vo.DataPackageListItemVO;
 import com.armada.hyperlink.data.model.vo.DataPackagePhoneItemVO;
@@ -15,8 +18,12 @@ import com.armada.hyperlink.data.service.DataPackageService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.security.AuthPrincipal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,7 +38,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 超链数据包一期 HTTP 接口；仅接收参数、权限上下文并组装统一响应信封。 */
+/** 超链数据包 HTTP 接口；仅接收参数、权限上下文并组装响应。 */
 @RestController
 @RequestMapping("/api/data-packages")
 @PreAuthorize("hasAuthority('tenant:hyperlink_data:view')")
@@ -104,6 +111,35 @@ public class DataPackageController {
         return ApiResponse.ok(service.phones(id, query));
     }
 
+    /** 把当前代可重试失败号码恢复为未使用，未注册号码保持失败。 */
+    @PostMapping("/{id}/reset-failed")
+    @PreAuthorize("hasAuthority('tenant:hyperlink_data:edit')")
+    public ApiResponse<Integer> resetFailed(@PathVariable Long id) {
+        return ApiResponse.ok(service.resetFailed(id));
+    }
+
+    /** 按号码使用状态导出当前代手机号 TXT。 */
+    @GetMapping("/{id}/export")
+    @PreAuthorize("hasAuthority('tenant:hyperlink_data:export')")
+    public ResponseEntity<byte[]> exportPhones(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "all") String usageStatus) {
+        DataPackageExportFile file = service.exportPhones(
+                id, DataPackageUsageStatus.fromApi(usageStatus));
+        return exportResponse(file);
+    }
+
+    /** 批量导出所选数据包当前代手机号 TXT。 */
+    @PostMapping("/export")
+    @PreAuthorize("hasAuthority('tenant:hyperlink_data:export')")
+    public ResponseEntity<byte[]> exportPhones(
+            @RequestBody DataPackageBatchExportDTO request) {
+        DataPackageExportFile file = service.exportPhones(
+                request == null ? null : request.ids(),
+                DataPackageUsageStatus.fromApi(request == null ? null : request.usageStatus()));
+        return exportResponse(file);
+    }
+
     /** 软删除数据包；号码保留 30 天后由后台分批清理。 */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('tenant:hyperlink_data:delete')")
@@ -116,5 +152,18 @@ public class DataPackageController {
 
     private static Long userId(AuthPrincipal principal) {
         return principal == null ? null : principal.userId();
+    }
+
+    private static ResponseEntity<byte[]> exportResponse(DataPackageExportFile file) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(file.contentType()));
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename(file.filename(), StandardCharsets.UTF_8)
+                .build());
+        headers.setContentLength(file.bytes().length);
+        headers.set("X-Export-Count", String.valueOf(file.exportedCount()));
+        headers.setAccessControlExposeHeaders(List.of(
+                HttpHeaders.CONTENT_DISPOSITION, "X-Export-Count"));
+        return ResponseEntity.ok().headers(headers).body(file.bytes());
     }
 }

@@ -46,6 +46,13 @@ public class DataPackageImportServiceImpl implements DataPackageImportService {
     private static final int QUERY_CHUNK_SIZE = 1_000;
     private static final int INSERT_CHUNK_SIZE = 500;
     private static final int FAILURE_REASON_MAX_LENGTH = 512;
+    private static final Map<String, String> FORBIDDEN_IMPORT_COUNTRIES = Map.of(
+            "MY", "马来西亚",
+            "SG", "新加坡",
+            "CN", "中国",
+            "HK", "香港",
+            "MO", "澳门",
+            "TW", "台湾");
 
     private final DataPackageMapper packageMapper;
     private final DataPackagePhoneMapper phoneMapper;
@@ -98,6 +105,7 @@ public class DataPackageImportServiceImpl implements DataPackageImportService {
             ParsedDataPackagePhones parsed = parser.parse(readBytes(file));
             validateParsed(mode, parsed);
             Map<String, String> countries = resolveCountries(parsed.uniquePhones());
+            validateAllowedCountries(countries);
             DataPackageImportResultVO result = businessTransaction.execute(status ->
                     importInTransaction(audit.getId(), dataPackageId, mode, parsed, countries));
             return Objects.requireNonNull(result, "数据包导入事务未返回结果");
@@ -291,6 +299,21 @@ public class DataPackageImportServiceImpl implements DataPackageImportService {
             result.put(phone, country == null ? null : country.iso2());
         }
         return result;
+    }
+
+    private static void validateAllowedCountries(Map<String, String> countries) {
+        List<String> blocked = countries.values().stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .filter(FORBIDDEN_IMPORT_COUNTRIES::containsKey)
+                .sorted()
+                .map(iso2 -> FORBIDDEN_IMPORT_COUNTRIES.get(iso2) + "（" + iso2 + "）")
+                .toList();
+        if (!blocked.isEmpty()) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION,
+                    "检测到禁止上传国家的号码：" + String.join("、", blocked) + "，请移除后再上传");
+        }
     }
 
     private void ensureWithinPackageLimit(int currentCount, int increment) {

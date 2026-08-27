@@ -39,26 +39,21 @@
       AND COALESCE(stat.unused_count, 0) &gt; 0
     </if>
     <if test="q.countryFiltered">
-      AND EXISTS (
-        SELECT 1
+      AND (
+        SELECT COALESCE(country_phone.country_iso2, 'UNKNOWN')
         FROM data_package_phone country_phone
         WHERE country_phone.data_package_id = package.id
+          AND country_phone.tenant_id = package.tenant_id
           AND country_phone.generation = package.current_generation
-          AND (
-            <if test="q.realCountryIso2s != null and !q.realCountryIso2s.isEmpty()">
-              country_phone.country_iso2 IN
-              <foreach collection="q.realCountryIso2s" item="iso2" open="(" separator="," close=")">
-                #{iso2}
-              </foreach>
-            </if>
-            <if test="q.realCountryIso2s != null and !q.realCountryIso2s.isEmpty() and q.includeUnknownCountry">
-              OR
-            </if>
-            <if test="q.includeUnknownCountry">
-              country_phone.country_iso2 IS NULL
-            </if>
-          )
-      )
+        GROUP BY country_phone.country_iso2
+        ORDER BY COUNT(*) DESC,
+                 CASE WHEN country_phone.country_iso2 IS NULL THEN 1 ELSE 0 END ASC,
+                 country_phone.country_iso2 ASC
+        LIMIT 1
+      ) IN
+      <foreach collection="q.countryValues" item="iso2" open="(" separator="," close=")">
+        #{iso2}
+      </foreach>
     </if>
   </sql>
 
@@ -123,8 +118,9 @@
   </select>
 
   <select id="selectCurrentCountries" resultType="com.armada.hyperlink.data.model.vo.DataPackageCountryRow">
-    SELECT DISTINCT phone.data_package_id AS dataPackageId,
-           phone.country_iso2 AS countryIso2
+    SELECT phone.data_package_id AS dataPackageId,
+           phone.country_iso2 AS countryIso2,
+           COUNT(*) AS rowCount
     FROM data_package_phone phone
     INNER JOIN data_package package
       ON package.id = phone.data_package_id
@@ -135,7 +131,8 @@
     <foreach collection="packageIds" item="packageId" open="(" separator="," close=")">
       #{packageId}
     </foreach>
-    ORDER BY phone.data_package_id ASC,
+    GROUP BY phone.data_package_id, phone.country_iso2
+    ORDER BY phone.data_package_id ASC, rowCount DESC,
              CASE WHEN phone.country_iso2 IS NULL THEN 1 ELSE 0 END ASC,
              phone.country_iso2 ASC
   </select>

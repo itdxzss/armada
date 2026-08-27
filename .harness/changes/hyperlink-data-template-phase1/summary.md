@@ -44,6 +44,8 @@
 - 国家候选接口只读国家主数据；列表国家仅对当前页、当前代查询 DISTINCT，不做全租户号码 COUNT。
 - 导入审计使用独立短事务记录 `PROCESSING` / `FAILED`，并增加超时处理中恢复机制。
 - `hyperlink-marketing-data-model.md` 已同步为全模块唯一数据模型口径，不再保留“本节失效”的冲突章节。
+- 新增 `2026-08-27-hyperlink-data-template-phase1-api-contract.md`，冻结四个开发分支共享的路径、
+  Request/Response、枚举、空值、错误码、权限和目录所有权。
 
 详细设计：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md`。
 
@@ -70,6 +72,7 @@
 - `origin/1.0.3-snapshot` 的 `V140__group_canonical_first_classification.sql` 已复核存在。
 - 已解决与 `docs/business/hyperlink-marketing-data-model.md` 的冲突：总模型与一期详细设计已统一
   数据包四表、模板字段、任务快照和素材演进口径。
+- API 合同 11 个 JSON 示例已通过本地 `JSON.parse` 校验，Markdown 围栏成对，`git diff --check` 通过。
 
 ## 部署
 

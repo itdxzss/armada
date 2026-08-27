@@ -12,6 +12,8 @@
 > `docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md` 为准，两份文档的
 > `data_package`、`data_package_phone`、`data_package_stat`、`data_package_import` 和
 > `hyperlink_template` 字段定义必须一致。
+> 前后端 HTTP 路径、JSON 字段、枚举与空值以同目录的
+> `2026-08-27-hyperlink-data-template-phase1-api-contract.md` v1 为准。
 >
 > §4 任务族、§7 分析预聚合和 §8 账号画像是后续阶段的目标草案，开发前仍需结合当时协议能力复核；
 > §6 通用素材是演进目标，一期不改名 `marketing_template_file`。Flyway 编号永远在实施前按目标分支

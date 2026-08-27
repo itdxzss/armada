@@ -11,6 +11,8 @@
 > 3. 任务不再强引用会被清理的 `data_package_phone.id`，改存数据包、代次、导入批次、手机号和国家快照（§6.6）。
 > 4. 模板与任务统一使用同一套 `HyperlinkMessageContent` 字段长度和按钮 JSON（§5.2、§6.5、§6.6）。
 > 5. 单包总量限制改为可配置安全阈值，默认 500000，不再作为覆盖事务正确性的前提（§2.3、§4.2）。
+> 6. 前后端字段级接口以
+> `2026-08-27-hyperlink-data-template-phase1-api-contract.md` v1 为准；本文保留业务和实施解释。
 >
 > `docs/business/hyperlink-marketing-data-model.md` 已同步为全模块唯一 Schema 事实源；本文负责一期范围、API、流程和实施拆分，不再保留另一套冲突字段。
 
@@ -442,7 +444,7 @@ sent_at / delivered_at / read_at / failed_at
 ### 7.1 列表
 
 ```http
-GET /api/data-packages?page=1&pageSize=20&name=philippines&createdFrom=1787846400000&createdTo=1787932799999
+GET /api/data-packages?page=1&pageSize=20&name=philippines&createdFrom=1787846400000&createdTo=1787932799999&countryIso2s=PH,ID
 ```
 
 一期查询参数：`page`、`pageSize`、`name`、`createdFrom`、`createdTo`、`countryIso2s`。未来 UV 区间筛选随点击功能增加，不提前增加无数据来源的参数。
@@ -531,7 +533,8 @@ Content-Type: application/json
 }
 ```
 
-为兼容竞品单独改名操作，可以保留 `PUT /api/data-packages/{id}/name` 作为薄入口，但内部必须调用同一个 Service 更新逻辑，不能产生两套校验。
+一期不实现竞品单独改名端点；统一使用 `PUT /api/data-packages/{id}` 完整更新名称、备注和版本，
+避免前后端并行时出现两套可选合同。
 
 ### 7.3 导入
 
@@ -600,14 +603,15 @@ GET    /api/data-packages?forTask=true
   "code": 0,
   "message": "ok",
   "data": [
-    { "countryIso2": "PH", "nameZh": "菲律宾" },
-    { "countryIso2": "ID", "nameZh": "印度尼西亚" },
-    { "countryIso2": null, "nameZh": "未识别" }
+    { "value": "PH", "countryIso2": "PH", "nameZh": "菲律宾" },
+    { "value": "ID", "countryIso2": "ID", "nameZh": "印度尼西亚" },
+    { "value": "UNKNOWN", "countryIso2": null, "nameZh": "未识别" }
   ]
 }
 ```
 
-`countryIso2: null` 是固定的「未识别」选项。列表按国家筛选使用当前代号码上的 EXISTS 条件；
+`value=UNKNOWN, countryIso2=null` 是固定的「未识别」选项。多国家查询参数使用逗号分隔字符串，
+例如 `countryIso2s=PH,ID,UNKNOWN`。列表按国家筛选使用当前代号码上的 EXISTS 条件；
 列表返回的 `countries` 只对当前页包 ID 批量查询 DISTINCT，不做全租户号码计数。
 
 `forTask=true` 是冻结给未来任务选择器的查询语义：只返回未删除、至少有一条 `UNUSED` 号码的数据包，且返回 `unusedCount`。一期可以实现并测试，任务页面无需同时上线。
@@ -680,6 +684,8 @@ Content-Type: application/json
   "schemaVersion": 1,
   "title": "新人福利",
   "content": "活动数量有限",
+  "linkDescription": null,
+  "promotionLink": null,
   "buttons": [
     {
       "type": "CTA_URL",
@@ -689,9 +695,14 @@ Content-Type: application/json
       "sort": 1
     }
   ],
-  "bodyMainAssetId": 123
+  "cardText": null,
+  "linkPreviewAssetId": null,
+  "bodyMainAssetId": 123,
+  "remark": "默认模板"
 }
 ```
+
+PUT 是完整对象更新，不支持局部 PATCH；不生效字段也按合同显式发送 `null` 或 `[]`，服务端仍需归一化。
 
 ### 8.3 复制和删除
 
@@ -732,17 +743,19 @@ GET  /api/marketing-template-files/{id}/content
 
 | 场景 | HTTP/业务错误 | 处理 |
 |---|---|---|
-| 名称重复 | 409 / `CONFLICT` | 返回“名称已存在” |
-| 资源不存在或已软删 | 404 / `NOT_FOUND` | 不泄露其他租户是否存在同 ID |
-| 非法号码、URL、按钮或图片 | 400 / `VALIDATION` | 返回具体字段提示 |
-| 双图文一期提交 | 400 / `VALIDATION` | 返回“一期暂不支持双图文” |
-| 版本不一致 | 409 / `CONFLICT` | 提示刷新后重试 |
-| 同一数据包并发导入 | 409 / `CONFLICT` 或锁等待后串行 | 不允许结果互相覆盖 |
-| 运行中任务引用时覆盖/删包 | 409 / `CONFLICT` | 保留当前号码集 |
-| 模板已被任务引用时删除 | 409 / `CONFLICT` | 保留模板 |
-| 图片跨租户或不存在 | 404 / `NOT_FOUND` | 不返回真实归属信息 |
+| 名称重复 | 200 / `40901 CONFLICT` | 返回“名称已存在” |
+| 资源不存在或已软删 | 200 / `40401 NOT_FOUND` | 不泄露其他租户是否存在同 ID |
+| 非法号码、URL、按钮或图片 | 200 / `40001 VALIDATION` | 返回具体字段提示 |
+| 双图文一期提交 | 200 / `40001 VALIDATION` | 返回“一期暂不支持双图文” |
+| 版本不一致 | 200 / `40901 CONFLICT` | 提示刷新后重试 |
+| 同一数据包并发导入 | 200 / `40901 CONFLICT` 或锁等待后串行 | 不允许结果互相覆盖 |
+| 运行中任务引用时覆盖/删包 | 200 / `40901 CONFLICT` | 保留当前号码集 |
+| 模板已被任务引用时删除 | 200 / `40901 CONFLICT` | 保留模板 |
+| 图片跨租户或不存在 | 200 / `40401 NOT_FOUND` | 不返回真实归属信息 |
 
-数据库唯一键是最终并发保护。Service 预查只负责友好提示，不能代替唯一键和受影响行数检查。
+Armada 当前 `GlobalExceptionHandler` 对可恢复 `BusinessException` 使用 HTTP 200 + 非零业务码；401/403
+仍由安全链返回真实 HTTP 状态。数据库唯一键是最终并发保护，Service 预查只负责友好提示，不能代替
+唯一键和受影响行数检查。完整消息和字段合同见 API 合同 §7。
 
 ## 10. 后端落位
 

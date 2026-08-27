@@ -18,7 +18,7 @@ import org.springframework.stereotype.Component;
 public class DataPackageTxtParser {
 
     /** 合同冻结的单次非空行数上限。 */
-    public static final int MAX_NON_EMPTY_ROWS = 5_000;
+    public static final int MAX_NON_EMPTY_ROWS = 100_000;
 
     private static final Pattern PHONE_PATTERN = Pattern.compile("^[0-9]{6,20}$");
 
@@ -27,7 +27,7 @@ public class DataPackageTxtParser {
      *
      * @param bytes 上传文件字节，必须是严格 UTF-8，可带 BOM
      * @return 去重号码与合同计数
-     * @throws BusinessException 编码非法或非空行超过 5000 时抛出
+     * @throws BusinessException 编码非法或非空行超过 100000 时抛出
      */
     public ParsedDataPackagePhones parse(byte[] bytes) {
         String content = decode(bytes);
@@ -45,7 +45,7 @@ public class DataPackageTxtParser {
             if (totalRows > MAX_NON_EMPTY_ROWS) {
                 throw new BusinessException(
                         ErrorCode.VALIDATION,
-                        "单次最多导入 5000 条非空号码");
+                        "单次最多导入 100000 条非空号码");
             }
             if (!PHONE_PATTERN.matcher(normalized).matches()) {
                 invalidRows++;

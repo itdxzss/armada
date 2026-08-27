@@ -26,12 +26,21 @@ class DataPackageTxtParserTest {
     }
 
     @Test
-    void parse_rejectsMoreThanFiveThousandNonEmptyRows() {
-        String content = "123456\n".repeat(5_001);
+    void parse_acceptsOneHundredThousandNonEmptyRows() {
+        String content = "123456\n".repeat(100_000);
+
+        ParsedDataPackagePhones result = parser.parse(content.getBytes(StandardCharsets.UTF_8));
+
+        assertThat(result.totalRows()).isEqualTo(100_000);
+    }
+
+    @Test
+    void parse_rejectsMoreThanOneHundredThousandNonEmptyRows() {
+        String content = "123456\n".repeat(100_001);
 
         assertThatThrownBy(() -> parser.parse(content.getBytes(StandardCharsets.UTF_8)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("单次最多导入 5000 条");
+                .hasMessageContaining("单次最多导入 100000 条");
     }
 
     @Test

@@ -1,0 +1,9 @@
+{"minute":1799999820000,"scope":"bg:reconnect","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":2000,"count":1,"runId":"worker-1-run"}
+{"minute":1799999820000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"noise_frame","channel":"ws","bytes":1800,"count":1,"runId":"worker-1-run"}
+{"minute":1799999820000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"node_plain","channel":"ws","bytes":1600,"count":1,"runId":"worker-1-run"}
+{"minute":1799999880000,"scope":"bg:reconnect","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":2000,"count":1,"runId":"worker-1-run"}
+{"minute":1799999880000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"noise_frame","channel":"ws","bytes":1800,"count":1,"runId":"worker-1-run"}
+{"minute":1799999880000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"node_plain","channel":"ws","bytes":1600,"count":1,"runId":"worker-1-run"}
+{"minute":1799999940000,"scope":"bg:reconnect","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":2000,"count":1,"runId":"worker-1-run"}
+{"minute":1799999940000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"noise_frame","channel":"ws","bytes":1800,"count":1,"runId":"worker-1-run"}
+{"minute":1799999940000,"scope":"bg:reconnect","category":"handshake","frameKind":"handshake","direction":"up","measure":"node_plain","channel":"ws","bytes":1600,"count":1,"runId":"worker-1-run"}

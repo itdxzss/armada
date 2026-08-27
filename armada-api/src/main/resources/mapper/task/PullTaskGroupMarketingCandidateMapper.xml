@@ -20,7 +20,7 @@
            MAX(current_profile.health_status) AS healthStatus,
            MAX(current_profile.banned) AS banned,
            MAX(NULLIF(TRIM(current_profile.last_error_code), '')) AS healthError,
-           MAX(CASE WHEN handle.is_historical = 1 THEN 1 ELSE 0 END) AS historical,
+           MAX(CASE WHEN current_group.group_classification = 1 THEN 1 ELSE 0 END) AS historical,
            MAX(CASE WHEN jr.id IS NOT NULL THEN 1 ELSE 0 END) AS selfCollected,
            COUNT(DISTINCT CASE
              WHEN self_participant.role IN (2, 3)
@@ -118,7 +118,7 @@
      AND o.group_jid = current_group.group_jid
      AND o.released_at IS NULL
     WHERE binding.tenant_id = #{tenantId}
-      AND (handle.is_historical = 1 OR jr.id IS NOT NULL)
+      AND (current_group.group_classification = 1 OR jr.id IS NOT NULL)
     <if test="_parameter.containsKey('query') and query != null
               and (query.managerPhone != null or query.accountGroupId != null)">
       AND EXISTS (

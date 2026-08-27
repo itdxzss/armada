@@ -1,0 +1,28 @@
+{
+  "reconciliation": {
+    "proxyWire": 6000,
+    "noiseFrame": 5400,
+    "nodePlain": 5000,
+    "transportOverhead": 600,
+    "protocolOverhead": 400,
+    "attributedShare": 0.9
+  },
+  "byCategory": [
+    {"key": "message_send", "up": 2000, "down": 1000, "total": 3000, "count": 30, "share": 0.5555555556}
+  ],
+  "byScope": [
+    {"key": "cmd:marketing", "up": 1800, "down": 900, "total": 2700, "count": 27, "share": 0.5}
+  ],
+  "timeline": [
+    {"minute": 1799999820000, "up": 600, "down": 400, "total": 1000},
+    {"minute": 1799999880000, "up": 1200, "down": 800, "total": 2000},
+    {"minute": 1799999940000, "up": 1400, "down": 1000, "total": 2400}
+  ],
+  "health": [
+    {"workerId": "master", "snapshot": {"updatedAt": 1799999995000, "running": true, "collector": {"dropped": 0, "sinkFailures": 0}, "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0}, "aggregator": {"overflowed": 0}, "redundancy": {"pendingDropped": 0}}},
+    {"workerId": "worker-1", "snapshot": {"updatedAt": 1799999995000, "running": true, "collector": {"dropped": 0, "sinkFailures": 0}, "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0}, "aggregator": {"overflowed": 0}, "redundancy": {"pendingDropped": 0}}},
+    {"workerId": "worker-2", "snapshot": {"updatedAt": 1799999995000, "running": true, "collector": {"dropped": 0, "sinkFailures": 0}, "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0}, "aggregator": {"overflowed": 0}, "redundancy": {"pendingDropped": 0}}},
+    {"workerId": "worker-3", "snapshot": {"updatedAt": 1799999995000, "running": true, "collector": {"dropped": 0, "sinkFailures": 0}, "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0}, "aggregator": {"overflowed": 0}, "redundancy": {"pendingDropped": 0}}},
+    {"workerId": "worker-4", "snapshot": {"updatedAt": 1799999995000, "running": true, "collector": {"dropped": 0, "sinkFailures": 0}, "writer": {"writeFailures": 0, "serializeFailures": 0, "filesDropped": 0}, "aggregator": {"overflowed": 0}, "redundancy": {"pendingDropped": 0}}}
+  ]
+}

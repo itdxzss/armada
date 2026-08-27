@@ -1,0 +1,1154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://armada.local/schemas/acceptance-report.schema.json",
+  "title": "Armada staging acceptance report",
+  "description": "四项目测试环境验收的机器可读结果。报告只能保存资源别名和脱敏证据，不得包含密码、Token、二维码、PEM、真实联系人或消息正文。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "changeId",
+    "scopeHash",
+    "profile",
+    "environment",
+    "outcome",
+    "lifecycle",
+    "candidate",
+    "stages",
+    "signals",
+    "findings",
+    "decisionsRequired",
+    "evidence",
+    "summary"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "runId": {
+      "$ref": "#/$defs/stableId"
+    },
+    "parentRunId": {
+      "anyOf": [
+        { "$ref": "#/$defs/stableId" },
+        { "type": "null" }
+      ]
+    },
+    "changeId": {
+      "$ref": "#/$defs/stableId"
+    },
+    "scopeHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-fA-F0-9]{64}$"
+    },
+    "profile": {
+      "enum": [
+        "preflight",
+        "ui-smoke",
+        "quick",
+        "integration",
+        "release-canary",
+        "traffic-short",
+        "soak-60m",
+        "soak-6h",
+        "soak-12h",
+        "soak-24h",
+        "perf-readonly",
+        "perf-simulated",
+        "perf-real-canary"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+    },
+    "outcome": {
+      "$ref": "#/$defs/outcome"
+    },
+    "reasonCode": {
+      "anyOf": [
+        { "$ref": "#/$defs/reasonCode" },
+        { "type": "null" }
+      ]
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/lifecycle"
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "safetyEnvelope": {
+      "anyOf": [
+        { "$ref": "#/$defs/safetyEnvelope" },
+        { "type": "null" }
+      ]
+    },
+    "resourceLeases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resourceLease" },
+      "default": []
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stage" }
+    },
+    "signals": {
+      "$ref": "#/$defs/signals"
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "decisionsRequired": {
+      "type": "array",
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/decisionRequired" }
+    },
+    "evidence": {
+      "$ref": "#/$defs/evidenceIndex"
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "enum": ["release-canary", "perf-real-canary"]
+          }
+        },
+        "required": ["profile"]
+      },
+      "then": {
+        "properties": {
+          "safetyEnvelope": { "$ref": "#/$defs/safetyEnvelope" },
+          "resourceLeases": { "type": "array", "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": { "const": "PASS" }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "candidate": {
+            "type": "object",
+            "properties": {
+              "allBuildsMatched": { "const": true }
+            }
+          },
+          "evidence": {
+            "type": "object",
+            "properties": {
+              "complete": { "const": true },
+              "redactionChecked": { "const": true }
+            }
+          },
+          "decisionsRequired": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": ["PASS", "FAIL", "BLOCKED", "INCONCLUSIVE", "CANCELLED"]
+          }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "finalizedAt": { "$ref": "#/$defs/timestamp" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": { "const": "RUNNING" }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "finalizedAt": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": ["FAIL", "BLOCKED", "INCONCLUSIVE"]
+          }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": { "$ref": "#/$defs/reasonCode" }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "stableId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "outcome": {
+      "enum": [
+        "RUNNING",
+        "PASS",
+        "FAIL",
+        "BLOCKED",
+        "INCONCLUSIVE",
+        "CANCELLED"
+      ]
+    },
+    "reasonCode": {
+      "enum": [
+        "ENV_UNAVAILABLE",
+        "VERSION_MISMATCH",
+        "DIRTY_BASELINE",
+        "TEST_RESOURCE_OR_AUTH",
+        "WA_RESOURCE_UNAVAILABLE",
+        "WA_EXTERNAL_OR_ACCOUNT",
+        "BLOCKED_PROXY",
+        "BLOCKED_WHATSAPP",
+        "HARNESS_FAILURE",
+        "DEADLINE_EXCEEDED",
+        "EVIDENCE_INCOMPLETE",
+        "UI_FLOW",
+        "API_CONTRACT",
+        "BACKEND_LOGIC",
+        "KAFKA_UNOBSERVABLE",
+        "KAFKA_NOT_DRAINED",
+        "KAFKA_LAG_OR_ORDER",
+        "REDIS_UNOBSERVABLE",
+        "REDIS_STREAM_NOT_DRAINED",
+        "REDIS_LATENCY_OR_PENDING",
+        "WEB_PROTOCOL",
+        "ANDROID_PROTOCOL",
+        "TRAFFIC_UNOBSERVABLE",
+        "TRAFFIC_REGRESSION",
+        "RESOURCE_UNOBSERVABLE",
+        "RESOURCE_REGRESSION",
+        "OBSERVABILITY_GAP",
+        "FLAKY",
+        "UNKNOWN"
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "createdAt",
+        "startedAt",
+        "updatedAt",
+        "deadlineAt",
+        "heartbeatAt",
+        "finalizedAt",
+        "durationMs",
+        "resumeCount"
+      ],
+      "properties": {
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "startedAt": {
+          "anyOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "updatedAt": { "$ref": "#/$defs/timestamp" },
+        "deadlineAt": { "$ref": "#/$defs/timestamp" },
+        "heartbeatAt": { "$ref": "#/$defs/timestamp" },
+        "finalizedAt": {
+          "anyOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "durationMs": { "$ref": "#/$defs/durationMs" },
+        "resumeCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "expected",
+        "observed",
+        "matched",
+        "source"
+      ],
+      "properties": {
+        "component": {
+          "enum": [
+            "backend",
+            "frontend",
+            "web-protocol",
+            "android-protocol"
+          ]
+        },
+        "expected": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 256
+        },
+        "observed": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 7,
+              "maxLength": 256
+            },
+            { "type": "null" }
+          ]
+        },
+        "matched": {
+          "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "git-commit",
+            "image-digest",
+            "artifact-digest",
+            "build-endpoint",
+            "runtime-label"
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "frozenAt",
+        "builds",
+        "allBuildsMatched"
+      ],
+      "properties": {
+        "frozenAt": { "$ref": "#/$defs/timestamp" },
+        "builds": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/build" }
+        },
+        "allBuildsMatched": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "properties": {
+            "builds": {
+              "type": "array",
+              "contains": {
+                "type": "object",
+                "properties": { "component": { "type": "string", "const": "backend" } },
+                "required": ["component"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "builds": {
+              "type": "array",
+              "contains": {
+                "type": "object",
+                "properties": { "component": { "type": "string", "const": "frontend" } },
+                "required": ["component"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "builds": {
+              "type": "array",
+              "contains": {
+                "type": "object",
+                "properties": { "component": { "type": "string", "const": "web-protocol" } },
+                "required": ["component"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "builds": {
+              "type": "array",
+              "contains": {
+                "type": "object",
+                "properties": { "component": { "type": "string", "const": "android-protocol" } },
+                "required": ["component"]
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          }
+        }
+      ]
+    },
+    "safetyEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "envelopeId",
+        "environment",
+        "allowedActions",
+        "maxActions",
+        "maxConcurrency",
+        "expiresAt",
+        "abortConditions"
+      ],
+      "properties": {
+        "envelopeId": { "$ref": "#/$defs/stableId" },
+        "environment": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "allowedActions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "uniqueItems": true
+        },
+        "maxActions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expiresAt": { "$ref": "#/$defs/timestamp" },
+        "abortConditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      }
+    },
+    "resourceLease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leaseId",
+        "resourceType",
+        "resourceAlias",
+        "state",
+        "acquiredAt",
+        "expiresAt",
+        "cleanupState"
+      ],
+      "properties": {
+        "leaseId": { "$ref": "#/$defs/stableId" },
+        "resourceType": {
+          "enum": [
+            "tenant",
+            "operator",
+            "web-wa-account",
+            "android-wa-account",
+            "recipient",
+            "private-group",
+            "sentinel-group",
+            "proxy"
+          ]
+        },
+        "resourceAlias": {
+          "description": "只能记录资源池别名，不得写号码、JID、手机号、用户名、二维码或凭据。",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "state": {
+          "enum": [
+            "AVAILABLE",
+            "LEASED",
+            "COOLDOWN",
+            "DIRTY",
+            "QUARANTINED",
+            "REPAIR",
+            "RELEASED"
+          ]
+        },
+        "acquiredAt": { "$ref": "#/$defs/timestamp" },
+        "expiresAt": { "$ref": "#/$defs/timestamp" },
+        "cleanupState": {
+          "enum": [
+            "NOT_REQUIRED",
+            "PENDING",
+            "COMPLETE",
+            "FAILED",
+            "UNKNOWN"
+          ]
+        }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assertionId",
+        "description",
+        "outcome",
+        "required",
+        "evidenceRefs"
+      ],
+      "properties": {
+        "assertionId": { "$ref": "#/$defs/stableId" },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "required": { "type": "boolean" },
+        "observed": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null"
+          ]
+        },
+        "expected": {
+          "type": [
+            "string",
+            "number",
+            "integer",
+            "boolean",
+            "null"
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            { "$ref": "#/$defs/reasonCode" },
+            { "type": "null" }
+          ]
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stableId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attemptNumber",
+        "startedAt",
+        "finishedAt",
+        "durationMs",
+        "outcome",
+        "exitCode",
+        "seed",
+        "evidenceRefs"
+      ],
+      "properties": {
+        "attemptNumber": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "finishedAt": {
+          "anyOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "durationMs": { "$ref": "#/$defs/durationMs" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "exitCode": {
+          "type": ["integer", "null"]
+        },
+        "seed": {
+          "type": ["integer", "string", "null"]
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stableId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "stageId",
+        "component",
+        "status",
+        "required",
+        "timeoutMs",
+        "attempts",
+        "assertions",
+        "dependsOn",
+        "startedAt",
+        "finishedAt",
+        "reasonCode"
+      ],
+      "properties": {
+        "stageId": { "$ref": "#/$defs/stableId" },
+        "component": {
+          "enum": [
+            "control-plane",
+            "backend",
+            "frontend",
+            "web-protocol",
+            "android-protocol",
+            "kafka",
+            "redis",
+            "compute",
+            "traffic",
+            "evidence"
+          ]
+        },
+        "status": { "$ref": "#/$defs/outcome" },
+        "required": { "type": "boolean" },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/attempt" }
+        },
+        "assertions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/assertion" }
+        },
+        "dependsOn": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stableId" },
+          "uniqueItems": true
+        },
+        "startedAt": {
+          "anyOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "finishedAt": {
+          "anyOf": [
+            { "$ref": "#/$defs/timestamp" },
+            { "type": "null" }
+          ]
+        },
+        "reasonCode": {
+          "anyOf": [
+            { "$ref": "#/$defs/reasonCode" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "metricSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestamp",
+        "source",
+        "metric",
+        "value",
+        "unit",
+        "valid",
+        "error"
+      ],
+      "properties": {
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "metric": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "value": {
+          "type": ["number", "integer", "null"]
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "valid": { "type": "boolean" },
+        "error": {
+          "type": ["string", "null"],
+          "maxLength": 1024
+        },
+        "labels": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 128
+          }
+        }
+      }
+    },
+    "kafkaSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topicAlias",
+        "groupAlias",
+        "startLag",
+        "peakLag",
+        "endLag",
+        "drainSeconds",
+        "rebalanceDelta",
+        "valid"
+      ],
+      "properties": {
+        "topicAlias": { "$ref": "#/$defs/stableId" },
+        "groupAlias": { "$ref": "#/$defs/stableId" },
+        "startLag": { "type": ["integer", "null"], "minimum": 0 },
+        "peakLag": { "type": ["integer", "null"], "minimum": 0 },
+        "endLag": { "type": ["integer", "null"], "minimum": 0 },
+        "drainSeconds": { "type": ["number", "null"], "minimum": 0 },
+        "rebalanceDelta": { "type": ["integer", "null"], "minimum": 0 },
+        "valid": { "type": "boolean" }
+      }
+    },
+    "redisSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "redisAlias",
+        "streamAlias",
+        "groupAlias",
+        "pingP95Ms",
+        "pendingStart",
+        "pendingPeak",
+        "pendingEnd",
+        "oldestPendingIdleMs",
+        "blockedClients",
+        "evictedKeysDelta",
+        "valid"
+      ],
+      "properties": {
+        "redisAlias": { "$ref": "#/$defs/stableId" },
+        "streamAlias": {
+          "anyOf": [
+            { "$ref": "#/$defs/stableId" },
+            { "type": "null" }
+          ]
+        },
+        "groupAlias": {
+          "anyOf": [
+            { "$ref": "#/$defs/stableId" },
+            { "type": "null" }
+          ]
+        },
+        "pingP95Ms": { "type": ["number", "null"], "minimum": 0 },
+        "pendingStart": { "type": ["integer", "null"], "minimum": 0 },
+        "pendingPeak": { "type": ["integer", "null"], "minimum": 0 },
+        "pendingEnd": { "type": ["integer", "null"], "minimum": 0 },
+        "oldestPendingIdleMs": { "type": ["integer", "null"], "minimum": 0 },
+        "blockedClients": { "type": ["integer", "null"], "minimum": 0 },
+        "evictedKeysDelta": { "type": ["integer", "null"], "minimum": 0 },
+        "valid": { "type": "boolean" }
+      }
+    },
+    "computeSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instanceAlias",
+        "component",
+        "cpuPeakPct",
+        "memoryPeakBytes",
+        "restartDelta",
+        "oomKilled",
+        "sampleValidityPct"
+      ],
+      "properties": {
+        "instanceAlias": { "$ref": "#/$defs/stableId" },
+        "component": {
+          "enum": [
+            "backend",
+            "frontend",
+            "web-protocol",
+            "android-coordinator",
+            "android-node",
+            "nginx",
+            "host"
+          ]
+        },
+        "cpuPeakPct": { "type": ["number", "null"], "minimum": 0 },
+        "memoryPeakBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "restartDelta": { "type": ["integer", "null"], "minimum": 0 },
+        "oomKilled": { "type": ["boolean", "null"] },
+        "sampleValidityPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "trafficSignal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "resourceAlias",
+        "windowStart",
+        "windowEnd",
+        "rxBytes",
+        "txBytes",
+        "reconnectBytes",
+        "unattributedBytes",
+        "completeBucketPct",
+        "droppedSamples",
+        "collectorHealthy",
+        "measurementLayer"
+      ],
+      "properties": {
+        "protocol": {
+          "enum": ["web", "android"]
+        },
+        "resourceAlias": { "$ref": "#/$defs/stableId" },
+        "windowStart": { "$ref": "#/$defs/timestamp" },
+        "windowEnd": { "$ref": "#/$defs/timestamp" },
+        "rxBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "txBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "reconnectBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "unattributedBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "completeBucketPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "droppedSamples": { "type": "integer", "minimum": 0 },
+        "collectorHealthy": { "type": "boolean" },
+        "measurementLayer": {
+          "enum": [
+            "proxy-wire",
+            "encrypted-protocol-frame",
+            "plaintext-node",
+            "tcp-payload"
+          ]
+        },
+        "businessCategories": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "kafka",
+        "redis",
+        "compute",
+        "traffic"
+      ],
+      "properties": {
+        "samples": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/metricSample" }
+        },
+        "kafka": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/kafkaSignal" }
+        },
+        "redis": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/redisSignal" }
+        },
+        "compute": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/computeSignal" }
+        },
+        "traffic": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trafficSignal" }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "findingId",
+        "fingerprint",
+        "severity",
+        "component",
+        "reasonCode",
+        "title",
+        "reproducible",
+        "occurrences",
+        "firstSeenAt",
+        "lastSeenAt",
+        "evidenceRefs"
+      ],
+      "properties": {
+        "findingId": { "$ref": "#/$defs/stableId" },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 256
+        },
+        "severity": {
+          "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+        },
+        "component": {
+          "enum": [
+            "control-plane",
+            "backend",
+            "frontend",
+            "web-protocol",
+            "android-protocol",
+            "kafka",
+            "redis",
+            "compute",
+            "traffic",
+            "environment",
+            "external-whatsapp"
+          ]
+        },
+        "reasonCode": { "$ref": "#/$defs/reasonCode" },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "reproducible": { "type": "boolean" },
+        "occurrences": { "type": "integer", "minimum": 1 },
+        "firstSeenAt": { "$ref": "#/$defs/timestamp" },
+        "lastSeenAt": { "$ref": "#/$defs/timestamp" },
+        "evidenceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/stableId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "decisionRequired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decisionId",
+        "owner",
+        "question",
+        "recommended",
+        "safeDefault",
+        "evidenceRefs"
+      ],
+      "properties": {
+        "decisionId": { "$ref": "#/$defs/stableId" },
+        "owner": {
+          "enum": ["business-owner", "technical-owner", "release-owner"]
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "recommended": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "safeDefault": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/stableId" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "evidenceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidenceId",
+        "relativePath",
+        "sha256",
+        "sizeBytes",
+        "mediaType",
+        "createdAt",
+        "redacted"
+      ],
+      "properties": {
+        "evidenceId": { "$ref": "#/$defs/stableId" },
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "redacted": { "type": "boolean" },
+        "retentionClass": {
+          "enum": ["SUMMARY", "STANDARD", "LARGE", "SENSITIVE_REDACTED"]
+        }
+      }
+    },
+    "evidenceIndex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootAlias",
+        "items",
+        "indexSha256",
+        "complete",
+        "redactionChecked"
+      ],
+      "properties": {
+        "rootAlias": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9._:-]{0,127}$"
+        },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidenceItem" }
+        },
+        "indexSha256": {
+          "type": "string",
+          "pattern": "^[a-fA-F0-9]{64}$"
+        },
+        "complete": { "type": "boolean" },
+        "redactionChecked": { "type": "boolean" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confidence",
+        "evidenceCompletenessPct",
+        "stageCounts",
+        "newFindingCount",
+        "humanDecisionCount",
+        "headline",
+        "nextAction"
+      ],
+      "properties": {
+        "confidence": {
+          "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "evidenceCompletenessPct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "stageCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "total",
+            "passed",
+            "failed",
+            "blocked",
+            "running",
+            "inconclusive",
+            "cancelled"
+          ],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "passed": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 },
+            "blocked": { "type": "integer", "minimum": 0 },
+            "running": { "type": "integer", "minimum": 0 },
+            "inconclusive": { "type": "integer", "minimum": 0 },
+            "cancelled": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "newFindingCount": { "type": "integer", "minimum": 0 },
+        "humanDecisionCount": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "nextAction": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        }
+      }
+    }
+  }
+}

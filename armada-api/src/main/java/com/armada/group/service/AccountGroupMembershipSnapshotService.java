@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
+import com.armada.group.model.vo.AccountGroupCompatibilitySnapshot;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
 
@@ -26,6 +27,16 @@ public interface AccountGroupMembershipSnapshotService {
      * @return 刷新后的当前群快照；新增群资格由六表当前模型统一判断
      */
     List<AccountGroupMembershipSnapshot> replaceVisibleGroups(
+            Long accountId,
+            List<AccountGroupsReportedEvent.Group> groups,
+            boolean snapshotComplete,
+            long syncAt,
+            String eventId,
+            String source,
+            ProtocolBackend observedBackend);
+
+    /** phase1 专用：分类只写事实，不创建调度器可见任务。 */
+    AccountGroupCompatibilitySnapshot prepareVisibleGroups(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
             boolean snapshotComplete,

@@ -1,0 +1,8 @@
+-- 本变更的唯一可执行数据库迁移由 Flyway 管理：
+-- armada-api/src/main/resources/db/migration/V140__group_canonical_first_classification.sql
+--
+-- 不在 change 包内复制第二份 SQL，避免审计脚本、原子回填规则与 Flyway checksum 漂移。
+-- 上线前先执行只读预演：
+-- docs/operations/group-canonical-classification-dry-run.sql
+--
+-- D3 未授权前不得连接 test1 或其它共享数据库执行上述文件。

@@ -53,6 +53,93 @@
     LIMIT 1
   </select>
 
+  <!--
+    批量解析账号快照应复用的兼容句柄。内部 wa:// 入口与已关联 canonical wa_group 的历史入口
+    都参与候选；同一 JID 优先活跃行，再取最小句柄 ID，保持单群查询的既有语义。
+  -->
+  <select id="selectAccountObservedHandles"
+          resultType="com.armada.group.model.vo.AccountObservedGroupHandle">
+    SELECT groupJid, groupLinkId, linkUrl
+    FROM (
+      SELECT candidates.groupJid,
+             candidates.groupLinkId,
+             candidates.linkUrl,
+             ROW_NUMBER() OVER (
+               PARTITION BY candidates.groupJid
+               ORDER BY candidates.activeRank ASC, candidates.groupLinkId ASC
+             ) AS rowNo
+      FROM (
+        SELECT SUBSTRING(handle.link_url, CHAR_LENGTH('wa://group/') + 1) AS groupJid,
+               handle.id AS groupLinkId,
+               handle.link_url AS linkUrl,
+               CASE WHEN handle.deleted_at IS NULL THEN 0 ELSE 1 END AS activeRank
+        FROM group_link handle
+        WHERE handle.tenant_id = #{tenantId}
+          AND handle.link_url IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          CONCAT('wa://group/', #{groupJid})
+        </foreach>
+        UNION ALL
+        SELECT current_group.group_jid AS groupJid,
+               handle.id AS groupLinkId,
+               handle.link_url AS linkUrl,
+               CASE WHEN handle.deleted_at IS NULL THEN 0 ELSE 1 END AS activeRank
+        FROM wa_group current_group
+        INNER JOIN group_link handle
+          ON handle.tenant_id = current_group.tenant_id
+         AND handle.group_id = current_group.id
+        WHERE current_group.tenant_id = #{tenantId}
+          AND current_group.group_jid IN
+        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+          #{groupJid}
+        </foreach>
+      ) candidates
+    ) ranked
+    WHERE rowNo = 1
+    ORDER BY groupJid ASC
+  </select>
+
+  <select id="selectAccountObservedByIdsForUpdate"
+          resultType="com.armada.group.model.entity.GroupLink">
+    SELECT *
+    FROM group_link FORCE INDEX (PRIMARY)
+    WHERE tenant_id = #{tenantId}
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id ASC
+    FOR UPDATE
+  </select>
+
+  <!-- 一条多值 upsert 按已有句柄 ID、再按缺失 JID 的稳定顺序处理。 -->
+  <insert id="upsertAccountObservedGroups">
+    INSERT INTO group_link (
+      tenant_id, id, link_url, group_name, origin, membership_state,
+      sync_protocol_mask, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{tenantId}, #{row.groupLinkId}, #{row.linkUrl}, #{row.insertGroupName}, #{row.origin},
+        #{row.membershipState}, #{row.syncProtocolMask}, #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      deleted_at = NULL,
+      group_name = CASE
+      <foreach collection="rows" item="row">
+        WHEN VALUES(link_url) = #{row.linkUrl}
+          THEN COALESCE(NULLIF(TRIM(#{row.observedGroupName}), ''), group_name)
+      </foreach>
+        ELSE group_name
+      END,
+      membership_state = CASE WHEN membership_state = 3 THEN 3 ELSE 2 END,
+      sync_protocol_mask = CASE
+        WHEN sync_protocol_mask = 0 THEN VALUES(sync_protocol_mask)
+        WHEN sync_protocol_mask = VALUES(sync_protocol_mask) THEN sync_protocol_mask
+        ELSE 3
+      END,
+      updated_at = VALUES(updated_at)
+  </insert>
+
   <update id="touchAccountObservedGroup">
     UPDATE group_link
     SET deleted_at = NULL,
@@ -120,24 +207,6 @@
         membership_state = 3,
         updated_at = #{updatedAt}
     WHERE id = #{id}
-  </update>
-
-  <update id="markHistorical">
-    UPDATE group_link
-    SET is_historical = 1,
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE id = #{groupLinkId}
-      AND deleted_at IS NULL
-      AND is_historical = 0
-  </update>
-
-  <update id="markPostControl">
-    UPDATE group_link
-    SET is_post_control = 1,
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE id = #{groupLinkId}
-      AND deleted_at IS NULL
-      AND is_post_control = 0
   </update>
 
   <select id="selectActiveById" resultType="com.armada.group.model.entity.GroupLink">
@@ -264,6 +333,7 @@
     WHERE deleted_at IS NULL
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    ORDER BY id ASC
     </if>
     <if test="ids == null or ids.size() == 0">
     SELECT * FROM group_link WHERE 1=0
@@ -312,7 +382,7 @@
 
   <select id="selectByTenantAndIdsForUpdate" resultType="com.armada.group.model.entity.GroupLink">
     SELECT *
-    FROM group_link
+    FROM group_link FORCE INDEX (PRIMARY)
     WHERE tenant_id = #{tenantId}
       AND deleted_at IS NULL
       AND id IN

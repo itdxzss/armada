@@ -246,14 +246,30 @@ public class ProtocolAccountEventConsumer {
         JsonNode data = dataNode(envelope);
         Long tenantId = requiredLong(data, "tenantId", "协议账号群列表事件缺少 data.tenantId");
         Long accountId = requiredLong(data, "accountId", "协议账号群列表事件缺少 data.accountId");
+        Long reportedAt = occurredAt(envelope);
+        if (reportedAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群列表事件缺少 occurredAt");
+        }
+        Long queryStartedAt = instantMillis(
+                data, "queryStartedAt", "协议账号群列表事件 queryStartedAt 格式非法");
+        Long snapshotCutoff = instantMillis(
+                data, "snapshotCutoff", "协议账号群列表事件 snapshotCutoff 格式非法");
+        if (queryStartedAt != null && snapshotCutoff != null
+                && !queryStartedAt.equals(snapshotCutoff)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号群列表事件查询边界不一致");
+        }
         List<ProtocolAccountGroupsReportedEvent.Group> groups = groups(data.path("groups"));
         return new ProtocolAccountGroupsReportedEvent(
                 text(envelope, "eventId"),
                 tenantId,
                 accountId,
                 requiredText(envelope, "accountId", "协议账号群列表事件缺少 accountId"),
-                occurredAt(envelope),
+                reportedAt,
                 text(data, "source"),
+                text(data, "commandId"),
+                text(data, "snapshotId"),
+                queryStartedAt,
+                snapshotCutoff,
                 bool(data, "snapshotComplete"),
                 integer(data, "skippedGroupCount"),
                 text(envelope, "workerId"),
@@ -292,6 +308,7 @@ public class ProtocolAccountEventConsumer {
                 requiredText(data, "groupJid", "协议账号群关系事件缺少 data.groupJid"),
                 requiredText(data, "action", "协议账号群关系事件缺少 data.action"),
                 requiredText(data, "selfParticipation", "协议账号群关系事件缺少 data.selfParticipation"),
+                requiredText(data, "sourceEventId", "协议账号群关系事件缺少 data.sourceEventId"),
                 occurredAt,
                 text(data, "source"),
                 text(envelope, "workerId"));
@@ -578,7 +595,9 @@ public class ProtocolAccountEventConsumer {
                     // group.metadata_updated 的 fieldMask 机制。
                     node.hasNonNull("description") || node.hasNonNull("desc"),
                     boolAny(node, "joinApprovalMode"),
-                    integerAny(node, "ephemeralDurationSeconds", "ephemeralDuration")));
+                    integerAny(node, "ephemeralDurationSeconds", "ephemeralDuration"),
+                    longValue(node, "postControlObservedAt"),
+                    text(node, "sourceEventId")));
         }
         return groups;
     }
@@ -592,6 +611,18 @@ public class ProtocolAccountEventConsumer {
             return Instant.parse(value).toEpochMilli();
         } catch (DateTimeParseException ex) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议账号事件 occurredAt 格式非法");
+        }
+    }
+
+    private static Long instantMillis(JsonNode node, String field, String invalidMessage) {
+        String value = text(node, field);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Instant.parse(value).toEpochMilli();
+        } catch (DateTimeParseException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION, invalidMessage);
         }
     }
 

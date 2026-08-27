@@ -1,0 +1,2 @@
+{"Name":"armada-backend","CPUPerc":"12.50%","MemUsage":"512MiB / 2GiB","MemPerc":"25.00%","NetIO":"1.2GB / 800MB"}
+{"Name":"armada-nginx","CPUPerc":"0.30%","MemUsage":"32MiB / 2GiB","MemPerc":"1.56%","NetIO":"9GB / 7GB"}

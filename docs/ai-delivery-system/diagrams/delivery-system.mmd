@@ -1,0 +1,24 @@
+flowchart LR
+    business["Business idea"] --> analysis["AI fact and impact analysis"]
+    analysis --> decision_pack["Decision pack"]
+    decision_pack -->|"business decisions only"| owner["Business owner / technical owner"]
+    owner --> scope_lock["Signed scope and acceptance contract"]
+
+    scope_lock --> orchestrator["AI delivery orchestrator"]
+    orchestrator --> backend["Backend agent"]
+    orchestrator --> frontend["Frontend agent"]
+    orchestrator --> web["Web protocol agent"]
+    orchestrator --> android["Android protocol agent"]
+
+    backend --> accept["staging-accept"]
+    frontend --> accept
+    web --> accept
+    android --> accept
+
+    accept --> evidence["Immutable evidence bundle"]
+    evidence --> verifier["Independent AI verifiers"]
+    verifier --> result{"Release result"}
+    result -->|"PASS"| done["Accepted delivery"]
+    result -->|"FAIL"| repair["AI repair loop"]
+    result -->|"BLOCKED / decision"| owner
+    repair --> accept

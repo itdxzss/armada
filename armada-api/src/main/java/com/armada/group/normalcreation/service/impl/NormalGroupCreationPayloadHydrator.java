@@ -75,6 +75,9 @@ public class NormalGroupCreationPayloadHydrator implements ProtocolCommandPayloa
                     .map(MemberWork::memberWsPhone)
                     .forEach(participantPhones::add);
             List<String> participants = List.copyOf(participantPhones);
+            if ("GROUP_CREATE".equals(reference.action()) && participants.isEmpty()) {
+                throw validation("新建普群命令建群参与者为空");
+            }
             String promoteCandidate = participants.isEmpty() ? null : participants.get(0);
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(), reference.taskId(), reference.itemId(),

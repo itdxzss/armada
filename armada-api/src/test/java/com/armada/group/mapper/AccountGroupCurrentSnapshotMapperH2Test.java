@@ -102,14 +102,14 @@ class AccountGroupCurrentSnapshotMapperH2Test {
 
     @Test
     void selfMembershipQueryReturnsPreciseMembershipActiveSinceForCurrentTenant() {
-        Existing existing = mapper.selectSelfMembershipExistingForUpdate(
+        Existing existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                 TENANT_ID, 1001L, "919118818029@s.whatsapp.net", "new-group@g.us");
 
         assertThat(existing).isNotNull();
         assertThat(existing.membershipActiveSinceAt()).isEqualTo(200L);
-        assertThat(mapper.selectExistingForUpdate(
+        assertThat(mapper.selectExistingAfterGroupLock(
                 TENANT_ID, 1001L, "919118818029@s.whatsapp.net",
-                List.of("new-group@g.us")))
+                List.of(101L)))
                 .singleElement()
                 .extracting(Existing::membershipActiveSinceAt)
                 .isEqualTo(200L);

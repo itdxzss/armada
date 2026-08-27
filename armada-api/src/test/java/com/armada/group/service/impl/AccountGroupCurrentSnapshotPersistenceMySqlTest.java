@@ -6,13 +6,17 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.impl.GroupCurrentSnapshotMySqlTestSupport.RecordingDataSource;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.mapper.GroupCurrentInviteMapper;
+import com.armada.group.mapper.GroupMetadataPatchMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.GroupMetadataPatch;
+import com.armada.group.model.dto.GroupMetadataPatchField;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
+import com.armada.group.model.enums.GroupMetadataFieldSource;
 import com.armada.group.model.vo.AccountGroupMembershipChangeSet;
 import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -26,6 +30,11 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterAll;
@@ -62,13 +71,23 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static JdbcTemplate jdbc;
+    private static JdbcTemplate transactionalJdbc;
     private static RecordingDataSource recordingDataSource;
     private static TransactionTemplate transactionTemplate;
+    private static AccountGroupCurrentSnapshotMapper currentSnapshotMapper;
     private static AccountGroupCurrentSnapshotPersistenceImpl persistence;
     private static GroupCurrentInvitePersistence currentInvitePersistence;
+    private static GroupMetadataPatchServiceImpl metadataPatchService;
 
     @BeforeAll
     static void configureMysqlAndProductionMapper() throws Exception {
+        var grant = MYSQL.execInContainer(
+                "mysql", "-uroot", "-p" + MYSQL.getPassword(), "-e",
+                "GRANT SELECT ON performance_schema.* TO 'armada'@'%'");
+        if (grant.getExitCode() != 0) {
+            throw new IllegalStateException(
+                    "无法为 MySQL participant 并发夹具开启锁等待观测: " + grant.getStderr());
+        }
         DriverManagerDataSource rawDataSource = new DriverManagerDataSource();
         rawDataSource.setDriverClassName("com.mysql.cj.jdbc.Driver");
         rawDataSource.setUrl(MYSQL.getJdbcUrl());
@@ -82,17 +101,20 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         GroupCurrentSnapshotMySqlTestSupport.executeV122(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV124(rawDataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV127(rawDataSource);
+        GroupCurrentSnapshotMySqlTestSupport.executeV139(rawDataSource);
 
         recordingDataSource = new RecordingDataSource(rawDataSource);
+        transactionalJdbc = new JdbcTemplate(recordingDataSource);
         DataSourceTransactionManager transactionManager =
                 new DataSourceTransactionManager(recordingDataSource);
         transactionTemplate = new TransactionTemplate(transactionManager);
         SqlSessionTemplate sqlSessionTemplate = buildSqlSessionTemplate(recordingDataSource);
-        AccountGroupCurrentSnapshotMapper mapper =
-                sqlSessionTemplate.getMapper(AccountGroupCurrentSnapshotMapper.class);
-        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(mapper);
+        currentSnapshotMapper = sqlSessionTemplate.getMapper(AccountGroupCurrentSnapshotMapper.class);
+        persistence = new AccountGroupCurrentSnapshotPersistenceImpl(currentSnapshotMapper);
         currentInvitePersistence = new GroupCurrentInvitePersistence(
                 sqlSessionTemplate.getMapper(GroupCurrentInviteMapper.class));
+        metadataPatchService = new GroupMetadataPatchServiceImpl(
+                sqlSessionTemplate.getMapper(GroupMetadataPatchMapper.class));
     }
 
     @AfterAll
@@ -125,6 +147,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                   link_url VARCHAR(512) NOT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
+                  deleted_at BIGINT DEFAULT NULL,
                   PRIMARY KEY (id)
                 ) ENGINE=InnoDB
                 """);
@@ -142,7 +165,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void completeSnapshotOf400GroupsUsesAtMostTenStatementsAndClassifiesBaselineSafely()
+    void completeSnapshotOf400GroupsUsesAtMostElevenStatementsAndClassifiesBaselineSafely()
             throws Exception {
         List<String> baselineJids = groupJids(0, 200);
         seedCapturedAccount(101L, "923300000101", baselineJids);
@@ -154,8 +177,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         writeSnapshot(101L, groups, true, 2_000L, "snapshot-400");
 
         assertThat(recordingDataSource.statements())
-                .as("400 群必须全部走集合 SQL，不能通过 JDBC batch 隐藏服务端语句数")
-                .hasSizeLessThanOrEqualTo(10)
+                .as("400 群含显式 G 锁和身份冲突检查也必须保持常数集合 SQL")
+                .hasSizeLessThanOrEqualTo(11)
                 .noneMatch(sql -> sql.startsWith("BATCH "));
         assertThat(count("wa_group")).isEqualTo(400);
         assertThat(count("wa_group_profile")).isEqualTo(400);
@@ -271,7 +294,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         recordingDataSource.reset();
         writeSnapshot(102L, List.of(groups.get(0)), true, 4_000L, "snapshot-missing");
         List<String> statements = recordingDataSource.statements();
-        assertThat(statements).hasSizeLessThanOrEqualTo(10);
+        assertThat(statements).hasSizeLessThanOrEqualTo(11);
         String classificationRead = statements.stream()
                 .filter(sql -> sql.contains("FROM WA_GROUP G")
                         && sql.contains("WA_ACCOUNT_GROUP_BINDING")
@@ -574,6 +597,605 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                                 .containsEntry("presence_status", 1)
                                 .containsEntry("presence_source", "ADD_EVENT")
                                 .containsEntry("last_joined_at", 2_000L));
+    }
+
+    @Test
+    void lidJoinWithTrustedPhoneMergesExistingPnAndLidRowsBeforeUpsert() {
+        String groupJid = groupJid(70);
+        long groupId = seedCurrentGroup(groupJid);
+        jdbc.update("""
+                INSERT INTO wa_group_participant (
+                  tenant_id, group_id, pn_jid, phone,
+                  presence_status, role, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, 0, 1000, 1000)
+                """, TENANT_ID, groupId, "15550000070@s.whatsapp.net", "15550000070");
+        jdbc.update("""
+                INSERT INTO wa_group_participant (
+                  tenant_id, group_id, lid_jid,
+                  presence_status, role, created_at, updated_at
+                ) VALUES (?, ?, ?, 1, 0, 1000, 1000)
+                """, TENANT_ID, groupId, "123456789012370@lid");
+
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, groupJid, "123456789012370@lid", "15550000070",
+                2_000L, 2_000L, "join-lid-with-phone", 104L)));
+
+        assertThat(jdbc.queryForList("""
+                SELECT pn_jid, lid_jid, phone, presence_status, presence_source
+                FROM wa_group_participant
+                WHERE tenant_id = ? AND group_id = ?
+                """, TENANT_ID, groupId))
+                .singleElement()
+                .satisfies(row -> assertThat(row)
+                        .containsEntry("pn_jid", "15550000070@s.whatsapp.net")
+                        .containsEntry("lid_jid", "123456789012370@lid")
+                        .containsEntry("phone", "15550000070")
+                        .containsEntry("presence_status", 1)
+                        .containsEntry("presence_source", "ADD_EVENT"));
+    }
+
+    @Test
+    void reportJoinDeparturePreciseAndFullSnapshotSerializeOnSameGroupRow() throws Exception {
+        String groupJid = groupJid(71);
+        long groupId = seedCurrentGroup(groupJid);
+        seedCapturedAccount(171L, "15550000071", List.of());
+
+        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantJoins(List.of(
+                new WhatsappGroupJoinFact(
+                        TENANT_ID, groupJid, "15550000072@s.whatsapp.net", "15550000072",
+                        2_000L, 2_000L, "join-serialized", 171L))));
+        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantDepartures(List.of(
+                new WhatsappGroupDepartureFact(
+                        TENANT_ID, groupJid, "15550000072@s.whatsapp.net", "15550000072",
+                        2_100L, "LEFT", 2_100L, "departure-serialized",
+                        "WGP2_NOTIFICATION"))));
+        assertWriterWaitsForGroupLock(groupJid, () -> writeSelfMembership(
+                171L, groupJid, AccountGroupMembershipStatus.IN_GROUP,
+                2_200L, "precise-serialized", "WGP2_ADD"));
+        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantSnapshot(
+                groupJid,
+                List.of(new GroupParticipantResult(
+                        "15550000073@s.whatsapp.net", null, "15550000073",
+                        false, false, "member")),
+                2_300L,
+                "full-snapshot-serialized"));
+        assertWriterWaitsForGroupLock(groupJid, () -> writeSnapshot(
+                171L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        groupJid, "serialized", 3, null, null,
+                        false, false, null)),
+                true,
+                2_400L,
+                "report-serialized"));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wa_group WHERE tenant_id = ? AND id = ?",
+                Integer.class, TENANT_ID, groupId)).isOne();
+    }
+
+    @Test
+    void explicitCurrentInviteLocksLegacyHandleBeforeProfile() throws Exception {
+        String groupJid = groupJid(76);
+        long groupId = seedCurrentGroup(groupJid);
+        seedCurrentProfile(groupId);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, created_at, updated_at
+                ) VALUES (976, ?, ?, ?, 1000, 1000)
+                """, TENANT_ID, groupId, "wa://group/" + groupJid);
+
+        CountDownLatch legacyHandleLocked = new CountDownLatch(1);
+        CountDownLatch releaseCanonicalWriter = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
+                transactionalJdbc.queryForObject("""
+                        SELECT id FROM group_link FORCE INDEX (PRIMARY)
+                        WHERE tenant_id = ? AND id = 976 FOR UPDATE
+                        """, Long.class, TENANT_ID);
+                legacyHandleLocked.countDown();
+                assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
+                transactionalJdbc.update("""
+                        UPDATE wa_group_profile
+                        SET updated_at = GREATEST(updated_at, 2100)
+                        WHERE tenant_id = ? AND group_id = ?
+                        """, TENANT_ID, groupId);
+                return null;
+            }));
+            assertThat(legacyHandleLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> currentInvite = executor.submit(() -> writeCurrentInvite(
+                    976L, groupJid, "invite-lock-order", 2_000L));
+            awaitMysqlLockWait(currentInvite);
+            releaseCanonicalWriter.countDown();
+
+            canonicalWriter.get(10, TimeUnit.SECONDS);
+            currentInvite.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseCanonicalWriter.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void metadataSnapshotLocksGroupBeforeProfile() throws Exception {
+        String groupJid = groupJid(77);
+        long groupId = seedCurrentGroup(groupJid);
+        seedCurrentProfile(groupId);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, created_at, updated_at
+                ) VALUES (977, ?, ?, ?, 1000, 1000)
+                """, TENANT_ID, groupId, "wa://group/" + groupJid);
+
+        CountDownLatch groupLocked = new CountDownLatch(1);
+        CountDownLatch releaseCanonicalWriter = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
+                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                        TENANT_ID, List.of(groupId));
+                groupLocked.countDown();
+                assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
+                transactionalJdbc.update("""
+                        UPDATE wa_group_profile
+                        SET updated_at = GREATEST(updated_at, 2200)
+                        WHERE tenant_id = ? AND group_id = ?
+                        """, TENANT_ID, groupId);
+                return null;
+            }));
+            assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> metadataSnapshot = executor.submit(() -> writeMetadataSnapshotChain(
+                    977L, groupJid, "invite-metadata-order", 2_000L));
+            awaitMysqlLockWait(metadataSnapshot);
+            releaseCanonicalWriter.countDown();
+
+            canonicalWriter.get(10, TimeUnit.SECONDS);
+            metadataSnapshot.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseCanonicalWriter.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void profileReportWithoutCreatedAtLocksGroupBeforeProfileAndMembers() throws Exception {
+        String groupJid = groupJid(81);
+        long groupId = seedCurrentGroup(groupJid);
+        seedCurrentProfile(groupId);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, created_at, updated_at
+                ) VALUES (981, ?, ?, ?, 1000, 1000)
+                """, TENANT_ID, groupId, "wa://group/" + groupJid);
+
+        CountDownLatch groupLocked = new CountDownLatch(1);
+        CountDownLatch releaseCanonicalWriter = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
+                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                        TENANT_ID, List.of(groupId));
+                groupLocked.countDown();
+                assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
+                transactionalJdbc.update("""
+                        UPDATE wa_group_profile
+                        SET updated_at = GREATEST(updated_at, 2300)
+                        WHERE tenant_id = ? AND group_id = ?
+                        """, TENANT_ID, groupId);
+                return null;
+            }));
+            assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> profileReport = executor.submit(() -> inTransaction(() -> {
+                persistence.lockGroupWriteBoundary(981L, groupJid);
+                metadataPatchService.applyPatch(new GroupMetadataPatch(
+                        TENANT_ID,
+                        groupJid,
+                        java.util.Set.of(GroupMetadataPatchField.SUBJECT),
+                        "profile-report",
+                        null, null, null, null, null, null,
+                        GroupMetadataFieldSource.PROFILE_SNAPSHOT,
+                        2_000L,
+                        "profile-report-null-created-at"));
+                persistence.replaceCompleteParticipantSnapshot(
+                        groupJid, List.of(), 2_000L, "profile-report-null-created-at");
+                return null;
+            }));
+            awaitMysqlLockWait(profileReport);
+            releaseCanonicalWriter.countDown();
+
+            canonicalWriter.get(10, TimeUnit.SECONDS);
+            profileReport.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseCanonicalWriter.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void groupHealthLocksGroupPrimaryBeforeUpdatingProfileWithoutJoin() {
+        String groupJid = groupJid(78);
+        long groupId = seedCurrentGroup(groupJid);
+        seedCurrentProfile(groupId);
+
+        recordingDataSource.reset();
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction ->
+                    currentInvitePersistence.applyHealth(groupJid, unavailableHealth()));
+        } finally {
+            TenantContext.clear();
+        }
+
+        List<String> statements = recordingDataSource.statements();
+        int groupLock = firstExplicitGroupPrimaryLock(statements);
+        int profileUpdate = firstIndexContaining(statements, "WA_GROUP_PROFILE", "UPDATE");
+        assertThat(groupLock).isGreaterThanOrEqualTo(0);
+        assertThat(profileUpdate).isGreaterThan(groupLock);
+        assertThat(statements.get(profileUpdate))
+                .contains("WHERE TENANT_ID = ?", "AND GROUP_ID = ?")
+                .doesNotContain("JOIN WA_GROUP");
+    }
+
+    @Test
+    void currentInvitePathsKeepLegacyGroupProfileInviteOrder() {
+        String explicitGroupJid = groupJid(79);
+        long explicitGroupId = seedCurrentGroup(explicitGroupJid);
+        seedCurrentProfile(explicitGroupId);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, group_id, link_url, created_at, updated_at
+                ) VALUES (979, ?, ?, ?, 1000, 1000)
+                """, TENANT_ID, explicitGroupId, "wa://group/" + explicitGroupJid);
+
+        recordingDataSource.reset();
+        writeCurrentInvite(979L, explicitGroupJid, "invite-explicit-order", 2_000L);
+        assertCurrentInviteOrder(recordingDataSource.statements(), true, false, false);
+
+        String existingGroupJid = groupJid(80);
+        long existingGroupId = seedCurrentGroup(existingGroupJid);
+        seedCurrentProfile(existingGroupId);
+        recordingDataSource.reset();
+        writeCurrentInvite(null, existingGroupJid, "invite-existing-order", 2_100L);
+        assertCurrentInviteOrder(recordingDataSource.statements(), false, false, false);
+
+        jdbc.update("UPDATE wa_group SET deleted_at = 2150 WHERE id = ?", existingGroupId);
+        recordingDataSource.reset();
+        writeCurrentInvite(null, existingGroupJid, "invite-revived-order", 2_200L);
+        assertCurrentInviteOrder(recordingDataSource.statements(), false, true, true);
+
+        String missingGroupJid = groupJid(82);
+        recordingDataSource.reset();
+        writeCurrentInvite(null, missingGroupJid, "invite-missing-order", 2_300L);
+        assertCurrentInviteOrder(recordingDataSource.statements(), false, true, false);
+    }
+
+    @Test
+    void bindGroupSerializesLegacyHandleBeforeGroup() throws Exception {
+        String groupJid = groupJid(83);
+        long groupId = seedCurrentGroup(groupJid);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, created_at, updated_at
+                ) VALUES (983, ?, ?, 1000, 1000)
+                """, TENANT_ID, "wa://group/" + groupJid);
+
+        CountDownLatch legacyHandleLocked = new CountDownLatch(1);
+        CountDownLatch releaseCanonicalWriter = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
+                transactionalJdbc.queryForObject("""
+                        SELECT id FROM group_link FORCE INDEX (PRIMARY)
+                        WHERE tenant_id = ? AND id = 983 FOR UPDATE
+                        """, Long.class, TENANT_ID);
+                legacyHandleLocked.countDown();
+                assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
+                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                        TENANT_ID, List.of(groupId));
+                return null;
+            }));
+            assertThat(legacyHandleLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> bindGroup = executor.submit(() -> inTransaction(() -> {
+                currentInvitePersistence.bindGroup(983L, groupJid, 2_000L);
+                return null;
+            }));
+            awaitMysqlLockWait(bindGroup);
+            releaseCanonicalWriter.countDown();
+
+            canonicalWriter.get(10, TimeUnit.SECONDS);
+            bindGroup.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseCanonicalWriter.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void bindGroupSqlOrderStartsWithLegacyHandleLock() {
+        String groupJid = groupJid(84);
+        seedCurrentGroup(groupJid);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, created_at, updated_at
+                ) VALUES (984, ?, ?, 1000, 1000)
+                """, TENANT_ID, "wa://group/" + groupJid);
+
+        recordingDataSource.reset();
+        inTransaction(() -> {
+            currentInvitePersistence.bindGroup(984L, groupJid, 2_000L);
+            return null;
+        });
+
+        List<String> statements = recordingDataSource.statements();
+        assertThat(firstExplicitLegacyPrimaryLock(statements)).isGreaterThanOrEqualTo(0);
+        assertThat(firstExplicitGroupPrimaryLock(statements))
+                .isGreaterThan(firstExplicitLegacyPrimaryLock(statements));
+    }
+
+    @Test
+    void publicPreviewSerializesLegacyHandleBeforeInvite() throws Exception {
+        GroupLinkPreview preview = metadataPreview(null, 900L, 900L);
+        preview.setGroupLinkId(985L);
+        preview.setInviteCode("invite-public-lock-order");
+        preview.setWaSubject("public-lock-order");
+        preview.setLastPreviewAt(900L);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, created_at, updated_at
+                ) VALUES (985, ?, ?, 1000, 1000)
+                """, TENANT_ID, "https://chat.whatsapp.com/invite-public-lock-order");
+        jdbc.update("""
+                INSERT INTO wa_group_invite (
+                  tenant_id, invite_code, origin, created_at, updated_at
+                ) VALUES (?, 'invite-public-lock-order', 1, 1000, 1000)
+                """, TENANT_ID);
+
+        CountDownLatch legacyHandleLocked = new CountDownLatch(1);
+        CountDownLatch releaseCanonicalWriter = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
+                transactionalJdbc.queryForObject("""
+                        SELECT id FROM group_link FORCE INDEX (PRIMARY)
+                        WHERE tenant_id = ? AND id = 985 FOR UPDATE
+                        """, Long.class, TENANT_ID);
+                legacyHandleLocked.countDown();
+                assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
+                transactionalJdbc.update("""
+                        UPDATE wa_group_invite
+                        SET updated_at = GREATEST(updated_at, 2100)
+                        WHERE tenant_id = ? AND invite_code = 'invite-public-lock-order'
+                        """, TENANT_ID);
+                return null;
+            }));
+            assertThat(legacyHandleLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> publicPreview = executor.submit(() -> inTransaction(() -> {
+                currentInvitePersistence.applyPublicPreview(preview, 8L);
+                return null;
+            }));
+            awaitMysqlLockWait(publicPreview);
+            releaseCanonicalWriter.countDown();
+
+            canonicalWriter.get(10, TimeUnit.SECONDS);
+            publicPreview.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseCanonicalWriter.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void publicPreviewSqlOrderStartsWithLegacyHandleLock() {
+        GroupLinkPreview preview = metadataPreview(null, 900L, 900L);
+        preview.setGroupLinkId(986L);
+        preview.setInviteCode("invite-public-sql-order");
+        preview.setWaSubject("public-sql-order");
+        preview.setLastPreviewAt(900L);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, created_at, updated_at
+                ) VALUES (986, ?, ?, 1000, 1000)
+                """, TENANT_ID, "https://chat.whatsapp.com/invite-public-sql-order");
+
+        recordingDataSource.reset();
+        inTransaction(() -> {
+            currentInvitePersistence.applyPublicPreview(preview, 8L);
+            return null;
+        });
+
+        List<String> statements = recordingDataSource.statements();
+        int legacyLock = firstExplicitLegacyPrimaryLock(statements);
+        int inviteWrite = firstIndexContaining(statements, "WA_GROUP_INVITE", "INSERT");
+        assertThat(legacyLock).isGreaterThanOrEqualTo(0);
+        assertThat(inviteWrite).isGreaterThan(legacyLock);
+    }
+
+    @Test
+    void reportAndParticipantFactsUseExplicitPrimaryGroupLockBeforeJoinedOrParticipantWrite()
+            throws Exception {
+        String groupJid = groupJid(72);
+        seedCurrentGroup(groupJid);
+        seedCapturedAccount(172L, "15550000074", List.of());
+
+        recordingDataSource.reset();
+        writeParticipantJoins(List.of(new WhatsappGroupJoinFact(
+                TENANT_ID, groupJid, "15550000075@s.whatsapp.net", "15550000075",
+                2_000L, 2_000L, "join-primary-lock", 172L)));
+        List<String> participantStatements = recordingDataSource.statements();
+        int participantGroupLock = firstExplicitGroupPrimaryLock(participantStatements);
+        int participantWrite = firstIndexContaining(
+                participantStatements, "WA_GROUP_PARTICIPANT", "INSERT");
+        assertThat(participantGroupLock).isGreaterThanOrEqualTo(0);
+        assertThat(participantWrite).isGreaterThan(participantGroupLock);
+
+        jdbc.update(
+                "UPDATE wa_group SET deleted_at = 2050 WHERE tenant_id = ? AND group_jid = ?",
+                TENANT_ID, groupJid);
+        recordingDataSource.reset();
+        writeSnapshot(
+                172L,
+                List.of(new AccountGroupsReportedEvent.Group(
+                        groupJid, "primary-lock", 3, null, null,
+                        false, false, null)),
+                true,
+                2_100L,
+                "report-primary-lock");
+        List<String> reportStatements = recordingDataSource.statements();
+        int reportGroupLock = firstExplicitGroupPrimaryLock(reportStatements);
+        int reportGroupMutation = firstIndexContaining(
+                reportStatements, "WA_GROUP", "INSERT");
+        int joinedRead = firstJoinedCurrentLock(reportStatements);
+        assertThat(reportGroupLock).isGreaterThanOrEqualTo(0);
+        assertThat(reportGroupMutation).isGreaterThan(reportGroupLock);
+        assertThat(joinedRead).isGreaterThan(reportGroupLock);
+        assertThat(reportStatements.get(joinedRead))
+                .contains("LEFT JOIN WA_GROUP_PARTICIPANT", "G.ID IN", "FOR UPDATE")
+                .doesNotContain("OR B.ID IS NOT NULL");
+    }
+
+    @Test
+    void groupLockThenJoinedReadUsesCurrentParticipantAndBindingFacts() throws Exception {
+        String groupJid = groupJid(73);
+        long groupId = seedCurrentGroup(groupJid);
+        String concurrentGroupJid = groupJid(75);
+        long concurrentGroupId = seedCurrentGroup(concurrentGroupJid);
+        String phone = "15550000076";
+        String pnJid = phone + "@s.whatsapp.net";
+        seedCapturedAccount(173L, phone, List.of());
+
+        CountDownLatch staleReadEstablished = new CountDownLatch(1);
+        CountDownLatch factsCommitted = new CountDownLatch(1);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<List<com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing>> reader =
+                    executor.submit(() -> inTransaction(() -> {
+                        var stale = currentSnapshotMapper.selectExisting(
+                                173L, pnJid, List.of(groupJid)).get(0);
+                        assertThat(stale.participantId()).isNull();
+                        assertThat(stale.bindingId()).isNull();
+                        staleReadEstablished.countDown();
+                        assertThat(factsCommitted.await(10, TimeUnit.SECONDS)).isTrue();
+
+                        currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                                TENANT_ID, List.of(groupId));
+                        return currentSnapshotMapper.selectExistingAfterGroupLock(
+                                TENANT_ID, 173L, pnJid, List.of(groupId));
+                    }));
+
+            assertThat(staleReadEstablished.await(5, TimeUnit.SECONDS)).isTrue();
+            Long participantId = inTransaction(() -> {
+                transactionalJdbc.update("""
+                        INSERT INTO wa_group_participant (
+                          tenant_id, group_id, pn_jid, phone,
+                          presence_status, presence_source, presence_observed_at,
+                          created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 1, 'ADD_EVENT', 2000, 2000, 2000)
+                        """, TENANT_ID, groupId, pnJid, phone);
+                Long insertedParticipantId = transactionalJdbc.queryForObject("""
+                        SELECT id FROM wa_group_participant
+                        WHERE tenant_id = ? AND group_id = ? AND pn_jid = ?
+                        """, Long.class, TENANT_ID, groupId, pnJid);
+                transactionalJdbc.update("""
+                        INSERT INTO wa_account_group_binding (
+                          tenant_id, account_id, group_id, participant_id,
+                          was_in_initial_baseline, last_observed_at, created_at, updated_at
+                        ) VALUES (?, 173, ?, ?, 0, 2000, 2000, 2000)
+                        """, TENANT_ID, groupId, insertedParticipantId);
+                transactionalJdbc.update("""
+                        INSERT INTO wa_group_participant (
+                          tenant_id, group_id, pn_jid, phone,
+                          presence_status, presence_source, presence_observed_at,
+                          created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 1, 'ADD_EVENT', 2000, 2000, 2000)
+                        """, TENANT_ID, concurrentGroupId, pnJid, phone);
+                Long concurrentParticipantId = transactionalJdbc.queryForObject("""
+                        SELECT id FROM wa_group_participant
+                        WHERE tenant_id = ? AND group_id = ? AND pn_jid = ?
+                        """, Long.class, TENANT_ID, concurrentGroupId, pnJid);
+                transactionalJdbc.update("""
+                        INSERT INTO wa_account_group_binding (
+                          tenant_id, account_id, group_id, participant_id,
+                          was_in_initial_baseline, last_observed_at, created_at, updated_at
+                        ) VALUES (?, 173, ?, ?, 0, 2000, 2000, 2000)
+                        """, TENANT_ID, concurrentGroupId, concurrentParticipantId);
+                return insertedParticipantId;
+            });
+            factsCommitted.countDown();
+
+            var currentRows = reader.get(10, TimeUnit.SECONDS);
+            assertThat(currentRows)
+                    .extracting(com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing::groupJid)
+                    .containsExactly(groupJid)
+                    .doesNotContain(concurrentGroupJid);
+            var current = currentRows.get(0);
+            assertThat(current.participantId()).isEqualTo(participantId);
+            assertThat(current.bindingId()).isNotNull();
+            assertThat(current.presenceStatus()).isOne();
+        } finally {
+            factsCommitted.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void missingGroupParticipantWriterLocksLegacyHandleBeforeCreatingGroup() throws Exception {
+        String groupJid = groupJid(74);
+        jdbc.update("""
+                INSERT INTO group_link (
+                  id, tenant_id, link_url, created_at, updated_at
+                ) VALUES (974, ?, ?, 1000, 1000)
+                """, TENANT_ID, "wa://group/" + groupJid);
+
+        CountDownLatch legacyHandleLocked = new CountDownLatch(1);
+        CountDownLatch letHolderCreateGroup = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> legacyThenGroup = executor.submit(() -> inTransaction(() -> {
+                transactionalJdbc.queryForObject("""
+                        SELECT id FROM group_link FORCE INDEX (PRIMARY)
+                        WHERE tenant_id = ? AND id = 974 FOR UPDATE
+                        """, Long.class, TENANT_ID);
+                legacyHandleLocked.countDown();
+                assertThat(letHolderCreateGroup.await(15, TimeUnit.SECONDS)).isTrue();
+                transactionalJdbc.update("""
+                        INSERT INTO wa_group (
+                          tenant_id, group_jid, origin, created_at, updated_at
+                        ) VALUES (?, ?, 5, 1000, 1000)
+                        ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)
+                        """, TENANT_ID, groupJid);
+                return null;
+            }));
+            assertThat(legacyHandleLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> participantWriter = executor.submit(() -> writeParticipantJoins(List.of(
+                    new WhatsappGroupJoinFact(
+                            TENANT_ID, groupJid,
+                            "15550000077@s.whatsapp.net", "15550000077",
+                            2_000L, 2_000L, "missing-group-lock-order", 174L))));
+            awaitMysqlLockWait(participantWriter);
+            letHolderCreateGroup.countDown();
+
+            legacyThenGroup.get(10, TimeUnit.SECONDS);
+            participantWriter.get(10, TimeUnit.SECONDS);
+            assertThat(jdbc.queryForObject(
+                    "SELECT group_id FROM group_link WHERE id = 974", Long.class))
+                    .isNotNull();
+        } finally {
+            letHolderCreateGroup.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 
     @Test
@@ -958,7 +1580,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void completeSnapshotMergesExistingPnAndLidRowsBeforeWritingFacts() throws Exception {
+    void phoneGuardMergesExistingPnAndLidBeforeFullSnapshotAndKeepsFacts() throws Exception {
         String phone = "919000000003";
         String pnJid = phone + "@s.whatsapp.net";
         String lidJid = "323456789012345@lid";
@@ -980,7 +1602,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 Long.class,
                 lidJid);
 
-        assertThat(count("wa_group_participant")).isEqualTo(2);
+        assertThat(count("wa_group_participant")).isOne();
+        assertThat(lidParticipantId).isEqualTo(pnParticipantId);
         assertThat(jdbc.queryForObject(
                 "SELECT participant_id FROM wa_account_group_binding WHERE account_id = 143",
                 Long.class)).isEqualTo(pnParticipantId);
@@ -1181,10 +1804,42 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             String groupJid,
             String inviteCode,
             long observedAt) {
+        writeCurrentInvite(null, groupJid, inviteCode, observedAt);
+    }
+
+    private static void writeCurrentInvite(
+            Long groupLinkId,
+            String groupJid,
+            String inviteCode,
+            long observedAt) {
         TenantContext.set(TENANT_ID);
         try {
             transactionTemplate.executeWithoutResult(transaction ->
-                    currentInvitePersistence.apply(null, groupJid, inviteCode, observedAt));
+                    currentInvitePersistence.apply(
+                            groupLinkId, groupJid, inviteCode, observedAt));
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void writeMetadataSnapshotChain(
+            Long groupLinkId,
+            String groupJid,
+            String inviteCode,
+            long observedAt) {
+        TenantContext.set(TENANT_ID);
+        try {
+            transactionTemplate.executeWithoutResult(transaction -> {
+                currentInvitePersistence.apply(
+                        groupLinkId, groupJid, inviteCode, observedAt);
+                persistence.replaceCompleteGroupMetadataSnapshot(
+                        metadataPreview(groupJid, observedAt, observedAt),
+                        List.of(new GroupParticipantResult(
+                                "15550000079@s.whatsapp.net", null, "15550000079",
+                                false, false, "member")),
+                        observedAt,
+                        "metadata-lock-order-" + observedAt);
+            });
         } finally {
             TenantContext.clear();
         }
@@ -1256,6 +1911,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 null,
                 false,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -1271,6 +1928,95 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return "120363-snapshot-%03d@g.us".formatted(index);
     }
 
+    private static long seedCurrentGroup(String groupJid) {
+        jdbc.update("""
+                INSERT INTO wa_group (
+                  tenant_id, group_jid, origin, created_at, updated_at
+                ) VALUES (?, ?, 5, 1000, 1000)
+                """, TENANT_ID, groupJid);
+        return jdbc.queryForObject(
+                "SELECT id FROM wa_group WHERE tenant_id = ? AND group_jid = ?",
+                Long.class, TENANT_ID, groupJid);
+    }
+
+    private static void seedCurrentProfile(long groupId) {
+        jdbc.update("""
+                INSERT INTO wa_group_profile (
+                  tenant_id, group_id, created_at, updated_at
+                ) VALUES (?, ?, 1000, 1000)
+                """, TENANT_ID, groupId);
+    }
+
+    private static void assertWriterWaitsForGroupLock(String groupJid, Runnable writer)
+            throws Exception {
+        CountDownLatch groupLocked = new CountDownLatch(1);
+        CountDownLatch releaseGroup = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<Void> holder = executor.submit(() -> inTransaction(() -> {
+                currentSnapshotMapper.selectGroupIds(TENANT_ID, List.of(groupJid));
+                groupLocked.countDown();
+                assertThat(releaseGroup.await(15, TimeUnit.SECONDS)).isTrue();
+                return null;
+            }));
+            assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
+            Future<?> blockedWriter = executor.submit(writer);
+            awaitMysqlLockWait(blockedWriter);
+            assertThat(blockedWriter).isNotDone();
+
+            releaseGroup.countDown();
+            holder.get(10, TimeUnit.SECONDS);
+            blockedWriter.get(10, TimeUnit.SECONDS);
+        } finally {
+            releaseGroup.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    private static <T> T inTransaction(java.util.concurrent.Callable<T> action) {
+        TenantContext.set(TENANT_ID);
+        try {
+            return transactionTemplate.execute(status -> {
+                try {
+                    return action.call();
+                } catch (RuntimeException exception) {
+                    throw exception;
+                } catch (Exception exception) {
+                    throw new IllegalStateException(exception);
+                }
+            });
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private static void awaitMysqlLockWait(Future<?> writer) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            if (writer.isDone()) {
+                try {
+                    writer.get();
+                } catch (Exception exception) {
+                    throw new AssertionError(
+                            "participant writer failed before reaching the wa_group lock boundary",
+                            exception);
+                }
+                throw new AssertionError(
+                        "participant writer bypassed the wa_group lock boundary: "
+                                + recordingDataSource.statements());
+            }
+            Integer waits = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM performance_schema.data_lock_waits", Integer.class);
+            if (waits != null && waits > 0) {
+                return;
+            }
+            java.util.concurrent.locks.LockSupport.parkNanos(
+                    TimeUnit.MILLISECONDS.toNanos(5));
+        }
+        throw new AssertionError("未观察到 participant writer 等待 wa_group 行锁");
+    }
+
     private static int count(String table) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
     }
@@ -1284,6 +2030,85 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         for (int index = 0; index < statements.size(); index++) {
             String sql = statements.get(index);
             if (sql.contains(normalizedTable) && sql.startsWith(verb)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int firstExplicitGroupPrimaryLock(List<String> statements) {
+        for (int index = 0; index < statements.size(); index++) {
+            String sql = statements.get(index);
+            if (sql.startsWith("SELECT")
+                    && sql.contains("FROM WA_GROUP FORCE INDEX (PRIMARY)")
+                    && sql.contains("ORDER BY ID ASC")
+                    && sql.contains("FOR UPDATE")) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int firstExplicitLegacyPrimaryLock(List<String> statements) {
+        for (int index = 0; index < statements.size(); index++) {
+            String sql = statements.get(index);
+            if (sql.startsWith("SELECT")
+                    && sql.contains("FROM GROUP_LINK FORCE INDEX (PRIMARY)")
+                    && sql.contains("ORDER BY ID ASC")
+                    && sql.contains("FOR UPDATE")) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static void assertCurrentInviteOrder(
+            List<String> statements,
+            boolean expectLegacyLock,
+            boolean expectGroupRestore,
+            boolean expectLockBeforeRestore) {
+        int legacyLock = firstExplicitLegacyPrimaryLock(statements);
+        int groupRestore = firstIndexStartingWith(statements, "INSERT INTO WA_GROUP (");
+        int groupLock = firstExplicitGroupPrimaryLock(statements);
+        int profileLock = firstIndexContaining(statements, "WA_GROUP_PROFILE", "INSERT");
+        int inviteWrite = firstIndexContaining(statements, "WA_GROUP_INVITE", "INSERT");
+        if (expectLegacyLock) {
+            assertThat(legacyLock).isGreaterThanOrEqualTo(0);
+            assertThat(groupLock).isGreaterThan(legacyLock);
+        } else {
+            assertThat(legacyLock).isEqualTo(-1);
+        }
+        if (expectGroupRestore) {
+            assertThat(groupRestore).isGreaterThanOrEqualTo(0);
+            if (expectLockBeforeRestore) {
+                assertThat(groupRestore).isGreaterThan(groupLock);
+            } else {
+                assertThat(groupLock).isGreaterThan(groupRestore);
+            }
+        } else {
+            assertThat(groupRestore).isEqualTo(-1);
+        }
+        assertThat(groupLock).isGreaterThanOrEqualTo(0);
+        assertThat(profileLock).isGreaterThan(groupLock);
+        assertThat(inviteWrite).isGreaterThan(profileLock);
+    }
+
+    private static int firstIndexStartingWith(List<String> statements, String prefix) {
+        for (int index = 0; index < statements.size(); index++) {
+            if (statements.get(index).startsWith(prefix)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int firstJoinedCurrentLock(List<String> statements) {
+        for (int index = 0; index < statements.size(); index++) {
+            String sql = statements.get(index);
+            if (sql.startsWith("SELECT")
+                    && sql.contains("LEFT JOIN WA_GROUP_PARTICIPANT")
+                    && sql.contains("LEFT JOIN WA_ACCOUNT_GROUP_BINDING")
+                    && sql.contains("FOR UPDATE")) {
                 return index;
             }
         }
@@ -1316,7 +2141,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         factoryBean.setPlugins(interceptor);
         factoryBean.setMapperLocations(
                 new ClassPathResource("mapper/group/AccountGroupCurrentSnapshotMapper.xml"),
-                new ClassPathResource("mapper/group/GroupCurrentInviteMapper.xml"));
+                new ClassPathResource("mapper/group/GroupCurrentInviteMapper.xml"),
+                new ClassPathResource("mapper/group/GroupMetadataPatchMapper.xml"));
         SqlSessionFactory factory = factoryBean.getObject();
         if (factory == null) {
             throw new IllegalStateException("无法创建账号群新模型测试 SqlSessionFactory");
@@ -1369,7 +2195,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return new AccountGroupsReportedEvent.Group(
                 groupJid, "Settings", 5, null, null, true,
                 announceOnly, null, null, adminOnlyEditInfo, memberAddMode,
-                null, false, null, null);
+                null, false, null, null, null, null);
     }
 
     /** 按群 JID 读取 wa_group_profile 的单个群设置列，TINYINT 以 0/1 返回。 */
@@ -1427,7 +2253,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         return new AccountGroupsReportedEvent.Group(
                 groupJid, "Profile", 5, null, null, true,
                 null, null, null, null, null,
-                description, descriptionObserved, joinApprovalMode, ephemeralDurationSeconds);
+                description, descriptionObserved, joinApprovalMode, ephemeralDurationSeconds,
+                null, null);
     }
 
     /** 按群 JID 读取 wa_group_profile 的单个文本列。 */

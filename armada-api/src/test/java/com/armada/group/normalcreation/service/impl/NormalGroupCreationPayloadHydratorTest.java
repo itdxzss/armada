@@ -1,6 +1,7 @@
 package com.armada.group.normalcreation.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -110,6 +111,28 @@ class NormalGroupCreationPayloadHydratorTest {
 
         assertThat(payload.path("participants").toString())
                 .isEqualTo("[\"933\",\"922\"]");
+    }
+
+    @Test
+    void createPayloadRejectsEmptyEligibleParticipantList() {
+        ProtocolCommandOutbox row = outbox("cmd-create");
+        ItemWork item = new ItemWork(
+                21L, 1L, 9L, "测试普群", "测试普群",
+                382L, "creator-web", "WEB", "911",
+                null, "RUNNING", "CREATING_GROUP", "SENT",
+                "cmd-create", null, null, "KEEP", null, 91L, 92L,
+                true, false, true, false, 0);
+        when(mapper.selectItemWork(21L)).thenReturn(item);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(new MemberWork(
+                31L, 383L, "member-1", "ANDROID", "922",
+                "FAILED", "UNKNOWN", "m1", "m2", "PENDING")));
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of());
+        JsonNode reference = objectMapper.valueToTree(new ProtocolNormalGroupCreationReference(
+                1L, 9L, 21L, null, null, "GROUP_CREATE", "normal_group_creation"));
+
+        assertThatThrownBy(() -> hydrator.hydrate(row, reference))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("建群参与者为空");
     }
 
     @Test

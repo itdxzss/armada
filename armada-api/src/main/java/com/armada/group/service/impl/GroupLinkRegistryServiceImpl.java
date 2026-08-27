@@ -7,16 +7,22 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.group.model.vo.AccountObservedGroupHandle;
+import com.armada.group.model.vo.AccountObservedGroupWrite;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkUrls;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -104,6 +110,97 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         groupLinkMapper.touchAccountObservedGroup(
                 groupLinkId, normalizedName, syncProtocolMask, now);
         return groupLinkId;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Long> registerAccountObservedGroups(
+            Map<String, String> groupNamesByJid,
+            ProtocolBackend observedBackend,
+            long now) {
+        Map<String, String> normalized = new TreeMap<>();
+        if (groupNamesByJid != null) {
+            groupNamesByJid.forEach((groupJid, groupName) -> normalized.put(
+                    normalizeRequired(groupJid, "账号群同步缺少 groupJid"), groupName));
+        }
+        if (normalized.isEmpty()) {
+            return Map.of();
+        }
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        int syncProtocolMask = observedBackend == ProtocolBackend.ANDROID ? 2 : 1;
+        List<String> groupJids = List.copyOf(normalized.keySet());
+        Map<String, AccountObservedGroupHandle> existing = handlesByJid(
+                groupLinkMapper.selectAccountObservedHandles(tenantId, groupJids));
+        List<Long> existingIds = existing.values().stream()
+                .map(AccountObservedGroupHandle::groupLinkId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (!existingIds.isEmpty()) {
+            groupLinkMapper.selectAccountObservedByIdsForUpdate(tenantId, existingIds);
+        }
+        List<AccountObservedGroupWrite> rows = normalized.entrySet().stream()
+                .sorted(Comparator
+                        .comparing((Map.Entry<String, String> entry) ->
+                                existing.get(entry.getKey()) == null ? 1 : 0)
+                        .thenComparing(entry -> {
+                            AccountObservedGroupHandle handle = existing.get(entry.getKey());
+                            return handle == null ? Long.MAX_VALUE : handle.groupLinkId();
+                        })
+                        .thenComparing(Map.Entry::getKey))
+                .map(entry -> accountObservedRow(
+                        entry.getKey(), entry.getValue(), existing.get(entry.getKey()),
+                        syncProtocolMask, now))
+                .toList();
+        groupLinkMapper.upsertAccountObservedGroups(tenantId, rows);
+
+        Map<String, AccountObservedGroupHandle> resolved = handlesByJid(
+                groupLinkMapper.selectAccountObservedHandles(tenantId, groupJids));
+        if (resolved.size() != normalized.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "账号群入口批量登记结果不完整");
+        }
+        Map<String, Long> result = new LinkedHashMap<>();
+        for (String groupJid : groupJids) {
+            result.put(groupJid, resolved.get(groupJid).groupLinkId());
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private static Map<String, AccountObservedGroupHandle> handlesByJid(
+            List<AccountObservedGroupHandle> handles) {
+        Map<String, AccountObservedGroupHandle> result = new LinkedHashMap<>();
+        if (handles == null) {
+            return result;
+        }
+        handles.stream()
+                .filter(java.util.Objects::nonNull)
+                .filter(handle -> handle.groupJid() != null && handle.groupLinkId() != null)
+                .sorted(Comparator.comparing(AccountObservedGroupHandle::groupJid))
+                .forEach(handle -> result.putIfAbsent(handle.groupJid(), handle));
+        return result;
+    }
+
+    private static AccountObservedGroupWrite accountObservedRow(
+            String groupJid,
+            String groupName,
+            AccountObservedGroupHandle existing,
+            int syncProtocolMask,
+            long now) {
+        String normalizedName = clamp(blankToNull(groupName), 128);
+        return new AccountObservedGroupWrite(
+                existing == null ? null : existing.groupLinkId(),
+                existing == null ? SELF_BUILT_LINK_PREFIX + groupJid : existing.linkUrl(),
+                normalizedName == null ? groupJid : normalizedName,
+                normalizedName,
+                GroupLinkOrigin.ACCOUNT_SYNC.code(),
+                GroupMembershipState.JOINED.code(),
+                syncProtocolMask,
+                now,
+                now);
     }
 
     /**

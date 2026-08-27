@@ -5,6 +5,7 @@ import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupHandle;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
@@ -40,7 +41,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -133,13 +133,54 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     return existing == null || existing.deletedAt() != null;
                 })
                 .toList();
+        List<Long> preexistingSnapshotGroupIds = discoveredRows.stream()
+                .map(Existing::groupId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        lockGroupIds(tenantId, preexistingSnapshotGroupIds);
         if (!missingGroupRows.isEmpty()) {
             mapper.insertMissingGroups(tenantId, missingGroupRows);
         }
 
-        // 普通读只负责发现缺失群；所有分类、周期和缺失判断必须基于锁后的当前事实。
-        List<Existing> existingRows = mapper.selectExistingForUpdate(
-                tenantId, accountId, self.ownerJid(), visibleJids);
+        Map<String, Long> visibleGroupIds = discoveredRows.stream()
+                .filter(row -> visible.containsKey(row.groupJid()))
+                .filter(row -> row.groupId() != null)
+                .collect(Collectors.toMap(
+                        Existing::groupJid,
+                        Existing::groupId,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+        List<String> unresolvedVisibleJids = visibleJids.stream()
+                .filter(groupJid -> !visibleGroupIds.containsKey(groupJid))
+                .toList();
+        if (!unresolvedVisibleJids.isEmpty()) {
+            mapper.selectGroupIdsWithoutLock(tenantId, unresolvedVisibleJids)
+                    .forEach(group -> visibleGroupIds.put(group.groupJid(), group.groupId()));
+        }
+        if (visibleGroupIds.size() != visibleJids.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型批量解析 groupId 不完整");
+        }
+        List<Long> snapshotGroupIds = java.util.stream.Stream.concat(
+                        visibleGroupIds.values().stream(),
+                        discoveredRows.stream()
+                                .filter(row -> row.bindingId() != null)
+                                .map(Existing::groupId))
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        Set<Long> prelockedGroupIds = Set.copyOf(preexistingSnapshotGroupIds);
+        lockGroupIds(
+                tenantId,
+                snapshotGroupIds.stream()
+                        .filter(groupId -> !prelockedGroupIds.contains(groupId))
+                        .toList());
+
+        // G 已按 PRIMARY 串行化；随后统一按 G→P→B 取得 current locks。
+        List<Existing> existingRows = mapper.selectExistingAfterGroupLock(
+                tenantId, accountId, self.ownerJid(), snapshotGroupIds);
         Map<String, Existing> existingByJid = existingRows.stream()
                 .filter(row -> visible.containsKey(row.groupJid()))
                 .collect(Collectors.toMap(
@@ -161,9 +202,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 .toList();
 
         if (!rows.isEmpty()) {
-            Map<String, Long> groupIds = existingRows.stream()
-                    .filter(row -> visible.containsKey(row.groupJid()))
-                    .collect(Collectors.toMap(Existing::groupJid, Existing::groupId));
+            Map<String, Long> groupIds = visibleGroupIds;
             if (groupIds.size() != rows.size()) {
                 throw new BusinessException(ErrorCode.CONFLICT, "新群模型批量解析 groupId 不完整");
             }
@@ -190,6 +229,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     .sorted(Comparator.comparing(Write::groupId).thenComparing(Write::groupJid))
                     .toList();
             mapper.upsertProfiles(rows);
+            mergeSplitParticipantIdentities(
+                    tenantId,
+                    rows.stream()
+                            .map(AccountGroupCurrentSnapshotPersistenceImpl::snapshotIdentityCandidate)
+                            .toList());
             mapper.upsertParticipants(rows);
         }
 
@@ -252,10 +296,12 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             long now,
             String normalizedEventId) {
         boolean acceptedPresence = snapshotWins(existing, syncAt);
-        Classification classification = snapshotClassification(
-                entry.getKey(), blankToNull(entry.getValue().subject()), existing,
-                baseline, capturingBaseline, acceptedPresence, syncAt);
         AccountGroupsReportedEvent.Group group = entry.getValue();
+        Classification classification = group.postControlObservedAt() == null
+                ? snapshotClassification(
+                        entry.getKey(), blankToNull(group.subject()), existing,
+                        baseline, capturingBaseline, acceptedPresence, syncAt)
+                : new Classification(0, null, group.postControlObservedAt());
         Long activeSince = acceptedPresence
                 && (existing == null || existing.presenceStatus() == null
                 || existing.presenceStatus() != PRESENCE_IN_GROUP)
@@ -326,18 +372,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (normalizedGroupJid == null || normalizedSource == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新群模型精确关系事件缺少群或来源");
         }
-        Existing discovered = mapper.selectSelfMembershipExisting(
-                accountId, self.ownerJid(), normalizedGroupJid);
         long now = System.currentTimeMillis();
         String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
-        if (discovered == null || (inGroup && discovered.deletedAt() != null)) {
-            mapper.insertMissingGroups(tenantId, List.of(new Write(
-                    null, normalizedGroupJid, null,
-                    null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, normalizedEventId, occurredAt, now, null, null, null, null, null, null,
-                    null, null, null)));
-        }
-        Existing existing = mapper.selectSelfMembershipExistingForUpdate(
+        Long groupId = resolveGroupIds(
+                tenantId, List.of(normalizedGroupJid), now).get(normalizedGroupJid);
+        Existing existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                 tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         if (existing == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定精确关系事件的群事实");
@@ -348,7 +387,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
                     0, normalizedEventId, occurredAt, now, null, null, null, null, null, null,
                     null, null, null)));
-            existing = mapper.selectSelfMembershipExistingForUpdate(
+            existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                     tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         }
         boolean accepted = presenceWins(existing, occurredAt, normalizedSource);
@@ -388,7 +427,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 activeSince,
                 classification.firstPostControlObservedAt());
 
-        mapper.updateLegacyGroupReferences(tenantId, List.of(normalizedGroupJid));
+        mergeSplitParticipantIdentities(tenantId, List.of(row));
         mapper.upsertParticipantFacts(List.of(row));
         if (!inGroup) {
             mapper.clearMembershipActiveSinceForAcceptedExit(
@@ -431,18 +470,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             throw new BusinessException(ErrorCode.VALIDATION, "新群模型成员观察来源或事实时间非法");
         }
 
-        Existing discovered = mapper.selectSelfMembershipExisting(
-                accountId, self.ownerJid(), normalizedGroupJid);
         long now = System.currentTimeMillis();
         String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
-        if (discovered == null || (inGroup && discovered.deletedAt() != null)) {
-            mapper.insertMissingGroups(tenantId, List.of(new Write(
-                    null, normalizedGroupJid, null,
-                    null, null, null, null, self.ownerJid(), self.ownerPhone(),
-                    0, normalizedEventId, observedAt, now, null, null, null, null, null, null,
-                    null, null, null)));
-        }
-        Existing existing = mapper.selectSelfMembershipExistingForUpdate(
+        Long groupId = resolveGroupIds(
+                tenantId, List.of(normalizedGroupJid), now).get(normalizedGroupJid);
+        Existing existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                 tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         if (existing == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定成员观察的群事实");
@@ -453,7 +485,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                     null, null, null, null, self.ownerJid(), self.ownerPhone(),
                     0, normalizedEventId, observedAt, now, null, null, null, null, null, null,
                     null, null, null)));
-            existing = mapper.selectSelfMembershipExistingForUpdate(
+            existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                     tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         }
         boolean accepted = presenceWins(existing, observedAt, normalizedSource);
@@ -491,7 +523,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 activeSince,
                 null);
 
-        mapper.updateLegacyGroupReferences(tenantId, List.of(normalizedGroupJid));
+        mergeSplitParticipantIdentities(tenantId, List.of(row));
         mapper.upsertParticipantFacts(List.of(row));
         if (!inGroup) {
             mapper.clearMembershipActiveSinceForAcceptedExit(
@@ -640,7 +672,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         List<ParticipantPresenceWrite> resolvedRows = rows.stream()
                 .map(row -> row.withGroupId(groupIds.get(row.groupJid())))
                 .toList();
-        mergeParticipantIdentitiesWithRetry(tenantId, resolvedRows);
+        mergeParticipantIdentities(tenantId, resolvedRows);
     }
 
     /** 身份合并只填 groupId/pnJid/lidJid/phone/now，其余列对应语句一律不写。 */
@@ -674,6 +706,37 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             long snapshotAt,
             String snapshotVersion) {
         replaceCompleteSnapshot(groupJid, participants, snapshotAt, snapshotVersion, null);
+    }
+
+    /**
+     * 在单群资料上报写 PROFILE/P/B 前建立统一的旧句柄、群主键写入边界。
+     *
+     * <p>资料字段 patch 本身只按 JID 普通读取群主键，不能承担锁序；完整成员快照又会在之后才锁
+     * {@code wa_group}。入口必须先走 GL→G(PRIMARY)，否则缺少建群时间的事件会形成
+     * PROFILE→G，与账号群报告的 G→PROFILE 反向。</p>
+     *
+     * @param groupLinkId 本事件刚登记或复用的兼容群句柄，可空
+     * @param groupJid WhatsApp 群 JID
+     * @return 已锁定的 {@code wa_group.id}
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Long lockGroupWriteBoundary(Long groupLinkId, String groupJid) {
+        Long tenantId = requiredTenantId();
+        String normalizedGroupJid = participantGroupJid(groupJid);
+        if (groupLinkId != null) {
+            List<Long> lockedIds = mapper.selectLegacyGroupHandleIdsByIdsForUpdate(
+                    tenantId, List.of(groupLinkId));
+            if (lockedIds.size() != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定资料上报的旧群句柄");
+            }
+        }
+        Long groupId = resolveGroupIds(
+                tenantId, List.of(normalizedGroupJid), System.currentTimeMillis())
+                .get(normalizedGroupJid);
+        if (groupId == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定资料上报的群写入边界");
+        }
+        return groupId;
     }
 
     /** 将现有群详情成功结果同步写入新模型群资料和完整成员快照。 */
@@ -806,6 +869,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             Long tenantId,
             List<String> groupJids,
             long now) {
+        List<LegacyGroupHandle> legacyHandles = lockUnboundLegacyGroupHandles(
+                tenantId, groupJids);
         Map<String, Long> groupIds = mapper.selectGroupIdsWithoutLock(tenantId, groupJids).stream()
                 .collect(Collectors.toMap(GroupId::groupJid, GroupId::groupId));
         List<String> missingGroupJids = groupJids.stream()
@@ -820,14 +885,80 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             null, null, null))
                     .toList();
             mapper.insertMissingGroups(tenantId, missingGroups);
-            mapper.selectGroupIds(tenantId, missingGroupJids)
+            mapper.selectGroupIdsWithoutLock(tenantId, missingGroupJids)
                     .forEach(group -> groupIds.put(group.groupJid(), group.groupId()));
         }
         if (groupIds.size() != groupJids.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员事件的 groupId");
         }
-        mapper.updateLegacyGroupReferences(tenantId, groupJids);
+        lockGroupIds(tenantId, groupIds.values().stream().sorted().toList());
+        updatePrelockedLegacyGroupReferences(tenantId, legacyHandles, groupIds);
         return groupIds;
+    }
+
+    private List<LegacyGroupHandle> lockUnboundLegacyGroupHandles(
+            Long tenantId,
+            List<String> groupJids) {
+        if (groupJids == null || groupJids.isEmpty()) {
+            return List.of();
+        }
+        List<LegacyGroupHandle> handles = mapper.selectUnboundLegacyGroupHandlesWithoutLock(
+                tenantId, groupJids);
+        List<Long> handleIds = handles.stream()
+                .map(LegacyGroupHandle::groupLinkId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (handleIds.isEmpty()) {
+            return List.of();
+        }
+        List<Long> lockedIds = mapper.selectLegacyGroupHandleIdsByIdsForUpdate(
+                tenantId, handleIds);
+        if (lockedIds.size() != handleIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定完整的旧群句柄写入边界");
+        }
+        return handles;
+    }
+
+    private void updatePrelockedLegacyGroupReferences(
+            Long tenantId,
+            List<LegacyGroupHandle> handles,
+            Map<String, Long> groupIds) {
+        if (handles == null || handles.isEmpty()) {
+            return;
+        }
+        Map<Long, LegacyGroupReference> references = new TreeMap<>();
+        for (LegacyGroupHandle handle : handles) {
+            if (handle == null || handle.groupLinkId() == null) {
+                continue;
+            }
+            Long groupId = groupIds.get(handle.groupJid());
+            if (groupId != null) {
+                references.putIfAbsent(
+                        handle.groupLinkId(),
+                        new LegacyGroupReference(handle.groupLinkId(), groupId));
+            }
+        }
+        if (!references.isEmpty()) {
+            mapper.updateSelectedLegacyGroupReferences(
+                    tenantId, List.copyOf(references.values()));
+        }
+    }
+
+    private void lockGroupIds(Long tenantId, List<Long> groupIds) {
+        List<Long> stableIds = groupIds == null ? List.of() : groupIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (stableIds.isEmpty()) {
+            return;
+        }
+        List<GroupId> locked = mapper.selectGroupIdsByIdsForUpdate(tenantId, stableIds);
+        if (locked.size() != stableIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定完整的群写入边界");
+        }
     }
 
     private void upsertParticipantFactsInBatches(
@@ -837,38 +968,33 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             List<ParticipantPresenceWrite> batch = rows.subList(
                     start, Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, rows.size()));
             mergeSplitParticipantIdentities(tenantId, batch);
-            try {
-                mapper.upsertParticipantFacts(batch);
-            } catch (DuplicateKeyException exception) {
-                log.warn("群成员事实并发命中分裂身份,定点归并后重试一次 rowCount={}", batch.size());
-                mergeSplitParticipantIdentities(tenantId, batch);
-                mapper.upsertParticipantFacts(batch);
-            }
+            mapper.upsertParticipantFacts(batch);
         }
     }
 
-    private void mergeParticipantIdentitiesWithRetry(
+    private void mergeParticipantIdentities(
             Long tenantId,
             List<ParticipantPresenceWrite> rows) {
         mergeSplitParticipantIdentities(tenantId, rows);
-        try {
-            mapper.mergeParticipantIdentities(rows);
-        } catch (DuplicateKeyException exception) {
-            log.warn("群成员身份合并并发命中分裂身份,定点归并后重试一次 rowCount={}", rows.size());
-            mergeSplitParticipantIdentities(tenantId, rows);
-            mapper.mergeParticipantIdentities(rows);
-        }
+        mapper.mergeParticipantIdentities(rows);
     }
 
-    /** 将本次已明确关联的 PN/LID 双行归并到 LID canonical 行。 */
+    /** 将同群 PN/LID 双行按明确身份或可信 phone 证据归并到 LID canonical 行。 */
     private void mergeSplitParticipantIdentities(
             Long tenantId,
             List<ParticipantPresenceWrite> rows) {
         Map<String, ParticipantPresenceWrite> candidates = new LinkedHashMap<>();
         for (ParticipantPresenceWrite row : rows) {
-            if (row.groupId() != null && row.pnJid() != null && row.lidJid() != null) {
-                candidates.putIfAbsent(
-                        identityPairKey(row.groupId(), row.pnJid(), row.lidJid()), row);
+            String phone = normalizedPhone(row.phone());
+            if (row.groupId() != null
+                    && (row.pnJid() != null || row.lidJid() != null)
+                    && ((row.pnJid() != null && row.lidJid() != null) || phone != null)) {
+                String key = participantIdentityCandidateKey(row, phone);
+                ParticipantPresenceWrite previous = candidates.putIfAbsent(key, row);
+                if (previous != null && identitiesConflict(previous, row)) {
+                    throw new BusinessException(
+                            ErrorCode.CONFLICT, "同群相同 phone 对应多个成员身份");
+                }
             }
         }
         if (candidates.isEmpty()) {
@@ -879,6 +1005,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 tenantId, candidateRows);
         Map<String, ParticipantIdentityRow> byPn = new LinkedHashMap<>();
         Map<String, ParticipantIdentityRow> byLid = new LinkedHashMap<>();
+        Map<String, ParticipantIdentityRow> byPhone = new LinkedHashMap<>();
         for (ParticipantIdentityRow row : existing) {
             if (row.pnJid() != null) {
                 byPn.put(identityRowKey(row.groupId(), row.pnJid()), row);
@@ -886,22 +1013,47 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             if (row.lidJid() != null) {
                 byLid.put(identityRowKey(row.groupId(), row.lidJid()), row);
             }
+            String phone = normalizedPhone(row.phone());
+            if (phone != null) {
+                ParticipantIdentityRow previous = byPhone.putIfAbsent(
+                        phoneRowKey(row.groupId(), phone), row);
+                if (previous != null && !Objects.equals(previous.id(), row.id())) {
+                    throw new BusinessException(
+                            ErrorCode.CONFLICT, "同群 phone 唯一身份约束不完整");
+                }
+            }
         }
         int merged = 0;
         for (ParticipantPresenceWrite candidate : candidateRows) {
-            ParticipantIdentityRow duplicate = byPn.get(
+            String phone = normalizedPhone(candidate.phone());
+            ParticipantIdentityRow phoneMatch = phone == null ? null : byPhone.get(
+                    phoneRowKey(candidate.groupId(), phone));
+            validatePhoneIdentityEvidence(candidate, phoneMatch);
+            ParticipantIdentityRow duplicate = candidate.pnJid() == null ? null : byPn.get(
                     identityRowKey(candidate.groupId(), candidate.pnJid()));
-            ParticipantIdentityRow canonical = byLid.get(
+            ParticipantIdentityRow canonical = candidate.lidJid() == null ? null : byLid.get(
                     identityRowKey(candidate.groupId(), candidate.lidJid()));
+            if (duplicate == null && phoneMatch != null && phoneMatch.pnJid() != null) {
+                duplicate = phoneMatch;
+            }
+            if (canonical == null && phoneMatch != null && phoneMatch.lidJid() != null) {
+                canonical = phoneMatch;
+            }
             if (duplicate == null || canonical == null
                     || Objects.equals(duplicate.id(), canonical.id())) {
                 continue;
             }
+            validatePhoneIdentityEvidence(candidate, duplicate);
+            validatePhoneIdentityEvidence(candidate, canonical);
             if (duplicate.lidJid() != null || canonical.pnJid() != null) {
                 throw new BusinessException(
                         ErrorCode.CONFLICT, "群成员 PN/LID 身份映射与既有完整身份冲突");
             }
-            mergeSplitParticipantIdentity(tenantId, candidate, canonical.id(), duplicate.id());
+            String pnJid = candidate.pnJid() == null ? duplicate.pnJid() : candidate.pnJid();
+            String lidJid = candidate.lidJid() == null ? canonical.lidJid() : candidate.lidJid();
+            mergeSplitParticipantIdentity(
+                    tenantId, candidate.groupId(), pnJid, lidJid, phone, candidate.now(),
+                    canonical.id(), duplicate.id());
             merged++;
         }
         if (merged > 0) {
@@ -911,16 +1063,19 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
 
     private void mergeSplitParticipantIdentity(
             Long tenantId,
-            ParticipantPresenceWrite candidate,
+            Long groupId,
+            String pnJid,
+            String lidJid,
+            String phone,
+            long now,
             Long canonicalId,
             Long duplicateId) {
-        String phone = normalizedPhone(candidate.phone());
         if (phone == null) {
-            phone = normalizedPhone(candidate.pnJid());
+            phone = normalizedPhone(pnJid);
         }
         ParticipantIdentityMergeWrite merge = new ParticipantIdentityMergeWrite(
-                tenantId, candidate.groupId(), canonicalId, duplicateId,
-                candidate.pnJid(), candidate.lidJid(), phone, candidate.now());
+                tenantId, groupId, canonicalId, duplicateId,
+                pnJid, lidJid, phone, now);
         int factRows = mapper.mergeSplitParticipantFacts(merge);
         mapper.repointSplitParticipantBindings(merge);
         int deletedRows = mapper.deleteSplitParticipantDuplicate(merge);
@@ -930,8 +1085,48 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         }
     }
 
-    private static String identityPairKey(Long groupId, String pnJid, String lidJid) {
-        return identityRowKey(groupId, pnJid) + '\u0000' + lidJid;
+    private static String participantIdentityCandidateKey(
+            ParticipantPresenceWrite row,
+            String phone) {
+        if (phone != null) {
+            return phoneRowKey(row.groupId(), phone);
+        }
+        return identityRowKey(row.groupId(), row.pnJid()) + '\u0000' + row.lidJid();
+    }
+
+    private static boolean identitiesConflict(
+            ParticipantPresenceWrite left,
+            ParticipantPresenceWrite right) {
+        return left.pnJid() != null && right.pnJid() != null
+                && !left.pnJid().equals(right.pnJid())
+                || left.lidJid() != null && right.lidJid() != null
+                && !left.lidJid().equals(right.lidJid());
+    }
+
+    private static void validatePhoneIdentityEvidence(
+            ParticipantPresenceWrite candidate,
+            ParticipantIdentityRow phoneMatch) {
+        if (phoneMatch == null) {
+            return;
+        }
+        if (candidate.pnJid() != null && phoneMatch.pnJid() != null
+                && !candidate.pnJid().equals(phoneMatch.pnJid())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "同群 phone 与既有 PN 身份冲突");
+        }
+        if (candidate.lidJid() != null && phoneMatch.lidJid() != null
+                && !candidate.lidJid().equals(phoneMatch.lidJid())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "同群 phone 与既有 LID 身份冲突");
+        }
+        String candidatePhone = normalizedPhone(candidate.phone());
+        String existingPhone = normalizedPhone(phoneMatch.phone());
+        if (candidatePhone != null && existingPhone != null
+                && !candidatePhone.equals(existingPhone)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "群成员身份与既有 phone 冲突");
+        }
+    }
+
+    private static String phoneRowKey(Long groupId, String phone) {
+        return groupId + "\u0000phone\u0000" + phone;
     }
 
     private static String identityRowKey(Long groupId, String jid) {
@@ -1302,6 +1497,15 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 null,
                 null,
                 null);
+    }
+
+    /** 账号群快照只提供 self PN+phone；归并器据此处理既有 LID-only 同人行。 */
+    private static ParticipantPresenceWrite snapshotIdentityCandidate(Write row) {
+        return new ParticipantPresenceWrite(
+                row.groupId(), row.groupJid(), row.pnJid(), null, row.phone(),
+                null, null, row.eventId(), row.syncAt(), row.now(),
+                null, null, null, null, null, null, null, null, null,
+                null, null, null, null);
     }
 
     private static String normalizedPhone(String value) {

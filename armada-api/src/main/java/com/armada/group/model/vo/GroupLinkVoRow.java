@@ -30,6 +30,7 @@ public class GroupLinkVoRow {
     private Long lastCheckAt;
     private String lastHealthError;
     private Long createdAt;
+    private Integer groupClassificationCode;
     private Boolean isHistorical;
     private Boolean isPostControl;
     private Long folderId;
@@ -211,6 +212,14 @@ public class GroupLinkVoRow {
 
     public void setCreatedAt(Long createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Integer getGroupClassificationCode() {
+        return groupClassificationCode;
+    }
+
+    public void setGroupClassificationCode(Integer groupClassificationCode) {
+        this.groupClassificationCode = groupClassificationCode;
     }
 
     public Boolean getIsHistorical() {

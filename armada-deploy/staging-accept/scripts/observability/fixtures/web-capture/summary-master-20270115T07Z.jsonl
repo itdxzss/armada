@@ -1,0 +1,9 @@
+{"minute":1799999820000,"scope":"cmd:marketing","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":1000,"count":1,"runId":"master-run"}
+{"minute":1799999820000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"noise_frame","channel":"ws","bytes":900,"count":1,"runId":"master-run"}
+{"minute":1799999820000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"node_plain","channel":"ws","bytes":800,"count":1,"runId":"master-run"}
+{"minute":1799999880000,"scope":"cmd:marketing","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":1000,"count":1,"runId":"master-run"}
+{"minute":1799999880000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"noise_frame","channel":"ws","bytes":900,"count":1,"runId":"master-run"}
+{"minute":1799999880000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"node_plain","channel":"ws","bytes":800,"count":1,"runId":"master-run"}
+{"minute":1799999940000,"scope":"cmd:marketing","category":"unattributed","frameKind":"proxy:wire","direction":"up","measure":"proxy_wire","channel":"ws","bytes":1000,"count":1,"runId":"master-run"}
+{"minute":1799999940000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"noise_frame","channel":"ws","bytes":900,"count":1,"runId":"master-run"}
+{"minute":1799999940000,"scope":"cmd:marketing","category":"message_send","frameKind":"message","direction":"up","measure":"node_plain","channel":"ws","bytes":800,"count":1,"runId":"master-run"}

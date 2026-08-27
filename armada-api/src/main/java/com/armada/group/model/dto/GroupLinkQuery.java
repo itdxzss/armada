@@ -234,10 +234,6 @@ public class GroupLinkQuery extends PageQuery {
         return GroupListType.POST_CONTROL == groupType;
     }
 
-    public boolean isGroupTypeBoth() {
-        return GroupListType.BOTH == groupType;
-    }
-
     private boolean statusEquals(String expected) {
         return status != null && expected.equalsIgnoreCase(status.trim());
     }

@@ -1,15 +1,20 @@
 package com.armada.group.service.impl;
 
+import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.group.service.GroupExecutableAccountStates;
 import com.armada.group.service.GroupMetadataSyncLimits;
 import com.armada.group.service.GroupSnapshotDispatchService;
+import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,6 +69,69 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
 
     @Override
     @Transactional
+    public void enqueueClassifications(
+            Map<Long, GroupMetadataSyncTrigger> triggersByGroupLinkId,
+            long triggeredAt) {
+        if (triggersByGroupLinkId == null || triggersByGroupLinkId.isEmpty()) {
+            return;
+        }
+        Map<Long, GroupMetadataSyncTrigger> stableTriggers = new TreeMap<>();
+        triggersByGroupLinkId.forEach((groupLinkId, trigger) -> {
+            if (groupLinkId != null && trigger != null) {
+                stableTriggers.put(groupLinkId, trigger);
+            }
+        });
+        List<GroupMetadataSyncTask> rows = stableTriggers.entrySet().stream()
+                .map(entry -> queuedTask(entry.getKey(), entry.getValue(), triggeredAt, 0))
+                .toList();
+        if (!rows.isEmpty()) {
+            lockExistingClassificationTasks(rows);
+            mapper.enqueueBatch(rows, GroupMetadataSyncStatus.RUNNING.code());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void reconcileClassifications(
+            Map<Long, GroupMetadataSyncTrigger> triggersByGroupLinkId,
+            long triggeredAt) {
+        if (triggersByGroupLinkId == null || triggersByGroupLinkId.isEmpty()) {
+            return;
+        }
+        Map<Long, GroupMetadataSyncTrigger> stableTriggers = new TreeMap<>();
+        triggersByGroupLinkId.forEach((groupLinkId, trigger) -> {
+            if (groupLinkId != null && trigger != null) {
+                stableTriggers.put(groupLinkId, trigger);
+            }
+        });
+        List<GroupMetadataSyncTask> rows = stableTriggers.entrySet().stream()
+                .map(entry -> queuedTask(entry.getKey(), entry.getValue(), triggeredAt, 0))
+                .toList();
+        if (!rows.isEmpty()) {
+            lockExistingClassificationTasks(rows);
+            mapper.reconcileClassificationBatch(
+                    rows,
+                    GroupMetadataSyncStatus.DEFERRED.code(),
+                    GroupMetadataSyncStatus.PENDING.code());
+        }
+    }
+
+    private void lockExistingClassificationTasks(List<GroupMetadataSyncTask> rows) {
+        List<Long> groupLinkIds = rows.stream()
+                .map(GroupMetadataSyncTask::getGroupLinkId)
+                .toList();
+        List<Long> taskIds = mapper.selectTaskIdsByGroupLinkIds(groupLinkIds).stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+        if (!taskIds.isEmpty()) {
+            mapper.selectTaskIdsForUpdate(TenantContext.get(), taskIds);
+        }
+    }
+
+    @Override
+    @Transactional
     public void enqueueInviteCode(
             Long groupLinkId,
             GroupMetadataSyncTrigger trigger,
@@ -79,6 +147,16 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         if (groupLinkId == null || trigger == null) {
             return;
         }
+        GroupMetadataSyncTask row = queuedTask(
+                groupLinkId, trigger, triggeredAt, completedScopeMask);
+        mapper.enqueue(row, GroupMetadataSyncStatus.RUNNING.code());
+    }
+
+    private GroupMetadataSyncTask queuedTask(
+            Long groupLinkId,
+            GroupMetadataSyncTrigger trigger,
+            long triggeredAt,
+            int completedScopeMask) {
         long nextRunAt = triggeredAt + (isChangeTrigger(trigger) ? changeDebounceMs : 0L);
         GroupMetadataSyncTask row = new GroupMetadataSyncTask();
         row.setGroupLinkId(groupLinkId);
@@ -90,7 +168,7 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         row.setCompletedScopeMask(completedScopeMask);
         row.setCreatedAt(triggeredAt);
         row.setUpdatedAt(triggeredAt);
-        mapper.enqueue(row, GroupMetadataSyncStatus.RUNNING.code());
+        return row;
     }
 
     @Override
@@ -204,7 +282,11 @@ public class GroupMetadataSyncTaskServiceImpl implements GroupMetadataSyncTaskSe
         row.setNextRunAt(null);
         row.setLastErrorCode("NO_EXECUTION_ACCOUNT");
         row.setLastErrorMessage("暂无在线且仍在群内的可用账号");
-        mapper.defer(row, TRIGGERED_STATUSES);
+        mapper.defer(
+                row,
+                TRIGGERED_STATUSES,
+                AccountLoginStateCode.ONLINE,
+                GroupExecutableAccountStates.executable());
     }
 
     @Override

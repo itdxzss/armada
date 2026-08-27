@@ -1,0 +1,14 @@
+{
+  "topicOffsets": {
+    "protocol.message.commands.v1": [
+      {"partition": 0, "low": "100", "high": "1200"},
+      {"partition": 1, "low": "200", "high": "2400"}
+    ]
+  },
+  "groupOffsets": {
+    "armada-api-message|protocol.message.commands.v1": [
+      {"partition": 0, "offset": "1150"},
+      {"partition": 1, "offset": "-1"}
+    ]
+  }
+}

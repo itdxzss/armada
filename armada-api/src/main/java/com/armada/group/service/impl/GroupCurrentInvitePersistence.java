@@ -32,6 +32,7 @@ public class GroupCurrentInvitePersistence {
         }
         String normalizedGroupJid = normalizeGroupJid(groupJid);
         long now = System.currentTimeMillis();
+        lockLegacyGroupLink(tenantId, groupLinkId);
         Long groupId = resolveGroupId(tenantId, normalizedGroupJid, now);
         if (groupId != null) {
             mapper.lockProfile(tenantId, groupId, now);
@@ -65,6 +66,7 @@ public class GroupCurrentInvitePersistence {
         if (normalizedGroupJid == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "群入口与群 JID 绑定事实不完整");
         }
+        lockLegacyGroupLink(tenantId, groupLinkId);
         Long groupId = resolveGroupId(tenantId, normalizedGroupJid, System.currentTimeMillis());
         mapper.updateGroupReference(tenantId, groupLinkId, groupId);
     }
@@ -80,8 +82,12 @@ public class GroupCurrentInvitePersistence {
         if (normalizedGroupJid == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康结果缺少群 JID");
         }
+        Long groupId = mapper.selectAnyGroupId(tenantId, normalizedGroupJid);
+        if (groupId == null || mapper.selectGroupIdByIdForUpdate(tenantId, groupId) == null) {
+            return;
+        }
         mapper.updateGroupHealth(
-                tenantId, normalizedGroupJid, health, System.currentTimeMillis());
+                tenantId, groupId, health, System.currentTimeMillis());
     }
 
     /** 读取群资料中的当前健康投影，供失败次数和成员数续写。 */
@@ -108,6 +114,7 @@ public class GroupCurrentInvitePersistence {
                 || preview.getLastPreviewAt() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "公开邀请页资料不完整");
         }
+        lockLegacyGroupLink(tenantId, preview.getGroupLinkId());
         mapper.upsertPublicPreview(tenantId, preview, labelId, System.currentTimeMillis());
         Long inviteId = mapper.selectInviteIdForUpdate(tenantId, preview.getInviteCode().trim());
         if (inviteId == null) {
@@ -123,14 +130,34 @@ public class GroupCurrentInvitePersistence {
         }
         Long groupId = mapper.selectGroupId(tenantId, groupJid);
         if (groupId != null) {
-            return groupId;
+            return lockGroupId(tenantId, groupId);
+        }
+        groupId = mapper.selectAnyGroupId(tenantId, groupJid);
+        if (groupId != null) {
+            Long lockedGroupId = lockGroupId(tenantId, groupId);
+            mapper.insertGroup(tenantId, groupJid, now);
+            return lockedGroupId;
         }
         mapper.insertGroup(tenantId, groupJid, now);
         groupId = mapper.selectGroupIdForUpdate(tenantId, groupJid);
         if (groupId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析当前邀请码的群");
         }
-        return groupId;
+        return lockGroupId(tenantId, groupId);
+    }
+
+    private Long lockGroupId(Long tenantId, Long groupId) {
+        Long lockedGroupId = mapper.selectGroupIdByIdForUpdate(tenantId, groupId);
+        if (lockedGroupId == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定当前邀请码的群");
+        }
+        return lockedGroupId;
+    }
+
+    private void lockLegacyGroupLink(Long tenantId, Long groupLinkId) {
+        if (groupLinkId != null) {
+            mapper.selectLegacyGroupLinkIdByIdForUpdate(tenantId, groupLinkId);
+        }
     }
 
     private static String normalizeGroupJid(String value) {

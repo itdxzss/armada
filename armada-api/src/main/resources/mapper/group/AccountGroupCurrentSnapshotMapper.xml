@@ -12,13 +12,38 @@
            s.baseline_completeness AS baselineCompleteness,
            s.baseline_group_count AS baselineGroupCount,
            s.baseline_captured_at AS baselineCapturedAt,
-           s.last_sync_requested_at AS lastSyncRequestedAt
+           s.last_sync_requested_at AS lastSyncRequestedAt,
+           s.last_complete_at AS lastCompleteAt
     FROM account a
     LEFT JOIN account_group_sync_state s
       ON s.account_id = a.id
     WHERE a.id = #{accountId}
       AND a.deleted_at IS NULL
     LIMIT 1
+  </select>
+
+  <!-- 串行化同账号 phase1/phase2 的绑定校验与完整快照水位判定。 -->
+  <select id="selectContextForUpdateByTenant"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
+    SELECT a.id AS accountId,
+           a.ws_phone AS wsPhone,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           s.baseline_state AS baselineState,
+           s.baseline_completeness AS baselineCompleteness,
+           s.baseline_group_count AS baselineGroupCount,
+           s.baseline_captured_at AS baselineCapturedAt,
+           s.last_sync_requested_at AS lastSyncRequestedAt,
+           s.last_complete_at AS lastCompleteAt
+    FROM account a
+    LEFT JOIN account_group_sync_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    WHERE a.id = #{accountId}
+      AND a.tenant_id = #{tenantId}
+      AND a.deleted_at IS NULL
+    LIMIT 1
+    FOR UPDATE
   </select>
 
   <!--
@@ -61,7 +86,7 @@
     ORDER BY g.group_jid ASC
   </select>
 
-  <select id="selectExistingForUpdate"
+  <select id="selectExistingAfterGroupLock"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
     SELECT g.group_jid AS groupJid,
            g.id AS groupId,
@@ -84,17 +109,15 @@
      AND b.account_id = #{accountId}
      AND b.group_id = g.id
     WHERE g.tenant_id = #{tenantId}
-      AND
     <choose>
-      <when test="groupJids != null and !groupJids.isEmpty()">
-        (g.group_jid IN
-        <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
-          #{groupJid}
+      <when test="groupIds != null and !groupIds.isEmpty()">
+        AND g.id IN
+        <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+          #{groupId}
         </foreach>
-        OR b.id IS NOT NULL)
       </when>
       <otherwise>
-        b.id IS NOT NULL
+        AND 1 = 0
       </otherwise>
     </choose>
     ORDER BY g.group_jid ASC
@@ -125,7 +148,7 @@
     LIMIT 1
   </select>
 
-  <select id="selectSelfMembershipExistingForUpdate"
+  <select id="selectSelfMembershipExistingAfterGroupLock"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
     SELECT g.group_jid AS groupJid,
            g.id AS groupId,
@@ -201,23 +224,44 @@
     ORDER BY group_jid ASC
   </select>
 
-  <update id="updateLegacyGroupReferences">
-    UPDATE group_link handle
-    INNER JOIN wa_group current_group
-      ON current_group.tenant_id = handle.tenant_id
-     AND (
-       current_group.id = handle.group_id
-       OR handle.link_url = CONCAT('wa://group/', current_group.group_jid)
-     )
-    SET handle.group_id = current_group.id
-    WHERE handle.tenant_id = #{tenantId}
-      AND current_group.group_jid IN
-    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
-      #{groupJid}
+  <select id="selectGroupIdsByIdsForUpdate"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$GroupId">
+    SELECT group_jid AS groupJid, id AS groupId
+    FROM wa_group FORCE INDEX (PRIMARY)
+    WHERE tenant_id = #{tenantId}
+      AND id IN
+    <foreach collection="groupIds" item="groupId" open="(" separator="," close=")">
+      #{groupId}
     </foreach>
-      <!-- canonical 引用一经建立即稳定；快照重放只认领空句柄，缩短兼容表写锁范围。 -->
+    ORDER BY id ASC
+    FOR UPDATE
+  </select>
+
+  <select id="selectUnboundLegacyGroupHandlesWithoutLock"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$LegacyGroupHandle">
+    SELECT SUBSTRING(handle.link_url, CHAR_LENGTH('wa://group/') + 1) AS groupJid,
+           handle.id AS groupLinkId
+    FROM group_link handle
+    WHERE handle.tenant_id = #{tenantId}
       AND handle.group_id IS NULL
-  </update>
+      AND handle.link_url IN
+    <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
+      CONCAT('wa://group/', #{groupJid})
+    </foreach>
+    ORDER BY handle.id ASC
+  </select>
+
+  <select id="selectLegacyGroupHandleIdsByIdsForUpdate" resultType="long">
+    SELECT id
+    FROM group_link FORCE INDEX (PRIMARY)
+    WHERE tenant_id = #{tenantId}
+      AND id IN
+    <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+      #{groupLinkId}
+    </foreach>
+    ORDER BY id ASC
+    FOR UPDATE
+  </select>
 
   <update id="updateSelectedLegacyGroupReferences">
     UPDATE group_link
@@ -509,6 +553,7 @@
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
+      pn_jid = COALESCE(pn_jid, VALUES(pn_jid)),
       phone = COALESCE(VALUES(phone), phone),
       presence_status = CASE
         WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)
@@ -671,13 +716,15 @@
 
   <select id="selectParticipantIdentityRowsForUpdate"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$ParticipantIdentityRow">
-    SELECT id, group_id AS groupId, pn_jid AS pnJid, lid_jid AS lidJid
+    SELECT id, group_id AS groupId, pn_jid AS pnJid, lid_jid AS lidJid, phone
     FROM wa_group_participant
     WHERE tenant_id = #{tenantId}
       AND (
       <foreach collection="rows" item="row" separator=" OR ">
         (group_id = #{row.groupId}
-         AND (pn_jid = #{row.pnJid} OR lid_jid = #{row.lidJid}))
+         AND (pn_jid = #{row.pnJid}
+              OR lid_jid = #{row.lidJid}
+              OR (#{row.phone} IS NOT NULL AND phone = #{row.phone})))
       </foreach>
       )
     ORDER BY group_id ASC, id ASC
@@ -690,8 +737,7 @@
       ON duplicate.tenant_id = #{row.tenantId}
      AND duplicate.group_id = #{row.groupId}
      AND duplicate.id = #{row.duplicateId}
-    SET canonical.phone = COALESCE(canonical.phone, duplicate.phone),
-        canonical.phone_country_iso2 = COALESCE(
+    SET canonical.phone_country_iso2 = COALESCE(
           canonical.phone_country_iso2, duplicate.phone_country_iso2
         ),
         canonical.presence_status = CASE

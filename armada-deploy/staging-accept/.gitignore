@@ -5,3 +5,5 @@
 /*.db-shm
 /*.db-wal
 /runs/
+__pycache__/
+*.py[cod]

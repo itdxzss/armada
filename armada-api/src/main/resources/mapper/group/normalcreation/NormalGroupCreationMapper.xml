@@ -534,6 +534,33 @@
       )
   </update>
 
+  <update id="failContactPreparation">
+    UPDATE normal_group_creation_item
+    SET status = #{status}, dispatch_stage = 'NONE', dispatch_status = 'NONE',
+        contact_prepare_failed = 1, last_event_id = #{eventId},
+        last_error_code = #{errorCode}, last_error_message = #{errorMessage},
+        updated_at = #{now}
+    WHERE id = #{itemId}
+      AND current_step = 'PREPARING_CONTACTS'
+      AND status = 'RUNNING'
+      AND NOT EXISTS (
+        SELECT 1 FROM normal_group_creation_item_member member
+        WHERE member.tenant_id = normal_group_creation_item.tenant_id
+          AND member.item_id = normal_group_creation_item.id
+          AND (member.creator_saved_member_status = 'PENDING'
+            OR member.member_saved_creator_status = 'PENDING')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM normal_group_creation_item_secondary_admin secondary
+        WHERE secondary.tenant_id = normal_group_creation_item.tenant_id
+          AND secondary.item_id = normal_group_creation_item.id
+          AND (secondary.creator_saved_secondary_status = 'PENDING'
+            OR secondary.secondary_saved_creator_status = 'PENDING'
+            OR secondary.secondary_saved_anchor_status = 'PENDING'
+            OR secondary.anchor_saved_secondary_status = 'PENDING')
+      )
+  </update>
+
   <update id="startGroupSettings">
     UPDATE normal_group_creation_item
     SET group_jid = #{groupJid}, group_subject = #{groupSubject}, create_partial = 0,

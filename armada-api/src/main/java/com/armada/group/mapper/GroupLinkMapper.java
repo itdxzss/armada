@@ -1,5 +1,7 @@
 package com.armada.group.mapper;
 
+import com.armada.group.model.vo.AccountObservedGroupHandle;
+import com.armada.group.model.vo.AccountObservedGroupWrite;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupCurrentIdentity;
@@ -60,6 +62,24 @@ public interface GroupLinkMapper {
     /** 按群 JID 解析仍保留的数字句柄，必要时允许复用软删除行。 */
     Long selectIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid);
 
+    /** 按请求群 JID 批量解析应复用的稳定兼容句柄。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountObservedGroupHandle> selectAccountObservedHandles(
+            @Param("tenantId") Long tenantId,
+            @Param("groupJids") List<String> groupJids);
+
+    /** 批量登记前按主键升序锁定已解析句柄，包含待复活软删行。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<GroupLink> selectAccountObservedByIdsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("ids") List<Long> ids);
+
+    /** 按内部 URL 唯一键批量登记仍未解析到句柄的账号观察群。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int upsertAccountObservedGroups(
+            @Param("tenantId") Long tenantId,
+            @Param("rows") List<AccountObservedGroupWrite> rows);
+
     /** 同步发现已有句柄时只更新句柄自身的名称、关系态和协议来源。 */
     int touchAccountObservedGroup(@Param("groupLinkId") Long groupLinkId,
                                   @Param("groupName") String groupName,
@@ -106,14 +126,6 @@ public interface GroupLinkMapper {
     int markSelfBuiltGroup(@Param("id") Long id,
                            @Param("groupName") String groupName,
                            @Param("updatedAt") long updatedAt);
-
-    /** 把活动群入口的历史群事实提升为真；永不清除。 */
-    int markHistorical(@Param("groupLinkId") Long groupLinkId,
-                       @Param("updatedAt") long updatedAt);
-
-    /** 把活动群入口的上控后群事实提升为真；永不清除。 */
-    int markPostControl(@Param("groupLinkId") Long groupLinkId,
-                        @Param("updatedAt") long updatedAt);
 
     /**
      * 按 ID 查询活跃群链接。

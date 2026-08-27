@@ -161,14 +161,6 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
                     null,
                     ProtocolBackend.fromProtocolId(account.protocolId()),
                     now);
-            if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
-                classificationService.classifyMembershipAdded(
-                        event.accountId(),
-                        new GroupClassificationCandidate(
-                                groupLinkId, event.groupJid().trim(), null),
-                        event.occurredAt(),
-                        now);
-            }
             String presenceSource = GROUP_SNAPSHOT_NOT_JOINED_SOURCE.equals(event.source())
                     && transition.status() == AccountGroupMembershipStatus.NOT_IN_GROUP
                     ? GROUP_SNAPSHOT_NOT_JOINED_SOURCE : transition.source();
@@ -179,6 +171,14 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
                     event.occurredAt(),
                     event.eventId(),
                     presenceSource);
+            if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
+                classificationService.classifyMembershipAdded(
+                        event.accountId(),
+                        new GroupClassificationCandidate(
+                                groupLinkId, event.groupJid().trim(), null),
+                        event.occurredAt(),
+                        now);
+            }
             log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
                     event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
                     transition.source());

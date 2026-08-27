@@ -140,10 +140,18 @@ public interface NormalGroupCreationMapper {
     /** 查询尚未回执的联系人方向数；加好友是尽力而为动作，FAILED/UNKNOWN 也算已落定。 */
     int countPendingContactDirections(@Param("itemId") Long itemId);
 
-    /** 联系人方向全部落定后绑定 GROUP_CREATE 命令并推进阶段，不要求加好友成功。 */
+    /** 联系人方向全部落定且至少一名参与者可用后，绑定 GROUP_CREATE 命令并推进阶段。 */
     int startGroupCreate(@Param("itemId") Long itemId,
                          @Param("commandId") String commandId,
                          @Param("now") long now);
+
+    /** 联系人方向全部落定但零参与者可用时，在下发建群前终止该计划群。 */
+    int failContactPreparation(@Param("itemId") Long itemId,
+                               @Param("status") String status,
+                               @Param("errorCode") String errorCode,
+                               @Param("errorMessage") String errorMessage,
+                               @Param("eventId") String eventId,
+                               @Param("now") long now);
 
     /** GROUP_CREATE 成功后保存群 JID，绑定权限命令并推进阶段。 */
     int startGroupSettings(@Param("itemId") Long itemId,

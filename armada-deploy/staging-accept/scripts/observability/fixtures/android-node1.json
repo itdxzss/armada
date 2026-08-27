@@ -1,0 +1,26 @@
+{
+  "snapshot": {
+    "schemaVersion": 1,
+    "runId": "node1-run",
+    "at": "2027-01-15T07:59:55Z",
+    "proxy": {"up": 1000, "down": 2000},
+    "categories": {
+      "marketing_message": {"up": 600, "down": 1200},
+      "heartbeat": {"up": 400, "down": 800}
+    },
+    "scopes": {"marketing_send": {"up": 600, "down": 1200}},
+    "reconciliationGap": {"up": 0, "down": 0}
+  },
+  "health": {
+    "startedAt": "2027-01-15T00:00:00Z",
+    "cumulativeStartedAt": "2026-08-01T00:00:00Z",
+    "checkpointRestored": true,
+    "continuous": true,
+    "retentionSeconds": 604800,
+    "stopped": false,
+    "droppedEvents": 0,
+    "classificationErrors": 0,
+    "eventDetailDisabled": false,
+    "persistenceDisabled": false
+  }
+}

@@ -1,0 +1,21 @@
+[Unit]
+Description=Armada test1 backend Docker snapshot
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=staging-accept
+UMask=0027
+RuntimeDirectory=staging-accept
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/python3 /usr/local/libexec/staging-accept/backend_docker_snapshot.py
+TimeoutStartSec=25s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/staging-accept
+RestrictAddressFamilies=AF_UNIX

@@ -3,6 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupHandle;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityMergeWrite;
@@ -11,6 +12,9 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPre
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -21,6 +25,21 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountGroupCurrentSnapshotMapper {
 
     Context selectContext(@Param("accountId") Long accountId);
+
+    /** 在账号群回报写事务内锁定账号绑定与已接受完整快照水位。 */
+    default Context selectContextForUpdate(Long accountId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return selectContextForUpdateByTenant(tenantId, accountId);
+    }
+
+    /** 显式租户条件避免租户插件把 MySQL 的 LIMIT ... FOR UPDATE 改为非法语序。 */
+    @InterceptorIgnore(tenantLine = "true")
+    Context selectContextForUpdateByTenant(
+            @Param("tenantId") Long tenantId,
+            @Param("accountId") Long accountId);
 
     /**
      * 写入建群时间，只在当前为空时填充。
@@ -39,13 +58,13 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("pnJid") String pnJid,
             @Param("groupJids") List<String> groupJids);
 
-    /** 按群 JID 顺序锁定可见群及账号现有绑定，供完整快照基于数据库当前事实归约。 */
+    /** G 主键锁已持有后，仅在该闭包内按 G→P→B 读取并锁定账号当前群事实。 */
     @InterceptorIgnore(tenantLine = "true")
-    List<Existing> selectExistingForUpdate(
+    List<Existing> selectExistingAfterGroupLock(
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("pnJid") String pnJid,
-            @Param("groupJids") List<String> groupJids);
+            @Param("groupIds") List<Long> groupIds);
 
     Existing selectSelfMembershipExisting(
             @Param("accountId") Long accountId,
@@ -53,13 +72,13 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("groupJid") String groupJid);
 
     /**
-     * 以当前读锁定单个群的账号自身成员事实，串行化同群 ADD/EXIT 的周期判定。
+     * G 主键锁已持有后读取单群账号自身成员事实，串行化同群 ADD/EXIT 的周期判定。
      *
-     * <p>调用前必须确保群行已经存在；FOR UPDATE 会锁住群行以及已存在的 participant/binding，
-     * 后续进群周期起点必须只基于本查询返回的数据库最新事实计算。</p>
+     * <p>调用前必须确保群行已经存在并已按 PRIMARY 锁定；本查询随后按 G→P→B
+     * 取得 current locks，确保 RR 下不会继续读取锁前的旧 participant/binding snapshot。</p>
      */
     @InterceptorIgnore(tenantLine = "true")
-    Existing selectSelfMembershipExistingForUpdate(
+    Existing selectSelfMembershipExistingAfterGroupLock(
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("pnJid") String pnJid,
@@ -81,14 +100,23 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
 
-    /**
-     * 仅为尚未绑定的旧数值句柄回写已解析的新群 ID，供旧 API 和任务稳定寻址。
-     * 已绑定的 canonical 引用不可在快照重放时改写，避免重复锁定兼容句柄。
-     */
+    /** 按 wa_group PRIMARY 升序锁定同群写入边界。 */
     @InterceptorIgnore(tenantLine = "true")
-    int updateLegacyGroupReferences(
+    List<GroupId> selectGroupIdsByIdsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("groupIds") List<Long> groupIds);
+
+    /** 普通读解析当前已存在、尚未关联 canonical 群的内部旧句柄。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<LegacyGroupHandle> selectUnboundLegacyGroupHandlesWithoutLock(
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
+
+    /** 在任何 wa_group 写入前按 PRIMARY 升序锁定已解析的旧句柄。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Long> selectLegacyGroupHandleIdsByIdsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("groupLinkIds") List<Long> groupLinkIds);
 
     /** 按旧流程已锁定的群入口 ID 顺序补 canonical 引用，避免在热事务里扩锁同群别名。 */
     @InterceptorIgnore(tenantLine = "true")
@@ -102,7 +130,7 @@ public interface AccountGroupCurrentSnapshotMapper {
 
     int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
 
-    /** 按本次明确给出的 PN/LID 批量锁定现有成员行，供双行定点归并。 */
+    /** 按本次明确给出的 PN/LID/phone 批量锁定现有成员行，供有证据的双行定点归并。 */
     @InterceptorIgnore(tenantLine = "true")
     List<ParticipantIdentityRow> selectParticipantIdentityRowsForUpdate(
             @Param("tenantId") Long tenantId,

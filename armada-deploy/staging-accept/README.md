@@ -44,6 +44,61 @@ go build -o staging-accept .
 Plan 中四个 revision 是声明的候选 full SHA，不是 Runner 自动观测到的部署版本。后续接入测试环境时，
 应将现有 `deploy-test.sh --env <env> --check` 和版本核对脚本作为 stage 执行。
 
+## Stage 运行上下文
+
+Runner 启动 stage 时继承 daemon 的现有环境，并只替换以下三个 Runner 自有变量；不会改动或输出
+其他环境变量，Plan schema 也不需要增加字段：
+
+- `STAGING_ACCEPT_RUN_ID`：当前 run ID。
+- `STAGING_ACCEPT_STAGE_ID`：当前 stage ID。
+- `STAGING_ACCEPT_RUN_DIR`：当前 run 证据目录的绝对、规范化路径。
+
+同一 stage 失败后显式 `resume`，新的 attempt 会继续获得相同的三个值。可信 wrapper 可以用
+`STAGING_ACCEPT_RUN_DIR` 定位本次运行并写入已脱敏的 stage 产物；不得枚举或打印完整环境，凭据仍应
+仅通过受控的 service 环境提供。
+
+## test1 页面 smoke wrapper
+
+`wrappers/ui-smoke.sh` 是 Runner 调用 Playwright 的固定、无参数入口。正式模式只使用
+`/var/lib/staging-accept/workspace/wheel-saas-pure-web`、`/usr/local/bin/pnpm` 和已下载到
+`/var/lib/staging-accept/.cache/ms-playwright` 的 Chromium；测试目标只允许
+`http(s)://armada.65.2.123.53.nip.io/` 或同机 nginx 的固定 `http://127.0.0.1/`（不接受端口或
+`localhost` 别名），且 `ENVIRONMENT` 必须为 `test1`。loopback 只验证应用、nginx 与 API 代理，
+不代表公网入口或安全组连通。
+
+凭据保存在 `/etc/staging-accept/ui-smoke.env`，文件必须是 `root:staging-accept`、权限 `0640`，
+并且只能包含以下四个键（值可用一对单引号或双引号包裹，内容不会做 shell 展开）：
+
+```dotenv
+ENVIRONMENT=test1
+ARMADA_E2E_BASE_URL=http://127.0.0.1/
+ARMADA_E2E_USERNAME=<dedicated-test-user>
+ARMADA_E2E_PASSWORD=<dedicated-test-password>
+```
+
+```bash
+sudo install -d -m 0755 /usr/local/libexec/staging-accept
+sudo install -m 0644 wrappers/ui-smoke.lib.sh /usr/local/libexec/staging-accept/ui-smoke.lib.sh
+sudo install -m 0755 wrappers/ui-smoke.sh /usr/local/libexec/staging-accept/ui-smoke
+sudo install -d -m 0750 -o root -g staging-accept /etc/staging-accept
+sudoedit /etc/staging-accept/ui-smoke.env
+sudo chown root:staging-accept /etc/staging-accept/ui-smoke.env
+sudo chmod 0640 /etc/staging-accept/ui-smoke.env
+```
+
+Plan 中只放 wrapper 的绝对路径，不放用户名、密码或 URL。Runner 提供的
+`STAGING_ACCEPT_RUN_DIR` 经过规范路径、直属子目录和 symlink 检查后，wrapper 会新建
+`ui-smoke.XXXXXXXX/`，将 Playwright 的 `test-results` 和 HTML 报告都限制在该目录中。执行命令固定为
+`pnpm exec playwright test e2e/smoke.spec.ts --browser=chromium --reporter=line,html`，失败退出码原样返回。
+
+```json
+{"id":"ui-smoke","command":["/usr/local/libexec/staging-accept/ui-smoke"],"timeoutSeconds":300}
+```
+
+```bash
+bash wrappers/ui-smoke.test.sh
+```
+
 ## 控制命令
 
 ```text

@@ -1,5 +1,6 @@
 package com.armada.group.model.vo;
 
+import com.armada.group.model.enums.GroupClassification;
 import java.util.List;
 
 /**
@@ -78,6 +79,9 @@ public record GroupLinkVO(
 
         /** 创建时间,epoch 毫秒(UTC)。 */
         Long createdAt,
+
+        /** 租户内 canonical 群的首次唯一分类。 */
+        GroupClassification groupClassification,
 
         /** 是否曾属于首次上线历史群基线。 */
         Boolean isHistorical,

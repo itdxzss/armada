@@ -1,0 +1,19 @@
+[
+  {
+    "name": "protocol-master",
+    "pid": 1234,
+    "monit": {"cpu": 12.5, "memory": 268435456},
+    "pm2_env": {
+      "status": "online",
+      "restart_time": 2,
+      "pm_uptime": 1800000000000,
+      "env": {"DATABASE_URL": "SECRET_VALUE"}
+    }
+  },
+  {
+    "name": "unrelated",
+    "pid": 5678,
+    "monit": {"cpu": 99, "memory": 999},
+    "pm2_env": {"status": "online", "restart_time": 0, "pm_uptime": 1}
+  }
+]

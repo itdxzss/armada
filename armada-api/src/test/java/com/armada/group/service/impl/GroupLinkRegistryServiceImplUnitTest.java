@@ -8,10 +8,16 @@ import static org.mockito.Mockito.when;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.vo.AccountObservedGroupWrite;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.tenant.TenantContext;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,6 +35,11 @@ class GroupLinkRegistryServiceImplUnitTest {
 
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
 
     @Test
     void registerAccountObservedGroupRevivesArchivedGroupLinkMatchedByJid() {
@@ -82,6 +93,33 @@ class GroupLinkRegistryServiceImplUnitTest {
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void batchNewHandleFallsBackToJidWhenObservedNameIsBlank() {
+        TenantContext.set(7L);
+        when(groupLinkMapper.selectAccountObservedHandles(
+                7L, List.of("120363003@g.us")))
+                .thenReturn(
+                        List.of(),
+                        List.of(new com.armada.group.model.vo.AccountObservedGroupHandle(
+                                "120363003@g.us", 103L, "wa://group/120363003@g.us")));
+        Map<String, String> observed = new LinkedHashMap<>();
+        observed.put("120363003@g.us", "  ");
+
+        Map<String, Long> result = new GroupLinkRegistryServiceImpl(
+                groupLinkMapper, previewMapper, currentSnapshotPersistence)
+                .registerAccountObservedGroups(observed, ProtocolBackend.WEB, 3_000L);
+
+        assertThat(result).containsEntry("120363003@g.us", 103L);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AccountObservedGroupWrite>> rows = ArgumentCaptor.forClass(List.class);
+        verify(groupLinkMapper).upsertAccountObservedGroups(
+                org.mockito.ArgumentMatchers.eq(7L), rows.capture());
+        assertThat(rows.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.insertGroupName()).isEqualTo("120363003@g.us");
+            assertThat(row.observedGroupName()).isNull();
+        });
     }
 
     @Test

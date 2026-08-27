@@ -4,7 +4,7 @@
 - 目标分支：`1.0.3-snapshot`
 - 设计：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md`
 - API 合同：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-api-contract.md`
-- 状态：前后端实现与本地集成验证完成，待部署到第一套测试环境
+- 状态：前后端实现、迁移链对齐和第一套测试环境部署完成
 
 ## 变更概述
 
@@ -96,5 +96,5 @@
 
 ## 后续
 
-- 在第一套测试环境由 Flyway 应用 V153～V155，验证生成列、JSON、CHECK、菜单幂等性，再刷新数据模型 wiki。
+- 刷新第一套测试环境的数据模型 wiki，并由有权限的测试账号完成功能级页面验收。
 - 下一阶段优先实现“即时超链任务”的任务快照与最小发送闭环，同时并行验证 Web 协议的三种消息载荷和 ACK 语义。

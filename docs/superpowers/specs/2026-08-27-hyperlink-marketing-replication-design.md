@@ -293,9 +293,8 @@ hyperlink_stat_hourly / hyperlink_stat_daily
 `BackendMarketingTemplate` → 前端类型）。让后端服从 armada 一套命名，映射成本落在前端 api 层一处，
 比引入第二套 API 命名规范便宜得多。
 
-> **待确认（不阻塞设计，阻塞实施）**：若你要求连路径与字段名也逐字复刻（`/api/admin/hyperlink-tasks` +
-> snake_case），需在 armada 引入独立的 snake_case 序列化配置与 `/api/admin` 前缀分组。技术可行，
-> 但会在同一后端里长期并存两套 API 规范。见 §9。
+> **已定（2026-08-27）**：采纳上表口径——`/api/hyperlink-tasks` + camelCase，与现有 Controller
+> 一致，不引入第二套 API 规范。字段映射统一落在前端 `src/api/*.ts`。
 
 公网点击入口（新增，仿 `PromotionChannelPublicController` 模式）：
 ```
@@ -320,8 +319,29 @@ GET /api/public/hl/{shortCode}     记录点击 → 302 跳转到 promotion_link
 `jid` 取 `<phone>@s.whatsapp.net`。按钮映射：
 `cta_url`→`{type:'link'}`、`cta_copy`→`{type:'copy'}`、`quick_reply`→`{type:'quick'}`。
 
-> `cta_call`（电话按钮）在 hylb 前端有校验（「请输入电话号码」），但协议层 `card-content.ts`
-> 当前 `ButtonCardButtonType` 只有 `link|copy|quick`。**需协议层扩展**，或本期在前端禁用该按钮类型。见 §9。
+**上表只对 Web 协议成立。** armada 有两条协议链路，由 `account.protocol_id` 经
+`ProtocolBackend.fromProtocolId()` 分流，二者消息能力差距很大：
+
+| | Web（`armada-protocol`，Node/Baileys） | Android（`whatsapp-server-feature-android-zhuan`，Go） |
+|---|---|---|
+| 现有按钮能力 | `link` / `copy` / `quick`，最多 3 个（`messages/card-content.ts`） | **只有 1 个 `cta_url`** |
+| 出处 | `card-content.ts:37 nativeFlowButton()` | `internal/service/node/message_payload.go:123` 注释原文："Android 营销按钮只生成一个 cta_url native-flow button" |
+| 支持的超链消息形态 | 1/2/3/4 全部 | 仅 1（单图文）与退化的 3 |
+
+因此**真正的缺口不是 `cta_call`，而是 Android 协议的按钮能力整体落后于超链模板的四种形态**：
+走 Android 协议的账号跑超链任务时，形态 2/3/4 发不出来。
+
+扩展可行性（已核实）：
+
+- **wire format 不是障碍**。`internal/service/waproto/WAWebProtobufsE2E.proto` 已含
+  `CallButton`(2232)、`HydratedCallButton`(1509)、`nativeFlowCallButtonPayload`(2079)；
+  `NativeFlowMessage.Buttons` 本身就是 slice。
+- **Web 侧扩展成本极低**：`nativeFlowButton()` 直接产出 `{name, buttonParamsJson}`，
+  Baileys 纯透传，加 `cta_call` 是加一个 case（约 10 行）+ 类型联合加一个 `'call'`。
+- **Android 侧要先改入参模型**：现在是 `link.ButtonText` / `link.Url` 的单按钮结构，
+  需改成按钮数组才能支持多按钮与 copy/quick/call。
+
+**决策项**（见 §9）：本期是补齐 Android 协议按钮能力，还是限制超链任务只能选 Web 协议账号。
 
 ### 6.2 单钩 / 双钩
 
@@ -331,10 +351,29 @@ GET /api/public/hl/{shortCode}     记录点击 → 302 跳转到 promotion_link
 4. 通过 `message.key.id` 关联回 `hyperlink_task_recipient`（发送时落库协议消息 ID）。
 5. 页面已明示"双钩有延迟"，因此**最终一致即可**，不做同步等待。
 
-### 6.3 号码有效性
+### 6.3 号码有效性：建议不做预探测
 
-发送前批量调 `POST /v1/status`（`onWhatsApp`）判定「未开通 WS」，落 `fail_404`。
-批量粒度与频率需按协议层限速能力定，避免探测本身触发风控。
+协议层**已有**批量接口 `POST /v1/accounts/check-whatsapp`（`routes/status.ts:175`），
+body `{accountId, phones[]}`，内部 `sock.onWhatsApp(...phones)` 一次查一批。
+
+**但它目前完全没有限速**：协议层的 `operation-gate`（Redis 锁 + TokenBucket）只挂在
+建群链路上（`commands/normal-group-creation-executor.ts`），`messages` 与 `check-whatsapp`
+都未接入。
+
+风险是具体的：`onWhatsApp` 走 USync 查询，是 WhatsApp 明确的风控点。短时间大批量查询
+陌生号码是典型扫号特征，会直接触发封号。安全阈值无法凭代码推断，**只能实测**，需要定三个量：
+单账号每分钟查询上限、单次 batch 大小、多账号之间如何摊配额。
+
+**本设计采用：不做全量预探测，改为「发送即探测」。**
+直接发送，失败时由协议层返回的错误码判定「未开通 WS」，落 `fail_404`。
+理由：
+
+1. 失败码处理路径本来就必须实现，不增加代码面。
+2. 零额外风控暴露——不产生任何本不该有的 USync 查询。
+3. 代价仅为失败那条消息浪费一次发送配额，可接受。
+
+若产品坚持要发送前预探测，前置条件是：`check-whatsapp` 先接入 `operation-gate`，
+再灰度实测出阈值。**在阈值实测出来之前不得启用批量预探测。**
 
 ### 6.4 点击追踪（深度追踪）
 
@@ -349,9 +388,18 @@ GET /api/public/hl/{shortCode}     记录点击 → 302 跳转到 promotion_link
 
 ### 6.5 账号筛选补齐
 
-`AccountQuery` 新增：`friendCountMin/Max`、`retentionDaysMin/Max`、`registerDaysMin/Max`、
-`widType`、`importMode`、`continent`、`groupInviteAllowed`、`excludeCountryIso2s`。
-需先确认 `account` 表是否已有好友数、存活天数、注册天数的落库字段——**若无，需先补采集链路，否则这几个筛选是空壳**。见 §9。
+逐项对账结果见数据模型文档 §8。要点：
+
+- **设备类型（主设备/分身）不需要新字段**——`ProtocolBackend.fromProtocolId(account.protocol_id)`
+  已经区分 `ANDROID`（主设备 native6）与 `WEB`（分身 web5）。
+- **存活天数**由 `now - account.created_at` 派生，不落列。
+- **好友数 / 是否允许拉群**需协议层**主动查**（WhatsApp 不主动推），且两条协议口径不同：
+  Android 侧联系人已落 MySQL 可直接 COUNT；Web 侧靠 app-state 被动同步，需新增落库计数。
+  拉群隐私 Web 侧有 `sock.fetchPrivacySettings()`，Android 侧能力待确认。
+- **注册天数 WhatsApp 不暴露**，两条协议都拿不到，需产品重新定义该字段含义。
+
+`AccountQuery` 新增：`friendCountMin/Max`、`retentionDaysMin/Max`、`protocolBackend`、
+`importMode`、`continent`、`groupInviteAllowed`、`excludeCountryIso2s`。
 
 ### 6.6 调度
 
@@ -403,7 +451,7 @@ src/components/hyperlink/WaMessagePreview.vue    WhatsApp 真机预览（四种�
 | 期 | 内容 | 依赖 |
 |---|---|---|
 | P0 | 数据包 + 图片素材 + 超链模板（三个"物料"页） | 无外部依赖，可立即开工 |
-| P1 | 超链策略 + 超链任务（创建/编辑/列表/action）+ 私聊发送链路 | P0；协议层 `cta_call` 决策 |
+| P1 | 超链策略 + 超链任务（创建/编辑/列表/action）+ 私聊发送链路 | P0；**Android 协议按钮能力决策（§6.1）——这是 P1 的硬前置** |
 | P2 | 单钩双钩回流（`message.ack` 消费）+ 收信人/发信账号/封号 Tab | P1 |
 | P3 | 深度追踪（短码 + 公网跳转 + 点击明细 + 访问趋势 + 深度归因导出） | P1；需确定公网域名归属 |
 | P4 | 超链市场分析（预聚合表 + 6 个统计接口 + 图表页） | P2、P3 |
@@ -417,16 +465,49 @@ P0 三页彼此独立、无协议层依赖，是最稳的起手。
 
 ## 9. 待确认项
 
-以下问题会改变实施方案，需在进入实施计划前定：
+### 9.1 已决（2026-08-27）
 
-1. **接口命名口径**——`/api/hyperlink-tasks` + camelCase（推荐，§5），还是逐字复刻 `/api/admin/hyperlink-tasks` + snake_case？
-2. **`cta_call` 电话按钮**——协议层 `card-content.ts` 当前不支持。扩展协议层，还是本期前端禁用该类型？
-3. **账号筛选字段落库**——`account` 表是否已有好友数 / 存活天数 / 注册天数？若无，这三组筛选需要先补采集链路。
-4. **点击追踪域名**——复用 `promotion_domain` 已有域名池，还是超链单独一套域名？（涉及被封风险隔离）
-5. **数据包上传上限**——hylb 有"单次最大 N 条"限制但存档中未固化具体数值，需按 armada 实际承载定。
-6. **巴西号码拦截**——hylb 有硬编码的国家风险拦截（"某某的数据包禁止上传号码"），是否复刻这条业务规则？
-7. **计费/单价**——任务页有"超链单价 / 普通模式单价 / 超级模式单价 / 当前余额 / 估算落地率"，涉及 armada 的 `balances` / `consume-stats` 体系。本期是否纳入？
-8. **`未开通 WS` 探测频率**——批量 `onWhatsApp` 的粒度与限速，需协议层给出安全阈值。
+| # | 决策 |
+|---|---|
+| 1 | **接口命名**：`/api/hyperlink-tasks` + camelCase，与现有 Controller 一致（§5） |
+| 2 | **数据包单次导入上限 5000 行**；总量不限；覆盖模式清空+导入同事务 |
+| 3 | **不做国家风险拦截**，对应两列不落 |
+| 4 | **计费/单价整块不做**——armada 无计费体系（见 9.3 勘误） |
+| 5 | **不做批量预探测**，改「发送即探测」（§6.3） |
+
+### 9.2 未决
+
+| # | 问题 | 影响 |
+|---|---|---|
+| 1 | **Android 协议按钮能力**（§6.1）——补齐到支持多按钮 + copy/quick/call，还是限制超链任务只能选 Web 协议账号？ | 决定走 Android 协议的账号能否跑形态 2/3/4 |
+| 2 | **`hyperlink_template` 独立 vs 归一进 `marketing_template`** | 决定 P0 是否要动生产中的群组营销 |
+| 3 | **`marketing_template_file` 改名为 `resource_asset` 的影响面**是否接受 | 不接受则退化为两张图片表，违反数据模型规范一.2 |
+| 4 | **「注册天数」的产品定义** | WhatsApp 不暴露注册时间；含义未定则该筛选项不做 |
+| 5 | **账号画像同步策略**——触发时机与刷新频率 | 主动查协议本身有风控暴露，高频刷新伤号 |
+| 6 | **点击追踪域名隔离**（见 9.4） | 共用域名时超链被封会连带买量落地页一起挂 |
+| 7 | **`hyperlink_click` 归档/分区策略与保留期** | 本模块唯一线性膨胀的表，不定就是埋雷 |
+
+### 9.3 勘误
+
+本文早先写的「涉及 armada 的 `balances` / `consume-stats` 体系」**是错的**。
+`/api/admin/balances`、`/api/admin/consume-stats`、`/api/admin/recharges` 是 **hylb 的接口**。
+
+已核实：armada 的 Java 代码与全部 Flyway 迁移中**没有任何 balance / recharge 相关的表或类，
+armada 无计费体系**。因此超链任务页的「当前余额 / 超链单价 / 普通模式单价 / 超级模式单价 /
+估算落地率」在 armada 侧没有可对接的依赖，本期整块不做。若要做，须先独立立项建计费体系。
+
+### 9.4 点击追踪域名隔离（问题 9.2-6 的展开）
+
+深度追踪要把 `promotion_link` 替换为 `http://{域名}/hl/{短码}`，用户点击后先落
+`hyperlink_click` 再 302 跳转。这个域名必须是公网可达的自有域名。
+
+armada 已有 `promotion_domain` 表管理买量落地页域名池。问题是超链短链复用这批域名还是单开。
+
+**风险**：超链短链会被大批量发进 WhatsApp 私聊，域名极易被 WhatsApp 判定为 spam 并拉黑。
+若与买量落地页共用域名，**超链把域名跑挂会连带买量落地页一起不可用**。
+
+**建议**：单开一批域名做物理隔离，但**不新建域名表**——给 `promotion_domain` 加一个用途
+判别列即可，避免出现第二张域名表（数据模型规范一.2）。
 
 ---
 
@@ -440,9 +521,15 @@ P0 三页彼此独立、无协议层依赖，是最稳的起手。
 | `message_type` 枚举 | `readable/assets/task-0vbZUOmq.js:1168-1176` |
 | 任务模式枚举 | `readable/assets/task-0vbZUOmq.js:1537` |
 | 指标口径文案 | `readable/assets/analysis-DA45fcKJ.js`、`task-0vbZUOmq.js` |
-| 协议层卡片能力 | `armada-protocol/protocol-layer/src/messages/card-content.ts` |
-| 协议层消息路由 | `armada-protocol/protocol-layer/src/routes/messages.ts:141-221` |
-| `onWhatsApp` | `armada-protocol/protocol-layer/src/routes/status.ts:179` |
+| Web 协议卡片能力 | `armada-protocol/protocol-layer/src/messages/card-content.ts:37` |
+| Web 协议消息路由 | `armada-protocol/protocol-layer/src/routes/messages.ts:141-221` |
+| Android 协议只支持单个 cta_url | `whatsapp-server-feature-android-zhuan/internal/service/node/message_payload.go:123-152` |
+| WhatsApp 电话按钮 wire format | `whatsapp-server-feature-android-zhuan/internal/service/waproto/WAWebProtobufsE2E.proto:1509, 2079, 2232` |
+| 两条协议链路分流 | `com/armada/platform/protocol/model/enums/ProtocolBackend.java:23,43` |
+| 批量号码探测接口 | `armada-protocol/protocol-layer/src/routes/status.ts:175-187` |
+| 限速门只挂建群 | `armada-protocol/protocol-layer/src/rate-limit/operation-gate.ts`；引用方仅 `commands/normal-group-creation-executor.ts` |
+| Baileys 隐私设置可读 | `protocol-layer/node_modules/baileys/lib/Socket/chats.d.ts:33 fetchPrivacySettings` |
+| Android 侧联系人已落库 | `whatsapp-server-feature-android-zhuan/internal/service/axolotl/store/contacts.go:59 LoadContacts` |
 | `message.ack` 发布与映射 | `armada-protocol/protocol-layer/src/worker/event-bridge.ts:134-153, 263-277` |
 | armada 现有 ack 消费缺口 | `com/armada/platform/kafka/consumer/message/ProtocolMessageEventConsumer.java:24,32` |
 | 群维度目标（不可复用） | `com/armada/marketing/model/entity/MarketingTaskTarget.java:17-20` |

@@ -11,6 +11,7 @@ import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.entity.DataPackage;
 import com.armada.hyperlink.data.model.entity.DataPackageStat;
 import com.armada.hyperlink.data.model.enums.DataPackagePoolStatus;
+import com.armada.hyperlink.data.model.enums.DataPackageClickExportFormat;
 import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryRow;
@@ -52,6 +53,7 @@ public class DataPackageServiceImpl implements DataPackageService {
     private static final Pattern ISO2_PATTERN = Pattern.compile("^[A-Z]{2}$");
     private static final Pattern PHONE_FILTER_PATTERN = Pattern.compile("^[0-9]+$");
     private static final String TXT_CONTENT_TYPE = "text/plain;charset=UTF-8";
+    private static final String CSV_CONTENT_TYPE = "text/csv;charset=UTF-8";
     private static final int MAX_BATCH_EXPORT_PACKAGES = 100;
     private static final long MAX_EXPORT_PHONES = 500_000L;
 
@@ -246,6 +248,31 @@ public class DataPackageServiceImpl implements DataPackageService {
         String filename = "数据包号码_批量" + normalizedIds.size()
                 + "包_" + normalized.apiValue() + ".txt";
         return exportFile(filename, phones);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public DataPackageExportFile exportClickRecords(
+            List<Long> ids,
+            DataPackageClickExportFormat format) {
+        List<Long> normalizedIds = normalizeExportIds(ids);
+        DataPackageClickExportFormat normalizedFormat = format == null
+                ? DataPackageClickExportFormat.TXT : format;
+        for (Long id : normalizedIds) {
+            if (mapper.selectActiveById(id) == null) {
+                throw notFound();
+            }
+        }
+        String baseName = "数据包点击记录_批量" + normalizedIds.size() + "包_"
+                + System.currentTimeMillis();
+        if (normalizedFormat == DataPackageClickExportFormat.CSV) {
+            byte[] bytes = ("\uFEFF收件人手机号,数据包ID,数据包名称,点击时间,目标链接\r\n")
+                    .getBytes(StandardCharsets.UTF_8);
+            return new DataPackageExportFile(
+                    baseName + ".csv", CSV_CONTENT_TYPE, bytes, 0);
+        }
+        return new DataPackageExportFile(
+                baseName + ".txt", TXT_CONTENT_TYPE, new byte[0], 0);
     }
 
     /** {@inheritDoc} */

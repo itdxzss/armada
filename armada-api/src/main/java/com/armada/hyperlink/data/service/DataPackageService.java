@@ -5,6 +5,7 @@ import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
+import com.armada.hyperlink.data.model.enums.DataPackageClickExportFormat;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
 import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
@@ -42,6 +43,10 @@ public interface DataPackageService {
 
     /** 按竞品状态口径批量导出多个数据包当前代手机号 TXT。 */
     DataPackageExportFile exportPhones(List<Long> ids, DataPackageUsageStatus usageStatus);
+
+    /** 批量导出所选数据包的点击记录；TXT 仅手机号，CSV 包含点击上下文。 */
+    DataPackageExportFile exportClickRecords(
+            List<Long> ids, DataPackageClickExportFormat format);
 
     /** 读取启用国家主数据并追加 UNKNOWN 固定候选。 */
     List<DataPackageCountryOptionVO> countries();

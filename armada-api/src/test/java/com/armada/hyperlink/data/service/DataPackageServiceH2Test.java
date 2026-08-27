@@ -14,6 +14,7 @@ import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.enums.DataPackageImportMode;
+import com.armada.hyperlink.data.model.enums.DataPackageClickExportFormat;
 import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
 import com.armada.hyperlink.data.model.vo.DataPackageExportFile;
@@ -322,6 +323,35 @@ class DataPackageServiceH2Test {
         assertThat(result.filename()).contains("批量2包_single");
         assertThat(new String(result.bytes(), StandardCharsets.UTF_8))
                 .isEqualTo("222221\n111111\n111112\n");
+    }
+
+    @Test
+    void clickRecordExportUsesTxtOrDetailedCsvAndRejectsCrossTenantSelection() {
+        DataPackageDetailVO first = service.create(
+                new DataPackageCreateDTO("点击包一", null), 9L);
+        DataPackageDetailVO second = service.create(
+                new DataPackageCreateDTO("点击包二", null), 9L);
+
+        DataPackageExportFile txt = service.exportClickRecords(
+                List.of(first.id(), second.id(), first.id()),
+                DataPackageClickExportFormat.TXT);
+        assertThat(txt.filename()).contains("点击记录_批量2包").endsWith(".txt");
+        assertThat(txt.contentType()).isEqualTo("text/plain;charset=UTF-8");
+        assertThat(txt.exportedCount()).isZero();
+        assertThat(txt.bytes()).isEmpty();
+
+        DataPackageExportFile csv = service.exportClickRecords(
+                List.of(first.id(), second.id()), DataPackageClickExportFormat.CSV);
+        assertThat(csv.filename()).contains("点击记录_批量2包").endsWith(".csv");
+        assertThat(csv.contentType()).isEqualTo("text/csv;charset=UTF-8");
+        assertThat(new String(csv.bytes(), StandardCharsets.UTF_8))
+                .isEqualTo("\uFEFF收件人手机号,数据包ID,数据包名称,点击时间,目标链接\r\n");
+
+        TenantContext.set(8L);
+        assertThatThrownBy(() -> service.exportClickRecords(
+                List.of(first.id()), DataPackageClickExportFormat.TXT))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("数据包不存在或已删除");
     }
 
     @Test

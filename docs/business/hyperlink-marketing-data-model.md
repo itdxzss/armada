@@ -38,9 +38,10 @@
    （理由见 §4.1）。参照 `marketing_task` 已达 38 列的教训。
 5. **图片引用使用稳定 AssetId 语义**。一期 ID 仍指向现有 `marketing_template_file`；未来通过
    兼容 Service 和双读迁移演进为通用 `resource_asset`，不在一期直接改名，也不复制图片字节。
-6. **不落无采集链路的死列**。账号画像字段（好友数、注册天数、设备类型等）只有在协议层确认
-   能采集后才落列，否则本期不做该筛选项（规范一.4）。
-7. **点击流水不存原始 IP**，只存由 IP 派生的国家码，与 promotion 模块既有的隐私保留策略同向。
+6. **竞品可见账号画像不静默删除**。好友数、注册天数、允许拉群、轮号状态和五类来源进入
+   `account_profile`；数据采集未打通时是任务上线硬依赖，不能通过隐藏筛选项规避。
+7. **点击流水保留竞品深度归因字段**。原始 IP、user-agent 及解析后的国家/设备字段都保存，
+   通过敏感权限、审计和保留期控制读取风险。
 
 ---
 
@@ -408,12 +409,13 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 | `recipient_country_iso2` | `CHAR(2)` | 收件人国家快照 |
 | `short_code` | `VARCHAR(16) NOT NULL` | 被访问的短码 |
 | `visit_order` | `INT NOT NULL` | 该收件人的第几次访问，从 1 起 |
+| `ip_address` | `VARBINARY(16)` | IPv4/IPv6，写入用 `INET6_ATON`；深度归因列表/导出按权限还原 |
 | `user_agent` | `VARCHAR(512)` | 原始 UA（截断） |
 | `browser` | `VARCHAR(64)` | UA 解析出的浏览器 |
 | `os` | `VARCHAR(64)` | UA 解析出的操作系统 |
 | `device` | `VARCHAR(64)` | UA 解析出的设备类型 |
 | `language` | `VARCHAR(32)` | `Accept-Language` 首选语言 |
-| `visit_country_iso2` | `CHAR(2)` | **由访问 IP 派生的国家码；不落原始 IP** |
+| `visit_country_iso2` | `CHAR(2)` | 由访问 IP 派生的国家码 |
 | `visit_at` | `BIGINT NOT NULL` | 访问时间(epoch 毫秒) |
 
 索引：
@@ -426,6 +428,9 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 写入路径特殊：公网跳转接口无租户上下文，Mapper 用
 `@InterceptorIgnore(tenantLine = "true")` 并显式带 `tenant_id`，
 与 `PromotionPairingSessionMapper` / `PromotionCapiEventOutboxMapper` 的既有做法一致。
+
+`ip_address` 和 `user_agent` 是竞品深度归因的可见字段，不得在采集层删除。读取和导出需要
+`tenant:hyperlink_task:attribution_sensitive` 权限并写审计；保留期到期后与点击事件整行清理。
 
 > **容量提醒**：数据包可达数十万号码，深度追踪下每号一个短码。`hyperlink_click`
 > 是唯一会随点击量线性膨胀的表，实施时须同步定按 `visit_at` 的归档/分区策略，
@@ -684,14 +689,16 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 | 在线状态 | `account_state.login_state` | ✅ 已有 |
 | 入库时间 | `account.created_at` | ✅ 已有 |
 | 协议 `protocol_id` | `account.protocol_id` | ✅ 已有 |
-| 封号码 / 原因 | `account_state.block_error_code` / `block_reason` | ✅ 已有 |
+| 封号码 / 原因 | `account_state.block_error_code` / `block_reason` | 任务筛选抽屉不显示；用于详情封号统计 |
 | 导入方式（六段/全参） | `account_import_batch.import_format`（1六段 2JSON 3全参） | ⚠ 需经 `account_import_detail` 关联，或在 `account` 冗余 |
 | **存活天数** | 无 | ✅ 由 `now - account.created_at` 派生，**不落列** |
 | **设备类型**（主设备/分身） | 无 | ✅ 由 `account.protocol_id` 派生，**不落列**（见 8.1） |
-| **最近登录时间** | `account_online_attempt_log` | ✅ armada 自有，无需协议层 |
-| **好友数** | 无 | 🔶 需协议层**主动查**，两侧口径不同（见 8.2） |
-| **是否允许拉群** | 无 | 🔶 需协议层**主动查**（见 8.2） |
-| **注册天数** | 无 | ❌ **WhatsApp 不暴露，两条协议都拿不到**（见 8.3） |
+| **最近登录时间** | `account_online_attempt_log` | 任务筛选抽屉不显示，不进入任务筛选 DTO |
+| **轮号状态** | 无 | ✅ `account_profile.rotation_status`，由轮号流程同步 |
+| **号码来源（五类）** | `account.number_source` 只有三类 | ✅ `account_profile.marketing_source` 统一为五类 |
+| **好友数** | 无 | ✅ `account_profile.friend_count`；协议主动采集（见 8.2） |
+| **是否允许拉群** | 无 | ✅ `account_profile.is_group_invite_allowed`；协议主动采集（见 8.2） |
+| **注册天数** | 协议无直接数据 | ✅ 由号源/导入提供 `registered_at`，再计算号龄（见 8.3） |
 
 ### 8.1 设备类型不需要新列
 
@@ -707,7 +714,7 @@ ProtocolBackend.fromProtocolId(account.protocol_id)  // → WEB | ANDROID
 `account.protocol_id` 已有 `idx_tenant_protocol_account` 索引，筛选直接走它。
 **不落 `wid_type` 列**——落了就是同一事实的第二处表示，正是规范一.2 禁止的分歧。
 
-### 8.2 方案：`account_profile`（1:1），只承载真正需要采集的 2 个字段
+### 8.2 方案：`account_profile`（1:1），承载任务筛选画像
 
 理由：
 1. `account` 是**跨业务共享的身份主表**，规范五明令"任何改动走全局评审，禁某业务私自加列"。
@@ -722,11 +729,17 @@ ProtocolBackend.fromProtocolId(account.protocol_id)  // → WEB | ANDROID
 | `account_id` | `BIGINT NOT NULL` | →`account.id` |
 | `friend_count` | `INT` | 通讯录好友数；NULL=未采集 |
 | `is_group_invite_allowed` | `TINYINT(1)` | 隐私设置是否允许被拉群；NULL=未采集 |
+| `rotation_status` | `TINYINT` | 0 未轮号 1 轮号中 2 成功 3 失败；NULL=不适用/未采集 |
+| `registered_at` | `BIGINT` | WhatsApp 估算注册时间；由号源/导入信息换算，NULL=未知 |
+| `marketing_source` | `TINYINT` | 0 买流量 1 自己登录 2 买入 3 转入 4 群扫码 |
+| `profile_source` | `VARCHAR(32)` | protocol/import/supplier/manual，说明画像来源 |
 | `synced_at` | `BIGINT` | 最近一次画像同步时间(epoch 毫秒) |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
 索引：`uq_account_profile`（`tenant_id, account_id`）、
-`idx_account_profile_friend`（`tenant_id, friend_count`）。
+`idx_account_profile_friend`（`tenant_id, friend_count`）、
+`idx_account_profile_rotation`（`tenant_id, rotation_status, account_id`）、
+`idx_account_profile_registered`（`tenant_id, registered_at, account_id`）。
 
 **采集路径（已核实，两条协议口径不同，须统一后再落列）**：
 
@@ -735,28 +748,30 @@ ProtocolBackend.fromProtocolId(account.protocol_id)  // → WEB | ANDROID
 | `friend_count` | 联系人靠 app-state 同步**被动到达**（`commands/contact-app-state-key.ts`、`contact-save-executor.ts`），协议层未落库计数，需新增 | 联系人已落 MySQL（`internal/service/axolotl/store/contacts.go` 的 `LoadContacts(ownerId)`），**COUNT 即得** |
 | `is_group_invite_allowed` | `sock.fetchPrivacySettings()` 可读（`node_modules/baileys/lib/Socket/chats.d.ts:33`），返回 `{[key]: string}`，取 `groupadd` 项 —— **需主动请求** | `iq.go:219` 有 `case "privacy"` 分支，但当前只处理 status privacy，拉群隐私能力**待确认** |
 
-两条链路都是**主动查**，WhatsApp 不会在账号上线时主动推送这两个值。因此还需定：
+好友数和拉群权限的协议链路都是**主动查**，WhatsApp 不会在账号上线时主动推送这两个值。因此还需定：
 同步触发时机（上线后一次 / 定时刷新 / 任务前按需）与刷新频率——这本身是一次协议调用，
 高频刷新同样有风控暴露。
 
-**落列前置条件（硬约束）**：Android 侧 `is_group_invite_allowed` 能力确认 + 两侧
-`friend_count` 口径统一 + 同步策略定稿。三者齐备前 `account_profile` 不进 Flyway，
-超链账号筛选先按上表 ✅ 的 11 项交付。
+轮号状态来自 Armada 轮号流程；五类来源来自导入/运营来源规范化；注册时间优先读取号源提供的
+注册日期，只有注册天数时按导入时点反推 `registered_at` 并记录 `profile_source=supplier`。
 
-### 8.3 注册天数：确认拿不到，需要产品重新定义
+**完整性硬约束**：字段和筛选控件随任务菜单一起交付，不因暂缺数据源隐藏。某画像未知时保存 NULL，
+带上下界的筛选不匹配 NULL；页面显示画像最近同步时间。Android 拉群权限和两侧好友数口径未打通时，
+任务菜单只能标为依赖未完成，不能标为完整复刻。
 
-WhatsApp **不对外暴露账号注册时间**，Baileys 与 Go 协议均无此数据。
+### 8.3 注册天数口径
+
+WhatsApp 协议本身**不对外暴露账号注册时间**，Baileys 与 Go 协议均无直接数据；但竞品任务筛选
+明确提供独立的注册天数范围和 90/180/365/730/1095 天快捷值，因此 Armada 必须承接这个业务字段。
 
 hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（注册天数）是**两个独立字段**
 （见 `readable/assets/account-filter-modal-BXDIvipG.js`），但存档里没有任何 tooltip 解释二者差别。
-两种可能：
+冻结口径：
 
-1. 「注册天数」= 号在**本系统**入库天数 → 那它与「存活天数」重复，armada 侧
-   `now - account.created_at` 一个口径就够，不需要第二个字段。
-2. 「注册天数」= 号源方提供的**号龄** → 那只能在账号导入时由号源带入，属于
-   `account_import_detail` 的入参，与协议层无关。
-
-**未澄清前不落列，前端隐藏该筛选项。**
+1. 「留存天数」= 从 Armada 入库/开始运营到当前的天数，可由 `account.created_at` 计算，允许小数。
+2. 「注册天数」= WhatsApp 号龄，按 `now - account_profile.registered_at` 计算整数天。
+3. 注册时间由号源/导入字段提供；只有号龄时在导入时反推日期并记录来源，未知则 NULL。
+4. 任何筛选边界都不把 NULL 当 0；未知画像只有在未设置注册天数条件时才可入选。
 
 ---
 
@@ -772,7 +787,7 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 二期任务 | `hyperlink_task` / `_content` / `_stat` / `_recipient` / `_delivery_attempt` |
 | 二期回流与点击 | `hyperlink_task_ban` / `hyperlink_click` |
 | 二期分析 | `hyperlink_stat_daily` |
-| 待验证账号画像 | 仅在 §8.2 验证通过后创建 `account_profile` |
+| 二期账号画像 | 创建/扩展 `account_profile`，同步好友数、拉群权限、轮号、注册时间和五类来源 |
 
 约束：
 
@@ -799,7 +814,7 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 7 | **不做**国家风险拦截，`blocked_rows` / `blocked_country_iso2s` 不落列（§3.4） |
 | 8 | 设备类型（主设备/分身）由 `account.protocol_id` 派生，**不落 `wid_type` 列**（§8.1） |
 | 9 | 存活天数由 `now - account.created_at` 派生，不落列 |
-| 10 | **计费相关字段全部不做**：Armada 无计费体系 |
+| 10 | 竞品最后核对的余额/单价/预计冻结必须实现；任务域通过 `HyperlinkBillingGateway` 接真实钱包/账务，报价和预约另存快照 |
 | 11 | 任务状态拆 `is_enabled` + `run_status` 两个正交字段（§4.2） |
 | 12 | 消息间隔落**毫秒**列，竞品是 0.1 秒精度（§4.2） |
 | 13 | 深度追踪是**按钮级**，任务列只是派生冗余；按钮上限 1 使 recipient 单 `short_code` 成立（§4.2、§4.5） |
@@ -809,18 +824,19 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 17 | 素材走 `marketing_template_file` **加列**，不新建第二张素材表；`ref_count` 不落列（§6.1） |
 | 18 | 分析的去重计数照抄竞品「跨行相加」口径，不做全局 `COUNT(DISTINCT)` 回源（§7.2） |
 | 19 | 超链任务**不套用分组级账号占用锁**（占用模型是分组粒度，超链按筛选跨分组圈号） |
+| 20 | 深度归因保留 IP 与 user-agent；敏感读取/导出加独立权限、审计和保留期，不在采集层删字段 |
 
 ### 10.2 未决
 
 | # | 问题 | 影响 |
 |---|---|---|
-| 1 | 「注册天数」的产品定义（§8.3） | WhatsApp 不暴露注册时间；含义未定则该筛选项不做 |
-| 2 | Android 协议的拉群隐私读取能力 + 两侧 `friend_count` 口径统一（§8.2） | 决定 `account_profile` 落 2 列还是 0 列 |
+| 1 | 号源/导入如何提供 `registered_at`（§8.3） | 决定注册天数的覆盖率，不影响字段和筛选契约存在 |
+| 2 | Android 协议的拉群隐私读取能力 + 两侧 `friend_count` 口径统一（§8.2） | 决定画像覆盖率和同步实现；未打通时任务不能标为完整 |
 | 3 | 账号画像同步触发时机与刷新频率（§8.2） | 主动查协议本身有风控暴露，高频刷新会伤号 |
 | 4 | `hyperlink_click` 的归档/分区策略与保留期 | 不定就是埋雷 |
 | 5 | 深度追踪短链域名是否与买量 `promotion_domain` 隔离 | 共用域名时超链被封会连带买量落地页一起挂 |
+| 6 | `HyperlinkBillingGateway` 的真实钱包/账务提供方和结算公式 | 决定报价、冻结、停止释放和最终结算实现 |
 
-> **勘误**：本文与设计文档早先提到的「armada 的 `balances` / `consume-stats` 体系」不存在。
-> 那几个是 hylb 的接口。armada 的 Java 代码与全部 Flyway 迁移中**没有任何 balance / recharge
-> 相关的表或类**，无计费体系。因此超链任务页的「当前余额 / 超链单价 / 估算落地率」在 armada
-> 没有可对接的依赖，本模块不设计相关字段。
+> **勘误**：本文与设计文档早先提到的「armada 的 `balances` / `consume-stats` 体系」不存在，
+> 那几个是 hylb 的接口。这个事实不再用于删除竞品计费功能：任务域先冻结
+> `HyperlinkBillingGateway`、报价快照和任务冻结预约契约，真实钱包/账务提供方是上线硬依赖。

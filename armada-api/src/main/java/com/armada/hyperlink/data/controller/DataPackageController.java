@@ -2,10 +2,12 @@ package com.armada.hyperlink.data.controller;
 
 import com.armada.hyperlink.data.model.dto.DataPackageBatchExportDTO;
 import com.armada.hyperlink.data.model.dto.DataPackageCreateDTO;
+import com.armada.hyperlink.data.model.dto.DataPackageClickExportDTO;
 import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageQuery;
 import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
 import com.armada.hyperlink.data.model.enums.DataPackageImportMode;
+import com.armada.hyperlink.data.model.enums.DataPackageClickExportFormat;
 import com.armada.hyperlink.data.model.enums.DataPackageUsageStatus;
 import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
 import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
@@ -126,6 +128,17 @@ public class DataPackageController {
             @RequestParam(defaultValue = "all") String usageStatus) {
         DataPackageExportFile file = service.exportPhones(
                 id, DataPackageUsageStatus.fromApi(usageStatus));
+        return exportResponse(file);
+    }
+
+    /** 批量导出所选数据包点击记录，TXT 仅手机号，CSV 包含数据包上下文。 */
+    @PostMapping("/clicks/export")
+    @PreAuthorize("hasAuthority('tenant:hyperlink_data:export')")
+    public ResponseEntity<byte[]> exportClickRecords(
+            @RequestBody DataPackageClickExportDTO request) {
+        DataPackageExportFile file = service.exportClickRecords(
+                request == null ? null : request.ids(),
+                DataPackageClickExportFormat.fromApi(request == null ? null : request.format()));
         return exportResponse(file);
     }
 

@@ -65,7 +65,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
 
     private static final Logger log = LoggerFactory.getLogger(GroupLinkServiceImpl.class);
 
-    /** 迁移、预览和设置运营分组等批量操作的上限。 */
+    /** 导入链接分组迁移和实时预览等批量操作的上限。 */
     private static final int BATCH_MAX = 100;
 
     /** group_link.group_name 列长度。 */
@@ -572,8 +572,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     /**
      * {@inheritDoc}
      *
-     * <p>绑定时按“运营分组、群组”顺序加锁，与删除分组保持一致的锁顺序；取消分组只锁群组。
-     * 所有 ID 均按当前租户查询，任一缺失则整批失败。</p>
+     * <p>群组 ID 列表不限制数量。绑定时按“运营分组、群组”顺序加锁，与删除分组保持一致的锁顺序；
+     * 取消分组只锁群组。所有 ID 均按当前租户查询，任一缺失则整批失败。</p>
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -601,23 +601,19 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         long now = System.currentTimeMillis();
         int updated = groupLinkMapper.assignFolder(normalizedIds, folderId, now);
         currentLocalPersistence.applyGroupFolder(normalizedIds, folderId, now);
-        log.info("群组批量设置运营分组 count={} folderId={} ids={}",
-                updated, folderId, normalizedIds);
+        log.info("群组批量设置运营分组 count={} requestedCount={} folderId={}",
+                updated, ids.size(), folderId);
         return updated;
     }
 
     private static List<Long> normalizeFolderAssignmentIds(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
+            throw new BusinessException(ErrorCode.VALIDATION, "ids 不能为空");
         }
         if (ids.stream().anyMatch(id -> id == null || id <= 0)) {
             throw new BusinessException(ErrorCode.VALIDATION, "群组 ID 必须为正整数");
         }
-        List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
-        if (normalizedIds.size() > BATCH_MAX) {
-            throw new BusinessException(ErrorCode.VALIDATION, "ids 数量须为 1.." + BATCH_MAX);
-        }
-        return normalizedIds;
+        return List.copyOf(new TreeSet<>(ids));
     }
 
     /**

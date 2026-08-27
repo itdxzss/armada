@@ -36,7 +36,8 @@ class DataPackageControllerContractTest {
         assertAuthority("importPhones", "tenant:hyperlink_data:import");
         assertAuthority("resetFailed", "tenant:hyperlink_data:edit");
         assertThat(java.util.Arrays.stream(DataPackageController.class.getDeclaredMethods())
-                .filter(candidate -> candidate.getName().equals("exportPhones")))
+                .filter(candidate -> candidate.getName().equals("exportPhones")
+                        || candidate.getName().equals("exportClickRecords")))
                 .allSatisfy(candidate -> assertThat(candidate.getAnnotation(PreAuthorize.class).value())
                         .isEqualTo("hasAuthority('tenant:hyperlink_data:export')"));
         assertAuthority("delete", "tenant:hyperlink_data:delete");
@@ -54,6 +55,7 @@ class DataPackageControllerContractTest {
                 "POST /{id}/reset-failed",
                 "GET /{id}/export",
                 "POST /export",
+                "POST /clicks/export",
                 "DELETE /{id}");
 
         String source = Files.readString(Path.of(

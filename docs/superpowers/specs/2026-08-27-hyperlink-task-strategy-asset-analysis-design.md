@@ -10,6 +10,12 @@
   - 数据模型 `docs/business/hyperlink-marketing-data-model.md`
 - 复刻来源：`hylbuiaxykfrontendsource/readable/assets/`（仅构建产物，无 sourcemap、无后端源码）
 
+> **2026-08-27 竞品复核纠偏**：超链任务已经按主分块、账号筛选、按钮编辑器、素材弹框、
+> WhatsApp 预览、访问趋势和路由/API 分块重新逐项取证。任务菜单的实施口径以
+> `docs/superpowers/specs/2026-08-27-hyperlink-task-competitor-parity-detailed-design.md` 为准，
+> 证据见 `docs/superpowers/reviews/2026-08-27-hylb-hyperlink-task-reverse-evidence.md`。
+> 本文仍负责四菜单总览；与新任务详设冲突的旧任务结论均作废。
+
 口径不变：**前端功能一致、接口仿照、后端按 armada 现有能力适配实现**。
 
 ---
@@ -19,7 +25,7 @@
 四个模块里，**超链任务是唯一的重活**——它是发送引擎；策略是它的参数预设，素材库是它的图片来源，市场分析是它的读模型。
 因此本方案按「协议补齐 → 策略 → 素材 → 任务 → 回流 → 深度追踪 → 市场分析」的依赖顺序分七期落地。
 
-协议层缺的能力（按钮类型、私聊目标）**全部补齐，不做降级**（§4.3）。这决定了 P0 是协议层，
+协议层缺的任务实际能力（CTA URL 单按钮、私聊目标）**全部补齐，不做降级**（§4.3）。这决定了 P0 是协议层，
 任务期在协议真机验证通过之前不开工——否则会写出一套发不出去的发送链路。
 
 ---
@@ -37,7 +43,7 @@
 | 5 | recipient 保存包 ID/代次/导入批次/号码/国家**快照**，不保存 `data_package_phone_id` | 一期 §6.6 |
 | 6 | 协议消息 ID、消息分片、重试结果属于 `hyperlink_delivery_attempt`，不塞进 recipient | 一期 §6.6 |
 | 7 | 图片素材沿用 `marketing_template_file` 的字节存储与稳定 ID，不改表名、不复制字节 | 数据模型 §6.1 |
-| 8 | 不做计费（armada 无计费体系）、不做国家风险拦截、不做批量号码预探测 | 数据模型 §10.1 |
+| 8 | 不做国家风险拦截、不做批量号码预探测；**计费结论被本次竞品复核推翻**，余额/报价/冻结/结算是任务完整上线的硬依赖 | 任务详设 §8 |
 | 9 | 数据库结构只走 Flyway，新列必须带 `COMMENT`，落地后重跑 `.harness/wiki/gen_datamodel.py` | AGENTS.md / 数据模型规范 |
 
 ---
@@ -55,11 +61,15 @@
 > **本期同样不开放双图文**，且这不再是"暂不支持"，而是与竞品一致的最终形态。
 > 收益很实在：一次发送恒等于一个物理消息，`hyperlink_delivery_attempt.message_part_no` 只在重试时增长。
 
-### 2.2 按钮：最多 1 个，四种类型
+### 2.2 按钮：最多 1 个，任务锁定 CTA URL
 
-- 数量上限 **1**（`最多 1 个 · 文案建议带 emoji…`）。
-- 类型与必填值：`cta_url`→`url`、`cta_call`→`phone_number`、`cta_copy`→`copy_code`、`quick_reply`→仅文案。
-- 默认按钮：`{type:'cta_url', display_text:'🔥 立即抢购', url:'…'}`。
+通用 `HyperlinkButtonEditor` 内部确实实现了四种类型，但任务页调用时传入
+`locked-type="cta_url"`（`task-0vbZUOmq.js:2246-2275`）。因此超链任务的真实能力是：
+
+- 普通按钮、卡片按钮均恰好 1 个按钮；
+- 类型固定 `cta_url`，按钮文案最多 30 字，URL 必填；
+- 深度追踪是这个 CTA URL 按钮上的开关；
+- 不为任务新增 `cta_call`、`cta_copy`、`quick_reply`。
 
 ### 2.3 深度追踪是**按钮级**，不是任务级
 
@@ -163,16 +173,17 @@ country_iso2s[] / exclude_country_iso2s[] / continent
 group_ids[] / channel_ids[] / protocol_id
 online_status / rotation_status / account_type / platform / wid_type / import_mode
 group_invite_allowed / stranger_muted / account_status / is_exported
-phone / import_no / error_code / error_desc
+phone / import_no / source
 friend_count_min|max / retention_days_min|max / register_days_min|max
-hyperlink_task_count_min|max          （"超链寿命"，条/账号）
-created_at_from|to / logged_in_from|to
+created_at_from|to
 ```
 
-但**任务页的归一化函数只透传其中一个子集**（`task-0vbZUOmq.js:1512-1529`）：
-`rotation_status` 与 `hyperlink_task_count_*` 不在其中，说明超链任务实际不使用这两项。
-另外任务页提交时会**强制注入** `account_status:'normal'`、`is_exported:false`、`stranger_muted:false`
-（对应弹窗底部的说明：账号状态固定"有效"、禁言固定"未禁言"、允许拉群固定"允许"）。
+任务实际打开的是完整账号筛选抽屉，轮号状态、号码来源、允许拉群、好友数、留存天数和注册天数
+都是真实可见控件。`hyperlink_task_count_*` 只属于筛选组件的其他业务场景，不在任务场景显示。
+
+任务提交时强制注入 `account_status:'normal'`、`is_exported:false`、`stranger_muted:false`；
+**没有**锁定 `group_invite_allowed`，允许拉群仍由用户筛选。竞品编辑回填漏掉 `rotation_status`、
+`source` 等字段是前端缺陷，不代表功能不存在；Armada 必须保证所有可见筛选字段完整往返。
 
 ---
 
@@ -200,7 +211,7 @@ created_at_from|to / logged_in_from|to
 | 3 | `AccountQuery` 只有 14 个维度 | 新增筛选服务 `HyperlinkAccountSelector`，不硬塞进 `AccountQuery`（§4.2） |
 | 4 | `ProtocolMessageEventConsumer` 只处理 `message.send_result_reported` | 新增 `message.ack` 分支（`server_ack`/`delivery_ack`/`read`） |
 | 5 | 账号占用模型是**分组级**（`account_group.marketing_occupancy_type`） | 超链按筛选圈号、跨分组，**不套用分组占用锁**（§4.4） |
-| 6 | Android 协议只支持 1 个 `cta_url` 按钮；Web 缺 `cta_call` | **全部补齐**，四层门同步改（§4.3-A） |
+| 6 | 任务实际只允许 1 个 `cta_url`；Android 现状正好匹配，Web 需统一校验 | 不扩四类按钮，只验证两条协议的 CTA URL 单按钮结构一致（§4.3-A） |
 | 7 | 三层发送链路都是群语义，无私聊路由 | Web 加"私聊跳过 sendability"，Android 新增 `preparePeerLinkSend`（§4.3-B） |
 | 8 | 素材管理面（命名/标签/引用/批量上传） | 扩 `marketing_template_file` + 2 张标签表（§6.5） |
 
@@ -230,8 +241,8 @@ action=stop    runStatus 1|3 → 4         终态，不可恢复；释放未发�
 自动完成       runStatus 1 → 2           即时：号发完；预发布：到期或号发完（先到为准）；周期：只能手动停止
 ```
 
-编辑限制（竞品原文）：`任务已开始/进行中/已完成/已暂停/已停止，仅可查看，不能修改`。
-即 `isEnabled=1` 后即只读，`isEnabled=0` 的任务可自由编辑。
+编辑限制以竞品实际分支为准：`runStatus=0` 显示编辑，其余状态显示查看。
+因此已启用但尚未开始（例如延后执行）的任务仍可编辑；开始后只读。
 `message_type` 在编辑模式下一律不可改（前端禁用 + 后端拒绝）。
 
 三种模式的执行差异：
@@ -246,30 +257,33 @@ action=stop    runStatus 1|3 → 4         终态，不可恢复；释放未发�
 
 新建 `HyperlinkAccountSelector`（超链域内的账号圈选服务），**不扩 `AccountQuery`**——
 `AccountQuery` 服务的是账号菜单列表，塞入 12 个营销专用维度会把它变成大杂烩，
-而且 `account` 是跨业务共享主表，随业务加筛选维度必然失控。选择器只依赖 `account`、
-`account_state`、`account_group`、`country_phone_prefix_mapping` 现有列做下推 SQL。
+而且 `account` 是跨业务共享主表，随业务加筛选维度必然失控。选择器依赖 `account`、
+`account_state`、账号组/渠道/协议关系，并通过一对一 `account_profile` 承载营销画像缺口。
 
 | 筛选项 | 本期 | 数据来源 |
 |---|---|---|
 | 国家包含 / 排除 / 大洲 | ✅ | `account.ws_phone` 区号 → `country_phone_prefix_mapping` → `country.continent` |
 | 分组 / 渠道 / 协议 | ✅ | `account.account_group_id` / `promotion_channel_id` / `protocol_id` |
-| 在线状态 / 封号码 / 封号原因 | ✅ | `account_state.login_state` / `block_error_code` / `block_reason` |
+| 在线状态 | ✅ | `account_state.login_state` |
+| 轮号状态 | ✅ | 新增 `account_profile.rotation_status` |
 | 账号类型（个人/商业） | ✅ | `account.account_type` |
 | 设备类型（主设备/分身） | ✅ | 由 `protocol_id` 派生 `ProtocolBackend`，**不落 `wid_type` 列** |
-| 账号性质（买量/自登） | ✅ | `account.number_source` |
+| 号码来源（五类） | ✅ | 扩展营销来源码：买流量/自己登录/买入/转入/群扫码 |
 | 手机号 / 批次号 | ✅ | `account.ws_phone` / `account_import_batch` |
 | 入库时间 / 最近登录时间 | ✅ | `account.created_at` / `account_online_attempt_log` |
 | 存活天数 | ✅ | `now - account.created_at` 派生，**不落列** |
 | 导入方式（六段/全参） | ⚠️ | `account_import_batch.import_format`，需经 `account_import_detail` 关联；SQL 成本要实测 |
-| 好友数 | ❌ 本期隐藏 | 需协议层主动查，两侧口径未统一（数据模型 §8.2） |
-| 允许拉群 | ❌ 本期隐藏 | 同上，Android 侧能力待确认 |
-| 注册天数 | ❌ 本期隐藏 | WhatsApp 不暴露，产品定义未澄清（数据模型 §8.3） |
-| 轮换状态 / 超链寿命 | ❌ 不做 | 竞品任务页自己也不透传这两项（§2.10） |
+| 好友数 | ✅ | `account_profile.friend_count`，协议侧定期同步 |
+| 允许拉群 | ✅ | `account_profile.is_group_invite_allowed` |
+| 注册天数 | ✅ | `registered_at` 或注册天数快照，带画像同步时间 |
+| 轮号状态 | ✅ | `account_profile.rotation_status` |
+| 超链寿命 | ❌ 任务不显示 | 只出现在筛选组件其他业务模式，不属于任务场景 |
 
-固定注入（与竞品一致，不作为可选项暴露）：账号状态=有效、禁言=未禁言。
+固定注入（与竞品一致，不作为可选项暴露）：账号状态=有效、未导出、禁言=未禁言。
+允许拉群不是固定条件，仍提供全部/允许/不允许三态筛选。
 
-> **有意保留的竞品差异**：三个 ❌ 隐藏项。前端**不渲染控件**，而不是渲染一个永远无效的控件——
-> 灰置控件比没有控件更让人误解。数据源就位后单独一期补齐。
+好友数、允许拉群、注册天数、轮号状态的数据源是菜单完整复刻的硬依赖。数据源未就位时不能通过隐藏控件
+宣称任务菜单完成；页面可在画像尚未同步时提示数据时效，但字段、筛选和完整回填必须存在。
 
 `accountFilter` 以 JSON 存库，空对象 = 不限定（全部有效账号）。
 **入库前必须按白名单归一化**：未知键丢弃、国家码大写、ID 去重、数值下界裁剪。
@@ -277,71 +291,21 @@ action=stop    runStatus 1|3 → 4         终态，不可恢复；释放未发�
 
 ### 4.3 协议能力补齐（**本期硬前置，不做能力降级**）
 
-**已定（用户决策）**：缺的能力全部补齐。Web 侧按 Baileys 接，Android 侧照搬 Web 逻辑。
-不做"限制超链任务只能选 Web 协议账号"这类降级方案。
-
-两块缺口互相独立，都必须补：**A 按钮能力**、**B 私聊目标**。
+任务真实协议范围只有 **CTA URL 单按钮** 和 **私聊目标**。不做“只允许 Web 协议账号”的降级，
+但也不再为竞品任务没有开放的电话、复制、快捷回复和多按钮做额外协议开发。
 
 | 形态 | 协议命令 | 补齐后 Web | 补齐后 Android |
 |---|---|---|---|
 | 1 单图文 | `MessageType.LINK_CARD` | ✅ 已有 | ✅ 已有 |
-| 3 普通按钮 | `MessageType.BUTTON_CARD`（无 thumbnail） | ✅ 加 `cta_call` | ✅ 改按钮数组 |
-| 4 卡片按钮 | `MessageType.BUTTON_CARD`（带 thumbnail） | ✅ 加 `cta_call` | ✅ 改按钮数组 |
+| 3 普通按钮 | `MessageType.BUTTON_CARD`（无 thumbnail） | ✅ 验证 CTA URL 单按钮 | ✅ 已有结构，真机验证 |
+| 4 卡片按钮 | `MessageType.BUTTON_CARD`（带 thumbnail） | ✅ 验证 CTA URL 单按钮 | ✅ 已有结构，真机验证 |
 
 #### A. 按钮能力
 
-现状里有**四层各自独立的门**，只改一层会变成"上层放行、下层拒绝"的静默失败：
-
-| 层 | 现状 | 出处 |
-|---|---|---|
-| armada Android backend | `buttons().size() != 1` 拒绝；`!"link".equalsIgnoreCase(type)` 拒绝 | `AndroidMessageSendBackend.java:126,130` |
-| armada Web backend | 纯透传，无按钮校验 | `WebMessageSendBackend.java:104-115` |
-| Web 协议 | `ButtonCardButtonType = 'link' \| 'copy' \| 'quick'`，1~3 个；`nativeFlowButton()` 无 call 分支 | `card-content.ts:19,37,161-176` |
-| Android 协议 | `HyperLinkMessage` 只有单按钮的 `ButtonText`+`Url`；`case "2"` 硬编码一个 `cta_url` | `entity/message.go:391-403`、`message_payload.go:123-152` |
-
-**Web 侧改动（约 15 行）**
-
-1. `ButtonCardButtonType` 加 `'call'`。
-2. `nativeFlowButton()` 加分支：
-
-```ts
-if (btn.type === 'call') {
-  const phone = btn.value ?? ''
-  return {
-    name: 'cta_call',
-    buttonParamsJson: JSON.stringify({ display_text: displayText, phone_number: phone })
-  }
-}
-```
-
-3. `validateButtonCard()` 加 call 分支：`value` 必须是 E.164 格式（`+` 加 8~15 位数字）。
-4. **Baileys 侧零改动**——`NativeFlowButton` 只有 `{name, buttonParamsJson}` 两个字段、
-   无按钮名白名单，Baileys 是纯透传（`node_modules/baileys/WAProto/WAProto.proto:2734-2737`）。
-
-> ⚠️ **`cta_call` 的 `buttonParamsJson` 字段名无法从仓库确证，必须真机验证。**
-> proto 里的 `CallButton` / `HydratedCallButton` 用的是 `displayText` / `phoneNumber`
-> （`WAWebProtobufsE2E.proto:1509,2232`），但那是**模板消息（HSM）机制，不是 native flow**。
-> native flow 的 payload 一律 snake_case（现有 `cta_url` 用 `display_text` / `url` / `merchant_url`），
-> 因此推断为 `display_text` / `phone_number`。
-> **真机 A/B 通过前，前端不放开该按钮类型**——发出去不渲染的按钮比没有按钮更糟。
-> 若真机验证发现还需要 `id` 字段，按验证结果补，不要凭猜测多塞字段。
-
-**Android 侧改动（照搬 Web 语义）**
-
-1. `entity.HyperLinkMessage` 增 `Buttons []HyperLinkButton{Type, DisplayText, Value}`。
-   保留 `Url` / `ButtonText` 旧字段供存量 HTTP 调用方（`Template=1` 也在用 `Url`）：
-   `Template=2` 优先读 `Buttons`，为空时回落旧字段。**不删旧字段**，否则现网 HTTP 调用方直接挂。
-2. `BuildLinkGroupPayload` 的 `case "2"`：遍历 `Buttons` 生成 `[]NativeFlowButton`，
-   JSON 字段名与 Web 的 `nativeFlowButton()` **逐字一致**。
-3. `internal/armada/message_sender.go:562` 的 `PrepareButtonCard`：删掉
-   `len(card.Buttons) != 1` 断言，透传全部按钮**及其 `Type`**（现在 `Type` 被直接丢弃）。
-4. armada `AndroidMessageSendBackend.validateButtonCard`：放开数量与类型限制，
-   改用与 Web 完全相同的一套校验。
-
-> **两条协议必须共用同一份按钮约定**。JSON 字段名、数量上限、类型白名单三者只要有一处不一致，
-> 同一个模板在两条协议上就会渲染出不同结果，而这种问题只有真机才能发现。
-> 因此校验收口到 armada 侧一个 `HyperlinkButtonValidator`，两条协议内部的校验只做 wire 层兜底。
-> 现在恰好是反例：类型门在 armada（Java）、数量门在 Go，两处独立演进。
+四层契约统一收口为：按钮数量恰好 1、类型 `link/cta_url`、文案非空且最多 30、URL 合法，
+`useShortLink` 只控制发送前是否替换为任务短码。Web、Android 和 armada Java 侧都做一致校验；
+已有通用模型的其他按钮类型不删除，但超链任务 DTO 不接受。本期协议验收只做普通按钮、卡片按钮
+两种消息形态在 Web/Android 私聊中的 CTA URL 真机渲染与点击。
 
 #### B. 私聊目标
 
@@ -382,12 +346,11 @@ Web 侧那个跳过不是优化，是必需项：不跳的代价是**每条超�
 群营销全线停摆"的事故。
 
 替代方案：单账号并发由**在途 attempt 计数**控制（`accountSendConcurrency`），
-跨任务不做抢号互斥——这与竞品一致（竞品同样是按筛选圈号，多任务可共用同一账号）。
+跨任务是否共享同一账号无法从竞品前端证明。初版可以用账号级全局令牌桶限制总在途数，
+避免多个任务叠加突破单号安全阈值；具体共享策略在调度实现前用真实运行样例确认。
 
-> **登记的风险**：多个超链任务同时跑同一批号时，单号实际并发是各任务之和，
-> 可能超出单任务的 `accountSendConcurrency`。竞品也有这个问题。
-> 若实测出号损，再引入账号级令牌桶（Redis，复用协议层 `operation-gate` 范式），
-> 不要退回分组锁。
+> **登记的风险**：若只按任务计数，多个超链任务同时使用一个账号时，单号实际并发会叠加。
+> 不套分组级占用锁，但账号级令牌桶必须在压测与真机灰度中验证。
 
 ### 4.5 单钩 / 双钩 / 失败回流
 
@@ -573,7 +536,7 @@ CREATE TABLE IF NOT EXISTS hyperlink_strategy (
 索引：
 
 ```
-UNIQUE uq_hyperlink_task_name    (tenant_id, task_name, is_active)
+KEY idx_hyperlink_task_name      (tenant_id, task_name, is_active)
 KEY idx_hyperlink_task_tenant    (tenant_id, deleted_at, id)
 KEY idx_hyperlink_task_status    (tenant_id, is_enabled, run_status, last_send_at)
 KEY idx_hyperlink_task_due       (tenant_id, run_status, task_planned_end_at, id)
@@ -581,9 +544,8 @@ KEY idx_hyperlink_task_round     (tenant_id, run_status, next_round_at, id)
 KEY idx_hyperlink_task_package   (tenant_id, data_package_id)
 ```
 
-> 任务名唯一键是**本期新增的约束**，竞品未确证有此约束。理由：`hyperlink_template` /
-> `data_package` 都做了同租户名称唯一，任务不做会在运维排障时出现同名任务无法区分。
-> 如果评审认为运营需要同名任务（例如按天重复创建），删掉这个唯一键即可，其余设计不变。
+竞品未表现任务名唯一约束，复制任务也只通过追加「副本」改善辨识度。因此任务名只建普通索引，
+不额外限制同租户重名；运营排障以任务 ID 为准。
 
 ### 5.5 `hyperlink_task_content`（V157，1:1，主键即任务 ID）
 
@@ -719,19 +681,22 @@ GET    /api/hyperlink-tasks/{id}                     详情
 POST   /api/hyperlink-tasks                          新建（multipart/form-data）
 PUT    /api/hyperlink-tasks/{id}                     编辑（multipart/form-data）
 POST   /api/hyperlink-tasks/{id}/action              {action: START|PAUSE|RESUME|STOP}
-DELETE /api/hyperlink-tasks/{id}                     删除（仅 isEnabled=0 或终态）
+GET    /api/hyperlink-tasks/export                   列表导出
 GET    /api/hyperlink-tasks/{id}/recipients          收信人流水
 GET    /api/hyperlink-tasks/{id}/account-stats       发信账号维度统计
 GET    /api/hyperlink-tasks/{id}/clicks              点击明细（深度归因）
 GET    /api/hyperlink-tasks/{id}/visit-trend         访问趋势
 GET    /api/hyperlink-tasks/{id}/ban-stats           封号原因分布
 POST   /api/hyperlink-tasks/{id}/recipients/export         异步导出
+POST   /api/hyperlink-tasks/{id}/account-stats/export      异步导出
 POST   /api/hyperlink-tasks/{id}/visit-trend/export        异步导出
 POST   /api/hyperlink-tasks/{id}/click-attribution/export  异步导出
-GET    /api/hyperlink-tasks/available-account-count  按 accountFilter 试算可用账号数
+GET    /api/hyperlink-tasks/create-context           模式、价码、余额、协议数
+POST   /api/hyperlink-tasks/quote                    数据包人数、预计冻结、quoteToken
+POST   /api/hyperlink-tasks/account-match-count      按完整 accountFilter 试算可用账号数
 ```
 
-列表查询参数：`page`、`pageSize`、`taskName`、`isEnabled`、`runStatus`、`taskType`、
+列表查询参数：`page`、`pageSize`、`taskName`、`runStatus`、`taskType`、
 `recipientCountryIso2`、`createdFrom`、`createdTo`。
 
 `multipart` 两个二进制字段 `linkPreviewImage` / `bodyMainImage`（可选，未传则用
@@ -740,10 +705,10 @@ GET    /api/hyperlink-tasks/available-account-count  按 accountFilter 试算可
 > **与竞品的接口差异（有意）**：
 > 1. 导出改为 `POST` + 异步任务，复用 `marketing_export_job` 框架。竞品的同步
 >    `GET .../export` 在数十万行收信人上必然超时，同步导出是**不可复刻的错误设计**。
-> 2. 新增 `available-account-count`。竞品在新建抽屉里实时显示"N 个可用"，
+> 2. 新增 `account-match-count`。竞品在新建抽屉里实时显示"N 个可用"，
 >    走的是账号列表接口的 `total`；armada 的账号筛选维度与之不同，必须有专用试算端点。
 
-`available-account-count` 同时返回协议台数上限，供前端做 `concurrent_num ≤ 协议台数 × 15` 校验：
+`account-match-count` 同时返回协议台数上限，供前端做 `concurrent_num ≤ 协议台数 × 15` 校验：
 
 ```json
 { "code": 0, "data": { "availableAccountCount": 1832, "protocolCount": 24, "maxConcurrentNum": 360 } }
@@ -816,10 +781,11 @@ GET /api/public/hl/{shortCode}     记录 hyperlink_click → 302 跳转原始 U
 | 即时任务可用账号为 0 | `40001` | 即时任务需要至少 1 个可用账号；如需 0 个也能启用，请切换为「预发布」模式 |
 | 数据包可用号码为 0 | `40001` | 该数据包已无未使用号码 |
 | 按钮类型非法或数量超限 | `40001` | 按钮类型不支持 / 按钮数量超出上限 |
-| `cta_call` 真机验证未通过前提交 | `40001` | 电话按钮暂未开放（§4.3-A 的临时开关，验证通过即移除） |
 | 提交双图文 | `40001` | 不支持双图文 |
-| 已启用任务被编辑 | `40901` | 任务已启用，仅可查看 |
+| 已开始任务被编辑 | `40901` | 任务已开始，仅可查看 |
 | action 与当前状态不匹配 | `40901` | 任务当前状态不支持该操作 |
+| 报价已过期 | `40901` | 报价已更新，请重新核对后提交 |
+| 可用余额不足 | `40901` | 可用余额不足，无法冻结本次任务费用 |
 | 素材有引用时删除 | `40901` | 该素材仍被 N 处引用，不能删除 |
 | 分析窗口超限 | `40001` | 日粒度最多 90 天 / 小时粒度最多 7 天 |
 
@@ -886,12 +852,13 @@ components/hyperlink/
 
 页面要点：
 
-**超链任务列表** — 汇总卡（任务数/发送总数/单钩/双钩/点击UV/点击率，基于当前页前端汇总，
-按任务名搜索时分页自动放大到 200，与竞品一致）+ 表格 + 行操作（启动/暂停/恢复/停止/编辑/查看/详情/复制）。
-数据 1 分钟自动刷新一次。
+**超链任务列表** — 汇总卡（任务数/发送总数/单钩/双钩/点击UV/点击率，基于当前页前端汇总）
++ 表格 + 行操作（启动/暂停/恢复/停止/编辑/查看/详情/复制）。名称使用服务端模糊搜索，不复制竞品
+把分页临时放大到 200 的实现缺陷。页面仅手动刷新，并提示后端聚合数据约 1 分钟同步一次。
 
 **新建/编辑抽屉** — 左侧 WhatsApp 实时预览、右侧四段表单（基础信息 / 消息内容 / 发送策略 / 受众与发布），
-提交前弹「最后核对」二次确认（含 N 秒阅读倒计时）。计费相关字段（余额/单价/预计冻结/估算落地率）**整块不做**。
+纯新建提交前弹「最后核对」二次确认（7 秒阅读倒计时）。余额、单价、运行模式、预计冻结金额、
+数据包剩余数、匹配账号数、推广链接和深度追踪状态必须完整展示；计费 Gateway 是任务完整上线硬依赖。
 
 **任务详情** — 5 个 Tab：收信人流水统计 / 发信账号维度统计 / 深度归因 / 访问趋势 / 封号原因分布。
 未开启深度追踪的任务，点击类 Tab 显示「该任务未开启深度追踪，无点击 UV 数据」而不是空表。
@@ -949,7 +916,7 @@ tenant:hyperlink_analysis:view|export
 
 | 期 | 内容 | 依赖 | 交付判定 |
 |---|---|---|---|
-| **P0** | **协议能力补齐**（§4.3）：Web 加 `cta_call` + 私聊跳过 sendability；Android 改按钮数组 + 新增私聊路由；armada 三处门统一 | `MessageTarget` 全局评审通过 | 真机验证：四种按钮在两条协议上渲染一致；私聊单图文与按钮消息能真实发到手机 |
+| **P0** | **协议能力补齐**（§4.3）：两条协议统一 CTA URL 单按钮校验和私聊路由 | `MessageTarget` 全局评审通过 | 真机验证：私聊单图文、普通 CTA URL 按钮、卡片 CTA URL 按钮在两条协议上真实送达并可点击 |
 | P1 | 超链策略（表 + API + 页面） | 无 | 策略可增删改查，`options` 能被任务页消费 |
 | P2 | 图片素材（加列 + 标签表 + API + 页面 + 存量回填） | 无 | 素材可上传/命名/打标签/删除保护；模板页图片字段切到素材库选择 |
 | P3 | 超链任务（表 + 创建/编辑/action + 领号 + 发送链路） | **P0**、P1、P2 | 单图文与按钮任务能真实发出并落 attempt |
@@ -983,8 +950,8 @@ tenant:hyperlink_analysis:view|export
 | 4 | `marketing_template_file` 加列的全局评审 | P2 的硬前置 | 新列全可空、不改现有读写，风险可控 |
 | 5 | 任务名是否同租户唯一（§5.4） | 决定运营能否按天创建同名任务 | 倾向加唯一键，请产品确认 |
 | 6 | 「导入方式」筛选的 SQL 成本 | 需经 `account_import_detail` 关联，可能拖慢圈号 | 实测；若慢则在 `account` 冗余一列（走全局评审） |
-| 7 | `cta_call` 的 `buttonParamsJson` 字段名（§4.3-A） | 仓库无法确证，猜错就是发出去不渲染 | **真机 A/B 验证**，这是 P0 的验收项之一，不是待决的设计选择 |
-| 8 | 账号画像三项（好友数/允许拉群/注册天数） | 决定筛选项能否补齐 | 沿用数据模型 §8 的硬约束，三者齐备前不落列 |
+| 7 | 计费提供方、价码和冻结/结算规则 | 决定最后核对与任务创建能否真实工作 | 先冻结 `HyperlinkBillingGateway`，真实提供方未接入前不得宣称任务完成 |
+| 8 | 账号画像（好友数/允许拉群/注册天数/轮号） | 决定完整账号筛选能否工作 | 落一对一营销画像及同步时间；数据源未齐不隐藏竞品控件 |
 | 9 | 多任务共用同一账号的号损 | 无跨任务抢号互斥（§4.4） | 灰度实测；若有号损再上账号级令牌桶 |
 | 10 | Android 私聊路由的排期（§4.3-B） | 自研栈，工作量最大且必须真机回归 | 建议单独拆一个 PR，不与按钮改动混在一起提 |
 
@@ -995,7 +962,7 @@ tenant:hyperlink_analysis:view|export
 | 结论 | 出处 |
 |---|---|
 | 新建只有 3 种消息类型 | `readable/assets/task-0vbZUOmq.js:1732-1747` |
-| 按钮上限 1 与四种类型校验 | `task-0vbZUOmq.js:1077-1092`，`最多 1 个` 文案 |
+| 按钮上限 1 且任务锁 CTA URL | `task-0vbZUOmq.js:2246-2275`，`locked-type="cta_url"` |
 | 深度追踪按钮级 | `task-0vbZUOmq.js:1677-1680` |
 | 消息间隔小数与三档预设 | `task-0vbZUOmq.js:895-911` |
 | 并发上限常量 `mr=1e4` | `task-0vbZUOmq.js:762, 1047-1066` |
@@ -1011,15 +978,14 @@ tenant:hyperlink_analysis:view|export
 | 分析请求参数 | `analysis-DA45fcKJ.js:1121-1126` |
 | 分析响应结构与相加口径 | `analysis-DA45fcKJ.js:1148-1205` |
 | 账号筛选字段全集 | `account-filter-modal-BXDIvipG.js` |
-| 任务页只透传筛选子集 | `task-0vbZUOmq.js:1512-1529` |
+| 任务账号筛选提交完整、编辑回填漏字段缺陷 | `account-filter-modal-BXDIvipG.js:731-739`；`task-0vbZUOmq.js:1495-1529` |
 | 接口面 | `router-CPQmbuR9.js:45960-46160, 46268-46320, 46739-46760, 46878-46895` |
-| Web 协议按钮能力与 1~3 个上限 | `armada-protocol/protocol-layer/src/messages/card-content.ts:19,37-60,161-176` |
+| Web 协议通用按钮模型（任务仍锁 CTA URL 单按钮） | `armada-protocol/protocol-layer/src/messages/card-content.ts:19,37-60,161-176` |
 | Baileys 对 native flow 按钮纯透传、无名称白名单 | `protocol-layer/node_modules/baileys/WAProto/WAProto.proto:2731-2737` |
 | Android 只支持单个 `cta_url` | `whatsapp-server-feature-android-zhuan/internal/service/node/message_payload.go:123-152` |
 | Android 单按钮入参模型 | `internal/service/entity/message.go:391-403` |
 | Android 侧 `len(buttons)!=1` 断言与 Type 被丢弃 | `internal/armada/message_sender.go:562-576` |
 | Android 发送路由是群语义 | `internal/service/app/group.go:258-291, 317` |
-| 模板消息 CallButton 用 camelCase（**不是** native flow） | `internal/service/waproto/WAWebProtobufsE2E.proto:1509, 2232` |
 | armada Android backend 的按钮门 | `com/armada/platform/protocol/backend/android/AndroidMessageSendBackend.java:126,130` |
 | armada Web backend 无按钮校验 | `com/armada/platform/protocol/backend/web/WebMessageSendBackend.java:104-115` |
 | Web 每条消息都查 group sendability，历史群链路已有跳过先例 | `protocol-layer/src/commands/worker-consumer.ts:764-766, 866-874` |

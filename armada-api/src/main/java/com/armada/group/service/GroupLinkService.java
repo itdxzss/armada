@@ -100,7 +100,7 @@ public interface GroupLinkService {
     /**
      * 批量设置或取消群组列表运营分组。
      *
-     * @param ids 群组 ID 列表，去重后数量为 1..100
+     * @param ids 非空群组 ID 列表，不限制数量
      * @param folderId 目标运营分组 ID；null 表示取消分组
      * @return 数据库实际更新行数
      */

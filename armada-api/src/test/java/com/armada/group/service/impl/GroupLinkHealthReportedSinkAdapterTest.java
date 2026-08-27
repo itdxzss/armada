@@ -1,17 +1,23 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.service.GroupLinkHealthReportService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedEvent;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.task.service.PullTaskGroupBanTerminationService;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -27,12 +33,26 @@ class GroupLinkHealthReportedSinkAdapterTest {
     @Mock
     private PullTaskGroupBanTerminationService banTerminationService;
 
+    @Mock
+    private AccountMapper accountMapper;
+
     private GroupLinkHealthReportedSinkAdapter adapter;
 
     @BeforeEach
     void setUp() {
         adapter = new GroupLinkHealthReportedSinkAdapter(
-                healthReportService, banTerminationService);
+                healthReportService, banTerminationService, accountMapper);
+        Account account = new Account();
+        account.setOwnerUserId(501L);
+        account.setProtocolAccountId("acc_103");
+        when(accountMapper.selectActiveByProtocolAccountId("acc_103"))
+                .thenReturn(account);
+    }
+
+    @AfterEach
+    void clearContexts() {
+        DataScopeContext.clear();
+        TenantContext.clear();
     }
 
     @Test
@@ -42,6 +62,7 @@ class GroupLinkHealthReportedSinkAdapterTest {
         adapter.handleHealthReported(event(" banned ", " chat_suspended "));
 
         verify(banTerminationService).terminateBannedGroup(12L, 203L);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     @Test
@@ -107,6 +128,21 @@ class GroupLinkHealthReportedSinkAdapterTest {
                 event("BANNED", "CHAT_SUSPENDED")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("task transition failed");
+    }
+
+    @Test
+    void historicalUnownedExecutionAccountIsRejectedBeforeHealthWrite() {
+        Account account = new Account();
+        account.setProtocolAccountId("acc_103");
+        when(accountMapper.selectActiveByProtocolAccountId("acc_103"))
+                .thenReturn(account);
+
+        assertThatThrownBy(() -> adapter.handleHealthReported(
+                event("BANNED", "CHAT_SUSPENDED")))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class);
+
+        verifyNoInteractions(healthReportService, banTerminationService);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     private static ProtocolGroupHealthReportedEvent event(String health, String errorCode) {

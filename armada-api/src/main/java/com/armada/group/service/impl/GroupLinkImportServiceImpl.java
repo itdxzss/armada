@@ -11,6 +11,7 @@ import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkImportDetail;
+import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.enums.GroupLinkImportSuccessType;
 import com.armada.group.model.enums.GroupLinkOrigin;
@@ -26,6 +27,8 @@ import com.armada.group.service.GroupLinkUrls;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.util.LineImporter;
 import com.armada.shared.util.LineImporter.Kind;
 import com.armada.shared.util.LineImporter.LineOutcome;
@@ -109,7 +112,13 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
     @Transactional(rollbackFor = Exception.class)
     public GroupLinkImportResultVO importLinks(GroupLinkImportDTO dto) {
         // 1) 校验:labelId 必须存在的分组,lines 非空(否则抛 VALIDATION)
-        validateRequest(dto);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupLinkLabel targetLabel = validateRequest(dto, scope);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope,
+                java.util.Collections.singletonList(targetLabel.getOwnerUserId()),
+                "群链接导入");
+        long ownerUserId = scope.ownerUserIdForCreate();
 
         // 2) dto.lines() 已是行列表;LineImporter 的入参是单段文本,这里用换行重新拼回,
         //    交给 LineImporter 内部再按 \R 拆行(它的契约是"文本进")。
@@ -117,11 +126,13 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
         // 3) 先插批次头拿到自增 id(计数列留到末尾再 updateCounts 回写)
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
+        batch.setOwnerUserId(ownerUserId);
         batch.setLabelId(dto.labelId());
         // 批次名称(来源文件/批次名称)非必填:留空(null/空白)统一存 NULL,不存空白串
         batch.setBatchName(blankToNull(dto.batchName()));
         batch.setSourceFileName(blankToNull(dto.sourceFileName()));
         batch.setCreatedAt(System.currentTimeMillis());
+        batch.setCreatedBy(ownerUserId);
         importBatchMapper.insert(batch);
 
         // 4) 逐行处理 = 通用骨架 LineImporter.run(文本, 解析器, 去重键, 落库器):
@@ -133,7 +144,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 joined,
                 GroupLinkUrls::normalizeImportLine,
                 url -> url,
-                url -> persist(dto.labelId(), batch.getId(), url));
+                url -> persist(dto.labelId(), batch.getId(), ownerUserId, url));
 
         // 5) 遍历每行产出:① 组装一条明细行 ② 按类别累加计数器
         List<GroupLinkImportDetail> details = new ArrayList<>(outcomes.size());
@@ -219,6 +230,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
     @Override
     public PageResult<GroupLinkImportDetailVO> listDetails(GroupLinkImportDetailQuery query) {
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         long total = detailMapper.countByQuery(query);
         // 无数据时跳过分页 SQL，避免明知为空仍访问明细表。
         List<GroupLinkImportDetailVO> list = total == 0
@@ -233,7 +245,8 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         if (labelId == null && batchId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "labelId 与 batchId 至少提供一个");
         }
-        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(labelId, batchId);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(labelId, batchId, scope);
         List<String[]> result = new ArrayList<>(rows.size());
         for (GroupLinkImportDetailVoRow row : rows) {
             String timeStr = row.getCreatedAt() == null
@@ -275,9 +288,9 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
      * 软删行必须复活、不能再插新行:plain 唯一键 {@code (tenant_id, link_url)} 连软删行也占键,
      * 不复活则这条 url 永远导不回来。
      */
-    private Persisted persist(Long labelId, Long batchId, String url) {
+    private Persisted persist(Long labelId, Long batchId, Long ownerUserId, String url) {
         // 唯一键包含软删行，必须连软删记录一起查，后续才能选择插入、复活或收编。
-        GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
+        GroupLink existing = groupLinkMapper.selectAnyByUrl(url, ownerUserId);
         long now = System.currentTimeMillis();
 
         // 已归入导入分组的活跃链接按业务口径直接判重复，也避免一次无意义的外网请求。
@@ -295,6 +308,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
 
         if (existing == null) {
             GroupLink row = new GroupLink();
+            row.setOwnerUserId(ownerUserId);
             row.setLinkUrl(url);
             row.setLabelId(labelId);
             row.setImportBatchId(batchId);
@@ -302,19 +316,21 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
             row.setMembershipState(GroupMembershipState.TARGET.code());
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
+            row.setCreatedBy(ownerUserId);
             groupLinkMapper.insert(row);
             return new Persisted(GroupLinkImportResult.SUCCESS,
                     GroupLinkImportSuccessType.INSERTED.code(), null, row.getId(), null, metadata);
         }
         if (existing.getDeletedAt() != null) {
             // 软删行仍占唯一键，不能重新 insert，只能复活原记录并更新导入归属。
-            groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, now);
+            groupLinkMapper.adoptToLabel(existing.getId(), labelId, batchId, null, ownerUserId, now);
             return new Persisted(GroupLinkImportResult.SUCCESS,
                     GroupLinkImportSuccessType.INSERTED.code(), null, existing.getId(), null, metadata);
         }
 
         // SQL 带 label_id IS NULL 条件，避免并发导入把已被其他请求收编的链接再次改归属。
-        int updated = groupLinkMapper.adoptActiveIntoImport(existing.getId(), labelId, batchId, now);
+        int updated = groupLinkMapper.adoptActiveIntoImport(
+                existing.getId(), labelId, batchId, ownerUserId, now);
         if (updated == 0) {
             return new Persisted(GroupLinkImportResult.FAILED, null,
                     GroupLinkImportFailReason.DUPLICATE, null, null, null);
@@ -357,9 +373,12 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
                 : subject.substring(0, IMPORT_DETAIL_GROUP_NAME_MAX_LENGTH);
     }
 
-    private void validateRequest(GroupLinkImportDTO dto) {
+    private GroupLinkLabel validateRequest(GroupLinkImportDTO dto, DataScope scope) {
         // 批次头依赖有效分组，先校验可避免生成无归属的导入批次。
-        if (dto.labelId() == null || labelMapper.selectById(dto.labelId()) == null) {
+        GroupLinkLabel label = dto.labelId() == null
+                ? null
+                : labelMapper.selectById(dto.labelId(), scope);
+        if (label == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "目标分组不存在");
         }
         // 只做 null/empty 检查,不做 join(join 在 importLinks 调用方处理,避免重复计算)
@@ -367,6 +386,7 @@ public class GroupLinkImportServiceImpl implements GroupLinkImportService {
         if (lines == null || lines.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接内容与上传文件不可为空");
         }
+        return label;
     }
 
     /** persist 内部返回值:主结果 + 成功类型/失败原因 + 群链接 ID + 收编前来源 + 公开页资料。 */

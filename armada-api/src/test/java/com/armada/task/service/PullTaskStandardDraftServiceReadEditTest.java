@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -68,11 +70,13 @@ class PullTaskStandardDraftServiceReadEditTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(CREATOR));
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -111,10 +115,12 @@ class PullTaskStandardDraftServiceReadEditTest {
     }
 
     @Test
-    void currentIsScopedToTheCreator() {
+    void currentRejectsAUserIdDifferentFromTheAuthenticatedActor() {
         seedTwoRows();
 
-        assertThat(service.current(OTHER_CREATOR).draftTaskId()).isNull();
+        assertThatThrownBy(() -> service.current(OTHER_CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("当前身份");
     }
 
     @Test

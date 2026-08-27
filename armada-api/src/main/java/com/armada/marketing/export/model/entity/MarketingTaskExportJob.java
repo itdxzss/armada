@@ -6,6 +6,7 @@ public class MarketingTaskExportJob {
     private Long id;
     private Long tenantId;
     private Long createdBy;
+    private String dataScopeMode;
     private String exportMode;
     private String taskIdsJson;
     private String countryIso2sJson;
@@ -33,6 +34,8 @@ public class MarketingTaskExportJob {
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
+    public String getDataScopeMode() { return dataScopeMode; }
+    public void setDataScopeMode(String dataScopeMode) { this.dataScopeMode = dataScopeMode; }
     public String getExportMode() { return exportMode; }
     public void setExportMode(String exportMode) { this.exportMode = exportMode; }
     public String getTaskIdsJson() { return taskIdsJson; }

@@ -12,6 +12,9 @@ import com.armada.promotion.pairing.service.PromotionCapiEventService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,6 +60,17 @@ public class PromotionPairingCompletionService {
         if (session == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "配对会话不存在");
         }
+        try (DataScopeContext.Scope ignored = openOwnerScope(session)) {
+            return completeOwnedSession(sessionId, tenantId, event, credential, session);
+        }
+    }
+
+    private Long completeOwnedSession(
+            Long sessionId,
+            Long tenantId,
+            ProtocolPairingEvent event,
+            PairingCredentialExport credential,
+            PromotionPairingSession session) {
         validateEventCorrelation(session, event);
         PromotionPairingStatus status = PromotionPairingStatus.fromCode(session.getStatus());
         if (status == PromotionPairingStatus.SUCCEEDED) {
@@ -128,6 +142,16 @@ public class PromotionPairingCompletionService {
         if (current == null || current.getExpiresAt() > cutoff) {
             return false;
         }
+        try (DataScopeContext.Scope ignored = openOwnerScope(current)) {
+            return expireLockedSession(sessionId, tenantId, cutoff, current);
+        }
+    }
+
+    private boolean expireLockedSession(
+            Long sessionId,
+            Long tenantId,
+            long cutoff,
+            PromotionPairingSession current) {
         PromotionPairingStatus status = PromotionPairingStatus.fromCode(current.getStatus());
         if (status != PromotionPairingStatus.REQUESTING
                 && status != PromotionPairingStatus.WAITING_CONFIRMATION
@@ -165,18 +189,32 @@ public class PromotionPairingCompletionService {
                              String errorCode,
                              String errorMessage,
                              long occurredAt) {
-        int changed = sessionMapper.markTerminal(
-                session.getId(), session.getTenantId(), terminalStatus.code(),
-                errorCode, errorMessage, occurredAt);
-        if (changed == 1) {
-            capiEventService.cancelWaiting(session.getId(), occurredAt);
+        try (DataScopeContext.Scope ignored = openOwnerScope(session)) {
+            int changed = sessionMapper.markTerminal(
+                    session.getId(), session.getTenantId(), terminalStatus.code(),
+                    errorCode, errorMessage, occurredAt);
+            if (changed == 1) {
+                capiEventService.cancelWaiting(session.getId(), occurredAt);
+            }
+            if (changed == 1 && session.getProxyId() != null) {
+                ipProxyService.releasePairingAllocation(session.getId(), session.getProxyId());
+            } else if (changed == 1) {
+                ipProxyService.releasePairingAllocationBySession(session.getId());
+            }
+            return changed == 1;
         }
-        if (changed == 1 && session.getProxyId() != null) {
-            ipProxyService.releasePairingAllocation(session.getId(), session.getProxyId());
-        } else if (changed == 1) {
-            ipProxyService.releasePairingAllocationBySession(session.getId());
+    }
+
+    private static DataScopeContext.Scope openOwnerScope(PromotionPairingSession session) {
+        if (session == null || session.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属推广配对会话不能继续执行");
         }
-        return changed == 1;
+        DataScope current = DataScopeContext.current()
+                .orElse(DataScope.self(session.getOwnerUserId()));
+        DataScopeAccess.requireCanAccess(current, session.getOwnerUserId(), "推广配对会话");
+        return DataScopeContext.open(DataScope.self(session.getOwnerUserId()));
     }
 
     private static void requireOne(int affected, String message) {

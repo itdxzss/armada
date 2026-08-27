@@ -10,6 +10,9 @@ import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -56,7 +59,10 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         try {
             for (Map.Entry<TenantGroupKey, List<NormalizedObservation>> entry : grouped.entrySet()) {
                 TenantContext.set(entry.getKey().tenantId());
-                applyGroup(entry.getKey(), entry.getValue());
+                DataScope scope = scopeForObservations(entry.getValue());
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(scope)) {
+                    applyGroup(entry.getKey(), entry.getValue());
+                }
             }
         } finally {
             if (previousTenant == null) {
@@ -137,7 +143,8 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(tenantId);
-            List<Account> accounts = accountMapper.selectActiveByWsPhones(phones);
+            List<Account> accounts = accountMapper.selectActiveByWsPhonesForScope(
+                    phones, DataScopeAccess.requireCurrent());
             if (accounts == null || accounts.isEmpty()) {
                 return List.of();
             }
@@ -178,7 +185,8 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             return List.of();
         }
         List<String> phones = winnerByPhone.keySet().stream().sorted().toList();
-        List<Account> accounts = accountMapper.selectActiveByWsPhones(phones);
+        List<Account> accounts = accountMapper.selectActiveByWsPhonesForScope(
+                phones, DataScopeAccess.requireCurrent());
         if (accounts == null || accounts.isEmpty()) {
             return List.of();
         }
@@ -246,6 +254,9 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         if (value == null || value.tenantId() == null || value.tenantId() <= 0) {
             throw validation("群成员观察缺少 tenantId");
         }
+        if (value.observerAccountId() == null || value.observerAccountId() <= 0) {
+            throw validation("群成员观察缺少 observerAccountId");
+        }
         if (value.admin() && !value.inGroup()) {
             throw validation("群成员观察管理员必须在群");
         }
@@ -266,6 +277,31 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
                 value.tenantId(), value.observerAccountId(), groupJid, participantJid, phone,
                 value.inGroup(), value.admin(), value.source().name(), value.observedAt(),
                 value.sourceEventId().trim());
+    }
+
+    private DataScope scopeForObservations(List<NormalizedObservation> observations) {
+        Long ownerUserId = null;
+        for (Long observerAccountId : observations.stream()
+                .map(NormalizedObservation::observerAccountId)
+                .distinct()
+                .toList()) {
+            Account observer = accountMapper.selectActiveById(observerAccountId);
+            if (observer == null || observer.getOwnerUserId() == null) {
+                throw new BusinessException(
+                        ErrorCode.ACCESS_DENIED,
+                        "群成员观察的来源账号不存在或缺少数据归属");
+            }
+            if (ownerUserId != null && !ownerUserId.equals(observer.getOwnerUserId())) {
+                throw new BusinessException(
+                        ErrorCode.ACCESS_DENIED,
+                        "同批群成员观察不能混用不同数据归属的来源账号");
+            }
+            ownerUserId = observer.getOwnerUserId();
+        }
+        if (ownerUserId == null) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "群成员观察缺少数据归属");
+        }
+        return DataScope.self(ownerUserId);
     }
 
     private static String canonicalGroupJid(String value) {

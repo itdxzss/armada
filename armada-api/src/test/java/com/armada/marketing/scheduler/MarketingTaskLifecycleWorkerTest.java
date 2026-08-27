@@ -44,6 +44,8 @@ class MarketingTaskLifecycleWorkerTest {
 
     @Test
     void startDueWaitingTask_notUpdated_doesNotAcquireAccounts() {
+        when(taskMapper.selectTaskById(42L)).thenReturn(task());
+
         worker.startDueWaitingTask(1L, 42L);
 
         verify(occupancyService, never()).acquireAndLoadTaskAccounts(
@@ -52,6 +54,7 @@ class MarketingTaskLifecycleWorkerTest {
 
     @Test
     void endExpiredTask_updatedTask_releasesOwnedAccounts() {
+        when(taskMapper.selectTaskById(42L)).thenReturn(task());
         when(taskMapper.endExpiredTask(org.mockito.ArgumentMatchers.eq(42L),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
@@ -65,10 +68,25 @@ class MarketingTaskLifecycleWorkerTest {
         verify(occupancyService).releaseTaskAccounts(42L);
     }
 
+    @Test
+    void startDueWaitingTask_unownedHistoricalTask_doesNotStart() {
+        MarketingTask task = task();
+        task.setOwnerUserId(null);
+        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+
+        worker.startDueWaitingTask(1L, 42L);
+
+        verify(taskMapper, never()).startDueWaitingTask(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong());
+        verify(occupancyService, never()).acquireAndLoadTaskAccounts(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
     private static MarketingTask task() {
         MarketingTask task = new MarketingTask();
         task.setId(42L);
         task.setTenantId(1L);
+        task.setOwnerUserId(7L);
         task.setStatus(MarketingTaskStatus.SENDING.code());
         return task;
     }

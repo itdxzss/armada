@@ -3,6 +3,8 @@ package com.armada.task.service.impl;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.entity.PullTask;
@@ -103,6 +105,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                                         Long groupFolderId, String linksText,
                                         List<MultipartFile> files,
                                         long userId, String operatorName) {
+        requireActor(userId);
         PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(creationMode);
         String mergedLinksText = mode == PullTaskCreationMode.PASTED_LINK
                 ? mergeSourceLinks(groupFolderId, linksText) : null;
@@ -400,6 +403,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
 
     @Override
     public PullTaskStandardDraftVO current(long userId) {
+        requireActor(userId);
         PullTask draft = pullTaskMapper.selectLatestDraftByCreator(userId);
         if (draft == null) {
             return EMPTY_VIEW;
@@ -409,6 +413,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
 
     @Override
     public PullTaskStandardDraftVO removeRow(long rowId, long userId) {
+        requireActor(userId);
         PullTask draft = requireDraft(userId);
         writer.removeRow(draft.getId(), rowId);
         log.info("创建页移除执行行 taskId={} rowId={} operatorId={}", draft.getId(), rowId, userId);
@@ -417,6 +422,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
 
     @Override
     public PullTaskStandardDraftVO clear(long userId) {
+        requireActor(userId);
         PullTask draft = requireDraft(userId);
         writer.clearAll(draft.getId());
         log.info("创建页清除全部执行行 taskId={} operatorId={}", draft.getId(), userId);
@@ -436,6 +442,14 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
             throw new BusinessException(ErrorCode.NOT_FOUND, "当前没有可编辑的创建页草稿");
         }
         return draft;
+    }
+
+    private static DataScope requireActor(long userId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.actorUserId() == null || !scope.actorUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "草稿用户与当前身份不一致");
+        }
+        return scope;
     }
 
     /**

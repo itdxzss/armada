@@ -22,12 +22,14 @@ public final class PullTaskGroupMarketingCandidatePolicy {
      * @param row 群组聚合事实
      * @param operatorId 当前登录用户 ID
      * @param reservationToken 当前创建页等待池标识
+     * @param revealOccupiedTaskName 是否允许暴露占用任务名称
      * @return 可选择结论
      */
     public static Decision evaluate(
             PullTaskGroupMarketingCandidateRow row,
             long operatorId,
-            String reservationToken) {
+            String reservationToken,
+            boolean revealOccupiedTaskName) {
         boolean currentPool = row.getOccupancyType() != null
                 && reservationToken != null
                 && reservationToken.equals(row.getReservationToken())
@@ -41,7 +43,9 @@ public final class PullTaskGroupMarketingCandidatePolicy {
                     underlying.selectable() ? "已在当前等待任务池" : underlying.disabledReason());
         }
         if (row.getOccupancyType() != null) {
-            String taskName = blank(row.getOccupiedTaskName()) ? "其他等待池或任务" : row.getOccupiedTaskName();
+            String taskName = !revealOccupiedTaskName || blank(row.getOccupiedTaskName())
+                    ? "其他等待池或任务"
+                    : row.getOccupiedTaskName();
             return decision(PullTaskGroupCandidateStatus.OCCUPIED,
                     false, false, "当前群组正在任务「" + taskName + "」中使用");
         }

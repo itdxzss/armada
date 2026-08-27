@@ -10,6 +10,7 @@ public class HistoricalGroupPullExecution {
 
     private Long id;
     private Long tenantId;
+    private Long ownerUserId;
     private Long createdBy;
     private String idempotencyKey;
     private Long operationAccountId;
@@ -43,6 +44,8 @@ public class HistoricalGroupPullExecution {
     public void setId(Long id) { this.id = id; }
     public Long getTenantId() { return tenantId; }
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
+    public Long getOwnerUserId() { return ownerUserId; }
+    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
     public String getIdempotencyKey() { return idempotencyKey; }

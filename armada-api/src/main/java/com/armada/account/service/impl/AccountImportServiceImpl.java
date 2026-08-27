@@ -28,6 +28,8 @@ import com.armada.account.service.AccountImportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -144,6 +146,7 @@ public class AccountImportServiceImpl implements AccountImportService {
      */
     @Override
     public AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         // 必填字段前置校验:importFormat/accountType 为 null 时拆箱会 NPE
         if (meta.importFormat() == null || meta.accountType() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "导入格式/账号类型不能为空");
@@ -152,7 +155,7 @@ public class AccountImportServiceImpl implements AccountImportService {
 
         // 目标分组:明确传入则校验存在,否则懒建系统默认分组
         Long resolvedGroupId = meta.accountGroupId() != null
-                ? groupService.requireExisting(meta.accountGroupId()).getId()
+                ? requireOwnedGroup(meta.accountGroupId(), scope).getId()
                 : groupService.ensureSystemGroup().getId();
 
         List<ParsedEntry> entries = parser.parse(format, fileBytes, text);
@@ -167,6 +170,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         // 审计锚点先行:批次行在任何账号入库前已存在;total 已知,三计数先写 0 循环后回填。
         // login_* step1 不写=NULL,留 step3 回填。insert 后自增 id 回填到 batch.id。
         AccountImportBatch batch = buildBatch(meta, resolvedGroupId, entries.size(), now, sourceFileType);
+        batch.setOwnerUserId(scope.ownerUserIdForCreate());
         batchMapper.insert(batch);
 
         List<AccountImportDetail> details = new ArrayList<>(entries.size());
@@ -368,6 +372,7 @@ public class AccountImportServiceImpl implements AccountImportService {
     /** {@inheritDoc} */
     @Override
     public PageResult<AccountImportBatchListVO> listBatches(AccountImportQuery query) {
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         long total = batchMapper.countPage(query);
         List<AccountImportBatchVoRow> rows = batchMapper.selectPage(query);
         applyLoginStats(rows);
@@ -408,6 +413,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         if (query.getBatchId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "batchId 不能为空");
         }
+        requireOwnedBatch(query.getBatchId());
         long total = detailMapper.countByBatch(query);
         List<AccountImportDetailVoRow> rows = detailMapper.selectPageByBatch(query);
         List<AccountImportDetailVO> vos = rows.stream()
@@ -430,6 +436,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         if (batch == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "导入批次不存在");
         }
+        DataScopeAccess.requireCanAccess(DataScopeAccess.requireCurrent(), batch.getOwnerUserId(), "导入批次");
         String sourceFileType = SourceFileType.requireSupported(batch.getSourceFileType());
         String resolvedScope = (scope == null || scope.isBlank()) ? EXPORT_SCOPE_ALL : scope;
         List<AccountImportExportRow> rows = detailMapper.selectExportRowsByBatch(batchId, resolvedScope);
@@ -445,6 +452,24 @@ public class AccountImportServiceImpl implements AccountImportService {
                 exportFilename(resolvedScope, "txt", rows),
                 "text/plain;charset=UTF-8",
                 buildTextExport(rows));
+    }
+
+    /** 校验导入目标分组属于当前操作者；管理员也不能借导入改变 owner。 */
+    private com.armada.account.model.entity.AccountGroup requireOwnedGroup(Long groupId, DataScope scope) {
+        var group = groupService.requireExisting(groupId);
+        if (!java.util.Objects.equals(group.getOwnerUserId(), scope.ownerUserIdForCreate())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在");
+        }
+        return group;
+    }
+
+    /** 详情页先校验批次归属，避免通过 batchId 探测其他用户明细。 */
+    private void requireOwnedBatch(Long batchId) {
+        var batch = batchMapper.selectById(batchId);
+        if (batch == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "导入批次不存在");
+        }
+        DataScopeAccess.requireCanAccess(DataScopeAccess.requireCurrent(), batch.getOwnerUserId(), "导入批次");
     }
 
     private String exportFilename(String scope, String extension, List<AccountImportExportRow> rows) {

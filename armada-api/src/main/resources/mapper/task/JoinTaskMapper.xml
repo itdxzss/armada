@@ -5,14 +5,14 @@
   <!-- tenant_id 由租户拦截器注入，不出现在 INSERT/WHERE。时间列为 BIGINT epoch 毫秒，应用层写。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO join_task (
-      name, account_group_ids, account_group_names, selected_account_ids, links_text,
+      owner_user_id, name, account_group_ids, account_group_names, selected_account_ids, links_text,
       distribution_mode, accounts_per_link, executor_account_count, links_per_account,
       fixed_interval_min_sec, fixed_interval_max_sec, multi_interval_min_sec, multi_interval_max_sec,
       interval_label, retry_enabled, retry_limit, failure_policy,
       total, executed, success, failed, pending, status,
       created_by, created_at, updated_at
     ) VALUES (
-      #{name}, #{accountGroupIds}, #{accountGroupNames}, #{selectedAccountIds}, #{linksText},
+      #{ownerUserId}, #{name}, #{accountGroupIds}, #{accountGroupNames}, #{selectedAccountIds}, #{linksText},
       #{distributionMode}, #{accountsPerLink}, #{executorAccountCount}, #{linksPerAccount},
       #{fixedIntervalMinSec}, #{fixedIntervalMaxSec}, #{multiIntervalMinSec}, #{multiIntervalMaxSec},
       #{intervalLabel}, #{retryEnabled}, #{retryLimit}, #{failurePolicy},
@@ -26,6 +26,30 @@
     SELECT * FROM join_task WHERE id = #{id} AND deleted_at IS NULL LIMIT 1
   </select>
 
+  <select id="selectByTenantAndIdForScope" resultType="com.armada.task.model.entity.JoinTask">
+    SELECT * FROM join_task
+    WHERE id = #{id} AND deleted_at IS NULL
+    <choose>
+      <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    LIMIT 1
+  </select>
+
+  <select id="selectByIdsForScope" resultType="com.armada.task.model.entity.JoinTask">
+    SELECT * FROM join_task
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    <choose>
+      <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    ORDER BY id
+  </select>
+
   <!--
     共享筛选片段：countPage 与 selectPage 复用，保证口径一致。
     tenant_id 由拦截器注入，不手写。
@@ -34,6 +58,13 @@
   -->
   <sql id="filter">
     deleted_at IS NULL
+    <choose>
+      <when test="f.dataScope != null and f.dataScope.isSelf()">
+        AND owner_user_id = #{f.dataScope.actorUserId}
+      </when>
+      <when test="f.dataScope != null and f.dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="f.keyword != null and f.keyword != ''">
       AND (name LIKE CONCAT('%', #{f.keyword}, '%') OR links_text LIKE CONCAT('%', #{f.keyword}, '%'))
     </if>
@@ -58,7 +89,13 @@
   <!-- 去重非空 interval_label，供前端筛选下拉使用；空串排除（&lt;&gt; = <>）。 -->
   <select id="selectDistinctIntervals" resultType="string">
     SELECT DISTINCT interval_label FROM join_task
-    WHERE deleted_at IS NULL AND interval_label &lt;&gt; '' ORDER BY interval_label
+    WHERE deleted_at IS NULL AND interval_label &lt;&gt; ''
+    <choose>
+      <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    ORDER BY interval_label
   </select>
 
   <!-- 覆盖配置列 + 计数器（total/pending）；引擎计数器 executed/success/failed 由引擎切片另行更新。 -->

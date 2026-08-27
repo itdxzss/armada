@@ -8,6 +8,7 @@ import com.armada.task.model.dto.PullTaskLifecycleTransition;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -36,6 +37,10 @@ public interface PullTaskMapper {
             @Param("filter") PullTaskFilter filter,
             @Param("offset") int offset,
             @Param("limit") int limit);
+
+    /** 用户批量操作按 owner 范围读取任务根，用于整批授权校验。 */
+    List<PullTask> selectByIdsForScope(@Param("ids") List<Long> ids,
+                                       @Param("scope") DataScope scope);
 
     /**
      * 按任务类型和状态约束批量软删。
@@ -180,6 +185,10 @@ public interface PullTaskMapper {
      * @return 生命周期视图；任务不存在、已软删或不属于当前租户时为 null
      */
     PullTask selectLifecycle(@Param("id") long id);
+
+    /** 用户请求读取任务生命周期根；缺失或 SYSTEM 范围时不返回数据。 */
+    PullTask selectLifecycleForScope(@Param("id") long id,
+                                     @Param("scope") DataScope scope);
 
     /**
      * 用父任务版本号与当前运行数原子竞争一个执行槽位。

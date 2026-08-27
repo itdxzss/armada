@@ -3,6 +3,8 @@ package com.armada.task.model.vo;
 /** 候选群组下单个可操作账号 SQL 行。 */
 public class PullTaskGroupMarketingCandidateAccountRow {
 
+    /** 群入口主键。 */
+    private Long groupLinkId;
     /** WhatsApp 群唯一 JID。 */
     private String groupJid;
     /** 平台账号 ID。 */
@@ -18,6 +20,8 @@ public class PullTaskGroupMarketingCandidateAccountRow {
     /** 群关系最近同步时间。 */
     private Long lastSeenAt;
 
+    public Long getGroupLinkId() { return groupLinkId; }
+    public void setGroupLinkId(Long groupLinkId) { this.groupLinkId = groupLinkId; }
     public String getGroupJid() { return groupJid; }
     public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
     public Long getAccountId() { return accountId; }

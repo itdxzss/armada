@@ -93,6 +93,7 @@ public interface PullTaskGroupExecutionMapper {
      * 按群入口读取当前租户内仍可终止的普通拉群执行行。
      *
      * @param groupLinkId 群入口 ID
+     * @param ownerUserId 群入口和父任务必须共同归属的用户 ID
      * @param executionStatuses 可终止执行状态
      * @param parentTaskType 父任务类型
      * @param parentTaskMode 父任务模式
@@ -101,6 +102,7 @@ public interface PullTaskGroupExecutionMapper {
      */
     List<PullTaskGroupExecution> selectActiveByGroupLinkId(
             @Param("groupLinkId") long groupLinkId,
+            @Param("ownerUserId") long ownerUserId,
             @Param("executionStatuses") List<Integer> executionStatuses,
             @Param("parentTaskType") String parentTaskType,
             @Param("parentTaskMode") String parentTaskMode,

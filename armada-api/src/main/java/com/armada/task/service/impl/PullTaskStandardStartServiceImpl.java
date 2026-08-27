@@ -2,6 +2,7 @@ package com.armada.task.service.impl;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTask;
@@ -60,10 +61,12 @@ public class PullTaskStandardStartServiceImpl implements PullTaskStandardStartSe
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void start(long taskId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForScope(
+                taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "拉群任务");
         requireNormalLinkTask(task);
         PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
         if (setting == null) {

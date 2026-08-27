@@ -12,9 +12,13 @@ import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -29,6 +33,16 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     @Mock private GroupLinkRegistryService registry;
     @Mock private GroupClassificationService classification;
 
+    @BeforeEach
+    void setUp() {
+        DataScopeContext.open(DataScope.self(501L));
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void resolvesStableHandleAndWritesOnlyCreatorCompatibility() {
         when(registry.registerAccountObservedGroups(
@@ -40,7 +54,10 @@ class AccountGroupMembershipSnapshotServiceImplTest {
         handle.setId(20L);
         handle.setLinkUrl("wa://group/120363001@g.us");
         handle.setGroupName("群一");
-        when(groupLinkMapper.selectActiveByIds(List.of(20L))).thenReturn(List.of(handle));
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(20L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(List.of(handle));
 
         var result = service().replaceVisibleGroups(
                 10L,

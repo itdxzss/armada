@@ -18,6 +18,9 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -106,12 +109,14 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         List<Long> taskIds = normalizeTaskIds(request == null ? null : request.taskIds());
         List<String> countryIso2s = normalizeCountries(
                 mode, request == null ? null : request.countryIso2s());
-        validateTasks(taskIds);
+        DataScope dataScope = DataScopeAccess.requireCurrentForPrincipal(principal);
+        validateTasks(taskIds, dataScope);
 
         long now = clock.millis();
         MarketingTaskExportJob job = new MarketingTaskExportJob();
         job.setTenantId(principal.tenantId());
         job.setCreatedBy(principal.userId());
+        job.setDataScopeMode(dataScope.mode().name());
         job.setExportMode(mode);
         job.setTaskIdsJson(writeJson(taskIds));
         job.setCountryIso2sJson(writeJson(countryIso2s));
@@ -204,90 +209,93 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         boolean published = false;
         try {
             TenantContext.set(job.getTenantId());
-            List<Long> taskIds = readJson(job.getTaskIdsJson(), LONG_LIST);
-            List<MarketingTask> tasks = mapper.selectTasksByIds(taskIds);
-            requireSameTaskSelection(taskIds, tasks);
-            heartbeat.start();
+            DataScope jobScope = restoreJobScope(job);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(jobScope)) {
+                List<Long> taskIds = readJson(job.getTaskIdsJson(), LONG_LIST);
+                List<MarketingTask> tasks = mapper.selectTasksByIdsForScope(taskIds, jobScope);
+                requireSameTaskSelection(taskIds, tasks);
+                heartbeat.start();
 
-            Instant snapshotAt = Instant.ofEpochMilli(job.getSnapshotAt());
-            Instant generatedAt = clock.instant();
-            Path tenantDirectory = storageRoot.resolve(String.valueOf(job.getTenantId())).normalize();
-            ensureWithinStorage(tenantDirectory);
-            Files.createDirectories(tenantDirectory);
-            String storageKey = job.getTenantId() + "/" + job.getId() + "-" + claimToken + ".xlsx";
-            targetFile = resolveStorageKey(storageKey);
-            temporaryFile = tenantDirectory.resolve(
-                    job.getId() + "-" + claimToken + ".xlsx.part").normalize();
-            Files.deleteIfExists(temporaryFile);
+                Instant snapshotAt = Instant.ofEpochMilli(job.getSnapshotAt());
+                Instant generatedAt = clock.instant();
+                Path tenantDirectory = storageRoot.resolve(String.valueOf(job.getTenantId())).normalize();
+                ensureWithinStorage(tenantDirectory);
+                Files.createDirectories(tenantDirectory);
+                String storageKey = job.getTenantId() + "/" + job.getId() + "-" + claimToken + ".xlsx";
+                targetFile = resolveStorageKey(storageKey);
+                temporaryFile = tenantDirectory.resolve(
+                        job.getId() + "-" + claimToken + ".xlsx.part").normalize();
+                Files.deleteIfExists(temporaryFile);
 
-            MarketingTaskExportWorkbookWriter.WriteResult writeResult;
-            CountryService.PhonePrefixResolver countryResolver =
-                    countryService.activePhonePrefixResolver();
-            MarketingTaskWhatsAppMemberProvider.ExportRequest exportRequest =
-                    new MarketingTaskWhatsAppMemberProvider.ExportRequest(
-                            job.getTenantId(), taskIds, job.getSnapshotAt(),
-                            countryResolver, heartbeat::renewIfDue);
-            if (MODE_COUNTRY_ENTRY.equals(job.getExportMode())) {
-                List<String> selectedCountries = readJson(job.getCountryIso2sJson(), STRING_LIST);
-                Set<String> selected = new LinkedHashSet<>(selectedCountries);
-                writeResult = workbookWriter.writeCountryEntry(
-                        temporaryFile,
-                        (groupConsumer, countryConsumer) -> whatsAppMemberProvider.streamCountry(
-                                exportRequest,
-                                new MarketingTaskWhatsAppMemberProvider.CountryOutput(
-                                        row -> {
-                                            heartbeat.renewIfDue();
-                                            groupConsumer.accept(row);
-                                        },
-                                        row -> {
-                                            heartbeat.renewIfDue();
-                                            if (selected.contains(row.getCountryIso2())) {
-                                                countryConsumer.accept(row);
-                                            }
-                                        })),
-                        snapshotAt,
-                        generatedAt);
-                if (writeResult.detailRowCount() == 0) {
-                    throw new BusinessException(
-                            ErrorCode.VALIDATION, "所选任务的 WhatsApp 群成员中没有符合国家条件的数据");
+                MarketingTaskExportWorkbookWriter.WriteResult writeResult;
+                CountryService.PhonePrefixResolver countryResolver =
+                        countryService.activePhonePrefixResolver();
+                MarketingTaskWhatsAppMemberProvider.ExportRequest exportRequest =
+                        new MarketingTaskWhatsAppMemberProvider.ExportRequest(
+                                job.getTenantId(), taskIds, job.getSnapshotAt(),
+                                countryResolver, jobScope, heartbeat::renewIfDue);
+                if (MODE_COUNTRY_ENTRY.equals(job.getExportMode())) {
+                    List<String> selectedCountries = readJson(job.getCountryIso2sJson(), STRING_LIST);
+                    Set<String> selected = new LinkedHashSet<>(selectedCountries);
+                    writeResult = workbookWriter.writeCountryEntry(
+                            temporaryFile,
+                            (groupConsumer, countryConsumer) -> whatsAppMemberProvider.streamCountry(
+                                    exportRequest,
+                                    new MarketingTaskWhatsAppMemberProvider.CountryOutput(
+                                            row -> {
+                                                heartbeat.renewIfDue();
+                                                groupConsumer.accept(row);
+                                            },
+                                            row -> {
+                                                heartbeat.renewIfDue();
+                                                if (selected.contains(row.getCountryIso2())) {
+                                                    countryConsumer.accept(row);
+                                                }
+                                            })),
+                            snapshotAt,
+                            generatedAt);
+                    if (writeResult.detailRowCount() == 0) {
+                        throw new BusinessException(
+                                ErrorCode.VALIDATION, "所选任务的 WhatsApp 群成员中没有符合国家条件的数据");
+                    }
+                } else {
+                    writeResult = workbookWriter.writeFull(
+                            temporaryFile,
+                            (groupConsumer, memberConsumer) -> whatsAppMemberProvider.streamFull(
+                                    exportRequest,
+                                    new MarketingTaskWhatsAppMemberProvider.FullOutput(
+                                            row -> {
+                                                heartbeat.renewIfDue();
+                                                groupConsumer.accept(row);
+                                            },
+                                            row -> {
+                                                heartbeat.renewIfDue();
+                                                memberConsumer.accept(row);
+                                            })),
+                            snapshotAt,
+                            generatedAt);
                 }
-            } else {
-                writeResult = workbookWriter.writeFull(
-                        temporaryFile,
-                        (groupConsumer, memberConsumer) -> whatsAppMemberProvider.streamFull(
-                                exportRequest,
-                                new MarketingTaskWhatsAppMemberProvider.FullOutput(
-                                        row -> {
-                                            heartbeat.renewIfDue();
-                                            groupConsumer.accept(row);
-                                        },
-                                        row -> {
-                                            heartbeat.renewIfDue();
-                                            memberConsumer.accept(row);
-                                        })),
-                        snapshotAt,
-                        generatedAt);
-            }
 
-            heartbeat.renewNow();
-            moveAtomically(temporaryFile, targetFile);
-            temporaryFile = null;
-            long finishedAt = clock.millis();
-            String fileName = fileName(job.getExportMode(), generatedAt);
-            job.setClaimToken(claimToken);
-            job.setStorageKey(storageKey);
-            job.setFileName(fileName);
-            job.setContentType(MarketingTaskExportWorkbookWriter.CONTENT_TYPE);
-            job.setFileSize(Files.size(targetFile));
-            job.setSummaryRowCount(writeResult.summaryRowCount());
-            job.setDetailRowCount(writeResult.detailRowCount());
-            job.setFinishedAt(finishedAt);
-            job.setExpiresAt(finishedAt + FILE_TTL_MILLIS);
-            int completed = mapper.markJobSuccess(job);
-            if (completed != 1) {
-                Files.deleteIfExists(targetFile);
-            } else {
-                published = true;
+                heartbeat.renewNow();
+                moveAtomically(temporaryFile, targetFile);
+                temporaryFile = null;
+                long finishedAt = clock.millis();
+                String fileName = fileName(job.getExportMode(), generatedAt);
+                job.setClaimToken(claimToken);
+                job.setStorageKey(storageKey);
+                job.setFileName(fileName);
+                job.setContentType(MarketingTaskExportWorkbookWriter.CONTENT_TYPE);
+                job.setFileSize(Files.size(targetFile));
+                job.setSummaryRowCount(writeResult.summaryRowCount());
+                job.setDetailRowCount(writeResult.detailRowCount());
+                job.setFinishedAt(finishedAt);
+                job.setExpiresAt(finishedAt + FILE_TTL_MILLIS);
+                int completed = mapper.markJobSuccess(job);
+                if (completed != 1) {
+                    Files.deleteIfExists(targetFile);
+                } else {
+                    published = true;
+                }
             }
         } catch (BusinessException ex) {
             log.warn("营销任务导出业务失败 tenantId={} jobId={} exportMode={} taskIds={} errorCode={} message={}",
@@ -310,8 +318,21 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         }
     }
 
-    private void validateTasks(List<Long> taskIds) {
-        List<MarketingTask> tasks = mapper.selectTasksByIds(taskIds);
+    private static DataScope restoreJobScope(MarketingTaskExportJob job) {
+        if (job.getCreatedBy() == null || job.getCreatedBy() <= 0) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "导出作业缺少可信创建用户");
+        }
+        if ("SELF".equals(job.getDataScopeMode())) {
+            return DataScope.self(job.getCreatedBy());
+        }
+        if ("ALL".equals(job.getDataScopeMode())) {
+            return DataScope.all(job.getCreatedBy());
+        }
+        throw new BusinessException(ErrorCode.ACCESS_DENIED, "历史导出作业缺少可信数据范围，请重新发起导出");
+    }
+
+    private void validateTasks(List<Long> taskIds, DataScope scope) {
+        List<MarketingTask> tasks = mapper.selectTasksByIdsForScope(taskIds, scope);
         requireSameTaskSelection(taskIds, tasks);
         if (tasks.stream().anyMatch(task -> task.getBusinessType() == null
                 || task.getBusinessType() != MarketingBusinessType.ORDINARY.code())) {
@@ -404,7 +425,8 @@ public class MarketingTaskExportServiceImpl implements MarketingTaskExportServic
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "导出作业 ID 无效");
         }
-        MarketingTaskExportJob job = mapper.selectJobByIdForUser(id, principal.userId());
+        MarketingTaskExportJob job = mapper.selectJobByIdForScope(
+                id, DataScopeAccess.requireCurrentForPrincipal(principal));
         if (job == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "导出作业不存在");
         }

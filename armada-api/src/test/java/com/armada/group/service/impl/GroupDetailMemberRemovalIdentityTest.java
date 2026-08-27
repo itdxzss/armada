@@ -34,6 +34,8 @@ import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +73,7 @@ class GroupDetailMemberRemovalIdentityTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(1L));
         service = new GroupDetailServiceImpl(
                 groupLinkMapper,
                 selector,
@@ -91,6 +94,7 @@ class GroupDetailMemberRemovalIdentityTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -240,7 +244,9 @@ class GroupDetailMemberRemovalIdentityTest {
         GroupLink link = new GroupLink();
         link.setId(GROUP_LINK_ID);
         link.setGroupName("群名");
-        when(groupLinkMapper.selectActiveById(GROUP_LINK_ID)).thenReturn(link);
+        when(groupLinkMapper.selectActiveById(
+                eq(GROUP_LINK_ID), org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(link);
 
         GroupLinkPreview preview = new GroupLinkPreview();
         preview.setGroupJid(GROUP_JID);

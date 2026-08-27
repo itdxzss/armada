@@ -23,6 +23,7 @@ import com.armada.group.model.vo.GroupLinkImportResultVO;
 import com.armada.group.service.GroupInvitePageFetcher;
 import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupLinkImportService;
+import com.armada.shared.security.DataScope;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +71,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     /** 辅助:建一个 WS 链接分组并返回。 */
     private GroupLinkLabel insertLabel(String name) {
         GroupLinkLabel label = new GroupLinkLabel();
+        label.setOwnerUserId(1L);
         label.setName(name);
         label.setRegion("测试区域");
         long now = System.currentTimeMillis();
@@ -101,7 +103,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.batchId()).isNotNull();
 
         // group_link 两条落库
-        GroupLink link1 = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/NewLink001123456789012");
+        GroupLink link1 = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/NewLink001123456789012", 1L);
         assertThat(link1).isNotNull();
         assertThat(link1.getLabelId()).isEqualTo(label.getId());
         assertThat(link1.getImportBatchId()).isEqualTo(result.batchId());
@@ -110,6 +113,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         // 计数回写 batch
         GroupLinkImportDetailQuery q = new GroupLinkImportDetailQuery();
+        q.applyDataScope(DataScope.all(1L));
         q.setBatchId(result.batchId());
         q.setPage(1);
         q.setPageSize(10);
@@ -136,7 +140,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                 List.of("https://chat.whatsapp.com/PageMeta12345678901234"), null));
 
         assertThat(result.successRows()).isEqualTo(1);
-        GroupLink link = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/PageMeta12345678901234");
+        GroupLink link = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/PageMeta12345678901234", 1L);
         assertThat(link).isNotNull();
         assertThat(jdbc.queryForMap("""
                 SELECT invite.invite_code, invite.preview_subject, invite.avatar_url
@@ -165,7 +170,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
-        assertThat(groupLinkMapper.selectAnyByUrl(url)).isNull();
+        assertThat(groupLinkMapper.selectAnyByUrl(url, 1L)).isNull();
         assertThat(detailFailReason(result.batchId(), 1)).isEqualTo(GroupLinkImportFailReason.LINK_INVALID);
         assertThat(detailGroupLinkId(result.batchId(), 1)).isNull();
     }
@@ -176,6 +181,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         GroupLinkLabel targetLabel = insertLabel("集成测试分组-失效软删目标");
         String url = "chat.whatsapp.com/Deleted123456789012345";
         GroupLink existing = new GroupLink();
+        existing.setOwnerUserId(1L);
         existing.setLinkUrl(url);
         existing.setLabelId(sourceLabel.getId());
         existing.setOrigin(GroupLinkOrigin.IMPORT.code());
@@ -184,7 +190,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         existing.setCreatedAt(now);
         existing.setUpdatedAt(now);
         groupLinkMapper.insert(existing);
-        groupLinkMapper.softDeleteByIds(List.of(existing.getId()), now + 1);
+        groupLinkMapper.softDeleteByIds(
+                List.of(existing.getId()), com.armada.shared.security.DataScope.all(1L), now + 1);
         when(invitePageFetcher.fetch(url))
                 .thenReturn(new GroupInvitePageMetadata("Deleted123456789012345", null, null));
 
@@ -193,7 +200,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
-        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url);
+        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url, 1L);
         assertThat(unchanged.getDeletedAt()).isNotNull();
         assertThat(unchanged.getLabelId()).isEqualTo(sourceLabel.getId());
     }
@@ -203,6 +210,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         GroupLinkLabel targetLabel = insertLabel("集成测试分组-失效收编目标");
         String url = "chat.whatsapp.com/Ungroup123456789012345";
         GroupLink existing = new GroupLink();
+        existing.setOwnerUserId(1L);
         existing.setLinkUrl(url);
         existing.setLabelId(null);
         existing.setImportBatchId(null);
@@ -220,7 +228,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
-        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url);
+        GroupLink unchanged = groupLinkMapper.selectAnyByUrl(url, 1L);
         assertThat(unchanged.getLabelId()).isNull();
         assertThat(unchanged.getImportBatchId()).isNull();
         assertThat(unchanged.getOrigin()).isEqualTo(GroupLinkOrigin.PULL_TASK.code());
@@ -239,7 +247,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.successRows()).isEqualTo(1);
         assertThat(result.failedRows()).isZero();
 
-        GroupLink link = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/Db_123456789012345678A");
+        GroupLink link = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/Db_123456789012345678A", 1L);
         assertThat(link).isNotNull();
         assertThat(link.getLabelId()).isEqualTo(label.getId());
         assertThat(link.getImportBatchId()).isEqualTo(result.batchId());
@@ -255,7 +264,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
                 labelA.getId(), "第一次导入", null,
                 List.of("https://chat.whatsapp.com/ExistMe123456789012345"), null));
 
-        GroupLink before = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ExistMe123456789012345");
+        GroupLink before = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/ExistMe123456789012345", 1L);
         assertThat(before).isNotNull();
         assertThat(before.getLabelId()).isEqualTo(labelA.getId());
 
@@ -270,12 +280,14 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.duplicateRows()).isEqualTo(1);
 
         // label_id 仍是 labelA(未被搬走)
-        GroupLink after = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ExistMe123456789012345");
+        GroupLink after = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/ExistMe123456789012345", 1L);
         assertThat(after).isNotNull();
         assertThat(after.getLabelId()).isEqualTo(labelA.getId());
 
         // detail result = FAILED(code=2),失败原因=重复,不关联 group_link_id
         GroupLinkImportDetailQuery q = new GroupLinkImportDetailQuery();
+        q.applyDataScope(DataScope.all(1L));
         q.setBatchId(result.batchId());
         q.setPage(1);
         q.setPageSize(10);
@@ -290,6 +302,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
     void importLinks_existingPullTaskLinkWithoutLabel_adoptsIntoImportGroup() {
         GroupLinkLabel label = insertLabel("集成测试分组-收编目标");
         GroupLink existing = new GroupLink();
+        existing.setOwnerUserId(1L);
         existing.setLinkUrl("chat.whatsapp.com/AdoptPullTask123456789");
         existing.setLabelId(null);
         existing.setImportBatchId(null);
@@ -308,13 +321,15 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.successRows()).isEqualTo(1);
         assertThat(result.failedRows()).isEqualTo(0);
 
-        GroupLink after = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/AdoptPullTask123456789");
+        GroupLink after = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/AdoptPullTask123456789", 1L);
         assertThat(after).isNotNull();
         assertThat(after.getLabelId()).isEqualTo(label.getId());
         assertThat(after.getImportBatchId()).isEqualTo(result.batchId());
         assertThat(after.getOrigin()).isEqualTo(GroupLinkOrigin.PULL_TASK.code());
 
         GroupLinkImportDetailQuery q = new GroupLinkImportDetailQuery();
+        q.applyDataScope(DataScope.all(1L));
         q.setBatchId(result.batchId());
         q.setPage(1);
         q.setPageSize(10);
@@ -334,8 +349,11 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         importService.importLinks(new GroupLinkImportDTO(
                 labelA.getId(), "第一次导入", null,
                 List.of("https://chat.whatsapp.com/ReviveMe12345678901234"), null));
-        GroupLink imported = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe12345678901234");
-        groupLinkMapper.softDeleteByIds(List.of(imported.getId()), System.currentTimeMillis());
+        GroupLink imported = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/ReviveMe12345678901234", 1L);
+        groupLinkMapper.softDeleteByIds(
+                List.of(imported.getId()), com.armada.shared.security.DataScope.all(1L),
+                System.currentTimeMillis());
 
         // 再导入同 url 到 labelB — 软删行应被复活、归到 labelB,记成功
         GroupLinkImportResultVO result = importService.importLinks(new GroupLinkImportDTO(
@@ -347,7 +365,8 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
         assertThat(result.failedRows()).isEqualTo(0);
 
         // 复活:deletedAt 清空 + label_id 改为 labelB
-        GroupLink revived = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveMe12345678901234");
+        GroupLink revived = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/ReviveMe12345678901234", 1L);
         assertThat(revived).isNotNull();
         assertThat(revived.getDeletedAt()).isNull();
         assertThat(revived.getLabelId()).isEqualTo(labelB.getId());
@@ -373,6 +392,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         // 先插一条已存在的
         GroupLink pre = new GroupLink();
+        pre.setOwnerUserId(1L);
         pre.setLinkUrl("chat.whatsapp.com/AlreadyExists123456789");
         pre.setLabelId(label.getId());
         pre.setImportBatchId(null);
@@ -399,6 +419,7 @@ class GroupLinkImportServiceDbTest extends DbTestBase {
 
         // 验 detail 4 行全落库
         GroupLinkImportDetailQuery q = new GroupLinkImportDetailQuery();
+        q.applyDataScope(DataScope.all(1L));
         q.setBatchId(result.batchId());
         q.setPage(1);
         q.setPageSize(10);

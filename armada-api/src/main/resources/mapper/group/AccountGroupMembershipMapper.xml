@@ -447,6 +447,8 @@
     INNER JOIN account a
       ON a.tenant_id = binding.tenant_id
      AND a.id = binding.account_id
+     AND (a.owner_user_id = group_handle.owner_user_id
+          OR (a.owner_user_id IS NULL AND group_handle.owner_user_id IS NULL))
      AND a.deleted_at IS NULL
      AND a.protocol_account_id IS NOT NULL
      AND a.protocol_account_id != ''
@@ -506,6 +508,8 @@
     FROM group_link group_handle
     INNER JOIN account a
       ON a.tenant_id = group_handle.tenant_id
+     AND (a.owner_user_id = group_handle.owner_user_id
+          OR (a.owner_user_id IS NULL AND group_handle.owner_user_id IS NULL))
      AND a.deleted_at IS NULL
      AND a.protocol_account_id IS NOT NULL
      AND a.protocol_account_id != ''
@@ -559,6 +563,8 @@
     INNER JOIN account controlled_account
       ON controlled_account.tenant_id = current_group.tenant_id
      AND controlled_account.ws_phone = member.phone
+     AND (controlled_account.owner_user_id = group_handle.owner_user_id
+          OR (controlled_account.owner_user_id IS NULL AND group_handle.owner_user_id IS NULL))
      AND controlled_account.deleted_at IS NULL
     WHERE group_handle.id = #{groupLinkId}
       AND group_handle.deleted_at IS NULL
@@ -596,6 +602,8 @@
     INNER JOIN account controlled_account
       ON controlled_account.tenant_id = binding.tenant_id
      AND controlled_account.id = binding.account_id
+     AND (controlled_account.owner_user_id = group_handle.owner_user_id
+          OR (controlled_account.owner_user_id IS NULL AND group_handle.owner_user_id IS NULL))
      AND controlled_account.deleted_at IS NULL
      AND controlled_account.protocol_account_id IS NOT NULL
      AND TRIM(controlled_account.protocol_account_id) &lt;&gt; ''

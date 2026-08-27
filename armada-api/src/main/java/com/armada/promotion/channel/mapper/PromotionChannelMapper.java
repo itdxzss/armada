@@ -10,6 +10,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -38,7 +39,9 @@ public interface PromotionChannelMapper {
     PromotionDomain selectActiveDomainByIdForUpdate(@Param("id") Long id);
 
     /** 按渠道锁定其有效域名绑定，但不提前锁渠道行，避免同域名并发删除形成锁环。 */
-    PromotionDomain selectActiveDomainByChannelIdForUpdate(@Param("channelId") Long channelId);
+    PromotionDomain selectActiveDomainByChannelIdForUpdate(
+            @Param("channelId") Long channelId,
+            @Param("scope") DataScope scope);
 
     /** 新增域名与模板绑定，主键回填到实体。 */
     int insertDomain(PromotionDomain row);
@@ -50,10 +53,14 @@ public interface PromotionChannelMapper {
     int insertTrackingConfig(PromotionChannelTrackingConfig row);
 
     /** 按 ID 查询当前租户内未软删除的渠道，供编辑和删除做存在性校验。 */
-    PromotionChannel selectActiveChannelById(@Param("id") Long id);
+    PromotionChannel selectActiveChannelById(
+            @Param("id") Long id,
+            @Param("scope") DataScope scope);
 
     /** 查询当前租户内未删除渠道的编辑回显字段，不返回 Token 材料。 */
-    PromotionChannelDetailRow selectDetailById(@Param("id") Long id);
+    PromotionChannelDetailRow selectDetailById(
+            @Param("id") Long id,
+            @Param("scope") DataScope scope);
 
     /**
      * 公开接口按渠道码和域名解析所属租户并读取最小运行时配置。
@@ -76,8 +83,10 @@ public interface PromotionChannelMapper {
             @Param("channelCode") String channelCode,
             @Param("domainHost") String domainHost);
 
-    /** CAPI 内部投递专用敏感配置查询；结果只能在 Service 内使用，禁止返回 Controller。 */
-    PromotionChannelProbeConfigRow selectProbeConfigByChannelId(@Param("id") Long id);
+    /** CAPI 投递和登录态管理探测共用；敏感配置查询必须同时约束可信用户范围。 */
+    PromotionChannelProbeConfigRow selectProbeConfigByChannelIdForScope(
+            @Param("id") Long id,
+            @Param("scope") DataScope scope);
 
     /** 原子抢占探测状态；处于有效探测窗口内时返回 0，防止重复调用平台。 */
     int markProbeRunning(

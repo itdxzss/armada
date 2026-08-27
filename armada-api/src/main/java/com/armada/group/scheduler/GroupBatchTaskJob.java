@@ -8,6 +8,8 @@ import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.enums.GroupBatchTaskType;
 import com.armada.group.service.GroupBatchSnapshotDispatchService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Set;
@@ -80,13 +82,21 @@ public class GroupBatchTaskJob {
     /** 投递一个任务；已在飞或线程池拒绝时跳过，下一轮再来。 */
     private void dispatch(GroupBatchTask task) {
         Long taskId = task.getId();
+        if (task.getOwnerUserId() == null) {
+            withTenant(task.getTenantId(), () -> taskMapper.failUnownedIfRunnable(
+                    taskId, GroupBatchTaskStatus.FAILED.code(), RUNNABLE_STATUSES,
+                    System.currentTimeMillis()));
+            log.error("历史空 owner 群批量任务已终止 taskId={} tenantId={}",
+                    taskId, task.getTenantId());
+            return;
+        }
         if (!inFlight.add(taskId)) {
             return;
         }
         try {
             executors.task().execute(() -> {
                 try {
-                    withTenant(task.getTenantId(), () -> advance(task));
+                    withTenantAndOwner(task.getTenantId(), task.getOwnerUserId(), () -> advance(task));
                 } finally {
                     inFlight.remove(taskId);
                 }
@@ -128,7 +138,9 @@ public class GroupBatchTaskJob {
         boolean refreshLink = GroupBatchTaskType.REFRESH_LINK == taskType;
         CompletableFuture<?>[] pending = items.stream()
                 .map(item -> CompletableFuture.runAsync(
-                        () -> withTenant(task.getTenantId(), () -> advanceItem(refreshLink, item, now)),
+                        () -> withTenantAndOwner(
+                                task.getTenantId(), task.getOwnerUserId(),
+                                () -> advanceItem(refreshLink, item, now)),
                         executors.item()))
                 .toArray(CompletableFuture[]::new);
         CompletableFuture.allOf(pending).join();
@@ -172,5 +184,13 @@ public class GroupBatchTaskJob {
                 TenantContext.set(previous);
             }
         }
+    }
+
+    private static void withTenantAndOwner(Long tenantId, Long ownerUserId, Runnable action) {
+        withTenant(tenantId, () -> {
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(ownerUserId))) {
+                action.run();
+            }
+        });
     }
 }

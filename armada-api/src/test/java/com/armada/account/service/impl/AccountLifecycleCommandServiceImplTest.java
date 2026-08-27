@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountMapper;
@@ -14,7 +15,11 @@ import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -38,6 +43,16 @@ class AccountLifecycleCommandServiceImplTest {
 
     @InjectMocks
     private AccountLifecycleCommandServiceImpl service;
+
+    @BeforeEach
+    void openAdminScopeByDefault() {
+        DataScopeContext.open(DataScope.all(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void refreshStatus_loadsAccountAndQueriesProtocolStatusByProtocolAccountId() {
@@ -94,6 +109,84 @@ class AccountLifecycleCommandServiceImplTest {
     }
 
     @Test
+    void probe_selfOwner_canProbeProtocol() {
+        Account account = account(100L, "acc_8613800138000");
+        account.setOwnerUserId(9L);
+        ProtocolProbeResult probe = new ProtocolProbeResult(
+                true,
+                Instant.parse("2026-06-28T10:01:00Z"),
+                186L,
+                "OK");
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(accountLifecyclePort.probe("acc_8613800138000")).thenReturn(probe);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThat(service.probe(100L).ok()).isTrue();
+        }
+
+        verify(accountLifecyclePort).probe("acc_8613800138000");
+    }
+
+    @Test
+    void refreshStatus_otherOwner_rejectsBeforeProtocolCall() {
+        Account account = account(100L, "acc_8613800138000");
+        account.setOwnerUserId(10L);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.refreshStatus(100L))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(accountLifecyclePort);
+    }
+
+    @Test
+    void probe_missingScope_rejectsBeforeProtocolCall() {
+        DataScopeContext.clear();
+        when(accountMapper.selectActiveById(100L))
+                .thenReturn(account(100L, "acc_8613800138000"));
+
+        assertThatThrownBy(() -> service.probe(100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(accountLifecyclePort);
+    }
+
+    @Test
+    void refreshStatus_systemScope_rejectsBeforeProtocolCall() {
+        when(accountMapper.selectActiveById(100L))
+                .thenReturn(account(100L, "acc_8613800138000"));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.system("test"))) {
+            assertThatThrownBy(() -> service.refreshStatus(100L))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+        }
+
+        verifyNoInteractions(accountLifecyclePort);
+    }
+
+    @Test
+    void adminCanSeeButCannotProbeHistoricalUnownedAccount() {
+        Account account = account(100L, "acc_8613800138000");
+        account.setOwnerUserId(null);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+
+        assertThatThrownBy(() -> service.probe(100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(accountLifecyclePort);
+    }
+
+    @Test
     void refreshStatus_rejectsMissingAccount() {
         when(accountMapper.selectActiveById(404L)).thenReturn(null);
 
@@ -118,6 +211,7 @@ class AccountLifecycleCommandServiceImplTest {
         Account account = new Account();
         account.setId(id);
         account.setProtocolAccountId(protocolAccountId);
+        account.setOwnerUserId(9L);
         return account;
     }
 }

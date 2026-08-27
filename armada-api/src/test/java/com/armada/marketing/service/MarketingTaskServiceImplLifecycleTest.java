@@ -2,6 +2,7 @@ package com.armada.marketing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -10,6 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.dto.CreateMarketingTaskDTO;
@@ -25,11 +28,17 @@ import com.armada.marketing.service.impl.MarketingAccountTreeRealtimeService;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.marketing.service.impl.MarketingTaskServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -67,8 +76,23 @@ class MarketingTaskServiceImplLifecycleTest {
     @Mock
     private AccountService accountService;
 
+    @Mock
+    private AccountGroupService accountGroupService;
+
     @InjectMocks
     private MarketingTaskServiceImpl service;
+
+    @BeforeEach
+    void openDataScope() {
+        TenantContext.set(1L);
+        DataScopeContext.open(DataScope.self(11L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+        TenantContext.clear();
+    }
 
     @Test
     void getDetailBatchLoadsLoginStateAndNormalizesOneEffectiveAttempt() {
@@ -93,7 +117,7 @@ class MarketingTaskServiceImplLifecycleTest {
         group.setExecutionReasonMessage("账号封禁");
         group.setSentMessageCount(2);
         group.setFailedMessageCount(1);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(TASK_ID)).thenReturn(List.of(target));
         when(taskMapper.selectAccountGroupStatsByTaskId(TASK_ID)).thenReturn(List.of(group));
         when(accountService.getLoginStatesByIds(List.of(31L))).thenReturn(Map.of(31L, 1));
@@ -212,7 +236,7 @@ class MarketingTaskServiceImplLifecycleTest {
     private void stubDetail(MarketingTask task,
                             MarketingTaskTarget target,
                             MarketingTaskAccountGroupStatRow group) {
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(TASK_ID)).thenReturn(List.of(target));
         when(taskMapper.selectAccountGroupStatsByTaskId(TASK_ID)).thenReturn(List.of(group));
         when(accountService.getLoginStatesByIds(List.of(31L))).thenReturn(Map.of(31L, 1));
@@ -236,7 +260,8 @@ class MarketingTaskServiceImplLifecycleTest {
     @Test
     void createTask_futureTaskPersistsAccountGroupIntervalAndLocksAccountsAfterTargetsPersisted() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
-        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
+        when(accountGroupService.requireExisting(12L)).thenReturn(accountGroup(12L, 11L));
+        when(templateMapper.selectByIdForUpdate(eq(TEMPLATE_ID), any())).thenReturn(template());
         when(taskMapper.selectAccountTargetCandidate(
                 eq(12L),
                 eq(31L),
@@ -248,7 +273,8 @@ class MarketingTaskServiceImplLifecycleTest {
             insertedTask.set(task);
             return 1;
         }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
-        when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any()))
+                .thenAnswer(invocation -> insertedTask.get());
         long now = System.currentTimeMillis();
         CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
                 "未来执行任务", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "PENDING",
@@ -260,12 +286,13 @@ class MarketingTaskServiceImplLifecycleTest {
         var created = service.createTask(request);
 
         assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(3_000);
+        assertThat(insertedTask.get().getOwnerUserId()).isEqualTo(11L);
         assertThat(insertedTask.get().getNewGroupDelayEnabled()).isTrue();
         assertThat(insertedTask.get().getNewGroupDelayValue()).isEqualTo(12);
         assertThat(insertedTask.get().getNewGroupDelayUnit()).isEqualTo(2);
         assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("3.0");
         assertThat(created.newGroupDelayUnit()).isEqualTo("HOUR");
-        verify(templateMapper).selectByIdForUpdate(TEMPLATE_ID);
+        verify(templateMapper).selectByIdForUpdate(eq(TEMPLATE_ID), any());
         verify(occupancyService).lockTaskAccountsOrThrow(
                 eq(insertedTask.get()), anyLong());
     }
@@ -273,7 +300,8 @@ class MarketingTaskServiceImplLifecycleTest {
     @Test
     void createTask_missingAccountGroupIntervalDefaultsToHalfSecond() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
-        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
+        when(accountGroupService.requireExisting(12L)).thenReturn(accountGroup(12L, 11L));
+        when(templateMapper.selectByIdForUpdate(eq(TEMPLATE_ID), any())).thenReturn(template());
         when(taskMapper.selectAccountTargetCandidate(
                 eq(12L),
                 eq(31L),
@@ -285,12 +313,82 @@ class MarketingTaskServiceImplLifecycleTest {
             insertedTask.set(task);
             return 1;
         }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
-        when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any()))
+                .thenAnswer(invocation -> insertedTask.get());
 
         var created = service.createTask(requestWithInterval(null));
 
         assertThat(insertedTask.get().getAccountGroupSendIntervalMs()).isEqualTo(500);
         assertThat(created.accountGroupSendIntervalSeconds()).isEqualByComparingTo("0.5");
+    }
+
+    @Test
+    void administratorCannotCreateTaskWithDifferentGroupAndTemplateOwners() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        when(accountGroupService.requireExisting(12L)).thenReturn(accountGroup(12L, 11L));
+        MarketingTemplate foreignTemplate = template();
+        foreignTemplate.setOwnerUserId(22L);
+        when(templateMapper.selectByIdForUpdate(eq(TEMPLATE_ID), any())).thenReturn(foreignTemplate);
+
+        assertThatThrownBy(() -> service.createTask(requestWithInterval(BigDecimal.ONE)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组与模板归属不一致");
+
+        verify(taskMapper, never()).insertTask(any());
+    }
+
+    @Test
+    void administratorCannotCreateTaskOnBehalfOfAnotherOwner() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        when(accountGroupService.requireExisting(12L)).thenReturn(accountGroup(12L, 22L));
+        MarketingTemplate foreignTemplate = template();
+        foreignTemplate.setOwnerUserId(22L);
+        when(templateMapper.selectByIdForUpdate(eq(TEMPLATE_ID), any())).thenReturn(foreignTemplate);
+
+        assertThatThrownBy(() -> service.createTask(requestWithInterval(BigDecimal.ONE)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只能使用当前操作者自己的资源");
+
+        verify(taskMapper, never()).insertTask(any());
+    }
+
+    @Test
+    void batchDeleteMixedOwnersRejectsTheWholeRequestForOrdinaryUser() {
+        MarketingTask own = task(MarketingTaskStatus.COMPLETED.code(), 1L, 2L);
+        own.setId(41L);
+        own.setOwnerUserId(11L);
+        MarketingTask foreign = task(MarketingTaskStatus.COMPLETED.code(), 1L, 2L);
+        foreign.setId(42L);
+        foreign.setOwnerUserId(22L);
+        when(taskMapper.selectOrdinaryByTenantAndIdsForUpdate(1L, List.of(41L, 42L)))
+                .thenReturn(List.of(own, foreign));
+
+        assertThatThrownBy(() -> service.batchDelete(List.of(41L, 42L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("营销任务不存在");
+
+        verify(taskMapper, never()).batchSoftDelete(any(), anyLong());
+    }
+
+    @Test
+    void administratorCanBatchDeleteTerminalTasksAcrossOwners() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        MarketingTask userOne = task(MarketingTaskStatus.COMPLETED.code(), 1L, 2L);
+        userOne.setId(41L);
+        userOne.setOwnerUserId(11L);
+        MarketingTask userTwo = task(MarketingTaskStatus.CLOSED.code(), 1L, 2L);
+        userTwo.setId(42L);
+        userTwo.setOwnerUserId(22L);
+        when(taskMapper.selectOrdinaryByTenantAndIdsForUpdate(1L, List.of(41L, 42L)))
+                .thenReturn(List.of(userOne, userTwo));
+        when(taskMapper.batchSoftDelete(eq(List.of(41L, 42L)), anyLong())).thenReturn(2);
+
+        assertThat(service.batchDelete(List.of(41L, 42L))).isEqualTo(2);
+
+        verify(taskMapper).batchSoftDelete(eq(List.of(41L, 42L)), anyLong());
     }
 
     @ParameterizedTest
@@ -319,14 +417,14 @@ class MarketingTaskServiceImplLifecycleTest {
     @Test
     void startTask_deletedTemplate_isRejectedWithoutChangingTaskState() {
         long now = System.currentTimeMillis();
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task(
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task(
                 MarketingTaskStatus.PENDING.code(), now + 60_000L, now + 600_000L));
 
         assertThatThrownBy(() -> service.startTask(TASK_ID))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("营销模板已删除，任务不可启动");
 
-        verify(templateMapper).selectById(TEMPLATE_ID);
+        verify(templateMapper).selectByIdForScope(eq(TEMPLATE_ID), any());
         verify(taskMapper, never()).startPendingTask(anyLong(), anyLong());
     }
 
@@ -334,8 +432,8 @@ class MarketingTaskServiceImplLifecycleTest {
     void startTask_beforeExecutionWindowKeepsPendingWithoutDatabaseMutation() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.PENDING.code(), now + 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
+        when(templateMapper.selectByIdForScope(eq(TEMPLATE_ID), any())).thenReturn(template());
 
         service.startTask(TASK_ID);
 
@@ -347,8 +445,8 @@ class MarketingTaskServiceImplLifecycleTest {
     void startTask_insideExecutionWindowStartsPendingTaskWithoutReacquiringAccounts() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.PENDING.code(), now - 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
+        when(templateMapper.selectByIdForScope(eq(TEMPLATE_ID), any())).thenReturn(template());
         when(taskMapper.startPendingTask(eq(TASK_ID), anyLong())).thenReturn(1);
 
         service.startTask(TASK_ID);
@@ -359,10 +457,28 @@ class MarketingTaskServiceImplLifecycleTest {
     }
 
     @Test
+    void administratorCannotStartHistoricalUnownedTask() {
+        long now = System.currentTimeMillis();
+        MarketingTask task = task(
+                MarketingTaskStatus.PENDING.code(), now - 60_000L, now + 600_000L);
+        task.setOwnerUserId(null);
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(99L))) {
+            assertThatThrownBy(() -> service.startTask(TASK_ID))
+                    .isInstanceOfSatisfying(BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+        }
+
+        verify(templateMapper, never()).selectByIdForScope(anyLong(), any());
+        verify(taskMapper, never()).startPendingTask(anyLong(), anyLong());
+    }
+
+    @Test
     void pauseTask_sendingTaskKeepsOwnedAccounts() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.SENDING.code(), now - 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
         when(taskMapper.pauseSendingTask(eq(TASK_ID), anyLong())).thenReturn(1);
 
         service.pauseTask(TASK_ID);
@@ -374,8 +490,8 @@ class MarketingTaskServiceImplLifecycleTest {
     void resumeTask_pausedTaskInsideWindowResumesWithoutReacquiringAccounts() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.PAUSED.code(), now - 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
-        when(templateMapper.selectById(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
+        when(templateMapper.selectByIdForScope(eq(TEMPLATE_ID), any())).thenReturn(template());
         when(taskMapper.resumePausedTask(eq(TASK_ID), anyLong())).thenReturn(1);
 
         service.resumeTask(TASK_ID);
@@ -389,7 +505,7 @@ class MarketingTaskServiceImplLifecycleTest {
     void closeTask_activeTaskReleasesOwnedAccounts() {
         long now = System.currentTimeMillis();
         MarketingTask task = task(MarketingTaskStatus.SENDING.code(), now - 60_000L, now + 600_000L);
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task);
         when(taskMapper.closeActiveTask(eq(TASK_ID), anyLong())).thenReturn(1);
 
         service.closeTask(TASK_ID);
@@ -402,7 +518,7 @@ class MarketingTaskServiceImplLifecycleTest {
     @Test
     void completedTaskCannotBeStartedOrClosed() {
         long now = System.currentTimeMillis();
-        when(taskMapper.selectTaskById(TASK_ID)).thenReturn(task(
+        when(taskMapper.selectTaskByIdForScope(eq(TASK_ID), any())).thenReturn(task(
                 MarketingTaskStatus.COMPLETED.code(), now - 600_000L, now - 60_000L));
 
         assertThatThrownBy(() -> service.startTask(TASK_ID))
@@ -420,6 +536,7 @@ class MarketingTaskServiceImplLifecycleTest {
         MarketingTask task = new MarketingTask();
         task.setId(TASK_ID);
         task.setTenantId(1L);
+        task.setOwnerUserId(11L);
         task.setMarketingTemplateId(TEMPLATE_ID);
         task.setStatus(status);
         task.setTaskStartAt(taskStartAt);
@@ -431,7 +548,15 @@ class MarketingTaskServiceImplLifecycleTest {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(TEMPLATE_ID);
         template.setTemplateName("营销模板");
+        template.setOwnerUserId(11L);
         return template;
+    }
+
+    private static AccountGroup accountGroup(long id, long ownerUserId) {
+        AccountGroup group = new AccountGroup();
+        group.setId(id);
+        group.setOwnerUserId(ownerUserId);
+        return group;
     }
 
     private static MarketingTargetCandidateRow accountCandidate() {

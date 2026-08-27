@@ -9,6 +9,7 @@ import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,18 +29,21 @@ class GroupLinkHealthCheckServiceTest {
     @AfterEach
     void clearTenantContext() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void enqueueDueHealthChecks_groupsCandidatesByTenantAndRestoresTenantContextForOutboxInsert() {
         List<GroupLinkHealthCheckCandidate> candidates = List.of(
-                new GroupLinkHealthCheckCandidate(1L, 201L, "120363000000001@g.us", 101L, "acc_101"),
-                new GroupLinkHealthCheckCandidate(1L, 202L, "120363000000002@g.us", 102L, "acc_102"),
-                new GroupLinkHealthCheckCandidate(2L, 301L, "120363000000003@g.us", 201L, "acc_201"));
+                new GroupLinkHealthCheckCandidate(1L, 11L, 201L, "120363000000001@g.us", 101L, "acc_101"),
+                new GroupLinkHealthCheckCandidate(1L, 11L, 202L, "120363000000002@g.us", 102L, "acc_102"),
+                new GroupLinkHealthCheckCandidate(2L, 22L, 301L, "120363000000003@g.us", 201L, "acc_201"));
         when(groupLinkMapper.selectHealthCheckCandidates(50, 1)).thenReturn(candidates);
         List<Long> tenantContextDuringOutboxCalls = new ArrayList<>();
+        List<Long> ownerContextDuringOutboxCalls = new ArrayList<>();
         when(outboxService.enqueueGroupHealthCheckCommands(Mockito.anyList())).thenAnswer(inv -> {
             tenantContextDuringOutboxCalls.add(TenantContext.get());
+            ownerContextDuringOutboxCalls.add(DataScopeContext.requireCurrent().actorUserId());
             @SuppressWarnings("unchecked")
             List<ProtocolGroupHealthCheckCommandRequest> commands = inv.getArgument(0, List.class);
             return new ProtocolCommandOutboxEnqueueResult(null,
@@ -53,6 +57,7 @@ class GroupLinkHealthCheckServiceTest {
         assertThat(result.enqueued()).isEqualTo(3);
         assertThat(result.tenantBatches()).isEqualTo(2);
         assertThat(tenantContextDuringOutboxCalls).containsExactly(1L, 2L);
+        assertThat(ownerContextDuringOutboxCalls).containsExactly(11L, 22L);
         assertThat(TenantContext.get()).isNull();
 
         @SuppressWarnings("unchecked")

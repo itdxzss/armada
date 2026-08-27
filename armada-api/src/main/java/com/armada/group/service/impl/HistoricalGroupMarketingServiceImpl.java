@@ -26,6 +26,9 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +88,22 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
         Long tenantId = requireTenantId();
         Long templateId = requireTemplateId(request);
         HistoricalGroupPullExecution execution = requireExecution(tenantId, executionId);
+        if (execution.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属执行不能发送营销消息，请重新创建执行");
+        }
+        try (DataScopeContext.Scope ignored =
+                     DataScopeContext.open(DataScope.self(execution.getOwnerUserId()))) {
+            return sendOwned(tenantId, executionId, templateId, execution);
+        }
+    }
+
+    private HistoricalGroupPullExecutionVO sendOwned(
+            Long tenantId,
+            Long executionId,
+            Long templateId,
+            HistoricalGroupPullExecution execution) {
         requirePullTerminal(execution);
         if (execution.getMarketingStatus() != HistoricalGroupMarketingStatus.NOT_STARTED.code()) {
             return executionService.getById(executionId);
@@ -314,7 +333,8 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
         if (executionId == null || executionId < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "执行 ID 必须大于 0");
         }
-        HistoricalGroupPullExecution execution = executionMapper.selectByTenantAndId(tenantId, executionId);
+        HistoricalGroupPullExecution execution = executionMapper.selectByTenantAndIdForScope(
+                tenantId, executionId, DataScopeAccess.requireCurrent());
         if (execution == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "历史群拉人执行不存在: " + executionId);
         }

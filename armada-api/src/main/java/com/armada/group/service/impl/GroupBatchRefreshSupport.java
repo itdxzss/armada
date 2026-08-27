@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.service.GroupExecutionAccountSelector;
+import com.armada.shared.security.DataScopeAccess;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,7 +28,8 @@ public record GroupBatchRefreshSupport(
      * @return 规范化后的群 JID;未知时为 null
      */
     public String groupJid(Long groupLinkId) {
-        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(
+                groupLinkId, DataScopeAccess.requireCurrent());
         String groupJid = identity == null ? null : identity.groupJid();
         return groupJid == null || groupJid.isBlank() ? null : groupJid.trim();
     }

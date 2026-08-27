@@ -9,11 +9,13 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWo
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskExecutionScope;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationContactFailureVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO;
 import java.util.List;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
+import com.armada.shared.security.DataScope;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -39,12 +41,14 @@ public interface NormalGroupCreationMapper {
     @InterceptorIgnore(tenantLine = "true")
     Long selectTaskIdByIdempotencyKey(
             @Param("tenantId") long tenantId,
+            @Param("ownerUserId") long ownerUserId,
             @Param("idempotencyKey") String idempotencyKey);
 
     /** 唯一键并发冲突后，以当前读取得已提交任务 ID。 */
     @InterceptorIgnore(tenantLine = "true")
     Long selectTaskIdByIdempotencyKeyForUpdate(
             @Param("tenantId") long tenantId,
+            @Param("ownerUserId") long ownerUserId,
             @Param("idempotencyKey") String idempotencyKey);
 
     /** 批量插入计划群。 */
@@ -60,13 +64,22 @@ public interface NormalGroupCreationMapper {
     int insertSecondaryAdmins(@Param("rows") List<SecondaryAdminInsert> rows);
 
     /** 查询任务摘要。 */
-    NormalGroupCreationTaskVO selectTask(@Param("taskId") Long taskId);
+    NormalGroupCreationTaskVO selectTask(@Param("taskId") Long taskId,
+                                         @Param("scope") DataScope scope);
 
     /** 查询任务的计划群明细。 */
-    List<NormalGroupCreationItemVO> selectItems(@Param("taskId") Long taskId);
+    List<NormalGroupCreationItemVO> selectItems(@Param("taskId") Long taskId,
+                                                @Param("scope") DataScope scope);
 
     /** 查询任务下存在未成功加好友方向的成员，逐方向返回保留的失败原因。 */
-    List<NormalGroupCreationContactFailureVO> selectContactFailures(@Param("taskId") Long taskId);
+    List<NormalGroupCreationContactFailureVO> selectContactFailures(
+            @Param("taskId") Long taskId,
+            @Param("scope") DataScope scope);
+
+    /** Kafka/恢复链路按显式租户与任务 ID 恢复 owner，不依赖 HTTP scope。 */
+    @InterceptorIgnore(tenantLine = "true")
+    TaskExecutionScope selectTaskExecutionScope(@Param("tenantId") Long tenantId,
+                                                @Param("taskId") Long taskId);
 
     /** 查询一个计划群的冻结执行事实。 */
     ItemWork selectItemWork(@Param("itemId") Long itemId);

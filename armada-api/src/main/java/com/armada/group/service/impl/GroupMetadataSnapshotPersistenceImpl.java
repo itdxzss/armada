@@ -1,7 +1,6 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
-import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
@@ -22,7 +21,6 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
     private static final String SNAPSHOT_STATUS_SOURCE = "GROUP_SNAPSHOT";
 
     private final GroupLinkPreviewMapper previewMapper;
-    private final GroupLinkMapper groupLinkMapper;
     private final AccountGroupMembershipMapper membershipMapper;
     private final GroupInviteLinkService inviteLinkService;
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
@@ -32,20 +30,17 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
      * 创建快照持久化实现。
      *
      * @param previewMapper 群预览数据访问
-     * @param groupLinkMapper 群入口数据访问
      * @param membershipMapper 账号群关系数据访问
      * @param inviteLinkService 当前群邀请链接事实服务
      * @param currentSnapshotPersistence 新群模型当前成员快照写入
      */
     public GroupMetadataSnapshotPersistenceImpl(
             GroupLinkPreviewMapper previewMapper,
-            GroupLinkMapper groupLinkMapper,
             AccountGroupMembershipMapper membershipMapper,
             GroupInviteLinkService inviteLinkService,
             AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence,
             GroupCurrentLocalPersistence currentLocalPersistence) {
         this.previewMapper = previewMapper;
-        this.groupLinkMapper = groupLinkMapper;
         this.membershipMapper = membershipMapper;
         this.inviteLinkService = inviteLinkService;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
@@ -62,10 +57,6 @@ public class GroupMetadataSnapshotPersistenceImpl implements GroupMetadataSnapsh
         applyCurrentInvite(preview);
         String subject = preview.getWaSubject();
         boolean subjectObserved = subject != null && !subject.isBlank();
-        if (subjectObserved) {
-            groupLinkMapper.updateGroupName(
-                    preview.getGroupLinkId(), subject, preview.getUpdatedAt());
-        }
         String avatarUrl = preview.getAvatarUrl();
         boolean avatarObserved = avatarUrl != null && !avatarUrl.isBlank();
         if (subjectObserved || avatarObserved) {

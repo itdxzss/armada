@@ -14,6 +14,7 @@ import com.armada.account.service.PromotionAccountProvisionService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,10 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
     @Transactional(rollbackFor = Exception.class)
     public Long provision(PromotionAccountProvisionCommand command) {
         validate(command);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                DataScopeAccess.requireCurrent(),
+                List.of(command.ownerUserId()),
+                "推广配对账号");
         if (accountMapper.selectActiveByWsPhone(command.phone()) != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "该 WhatsApp 账号已存在");
         }
@@ -80,6 +85,7 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
         account.setPriority(DEFAULT_PRIORITY);
         account.setCreatedAt(command.occurredAt());
         account.setUpdatedAt(command.occurredAt());
+        account.setOwnerUserId(command.ownerUserId());
         account.setCreatedBy(command.ownerUserId());
         requireOne(accountMapper.insertPromotionAccount(account), "账号主表写入失败");
 
@@ -126,6 +132,7 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
                 || command.promotionChannelId() == null
                 || !StringUtils.hasText(command.protocolAccountId())
                 || !StringUtils.hasText(command.credentialJson())
+                || command.ownerUserId() == null || command.ownerUserId() <= 0
                 || (command.accountType() != 1 && command.accountType() != 2)
                 || command.occurredAt() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "配对账号落库参数不完整");

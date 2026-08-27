@@ -1,6 +1,7 @@
 package com.armada.account.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 
 /**
@@ -67,6 +68,18 @@ public class AccountQuery extends PageQuery {
      * Service 根据营销高级筛选预先解析的分组 ID；不直接采信接口绑定值。
      */
     private List<Long> resolvedOccupancyGroupIds;
+
+    /** 服务端解析的数据范围；不参与 HTTP 绑定。 */
+    private DataScope dataScope;
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端范围，避免被 Spring ModelAttribute 绑定。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
+    }
 
     public String getKeyword() {
         return keyword;

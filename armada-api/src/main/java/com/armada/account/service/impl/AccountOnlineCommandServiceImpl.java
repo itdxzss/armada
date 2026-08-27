@@ -33,6 +33,8 @@ import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -124,7 +126,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO online(Long accountId) {
-        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null, null);
+        Account account = loadAccount(accountId);
+        requireCanAccess(account);
+        return onlineWithSource(account, SOURCE_MANUAL_ONLINE, null, null);
     }
 
     @Override
@@ -145,7 +149,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                                      String failedOnlineAttemptId,
                                                      Long failedProxyId) {
         return onlineWithSource(
-                accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId, failedProxyId);
+                loadAccount(accountId), SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId, failedProxyId);
     }
 
     /**
@@ -158,7 +162,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO takeoverBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
-        loadAccounts(ids);
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        requireCanAccess(ids, accountsById);
         validateTakeoverStates(ids);
         long now = System.currentTimeMillis();
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, now);
@@ -174,7 +179,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return enqueueOnlineBatch(
                 ids,
                 SOURCE_LOGIN_REPLACED_TAKEOVER,
-                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)));
+                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)),
+                Map.of(),
+                accountsById);
     }
 
     /**
@@ -198,21 +205,25 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             return skippedTakeoverVO(accountId);
         }
         return onlineWithSource(
-                accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId, null);
+                loadAccount(accountId), requireText(source, "抢登续上线来源不能为空"),
+                failedOnlineAttemptId, null);
     }
 
     private static boolean shouldApplyTakeoverCooldown(String source) {
         return !SOURCE_LOGIN_REPLACED_TAKEOVER.equals(source);
     }
 
-    private AccountOnlineVO onlineWithSource(Long accountId,
+    private AccountOnlineVO onlineWithSource(Account account,
                                              String source,
                                              String failedOnlineAttemptId,
                                              Long failedProxyId) {
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireAssignedOwner(account.getOwnerUserId(), "账号");
+        Long accountId = account.getId();
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
-        Account account = loadAccount(accountId);
         if (SOURCE_MANUAL_ONLINE.equals(source)) {
             updateDesiredLoginStateOrThrow(
                     List.of(account.getId()), AccountLoginStateCode.ONLINE, System.currentTimeMillis());
@@ -286,13 +297,17 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO onlineBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        requireCanAccess(ids, accountsById);
         log.info("账号批量上线开始 requested={}", ids.size());
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
 
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
                 ids,
                 SOURCE_BATCH_ONLINE,
-                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)));
+                () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)),
+                Map.of(),
+                accountsById);
         log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
                         + "error={} remote={} elapsedMs={}",
                 vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
@@ -305,6 +320,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     public AccountBatchOnlineVO onlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
         List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
         List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        requireCanAccess(ids, accountsById);
         Map<Long, ProtocolBackend> protocolBackendByAccountId = protocolBackendByAccountId(items);
         log.info("账号批量上线开始 requested={} protocolBackendFromRequest=true", ids.size());
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
@@ -313,7 +330,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                 ids,
                 SOURCE_BATCH_ONLINE,
                 () -> ipProxyService.allocateOnlineEndpoints(allocationRequests(ids)),
-                protocolBackendByAccountId);
+                protocolBackendByAccountId,
+                accountsById);
         log.info("账号批量上线 outbox 已受理 requested={} submitted={} accepted={} timeout={} proxyRequired={} "
                         + "error={} remote={} elapsedMs={} protocolBackendFromRequest=true",
                 vo.requested(), vo.submitted(), vo.accepted(), vo.timeout(), vo.proxyRequired(),
@@ -365,9 +383,11 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO offlineBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        requireCanAccess(ids, accountsById);
         log.info("账号批量下线开始 requested={}", ids.size());
 
-        return offlineBatch(ids, Map.of());
+        return offlineBatch(ids, Map.of(), accountsById);
     }
 
     @Override
@@ -375,13 +395,20 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     public AccountBatchOnlineVO offlineBatchWithProtocolBackends(List<AccountLifecycleCommandItem> accounts) {
         List<AccountLifecycleCommandItem> items = normalizeLifecycleCommandItems(accounts);
         List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
+        Map<Long, Account> accountsById = loadAccounts(ids);
+        requireCanAccess(ids, accountsById);
         log.info("账号批量下线开始 requested={} protocolBackendFromRequest=true", ids.size());
-        return offlineBatch(ids, protocolBackendByAccountId(items));
+        return offlineBatch(ids, protocolBackendByAccountId(items), accountsById);
     }
 
     private AccountBatchOnlineVO offlineBatch(List<Long> ids,
                                               Map<Long, ProtocolBackend> protocolBackendByAccountId) {
-        Map<Long, Account> accountsById = loadAccounts(ids);
+        return offlineBatch(ids, protocolBackendByAccountId, loadAccounts(ids));
+    }
+
+    private AccountBatchOnlineVO offlineBatch(List<Long> ids,
+                                               Map<Long, ProtocolBackend> protocolBackendByAccountId,
+                                               Map<Long, Account> accountsById) {
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.OFFLINE, System.currentTimeMillis());
         int canceledOnlineCommands = protocolCommandOutboxService.cancelPendingAccountOnlineCommands(ids);
         List<PreparedOfflineCommand> prepared = new ArrayList<>(ids.size());
@@ -442,6 +469,21 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             }
         }
         return accountsById;
+    }
+
+    private static void requireCanAccess(Account account) {
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireAssignedOwner(account.getOwnerUserId(), "账号");
+    }
+
+    private static void requireCanAccess(List<Long> ids, Map<Long, Account> accountsById) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        for (Long id : ids) {
+            Long ownerUserId = accountsById.get(id).getOwnerUserId();
+            DataScopeAccess.requireCanAccess(scope, ownerUserId, "账号");
+            DataScopeAccess.requireAssignedOwner(ownerUserId, "账号");
+        }
     }
 
     private Map<Long, AccountCredential> loadCredentials(List<Long> ids) {
@@ -705,9 +747,20 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                                     String source,
                                                     OnlineAllocationSupplier allocationSupplier,
                                                     Map<Long, ProtocolBackend> protocolBackendByAccountId) {
+        return enqueueOnlineBatch(
+                ids, source, allocationSupplier, protocolBackendByAccountId, loadAccounts(ids));
+    }
+
+    private AccountBatchOnlineVO enqueueOnlineBatch(List<Long> ids,
+                                                     String source,
+                                                     OnlineAllocationSupplier allocationSupplier,
+                                                     Map<Long, ProtocolBackend> protocolBackendByAccountId,
+                                                     Map<Long, Account> accountsById) {
+        for (Long id : ids) {
+            DataScopeAccess.requireAssignedOwner(accountsById.get(id).getOwnerUserId(), "账号");
+        }
         // 先批量加载账号和凭据,在分配代理前完成本地前置校验。
         // 手工上线会在代理分配前用条件 UPDATE 抢占 PENDING 状态，避免重复请求释放并重新分配代理。
-        Map<Long, Account> accountsById = loadAccounts(ids);
         validateBatchOnlineStates(ids, source);
         Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
         claimManualOnline(ids, source);

@@ -16,6 +16,10 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.service.PromotionAccountProvisionCommand;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -31,6 +35,16 @@ class PromotionAccountProvisionServiceImplTest {
     private AccountStateMapper stateMapper;
     @Mock
     private AccountCredentialMapper credentialMapper;
+
+    @BeforeEach
+    void setDataScope() {
+        DataScopeContext.open(DataScope.self(81L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void provisionReusesAccountStateAndCredentialTables() {

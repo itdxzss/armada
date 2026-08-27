@@ -7,6 +7,8 @@ import com.armada.account.model.vo.AccountWsPhoneExportRow;
 import com.armada.account.service.AccountWsPhoneExportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -57,21 +59,30 @@ public class AccountWsPhoneExportServiceImpl implements AccountWsPhoneExportServ
         }
 
         try {
+            DataScope scope = DataScopeAccess.requireCurrent();
             // 固定 500 条分片，限制单条 IN SQL 的参数数量。
             Set<String> phones = new LinkedHashSet<>();
+            Set<Long> matchedIds = new LinkedHashSet<>();
             for (int from = 0; from < ids.size(); from += QUERY_CHUNK_SIZE) {
                 int to = Math.min(from + QUERY_CHUNK_SIZE, ids.size());
                 List<AccountWsPhoneExportRow> rows = accountMapper.selectWsPhonesByIds(
-                        ids.subList(from, to));
+                        ids.subList(from, to), scope);
                 if (rows == null) {
                     continue;
                 }
                 for (AccountWsPhoneExportRow row : rows) {
+                    if (row != null && row.getId() != null) {
+                        matchedIds.add(row.getId());
+                    }
                     String phone = digitsOnly(row == null ? null : row.getWsPhone());
                     if (!phone.isEmpty()) {
                         phones.add(phone);
                     }
                 }
+            }
+            if (matchedIds.size() != ids.size()) {
+                throw new BusinessException(ErrorCode.NOT_FOUND,
+                        "部分账号不存在、已删除或不属于当前数据范围");
             }
             if (phones.isEmpty()) {
                 throw new BusinessException(

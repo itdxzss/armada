@@ -12,6 +12,8 @@ import com.armada.account.state.AccountStateChangedSideEffect;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.slf4j.Logger;
@@ -148,6 +150,21 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
             return false;
         }
 
+        if (account.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属账号不能消费用户私有状态事件");
+        }
+        try (DataScopeContext.Scope ignored =
+                     DataScopeContext.open(DataScope.self(account.getOwnerUserId()))) {
+            return applyStateChangedForOwnedAccount(event, account);
+        }
+    }
+
+    /** 在从可信账号记录恢复出的 SELF 范围内执行全部状态写入和下游副作用。 */
+    private boolean applyStateChangedForOwnedAccount(
+            AccountStateChangedEvent event,
+            Account account) {
         // occurredAt 是状态收敛的业务时间。协议未上报时退回本机时间,保证仍可更新 last_state_sync_time。
         long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
         // 时间水位检查和后续状态更新必须持有同一行锁；否则两个 Kafka Topic 并发时，

@@ -2,6 +2,16 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.normalcreation.mapper.NormalGroupCreationMapper">
 
+  <sql id="taskScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND task.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <insert id="ensureAdmissionLock">
     INSERT IGNORE INTO normal_group_creation_admission_lock (tenant_id, created_at)
     VALUES (#{tenantId}, #{now})
@@ -25,14 +35,14 @@
 
   <insert id="insertTask">
     INSERT INTO normal_group_creation_task (
-      idempotency_key, admin_account_group_id, secondary_admin_account_group_id,
+      owner_user_id, idempotency_key, admin_account_group_id, secondary_admin_account_group_id,
       secondary_admin_count, member_account_group_id, member_count,
       group_count, group_name_template, start_no, creator_leave_policy, speed, folder_id,
       success_migration_group_id, failed_migration_group_id, send_messages_allowed,
       edit_group_settings_allowed, add_members_allowed, join_approval_enabled,
       ephemeral_duration_seconds, status, total_count, created_by, created_at, updated_at
     ) VALUES (
-      #{row.idempotencyKey}, #{row.adminAccountGroupId},
+      #{row.ownerUserId}, #{row.idempotencyKey}, #{row.adminAccountGroupId},
       #{row.secondaryAdminAccountGroupId}, #{row.secondaryAdminCount},
       #{row.memberAccountGroupId}, #{row.memberCount}, #{row.groupCount},
       #{row.groupNameTemplate}, #{row.startNo},
@@ -49,6 +59,7 @@
     SELECT id
     FROM normal_group_creation_task
     WHERE tenant_id = #{tenantId}
+      AND owner_user_id = #{ownerUserId}
       AND idempotency_key = #{idempotencyKey}
       AND deleted_at IS NULL
     LIMIT 1
@@ -58,6 +69,7 @@
     SELECT id
     FROM normal_group_creation_task
     WHERE tenant_id = #{tenantId}
+      AND owner_user_id = #{ownerUserId}
       AND idempotency_key = #{idempotencyKey}
       AND deleted_at IS NULL
     FOR UPDATE
@@ -119,24 +131,31 @@
 
   <select id="selectTask"
           resultType="com.armada.group.normalcreation.model.vo.NormalGroupCreationTaskVO">
-    SELECT id, status, total_count, success_count, failed_count, created_at, updated_at
-    FROM normal_group_creation_task
-    WHERE id = #{taskId}
-      AND deleted_at IS NULL
+    SELECT task.id, task.status, task.total_count, task.success_count, task.failed_count,
+           task.created_at, task.updated_at
+    FROM normal_group_creation_task task
+    WHERE task.id = #{taskId}
+      AND task.deleted_at IS NULL
+      <include refid="taskScopeFilter"/>
     LIMIT 1
   </select>
 
   <select id="selectItems"
           resultType="com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO">
-    SELECT id, item_no, group_subject, creator_account_id, creator_ws_phone,
-           creator_protocol_backend,
-           group_jid, group_link_id, status, current_step, settings_status,
-           creator_leave_status, last_error_code, last_error_message, updated_at,
-           contact_prepare_failed
-    FROM normal_group_creation_item
-    WHERE task_id = #{taskId}
-      AND deleted_at IS NULL
-    ORDER BY item_no ASC, id ASC
+    SELECT item.id, item.item_no, item.group_subject, item.creator_account_id,
+           item.creator_ws_phone, item.creator_protocol_backend,
+           item.group_jid, item.group_link_id, item.status, item.current_step,
+           item.settings_status, item.creator_leave_status, item.last_error_code,
+           item.last_error_message, item.updated_at, item.contact_prepare_failed
+    FROM normal_group_creation_item item
+    INNER JOIN normal_group_creation_task task
+      ON task.tenant_id = item.tenant_id
+     AND task.id = item.task_id
+     AND task.deleted_at IS NULL
+    WHERE item.task_id = #{taskId}
+      AND item.deleted_at IS NULL
+      <include refid="taskScopeFilter"/>
+    ORDER BY item.item_no ASC, item.id ASC
   </select>
 
   <select id="selectContactFailures"
@@ -152,10 +171,25 @@
       ON item.tenant_id = member.tenant_id
      AND item.id = member.item_id
      AND item.deleted_at IS NULL
+    INNER JOIN normal_group_creation_task task
+      ON task.tenant_id = item.tenant_id
+     AND task.id = item.task_id
+     AND task.deleted_at IS NULL
     WHERE member.task_id = #{taskId}
+      <include refid="taskScopeFilter"/>
       AND (member.creator_saved_member_status IN ('FAILED', 'UNKNOWN')
         OR member.member_saved_creator_status IN ('FAILED', 'UNKNOWN'))
     ORDER BY item.item_no ASC, member.member_order ASC, member.id ASC
+  </select>
+
+  <select id="selectTaskExecutionScope"
+          resultType="com.armada.group.normalcreation.model.NormalGroupCreationRecords$TaskExecutionScope">
+    SELECT owner_user_id, created_by
+    FROM normal_group_creation_task
+    WHERE tenant_id = #{tenantId}
+      AND id = #{taskId}
+      AND deleted_at IS NULL
+    LIMIT 1
   </select>
 
   <select id="selectItemWork"

@@ -1,9 +1,15 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.mapper.AccountGroupMapper;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
 import com.armada.task.model.dto.CreateJoinTaskDTO;
@@ -28,7 +34,10 @@ import com.armada.task.service.LinkClassifier;
 import com.armada.task.service.PlanRowGenerator;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -56,6 +65,12 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     /** 群链接池登记服务，保证任务链接与共享群入口口径一致。 */
     private final GroupLinkRegistryService groupLinkRegistryService;
 
+    /** 账号身份读取入口，用于冻结任务快照前校验可信归属。 */
+    private final AccountMapper accountMapper;
+
+    /** 账号分组读取入口，用于冻结任务快照前校验可信归属。 */
+    private final AccountGroupMapper accountGroupMapper;
+
     /**
      * 创建进群任务应用服务。
      *
@@ -65,10 +80,14 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper,
                                JoinTaskResultMapper resultMapper,
-                               GroupLinkRegistryService groupLinkRegistryService) {
+                               GroupLinkRegistryService groupLinkRegistryService,
+                               AccountMapper accountMapper,
+                               AccountGroupMapper accountGroupMapper) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.accountMapper = accountMapper;
+        this.accountGroupMapper = accountGroupMapper;
     }
 
     /**
@@ -94,17 +113,23 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         validateLinksForSave(links);
         validateDistributionForSave(req, links.valid().size());
+        DataScope scope = DataScopeAccess.requireCurrent();
+        Long resourceOwnerUserId = requireTaskResourceOwner(req, scope);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope, java.util.Collections.singletonList(resourceOwnerUserId), "进群任务");
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
+        task.setOwnerUserId(scope.ownerUserIdForCreate());
         task.setExecuted(0);
         task.setSuccess(0);
         task.setFailed(0);
         task.setStatus(JoinTaskStatus.DRAFT);
+        task.setCreatedBy(scope.actorUserId());
         task.setCreatedAt(now);
         joinTaskMapper.insert(task);
         persistRows(task.getId(), rows, now);
         groupLinkRegistryService.registerJoinTaskTargets(links.valid());
         log.info("建进群任务完成 id={} total={} 计划行={}", task.getId(), task.getTotal(), rows.size());
-        return toVO(joinTaskMapper.selectByTenantAndId(task.getId()));
+        return toVO(joinTaskMapper.selectByTenantAndIdForScope(task.getId(), scope));
     }
 
     /**
@@ -117,7 +142,8 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public JoinTaskDetailVO updateTask(Long id, CreateJoinTaskDTO req) {
-        JoinTask existing = joinTaskMapper.selectByTenantAndId(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        JoinTask existing = joinTaskMapper.selectByTenantAndIdForScope(id, scope);
         if (existing == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
         }
@@ -137,12 +163,16 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         LinkClassifier.Classified links = LinkClassifier.classify(req.linksText());
         validateLinksForSave(links);
         validateDistributionForSave(req, links.valid().size());
+        Long resourceOwnerUserId = requireTaskResourceOwner(req, scope);
+        if (!Objects.equals(existing.getOwnerUserId(), resourceOwnerUserId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "进群任务与所选账号或分组归属不一致");
+        }
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
         joinTaskMapper.update(task);
         resultMapper.deleteResultsByTask(id);
         persistRows(id, rows, now);
         groupLinkRegistryService.registerJoinTaskTargets(links.valid());
-        return toDetailVO(joinTaskMapper.selectByTenantAndId(id));
+        return toDetailVO(joinTaskMapper.selectByTenantAndIdForScope(id, scope));
     }
 
     /**
@@ -156,8 +186,17 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         if (ids == null || ids.isEmpty()) {
             return 0;
         }
-        int deleted = joinTaskMapper.batchSoftDelete(ids, System.currentTimeMillis());
-        log.info("进群任务批量软删 请求={} 实删={}", ids.size(), deleted);
+        List<Long> normalizedIds = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (normalizedIds.isEmpty()) {
+            return 0;
+        }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<JoinTask> tasks = joinTaskMapper.selectByIdsForScope(normalizedIds, scope);
+        if (tasks.size() != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分进群任务不存在或无权访问");
+        }
+        int deleted = joinTaskMapper.batchSoftDelete(normalizedIds, System.currentTimeMillis());
+        log.info("进群任务批量软删 请求={} 实删={}", normalizedIds.size(), deleted);
         return deleted;
     }
 
@@ -173,10 +212,11 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         if (TenantContext.get() == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
-        JoinTask task = joinTaskMapper.selectByTenantAndId(id);
+        JoinTask task = joinTaskMapper.selectByTenantAndIdForScope(id, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
         }
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "进群任务");
         if (!JoinTaskStatus.DRAFT.equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务已启动或已结束,不能重复启动");
         }
@@ -233,6 +273,62 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "有效群链接数量超过任务容量，请补充账号或提高每账号链接上限");
         }
+    }
+
+    /**
+     * 从数据库可信账号/分组行解析本任务引用资源的唯一 owner。
+     * 管理员虽然可以查看其他用户资源，也不能把不同 owner 的资源混入同一任务。
+     */
+    private Long requireTaskResourceOwner(CreateJoinTaskDTO req, DataScope scope) {
+        List<SelectedAccount> selectedAccounts = req.selectedAccounts();
+        if (selectedAccounts == null || selectedAccounts.isEmpty()
+                || selectedAccounts.stream().anyMatch(account -> account == null || account.accountId() == null)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择有效的执行账号");
+        }
+        List<Long> accountIds = selectedAccounts.stream().map(SelectedAccount::accountId).distinct().toList();
+        if (accountIds.size() != selectedAccounts.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "执行账号无效或重复，请重新选择");
+        }
+        List<Account> accounts = accountMapper.selectActiveByIds(accountIds);
+        if (accounts.size() != accountIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分执行账号不存在或已删除");
+        }
+
+        List<Long> groupIds = normalizeGroupIds(req.accountGroupIds());
+        List<AccountGroup> groups = groupIds.isEmpty() ? List.of() : accountGroupMapper.selectByIds(groupIds);
+        if (groups.size() != groupIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号分组不存在或已删除");
+        }
+
+        List<Long> ownerUserIds = new ArrayList<>(accounts.size() + groups.size());
+        Set<Long> selectedGroupIds = new LinkedHashSet<>(groupIds);
+        for (Account account : accounts) {
+            DataScopeAccess.requireCanAccess(scope, account.getOwnerUserId(), "账号");
+            if (!selectedGroupIds.isEmpty() && !selectedGroupIds.contains(account.getAccountGroupId())) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "部分执行账号不属于所选分组");
+            }
+            ownerUserIds.add(account.getOwnerUserId());
+        }
+        for (AccountGroup group : groups) {
+            DataScopeAccess.requireCanAccess(scope, group.getOwnerUserId(), "账号分组");
+            ownerUserIds.add(group.getOwnerUserId());
+        }
+        DataScopeAccess.requireSameOwner(ownerUserIds, "进群任务账号与分组");
+        return ownerUserIds.get(0);
+    }
+
+    private static List<Long> normalizeGroupIds(List<Long> groupIds) {
+        if (groupIds == null || groupIds.isEmpty()) {
+            return List.of();
+        }
+        if (groupIds.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号分组不能为空");
+        }
+        List<Long> normalized = groupIds.stream().distinct().toList();
+        if (normalized.size() != groupIds.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号分组不能重复");
+        }
+        return normalized;
     }
 
     /**
@@ -343,14 +439,17 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     public PageResult<JoinTaskVO> listTasks(JoinTaskQuery query) {
-        JoinTaskFilter filter = query.toFilter();
+        JoinTaskQuery normalized = query == null ? new JoinTaskQuery() : query;
+        normalized.applyDataScope(DataScopeAccess.requireCurrent());
+        JoinTaskFilter filter = normalized.toFilter();
         long total = joinTaskMapper.countPage(filter);
         List<JoinTaskVO> rows = total == 0
                 ? List.of()
-                : joinTaskMapper.selectPage(filter, query.getOffset(), query.getPageSize())
+                : joinTaskMapper.selectPage(filter, normalized.getOffset(), normalized.getPageSize())
                         .stream().map(JoinTaskServiceImpl::toVO).toList();
-        log.info("进群任务列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
-        return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+        log.info("进群任务列表查询 total={} page={} pageSize={}",
+                total, normalized.getPage(), normalized.getPageSize());
+        return PageResult.of(rows, normalized.getPage(), normalized.getPageSize(), total);
     }
 
     /**
@@ -360,7 +459,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     public List<String> intervalOptions() {
-        List<String> options = joinTaskMapper.selectDistinctIntervals();
+        List<String> options = joinTaskMapper.selectDistinctIntervals(DataScopeAccess.requireCurrent());
         log.info("进群任务间隔下拉查询 选项数={}", options.size());
         return options;
     }
@@ -372,7 +471,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     public JoinTaskDetailVO getDetail(Long id) {
-        JoinTask t = joinTaskMapper.selectByTenantAndId(id);
+        JoinTask t = joinTaskMapper.selectByTenantAndIdForScope(id, DataScopeAccess.requireCurrent());
         if (t == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + id);
         }
@@ -387,6 +486,11 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     public List<JoinResultRowVO> results(Long joinTaskId) {
+        JoinTask task = joinTaskMapper.selectByTenantAndIdForScope(
+                joinTaskId, DataScopeAccess.requireCurrent());
+        if (task == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "进群任务不存在: " + joinTaskId);
+        }
         List<JoinResultRowVO> rows = resultMapper.selectResultsByTask(joinTaskId)
                 .stream().map(JoinTaskServiceImpl::toResultRowVO).toList();
         log.info("进群任务明细查询 joinTaskId={} 行数={}", joinTaskId, rows.size());

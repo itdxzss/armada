@@ -17,8 +17,10 @@ import com.armada.group.service.GroupMetadataSyncExecutor;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.GroupSnapshotDispatchService;
 import com.armada.group.service.GroupSnapshotProperties;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,6 +44,11 @@ class GroupMetadataSyncJobTest {
 
     @Mock
     private GroupSnapshotMetrics snapshotMetrics;
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void runOnceDefersWithoutAccountAndExecutesClaimedTasksIndependently() {
@@ -188,6 +195,57 @@ class GroupMetadataSyncJobTest {
         verify(snapshotMetrics, times(2)).recordDuplicateJid();
     }
 
+    @Test
+    void sameTenantAndJidFromDifferentOwnersAreDispatchedIndependently() {
+        GroupMetadataSyncTask first = task(1L, 7L, 10L);
+        first.setGroupJid("120363000@g.us");
+        GroupMetadataSyncTask second = task(2L, 7L, 20L);
+        second.setOwnerUserId(777L);
+        second.setGroupJid("120363000@g.us");
+        GroupExecutionAccount firstAccount =
+                new GroupExecutionAccount(71L, "WEB", "acc_71", "919", true);
+        GroupExecutionAccount secondAccount =
+                new GroupExecutionAccount(72L, "WEB", "acc_72", "929", true);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(first, second));
+        when(selector.find(10L, 0)).thenAnswer(ignored -> {
+            org.assertj.core.api.Assertions.assertThat(
+                    DataScopeContext.requireCurrent().actorUserId()).isEqualTo(501L);
+            return Optional.of(firstAccount);
+        });
+        when(selector.find(20L, 0)).thenAnswer(ignored -> {
+            org.assertj.core.api.Assertions.assertThat(
+                    DataScopeContext.requireCurrent().actorUserId()).isEqualTo(777L);
+            return Optional.of(secondAccount);
+        });
+        when(snapshotDispatchService.dispatchMetadataTask(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                anyLong(), anyLong(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
+
+        job(new GroupSnapshotProperties(true, 20, 1, 120_000L, 4, false)).runOnce();
+
+        verify(snapshotDispatchService).dispatchMetadataTask(
+                eq(first), eq(firstAccount), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(snapshotDispatchService).dispatchMetadataTask(
+                eq(second), eq(secondAccount), anyLong(), anyLong(), org.mockito.ArgumentMatchers.any());
+        verify(snapshotMetrics, never()).recordDuplicateJid();
+    }
+
+    @Test
+    void historicalUnownedTaskFailsWithoutSelectingAnAccount() {
+        GroupMetadataSyncTask task = task(1L, 7L, 10L);
+        task.setOwnerUserId(null);
+        when(taskService.findDue(anyLong(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(task));
+
+        job().runOnce();
+
+        verify(taskService).fail(
+                eq(task), eq("DATA_OWNER_MISSING"),
+                eq("历史群同步任务未分配归属用户"), anyLong());
+        verify(selector, never()).find(anyLong(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
     private GroupMetadataSyncJob job() {
         return job(new GroupSnapshotProperties(false, 20, 1, 120_000L, 4, true));
     }
@@ -209,6 +267,7 @@ class GroupMetadataSyncJobTest {
         task.setId(id);
         task.setTenantId(tenantId);
         task.setGroupLinkId(groupLinkId);
+        task.setOwnerUserId(501L);
         task.setAttemptCount(0);
         return task;
     }

@@ -89,6 +89,20 @@ public interface GroupLinkRegistryService {
                                 long now);
 
     /**
+     * 后台任务从持久化根显式恢复 owner 后登记自建群。
+     *
+     * <p>只允许 Kafka/恢复链路传入任务根上的 owner；{@code null} 仅表示
+     * 迁移前已存在且仍需收尾的历史任务，不得由用户创建入口调用。</p>
+     */
+    Long registerSelfBuiltGroupForOwner(Long ownerUserId,
+                                        String groupJid,
+                                        String groupName,
+                                        Long ownerAccountId,
+                                        String ownerPhone,
+                                        Integer memberCount,
+                                        long now);
+
+    /**
      * 登记拉群流程已经确认的账号在群关系。
      *
      * @param groupLinkId 统一群入口 ID，不能为空

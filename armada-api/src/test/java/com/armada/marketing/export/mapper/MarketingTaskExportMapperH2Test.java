@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.marketing.export.model.entity.MarketingTaskExportJob;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
@@ -49,6 +50,7 @@ class MarketingTaskExportMapperH2Test {
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     created_by BIGINT NOT NULL,
+                    data_scope_mode VARCHAR(8),
                     export_mode VARCHAR(32) NOT NULL,
                     task_ids_json VARCHAR(1000) NOT NULL,
                     country_iso2s_json VARCHAR(1000) NOT NULL,
@@ -86,12 +88,14 @@ class MarketingTaskExportMapperH2Test {
 
         assertThat(mapper.insertJob(job)).isEqualTo(1);
         assertThat(job.getId()).isPositive();
-        assertThat(mapper.selectJobByIdForUser(job.getId(), 5L)).isNotNull();
-        assertThat(mapper.selectJobByIdForUser(job.getId(), 6L)).isNull();
+        assertThat(mapper.selectJobByIdForScope(job.getId(), DataScope.self(5L))).isNotNull();
+        assertThat(mapper.selectJobByIdForScope(job.getId(), DataScope.self(6L))).isNull();
+        assertThat(mapper.selectJobByIdForScope(job.getId(), DataScope.all(6L))).isNotNull();
+        assertThat(mapper.selectJobByIdForScope(job.getId(), DataScope.system("test"))).isNull();
         assertThat(mapper.selectActiveJob(7L, 5L, "a".repeat(64))).isNotNull();
 
         TenantContext.set(8L);
-        assertThat(mapper.selectJobByIdForUser(job.getId(), 5L)).isNull();
+        assertThat(mapper.selectJobByIdForScope(job.getId(), DataScope.all(5L))).isNull();
 
         TenantContext.clear();
         List<MarketingTaskExportJob> processable = mapper.selectProcessableJobs(1_000L, 10);
@@ -112,7 +116,8 @@ class MarketingTaskExportMapperH2Test {
                 7L, job.getId(), "7/1.xlsx", 1_201L)).isEqualTo(1);
 
         TenantContext.set(7L);
-        MarketingTaskExportJob persisted = mapper.selectJobByIdForUser(job.getId(), 5L);
+        MarketingTaskExportJob persisted = mapper.selectJobByIdForScope(
+                job.getId(), DataScope.self(5L));
         assertThat(persisted.getStatus()).isEqualTo("SUCCESS");
         assertThat(persisted.getStorageKey()).isNull();
         assertThat(persisted.getFileSize()).isNull();
@@ -152,6 +157,7 @@ class MarketingTaskExportMapperH2Test {
         MarketingTaskExportJob job = new MarketingTaskExportJob();
         job.setTenantId(7L);
         job.setCreatedBy(5L);
+        job.setDataScopeMode("SELF");
         job.setExportMode("FULL");
         job.setTaskIdsJson("[9]");
         job.setCountryIso2sJson("[]");

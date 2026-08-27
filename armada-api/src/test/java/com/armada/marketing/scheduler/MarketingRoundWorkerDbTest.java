@@ -156,7 +156,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         long now = System.currentTimeMillis();
         return insertAndReturnId("""
                 INSERT INTO marketing_task
-                    (tenant_id, task_name, account_group_id, account_group_name,
+                    (tenant_id, owner_user_id, task_name, account_group_id, account_group_name,
                      marketing_template_id, marketing_template_name, status,
                      selected_account_count, target_group_count, target_pair_count,
                      sent_message_count, failed_message_count, send_per_round,
@@ -166,7 +166,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
                      last_round_started_at, last_sent_at, finished_at,
                      created_by, created_at, updated_at)
                 VALUES
-                    (?, ?, 100, 'round-dbtest-group', ?, ?,
+                    (?, 1, ?, 100, 'round-dbtest-group', ?, ?,
                      2, 1000, 1000, 1000, 0, 0, 1, ?, 1, 1, 0, 0,
                      ?, NULL, ?, ?, NULL, NULL, NULL, 1, ?, ?)
                 """, ps -> {
@@ -207,9 +207,9 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         }
         jdbc.batchUpdate("""
                 INSERT INTO account
-                    (tenant_id, ws_phone, account_type, ownership, protocol_id,
+                    (tenant_id, owner_user_id, ws_phone, account_type, ownership, protocol_id,
                      protocol_account_id, priority, created_at, updated_at)
-                VALUES (?, ?, 1, 1, ?, ?, 0, ?, ?)
+                VALUES (?, 1, ?, 1, 1, ?, ?, 0, ?, ?)
                 """, accountBatch);
         return jdbc.queryForList("""
                 SELECT id

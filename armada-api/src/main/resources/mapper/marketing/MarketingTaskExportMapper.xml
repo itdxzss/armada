@@ -7,6 +7,7 @@
         <id property="id" column="id"/>
         <result property="tenantId" column="tenant_id"/>
         <result property="createdBy" column="created_by"/>
+        <result property="dataScopeMode" column="data_scope_mode"/>
         <result property="exportMode" column="export_mode"/>
         <result property="taskIdsJson" column="task_ids_json"/>
         <result property="countryIso2sJson" column="country_iso2s_json"/>
@@ -30,15 +31,16 @@
     </resultMap>
 
     <sql id="JobColumns">
-        id, tenant_id, created_by, export_mode, task_ids_json, country_iso2s_json,
+        id, tenant_id, created_by, data_scope_mode, export_mode, task_ids_json, country_iso2s_json,
         request_hash, status, snapshot_at, lease_until, claim_token, attempt_count, storage_key,
         file_name, content_type, file_size, summary_row_count, detail_row_count,
         error_message, created_at, updated_at, finished_at, expires_at
     </sql>
 
-    <select id="selectTasksByIds" resultType="com.armada.marketing.model.entity.MarketingTask">
+    <select id="selectTasksByIdsForScope" resultType="com.armada.marketing.model.entity.MarketingTask">
         SELECT id,
                tenant_id AS tenantId,
+               owner_user_id AS ownerUserId,
                task_name AS taskName,
                business_type AS businessType,
                status,
@@ -51,6 +53,11 @@
         <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
             #{taskId}
         </foreach>
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
         ORDER BY FIELD(id,
         <foreach collection="taskIds" item="taskId" separator=",">
             #{taskId}
@@ -60,20 +67,26 @@
 
     <insert id="insertJob" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task_export_job
-            (tenant_id, created_by, export_mode, task_ids_json, country_iso2s_json,
+            (tenant_id, created_by, data_scope_mode, export_mode, task_ids_json, country_iso2s_json,
              request_hash, status, snapshot_at, attempt_count, summary_row_count,
              detail_row_count, created_at, updated_at)
         VALUES
-            (#{tenantId}, #{createdBy}, #{exportMode}, #{taskIdsJson}, #{countryIso2sJson},
+            (#{tenantId}, #{createdBy}, #{dataScopeMode}, #{exportMode}, #{taskIdsJson}, #{countryIso2sJson},
              #{requestHash}, #{status}, #{snapshotAt}, #{attemptCount}, #{summaryRowCount},
              #{detailRowCount}, #{createdAt}, #{updatedAt})
     </insert>
 
-    <select id="selectJobByIdForUser" resultMap="JobResultMap">
+    <select id="selectJobByIdForScope" resultMap="JobResultMap">
         SELECT <include refid="JobColumns"/>
         FROM marketing_task_export_job
         WHERE id = #{id}
-          AND created_by = #{createdBy}
+        <choose>
+            <when test="scope != null and scope.isSelf()">
+                AND created_by = #{scope.actorUserId}
+            </when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
     </select>
 
     <select id="selectActiveJob" resultMap="JobResultMap">

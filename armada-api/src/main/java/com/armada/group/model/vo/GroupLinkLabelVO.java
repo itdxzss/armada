@@ -8,6 +8,9 @@ public record GroupLinkLabelVO(
         /** 分组 ID。 */
         Long id,
 
+        /** 归属用户 ID；历史待分配数据为空。 */
+        Long ownerUserId,
+
         /** 分组名称。 */
         String name,
 

@@ -3,7 +3,7 @@
 <mapper namespace="com.armada.group.mapper.HistoricalGroupPullExecutionMapper">
 
   <sql id="Columns">
-    id, tenant_id, created_by, idempotency_key, operation_account_id,
+    id, tenant_id, owner_user_id, created_by, idempotency_key, operation_account_id,
     source_account_group_id, group_jid,
     group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
     single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
@@ -15,14 +15,16 @@
   <!-- tenant_id 由租户拦截器注入；(tenant_id,idempotency_key) 是创建幂等边界。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO historical_group_pull_execution (
-      created_by, idempotency_key, operation_account_id, source_account_group_id, group_jid,
+      owner_user_id, created_by, idempotency_key, operation_account_id,
+      source_account_group_id, group_jid,
       group_subject_snapshot, invite_link, puller_account_group_id, puller_account_id,
       single_add_count, marketing_template_id, normal_count, marketing_count, invalid_count,
       duplicate_count, pull_success_count, pull_failure_count, send_success_count,
       send_failure_count, pull_status, marketing_status, failure_stage, error_code,
       error_message, started_at, finished_at, created_at, updated_at
     ) VALUES (
-      #{createdBy}, #{idempotencyKey}, #{operationAccountId}, #{sourceAccountGroupId}, #{groupJid},
+      #{ownerUserId}, #{createdBy}, #{idempotencyKey}, #{operationAccountId},
+      #{sourceAccountGroupId}, #{groupJid},
       #{groupSubjectSnapshot}, #{inviteLink}, #{pullerAccountGroupId}, #{pullerAccountId},
       #{singleAddCount}, #{marketingTemplateId}, COALESCE(#{normalCount}, 0),
       COALESCE(#{marketingCount}, 0), COALESCE(#{invalidCount}, 0),
@@ -42,6 +44,22 @@
     LIMIT 1
   </select>
 
+  <select id="selectByTenantAndIdForScope"
+          resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
+    SELECT <include refid="Columns"/>
+    FROM historical_group_pull_execution
+    WHERE tenant_id = #{tenantId}
+      AND id = #{id}
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    LIMIT 1
+  </select>
+
   <!-- 同一执行的结果事件串行回写，避免最后两个并发结果都漏掉终态聚合。 -->
   <select id="selectByTenantAndIdForUpdate"
           resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
@@ -52,32 +70,41 @@
     FOR UPDATE
   </select>
 
-  <select id="selectByTenantAndIdempotencyKey"
+  <select id="selectByTenantOwnerAndIdempotencyKey"
           resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
     SELECT <include refid="Columns"/>
     FROM historical_group_pull_execution
     WHERE tenant_id = #{tenantId}
       AND idempotency_key = #{idempotencyKey}
+      AND owner_user_id = #{ownerUserId}
     LIMIT 1
   </select>
 
   <!-- 唯一键冲突后的 locking read 可越过 REPEATABLE READ 旧快照看到并发已提交行。 -->
-  <select id="selectByTenantAndIdempotencyKeyForUpdate"
+  <select id="selectByTenantOwnerAndIdempotencyKeyForUpdate"
           resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
     SELECT <include refid="Columns"/>
     FROM historical_group_pull_execution
     WHERE tenant_id = #{tenantId}
       AND idempotency_key = #{idempotencyKey}
+      AND owner_user_id = #{ownerUserId}
     FOR UPDATE
   </select>
 
-  <select id="selectLatestByTenantSourceGroupAndGroup"
+  <select id="selectLatestByTenantSourceGroupAndGroupForScope"
           resultType="com.armada.group.model.entity.HistoricalGroupPullExecution">
     SELECT <include refid="Columns"/>
     FROM historical_group_pull_execution
     WHERE tenant_id = #{tenantId}
       AND source_account_group_id = #{sourceAccountGroupId}
       AND group_jid = #{groupJid}
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     ORDER BY created_at DESC, id DESC
     LIMIT 1
   </select>

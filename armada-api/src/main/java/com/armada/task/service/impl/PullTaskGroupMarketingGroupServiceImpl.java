@@ -5,6 +5,8 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper;
 import com.armada.task.mapper.PullTaskGroupMarketingGroupOccupancyMapper;
 import com.armada.task.model.dto.PullTaskGroupMarketingCandidateQuery;
@@ -26,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -74,6 +77,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
     public PageResult<PullTaskGroupMarketingCandidateVO> listCandidates(
             PullTaskGroupMarketingCandidateQuery query,
             long operatorId) {
+        DataScope scope = requireOperatorScope(operatorId);
         long now = System.currentTimeMillis();
         occupancyMapper.releaseExpiredWaiting(now);
         PullTaskGroupMarketingCandidateQuery actual = query == null
@@ -83,12 +87,13 @@ public class PullTaskGroupMarketingGroupServiceImpl
             occupancyMapper.renewWaiting(
                     actual.getReservationToken(), operatorId, now + WAITING_LEASE_MILLIS, now);
         }
-        long total = candidateMapper.countPage(actual);
+        long total = candidateMapper.countPage(actual, scope);
         List<PullTaskGroupMarketingCandidateRow> rows = total == 0
                 ? List.of()
-                : candidateMapper.selectPage(actual, actual.getOffset(), actual.getPageSize());
+                : candidateMapper.selectPage(
+                        actual, actual.getOffset(), actual.getPageSize(), scope);
         List<PullTaskGroupMarketingCandidateVO> items = assemble(
-                rows, operatorId, actual.getReservationToken());
+                rows, operatorId, actual.getReservationToken(), scope);
         return PageResult.of(items, actual.getPage(), actual.getPageSize(), total);
     }
 
@@ -107,6 +112,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
     public PullTaskGroupMarketingWaitingPoolVO addWaiting(
             PullTaskGroupMarketingWaitingPoolAddDTO request,
             long operatorId) {
+        DataScope scope = DataScope.self(requireOperatorScope(operatorId).actorUserId());
         long now = System.currentTimeMillis();
         occupancyMapper.releaseExpiredWaiting(now);
         List<String> groupJids = requireGroupJids(request);
@@ -117,7 +123,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
         occupancyMapper.updateWaitingSnapshot(
                 token, operatorId, taskName, request.plannedStartAt(), now);
         Map<String, PullTaskGroupMarketingCandidateRow> candidates = byJid(
-                candidateMapper.selectByGroupJids(groupJids));
+                candidateMapper.selectByGroupJids(groupJids, scope));
         List<PullTaskGroupMarketingWaitingPoolRejectedVO> rejected = new ArrayList<>();
         for (String groupJid : groupJids) {
             PullTaskGroupMarketingCandidateRow row = candidates.get(groupJid);
@@ -126,7 +132,8 @@ public class PullTaskGroupMarketingGroupServiceImpl
                 continue;
             }
             PullTaskGroupMarketingCandidatePolicy.Decision decision =
-                    PullTaskGroupMarketingCandidatePolicy.evaluate(row, operatorId, token);
+                    PullTaskGroupMarketingCandidatePolicy.evaluate(
+                            row, operatorId, token, canRevealOccupancy(scope, row, operatorId));
             if (decision.inCurrentWaitingPool()) {
                 continue;
             }
@@ -143,7 +150,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
                 }
             }
         }
-        return waitingPool(token, operatorId, rejected);
+        return waitingPool(token, operatorId, rejected, scope);
     }
 
     /**
@@ -158,12 +165,13 @@ public class PullTaskGroupMarketingGroupServiceImpl
     public PullTaskGroupMarketingWaitingPoolVO getWaiting(
             String reservationToken,
             long operatorId) {
+        DataScope scope = DataScope.self(requireOperatorScope(operatorId).actorUserId());
         long now = System.currentTimeMillis();
         occupancyMapper.releaseExpiredWaiting(now);
         String token = requireReservationToken(reservationToken);
         requirePoolOwner(token, operatorId, false);
         occupancyMapper.renewWaiting(token, operatorId, now + WAITING_LEASE_MILLIS, now);
-        return waitingPool(token, operatorId, List.of());
+        return waitingPool(token, operatorId, List.of(), scope);
     }
 
     /**
@@ -178,6 +186,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
     public PullTaskGroupMarketingWaitingPoolVO removeWaiting(
             PullTaskGroupMarketingWaitingPoolRemoveDTO request,
             long operatorId) {
+        DataScope scope = DataScope.self(requireOperatorScope(operatorId).actorUserId());
         long now = System.currentTimeMillis();
         occupancyMapper.releaseExpiredWaiting(now);
         String token = requireReservationToken(request == null ? null : request.reservationToken());
@@ -185,7 +194,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
         requirePoolOwner(token, operatorId, false);
         occupancyMapper.releaseWaiting(token, groupJid, operatorId, now);
         occupancyMapper.renewWaiting(token, operatorId, now + WAITING_LEASE_MILLIS, now);
-        return waitingPool(token, operatorId, List.of());
+        return waitingPool(token, operatorId, List.of(), scope);
     }
 
     /**
@@ -197,6 +206,7 @@ public class PullTaskGroupMarketingGroupServiceImpl
     @Override
     @Transactional
     public void releaseWaiting(String reservationToken, long operatorId) {
+        requireOperatorScope(operatorId);
         String token = requireReservationToken(reservationToken);
         long now = System.currentTimeMillis();
         occupancyMapper.releaseExpiredWaiting(now);
@@ -207,7 +217,8 @@ public class PullTaskGroupMarketingGroupServiceImpl
     private PullTaskGroupMarketingWaitingPoolVO waitingPool(
             String token,
             long operatorId,
-            List<PullTaskGroupMarketingWaitingPoolRejectedVO> rejected) {
+            List<PullTaskGroupMarketingWaitingPoolRejectedVO> rejected,
+            DataScope scope) {
         List<PullTaskGroupMarketingGroupOccupancy> occupancyRows =
                 occupancyMapper.selectWaitingByToken(token, operatorId);
         List<String> groupJids = occupancyRows.stream()
@@ -215,24 +226,27 @@ public class PullTaskGroupMarketingGroupServiceImpl
                 .toList();
         Map<String, PullTaskGroupMarketingCandidateRow> candidates = groupJids.isEmpty()
                 ? Map.of()
-                : byJid(candidateMapper.selectByGroupJids(groupJids));
+                : byJid(candidateMapper.selectByGroupJids(groupJids, scope));
         List<PullTaskGroupMarketingCandidateRow> rows = occupancyRows.stream()
                 .map(occupancy -> withOccupancy(candidates.get(occupancy.getGroupJid()), occupancy))
                 .toList();
         return new PullTaskGroupMarketingWaitingPoolVO(
-                token, assemble(rows, operatorId, token), rejected);
+                token, assemble(rows, operatorId, token, scope), rejected);
     }
 
     private List<PullTaskGroupMarketingCandidateVO> assemble(
             List<PullTaskGroupMarketingCandidateRow> rows,
             long operatorId,
-            String token) {
-        List<String> groupJids = rows.stream()
-                .map(PullTaskGroupMarketingCandidateRow::getGroupJid)
+            String token,
+            DataScope scope) {
+        List<Long> groupLinkIds = rows.stream()
+                .map(PullTaskGroupMarketingCandidateRow::getGroupLinkId)
+                .filter(Objects::nonNull)
+                .distinct()
                 .toList();
-        Map<String, List<PullTaskGroupMarketingCandidateAccountVO>> accounts =
-                groupJids.isEmpty() ? Map.of() : accountsByJid(
-                        candidateMapper.selectAccountsByGroupJids(groupJids));
+        Map<Long, List<PullTaskGroupMarketingCandidateAccountVO>> accounts =
+                groupLinkIds.isEmpty() ? Map.of() : accountsByGroupLinkId(
+                        candidateMapper.selectAccountsByGroupLinkIds(groupLinkIds, scope));
         List<String> owners = rows.stream()
                 .map(PullTaskGroupMarketingCandidateRow::getOwnerPhone)
                 .filter(value -> value != null && !value.isBlank())
@@ -242,8 +256,8 @@ public class PullTaskGroupMarketingGroupServiceImpl
                 ? Map.of()
                 : countryService.resolveActiveCountriesByPhoneNumbers(owners);
         return rows.stream()
-                .map(row -> toVO(row, accounts.getOrDefault(row.getGroupJid(), List.of()),
-                        countries.get(row.getOwnerPhone()), operatorId, token))
+                .map(row -> toVO(row, accounts.getOrDefault(row.getGroupLinkId(), List.of()),
+                        countries.get(row.getOwnerPhone()), operatorId, token, scope))
                 .toList();
     }
 
@@ -252,11 +266,15 @@ public class PullTaskGroupMarketingGroupServiceImpl
             List<PullTaskGroupMarketingCandidateAccountVO> accounts,
             CountryReferenceVO country,
             long operatorId,
-            String token) {
+            String token,
+            DataScope scope) {
+        boolean revealOccupancy = canRevealOccupancy(scope, row, operatorId);
         PullTaskGroupMarketingCandidatePolicy.Decision decision =
-                PullTaskGroupMarketingCandidatePolicy.evaluate(row, operatorId, token);
+                PullTaskGroupMarketingCandidatePolicy.evaluate(
+                        row, operatorId, token, revealOccupancy);
         return new PullTaskGroupMarketingCandidateVO(
-                row.getGroupLinkId(), row.getGroupJid(), row.getGroupName(), source(row),
+                row.getGroupLinkId(), row.getOwnerUserId(), row.getGroupJid(),
+                row.getGroupName(), source(row),
                 row.getOwnerPhone(), country == null ? null : country.iso2(),
                 country == null ? null : country.nameZh(), country == null ? null : country.flag(),
                 row.getGroupCreatedAt(), row.getMemberSize(), row.getAnnounceOnly(), row.getAvatarUrl(),
@@ -264,19 +282,35 @@ public class PullTaskGroupMarketingGroupServiceImpl
                 row.getSourceJoinedAt(), row.getSourcePromotedAt(), accounts,
                 zero(row.getEligibleAccountCount()), zero(row.getOnlineAccountCount()),
                 decision.status(), decision.selectable(), decision.inCurrentWaitingPool(),
-                row.getOccupiedTaskName(), decision.disabledReason(), row.getLastValidatedAt());
+                revealOccupancy ? row.getOccupiedTaskName() : null,
+                decision.disabledReason(), row.getLastValidatedAt());
     }
 
-    private static Map<String, List<PullTaskGroupMarketingCandidateAccountVO>> accountsByJid(
+    private static Map<Long, List<PullTaskGroupMarketingCandidateAccountVO>> accountsByGroupLinkId(
             List<PullTaskGroupMarketingCandidateAccountRow> rows) {
-        Map<String, List<PullTaskGroupMarketingCandidateAccountVO>> result = new LinkedHashMap<>();
+        Map<Long, List<PullTaskGroupMarketingCandidateAccountVO>> result = new LinkedHashMap<>();
         for (PullTaskGroupMarketingCandidateAccountRow row : rows) {
-            result.computeIfAbsent(row.getGroupJid(), ignored -> new ArrayList<>()).add(
+            result.computeIfAbsent(row.getGroupLinkId(), ignored -> new ArrayList<>()).add(
                     new PullTaskGroupMarketingCandidateAccountVO(
                             row.getAccountId(), row.getAccountPhone(), row.getGroupRole(),
                             row.getLoginState(), row.getLastSeenAt()));
         }
         return result;
+    }
+
+    private static DataScope requireOperatorScope(long operatorId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (!Long.valueOf(operatorId).equals(scope.actorUserId())) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "当前操作者与数据范围不一致");
+        }
+        return scope;
+    }
+
+    private static boolean canRevealOccupancy(
+            DataScope scope,
+            PullTaskGroupMarketingCandidateRow row,
+            long operatorId) {
+        return scope.isAll() || Long.valueOf(operatorId).equals(row.getOccupiedBy());
     }
 
     private static PullTaskGroupMarketingCandidateRow withOccupancy(

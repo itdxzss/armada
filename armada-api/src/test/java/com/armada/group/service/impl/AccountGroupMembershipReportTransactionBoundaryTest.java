@@ -232,7 +232,7 @@ class AccountGroupMembershipReportTransactionBoundaryTest {
     }
 
     private static Context context(Long lastCompleteAt) {
-        return new Context(10L, "15550000001", "WEB", "acc-10",
+        return new Context(10L, 501L, "15550000001", "WEB", "acc-10",
                 2, 1, 0, 1_000L, null, lastCompleteAt);
     }
 

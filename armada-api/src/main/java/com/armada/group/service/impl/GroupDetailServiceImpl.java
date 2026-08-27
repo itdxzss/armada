@@ -39,6 +39,7 @@ import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -240,7 +241,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
 
     @Override
     public GroupMetadataSyncAcceptedVO requestMetadataSync(Long id) {
-        target(id);
+        GroupTarget target = target(id);
+        DataScopeAccess.requireAssignedOwner(target.link().getOwnerUserId(), "群链接");
         metadataSyncTaskService.enqueue(
                 id,
                 GroupMetadataSyncTrigger.MANUAL_REFRESH,
@@ -287,7 +289,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                     id, account.accountId());
         }
         long observedAt = System.currentTimeMillis();
-        if (groupLinkMapper.updateGroupName(id, subject, observedAt) == 0) {
+        if (groupLinkMapper.updateGroupName(
+                id, DataScopeAccess.requireCurrent(), subject, observedAt) == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
         currentLocalPersistence.applyProfile(new GroupCurrentLocalProfileWrite(
@@ -1078,7 +1081,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接 ID 不能为空");
         }
-        GroupLink link = groupLinkMapper.selectActiveById(id);
+        GroupLink link = groupLinkMapper.selectActiveById(
+                id, DataScopeAccess.requireCurrent());
         if (link == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
@@ -1099,6 +1103,7 @@ public class GroupDetailServiceImpl implements GroupDetailService {
      */
     private GroupTarget requireLiveTarget(Long id) {
         GroupTarget target = target(id);
+        DataScopeAccess.requireAssignedOwner(target.link().getOwnerUserId(), "群链接");
         if (target.groupJid() == null) {
             throw new BusinessException(
                     ErrorCode.VALIDATION,

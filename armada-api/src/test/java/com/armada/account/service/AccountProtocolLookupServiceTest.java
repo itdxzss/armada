@@ -7,7 +7,11 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,6 +26,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class AccountProtocolLookupServiceTest {
 
+    private static final DataScope USER_SCOPE = DataScope.self(11L);
+
     @Mock
     private AccountMapper accountMapper;
 
@@ -29,12 +35,30 @@ class AccountProtocolLookupServiceTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(USER_SCOPE);
         service = new AccountProtocolLookupServiceImpl(accountMapper);
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+    }
+
+    @Test
+    void phoneLookupPassesTheCurrentUserScopeToTheMapper() {
+        Account account = account(1L, "WEB", "web-1", "911");
+        when(accountMapper.selectActiveByWsPhonesForScope(List.of("911"), USER_SCOPE))
+                .thenReturn(List.of(account));
+
+        assertThat(service.findActiveProtocolRefsByPhones(List.of("911")))
+                .containsExactly(Map.entry(
+                        "911", new ProtocolAccountRef(1L, ProtocolBackend.WEB, "web-1", "911")));
+        verify(accountMapper).selectActiveByWsPhonesForScope(List.of("911"), USER_SCOPE);
     }
 
     @Test
     void findActiveProtocolRefs_preservesRequestOrderAndMapsBackend() {
-        when(accountMapper.selectActiveByIds(List.of(3L, 1L, 2L)))
+        when(accountMapper.selectActiveByIdsForScope(List.of(3L, 1L, 2L), USER_SCOPE))
                 .thenReturn(List.of(
                         account(1L, "android", "android-1", "911"),
                         account(3L, "WEB", "web-3", "933")));
@@ -47,7 +71,8 @@ class AccountProtocolLookupServiceTest {
 
     @Test
     void findActiveProtocolRefs_skipsRowsWithIncompleteProtocolIdentity() {
-        when(accountMapper.selectActiveByIds(List.of(1L, 2L, 3L, 4L)))
+        when(accountMapper.selectActiveByIdsForScope(
+                List.of(1L, 2L, 3L, 4L), USER_SCOPE))
                 .thenReturn(List.of(
                         account(1L, " ", "acc-1", "911"),
                         account(2L, "WEB", " ", "922"),
@@ -62,7 +87,7 @@ class AccountProtocolLookupServiceTest {
 
     @Test
     void findActiveProtocolRef_legacyWebWithoutProtocolIdUsesWebFallback() {
-        when(accountMapper.selectActiveById(302L))
+        when(accountMapper.selectActiveByIdForScope(302L, USER_SCOPE))
                 .thenReturn(account(302L, null, "acc_919755599869", "919755599869"));
 
         assertThat(service.findActiveProtocolRef(302L))
@@ -82,10 +107,10 @@ class AccountProtocolLookupServiceTest {
 
     @Test
     void findOnlineProtocolRefs_filtersOfflineAccountsAndPreservesRequestOrder() {
-        when(accountMapper.selectOnlineAccountIdsByIds(
-                List.of(3L, 1L, 2L), AccountLoginStateCode.ONLINE))
+        when(accountMapper.selectOnlineAccountIdsByIdsForScope(
+                List.of(3L, 1L, 2L), AccountLoginStateCode.ONLINE, USER_SCOPE))
                 .thenReturn(List.of(1L, 3L));
-        when(accountMapper.selectActiveByIds(List.of(3L, 1L)))
+        when(accountMapper.selectActiveByIdsForScope(List.of(3L, 1L), USER_SCOPE))
                 .thenReturn(List.of(
                         account(1L, "ANDROID", "android-1", "911"),
                         account(3L, "WEB", "web-3", "933")));
@@ -98,20 +123,22 @@ class AccountProtocolLookupServiceTest {
 
     @Test
     void findRandomOnlineNormalWebByGroupIdUsesDedicatedWebSelector() {
-        when(accountMapper.selectRandomOnlineNormalWebByGroupId(
-                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, "WEB"))
+        when(accountMapper.selectRandomOnlineNormalWebByGroupIdForScope(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                1, "WEB", USER_SCOPE))
                 .thenReturn(account(51L, "WEB", "web-51", "9551"));
 
         assertThat(service.findRandomOnlineNormalWebByGroupId(301L))
                 .contains(new ProtocolAccountRef(51L, ProtocolBackend.WEB, "web-51", "9551"));
-        verify(accountMapper).selectRandomOnlineNormalWebByGroupId(
-                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, "WEB");
+        verify(accountMapper).selectRandomOnlineNormalWebByGroupIdForScope(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE,
+                1, "WEB", USER_SCOPE);
     }
 
     @Test
     void findOnlineNormalByGroupIdReturnsEveryEligibleProtocolAccount() {
-        when(accountMapper.selectOnlineNormalByGroupId(
-                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE))
+        when(accountMapper.selectOnlineNormalByGroupIdForScope(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, USER_SCOPE))
                 .thenReturn(List.of(
                         account(51L, "WEB", "web-51", "9551"),
                         account(52L, "ANDROID", "android-52", "9552")));
@@ -119,14 +146,14 @@ class AccountProtocolLookupServiceTest {
         assertThat(service.findOnlineNormalByGroupId(301L)).containsExactly(
                 new ProtocolAccountRef(51L, ProtocolBackend.WEB, "web-51", "9551"),
                 new ProtocolAccountRef(52L, ProtocolBackend.ANDROID, "android-52", "9552"));
-        verify(accountMapper).selectOnlineNormalByGroupId(
-                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        verify(accountMapper).selectOnlineNormalByGroupIdForScope(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, USER_SCOPE);
     }
 
     @Test
     void findOnlineNormalStrictByGroupIdSkipsUnsupportedProtocolRows() {
-        when(accountMapper.selectOnlineNormalByGroupId(
-                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE))
+        when(accountMapper.selectOnlineNormalByGroupIdForScope(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, USER_SCOPE))
                 .thenReturn(List.of(
                         account(51L, "WEB", "web-51", "9551"),
                         account(52L, "DESKTOP", "desktop-52", "9552"),

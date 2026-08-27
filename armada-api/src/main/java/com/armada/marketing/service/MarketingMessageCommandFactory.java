@@ -15,6 +15,9 @@ import com.armada.platform.protocol.model.enums.MessageType;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import java.util.Arrays;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -55,15 +58,28 @@ public class MarketingMessageCommandFactory {
      * @throws BusinessException 模板不存在或内容配置无效时抛出
      */
     public MarketingMessageComposer.ComposedMessage composeTaskMessage(MarketingTask task) {
-        MarketingTemplate template = templateMapper.selectById(task.getMarketingTemplateId());
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTemplate template = templateMapper.selectByIdForScope(
+                task.getMarketingTemplateId(), scope);
         if (template == null) {
             throw new BusinessException(
                     ErrorCode.NOT_FOUND,
                     "营销模板不存在: " + task.getMarketingTemplateId());
         }
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(task.getOwnerUserId(), template.getOwnerUserId()),
+                "营销任务与模板");
         MarketingTemplateFile image = template.getImageFileId() == null
                 ? null
-                : fileMapper.selectById(template.getImageFileId());
+                : fileMapper.selectByIdForScope(template.getImageFileId(), scope);
+        if (template.getImageFileId() != null && image == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板图片不存在");
+        }
+        if (image != null) {
+            DataScopeAccess.requireSameOwner(
+                    Arrays.asList(template.getOwnerUserId(), image.getOwnerUserId()),
+                    "营销模板与图片");
+        }
         return composer.compose(template, image);
     }
 

@@ -7,6 +7,7 @@ package com.armada.group.model.vo;
  * 可以直接发往协议层 worker 执行 {@code groupMetadata}。</p>
  *
  * @param tenantId          群链接所属租户
+ * @param ownerUserId       群链接数据 owner
  * @param groupLinkId       group_link.id
  * @param groupJid          WhatsApp 群 JID
  * @param accountId         本地操作账号 ID
@@ -14,6 +15,7 @@ package com.armada.group.model.vo;
  */
 public record GroupLinkHealthCheckCandidate(
         Long tenantId,
+        Long ownerUserId,
         Long groupLinkId,
         String groupJid,
         Long accountId,

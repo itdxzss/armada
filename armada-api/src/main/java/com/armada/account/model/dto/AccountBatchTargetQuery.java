@@ -34,6 +34,7 @@ public class AccountBatchTargetQuery extends AccountQuery {
         target.setChannelName(source.getChannelName());
         target.setCountry(source.getCountry());
         target.setTruthIp(source.getTruthIp());
+        target.applyDataScope(source.getDataScope());
         target.afterId = afterId;
         target.scanSize = scanSize;
         return target;

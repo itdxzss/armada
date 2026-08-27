@@ -14,6 +14,7 @@ import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskDetailVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingTaskVO;
 import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -41,6 +42,11 @@ public interface GroupPullMarketingMapper {
     /** 查询任务配置与汇总，不展开明细。 */
     GroupPullMarketingTaskDetailVO selectTaskDetail(@Param("taskId") Long taskId);
 
+    /** 用户请求查询任务详情，缺失或 SYSTEM 范围时不返回数据。 */
+    GroupPullMarketingTaskDetailVO selectTaskDetailForScope(
+            @Param("taskId") Long taskId,
+            @Param("scope") DataScope scope);
+
     /**
      * 统计任务已经进入正式建群流程的执行数。
      *
@@ -62,6 +68,10 @@ public interface GroupPullMarketingMapper {
 
     /** 锁定读取一条拉群营销公共任务，串行化生命周期操作。 */
     MarketingTask selectTaskForUpdate(@Param("taskId") Long taskId);
+
+    /** 用户生命周期操作按 owner 范围锁定公共任务根。 */
+    MarketingTask selectTaskForUpdateForScope(@Param("taskId") Long taskId,
+                                              @Param("scope") DataScope scope);
 
     /** 待启动任务进入执行中。 */
     int startTask(@Param("taskId") Long taskId, @Param("now") long now);

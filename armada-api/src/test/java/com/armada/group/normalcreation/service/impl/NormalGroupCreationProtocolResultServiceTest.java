@@ -1,5 +1,6 @@
 package com.armada.group.normalcreation.service.impl;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -20,6 +21,7 @@ import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskExecutionScope;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
@@ -30,9 +32,11 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class NormalGroupCreationProtocolResultServiceTest {
@@ -61,8 +65,15 @@ class NormalGroupCreationProtocolResultServiceTest {
                     metadataSyncTaskService, accountService, accountStateEventService,
                     accountStateMapper);
 
+    @BeforeEach
+    void stubTaskOwnerScope() {
+        when(mapper.selectTaskExecutionScope(1L, 9L))
+                .thenReturn(new TaskExecutionScope(9L, 9L));
+    }
+
     @AfterEach
     void clearTenant() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -426,8 +437,8 @@ class NormalGroupCreationProtocolResultServiceTest {
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
         when(mapper.selectItemWork(21L)).thenReturn(item);
         when(mapper.selectMemberWorks(21L)).thenReturn(List.of(member()));
-        when(registry.registerSelfBuiltGroup(
-                eq("120363001@g.us"), eq("普群001"), eq(382L), eq("911"),
+        when(registry.registerSelfBuiltGroupForOwner(
+                eq(9L), eq("120363001@g.us"), eq("普群001"), eq(382L), eq("911"),
                 eq(2), anyLong())).thenReturn(101L);
         when(mapper.updateGroupLink(eq(21L), eq(101L), anyLong())).thenReturn(1);
         when(mapper.completeProtocolFlow(
@@ -453,6 +464,10 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("CREATED_PARTIAL"),
                 eq("PARTICIPANTS_NOT_CONFIRMED"), eq("部分成员未确认"),
                 eq("120363001@g.us"), eq("evt-1"), anyLong())).thenReturn(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(9L);
+            return null;
+        }).when(accountService).migrateGroup(List.of(382L), 91L);
 
         service.handleNormalGroupCreationResult(event(
                 "GROUP_CREATE", "cmd-create", "FAILED",
@@ -549,6 +564,26 @@ class NormalGroupCreationProtocolResultServiceTest {
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void historicalOwnerlessTaskCannotConsumeProtocolResult() {
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item(
+                "CREATING_GROUP", "cmd-create", null, null, null, "KEEP"));
+        when(mapper.selectTaskExecutionScope(1L, 9L))
+                .thenReturn(new TaskExecutionScope(null, 9L));
+
+        assertThatThrownBy(() -> service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "SUCCESS",
+                382L, "creator-web", "WEB", null, null,
+                "120363001@g.us", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("历史新建普群任务缺少数据归属");
+
+        verify(mapper, never()).startGroupSettings(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), anyLong());
     }
 
     private static ItemWork item(

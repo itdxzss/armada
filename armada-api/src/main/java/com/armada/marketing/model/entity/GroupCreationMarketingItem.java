@@ -13,6 +13,9 @@ public class GroupCreationMarketingItem {
     /** 租户 ID,用于后台跨租户扫描后恢复租户上下文。 */
     private Long tenantId;
 
+    /** 所属任务的数据 owner，仅由后台到期扫描联表投影。 */
+    private Long ownerUserId;
+
     /** 所属建群营销任务 ID。 */
     private Long taskId;
 
@@ -108,6 +111,14 @@ public class GroupCreationMarketingItem {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public Long getTaskId() {

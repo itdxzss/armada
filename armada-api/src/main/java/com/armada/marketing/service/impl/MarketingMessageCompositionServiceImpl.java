@@ -9,7 +9,10 @@ import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.marketing.service.MarketingMessageCompositionService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
+import java.util.Arrays;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 
@@ -47,13 +50,23 @@ public class MarketingMessageCompositionServiceImpl implements MarketingMessageC
         if (tenantId == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
-        MarketingTemplate template = templateMapper.selectById(marketingTemplateId);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTemplate template = templateMapper.selectByIdForScope(marketingTemplateId, scope);
         if (template == null || !Objects.equals(tenantId, template.getTenantId())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + marketingTemplateId);
         }
         MarketingTemplateFile imageFile = template.getImageFileId() == null
                 ? null
-                : fileMapper.selectById(template.getImageFileId());
+                : fileMapper.selectByIdForScope(template.getImageFileId(), scope);
+        if (template.getImageFileId() != null && imageFile == null) {
+            throw new BusinessException(
+                    ErrorCode.NOT_FOUND, "营销模板图片不存在: " + template.getImageFileId());
+        }
+        if (imageFile != null) {
+            DataScopeAccess.requireSameOwner(
+                    Arrays.asList(template.getOwnerUserId(), imageFile.getOwnerUserId()),
+                    "营销模板与图片");
+        }
         return toVO(messageComposer.compose(template, imageFile));
     }
 

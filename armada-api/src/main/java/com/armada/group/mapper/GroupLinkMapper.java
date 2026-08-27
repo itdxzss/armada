@@ -7,6 +7,7 @@ import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
@@ -25,7 +26,8 @@ public interface GroupLinkMapper {
      * @param url 归一化链接
      * @return 找到则返回实体(含 deletedAt),否则 null
      */
-    GroupLink selectAnyByUrl(@Param("url") String url);
+    GroupLink selectAnyByUrl(@Param("url") String url,
+                             @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 按 URL 当前读群入口（含软删记录）。
@@ -36,7 +38,8 @@ public interface GroupLinkMapper {
      * @param url 归一化链接
      * @return 找到则返回并锁定实体，否则 null
      */
-    GroupLink selectAnyByUrlForUpdate(@Param("url") String url);
+    GroupLink selectAnyByUrlForUpdate(@Param("url") String url,
+                                      @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 插入新群链接(id/tenant_id 由库或拦截器注入,时间由调用方传入)。
@@ -60,34 +63,40 @@ public interface GroupLinkMapper {
                                    @Param("observedGroupName") String observedGroupName);
 
     /** 按群 JID 解析仍保留的数字句柄，必要时允许复用软删除行。 */
-    Long selectIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid);
+    Long selectIdByGroupJidIncludingDeleted(@Param("groupJid") String groupJid,
+                                             @Param("ownerUserId") Long ownerUserId);
 
     /** 按请求群 JID 批量解析应复用的稳定兼容句柄。 */
     @InterceptorIgnore(tenantLine = "true")
     List<AccountObservedGroupHandle> selectAccountObservedHandles(
             @Param("tenantId") Long tenantId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("groupJids") List<String> groupJids);
 
     /** 批量登记前按主键升序锁定已解析句柄，包含待复活软删行。 */
     @InterceptorIgnore(tenantLine = "true")
     List<GroupLink> selectAccountObservedByIdsForUpdate(
             @Param("tenantId") Long tenantId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("ids") List<Long> ids);
 
     /** 按内部 URL 唯一键批量登记仍未解析到句柄的账号观察群。 */
     @InterceptorIgnore(tenantLine = "true")
     int upsertAccountObservedGroups(
             @Param("tenantId") Long tenantId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("rows") List<AccountObservedGroupWrite> rows);
 
     /** 同步发现已有句柄时只更新句柄自身的名称、关系态和协议来源。 */
     int touchAccountObservedGroup(@Param("groupLinkId") Long groupLinkId,
+                                  @Param("ownerUserId") Long ownerUserId,
                                   @Param("groupName") String groupName,
                                   @Param("syncProtocolMask") int syncProtocolMask,
                                   @Param("updatedAt") long updatedAt);
 
     /** 按新模型当前邀请码解析仍活跃的数字句柄。 */
-    Long selectActiveIdByInviteCode(@Param("inviteCode") String inviteCode);
+    Long selectActiveIdByInviteCode(@Param("inviteCode") String inviteCode,
+                                    @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 复活软删链接并归到目标分组:复活(deleted_at=NULL) + 改归属分组 + 更新来源批次 + COALESCE 群名(空不覆盖)。
@@ -100,6 +109,7 @@ public interface GroupLinkMapper {
      */
     int adoptToLabel(@Param("id") Long id, @Param("labelId") Long labelId,
                      @Param("batchId") Long batchId, @Param("groupName") String groupName,
+                     @Param("ownerUserId") Long ownerUserId,
                      @Param("updatedAt") long updatedAt);
 
     /**
@@ -112,7 +122,9 @@ public interface GroupLinkMapper {
      * @return 影响行数
      */
     int adoptActiveIntoImport(@Param("id") Long id, @Param("labelId") Long labelId,
-                              @Param("batchId") Long batchId, @Param("updatedAt") long updatedAt);
+                              @Param("batchId") Long batchId,
+                              @Param("ownerUserId") Long ownerUserId,
+                              @Param("updatedAt") long updatedAt);
 
     /**
      * 复活软删群入口为独立群组池目标,不归入导入链接分组。
@@ -121,18 +133,23 @@ public interface GroupLinkMapper {
      * @param updatedAt 更新时间(epoch毫秒)
      * @return 影响行数
      */
-    int reviveAsStandaloneTarget(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+    int reviveAsStandaloneTarget(@Param("id") Long id,
+                                  @Param("ownerUserId") Long ownerUserId,
+                                  @Param("updatedAt") long updatedAt);
 
     int markSelfBuiltGroup(@Param("id") Long id,
+                           @Param("ownerUserId") Long ownerUserId,
                            @Param("groupName") String groupName,
                            @Param("updatedAt") long updatedAt);
 
     /** 把活动群入口的历史群事实提升为真；永不清除。 */
     int markHistorical(@Param("groupLinkId") Long groupLinkId,
+                       @Param("scope") DataScope scope,
                        @Param("updatedAt") long updatedAt);
 
     /** 把活动群入口的上控后群事实提升为真；永不清除。 */
     int markPostControl(@Param("groupLinkId") Long groupLinkId,
+                        @Param("scope") DataScope scope,
                         @Param("updatedAt") long updatedAt);
 
     /**
@@ -146,6 +163,7 @@ public interface GroupLinkMapper {
     int markClassifications(
             @Param("historicalIds") List<Long> historicalIds,
             @Param("postControlIds") List<Long> postControlIds,
+            @Param("scope") DataScope scope,
             @Param("updatedAt") long updatedAt);
 
     /**
@@ -154,13 +172,20 @@ public interface GroupLinkMapper {
      * @param id 群链接 ID
      * @return 活跃行;不存在或已软删时返回 null
      */
-    GroupLink selectActiveById(@Param("id") Long id);
+    GroupLink selectActiveById(@Param("id") Long id, @Param("scope") DataScope scope);
 
     /** 按稳定群入口 ID 读取新模型当前群 JID 和邀请码。 */
-    GroupCurrentIdentity selectCurrentIdentity(@Param("id") Long id);
+    GroupCurrentIdentity selectCurrentIdentity(@Param("id") Long id,
+                                               @Param("scope") DataScope scope);
 
-    /** 按群 JID 查询当前租户活动群入口 ID。 */
-    Long selectActiveIdByGroupJid(@Param("groupJid") String groupJid);
+    /** 按群 JID 和资源归属查询当前租户活动群入口 ID。 */
+    Long selectActiveIdByGroupJid(@Param("groupJid") String groupJid,
+                                  @Param("ownerUserId") Long ownerUserId);
+
+    /** 校验事件携带的群入口 ID 与群 JID 是否指向同一活动句柄。 */
+    Long selectActiveIdByGroupJidAndId(@Param("groupJid") String groupJid,
+                                       @Param("groupLinkId") Long groupLinkId,
+                                       @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 更新群组列表本地资料字段。
@@ -172,6 +197,7 @@ public interface GroupLinkMapper {
      * @return 影响行数
      */
     int updateProfile(@Param("id") Long id,
+                      @Param("scope") DataScope scope,
                       @Param("groupName") String groupName,
                       @Param("remark") String remark,
                       @Param("updatedAt") long updatedAt);
@@ -185,6 +211,7 @@ public interface GroupLinkMapper {
      * @return 影响行数
      */
     int updateGroupName(@Param("id") Long id,
+                        @Param("scope") DataScope scope,
                         @Param("groupName") String groupName,
                         @Param("updatedAt") long updatedAt);
 
@@ -209,7 +236,8 @@ public interface GroupLinkMapper {
      * @param ids 群链接 ID 列表
      * @return 活跃群链接列表;不存在或已软删记录不会返回
      */
-    List<GroupLink> selectActiveByIds(@Param("ids") List<Long> ids);
+    List<GroupLink> selectActiveByIds(@Param("ids") List<Long> ids,
+                                      @Param("scope") DataScope scope);
 
     /**
      * 批量迁移到目标分组(改 label_id)。
@@ -219,6 +247,7 @@ public interface GroupLinkMapper {
      * @return 影响行数
      */
     int migrateToLabel(@Param("ids") List<Long> ids, @Param("labelId") Long labelId,
+                       @Param("scope") DataScope scope,
                        @Param("updatedAt") long updatedAt);
 
     /**
@@ -227,7 +256,9 @@ public interface GroupLinkMapper {
      * @param ids 群链接 ID 列表
      * @return 影响行数
      */
-    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+    int softDeleteByIds(@Param("ids") List<Long> ids,
+                        @Param("scope") DataScope scope,
+                        @Param("deletedAt") long deletedAt);
 
     /**
      * 按所属分组 ID 批量软删除群链接(分组被删时级联调用)。
@@ -235,7 +266,9 @@ public interface GroupLinkMapper {
      * @param labelIds 分组 ID 列表
      * @return 更新行数
      */
-    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds, @Param("deletedAt") long deletedAt);
+    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds,
+                             @Param("scope") DataScope scope,
+                             @Param("deletedAt") long deletedAt);
 
     /**
      * 计算 ID 列表中活跃链接数(迁移/删除存在性校验)。
@@ -243,13 +276,15 @@ public interface GroupLinkMapper {
      * @param ids 群链接 ID 列表
      * @return 活跃链接数
      */
-    int countActiveByIds(@Param("ids") List<Long> ids);
+    int countActiveByIds(@Param("ids") List<Long> ids, @Param("scope") DataScope scope);
 
     /** 统计指定运营分组下的活跃群组数。 */
-    int countActiveByFolderIds(@Param("folderIds") List<Long> folderIds);
+    int countActiveByFolderIds(@Param("folderIds") List<Long> folderIds,
+                               @Param("scope") DataScope scope);
 
     /** 删除运营分组前将关联活跃群组移入未分组。 */
     int clearFolderByFolderIds(@Param("folderIds") List<Long> folderIds,
+                               @Param("scope") DataScope scope,
                                @Param("updatedAt") long updatedAt);
 
     /**
@@ -258,21 +293,23 @@ public interface GroupLinkMapper {
      * @param ids 已去重并排序的群组 ID
      * @return 当前租户内存在的活跃群组
      */
-    default List<GroupLink> selectActiveByIdsForUpdate(List<Long> ids) {
+    default List<GroupLink> selectActiveByIdsForUpdate(List<Long> ids, DataScope scope) {
         Long tenantId = TenantContext.get();
         if (tenantId == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
-        return selectByTenantAndIdsForUpdate(tenantId, ids);
+        return selectByTenantAndIdsForUpdate(tenantId, ids, scope);
     }
 
     /** 使用显式租户执行锁行查询，避免租户插件改写 FOR UPDATE 尾句。 */
     @InterceptorIgnore(tenantLine = "true")
     List<GroupLink> selectByTenantAndIdsForUpdate(@Param("tenantId") Long tenantId,
-                                                   @Param("ids") List<Long> ids);
+                                                   @Param("ids") List<Long> ids,
+                                                   @Param("scope") DataScope scope);
 
     /** 批量设置或清空群组的运营分组。 */
     int assignFolder(@Param("ids") List<Long> ids,
                      @Param("folderId") Long folderId,
+                     @Param("scope") DataScope scope,
                      @Param("updatedAt") long updatedAt);
 }

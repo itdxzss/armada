@@ -14,26 +14,31 @@ public class ProtocolPullTaskBatchParticipantResultAdapter
         implements ProtocolPullTaskBatchParticipantResultReportedSink {
 
     private final PullTaskProtocolResultCallbackService callbackService;
+    private final TaskResultOwnerScopeRunner ownerScopeRunner;
 
     /**
      * 创建批量拉人结果适配器。
      *
      * @param callbackService 普通链接拉群协议结果状态机
+     * @param ownerScopeRunner 任务 owner 数据范围执行器
      */
     public ProtocolPullTaskBatchParticipantResultAdapter(
-            PullTaskProtocolResultCallbackService callbackService) {
+            PullTaskProtocolResultCallbackService callbackService,
+            TaskResultOwnerScopeRunner ownerScopeRunner) {
         this.callbackService = callbackService;
+        this.ownerScopeRunner = ownerScopeRunner;
     }
 
     /** {@inheritDoc} */
     @Override
     public void handleBatchParticipantResultReported(
             ProtocolPullTaskBatchParticipantResultReportedEvent event) {
-        callbackService.handlePullCallParticipant(new PullTaskBatchParticipantCallback(
+        ownerScopeRunner.runForPullTask(event.tenantId(), event.pullTaskId(),
+                () -> callbackService.handlePullCallParticipant(new PullTaskBatchParticipantCallback(
                 event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.pullCallId(),
                 event.accountId(), event.protocolAccountId(), event.commandId(), event.attemptNo(),
                 event.targetJid(), PullTaskBatchParticipantProtocolOutcome.valueOf(event.outcome()),
                 PullTaskParticipantExecutionState.valueOf(event.executionState()),
-                event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
+                event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp())));
     }
 }

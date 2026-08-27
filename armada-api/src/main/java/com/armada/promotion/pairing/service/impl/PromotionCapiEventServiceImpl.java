@@ -81,6 +81,7 @@ public class PromotionCapiEventServiceImpl implements PromotionCapiEventService 
             long now) {
         PromotionCapiEventOutbox row = new PromotionCapiEventOutbox();
         row.setTenantId(session.getTenantId());
+        row.setOwnerUserId(session.getOwnerUserId());
         row.setPromotionChannelId(session.getPromotionChannelId());
         row.setPairingSessionId(session.getId());
         row.setEventStage(stage.code());

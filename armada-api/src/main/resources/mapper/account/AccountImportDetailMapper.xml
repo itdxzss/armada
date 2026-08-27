@@ -26,32 +26,51 @@
 
   <!-- 跨租户扫描存在待派发明细的租户;调用方随后重建 TenantContext 后再跑业务 SQL。 -->
   <select id="selectQueuedTenantIds" resultType="long">
-    SELECT tenant_id
-    FROM account_import_detail
-    WHERE online_phase = #{queuedPhase}
-      AND parse_result = #{successParseResult}
-      AND account_id IS NOT NULL
-      AND login_result IS NULL
-    GROUP BY tenant_id
-    ORDER BY MIN(id) ASC
+    SELECT d.tenant_id
+    FROM account_import_detail d
+    JOIN account_import_batch b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    WHERE d.online_phase = #{queuedPhase}
+      AND d.parse_result = #{successParseResult}
+      AND d.account_id IS NOT NULL
+      AND d.login_result IS NULL
+      AND b.owner_user_id IS NOT NULL
+    GROUP BY d.tenant_id
+    ORDER BY MIN(d.id) ASC
     LIMIT #{limit}
   </select>
 
   <!-- 锁定单租户待派发明细;显式 tenant_id + InterceptorIgnore,避免 LIMIT ... FOR UPDATE 被租户拦截器改写。 -->
   <select id="selectQueuedForUpdate" resultType="com.armada.account.model.entity.AccountImportDetail">
-    SELECT id, tenant_id AS tenantId, batch_id AS batchId, line_no AS lineNo,
-           ws_phone AS wsPhone, account_id AS accountId, parse_result AS parseResult,
-           fail_reason AS failReason, login_result AS loginResult,
-           online_phase AS onlinePhase, online_dispatched_at AS onlineDispatchedAt,
-           login_settled_at AS loginSettledAt, dispatch_attempts AS dispatchAttempts,
-           login_reason AS loginReason, created_at AS createdAt
-    FROM account_import_detail
-    WHERE tenant_id = #{tenantId}
-      AND online_phase = #{queuedPhase}
-      AND parse_result = #{successParseResult}
-      AND account_id IS NOT NULL
-      AND login_result IS NULL
-    ORDER BY id ASC
+    SELECT d.id, d.tenant_id AS tenantId, d.batch_id AS batchId, d.line_no AS lineNo,
+           d.ws_phone AS wsPhone, d.account_id AS accountId, d.parse_result AS parseResult,
+           d.fail_reason AS failReason, d.login_result AS loginResult,
+           d.online_phase AS onlinePhase, d.online_dispatched_at AS onlineDispatchedAt,
+           d.login_settled_at AS loginSettledAt, d.dispatch_attempts AS dispatchAttempts,
+           d.login_reason AS loginReason, d.created_at AS createdAt
+    FROM account_import_detail d
+    JOIN account_import_batch b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    WHERE d.tenant_id = #{tenantId}
+      AND d.online_phase = #{queuedPhase}
+      AND d.parse_result = #{successParseResult}
+      AND d.account_id IS NOT NULL
+      AND d.login_result IS NULL
+      AND b.owner_user_id IS NOT NULL
+      AND d.batch_id = (
+        SELECT queued.batch_id
+        FROM account_import_detail queued
+        JOIN account_import_batch queued_batch
+          ON queued_batch.id = queued.batch_id
+         AND queued_batch.tenant_id = queued.tenant_id
+        WHERE queued.tenant_id = #{tenantId}
+          AND queued.online_phase = #{queuedPhase}
+          AND queued.parse_result = #{successParseResult}
+          AND queued.account_id IS NOT NULL
+          AND queued.login_result IS NULL
+          AND queued_batch.owner_user_id IS NOT NULL
+        ORDER BY queued.id ASC
+        LIMIT 1
+      )
+    ORDER BY d.id ASC
     LIMIT #{limit}
     FOR UPDATE
   </select>

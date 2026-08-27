@@ -1,20 +1,22 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -25,23 +27,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class ProtocolGroupJoinSinkImplTest {
 
-    @Mock private AccountProtocolLookupService accountLookupService;
+    @Mock private AccountMapper accountMapper;
     @Mock private WhatsappGroupMemberJoinFactService joinFactService;
     @Mock private WhatsappGroupMemberCacheService memberCacheService;
 
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void handleJoinsValidatesCurrentBindingAndStoresCanonicalFact() {
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
-        when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
+        when(accountMapper.selectActiveById(10L)).thenReturn(account("android-10", 501L));
         TenantContext.set(99L);
         ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
-                accountLookupService, joinFactService, memberCacheService);
+                accountMapper, joinFactService, memberCacheService);
 
         sink.handleJoins(event("android-10"));
 
@@ -62,11 +63,9 @@ class ProtocolGroupJoinSinkImplTest {
 
     @Test
     void handleJoinsRejectsStaleProtocolBinding() {
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-current", "15550000001");
-        when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
+        when(accountMapper.selectActiveById(10L)).thenReturn(account("android-current", 501L));
         ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
-                accountLookupService, joinFactService, memberCacheService);
+                accountMapper, joinFactService, memberCacheService);
 
         sink.handleJoins(event("android-stale"));
 
@@ -76,11 +75,9 @@ class ProtocolGroupJoinSinkImplTest {
 
     @Test
     void handleJoinsKeepsStableLidAndAddsTrustedPhoneAlias() {
-        ProtocolAccountRef account = new ProtocolAccountRef(
-                10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
-        when(accountLookupService.findActiveProtocolRef(10L)).thenReturn(Optional.of(account));
+        when(accountMapper.selectActiveById(10L)).thenReturn(account("android-10", 501L));
         ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
-                accountLookupService, joinFactService, memberCacheService);
+                accountMapper, joinFactService, memberCacheService);
         ProtocolGroupJoinEvent join = new ProtocolGroupJoinEvent(
                 "event-lid", 7L, 10L, "android-10", "120363-test@g.us",
                 "WGP2_NOTIFICATION", 1_000L,
@@ -96,6 +93,30 @@ class ProtocolGroupJoinSinkImplTest {
             assertThat(fact.participantJid()).isEqualTo("123456789012345@lid");
             assertThat(fact.phone()).isEqualTo("5218129230974");
         });
+    }
+
+    @Test
+    void handleJoinsRejectsHistoricalUnownedAccount() {
+        when(accountMapper.selectActiveById(10L)).thenReturn(account("android-10", null));
+        ProtocolGroupJoinSinkImpl sink = new ProtocolGroupJoinSinkImpl(
+                accountMapper, joinFactService, memberCacheService);
+
+        assertThatThrownBy(() -> sink.handleJoins(event("android-10")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getCode())
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verify(joinFactService, never()).saveLatest(org.mockito.ArgumentMatchers.anyList());
+        assertThat(DataScopeContext.current()).isEmpty();
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    private static Account account(String protocolAccountId, Long ownerUserId) {
+        Account account = new Account();
+        account.setId(10L);
+        account.setOwnerUserId(ownerUserId);
+        account.setProtocolAccountId(protocolAccountId);
+        return account;
     }
 
     private static ProtocolGroupJoinEvent event(String protocolAccountId) {

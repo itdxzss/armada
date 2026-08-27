@@ -34,7 +34,7 @@ class GroupLinkRegistryServiceImplTest extends DbTestBase {
                 1000L);
 
         assertThat(groupLinkId).isNotNull();
-        GroupLink link = groupLinkMapper.selectAnyByUrl("wa://group/120363new@g.us");
+        GroupLink link = groupLinkMapper.selectAnyByUrl("wa://group/120363new@g.us", 1L);
         assertThat(link.getId()).isEqualTo(groupLinkId);
         assertThat(link.getOrigin()).isEqualTo(GroupLinkOrigin.SELF_BUILT.code());
         assertThat(link.getMembershipState()).isEqualTo(GroupMembershipState.OWNER.code());

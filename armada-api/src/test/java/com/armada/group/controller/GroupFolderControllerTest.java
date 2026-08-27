@@ -49,7 +49,7 @@ class GroupFolderControllerTest {
     void exposesFolderListAndOptions() throws Exception {
         when(service.list(argThat(query -> query.getPage() == 2 && query.getPageSize() == 20)))
                 .thenReturn(PageResult.of(List.of(), 2, 20, 0));
-        when(service.options()).thenReturn(List.of(new GroupFolderOptionVO(8L, "印度组")));
+        when(service.options()).thenReturn(List.of(new GroupFolderOptionVO(8L, 501L, "印度组")));
 
         mockMvc.perform(get("/api/group-folders?page=2&pageSize=20"))
                 .andExpect(status().isOk())
@@ -62,7 +62,8 @@ class GroupFolderControllerTest {
     @Test
     void createUsesAuthenticatedUserAndReturnsCreatedFolder() {
         GroupFolderWriteDTO request = new GroupFolderWriteDTO("印度组");
-        GroupFolderVO created = new GroupFolderVO(8L, "印度组", false, 0L, 100L, 100L);
+        GroupFolderVO created = new GroupFolderVO(
+                8L, 501L, "印度组", false, 0L, 100L, 100L);
         when(service.create(request, 501L)).thenReturn(created);
 
         assertThat(controller.create(request, principal()).data()).isEqualTo(created);

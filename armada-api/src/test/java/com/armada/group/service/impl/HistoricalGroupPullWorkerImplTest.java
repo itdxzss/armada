@@ -40,6 +40,7 @@ import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupJoinPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScopeContext;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +109,7 @@ class HistoricalGroupPullWorkerImplTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -118,14 +120,18 @@ class HistoricalGroupPullWorkerImplTest {
         putMembers(marketingOne, marketingTwo, normal);
         preparePullerAssignment();
         ProtocolAccountRef puller = puller();
-        when(accountLookupService.findRandomOnlineNormalWebByGroupId(301L)).thenReturn(Optional.of(puller));
+        when(accountLookupService.findRandomOnlineNormalWebByGroupId(301L)).thenAnswer(invocation -> {
+            assertThat(DataScopeContext.requireCurrent().isSelf()).isTrue();
+            assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(11L);
+            return Optional.of(puller);
+        });
         when(groupJoinPort.join(any())).thenReturn(
                 new GroupJoinResult("120363target@g.us", GroupJoinOutcome.JOINED));
         doThrow(new ProtocolException(ProtocolErrorCode.NETWORK, "完整联系人保存失败"))
                 .when(contactPort).save(argThat(command ->
                         "8613900000011".equals(command.contact())));
         when(participantPort.updateParticipants(
-                eq("puller-protocol"), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD)))
+                eq(puller()), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD)))
                 .thenReturn(new GroupParticipantBatchResult(true, List.of(
                                 new GroupParticipantBatchResult.Item(
                                         "8613900000011@s.whatsapp.net", "OK", "200"),
@@ -158,7 +164,7 @@ class HistoricalGroupPullWorkerImplTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<String>> batchCaptor = ArgumentCaptor.forClass(List.class);
         verify(participantPort, times(2)).updateParticipants(
-                eq("puller-protocol"), eq("120363target@g.us"), batchCaptor.capture(),
+                eq(puller()), eq("120363target@g.us"), batchCaptor.capture(),
                 eq(GroupParticipantAction.ADD));
         assertThat(batchCaptor.getAllValues()).containsExactly(
                 List.of("8613900000011@s.whatsapp.net", "8613900000012@s.whatsapp.net"),
@@ -242,7 +248,7 @@ class HistoricalGroupPullWorkerImplTest {
         when(groupJoinPort.join(any())).thenReturn(
                 new GroupJoinResult("120363target@g.us", GroupJoinOutcome.ALREADY_JOINED));
         when(participantPort.updateParticipants(
-                eq("puller-protocol"), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD)))
+                eq(puller()), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD)))
                 .thenThrow(new ProtocolException(ProtocolErrorCode.GROUP_PERMISSION_DENIED, "完整 ADD 拒绝"))
                 .thenReturn(new GroupParticipantBatchResult(false, List.of(
                         new GroupParticipantBatchResult.Item(
@@ -251,7 +257,7 @@ class HistoricalGroupPullWorkerImplTest {
         worker.execute(TENANT_ID, EXECUTION_ID);
 
         verify(participantPort, times(2)).updateParticipants(
-                eq("puller-protocol"), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD));
+                eq(puller()), eq("120363target@g.us"), any(), eq(GroupParticipantAction.ADD));
         assertThat(first.getAddStatus()).isEqualTo(HistoricalGroupAddStatus.FAILED.code());
         assertThat(first.getAddErrorCode()).isEqualTo("GROUP_PERMISSION_DENIED");
         assertThat(first.getAddErrorMessage()).isEqualTo("完整 ADD 拒绝");
@@ -316,6 +322,8 @@ class HistoricalGroupPullWorkerImplTest {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
         row.setId(EXECUTION_ID);
         row.setTenantId(TENANT_ID);
+        row.setOwnerUserId(11L);
+        row.setCreatedBy(11L);
         row.setOperationAccountId(101L);
         row.setGroupJid("120363target@g.us");
         row.setInviteLink("persisted-invite-link");

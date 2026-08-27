@@ -9,6 +9,9 @@ public class GroupBatchTask {
     /** 租户 ID。 */
     private Long tenantId;
 
+    /** 归属用户 ID；历史待分配数据为 null。 */
+    private Long ownerUserId;
+
     /** 批量操作类型稳定码。 */
     private Integer taskType;
 
@@ -50,6 +53,14 @@ public class GroupBatchTask {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public Integer getTaskType() {

@@ -21,6 +21,8 @@ import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -96,6 +98,9 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     @Override
     public AccountBatchPreviewVO preview(AccountBatchPreviewDTO request) {
         validatePreviewHeader(request);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        AccountQuery scopedQuery = normalizeQuery(request.query()).toAccountQuery();
+        scopedQuery.applyDataScope(scope);
         AccountBatchPreviewRow row;
         if (request.scope() == AccountBatchScope.IDS) {
             if (request.ids() == null || request.ids().isEmpty()) {
@@ -104,12 +109,17 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
             if (request.query() != null) {
                 throw new BusinessException(ErrorCode.VALIDATION, "IDS 预估不能同时提供查询条件");
             }
-            row = accountMapper.previewBatchTargetsByIds(normalizeIds(request.ids()));
+            List<Long> ids = normalizeIds(request.ids());
+            row = accountMapper.previewBatchTargetsByIds(ids, scope);
+            if (row == null || row.getMatched() != ids.size()) {
+                throw new BusinessException(ErrorCode.NOT_FOUND,
+                        "部分账号不存在、已删除或不属于当前数据范围");
+            }
         } else {
             if (request.ids() != null && !request.ids().isEmpty()) {
                 throw new BusinessException(ErrorCode.VALIDATION, "QUERY 预估不能同时提供账号 ID");
             }
-            row = accountMapper.previewBatchTargetsByQuery(normalizeQuery(request.query()).toAccountQuery());
+            row = accountMapper.previewBatchTargetsByQuery(scopedQuery);
         }
         AccountBatchPreviewVO result = request.operation() == AccountBatchOperation.OFFLINE
                 ? offlinePreview(row.getMatched())
@@ -229,6 +239,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
             AccountBatchQueryDTO inputQuery,
             AccountBatchOperation operation) {
         AccountQuery filters = normalizeQuery(inputQuery).toAccountQuery();
+        filters.applyDataScope(DataScopeAccess.requireCurrent());
         int scanSize = operation == AccountBatchOperation.ONLINE
                 ? ONLINE_CHUNK_SIZE
                 : OFFLINE_CHUNK_SIZE;
@@ -288,7 +299,8 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     private AccountBatchCommandResultVO executeByIds(List<Long> inputIds, AccountBatchOperation operation) {
         List<Long> ids = normalizeIds(inputIds);
         log.info("账号批量编排开始 operation={} scope=IDS requested={}", operation, ids.size());
-        List<AccountBatchTargetRow> targets = accountMapper.selectBatchTargetsByIds(ids);
+        List<AccountBatchTargetRow> targets = accountMapper.selectBatchTargetsByIds(
+                ids, DataScopeAccess.requireCurrent());
         if (targets.size() != ids.size()) {
             throw new BusinessException(
                     ErrorCode.NOT_FOUND,

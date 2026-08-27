@@ -30,8 +30,12 @@ import com.armada.marketing.service.impl.MarketingGroupOccupancyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import org.slf4j.Logger;
@@ -145,24 +149,38 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
                                                   MultipartFile materialFile) {
         long now = System.currentTimeMillis();
         validateRequest(request, now);
+        DataScope scope = DataScopeAccess.requireCurrent();
         List<GroupPullMarketingMaterialParser.ParsedMaterial> parsedMaterials = materialParser.parse(materialFile);
         AccountGroup builderGroup = requireGroup(request.builderGroupId(), "建群账号分组不存在");
         AccountGroup marketingGroup = requireGroup(request.marketingGroupId(), "营销分组不存在");
-        requireOptionalGroup(request.successGroupId(), "建群成功转入分组不存在");
-        requireOptionalGroup(request.failureGroupId(), "建群失败转入分组不存在");
+        AccountGroup successGroup = requireOptionalGroup(
+                request.successGroupId(), "建群成功转入分组不存在");
+        AccountGroup failureGroup = requireOptionalGroup(
+                request.failureGroupId(), "建群失败转入分组不存在");
+        requireSameOwner(builderGroup, marketingGroup, successGroup, failureGroup);
         requireOnlineAccount(request.builderGroupId(), "建群账号分组没有正常在线账号");
         requireOnlineAccount(request.marketingGroupId(), "营销分组没有正常在线账号");
-        MarketingTemplate template = templateMapper.selectByIdForUpdate(request.marketingTemplateId());
+        MarketingTemplate template = templateMapper.selectByIdForUpdate(
+                request.marketingTemplateId(), DataScopeAccess.requireCurrent());
         if (template == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + request.marketingTemplateId());
         }
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(marketingGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "拉群营销任务分组与模板");
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope,
+                Arrays.asList(marketingGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "拉群营销任务");
 
         MarketingTask marketingTask = buildMarketingTask(request, marketingGroup, template, now);
+        marketingTask.setOwnerUserId(scope.ownerUserIdForCreate());
         marketingTaskMapper.insertTask(marketingTask);
         mapper.insertTask(buildExtension(request, marketingTask.getId(), now));
         insertMaterials(marketingTask.getId(), parsedMaterials, now);
 
-        GroupPullMarketingTaskDetailVO detail = mapper.selectTaskDetail(marketingTask.getId());
+        GroupPullMarketingTaskDetailVO detail =
+                mapper.selectTaskDetailForScope(marketingTask.getId(), scope);
         if (detail == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群营销任务不存在: " + marketingTask.getId());
         }
@@ -181,6 +199,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     @Override
     public PageResult<GroupPullMarketingTaskVO> list(GroupPullMarketingTaskQuery query) {
         GroupPullMarketingTaskQuery normalized = query == null ? new GroupPullMarketingTaskQuery() : query;
+        normalized.applyDataScope(DataScopeAccess.requireCurrent());
         long total = mapper.countTasks(normalized);
         List<GroupPullMarketingTaskVO> rows = total == 0 ? List.of() : mapper.selectTasks(normalized);
         return PageResult.of(rows, normalized.getPage(), normalized.getPageSize(), total);
@@ -195,7 +214,8 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
      */
     @Override
     public GroupPullMarketingTaskDetailVO detail(Long id) {
-        GroupPullMarketingTaskDetailVO detail = mapper.selectTaskDetail(id);
+        GroupPullMarketingTaskDetailVO detail =
+                mapper.selectTaskDetailForScope(id, DataScopeAccess.requireCurrent());
         if (detail == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群营销任务不存在: " + id);
         }
@@ -217,6 +237,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     public PageResult<GroupPullMarketingGroupVO> groups(
             Long taskId,
             GroupPullMarketingGroupQuery query) {
+        requireAccessibleTask(taskId);
         requireExtension(taskId);
         GroupPullMarketingGroupQuery normalized = query == null
                 ? new GroupPullMarketingGroupQuery()
@@ -243,6 +264,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     public GroupPullMarketingTaskDetailVO start(Long id) {
         long now = System.currentTimeMillis();
         MarketingTask task = requireTaskForUpdate(id);
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "拉群营销任务");
         if (!Integer.valueOf(MarketingTaskStatus.PENDING.code()).equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "只有待启动任务可以启动");
         }
@@ -285,6 +307,9 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         if (groups.size() != groupIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "建群账号分组或营销分组不存在");
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        groups.forEach(group -> DataScopeAccess.requireCanAccess(scope, group.getOwnerUserId(), "分组"));
+        requireSameOwner(groups.toArray(AccountGroup[]::new));
     }
 
     /**
@@ -318,6 +343,7 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
     public GroupPullMarketingTaskDetailVO resume(Long id) {
         long now = System.currentTimeMillis();
         MarketingTask task = requireTaskForUpdate(id);
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "拉群营销任务");
         GroupPullMarketingTask extension = requireExtension(id);
         if (!Integer.valueOf(GroupPullResourceStatus.LOCKED.code()).equals(extension.getResourceStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "任务资源未锁定，不能恢复");
@@ -436,10 +462,11 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
      * @throws BusinessException 当任务不存在时抛出
      */
     private MarketingTask requireTaskForUpdate(Long id) {
-        MarketingTask task = mapper.selectTaskForUpdate(id);
+        MarketingTask task = mapper.selectTaskForUpdateForScope(id, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群营销任务不存在: " + id);
         }
+        requireGroup(task.getAccountGroupId(), "拉群营销任务不存在");
         return task;
     }
 
@@ -466,11 +493,24 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
      * @throws BusinessException 当任务不存在时抛出
      */
     private GroupPullMarketingTaskDetailVO requireDetail(Long id) {
-        GroupPullMarketingTaskDetailVO detail = mapper.selectTaskDetail(id);
+        GroupPullMarketingTaskDetailVO detail =
+                mapper.selectTaskDetailForScope(id, DataScopeAccess.requireCurrent());
         if (detail == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群营销任务不存在: " + id);
         }
         return detail;
+    }
+
+    /** 子表查询前先校验公共营销任务根，避免通过 taskId 绕过 owner 边界。 */
+    private MarketingTask requireAccessibleTask(Long id) {
+        MarketingTask task = marketingTaskMapper.selectTaskByIdForScope(
+                id, DataScopeAccess.requireCurrent());
+        if (task == null
+                || !Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "拉群营销任务不存在: " + id);
+        }
+        return task;
     }
 
     /**
@@ -519,6 +559,8 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
         if (group == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, message + ": " + id);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), group.getOwnerUserId(), "分组");
         return group;
     }
 
@@ -529,9 +571,24 @@ public class GroupPullMarketingTaskServiceImpl implements GroupPullMarketingTask
      * @param message 分组不存在时的业务提示
      * @throws BusinessException 当已配置的分组不存在时抛出
      */
-    private void requireOptionalGroup(Long id, String message) {
-        if (id != null) {
-            requireGroup(id, message);
+    private AccountGroup requireOptionalGroup(Long id, String message) {
+        return id == null ? null : requireGroup(id, message);
+    }
+
+    /** 一个任务不能把不同用户的账号分组关联到一起。 */
+    private void requireSameOwner(AccountGroup... groups) {
+        Long ownerUserId = null;
+        boolean initialized = false;
+        for (AccountGroup group : groups) {
+            if (group == null) {
+                continue;
+            }
+            if (!initialized) {
+                ownerUserId = group.getOwnerUserId();
+                initialized = true;
+            } else if (!Objects.equals(ownerUserId, group.getOwnerUserId())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "任务分组归属不一致");
+            }
         }
     }
 

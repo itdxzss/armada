@@ -1,6 +1,7 @@
 package com.armada.task.service.impl;
 
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskGroupMarketingSummaryMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardReadMapper;
@@ -76,6 +77,7 @@ public class PullTaskListServiceImpl implements PullTaskListService {
     @Override
     public PageResult<PullTaskListVO> list(PullTaskQuery query) {
         PullTaskQuery safeQuery = query == null ? new PullTaskQuery() : query;
+        safeQuery.applyDataScope(DataScopeAccess.requireCurrent());
         PullTaskFilter filter = safeQuery.toFilter();
         long total = taskMapper.countPage(filter);
         if (total == 0) {

@@ -2,22 +2,39 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupBatchTaskMapper">
 
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <sql id="Columns">
-    id, tenant_id, task_type, status, total_count, success_count, failed_count,
+    id, tenant_id, owner_user_id, task_type, status, total_count, success_count, failed_count,
     request_id, created_by, created_at, completed_at
   </sql>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO group_batch_task (
-      tenant_id, task_type, status, total_count, success_count, failed_count,
+      tenant_id, owner_user_id, task_type, status, total_count, success_count, failed_count,
       request_id, created_by, created_at
     ) VALUES (
-      #{tenantId}, #{taskType}, #{status}, #{totalCount}, #{successCount}, #{failedCount},
+      #{tenantId}, #{ownerUserId}, #{taskType}, #{status}, #{totalCount}, #{successCount}, #{failedCount},
       #{requestId}, #{createdBy}, #{createdAt}
     )
   </insert>
 
   <select id="selectById" resultType="com.armada.group.model.entity.GroupBatchTask">
+    SELECT <include refid="Columns"/>
+    FROM group_batch_task
+    WHERE id = #{id}
+      <include refid="directScopeFilter"/>
+  </select>
+
+  <select id="selectByIdForExecution" resultType="com.armada.group.model.entity.GroupBatchTask">
     SELECT <include refid="Columns"/>
     FROM group_batch_task
     WHERE id = #{id}
@@ -27,6 +44,7 @@
     SELECT <include refid="Columns"/>
     FROM group_batch_task
     WHERE request_id = #{requestId}
+      AND owner_user_id = #{ownerUserId}
   </select>
 
   <select id="selectRunnableTasks" resultType="com.armada.group.model.entity.GroupBatchTask">
@@ -60,11 +78,24 @@
     WHERE id = #{taskId}
   </update>
 
+  <update id="failUnownedIfRunnable">
+    UPDATE group_batch_task
+    SET status = #{failedStatus},
+        completed_at = #{now}
+    WHERE id = #{taskId}
+      AND owner_user_id IS NULL
+      AND status IN
+      <foreach collection="runnableStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+  </update>
+
   <update id="cancelIfRunnable">
     UPDATE group_batch_task
     SET status = #{canceledStatus},
         completed_at = #{now}
     WHERE id = #{taskId}
+      <include refid="directScopeFilter"/>
       <!-- 白名单挡住重复取消与覆盖已完成任务。 -->
       AND status IN
       <foreach collection="runnableStatuses" item="status" open="(" separator="," close=")">

@@ -15,6 +15,7 @@ import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -92,9 +93,12 @@ public class HistoricalGroupAccountGroupQueryService {
         if (accountGroupId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号组 ID 不能为空");
         }
-        if (accountGroupMapper.selectById(accountGroupId) == null) {
+        var accountGroup = accountGroupMapper.selectById(accountGroupId);
+        if (accountGroup == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "账号组不存在: " + accountGroupId);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), accountGroup.getOwnerUserId(), "账号组");
         return accountGroupId;
     }
 

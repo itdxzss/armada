@@ -1,5 +1,6 @@
 package com.armada.task.model.dto;
 
+import com.armada.shared.security.DataScope;
 import com.armada.task.model.enums.PullTaskGroupSource;
 import com.armada.task.model.enums.PullTaskType;
 
@@ -16,6 +17,7 @@ import com.armada.task.model.enums.PullTaskType;
  * @param hiddenStatus 该任务类型不进入列表的内部状态
  * @param standardTaskType 使用规范化群资料名称的标准任务类型
  * @param normalLinkMode 使用规范化群资料名称的普通群链接模式
+ * @param dataScope 服务端可信身份对应的数据范围
  */
 public record PullTaskFilter(
         Long id,
@@ -27,7 +29,8 @@ public record PullTaskFilter(
         PullTaskType hiddenTaskType,
         String hiddenStatus,
         PullTaskType standardTaskType,
-        String normalLinkMode
+        String normalLinkMode,
+        DataScope dataScope
 ) {
 
     /** 使用普通群链接草稿隐藏规则的兼容构造。 */
@@ -37,10 +40,11 @@ public record PullTaskFilter(
             String status,
             PullTaskType taskType,
             PullTaskGroupSource groupSource,
-            String operator) {
+            String operator,
+            DataScope dataScope) {
         this(id, keyword, status, taskType, groupSource, operator,
                 PullTaskType.STANDARD,
                 com.armada.task.model.enums.PullTaskStandardStatus.DRAFT.name(),
-                PullTaskType.STANDARD, "NORMAL_LINK");
+                PullTaskType.STANDARD, "NORMAL_LINK", dataScope);
     }
 }

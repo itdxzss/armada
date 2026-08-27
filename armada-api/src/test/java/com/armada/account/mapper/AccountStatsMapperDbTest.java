@@ -8,6 +8,7 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountStatsVoRow;
 import com.armada.testsupport.DbTestBase;
+import com.armada.shared.security.DataScope;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -73,7 +74,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         insertDefaultState(a1.getId(), now);
         insertDefaultState(a2.getId(), now);
 
-        AccountStatsVoRow result = accountMapper.statsSummary();
+        AccountStatsVoRow result = accountMapper.statsSummary(DataScope.all(1L));
 
         // total 至少包含本次插入的 2 条(事务内可见)
         assertThat(result.getTotal()).isGreaterThanOrEqualTo(2);
@@ -108,7 +109,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
                 AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, aOffline.getId());
 
         // 先取当前快照,再对比增量(事务内有其他数据也无影响)
-        AccountStatsVoRow before = accountMapper.statsSummary();
+        AccountStatsVoRow before = accountMapper.statsSummary(DataScope.all(1L));
         // 本测试操作后,online 应 >= 1,offline >= 1
         assertThat(before.getOnline()).isGreaterThanOrEqualTo(1L);
         assertThat(before.getOffline()).isGreaterThanOrEqualTo(1L);
@@ -126,7 +127,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         insertDefaultState(aBanned.getId(), now);
         jdbc.update("UPDATE account_state SET account_state = 3 WHERE account_id = ?", aBanned.getId());
 
-        AccountStatsVoRow result = accountMapper.statsSummary();
+        AccountStatsVoRow result = accountMapper.statsSummary(DataScope.all(1L));
         assertThat(result.getBanned()).isGreaterThanOrEqualTo(1L);
     }
 
@@ -141,7 +142,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         insertDefaultState(aRisk.getId(), now);
         jdbc.update("UPDATE account_state SET risk_status = 2 WHERE account_id = ?", aRisk.getId());
 
-        AccountStatsVoRow result = accountMapper.statsSummary();
+        AccountStatsVoRow result = accountMapper.statsSummary(DataScope.all(1L));
         assertThat(result.getRisk()).isGreaterThanOrEqualTo(1L);
     }
 
@@ -156,14 +157,14 @@ class AccountStatsMapperDbTest extends DbTestBase {
         insertDefaultState(aAssigned.getId(), now);
         jdbc.update("UPDATE account SET dispatched_at = ? WHERE id = ?", now, aAssigned.getId());
 
-        AccountStatsVoRow result = accountMapper.statsSummary();
+        AccountStatsVoRow result = accountMapper.statsSummary(DataScope.all(1L));
         assertThat(result.getAssigned()).isGreaterThanOrEqualTo(1L);
     }
 
     @Test
     void statsSummary_pendingOnlineNormalOfflineAndRestrictedBreakdown() {
         long now = System.currentTimeMillis();
-        AccountStatsVoRow before = accountMapper.statsSummary();
+        AccountStatsVoRow before = accountMapper.statsSummary(DataScope.all(1L));
 
         Account normalOffline = insertAccount("86201" + (now % 100000000L), now);
         Account bannedOffline = insertAccount("86202" + (now % 100000000L), now);
@@ -196,7 +197,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         jdbc.update("UPDATE account_state SET account_state = 8, login_state = ? WHERE account_id = ?",
                 AccountLoginStateCode.OFFLINE, restricted.getId());
 
-        AccountStatsVoRow after = accountMapper.statsSummary();
+        AccountStatsVoRow after = accountMapper.statsSummary(DataScope.all(1L));
 
         assertThat(after.getOffline() - before.getOffline()).isEqualTo(1L);
         assertThat(after.getPendingOnline() - before.getPendingOnline()).isEqualTo(1L);
@@ -210,7 +211,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
     @Test
     void statsSummary_operableLifecycleOfflineStatesCountAsOffline() {
         long now = System.currentTimeMillis();
-        AccountStatsVoRow before = accountMapper.statsSummary();
+        AccountStatsVoRow before = accountMapper.statsSummary(DataScope.all(1L));
 
         Account newOffline = insertAccount("86211" + (now % 100000000L), now);
         Account normalOffline = insertAccount("86212" + (now % 100000000L), now);
@@ -243,7 +244,7 @@ class AccountStatsMapperDbTest extends DbTestBase {
         jdbc.update("UPDATE account_state SET account_state = ?, login_state = ? WHERE account_id = ?",
                 AccountStateCode.UNBOUND, AccountLoginStateCode.OFFLINE, unbound.getId());
 
-        AccountStatsVoRow after = accountMapper.statsSummary();
+        AccountStatsVoRow after = accountMapper.statsSummary(DataScope.all(1L));
 
         assertThat(after.getOffline() - before.getOffline()).isEqualTo(4L);
     }

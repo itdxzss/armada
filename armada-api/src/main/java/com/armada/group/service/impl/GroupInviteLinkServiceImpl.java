@@ -15,6 +15,7 @@ import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,7 +71,8 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         currentInvitePersistence.apply(groupLinkId, observation.groupJid(), inviteCode, observedAt);
         String resolvedGroupJid = trimToNull(observation.groupJid());
         if (resolvedGroupJid == null) {
-            GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+            GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(
+                    groupLinkId, DataScopeAccess.requireCurrent());
             resolvedGroupJid = current == null ? null : trimToNull(current.groupJid());
         }
         if (resolvedGroupJid != null && health != null) {
@@ -90,7 +92,8 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         if (groupLinkId == null || !hasText(groupJid) || observedAt <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "群入口与群 JID 绑定事实不完整");
         }
-        GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        GroupCurrentIdentity current = groupLinkMapper.selectCurrentIdentity(
+                groupLinkId, DataScopeAccess.requireCurrent());
         currentInvitePersistence.bindGroup(groupLinkId, groupJid, observedAt);
         if (current != null && hasText(current.inviteCode())) {
             currentInvitePersistence.apply(
@@ -123,7 +126,8 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
     @Override
     public String resolveCurrentInviteCode(Long groupLinkId, String frozenInviteCode) {
         if (groupLinkId != null) {
-            GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+            GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(
+                    groupLinkId, DataScopeAccess.requireCurrent());
             if (identity != null && hasText(identity.inviteCode())) {
                 return identity.inviteCode().trim();
             }
@@ -141,7 +145,8 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         if (groupLinkId == null) {
             return Optional.empty();
         }
-        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(groupLinkId);
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(
+                groupLinkId, DataScopeAccess.requireCurrent());
         if (identity == null || !hasText(identity.inviteCode())) {
             return queryCurrentInvite(groupLinkId, groupJid, attemptedInviteCode, identity);
         }

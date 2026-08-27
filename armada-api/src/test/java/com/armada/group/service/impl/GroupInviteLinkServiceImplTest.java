@@ -2,6 +2,7 @@ package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -20,7 +21,11 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.port.GroupInvitePort;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -34,6 +39,16 @@ class GroupInviteLinkServiceImplTest {
     private final GroupCurrentInvitePersistence currentPersistence = mock(GroupCurrentInvitePersistence.class);
     private final GroupInviteLinkServiceImpl service = new GroupInviteLinkServiceImpl(
             registry, groupLinkMapper, accountSelector, invitePort, currentPersistence);
+
+    @BeforeEach
+    void setUp() {
+        DataScopeContext.open(DataScope.self(501L));
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void observationRegistersHandleAndWritesCurrentInviteAndHealth() {
@@ -54,7 +69,7 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void resolveAndRefreshUseCurrentIdentity() {
-        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+        when(groupLinkMapper.selectCurrentIdentity(eq(51L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(51L, "120363group@g.us", "CurrentCode"));
 
         assertThat(service.resolveCurrentInviteCode(51L, "FrozenCode")).isEqualTo("CurrentCode");
@@ -65,7 +80,7 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void activeRefreshWritesReplacementToCurrentModel() {
-        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+        when(groupLinkMapper.selectCurrentIdentity(eq(51L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(51L, "120363group@g.us", "FrozenCode"));
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 901L, "web", "acc-901", "8613800000901", true);
@@ -84,7 +99,7 @@ class GroupInviteLinkServiceImplTest {
 
     @Test
     void bindingAlwaysBindsHandleAndReusesObservedInvite() {
-        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+        when(groupLinkMapper.selectCurrentIdentity(eq(51L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(51L, null, "ObservedBeforeJoin"));
 
         service.bindGroupJid(51L, "120363joined@g.us", 4_000L);

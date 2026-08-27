@@ -13,6 +13,8 @@ import com.armada.account.service.AccountGroupService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -82,6 +84,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
      */
     @Override
     public PageResult<AccountGroupVO> list(AccountGroupQuery query) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        query.applyDataScope(scope);
         ensureSystemGroup();
         long total = mapper.countPage(query);
         List<AccountGroupVO> rows = total == 0
@@ -103,6 +107,11 @@ public class AccountGroupServiceImpl implements AccountGroupService {
      */
     @Override
     public AccountGroupMarketingOccupancyVO marketingOccupancy(Long groupId) {
+        AccountGroup group = mapper.selectById(groupId);
+        if (group == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + groupId);
+        }
+        DataScopeAccess.requireCanAccess(DataScopeAccess.requireCurrent(), group.getOwnerUserId(), "分组");
         AccountMarketingOccupancyTaskRow row = mapper.selectMarketingOccupancyByGroupId(groupId);
         if (row == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + groupId);
@@ -163,15 +172,22 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     @Transactional(rollbackFor = Exception.class)
     public AccountGroupVO create(AccountGroupDTO dto) {
         validatePayload(dto);
-        if (mapper.selectActiveByName(dto.name()) != null) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        return createOwned(dto, scope.ownerUserIdForCreate());
+    }
+
+    /** 创建指定归属的新分组，仅供同一聚合拆分时继承来源 owner。 */
+    private AccountGroupVO createOwned(AccountGroupDTO dto, Long ownerUserId) {
+        if (mapper.selectActiveByNameForOwner(dto.name(), ownerUserId) != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称已存在: " + dto.name());
         }
-        AccountGroup deleted = mapper.selectDeletedByName(dto.name());
+        AccountGroup deleted = mapper.selectDeletedByNameForOwner(dto.name(), ownerUserId);
         long now = System.currentTimeMillis();
         AccountGroup row = new AccountGroup();
         row.setName(dto.name());
         row.setRemark(dto.remark());
         row.setSystemBuiltin(SYSTEM_BUILTIN_NO);
+        row.setOwnerUserId(ownerUserId);
 
         if (deleted != null) {
             // 复活软删分组:复原 deleted_at + 更新基本信息
@@ -238,10 +254,12 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         if (cur == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        DataScopeAccess.requireCanAccess(scope, cur.getOwnerUserId(), "分组");
         if (Integer.valueOf(SYSTEM_BUILTIN_YES).equals(cur.getSystemBuiltin())) {
             throw new BusinessException(ErrorCode.VALIDATION, "系统默认分组不允许修改名称");
         }
-        AccountGroup other = mapper.selectActiveByName(dto.name());
+        AccountGroup other = mapper.selectActiveByNameForOwner(dto.name(), cur.getOwnerUserId());
         if (other != null && !other.getId().equals(id)) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称已存在: " + dto.name());
         }
@@ -283,6 +301,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             }
             groups.add(group);
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        groups.forEach(group -> DataScopeAccess.requireCanAccess(
+                scope, group.getOwnerUserId(), "分组"));
         // 全或无:先全量校验,任一不满足则整批拒删
         for (AccountGroup group : groups) {
             Long id = group.getId();
@@ -324,6 +345,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
             throw new BusinessException(ErrorCode.VALIDATION, "分组 ID 不能为空");
         }
         AccountGroup source = lockMutableGroups(List.of(groupId)).get(0);
+        requireSameOwner(List.of(source));
         List<Long> accountIds = mapper.selectAccountIdsByGroupId(groupId);
         if (accountIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "空分组不允许拆分");
@@ -334,7 +356,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         }
         List<Long> targetIds = new java.util.ArrayList<>(groupCount);
         for (int i = 1; i <= groupCount; i++) {
-            targetIds.add(create(new AccountGroupDTO(source.getName() + "-" + i, source.getRemark())).id());
+            targetIds.add(createOwned(
+                    new AccountGroupDTO(source.getName() + "-" + i, source.getRemark()),
+                    source.getOwnerUserId()).id());
         }
         int baseSize = accountIds.size() / groupCount;
         int remainder = accountIds.size() % groupCount;
@@ -370,7 +394,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                 || new HashSet<>(groupIds).size() != groupIds.size()) {
             throw new BusinessException(ErrorCode.VALIDATION, "合并至少需要两个不重复分组");
         }
-        lockMutableGroups(groupIds);
+        List<AccountGroup> groups = lockMutableGroups(groupIds);
+        requireSameOwner(groups);
         Long targetGroupId = groupIds.get(0);
         List<Long> sourceGroupIds = groupIds.subList(1, groupIds.size());
         long now = System.currentTimeMillis();
@@ -406,6 +431,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
      */
     private List<AccountGroup> lockMutableGroups(List<Long> groupIds) {
         List<AccountGroup> groups = lockExistingGroups(groupIds);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        groups.forEach(group -> DataScopeAccess.requireCanAccess(
+                scope, group.getOwnerUserId(), "分组"));
         groups.forEach(this::requireMutableGroup);
         return groups;
     }
@@ -426,6 +454,15 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         return groups;
     }
 
+    /** 结构变更不能把一个用户的分组数据并入另一个用户。 */
+    private void requireSameOwner(List<AccountGroup> groups) {
+        Long ownerUserId = groups.get(0).getOwnerUserId();
+        if (groups.stream().anyMatch(group -> !java.util.Objects.equals(ownerUserId, group.getOwnerUserId()))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组归属不一致，不允许合并或拆分");
+        }
+        DataScopeAccess.requireCanAccess(DataScopeAccess.requireCurrent(), ownerUserId, "分组");
+    }
+
     /**
      * 获取指定活跃分组，供账号导入等业务执行前置校验。
      *
@@ -439,6 +476,8 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         if (group == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "目标分组不存在: " + id);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), group.getOwnerUserId(), "分组");
         return group;
     }
 
@@ -452,7 +491,9 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AccountGroup ensureSystemGroup() {
-        AccountGroup existing = mapper.selectSystemBuiltin();
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long ownerUserId = scope.ownerUserIdForCreate();
+        AccountGroup existing = mapper.selectSystemBuiltinForOwner(ownerUserId);
         if (existing != null) {
             return existing;
         }
@@ -461,6 +502,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         row.setName(SYSTEM_GROUP_NAME);
         row.setSystemBuiltin(SYSTEM_BUILTIN_YES);
         row.setRemark("系统自动创建,不可删除");
+        row.setOwnerUserId(ownerUserId);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         try {
@@ -469,7 +511,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
         } catch (DuplicateKeyException e) {
             // 并发场景:另一线程已抢先 insert,重查即可
             log.debug("系统默认分组并发创建冲突,重查");
-            row = mapper.selectSystemBuiltin();
+            row = mapper.selectSystemBuiltinForOwner(ownerUserId);
         }
         return row;
     }

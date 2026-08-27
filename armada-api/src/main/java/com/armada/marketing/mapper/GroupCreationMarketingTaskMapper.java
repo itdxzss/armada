@@ -9,6 +9,7 @@ import com.armada.marketing.model.support.GroupCreationMarketingNoAvailableAccou
 import com.armada.marketing.model.support.GroupCreationMarketingRetryResetUpdate;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.model.vo.GroupCreationMarketingExportRow;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -46,6 +47,15 @@ public interface GroupCreationMarketingTaskMapper {
      * @return 任务实体;不存在时返回 null
      */
     GroupCreationMarketingTask selectTaskById(@Param("id") Long id);
+
+    /** 用户请求按 ID 查询任务；缺失或 SYSTEM 范围时不返回数据。 */
+    GroupCreationMarketingTask selectTaskByIdForScope(@Param("id") Long id,
+                                                      @Param("scope") DataScope scope);
+
+    /** 用户批量操作按 owner 范围读取全部任务根，用于整批授权校验。 */
+    List<GroupCreationMarketingTask> selectTasksByIdsForScope(
+            @Param("ids") List<Long> ids,
+            @Param("scope") DataScope scope);
 
     /**
      * 按 ID 查询建群营销执行项。
@@ -85,7 +95,9 @@ public interface GroupCreationMarketingTaskMapper {
      * @param taskIds 需要导出的任务 ID 列表
      * @return 导出统计投影
      */
-    List<GroupCreationMarketingExportRow> selectExportRowsByTaskIds(@Param("taskIds") List<Long> taskIds);
+    List<GroupCreationMarketingExportRow> selectExportRowsByTaskIdsForScope(
+            @Param("taskIds") List<Long> taskIds,
+            @Param("scope") DataScope scope);
 
     /**
      * 查询账号分组内可用于建群营销的候选账号。

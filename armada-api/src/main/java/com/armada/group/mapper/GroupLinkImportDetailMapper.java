@@ -3,6 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.dto.GroupLinkImportDetailQuery;
 import com.armada.group.model.entity.GroupLinkImportDetail;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -45,5 +46,6 @@ public interface GroupLinkImportDetailMapper {
      * @return 失败明细投影列表
      */
     List<GroupLinkImportDetailVoRow> selectFailed(@Param("labelId") Long labelId,
-                                                   @Param("batchId") Long batchId);
+                                                   @Param("batchId") Long batchId,
+                                                   @Param("scope") DataScope scope);
 }

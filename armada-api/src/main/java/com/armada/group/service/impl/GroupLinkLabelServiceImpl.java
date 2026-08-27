@@ -12,6 +12,8 @@ import com.armada.group.service.GroupLinkLabelService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,18 +38,15 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
     private final GroupLinkMapper groupLinkMapper;
     private final GroupLinkImportBatchMapper importBatchMapper;
     private final GroupConverter converter;
-    private final GroupCurrentLocalPersistence currentLocalPersistence;
 
     public GroupLinkLabelServiceImpl(GroupLinkLabelMapper labelMapper,
                                      GroupLinkMapper groupLinkMapper,
                                      GroupLinkImportBatchMapper importBatchMapper,
-                                     GroupConverter converter,
-                                     GroupCurrentLocalPersistence currentLocalPersistence) {
+                                     GroupConverter converter) {
         this.labelMapper = labelMapper;
         this.groupLinkMapper = groupLinkMapper;
         this.importBatchMapper = importBatchMapper;
         this.converter = converter;
-        this.currentLocalPersistence = currentLocalPersistence;
     }
 
     /**
@@ -58,6 +57,7 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
      */
     @Override
     public PageResult<GroupLinkLabelVO> list(GroupLinkLabelQuery query) {
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         long total = labelMapper.countPage(query);
         List<GroupLinkLabelVO> rows = total == 0
                 ? List.of()
@@ -80,11 +80,15 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         if (!StringUtils.hasText(dto.name())) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
         }
-        if (labelMapper.selectActiveByName(dto.name()) != null) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long ownerUserId = scope.ownerUserIdForCreate();
+        DataScope ownerScope = DataScope.self(ownerUserId);
+        if (labelMapper.selectActiveByName(dto.name(), ownerUserId) != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称已存在: " + dto.name());
         }
-        GroupLinkLabel deleted = labelMapper.selectDeletedByName(dto.name());
+        GroupLinkLabel deleted = labelMapper.selectDeletedByName(dto.name(), ownerUserId);
         GroupLinkLabel row = new GroupLinkLabel();
+        row.setOwnerUserId(ownerUserId);
         row.setName(dto.name());
         row.setRegion(dto.region());
         row.setRemark(dto.remark());
@@ -94,20 +98,22 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
             // 复活软删分组:复原 deleted_at + 更新基本信息
             row.setId(deleted.getId());
             row.setUpdatedAt(now);
-            labelMapper.reviveById(deleted.getId(), now);
-            labelMapper.updateProfile(row);
+            labelMapper.reviveById(deleted.getId(), ownerUserId, now);
+            labelMapper.updateProfile(row, ownerScope);
             log.info("WS链接分组复活 id={} name={}", deleted.getId(), dto.name());
         } else {
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
+            row.setCreatedBy(ownerUserId);
             labelMapper.insert(row);
             log.info("WS链接分组已创建 id={} name={}", row.getId(), dto.name());
         }
 
         // 读回库行,确保 createdAt/updatedAt 返回真实数据库写入时间(非 null)
-        GroupLinkLabel saved = labelMapper.selectById(row.getId());
+        GroupLinkLabel saved = labelMapper.selectById(row.getId(), ownerScope);
         return new GroupLinkLabelVO(
                 saved.getId(),
+                saved.getOwnerUserId(),
                 dto.name(),
                 dto.region(),
                 dto.remark(),
@@ -136,11 +142,12 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         if (!StringUtils.hasText(dto.name())) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称不能为空");
         }
-        GroupLinkLabel cur = labelMapper.selectById(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupLinkLabel cur = labelMapper.selectById(id, scope);
         if (cur == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "分组不存在: " + id);
         }
-        GroupLinkLabel other = labelMapper.selectActiveByName(dto.name());
+        GroupLinkLabel other = labelMapper.selectActiveByName(dto.name(), cur.getOwnerUserId());
         if (other != null && !other.getId().equals(id)) {
             throw new BusinessException(ErrorCode.VALIDATION, "分组名称已存在: " + dto.name());
         }
@@ -150,7 +157,7 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
         row.setRegion(dto.region());
         row.setRemark(dto.remark());
         row.setUpdatedAt(System.currentTimeMillis());
-        labelMapper.updateProfile(row);
+        labelMapper.updateProfile(row, scope);
         log.info("WS链接分组已更新 id={} name={}", id, dto.name());
     }
 
@@ -168,13 +175,21 @@ public class GroupLinkLabelServiceImpl implements GroupLinkLabelService {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "ids 数量须为 1.." + BATCH_DELETE_MAX);
         }
+        if (ids.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "ids 不能包含空值");
+        }
+        List<Long> distinctIds = ids.stream().distinct().toList();
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<GroupLinkLabel> labels = labelMapper.selectActiveByIds(distinctIds, scope);
+        if (labels.size() != distinctIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分分组不存在");
+        }
         // 级联软删:群链接 → 导入批次 → 分组
         long now = System.currentTimeMillis();
-        groupLinkMapper.softDeleteByLabelIds(ids, now);
-        currentLocalPersistence.applyLegacyLabelDeletion(ids, now);
-        importBatchMapper.softDeleteByLabelIds(ids, now);
-        int n = labelMapper.softDeleteByIds(ids, now);
-        log.info("WS链接分组批量删除 count={} ids={}", n, ids);
+        groupLinkMapper.softDeleteByLabelIds(distinctIds, scope, now);
+        importBatchMapper.softDeleteByLabelIds(distinctIds, scope, now);
+        int n = labelMapper.softDeleteByIds(distinctIds, scope, now);
+        log.info("WS链接分组批量删除 count={} ids={}", n, distinctIds);
         return n;
     }
 }

@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.service.GroupLinkService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -22,6 +24,8 @@ import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.service.impl.PullTaskStandardReadFactMappers;
 import com.armada.task.service.impl.PullTaskStandardReadResources;
 import com.armada.task.service.impl.PullTaskStandardReadServiceImpl;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -31,6 +35,8 @@ import org.junit.jupiter.api.Test;
  * 「拉群任务完整设置不存在」——那会让所有关闭态任务的详情页直接 404。</p>
  */
 class PullTaskStandardGroupSettingToggleDetailTest {
+
+    private static final DataScope USER_SCOPE = DataScope.self(501L);
 
     private final PullTaskMapper taskMapper = mock(PullTaskMapper.class);
     private final PullTaskStandardSettingMapper settingMapper =
@@ -51,6 +57,16 @@ class PullTaskStandardGroupSettingToggleDetailTest {
                             mock(PullTaskAccountActionMapper.class))),
             mock(GroupLinkService.class));
 
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(USER_SCOPE);
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     /** 开关状态本身要能回读，前端据此决定整块控件是否展开。 */
     @Test
     void taskDetailExposesGroupSettingToggleState() {
@@ -68,7 +84,7 @@ class PullTaskStandardGroupSettingToggleDetailTest {
     }
 
     private void givenTask(int groupSettingEnabled) {
-        when(taskMapper.selectLifecycle(100L)).thenReturn(task());
+        when(taskMapper.selectLifecycleForScope(100L, USER_SCOPE)).thenReturn(task());
         when(settingMapper.selectByTaskId(100L)).thenReturn(setting());
         when(groupSettingMapper.selectByTaskId(100L))
                 .thenReturn(groupSetting(groupSettingEnabled));

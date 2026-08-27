@@ -1,11 +1,15 @@
 package com.armada.account.service.impl;
 
 import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedSink;
 import com.armada.group.service.GroupMetadataSyncTaskService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.concurrent.Executor;
 import org.slf4j.Logger;
@@ -28,6 +32,7 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
     private static final Logger log = LoggerFactory.getLogger(AccountStateChangedSinkAdapter.class);
 
     private final AccountStateEventService service;
+    private final AccountMapper accountMapper;
     private final ProxyFailedRecoveryCoordinator recoveryCoordinator;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
     private final Executor inviteRecoveryExecutor;
@@ -41,11 +46,13 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
      * @param inviteRecoveryExecutor 群邀请码恢复后台执行器
      */
     public AccountStateChangedSinkAdapter(AccountStateEventService service,
+                                          AccountMapper accountMapper,
                                           ProxyFailedRecoveryCoordinator recoveryCoordinator,
                                           GroupMetadataSyncTaskService metadataSyncTaskService,
                                           @Qualifier("accountStateInviteRecoveryExecutor")
                                           Executor inviteRecoveryExecutor) {
         this.service = service;
+        this.accountMapper = accountMapper;
         this.recoveryCoordinator = recoveryCoordinator;
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.inviteRecoveryExecutor = inviteRecoveryExecutor;
@@ -69,18 +76,47 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
                 event.rawCode(),
                 event.source(),
                 event.onlineAttemptId()));
-        if (applied && isProxyFailed(event)) {
-            recoveryCoordinator.recover(
-                    event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
-        }
-        if (applied && "ONLINE".equalsIgnoreCase(event.to())) {
-            submitDeferredInviteResume(event);
+        if (applied && (isProxyFailed(event) || "ONLINE".equalsIgnoreCase(event.to()))) {
+            Account account = trustedAccount(event);
+            if (account == null || account.getOwnerUserId() == null) {
+                log.error("账号状态附属动作拒绝执行:账号缺少可信归属 tenantId={} accountId={}",
+                        event.tenantId(), event.accountId());
+                return;
+            }
+            if (isProxyFailed(event)) {
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                        DataScope.self(account.getOwnerUserId()))) {
+                    recoveryCoordinator.recover(
+                            event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
+                }
+            }
+            if ("ONLINE".equalsIgnoreCase(event.to())) {
+                submitDeferredInviteResume(event, account.getOwnerUserId());
+            }
         }
     }
 
-    private void submitDeferredInviteResume(ProtocolAccountStateChangedEvent event) {
+    private Account trustedAccount(ProtocolAccountStateChangedEvent event) {
+        Long previousTenant = TenantContext.get();
         try {
-            inviteRecoveryExecutor.execute(() -> resumeDeferredInviteTasks(event));
+            TenantContext.set(event.tenantId());
+            Account account = accountMapper.selectActiveById(event.accountId());
+            if (account == null
+                    || event.protocolAccountId() == null
+                    || !event.protocolAccountId().equals(account.getProtocolAccountId())) {
+                return null;
+            }
+            return account;
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private void submitDeferredInviteResume(
+            ProtocolAccountStateChangedEvent event,
+            Long ownerUserId) {
+        try {
+            inviteRecoveryExecutor.execute(() -> resumeDeferredInviteTasks(event, ownerUserId));
         } catch (RuntimeException ex) {
             // 后台队列饱和或停机时仅记录；不能让附属任务反向触发账号状态事件重试。
             log.warn("账号上线后群邀请码恢复任务投递失败,账号状态事件继续完成 tenantId={} accountId={} "
@@ -90,9 +126,12 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
         }
     }
 
-    private void resumeDeferredInviteTasks(ProtocolAccountStateChangedEvent event) {
+    private void resumeDeferredInviteTasks(
+            ProtocolAccountStateChangedEvent event,
+            Long ownerUserId) {
         Long previousTenant = TenantContext.get();
-        try {
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                DataScope.self(ownerUserId))) {
             TenantContext.set(event.tenantId());
             metadataSyncTaskService.resumeDeferredInviteCodeForAccount(
                     event.accountId(), event.occurredAt());
@@ -103,11 +142,15 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
                     event.tenantId(), event.accountId(), event.occurredAt(),
                     ex.getClass().getSimpleName(), ex);
         } finally {
-            if (previousTenant == null) {
-                TenantContext.clear();
-            } else {
-                TenantContext.set(previousTenant);
-            }
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private static void restoreTenant(Long previousTenant) {
+        if (previousTenant == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.set(previousTenant);
         }
     }
 

@@ -1,13 +1,16 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
@@ -22,11 +25,11 @@ import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinSink;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantIdentity;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -41,7 +44,7 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     private static final String GROUP_JID = "120363group@g.us";
 
-    @Mock private AccountProtocolLookupService accountLookupService;
+    @Mock private AccountMapper accountMapper;
     @Mock private GroupParticipantObservationService observationService;
     @Mock private ProtocolGroupJoinSink joinSink;
     @Mock private ProtocolGroupDepartureSink departureSink;
@@ -50,6 +53,7 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     @AfterEach
     void clearTenant() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -74,8 +78,8 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     @Test
     void staleProtocolBindingDoesNotWriteMemberFact() {
-        when(accountLookupService.findActiveProtocolRef(901L)).thenReturn(Optional.of(
-                new ProtocolAccountRef(901L, ProtocolBackend.WEB, "new-account", "919000000009")));
+        when(accountMapper.selectActiveById(901L)).thenReturn(
+                account(ProtocolBackend.WEB, "new-account", 77L));
         ProtocolGroupParticipantChangedEvent event = new ProtocolGroupParticipantChangedEvent(
                 "member-event-1", 7L, 901L, "old-account", "WEB",
                 GROUP_JID, "promote",
@@ -87,6 +91,35 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
         verify(observationService, never()).apply(org.mockito.ArgumentMatchers.anyList());
         verifyNoInteractions(joinSink, departureSink);
+    }
+
+    @Test
+    void restoresOwnerScopeWhileWritingParticipantFacts() {
+        bindAccount(ProtocolBackend.WEB);
+        doAnswer(invocation -> {
+            assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(77L);
+            assertThat(DataScopeContext.requireCurrent().isSelf()).isTrue();
+            return null;
+        }).when(observationService).apply(org.mockito.ArgumentMatchers.anyList());
+
+        adapter().handleParticipantChanged(event(
+                "promote", "WEB", "919000000002@s.whatsapp.net", pnOnly()));
+
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
+    void rejectsParticipantEventFromHistoricalUnownedAccount() {
+        when(accountMapper.selectActiveById(901L)).thenReturn(
+                account(ProtocolBackend.WEB, "acc-901", null));
+
+        assertThatThrownBy(() -> adapter().handleParticipantChanged(event(
+                "promote", "WEB", "919000000002@s.whatsapp.net", pnOnly())))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("无归属账号");
+
+        verifyNoInteractions(observationService, joinSink, departureSink);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     @Test
@@ -257,8 +290,22 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
     }
 
     private void bindAccount(ProtocolBackend backend) {
-        when(accountLookupService.findActiveProtocolRef(901L)).thenReturn(Optional.of(
-                new ProtocolAccountRef(901L, backend, "acc-901", "919000000009")));
+        when(accountMapper.selectActiveById(901L)).thenReturn(
+                account(backend, "acc-901", 77L));
+    }
+
+    private static Account account(
+            ProtocolBackend backend,
+            String protocolAccountId,
+            Long ownerUserId) {
+        Account account = new Account();
+        account.setId(901L);
+        account.setTenantId(7L);
+        account.setOwnerUserId(ownerUserId);
+        account.setProtocolId(backend.name());
+        account.setProtocolAccountId(protocolAccountId);
+        account.setWsPhone("919000000009");
+        return account;
     }
 
     private static List<ProtocolGroupParticipantIdentity> lidWithPhone() {
@@ -285,7 +332,7 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     private ProtocolGroupParticipantChangedSinkAdapter adapter() {
         return new ProtocolGroupParticipantChangedSinkAdapter(
-                accountLookupService, observationService, joinSink, departureSink, memberCacheService,
+                accountMapper, observationService, joinSink, departureSink, memberCacheService,
                 marketingNewGroupService);
     }
 }

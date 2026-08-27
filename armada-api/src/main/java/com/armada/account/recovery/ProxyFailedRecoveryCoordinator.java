@@ -3,6 +3,10 @@ package com.armada.account.recovery;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeMode;
 import com.armada.shared.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +39,11 @@ public class ProxyFailedRecoveryCoordinator {
                         Long accountId,
                         String failedOnlineAttemptId,
                         Long failedProxyId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.mode() == DataScopeMode.SYSTEM) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED, "后台范围不能直接恢复用户私有账号");
+        }
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(tenantId);

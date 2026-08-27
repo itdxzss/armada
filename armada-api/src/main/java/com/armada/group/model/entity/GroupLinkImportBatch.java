@@ -11,6 +11,9 @@ public class GroupLinkImportBatch {
     /** 租户 ID(拦截器注入,不手写)。 */
     private Long tenantId;
 
+    /** 归属用户 ID；历史待分配数据为 null。 */
+    private Long ownerUserId;
+
     /** 导入目标WS链接分组(关联 group_link_label.id)。 */
     private Long labelId;
 
@@ -58,6 +61,14 @@ public class GroupLinkImportBatch {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public Long getLabelId() {

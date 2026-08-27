@@ -194,6 +194,7 @@ class GroupMetadataSyncTaskMapperDbTest {
                 java.util.List.of(GroupMetadataSyncStatus.PENDING.code()),
                 GroupMetadataSyncStatus.SUCCEEDED.code(), 1_000L, 10).get(0);
         assertThat(missingInvite.getGroupJid()).isEqualTo("120363created@g.us");
+        assertThat(missingInvite.getOwnerUserId()).isEqualTo(501L);
         assertThat(missingInvite.getInviteRequired()).isTrue();
 
         execute("UPDATE group_link_preview SET invite_code = 'INVITE-CODE'");
@@ -472,9 +473,11 @@ class GroupMetadataSyncTaskMapperDbTest {
         GroupMetadataSyncTask current = mapper.selectByCurrentCommandId(TENANT_ID, "cmd-1");
         assertThat(current.getCompletedScopeMask()).isEqualTo(1);
         assertThat(current.getGroupJid()).isEqualTo("120363snapshot@g.us");
+        assertThat(current.getOwnerUserId()).isEqualTo(501L);
         TenantContext.set(OTHER_TENANT_ID);
-        assertThat(mapper.selectByCurrentCommandIdUnscoped("cmd-1").getTenantId())
-                .isEqualTo(TENANT_ID);
+        GroupMetadataSyncTask unscoped = mapper.selectByCurrentCommandIdUnscoped("cmd-1");
+        assertThat(unscoped.getTenantId()).isEqualTo(TENANT_ID);
+        assertThat(unscoped.getOwnerUserId()).isEqualTo(501L);
     }
 
     private java.util.List<GroupMetadataSyncTask> selectDueCandidates(
@@ -579,8 +582,8 @@ class GroupMetadataSyncTaskMapperDbTest {
         try (Connection connection = dataSource.getConnection();
              PreparedStatement link = connection.prepareStatement("""
                      INSERT INTO group_link (
-                         id, tenant_id, group_id, group_invite_id, link_url, origin, deleted_at
-                     ) VALUES (?, ?, ?, ?, ?, ?, NULL)
+                         id, tenant_id, owner_user_id, group_id, group_invite_id, link_url, origin, deleted_at
+                     ) VALUES (?, ?, 501, ?, ?, ?, ?, NULL)
                      """);
              PreparedStatement preview = connection.prepareStatement("""
                      INSERT INTO group_link_preview (
@@ -631,6 +634,7 @@ class GroupMetadataSyncTaskMapperDbTest {
                 CREATE TABLE group_link (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     group_id BIGINT,
                     group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,

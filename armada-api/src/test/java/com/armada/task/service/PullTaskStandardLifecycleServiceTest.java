@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -63,6 +65,7 @@ class PullTaskStandardLifecycleServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(501L));
         PullTaskNormalLinkH2Support.resetSchemaWithProtocolOutbox(dataSource,
                 task(1L, 7L, "EXECUTING"),
                 task(2L, 7L, "PAUSED"),
@@ -86,6 +89,7 @@ class PullTaskStandardLifecycleServiceTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -300,9 +304,9 @@ class PullTaskStandardLifecycleServiceTest {
 
     private static String task(long id, long tenantId, String status) {
         return "INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
                 + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
-                + ", 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + ", 501, 'STANDARD', 'task', 'NORMAL_LINK', '" + status
                 + "', 1, '{}', 100, 100)";
     }
 

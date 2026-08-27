@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
@@ -45,7 +46,8 @@ public class PullTaskStandardCreateServiceImpl implements PullTaskStandardCreate
         }
         // transactionService 是独立 Spring Bean；方法返回时提交事务已经完成。
         startService.start(result.created().id());
-        PullTask started = pullTaskMapper.selectLifecycle(result.created().id());
+        PullTask started = pullTaskMapper.selectLifecycleForScope(
+                result.created().id(), DataScopeAccess.requireCurrent());
         return toCreatedVO(started);
     }
 

@@ -22,8 +22,12 @@ import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
 import com.armada.account.service.impl.AccountGroupServiceImpl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -35,6 +39,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AccountGroupServiceImplTest {
 
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(DataScope.all(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     @Mock
     private AccountGroupMapper mapper;
 
@@ -43,6 +57,14 @@ class AccountGroupServiceImplTest {
 
     @InjectMocks
     private AccountGroupServiceImpl service;
+
+    private static AccountGroup group(Long id) {
+        AccountGroup group = new AccountGroup();
+        group.setId(id);
+        group.setOwnerUserId(null);
+        group.setSystemBuiltin(0);
+        return group;
+    }
 
     // ---- list ----
 
@@ -81,12 +103,12 @@ class AccountGroupServiceImplTest {
         AccountGroup sys = new AccountGroup();
         sys.setId(1L);
         sys.setSystemBuiltin(1);
-        when(mapper.selectSystemBuiltin()).thenReturn(sys);
+        when(mapper.selectSystemBuiltinForOwner(1L)).thenReturn(sys);
         when(mapper.countPage(q)).thenReturn(0L);
 
         service.list(q);
 
-        verify(mapper).selectSystemBuiltin();
+        verify(mapper).selectSystemBuiltinForOwner(1L);
         verify(mapper, never()).insert(any());
     }
 
@@ -104,6 +126,7 @@ class AccountGroupServiceImplTest {
         row.setLockedAt(1234L);
         row.setMarketingAccountTotalCount(50);
         row.setMarketingAccountUsedCount(18);
+        when(mapper.selectById(8L)).thenReturn(group(8L));
         when(mapper.selectMarketingOccupancyByGroupId(8L)).thenReturn(row);
 
         AccountGroupMarketingOccupancyVO result = service.marketingOccupancy(8L);
@@ -121,6 +144,7 @@ class AccountGroupServiceImplTest {
         row.setOccupancyType(2);
         row.setTaskId(90L);
         row.setLockedAt(5678L);
+        when(mapper.selectById(9L)).thenReturn(group(9L));
         when(mapper.selectMarketingOccupancyByGroupId(9L)).thenReturn(row);
 
         AccountGroupMarketingOccupancyVO result = service.marketingOccupancy(9L);
@@ -135,7 +159,7 @@ class AccountGroupServiceImplTest {
 
     @Test
     void ensureSystemGroup_createsWhenMissing() {
-        when(mapper.selectSystemBuiltin()).thenReturn(null);
+        when(mapper.selectSystemBuiltinForOwner(1L)).thenReturn(null);
         doAnswer(inv -> {
             AccountGroup row = inv.getArgument(0);
             row.setId(1L);
@@ -154,7 +178,7 @@ class AccountGroupServiceImplTest {
         AccountGroup existing = new AccountGroup();
         existing.setId(5L);
         existing.setSystemBuiltin(1);
-        when(mapper.selectSystemBuiltin()).thenReturn(existing);
+        when(mapper.selectSystemBuiltinForOwner(1L)).thenReturn(existing);
 
         AccountGroup result = service.ensureSystemGroup();
 
@@ -176,7 +200,7 @@ class AccountGroupServiceImplTest {
     void create_activeNameExists_throws() {
         AccountGroup existing = new AccountGroup();
         existing.setId(99L);
-        when(mapper.selectActiveByName("已存在")).thenReturn(existing);
+        when(mapper.selectActiveByNameForOwner("已存在", 1L)).thenReturn(existing);
 
         assertThatThrownBy(() -> service.create(new AccountGroupDTO("已存在", null)))
                 .isInstanceOf(BusinessException.class)
@@ -191,17 +215,17 @@ class AccountGroupServiceImplTest {
         assertThatThrownBy(() -> service.create(new AccountGroupDTO("新分组", remark)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("备注不能超过255个字符");
-        verify(mapper, never()).selectActiveByName(any());
+        verify(mapper, never()).selectActiveByNameForOwner(any(), any());
         verify(mapper, never()).insert(any());
     }
 
     @Test
     void create_deletedNameExists_reviveAndUpdate_notInsert() {
-        when(mapper.selectActiveByName("复活分组")).thenReturn(null);
+        when(mapper.selectActiveByNameForOwner("复活分组", 1L)).thenReturn(null);
         AccountGroup deleted = new AccountGroup();
         deleted.setId(10L);
         deleted.setName("复活分组");
-        when(mapper.selectDeletedByName("复活分组")).thenReturn(deleted);
+        when(mapper.selectDeletedByNameForOwner("复活分组", 1L)).thenReturn(deleted);
 
         AccountGroupVO vo = service.create(new AccountGroupDTO("复活分组", "备注"));
 
@@ -213,8 +237,8 @@ class AccountGroupServiceImplTest {
 
     @Test
     void create_newName_inserts() {
-        when(mapper.selectActiveByName("新分组")).thenReturn(null);
-        when(mapper.selectDeletedByName("新分组")).thenReturn(null);
+        when(mapper.selectActiveByNameForOwner("新分组", 1L)).thenReturn(null);
+        when(mapper.selectDeletedByNameForOwner("新分组", 1L)).thenReturn(null);
         doAnswer(inv -> {
             AccountGroup row = inv.getArgument(0);
             row.setId(99L);
@@ -281,7 +305,7 @@ class AccountGroupServiceImplTest {
 
         AccountGroup other = new AccountGroup();
         other.setId(2L);
-        when(mapper.selectActiveByName("冲突名")).thenReturn(other);
+        when(mapper.selectActiveByNameForOwner("冲突名", null)).thenReturn(other);
 
         assertThatThrownBy(() -> service.update(1L, new AccountGroupDTO("冲突名", null)))
                 .isInstanceOf(BusinessException.class)
@@ -298,7 +322,7 @@ class AccountGroupServiceImplTest {
         // 查到的是自身
         AccountGroup self = new AccountGroup();
         self.setId(1L);
-        when(mapper.selectActiveByName("同名")).thenReturn(self);
+        when(mapper.selectActiveByNameForOwner("同名", null)).thenReturn(self);
 
         service.update(1L, new AccountGroupDTO("同名", null));
 
@@ -414,6 +438,23 @@ class AccountGroupServiceImplTest {
     }
 
     @Test
+    void splitHidesForeignGroupBeforeReportingMutableState() {
+        AccountGroup foreignSystemGroup = new AccountGroup();
+        foreignSystemGroup.setId(11L);
+        foreignSystemGroup.setOwnerUserId(2L);
+        foreignSystemGroup.setSystemBuiltin(1);
+        when(mapper.selectByIdsForUpdate(List.of(11L))).thenReturn(List.of(foreignSystemGroup));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(1L))) {
+            assertThatThrownBy(() -> service.split(11L, 2))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("分组不存在");
+        }
+
+        verify(mapper, never()).selectAccountIdsByGroupId(anyLong());
+    }
+
+    @Test
     void mergeRejectsMarketingLockedGroupBeforeMovingAccounts() {
         AccountGroup free = new AccountGroup();
         free.setId(12L);
@@ -427,6 +468,24 @@ class AccountGroupServiceImplTest {
         assertThatThrownBy(() -> service.merge(List.of(12L, 13L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("营销任务占用");
+
+        verify(mapper, never()).mergeAccounts(anyList(), anyLong(), anyLong());
+    }
+
+    @Test
+    void mergeHidesForeignGroupBeforeReportingMutableState() {
+        AccountGroup own = group(12L);
+        own.setOwnerUserId(1L);
+        AccountGroup foreignLocked = group(13L);
+        foreignLocked.setOwnerUserId(2L);
+        foreignLocked.setMarketingOccupancyTaskId(113L);
+        when(mapper.selectByIdsForUpdate(List.of(12L, 13L))).thenReturn(List.of(own, foreignLocked));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(1L))) {
+            assertThatThrownBy(() -> service.merge(List.of(12L, 13L)))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("分组不存在");
+        }
 
         verify(mapper, never()).mergeAccounts(anyList(), anyLong(), anyLong());
     }
@@ -453,5 +512,18 @@ class AccountGroupServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("目标分组不存在");
         verify(mapper).selectById(999L);
+    }
+
+    @Test
+    void requireExisting_hidesAnotherUsersGroup() {
+        AccountGroup foreign = group(7L);
+        foreign.setOwnerUserId(2L);
+        when(mapper.selectById(7L)).thenReturn(foreign);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(1L))) {
+            assertThatThrownBy(() -> service.requireExisting(7L))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("分组不存在");
+        }
     }
 }

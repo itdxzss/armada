@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
+import com.armada.task.mapper.PullTaskGroupAvatarFileMapper;
 import com.armada.task.service.PullTaskGroupAvatarService;
 import com.armada.task.service.impl.PullTaskGroupAvatarServiceImpl;
 import java.nio.file.FileSystemException;
@@ -31,6 +32,8 @@ class PullTaskGroupAvatarCleanupJobTest {
 
     private final PullTaskStandardGroupSettingMapper mapper =
             mock(PullTaskStandardGroupSettingMapper.class);
+    private final PullTaskGroupAvatarFileMapper fileMapper =
+            mock(PullTaskGroupAvatarFileMapper.class);
 
     @Test
     void springInstantiatesTheConfiguredProductionConstructor() {
@@ -98,7 +101,8 @@ class PullTaskGroupAvatarCleanupJobTest {
     private PullTaskGroupAvatarCleanupJob cleanupJob() {
         return new PullTaskGroupAvatarCleanupJob(
                 storageRoot().toString(), ONE_DAY_MILLIS,
-                new PullTaskGroupAvatarServiceImpl(storageRoot().toString(), mapper),
+                new PullTaskGroupAvatarServiceImpl(
+                        storageRoot().toString(), mapper, fileMapper),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

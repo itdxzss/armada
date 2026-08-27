@@ -19,6 +19,8 @@ class PromotionChannelMapperSqlContractTest {
         String xml = mapperXml();
         int filterStart = xml.indexOf("<sql id=\"pageFilter\">");
         String pageFilter = xml.substring(filterStart, xml.indexOf("</sql>", filterStart));
+        int scopeStart = xml.indexOf("<sql id=\"channelQueryDataScope\">");
+        String queryScope = xml.substring(scopeStart, xml.indexOf("</sql>", scopeStart));
 
         assertThat(xml).contains("<sql id=\"pageFilter\">");
         assertThat(xml).contains("c.target_country_value = #{targetCountry}");
@@ -26,6 +28,12 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("d.landing_template_id = #{landingTemplateId}");
         assertThat(xml).contains("c.owner_user_id = #{creatorUserId}");
         assertThat(xml).contains("collection=\"ownerUserIds\"");
+        assertThat(pageFilter).contains("<include refid=\"channelQueryDataScope\"/>");
+        assertThat(queryScope).contains(
+                "dataScope != null and dataScope.isSelf()",
+                "c.owner_user_id = #{dataScope.actorUserId}",
+                "dataScope != null and dataScope.isAll()",
+                "<otherwise>AND 1 = 0</otherwise>");
         assertThat(xml).contains("LIMIT #{offset}, #{pageSize}");
         assertThat(pageFilter).doesNotContain("#{tenantId}", "#{tenant_id}");
     }
@@ -107,6 +115,7 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(detail).contains("tc.deleted_at IS NULL");
         assertThat(detail).contains("WHERE c.id = #{id}");
         assertThat(detail).contains("AND c.deleted_at IS NULL");
+        assertThat(detail).contains("<include refid=\"channelDataScope\"/>");
         assertThat(detail).contains("LIMIT 1");
         assertThat(detail).containsOnlyOnce("tc.access_token_ciphertext");
         assertThat(detail).containsOnlyOnce("tc.token_fingerprint");
@@ -127,6 +136,9 @@ class PromotionChannelMapperSqlContractTest {
         assertThat(xml).contains("access_token_ciphertext IS NOT NULL");
         assertThat(lockSelect).contains("FOR UPDATE").doesNotContain("LIMIT");
         assertThat(xml).contains("<update id=\"updateChannel\">");
+        String updateChannel = xml.substring(xml.indexOf("<update id=\"updateChannel\">"),
+                xml.indexOf("</update>", xml.indexOf("<update id=\"updateChannel\">")));
+        assertThat(updateChannel).doesNotContain("owner_user_id = #{ownerUserId}");
         assertThat(xml).contains("<update id=\"updateTrackingConfig\">");
         assertThat(xml).contains("<if test=\"accessTokenCiphertext != null\">");
         assertThat(xml).contains("access_token_ciphertext = #{accessTokenCiphertext}");
@@ -155,14 +167,16 @@ class PromotionChannelMapperSqlContractTest {
     @Test
     void probeSqlSelectsSensitiveConfigurationOnlyForProbeAndUsesAtomicStateUpdates() throws IOException {
         String xml = mapperXml();
-        int probeStart = xml.indexOf("<select id=\"selectProbeConfigByChannelId\"");
-        assertThat(probeStart).isGreaterThanOrEqualTo(0);
-        String probe = xml.substring(probeStart, xml.indexOf("</select>", probeStart));
-
-        assertThat(probe).contains("c.id AS channelId");
-        assertThat(probe).contains("tc.access_token_ciphertext AS accessTokenCiphertext");
-        assertThat(probe).contains("d.deleted_at IS NULL", "c.deleted_at IS NULL", "tc.deleted_at IS NULL");
-        assertThat(probe).doesNotContain("SELECT *");
+        int scopedProbeStart = xml.indexOf("<select id=\"selectProbeConfigByChannelIdForScope\"");
+        assertThat(scopedProbeStart).isGreaterThanOrEqualTo(0);
+        String scopedProbe = xml.substring(scopedProbeStart, xml.indexOf("</select>", scopedProbeStart));
+        assertThat(scopedProbe).contains("c.id AS channelId");
+        assertThat(scopedProbe).contains("tc.access_token_ciphertext AS accessTokenCiphertext");
+        assertThat(scopedProbe).contains(
+                "d.deleted_at IS NULL", "c.deleted_at IS NULL", "tc.deleted_at IS NULL");
+        assertThat(scopedProbe).doesNotContain("SELECT *");
+        assertThat(scopedProbe).contains("<include refid=\"channelDataScope\"/>");
+        assertThat(xml).doesNotContain("<select id=\"selectProbeConfigByChannelId\"");
         assertThat(xml).contains("<update id=\"markProbeRunning\">");
         assertThat(xml).contains("last_probe_status = 0");
         assertThat(xml).contains("last_probed_at &lt;= #{staleBefore}");
@@ -193,6 +207,9 @@ class PromotionChannelMapperSqlContractTest {
 
         assertThat(xml).contains("<select id=\"selectActiveDomainByChannelIdForUpdate\"");
         assertThat(xml).contains("WHERE c.id = #{channelId}");
+        int domainLockStart = xml.indexOf("<select id=\"selectActiveDomainByChannelIdForUpdate\"");
+        String domainLock = xml.substring(domainLockStart, xml.indexOf("</select>", domainLockStart));
+        assertThat(domainLock).contains("<include refid=\"channelDataScope\"/>");
         assertThat(xml).contains("<update id=\"softDeleteTrackingConfig\">");
         assertThat(xml).contains("<update id=\"softDeleteChannel\">");
         assertThat(xml).contains("<select id=\"selectAnyActiveChannelIdByDomainForUpdate\"");

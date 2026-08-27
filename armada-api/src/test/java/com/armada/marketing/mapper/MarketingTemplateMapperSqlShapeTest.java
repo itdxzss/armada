@@ -21,7 +21,7 @@ class MarketingTemplateMapperSqlShapeTest {
                 StandardCharsets.UTF_8);
 
         String createLockSql = selectBlock(xml, "selectByIdForUpdate");
-        String deleteLockSql = selectBlock(xml, "selectExistingIdsForUpdate");
+        String deleteLockSql = selectBlock(xml, "selectExistingForUpdate");
 
         assertThat(createLockSql)
                 .contains("WHERE id = #{id} AND deleted_at IS NULL")
@@ -37,7 +37,7 @@ class MarketingTemplateMapperSqlShapeTest {
     @Test
     void deletionLockUsesExplicitTenantWithoutSqlRewrite() throws Exception {
         Method lockMethod = MarketingTemplateMapper.class.getMethod(
-                "selectExistingIdsForUpdate", Long.class, List.class);
+                "selectExistingForUpdate", Long.class, List.class);
         InterceptorIgnore ignore = lockMethod.getAnnotation(InterceptorIgnore.class);
         assertThat(ignore).isNotNull();
         assertThat(ignore.tenantLine()).isEqualTo("true");
@@ -45,7 +45,7 @@ class MarketingTemplateMapperSqlShapeTest {
         String xml = new String(
                 getClass().getResourceAsStream(MAPPER_XML).readAllBytes(),
                 StandardCharsets.UTF_8);
-        String deleteLockSql = selectBlock(xml, "selectExistingIdsForUpdate");
+        String deleteLockSql = selectBlock(xml, "selectExistingForUpdate");
         assertThat(deleteLockSql)
                 .contains("WHERE tenant_id = #{tenantId}")
                 .contains("ORDER BY id ASC")

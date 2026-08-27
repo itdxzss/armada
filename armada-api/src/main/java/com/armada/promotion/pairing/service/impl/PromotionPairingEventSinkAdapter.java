@@ -9,6 +9,8 @@ import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,34 +46,46 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
                     event.eventId(), event.eventType());
             return;
         }
-        if (ProtocolPairingEvent.EVENT_CODE_GENERATED.equals(event.eventType())) {
-            sessionMapper.markCodeGenerated(
-                    session.getId(), session.getTenantId(), event.protocolAccountId(),
-                    event.pairingCode(), event.expiresAt(), event.occurredAt());
-            return;
-        }
-
+        Long ownerUserId = requireOwner(session);
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(session.getTenantId());
-            if (ProtocolPairingEvent.EVENT_FAILED.equals(event.eventType())) {
-                completionService.terminate(
-                        session,
-                        PromotionPairingStatus.FAILED,
-                        ERROR_PROTOCOL_FAILED,
-                        "WhatsApp 配对失败，请重试",
-                        event.occurredAt());
-                return;
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                if (ProtocolPairingEvent.EVENT_CODE_GENERATED.equals(event.eventType())) {
+                    sessionMapper.markCodeGenerated(
+                            session.getId(), session.getTenantId(), event.protocolAccountId(),
+                            event.pairingCode(), event.expiresAt(), event.occurredAt());
+                    return;
+                }
+                if (ProtocolPairingEvent.EVENT_FAILED.equals(event.eventType())) {
+                    completionService.terminate(
+                            session,
+                            PromotionPairingStatus.FAILED,
+                            ERROR_PROTOCOL_FAILED,
+                            "WhatsApp 配对失败，请重试",
+                            event.occurredAt());
+                    return;
+                }
+                validateCompleted(session, event);
+                // 外部 HTTP 导出必须在本地事务之外执行；失败时抛出，让 Kafka 统一重试。
+                PairingCredentialExport credential =
+                        pairingLoginPort.exportCredential(event.protocolAccountId());
+                validateCredential(event.protocolAccountId(), credential);
+                completionService.complete(session.getId(), session.getTenantId(), event, credential);
             }
-            validateCompleted(session, event);
-            // 外部 HTTP 导出必须在本地事务之外执行；失败时抛出，让 Kafka 统一重试。
-            PairingCredentialExport credential =
-                    pairingLoginPort.exportCredential(event.protocolAccountId());
-            validateCredential(event.protocolAccountId(), credential);
-            completionService.complete(session.getId(), session.getTenantId(), event, credential);
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private static Long requireOwner(PromotionPairingSession session) {
+        if (session.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属推广配对会话不能继续执行");
+        }
+        return session.getOwnerUserId();
     }
 
     private static void validateCompleted(PromotionPairingSession session, ProtocolPairingEvent event) {

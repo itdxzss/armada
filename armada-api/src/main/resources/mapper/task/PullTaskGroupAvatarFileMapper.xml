@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskGroupAvatarFileMapper">
+
+  <resultMap id="avatarFileResultMap"
+             type="com.armada.task.model.entity.PullTaskGroupAvatarFile">
+    <id column="id" property="id"/>
+    <result column="tenant_id" property="tenantId"/>
+    <result column="file_key" property="fileKey"/>
+    <result column="owner_user_id" property="ownerUserId"/>
+    <result column="created_at" property="createdAt"/>
+  </resultMap>
+
+  <insert id="insert"
+          parameterType="com.armada.task.model.entity.PullTaskGroupAvatarFile"
+          useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_group_avatar_file
+      (file_key, owner_user_id, created_at)
+    VALUES
+      (#{fileKey}, #{ownerUserId}, #{createdAt})
+  </insert>
+
+  <select id="selectByFileKeyForScope" resultMap="avatarFileResultMap">
+    SELECT id, tenant_id, file_key, owner_user_id, created_at
+    FROM pull_task_group_avatar_file
+    WHERE file_key = #{fileKey}
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </select>
+
+  <delete id="deleteByFileKey">
+    DELETE FROM pull_task_group_avatar_file
+    WHERE file_key = #{fileKey}
+  </delete>
+
+</mapper>

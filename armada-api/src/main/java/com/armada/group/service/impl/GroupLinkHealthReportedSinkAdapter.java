@@ -1,9 +1,16 @@
 package com.armada.group.service.impl;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.service.GroupLinkHealthReportService;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedSink;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.task.service.PullTaskGroupBanTerminationService;
 import java.util.Locale;
 import java.util.Optional;
@@ -21,6 +28,7 @@ public class GroupLinkHealthReportedSinkAdapter implements ProtocolGroupHealthRe
 
     private final GroupLinkHealthReportService service;
     private final PullTaskGroupBanTerminationService banTerminationService;
+    private final AccountMapper accountMapper;
 
     /**
      * 创建群组健康事件 adapter。
@@ -30,9 +38,11 @@ public class GroupLinkHealthReportedSinkAdapter implements ProtocolGroupHealthRe
      */
     public GroupLinkHealthReportedSinkAdapter(
             GroupLinkHealthReportService service,
-            PullTaskGroupBanTerminationService banTerminationService) {
+            PullTaskGroupBanTerminationService banTerminationService,
+            AccountMapper accountMapper) {
         this.service = service;
         this.banTerminationService = banTerminationService;
+        this.accountMapper = accountMapper;
     }
 
     /**
@@ -42,12 +52,40 @@ public class GroupLinkHealthReportedSinkAdapter implements ProtocolGroupHealthRe
      */
     @Override
     public void handleHealthReported(ProtocolGroupHealthReportedEvent event) {
-        Optional<Long> resolvedGroupLinkId = service.applyHealthReported(toGroupEvent(event));
-        if (isExplicitGroupBan(event.health(), event.errorCode())) {
-            resolvedGroupLinkId.ifPresent(groupLinkId ->
-                    banTerminationService.terminateBannedGroup(
-                            event.tenantId(), groupLinkId));
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(event.tenantId());
+            Account executionAccount = accountMapper.selectActiveByProtocolAccountId(
+                    event.protocolAccountId());
+            if (executionAccount == null) {
+                return;
+            }
+            Long ownerUserId = requireOwner(executionAccount);
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                Optional<Long> resolvedGroupLinkId = service.applyHealthReported(toGroupEvent(event));
+                if (isExplicitGroupBan(event.health(), event.errorCode())) {
+                    resolvedGroupLinkId.ifPresent(groupLinkId ->
+                            banTerminationService.terminateBannedGroup(
+                                    event.tenantId(), groupLinkId));
+                }
+            }
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
         }
+    }
+
+    private static Long requireOwner(Account account) {
+        if (account.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属账号不能处理用户私有群健康事件");
+        }
+        return account.getOwnerUserId();
     }
 
     private static GroupLinkHealthReportedEvent toGroupEvent(

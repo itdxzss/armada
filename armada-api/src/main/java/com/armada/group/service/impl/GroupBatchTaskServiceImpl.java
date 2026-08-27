@@ -18,6 +18,8 @@ import com.armada.group.model.vo.GroupBatchTaskItemVO;
 import com.armada.group.service.GroupBatchTaskService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -67,7 +69,8 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
 
     @Override
     public GroupBatchTaskDetailVO detail(Long taskId) {
-        GroupBatchTask task = taskId == null ? null : taskMapper.selectById(taskId);
+        GroupBatchTask task = taskId == null ? null
+                : taskMapper.selectById(taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "批量任务不存在");
         }
@@ -88,7 +91,8 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int cancel(Long taskId) {
-        GroupBatchTask task = taskId == null ? null : taskMapper.selectById(taskId);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupBatchTask task = taskId == null ? null : taskMapper.selectById(taskId, scope);
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "批量任务不存在");
         }
@@ -104,7 +108,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
                 GroupBatchTaskItemStatus.WAITING_RESULT.code(),
                 now);
         taskMapper.cancelIfRunnable(
-                taskId, GroupBatchTaskStatus.CANCELED.code(), CANCELABLE_TASK_STATUSES, now);
+                taskId, GroupBatchTaskStatus.CANCELED.code(), CANCELABLE_TASK_STATUSES, scope, now);
         return canceled;
     }
 
@@ -115,20 +119,29 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
      */
     private GroupBatchTaskAcceptedVO submit(
             GroupBatchTaskType type, GroupBatchSubmitDTO dto, long operatorId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.actorUserId() == null || scope.actorUserId() != operatorId) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "批量任务操作者身份不一致");
+        }
         List<Long> requested = distinctIds(dto);
         String requestId = requireRequestId(dto);
-        GroupBatchTask existing = taskMapper.selectByRequestId(requestId);
+        GroupBatchTask existing = taskMapper.selectByRequestId(requestId, scope.actorUserId());
         if (existing != null) {
             return accepted(existing);
         }
-        List<Long> targets = visibleGroupIds(requested);
+        List<GroupLink> targets = visibleGroups(requested, scope);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope, targets.stream().map(GroupLink::getOwnerUserId).toList(), "批量任务群组");
+        List<Long> targetIds = targets.stream().map(GroupLink::getId).toList();
         Set<Long> blocked = type == GroupBatchTaskType.REFRESH_LINK
-                ? refreshBlockedIds(targets)
+                ? refreshBlockedIds(targetIds)
                 : Set.of();
         long now = System.currentTimeMillis();
-        GroupBatchTask task = task(type, requestId, operatorId, targets.size(), blocked.size(), now);
+        GroupBatchTask task = task(
+                type, requestId, scope.actorUserId(), operatorId,
+                targetIds.size(), blocked.size(), now);
         taskMapper.insert(task);
-        itemMapper.batchInsert(items(task, targets, blocked, now));
+        itemMapper.batchInsert(items(task, targetIds, blocked, now));
         // 两类批量都由后台 Worker 写群快照 Outbox；提交请求不等待协议结果。
         return accepted(task);
     }
@@ -160,6 +173,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
     private static GroupBatchTask task(
             GroupBatchTaskType type,
             String requestId,
+            long ownerUserId,
             long operatorId,
             int totalCount,
             int blockedCount,
@@ -167,6 +181,7 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
         boolean settledOnSubmit = blockedCount >= totalCount;
         GroupBatchTask task = new GroupBatchTask();
         task.setTenantId(TenantContext.get());
+        task.setOwnerUserId(ownerUserId);
         task.setTaskType(type.code());
         // 全部目标都在提交阶段被拒时任务已无事可做，直接落终态，避免执行器永远等不到明细。
         task.setStatus(settledOnSubmit
@@ -198,14 +213,13 @@ public class GroupBatchTaskServiceImpl implements GroupBatchTaskService {
                 .toList();
     }
 
-    private List<Long> visibleGroupIds(List<Long> requested) {
-        List<GroupLink> visible = groupLinkMapper.selectActiveByIds(requested);
-        if (visible == null || visible.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "所选群组不存在或已删除");
+    private List<GroupLink> visibleGroups(List<Long> requested, DataScope scope) {
+        List<GroupLink> visible = groupLinkMapper.selectActiveByIds(
+                requested, scope);
+        if (visible == null || visible.size() != requested.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分所选群组不存在或已删除");
         }
-        Set<Long> allowed = new LinkedHashSet<>();
-        visible.forEach(link -> allowed.add(link.getId()));
-        return requested.stream().filter(allowed::contains).toList();
+        return List.copyOf(visible);
     }
 
     private Set<Long> refreshBlockedIds(List<Long> targets) {

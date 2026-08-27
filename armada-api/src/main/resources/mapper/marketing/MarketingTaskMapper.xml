@@ -6,6 +6,7 @@
     <resultMap id="MarketingTaskResultMap" type="com.armada.marketing.model.entity.MarketingTask">
         <id column="id" property="id"/>
         <result column="tenant_id" property="tenantId"/>
+        <result column="owner_user_id" property="ownerUserId"/>
         <result column="task_name" property="taskName"/>
         <result column="business_type" property="businessType"/>
         <result column="account_group_id" property="accountGroupId"/>
@@ -99,7 +100,7 @@
     </resultMap>
 
     <sql id="TaskColumns">
-        id, tenant_id, task_name, business_type, account_group_id, account_group_name, marketing_template_id,
+        id, tenant_id, owner_user_id, task_name, business_type, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, status, selected_account_count, target_group_count, target_pair_count,
         sent_message_count, failed_message_count,
         send_per_round, account_group_send_interval_ms, send_interval_seconds,
@@ -123,6 +124,13 @@
         <where>
             business_type = 1
             AND deleted_at IS NULL
+            <choose>
+                <when test="q.dataScope != null and q.dataScope.isSelf()">
+                    AND owner_user_id = #{q.dataScope.actorUserId}
+                </when>
+                <when test="q.dataScope != null and q.dataScope.isAll()"></when>
+                <otherwise>AND 1 = 0</otherwise>
+            </choose>
             <if test="q.id != null">AND id = #{q.id}</if>
             <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
             <if test="q.status != null">AND status = #{q.status}</if>
@@ -134,7 +142,7 @@
     <insert id="insertTask" parameterType="com.armada.marketing.model.entity.MarketingTask"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_task
-            (task_name, business_type, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
+            (owner_user_id, task_name, business_type, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
              status, selected_account_count, target_group_count, target_pair_count, sent_message_count,
              failed_message_count, send_per_round, account_group_send_interval_ms, send_interval_seconds,
              is_online_check_enabled, is_abnormal_group_skipped, is_auto_retry_enabled, retry_limit,
@@ -142,7 +150,7 @@
              current_round_no, remark, account_group_send_at, task_start_at, task_end_at, started_at,
              next_round_at, last_round_started_at, last_sent_at, finished_at, created_by, created_at, updated_at)
         VALUES
-            (#{taskName}, #{businessType}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
+            (#{ownerUserId}, #{taskName}, #{businessType}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{status}, #{selectedAccountCount}, #{targetGroupCount}, #{targetPairCount}, #{sentMessageCount},
              #{failedMessageCount}, #{sendPerRound}, #{accountGroupSendIntervalMs}, #{sendIntervalSeconds},
              #{onlineCheckEnabled}, #{abnormalGroupSkipped}, #{autoRetryEnabled}, #{retryLimit},
@@ -183,6 +191,17 @@
         SELECT <include refid="TaskColumns"/>
         FROM marketing_task
         WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectTaskByIdForScope" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE id = #{id} AND deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
     </select>
 
     <select id="selectTaskByIdForUpdate" resultMap="MarketingTaskResultMap">
@@ -1191,6 +1210,18 @@
           AND status IN (1, 2, 5)
           AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="selectOrdinaryByTenantAndIdsForUpdate" resultMap="MarketingTaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM marketing_task
+        WHERE tenant_id = #{tenantId}
+          AND deleted_at IS NULL
+          AND business_type = 1
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY id ASC
+        FOR UPDATE
     </select>
 
     <update id="batchSoftDelete">

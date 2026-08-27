@@ -9,6 +9,9 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
@@ -51,16 +54,20 @@ class PullTaskStandardStartServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(501L));
         PullTaskNormalLinkH2Support.resetSchema(dataSource,
                 task(1L, 7L, "WAIT_START"),
                 task(2L, 7L, "PAUSED"),
                 task(3L, 8L, "WAIT_START"),
-                setting(1L, 7L));
+                unownedTask(5L, 7L, "WAIT_START"),
+                setting(1L, 7L),
+                setting(5L, 7L));
         reset(dispatchTrigger);
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -102,11 +109,29 @@ class PullTaskStandardStartServiceTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    @Test
+    void administratorCannotStartHistoricalUnownedTask() {
+        assertThatThrownBy(() -> startService.start(5L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        assertThat(taskMapper.selectLifecycle(5L).getStatus()).isEqualTo("WAIT_START");
+        verify(dispatchTrigger, org.mockito.Mockito.never()).dispatchAfterCommit();
+    }
+
     private static String task(long id, long tenantId, String status) {
         return "INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
                 + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
-                + ", 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + ", 501, 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + "', 1, '{}', 100, 100)";
+    }
+
+    private static String unownedTask(long id, long tenantId, String status) {
+        return "INSERT INTO pull_task "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
+                + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
+                + ", NULL, 'STANDARD', 'historical-task', 'NORMAL_LINK', '" + status
                 + "', 1, '{}', 100, 100)";
     }
 

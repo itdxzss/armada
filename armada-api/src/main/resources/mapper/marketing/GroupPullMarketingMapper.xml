@@ -196,6 +196,13 @@
     <sql id="TaskListFilter">
         mt.deleted_at IS NULL
         AND mt.business_type = 2
+        <choose>
+            <when test="q.dataScope != null and q.dataScope.isSelf()">
+                AND mt.owner_user_id = #{q.dataScope.actorUserId}
+            </when>
+            <when test="q.dataScope != null and q.dataScope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
         <if test="q.id != null">AND mt.id = #{q.id}</if>
         <if test="q.keyword != null and q.keyword != ''">
             AND mt.task_name LIKE CONCAT('%', #{q.keyword}, '%')
@@ -329,6 +336,48 @@
           AND mt.deleted_at IS NULL
     </select>
 
+    <select id="selectTaskDetailForScope" resultMap="TaskDetailResultMap">
+        SELECT mt.id AS id,
+               mt.task_name AS taskName,
+               mt.status AS status,
+               gp.block_reason AS blockReason,
+               gp.resource_status AS resourceStatus,
+               gp.builder_group_id AS builderGroupId,
+               gp.success_group_id AS successGroupId,
+               gp.failure_group_id AS failureGroupId,
+               mt.account_group_id AS marketingGroupId,
+               gp.marketing_account_group_limit AS marketingAccountGroupLimit,
+               mt.marketing_template_id AS marketingTemplateId,
+               mt.send_interval_seconds AS sendIntervalSeconds,
+               gp.group_name_prefix AS groupNamePrefix,
+               gp.friend_retry_limit AS friendRetryLimit,
+               gp.material_per_group AS materialPerGroup,
+               gp.material_entry_interval_seconds AS materialEntryIntervalSeconds,
+               gp.speak_permission AS speakPermission,
+               gp.builder_exit_enabled AS builderExitEnabled,
+               mt.remark AS remark,
+               mt.task_end_at AS taskEndAt,
+               COALESCE(material_stat.totalDataCount, 0) AS totalDataCount,
+               COALESCE(material_stat.completedDataCount, 0) AS completedDataCount,
+               COALESCE(execution_stat.successGroupCount, 0) AS successGroupCount,
+               COALESCE(execution_stat.failedGroupCount, 0) AS failedGroupCount,
+               COALESCE(gp.marketing_account_total_count, 0) AS marketingAccountTotalCount,
+               COALESCE(account_stat.usedMarketingAccountCount, 0) AS usedMarketingAccountCount,
+               mt.created_at AS createdAt,
+               mt.updated_at AS updatedAt
+        FROM marketing_task mt
+        JOIN group_pull_marketing_task gp ON gp.marketing_task_id = mt.id
+        <include refid="TaskSummaryJoins"/>
+        WHERE mt.id = #{taskId}
+          AND mt.business_type = 2
+          AND mt.deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND mt.owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
+    </select>
+
     <select id="countTaskGroups" resultType="long">
         SELECT COUNT(*)
         FROM group_pull_marketing_execution
@@ -394,6 +443,26 @@
         WHERE id = #{taskId}
           AND business_type = 2
           AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <select id="selectTaskForUpdateForScope" resultType="com.armada.marketing.model.entity.MarketingTask">
+        SELECT id,
+               tenant_id AS tenantId,
+               owner_user_id AS ownerUserId,
+               business_type AS businessType,
+               account_group_id AS accountGroupId,
+               status,
+               task_end_at AS taskEndAt
+        FROM marketing_task
+        WHERE id = #{taskId}
+          AND business_type = 2
+          AND deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
         FOR UPDATE
     </select>
 
@@ -1029,6 +1098,7 @@
     <select id="selectAllocatableTaskDispatches"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow">
         SELECT task.tenant_id AS tenantId,
+               task.owner_user_id AS ownerUserId,
                task.id AS taskId
         FROM marketing_task task
         JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id
@@ -1045,6 +1115,7 @@
     <select id="selectDueExecutionDispatches"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullExecutionDispatchRow">
         SELECT execution.tenant_id AS tenantId,
+               task.owner_user_id AS ownerUserId,
                execution.id AS executionId
         FROM group_pull_marketing_execution execution
         JOIN marketing_task task ON task.id = execution.task_id
@@ -1081,6 +1152,7 @@
     <select id="selectReleasingTaskDispatches"
             resultType="com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow">
         SELECT task.tenant_id AS tenantId,
+               task.owner_user_id AS ownerUserId,
                task.id AS taskId
         FROM marketing_task task
         JOIN group_pull_marketing_task pull_task ON pull_task.marketing_task_id = task.id

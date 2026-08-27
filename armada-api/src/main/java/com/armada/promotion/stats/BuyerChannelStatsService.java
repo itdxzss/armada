@@ -5,6 +5,8 @@ import static com.armada.promotion.stats.BuyerChannelStatsModels.*;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -39,39 +41,62 @@ public class BuyerChannelStatsService {
 
     /** 返回筛选项；父级用户关系当前未建模，因此该项真实返回空列表。 */
     public Options options(long tenantId) {
+        DataScope scope = requireUserScope();
+        String channelSql = "SELECT id,channel_name FROM promotion_channel "
+                + "WHERE tenant_id=? AND deleted_at IS NULL";
+        List<Object> channelArgs = new ArrayList<>();
+        channelArgs.add(tenantId);
+        if (scope.isSelf()) {
+            channelSql += " AND owner_user_id=?";
+            channelArgs.add(scope.actorUserId());
+        }
+        channelSql += " ORDER BY channel_name,id";
         List<Option> channels = jdbc.query(
-                "SELECT id,channel_name FROM promotion_channel WHERE tenant_id=? AND deleted_at IS NULL ORDER BY channel_name,id",
-                (rs, n) -> new Option(rs.getLong(1), rs.getString(2)), tenantId);
+                channelSql,
+                (rs, n) -> new Option(rs.getLong(1), rs.getString(2)),
+                channelArgs.toArray());
         List<Option> templates = jdbc.query(
                 "SELECT id,template_name FROM promotion_landing_template WHERE tenant_id=? AND deleted_at IS NULL ORDER BY template_name,id",
                 (rs, n) -> new Option(rs.getLong(1), rs.getString(2)), tenantId);
         List<CountryOption> countries = jdbc.query(
                 "SELECT iso2,name_zh FROM country WHERE is_enabled=1 AND deleted_at IS NULL ORDER BY sort_order,id",
                 (rs, n) -> new CountryOption(rs.getString(1), rs.getString(2)));
+        String creatorSql = "SELECT id,COALESCE(NULLIF(nickname,''),username) FROM sys_user "
+                + "WHERE tenant_id=? AND status=1";
+        List<Object> creatorArgs = new ArrayList<>();
+        creatorArgs.add(tenantId);
+        if (scope.isSelf()) {
+            creatorSql += " AND id=?";
+            creatorArgs.add(scope.actorUserId());
+        }
+        creatorSql += " ORDER BY id";
         List<Option> creators = jdbc.query(
-                "SELECT id,COALESCE(NULLIF(nickname,''),username) FROM sys_user WHERE tenant_id=? AND status=1 ORDER BY id",
-                (rs, n) -> new Option(rs.getLong(1), rs.getString(2)), tenantId);
+                creatorSql,
+                (rs, n) -> new Option(rs.getLong(1), rs.getString(2)),
+                creatorArgs.toArray());
         return new Options(channels, templates, countries, creators, List.of());
     }
 
     /** 查询渠道区间汇总。没有采集来源的数据保持 0，不生成模拟值。 */
     public List<StatsRow> list(Query query, long tenantId) {
+        DataScope scope = requireUserScope();
         DateRange range = range(query.dateStart(), query.dateEnd());
-        List<ChannelMeta> channels = channels(query, tenantId);
+        List<ChannelMeta> channels = channels(query, tenantId, scope);
         List<StatsRow> rows = channels.stream()
-                .map(channel -> summary(channel, range, tenantId))
+                .map(channel -> summary(channel, range, tenantId, scope))
                 .toList();
         return sort(rows, query.sortField(), query.sortOrder());
     }
 
     /** 查询单渠道每日明细，日期连续返回，缺失日为真实零值。 */
     public List<DailyRow> daily(long channelId, String countryCode, String start, String end, long tenantId) {
+        DataScope scope = requireUserScope();
         DateRange range = range(start, end);
-        ChannelMeta channel = requireChannel(channelId, tenantId);
+        ChannelMeta channel = requireChannel(channelId, tenantId, scope);
         String country = normalizeCountry(countryCode, channel.countryCode());
         List<DailyRow> rows = new ArrayList<>();
         for (LocalDate date = range.start(); !date.isAfter(range.end()); date = date.plusDays(1)) {
-            rows.add(dailyRow(channel, country, date, tenantId));
+            rows.add(dailyRow(channel, country, date, tenantId, scope));
         }
         return rows;
     }
@@ -79,8 +104,9 @@ public class BuyerChannelStatsService {
     /** 以乐观锁保存某日人工广告数据，避免两人编辑时静默覆盖。 */
     @Transactional(rollbackFor = Exception.class)
     public UpdateResult update(long channelId, LocalDate date, DailyInput input, AuthPrincipal principal) {
+        DataScope scope = DataScopeAccess.requireCurrentForPrincipal(principal);
         DateRange summaryRange = range(input.dateStart(), input.dateEnd());
-        ChannelMeta channel = requireChannel(channelId, principal.tenantId());
+        ChannelMeta channel = requireChannel(channelId, principal.tenantId(), scope);
         String country = normalizeCountry(input.countryCode(), channel.countryCode());
         validateMetric(input);
         int version = input.version() == null ? 0 : input.version();
@@ -93,7 +119,7 @@ public class BuyerChannelStatsService {
                                 "other_fee,version,updated_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)",
                         principal.tenantId(), channelId, country, date, amount(input.spend()), count(input.impressions()),
                         count(input.clicks()), amount(input.serviceRate()), amount(input.otherFee()),
-                        principal.userId(), now, now);
+                        scope.actorUserId(), now, now);
             } catch (DuplicateKeyException ex) {
                 throw new BusinessException(ErrorCode.CONFLICT, "该日期数据已被其他人新增，请刷新后重试");
             }
@@ -102,7 +128,7 @@ public class BuyerChannelStatsService {
                             "service_rate=?,other_fee=?,version=version+1,updated_by=?,updated_at=? " +
                             "WHERE tenant_id=? AND channel_id=? AND country_code=? AND stat_date=? AND version=?",
                     amount(input.spend()), count(input.impressions()), count(input.clicks()),
-                    amount(input.serviceRate()), amount(input.otherFee()), principal.userId(), now,
+                    amount(input.serviceRate()), amount(input.otherFee()), scope.actorUserId(), now,
                     principal.tenantId(), channelId, country, date, version);
             if (affected == 0) {
                 throw new BusinessException(ErrorCode.CONFLICT, "数据已被其他人修改，请刷新后重试");
@@ -110,12 +136,12 @@ public class BuyerChannelStatsService {
         }
         log.info("渠道日广告数据保存 tenantId={} channelId={} country={} date={} oldVersion={} operator={}",
                 principal.tenantId(), channelId, country, date, version, principal.username());
-        DailyRow daily = dailyRow(channel, country, date, principal.tenantId());
-        StatsRow summary = summary(channel, summaryRange, principal.tenantId());
+        DailyRow daily = dailyRow(channel, country, date, principal.tenantId(), scope);
+        StatsRow summary = summary(channel, summaryRange, principal.tenantId(), scope);
         return new UpdateResult(daily, summary);
     }
 
-    private List<ChannelMeta> channels(Query query, long tenantId) {
+    private List<ChannelMeta> channels(Query query, long tenantId, DataScope scope) {
         StringBuilder sql = new StringBuilder("SELECT c.id,c.channel_name,c.channel_code,c.target_country_value," +
                 "country.name_zh," +
                 "t.id,t.template_name FROM promotion_channel c " +
@@ -125,6 +151,9 @@ public class BuyerChannelStatsService {
                 "WHERE c.tenant_id=? AND c.deleted_at IS NULL");
         List<Object> args = new ArrayList<>();
         args.add(tenantId);
+        if (scope.isSelf()) {
+            sql.append(" AND c.owner_user_id=?"); args.add(scope.actorUserId());
+        }
         if (query.channelId() != null) {
             sql.append(" AND c.id=?"); args.add(query.channelId());
         }
@@ -138,7 +167,7 @@ public class BuyerChannelStatsService {
             sql.append(" AND c.target_country_value=?"); args.add(query.countryCode().trim().toUpperCase());
         }
         if (query.createdBy() != null) {
-            sql.append(" AND c.created_by=?"); args.add(query.createdBy());
+            sql.append(" AND c.owner_user_id=?"); args.add(query.createdBy());
         }
         if (query.parentUserId() != null) {
             return List.of();
@@ -155,17 +184,17 @@ public class BuyerChannelStatsService {
         }, args.toArray());
     }
 
-    private ChannelMeta requireChannel(long channelId, long tenantId) {
+    private ChannelMeta requireChannel(long channelId, long tenantId, DataScope scope) {
         Query query = new Query("2000-01-01", "2000-01-01", channelId,
                 null, null, null, null, null, null, null);
-        List<ChannelMeta> rows = channels(query, tenantId);
+        List<ChannelMeta> rows = channels(query, tenantId, scope);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "推广渠道不存在");
         }
         return rows.get(0);
     }
 
-    private StatsRow summary(ChannelMeta channel, DateRange range, long tenantId) {
+    private StatsRow summary(ChannelMeta channel, DateRange range, long tenantId, DataScope scope) {
         String country = channel.countryCode();
         AdMetric ad = jdbc.queryForObject("SELECT COALESCE(SUM(spend),0),COALESCE(SUM(impressions),0)," +
                         "COALESCE(SUM(clicks),0),COALESCE(SUM(spend*service_rate),0),COALESCE(SUM(other_fee),0) " +
@@ -175,11 +204,12 @@ public class BuyerChannelStatsService {
                         rs.getBigDecimal(4), rs.getBigDecimal(5), 0),
                 tenantId, channel.id(), country, range.start(), range.end());
         PairMetric pair = pairing(channel.id(), range.startEpoch(), range.endExclusiveEpoch(), tenantId);
-        long unbind = unbind(channel.id(), range.startEpoch(), range.endExclusiveEpoch(), tenantId);
+        long unbind = unbind(channel.id(), range.startEpoch(), range.endExclusiveEpoch(), tenantId, scope);
         return stats(channel, ad, pair, unbind);
     }
 
-    private DailyRow dailyRow(ChannelMeta channel, String country, LocalDate date, long tenantId) {
+    private DailyRow dailyRow(
+            ChannelMeta channel, String country, LocalDate date, long tenantId, DataScope scope) {
         List<AdMetric> ads = jdbc.query("SELECT spend,impressions,clicks,spend*service_rate,other_fee,version " +
                         "FROM promotion_channel_daily_ad_metric WHERE tenant_id=? AND channel_id=? " +
                         "AND country_code=? AND stat_date=?",
@@ -190,7 +220,7 @@ public class BuyerChannelStatsService {
         long start = date.atStartOfDay(BUSINESS_ZONE).toInstant().toEpochMilli();
         long end = date.plusDays(1).atStartOfDay(BUSINESS_ZONE).toInstant().toEpochMilli();
         PairMetric pair = pairing(channel.id(), start, end, tenantId);
-        long unbind = unbind(channel.id(), start, end, tenantId);
+        long unbind = unbind(channel.id(), start, end, tenantId, scope);
         BigDecimal rate = ratio(ad.serviceFee(), ad.spend());
         Derived derived = derived(ad.spend(), ad.impressions(), ad.clicks(), rate,
                 ad.serviceFee(), ad.otherFee(), 0, pair.requestUsers(), pair.successUsers(), unbind);
@@ -211,13 +241,28 @@ public class BuyerChannelStatsService {
                 tenantId, channelId, start, end);
     }
 
-    private long unbind(long channelId, long start, long end, long tenantId) {
-        Long value = jdbc.queryForObject("SELECT COUNT(*) FROM account a JOIN account_state s " +
-                        "ON s.tenant_id=a.tenant_id AND s.account_id=a.id " +
-                        "WHERE a.tenant_id=? AND a.promotion_channel_id=? AND a.deleted_at IS NULL " +
-                        "AND s.account_state=5 AND s.updated_at>=? AND s.updated_at<?",
-                Long.class, tenantId, channelId, start, end);
+    private long unbind(
+            long channelId, long start, long end, long tenantId, DataScope scope) {
+        String sql = "SELECT COUNT(*) FROM account a JOIN account_state s "
+                + "ON s.tenant_id=a.tenant_id AND s.account_id=a.id "
+                + "WHERE a.tenant_id=? AND a.promotion_channel_id=? AND a.deleted_at IS NULL "
+                + "AND s.account_state=5 AND s.updated_at>=? AND s.updated_at<?";
+        List<Object> args = new ArrayList<>(List.of(tenantId, channelId, start, end));
+        if (scope.isSelf()) {
+            sql += " AND a.owner_user_id=?";
+            args.add(scope.actorUserId());
+        }
+        Long value = jdbc.queryForObject(sql, Long.class, args.toArray());
         return value == null ? 0 : value;
+    }
+
+    /** 统计管理接口只接受登录用户范围；缺失和 SYSTEM 均失败关闭。 */
+    private static DataScope requireUserScope() {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (!scope.isSelf() && !scope.isAll()) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "后台范围不能直接访问渠道统计");
+        }
+        return scope;
     }
 
     private static StatsRow stats(ChannelMeta channel, AdMetric ad, PairMetric pair, long unbind) {

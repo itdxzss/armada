@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
@@ -15,6 +16,9 @@ import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -38,6 +42,7 @@ class AccountGroupMembershipStatusServiceImplTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -94,6 +99,36 @@ class AccountGroupMembershipStatusServiceImplTest {
     }
 
     @Test
+    void eventRestoresSelfScopeFromPersistedAccountOwner() {
+        Mockito.when(currentMapper.selectContext(10L)).thenReturn(context());
+        Mockito.when(registry.registerAccountObservedGroup(
+                        Mockito.anyString(), Mockito.isNull(), Mockito.any(), Mockito.anyLong()))
+                .thenAnswer(invocation -> {
+                    assertThat(DataScopeContext.requireCurrent().isSelf()).isTrue();
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(501L);
+                    return 20L;
+                });
+
+        service.applyMembershipChanged(event("remove"));
+
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
+    void historicalUnownedAccountIsRejectedBeforePrivateGroupWrite() {
+        Context unowned = new Context(
+                10L, null, "15550000001", "ANDROID", "protocol-account-10",
+                2, 1, 0, 1_000L, null, null);
+        Mockito.when(currentMapper.selectContext(10L)).thenReturn(unowned);
+
+        assertThatThrownBy(() -> service.applyMembershipChanged(event("remove")))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        Mockito.verifyNoInteractions(registry, persistence, classification);
+    }
+
+    @Test
     void findCurrentStatusesNormalizesAndDeduplicatesKeys() {
         List<AccountGroupMembershipLookup> normalized = List.of(
                 new AccountGroupMembershipLookup(10L, "120363001@g.us"));
@@ -123,7 +158,7 @@ class AccountGroupMembershipStatusServiceImplTest {
     }
 
     private static Context context() {
-        return new Context(10L, "15550000001", "ANDROID", "protocol-account-10",
+        return new Context(10L, 501L, "15550000001", "ANDROID", "protocol-account-10",
                 2, 1, 0, 1_000L, null, null);
     }
 

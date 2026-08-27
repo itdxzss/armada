@@ -2,14 +2,23 @@ package com.armada.marketing.grouppull.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.armada.marketing.grouppull.mapper.GroupPullMarketingMapper;
 import com.armada.marketing.grouppull.model.dto.GroupPullMarketingGroupQuery;
 import com.armada.marketing.grouppull.model.entity.GroupPullMarketingTask;
 import com.armada.marketing.grouppull.model.vo.GroupPullMarketingGroupVO;
 import com.armada.marketing.grouppull.service.impl.GroupPullMarketingTaskServiceImpl;
+import com.armada.marketing.mapper.MarketingTaskMapper;
+import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,7 +44,12 @@ class GroupPullMarketingTaskGroupServiceTest {
         query.setPage(2);
         query.setPageSize(10);
 
-        PageResult<GroupPullMarketingGroupVO> result = service(mapper).groups(101L, query);
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        when(taskMapper.selectTaskByIdForScope(eq(101L), any())).thenReturn(taskRoot(101L));
+        PageResult<GroupPullMarketingGroupVO> result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(11L))) {
+            result = service(mapper, taskMapper).groups(101L, query);
+        }
 
         assertThat(result.list()).containsExactly(group);
         assertThat(result.page()).isEqualTo(2);
@@ -53,14 +67,27 @@ class GroupPullMarketingTaskGroupServiceTest {
             throw new UnsupportedOperationException(method);
         });
 
-        assertThatThrownBy(() -> service(mapper).groups(999L, null))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("拉群营销任务配置不存在");
+        MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(11L))) {
+            assertThatThrownBy(() -> service(mapper, taskMapper).groups(999L, null))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("拉群营销任务不存在");
+        }
     }
 
-    private static GroupPullMarketingTaskServiceImpl service(GroupPullMarketingMapper mapper) {
+    private static GroupPullMarketingTaskServiceImpl service(
+            GroupPullMarketingMapper mapper,
+            MarketingTaskMapper taskMapper) {
         return new GroupPullMarketingTaskServiceImpl(
-                mapper, null, null, null, null, null, null, null, null);
+                mapper, taskMapper, null, null, null, null, null, null, null);
+    }
+
+    private static MarketingTask taskRoot(long id) {
+        MarketingTask task = new MarketingTask();
+        task.setId(id);
+        task.setOwnerUserId(11L);
+        task.setBusinessType(MarketingBusinessType.GROUP_PULL.code());
+        return task;
     }
 
     private static GroupPullMarketingTask task() {

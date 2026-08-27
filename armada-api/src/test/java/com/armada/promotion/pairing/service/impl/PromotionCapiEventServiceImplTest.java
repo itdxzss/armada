@@ -59,6 +59,7 @@ class PromotionCapiEventServiceImplTest {
                 .doesNotContain("919876543210");
         assertThat(rows).allSatisfy(row -> {
             assertThat(row.getTenantId()).isEqualTo(7L);
+            assertThat(row.getOwnerUserId()).isEqualTo(81L);
             assertThat(row.getPairingSessionId()).isEqualTo(7001L);
             assertThat(row.getEventId()).startsWith("capi_").hasSize(37);
             assertThat(row.getFbc()).isEqualTo("fb.1.1.click");
@@ -84,6 +85,7 @@ class PromotionCapiEventServiceImplTest {
         PromotionPairingSession session = new PromotionPairingSession();
         session.setId(7001L);
         session.setTenantId(7L);
+        session.setOwnerUserId(81L);
         session.setPromotionChannelId(501L);
         session.setPhone("919876543210");
         return session;

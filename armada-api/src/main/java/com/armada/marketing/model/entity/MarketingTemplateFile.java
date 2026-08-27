@@ -7,6 +7,7 @@ public class MarketingTemplateFile {
 
     private Long id;
     private Long tenantId;
+    private Long ownerUserId;
     private String originalFilename;
     private String contentType;
     private Long sizeBytes;
@@ -28,6 +29,14 @@ public class MarketingTemplateFile {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getOriginalFilename() {

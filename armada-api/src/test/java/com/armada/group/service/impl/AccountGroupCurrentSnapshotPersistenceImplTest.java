@@ -103,6 +103,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     void incompleteFirstSnapshotKeepsBaselinePending() {
         when(mapper.selectContext(ACCOUNT_ID)).thenReturn(new Context(
                 ACCOUNT_ID,
+                501L,
                 "923300000010",
                 "ANDROID",
                 "acc-10",
@@ -415,6 +416,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     private void stubSnapshotContext() {
         when(mapper.selectContext(ACCOUNT_ID)).thenReturn(new Context(
                 ACCOUNT_ID,
+                501L,
                 "923300000010",
                 "WEB",
                 "acc-10",

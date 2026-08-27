@@ -17,6 +17,9 @@ import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,22 +101,24 @@ public class AccountGroupMembershipReportPhaseService {
                     lockedContext == null ? null : lockedContext.lastCompleteAt());
             return CompatibilityPhaseResult.stale();
         }
-        AccountGroupCompatibilitySnapshot prepared = snapshotService.prepareVisibleGroups(
-                event.accountId(), event.groups(), snapshotComplete, syncAt,
-                event.eventId(), event.source(), observedBackend);
-        List<AccountGroupMembershipSnapshot> groups = prepared.groups();
-        GroupClassificationPlan classificationPlan = prepared.classificationPlan();
-        if (pendingBaseline && !groups.isEmpty()) {
-            classificationPlan = classificationPlan.merge(
-                    classificationService.stageHistoricalBaseline(
-                    groups.stream()
-                            .map(group -> new GroupClassificationCandidate(
-                                    group.groupLinkId(), group.groupJid(), group.groupName()))
-                            .toList(),
-                    observedBackend,
-                    syncAt));
+        try (DataScopeContext.Scope ignored = openAccountScope(lockedContext)) {
+            AccountGroupCompatibilitySnapshot prepared = snapshotService.prepareVisibleGroups(
+                    event.accountId(), event.groups(), snapshotComplete, syncAt,
+                    event.eventId(), event.source(), observedBackend);
+            List<AccountGroupMembershipSnapshot> groups = prepared.groups();
+            GroupClassificationPlan classificationPlan = prepared.classificationPlan();
+            if (pendingBaseline && !groups.isEmpty()) {
+                classificationPlan = classificationPlan.merge(
+                        classificationService.stageHistoricalBaseline(
+                        groups.stream()
+                                .map(group -> new GroupClassificationCandidate(
+                                        group.groupLinkId(), group.groupJid(), group.groupName()))
+                                .toList(),
+                        observedBackend,
+                        syncAt));
+            }
+            return CompatibilityPhaseResult.accepted(groups, classificationPlan);
         }
-        return CompatibilityPhaseResult.accepted(groups, classificationPlan);
     }
 
     /**
@@ -144,21 +149,23 @@ public class AccountGroupMembershipReportPhaseService {
                     lockedContext == null ? null : lockedContext.lastCompleteAt());
             return new AccountGroupMembershipChangeSet(List.of(), List.of());
         }
-        lockLegacyGroups(legacyGroups);
-        AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
-                event.accountId(), event.groups(), snapshotComplete, syncAt,
-                event.eventId(), legacyGroups);
-        long now = System.currentTimeMillis();
-        enqueueClassificationTasks(classificationPlan, syncAt);
-        if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
-            List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
-                    .map(group -> new MarketingNewGroupDTO(
-                            group.groupLinkId(), group.groupJid(), group.groupName()))
-                    .toList();
-            immediateSendService.enqueueNewGroups(
-                    event.accountId(), addedGroups, syncAt > 0L ? syncAt : now);
+        try (DataScopeContext.Scope ignored = openAccountScope(lockedContext)) {
+            lockLegacyGroups(legacyGroups);
+            AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
+                    event.accountId(), event.groups(), snapshotComplete, syncAt,
+                    event.eventId(), legacyGroups);
+            long now = System.currentTimeMillis();
+            enqueueClassificationTasks(classificationPlan, syncAt);
+            if (!pendingBaseline && !changes.addedGroups().isEmpty()) {
+                List<MarketingNewGroupDTO> addedGroups = changes.addedGroups().stream()
+                        .map(group -> new MarketingNewGroupDTO(
+                                group.groupLinkId(), group.groupJid(), group.groupName()))
+                        .toList();
+                immediateSendService.enqueueNewGroups(
+                        event.accountId(), addedGroups, syncAt > 0L ? syncAt : now);
+            }
+            return changes;
         }
-        return changes;
     }
 
     /**
@@ -180,15 +187,18 @@ public class AccountGroupMembershipReportPhaseService {
             long syncAt,
             String eventId,
             AccountGroupCompatibilitySnapshot prepared) {
-        if (currentSnapshotMapper.selectContextForUpdate(accountId) == null) {
+        Context context = currentSnapshotMapper.selectContextForUpdate(accountId);
+        if (context == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新群模型快照找不到活跃账号");
         }
-        List<AccountGroupMembershipSnapshot> legacyGroups = prepared.groups();
-        lockLegacyGroups(legacyGroups);
-        AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
-                accountId, groups, true, syncAt, eventId, legacyGroups);
-        enqueueClassificationTasks(prepared.classificationPlan(), syncAt);
-        return changes;
+        try (DataScopeContext.Scope ignored = openAccountScope(context)) {
+            List<AccountGroupMembershipSnapshot> legacyGroups = prepared.groups();
+            lockLegacyGroups(legacyGroups);
+            AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
+                    accountId, groups, true, syncAt, eventId, legacyGroups);
+            enqueueClassificationTasks(prepared.classificationPlan(), syncAt);
+            return changes;
+        }
     }
 
     private void lockLegacyGroups(List<AccountGroupMembershipSnapshot> legacyGroups) {
@@ -199,8 +209,17 @@ public class AccountGroupMembershipReportPhaseService {
                 .sorted()
                 .toList();
         if (!legacyGroupLinkIds.isEmpty()) {
-            groupLinkMapper.selectActiveByIdsForUpdate(legacyGroupLinkIds);
+            groupLinkMapper.selectActiveByIdsForUpdate(
+                    legacyGroupLinkIds, DataScopeAccess.requireCurrent());
         }
+    }
+
+    private static DataScopeContext.Scope openAccountScope(Context context) {
+        if (context.ownerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED, "历史无归属账号不能自动写入用户群数据");
+        }
+        return DataScopeContext.open(DataScope.self(context.ownerUserId()));
     }
 
     private void enqueueClassificationTasks(GroupClassificationPlan classificationPlan, long syncAt) {

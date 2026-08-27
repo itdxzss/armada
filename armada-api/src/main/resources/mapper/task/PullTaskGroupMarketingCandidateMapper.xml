@@ -2,8 +2,19 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper">
 
+  <sql id="handleDataScope">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND handle.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <sql id="candidateFacts">
     SELECT MAX(handle.id) AS groupLinkId,
+           handle.owner_user_id AS ownerUserId,
            current_group.group_jid AS groupJid,
            COALESCE(MAX(NULLIF(TRIM(current_profile.subject), '')),
                     MAX(NULLIF(TRIM(current_group.display_name), ''))) AS groupName,
@@ -85,6 +96,7 @@
              ranked.group_jid,
              ranked.join_task_id,
              ranked.join_task_name,
+             ranked.owner_user_id,
              ranked.joined_at,
              ranked.promoted_at,
              ranked.id
@@ -93,11 +105,12 @@
                r.group_jid,
                r.join_task_id,
                t.name AS join_task_name,
+               t.owner_user_id,
                r.joined_at,
                r.promoted_at,
                r.id,
                ROW_NUMBER() OVER (
-                 PARTITION BY r.tenant_id, r.group_jid
+                 PARTITION BY r.tenant_id, r.group_jid, t.owner_user_id
                  ORDER BY COALESCE(r.promoted_at, r.joined_at), r.id
                ) AS source_rank
         FROM join_task_result r
@@ -113,11 +126,16 @@
     ) jr
       ON jr.tenant_id = binding.tenant_id
      AND jr.group_jid = current_group.group_jid
+     AND (jr.owner_user_id = handle.owner_user_id
+          OR (jr.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
     LEFT JOIN pull_task_group_marketing_group_occupancy o
       ON o.tenant_id = binding.tenant_id
      AND o.group_jid = current_group.group_jid
      AND o.released_at IS NULL
     WHERE binding.tenant_id = #{tenantId}
+      AND (a.owner_user_id = handle.owner_user_id
+           OR (a.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
+      <include refid="handleDataScope"/>
       AND (handle.is_historical = 1 OR jr.id IS NOT NULL)
     <if test="_parameter.containsKey('query') and query != null
               and (query.managerPhone != null or query.accountGroupId != null)">
@@ -146,6 +164,10 @@
          AND filter_preview.group_link_id = filter_handle.id
         WHERE filter_binding.tenant_id = binding.tenant_id
           AND filter_binding.group_id = binding.group_id
+          AND (filter_handle.owner_user_id = handle.owner_user_id
+               OR (filter_handle.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
+          AND (fa.owner_user_id = filter_handle.owner_user_id
+               OR (fa.owner_user_id IS NULL AND filter_handle.owner_user_id IS NULL))
           AND (filter_participant.role IN (2, 3)
             OR REPLACE(SUBSTRING_INDEX(fa.ws_phone, '@', 1), '+', '')
                = REPLACE(SUBSTRING_INDEX(filter_preview.owner_phone, '@', 1), '+', ''))
@@ -157,7 +179,7 @@
         </if>
       )
     </if>
-    GROUP BY current_group.group_jid
+    GROUP BY current_group.group_jid, handle.owner_user_id
   </sql>
 
   <sql id="candidateFilter">
@@ -199,7 +221,7 @@
     SELECT candidate.*
     FROM (<include refid="candidateFacts"/>) candidate
     WHERE <include refid="candidateFilter"/>
-    ORDER BY candidate.groupJid ASC
+    ORDER BY candidate.groupJid ASC, candidate.ownerUserId ASC, candidate.groupLinkId ASC
     LIMIT #{limit} OFFSET #{offset}
   </select>
 
@@ -214,9 +236,10 @@
     ORDER BY candidate.groupJid ASC
   </select>
 
-  <select id="selectAccountsByGroupJids"
+  <select id="selectAccountsByGroupLinkIds"
           resultType="com.armada.task.model.vo.PullTaskGroupMarketingCandidateAccountRow">
-    SELECT current_group.group_jid AS groupJid,
+    SELECT handle.id AS groupLinkId,
+           current_group.group_jid AS groupJid,
            a.id AS accountId,
            a.ws_phone AS accountPhone,
            CASE
@@ -252,14 +275,17 @@
     LEFT JOIN group_link_preview legacy_preview
       ON legacy_preview.tenant_id = handle.tenant_id
      AND legacy_preview.group_link_id = handle.id
-    WHERE current_group.group_jid IN
-      <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
-        #{groupJid}
+    WHERE handle.id IN
+      <foreach collection="groupLinkIds" item="groupLinkId" open="(" separator="," close=")">
+        #{groupLinkId}
       </foreach>
+      AND (a.owner_user_id = handle.owner_user_id
+           OR (a.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
+      <include refid="handleDataScope"/>
       AND (self_participant.role IN (2, 3)
         OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
            = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
-    ORDER BY current_group.group_jid ASC,
+    ORDER BY handle.id ASC,
              CASE WHEN s.login_state = 1 THEN 0 ELSE 1 END,
              COALESCE(binding.last_observed_at, 0) DESC,
              a.id ASC

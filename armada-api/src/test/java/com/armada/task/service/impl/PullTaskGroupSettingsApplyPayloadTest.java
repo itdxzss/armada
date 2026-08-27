@@ -258,7 +258,7 @@ class PullTaskGroupSettingsApplyPayloadTest {
         execution.setSourceFileName(sourceFileName);
         when(executionMapper.selectById(11L)).thenReturn(execution);
         when(groupSettingMapper.selectByTaskId(100L)).thenReturn(setting);
-        when(avatarService.content(7L, AVATAR_FILE_KEY))
+        when(avatarService.contentForTaskExecution(7L, AVATAR_FILE_KEY))
                 .thenReturn(new PullTaskGroupAvatarContent("image/png", AVATAR_SOURCE_PNG));
         return hydrator.hydrate(row, objectMapper.readTree(row.getPayloadJson()));
     }

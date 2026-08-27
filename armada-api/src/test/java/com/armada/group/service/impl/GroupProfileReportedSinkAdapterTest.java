@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -22,6 +23,9 @@ import com.armada.account.model.entity.Account;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedEvent;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -72,6 +76,11 @@ class GroupProfileReportedSinkAdapterTest {
 
     @org.junit.jupiter.api.BeforeEach
     void buildAdapter() {
+        Account sourceAccount = new Account();
+        sourceAccount.setId(100L);
+        sourceAccount.setOwnerUserId(501L);
+        sourceAccount.setProtocolAccountId("protocol-account-100");
+        org.mockito.Mockito.when(accountMapper.selectActiveById(100L)).thenReturn(sourceAccount);
         adapter = new GroupProfileReportedSinkAdapter(
                 patchService, snapshotPersistence, taskMapper, batchItemMapper,
                 groupLinkRegistryService, creatorWriter, accountMapper,
@@ -81,6 +90,7 @@ class GroupProfileReportedSinkAdapterTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     /**
@@ -101,6 +111,43 @@ class GroupProfileReportedSinkAdapterTest {
         adapter.handleProfileReported(event(true, List.of()));
 
         verify(inviteLinkService).refreshCurrentInviteCode(eq(77L), eq("120363-abc@g.us"), eq(null));
+    }
+
+    @Test
+    void profileAndAsyncInviteRestoreScopeFromSourceAccountOwner() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                        anyString(), any(), any(), anyLong()))
+                .thenAnswer(invocation -> {
+                    assertThat(DataScopeContext.requireCurrent().isSelf()).isTrue();
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(501L);
+                    return 77L;
+                });
+        org.mockito.Mockito.doAnswer(invocation -> {
+                    assertThat(DataScopeContext.requireCurrent().isSelf()).isTrue();
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(501L);
+                    return null;
+                })
+                .when(inviteLinkService)
+                .refreshCurrentInviteCode(anyLong(), anyString(), any());
+
+        adapter.handleProfileReported(event(true, List.of()));
+
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
+    void historicalUnownedSourceAccountCannotWritePrivateGroupFacts() {
+        Account unowned = new Account();
+        unowned.setId(100L);
+        unowned.setProtocolAccountId("protocol-account-100");
+        org.mockito.Mockito.when(accountMapper.selectActiveById(100L)).thenReturn(unowned);
+
+        assertThatThrownBy(() -> adapter.handleProfileReported(event(true, List.of())))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verify(groupLinkRegistryService, never())
+                .registerAccountObservedGroup(anyString(), any(), any(), anyLong());
     }
 
     /**
@@ -329,6 +376,7 @@ class GroupProfileReportedSinkAdapterTest {
         // 角色，却不建绑定，就会出现"群主在控端、列表却判不可用"。
         Account controlled = new Account();
         controlled.setId(1649L);
+        controlled.setOwnerUserId(501L);
         controlled.setWsPhone("923048826465");
         org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
                 .thenReturn(List.of(controlled));
@@ -343,6 +391,25 @@ class GroupProfileReportedSinkAdapterTest {
         verify(snapshotPersistence).applyControlledParticipantObservation(
                 eq(1649L), eq("120363-abc@g.us"), eq(true), eq(true),
                 anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void controlledAccountFromAnotherOwnerIsNotBoundToTheReportedGroup() {
+        Account otherUsersAccount = new Account();
+        otherUsersAccount.setId(1649L);
+        otherUsersAccount.setOwnerUserId(777L);
+        otherUsersAccount.setWsPhone("923048826465");
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenReturn(List.of(otherUsersAccount));
+
+        adapter.handleProfileReported(event(true, List.of(
+                new ProtocolGroupProfileReportedEvent.Member(
+                        "923048826465@s.whatsapp.net", null, "923048826465",
+                        true, true, "superadmin"))));
+
+        verify(snapshotPersistence, never()).applyControlledParticipantObservation(
+                anyLong(), anyString(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean(), anyLong(), anyString(), anyString());
     }
 
     @Test

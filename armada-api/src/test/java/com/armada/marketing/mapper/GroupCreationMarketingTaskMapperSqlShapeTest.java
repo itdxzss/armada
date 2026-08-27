@@ -41,28 +41,28 @@ class GroupCreationMarketingTaskMapperSqlShapeTest {
                 .contains("collection=\"excludedAccountIds\"")
                 .contains("LIMIT 1");
         assertThat(resetSql)
-                .contains("status = #{pendingStatus}")
-                .contains("next_run_at = #{nextRunAt}")
-                .contains("retry_history_json = #{retryHistoryJson}")
+                .contains("status = #{update.pendingStatus}")
+                .contains("next_run_at = #{update.nextRunAt}")
+                .contains("retry_history_json = #{update.retryHistoryJson}")
                 .contains("marketing_attempt_id = NULL")
                 .contains("command_id = NULL")
-                .contains("WHERE id = #{id}")
-                .contains("AND status = #{fromStatus}")
-                .contains("AND command_id = #{expectedCommandId}");
+                .contains("WHERE id = #{update.id}")
+                .contains("AND status = #{update.fromStatus}")
+                .contains("AND command_id = #{update.expectedCommandId}");
         assertThat(claimRetrySql)
-                .contains("account_id = #{accountId}")
-                .contains("retry_history_json = #{retryHistoryJson}")
-                .contains("WHERE id = #{id}")
+                .contains("account_id = #{update.accountId}")
+                .contains("retry_history_json = #{update.retryHistoryJson}")
+                .contains("WHERE id = #{update.id}")
                 .contains("AND status = 2")
-                .doesNotContain("status = #{pendingStatus}");
+                .doesNotContain("status = #{update.pendingStatus}");
         assertThat(noAvailableSql)
                 .contains("i.status = 6")
-                .contains("i.reason_code = #{reasonCode}")
-                .contains("i.retry_history_json = #{retryHistoryJson}")
+                .contains("i.reason_code = #{update.reasonCode}")
+                .contains("i.retry_history_json = #{update.retryHistoryJson}")
                 .contains("t.abandoned_count = t.abandoned_count + 1")
-                .contains("WHERE i.id = #{id}")
-                .contains("AND i.status = #{fromStatus}")
-                .contains("AND i.command_id = #{expectedCommandId}");
+                .contains("WHERE i.id = #{update.id}")
+                .contains("AND i.status = #{update.fromStatus}")
+                .contains("AND i.command_id = #{update.expectedCommandId}");
     }
 
     private String mapperXml() throws IOException {

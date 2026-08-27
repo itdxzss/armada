@@ -518,10 +518,10 @@ class GroupLinkRegistryBatchMySqlTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Void> phaseLike = executor.submit(() -> inTransaction(() -> {
-                groupLinkMapper.selectAccountObservedByIdsForUpdate(TENANT_ID, List.of(1L));
+                groupLinkMapper.selectAccountObservedByIdsForUpdate(TENANT_ID, 1L, List.of(1L));
                 idOneLocked.countDown();
                 assertThat(releaseSecondLock.await(5, TimeUnit.SECONDS)).isTrue();
-                groupLinkMapper.selectAccountObservedByIdsForUpdate(TENANT_ID, List.of(2L));
+                groupLinkMapper.selectAccountObservedByIdsForUpdate(TENANT_ID, 1L, List.of(2L));
                 return null;
             }));
             Future<Map<String, Long>> batch = executor.submit(() -> {

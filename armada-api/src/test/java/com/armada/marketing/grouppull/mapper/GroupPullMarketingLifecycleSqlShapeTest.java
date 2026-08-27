@@ -84,7 +84,8 @@ class GroupPullMarketingLifecycleSqlShapeTest {
     void onlyTaskLookupKeepsExplicitForUpdate() throws IOException {
         String xml = readResource(MAPPER_XML);
 
-        assertThat(selectIdsContainingForUpdate(xml)).containsExactly("selectTaskForUpdate");
+        assertThat(selectIdsContainingForUpdate(xml))
+                .containsExactly("selectTaskForUpdate", "selectTaskForUpdateForScope");
     }
 
     @Test

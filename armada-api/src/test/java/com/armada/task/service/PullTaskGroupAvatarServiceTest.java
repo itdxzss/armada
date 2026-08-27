@@ -2,17 +2,27 @@ package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
+import com.armada.task.mapper.PullTaskGroupAvatarFileMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
+import com.armada.task.model.entity.PullTaskGroupAvatarFile;
 import com.armada.task.model.vo.PullTaskGroupAvatarUploadVO;
 import com.armada.task.service.impl.PullTaskGroupAvatarServiceImpl;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +31,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,12 +50,34 @@ class PullTaskGroupAvatarServiceTest {
     private Path storageRoot;
 
     private PullTaskStandardGroupSettingMapper mapper;
+    private PullTaskGroupAvatarFileMapper fileMapper;
     private PullTaskGroupAvatarService service;
+    private Map<String, PullTaskGroupAvatarFile> metadata;
 
     @BeforeEach
     void setUp() {
+        TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(501L));
         mapper = mock(PullTaskStandardGroupSettingMapper.class);
-        service = new PullTaskGroupAvatarServiceImpl(storageRoot.toString(), mapper);
+        fileMapper = mock(PullTaskGroupAvatarFileMapper.class);
+        metadata = new HashMap<>();
+        doAnswer(invocation -> {
+            PullTaskGroupAvatarFile row = invocation.getArgument(0);
+            metadata.put(row.getFileKey(), row);
+            return 1;
+        }).when(fileMapper).insert(any(PullTaskGroupAvatarFile.class));
+        when(fileMapper.selectByFileKeyForScope(any(), any()))
+                .thenAnswer(invocation -> metadata.get(invocation.getArgument(0)));
+        when(fileMapper.deleteByFileKey(any()))
+                .thenAnswer(invocation -> metadata.remove(invocation.getArgument(0)) == null ? 0 : 1);
+        service = new PullTaskGroupAvatarServiceImpl(
+                storageRoot.toString(), mapper, fileMapper);
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+        TenantContext.clear();
     }
 
     @Test
@@ -59,6 +92,9 @@ class PullTaskGroupAvatarServiceTest {
         assertThat(Files.size(storageRoot.resolve("7").resolve(png.avatarFileKey())))
                 .isEqualTo(PNG.length);
         assertThat(png.previewUrl()).endsWith("/" + png.avatarFileKey());
+        assertThat(metadata.values())
+                .extracting(PullTaskGroupAvatarFile::getOwnerUserId)
+                .containsOnly(501L);
     }
 
     @Test
@@ -89,14 +125,99 @@ class PullTaskGroupAvatarServiceTest {
 
     @Test
     void tenantCannotReadOrDeleteAnotherTenantsKey() {
-        PullTaskGroupAvatarUploadVO uploaded =
-                service.upload(8L, file("a.png", "image/png", PNG));
+        PullTaskGroupAvatarUploadVO uploaded;
+        TenantContext.set(8L);
+        try (var ignored = DataScopeContext.open(DataScope.self(502L))) {
+            uploaded = service.upload(8L, file("a.png", "image/png", PNG));
+        }
+        TenantContext.set(7L);
 
         assertThatThrownBy(() -> service.content(7L, uploaded.avatarFileKey()))
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> service.delete(7L, uploaded.avatarFileKey()))
                 .isInstanceOf(BusinessException.class);
-        assertThat(service.content(8L, uploaded.avatarFileKey()).content()).isEqualTo(PNG);
+        TenantContext.set(8L);
+        try (var ignored = DataScopeContext.open(DataScope.self(502L))) {
+            assertThat(service.content(8L, uploaded.avatarFileKey()).content()).isEqualTo(PNG);
+        }
+    }
+
+    @Test
+    void ordinaryUserCannotReadDeleteOrBindAnotherUsersAvatarButAdminCanPreview() {
+        PullTaskGroupAvatarUploadVO uploaded;
+        try (var ignored = DataScopeContext.open(DataScope.self(502L))) {
+            uploaded = service.upload(7L, file("u2.png", "image/png", PNG));
+        }
+
+        assertThatThrownBy(() -> service.content(7L, uploaded.avatarFileKey()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不存在");
+        assertThatThrownBy(() -> service.delete(7L, uploaded.avatarFileKey()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不存在");
+
+        try (var ignored = DataScopeContext.open(DataScope.all(9001L))) {
+            assertThat(service.content(7L, uploaded.avatarFileKey()).content()).isEqualTo(PNG);
+            TransactionSynchronizationManager.initSynchronization();
+            try {
+                assertThatThrownBy(() -> service.reserveForBinding(
+                        7L, uploaded.avatarFileKey()))
+                        .isInstanceOf(BusinessException.class)
+                        .hasMessageContaining("当前操作者自己的资源");
+            } finally {
+                TransactionSynchronizationManager.clearSynchronization();
+            }
+        }
+    }
+
+    @Test
+    void userMethodsFailClosedWithoutUserScopeWhileInternalExecutionCanRead() {
+        PullTaskGroupAvatarUploadVO uploaded =
+                service.upload(7L, file("a.png", "image/png", PNG));
+
+        DataScopeContext.clear();
+        assertThatThrownBy(() -> service.content(7L, uploaded.avatarFileKey()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("数据访问范围");
+        try (var ignored = DataScopeContext.open(DataScope.system("avatar protocol execution"))) {
+            assertThatThrownBy(() -> service.content(7L, uploaded.avatarFileKey()))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("后台范围");
+            assertThat(service.contentForTaskExecution(7L, uploaded.avatarFileKey()).content())
+                    .isEqualTo(PNG);
+        }
+    }
+
+    @Test
+    void historicalFileWithoutMetadataIsAdminOnly() throws Exception {
+        String key = "99999999999999999999999999999999.png";
+        Path tenantDir = Files.createDirectories(storageRoot.resolve("7"));
+        Files.write(tenantDir.resolve(key), PNG);
+
+        assertThatThrownBy(() -> service.content(7L, key))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不存在");
+        try (var ignored = DataScopeContext.open(DataScope.all(9001L))) {
+            assertThat(service.content(7L, key).content()).isEqualTo(PNG);
+            service.delete(7L, key);
+        }
+        assertThat(tenantDir.resolve(key)).doesNotExist();
+    }
+
+    @Test
+    void metadataInsertFailureRemovesNewPhysicalFile() throws Exception {
+        doThrow(new IllegalStateException("db unavailable"))
+                .when(fileMapper).insert(any(PullTaskGroupAvatarFile.class));
+
+        assertThatThrownBy(() -> service.upload(
+                7L, file("a.png", "image/png", PNG)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("保存失败");
+        Path tenantDir = storageRoot.resolve("7");
+        assertThat(tenantDir).isDirectory();
+        try (var files = Files.list(tenantDir)) {
+            assertThat(files).isEmpty();
+        }
     }
 
     @Test
@@ -106,9 +227,6 @@ class PullTaskGroupAvatarServiceTest {
         String alias = "sub/../" + uploaded.avatarFileKey();
 
         assertThatThrownBy(() -> service.content(7L, alias))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("不存在");
-        assertThatThrownBy(() -> service.requireUnbound(7L, alias))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
         assertThatThrownBy(() -> service.delete(7L, alias))
@@ -160,8 +278,13 @@ class PullTaskGroupAvatarServiceTest {
             synchronizations = TransactionSynchronizationManager.getSynchronizations();
             CountDownLatch deletionStarted = new CountDownLatch(1);
             Future<?> deletion = executor.submit(() -> {
-                deletionStarted.countDown();
-                service.delete(7L, uploaded.avatarFileKey());
+                TenantContext.set(7L);
+                try (var ignored = DataScopeContext.open(DataScope.self(501L))) {
+                    deletionStarted.countDown();
+                    service.delete(7L, uploaded.avatarFileKey());
+                } finally {
+                    TenantContext.clear();
+                }
             });
 
             assertThat(deletionStarted.await(1, TimeUnit.SECONDS)).isTrue();

@@ -14,6 +14,9 @@ public class MarketingTask {
     /** 数据所属租户 ID。 */
     private Long tenantId;
 
+    /** 归属用户 ID；历史未分配数据为 null。 */
+    private Long ownerUserId;
+
     /** 任务名称。 */
     private String taskName;
 
@@ -136,6 +139,14 @@ public class MarketingTask {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getTaskName() {

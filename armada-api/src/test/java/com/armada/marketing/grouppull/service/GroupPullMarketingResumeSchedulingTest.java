@@ -2,6 +2,7 @@ package com.armada.marketing.grouppull.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,8 @@ import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,6 +45,7 @@ class GroupPullMarketingResumeSchedulingTest {
     void resumeReschedulesEveryPendingMaterialExecutionWithinConfiguredWindow() {
         MarketingTask task = new MarketingTask();
         task.setId(101L);
+        task.setOwnerUserId(11L);
         task.setAccountGroupId(201L);
         task.setStatus(MarketingTaskStatus.PAUSED.code());
         GroupPullMarketingTask extension = new GroupPullMarketingTask();
@@ -52,10 +56,11 @@ class GroupPullMarketingResumeSchedulingTest {
         extension.setResourceStatus(GroupPullResourceStatus.LOCKED.code());
         AccountGroup marketingGroup = new AccountGroup();
         marketingGroup.setId(201L);
+        marketingGroup.setOwnerUserId(11L);
         marketingGroup.setMarketingOccupancyType(MarketingBusinessType.GROUP_PULL.code());
         marketingGroup.setMarketingOccupancyTaskId(101L);
         GroupPullMarketingTaskDetailVO detail = detail();
-        when(mapper.selectTaskForUpdate(101L)).thenReturn(task);
+        when(mapper.selectTaskForUpdateForScope(eq(101L), any())).thenReturn(task);
         when(mapper.selectTaskById(101L)).thenReturn(extension);
         when(accountGroupMapper.selectById(201L)).thenReturn(marketingGroup);
         when(mapper.resumeTask(eq(101L), anyLong())).thenReturn(1);
@@ -67,7 +72,7 @@ class GroupPullMarketingResumeSchedulingTest {
                 .thenReturn(Optional.of(ProtocolAccountRef.legacyWeb("marketer")));
         when(mapper.countAvailableMaterials(101L)).thenReturn(3L);
         when(mapper.updateBlockReason(eq(101L), eq(0), anyLong())).thenReturn(1);
-        when(mapper.selectTaskDetail(101L)).thenReturn(detail);
+        when(mapper.selectTaskDetailForScope(eq(101L), any())).thenReturn(detail);
         GroupPullMarketingTaskServiceImpl service = new GroupPullMarketingTaskServiceImpl(
                 mapper,
                 null,
@@ -80,7 +85,10 @@ class GroupPullMarketingResumeSchedulingTest {
                 new GroupPullMaterialEntryDelayPolicy());
         ArgumentCaptor<Long> nowCaptor = ArgumentCaptor.forClass(Long.class);
 
-        GroupPullMarketingTaskDetailVO result = service.resume(101L);
+        GroupPullMarketingTaskDetailVO result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(11L))) {
+            result = service.resume(101L);
+        }
 
         assertThat(result).isSameAs(detail);
         verify(mapper).rescheduleMaterialExecutionsOnResume(

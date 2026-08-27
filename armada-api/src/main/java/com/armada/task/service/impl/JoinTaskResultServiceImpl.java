@@ -4,6 +4,8 @@ import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -136,54 +138,58 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
                 return;
             }
             JoinTask task = taskMapper.selectByTenantAndId(row.getJoinTaskId());
-            if (task == null) {
+            if (task == null || task.getOwnerUserId() == null) {
                 return;
             }
-            long now = currentTimeMillis.getAsLong();
-            String outcome = event.outcome().trim().toUpperCase(Locale.ROOT);
-            if (OUTCOME_JOINED.equals(outcome) || OUTCOME_ALREADY_JOINED.equals(outcome)) {
-                String groupJid = OUTCOME_JOINED.equals(outcome)
-                        ? requiredJoinedGroupJid(event.groupJid())
-                        : safe(event.groupJid());
-                long membershipOccurredAt = OUTCOME_JOINED.equals(outcome)
-                        ? requiredMembershipOccurredAt(event.timestamp())
-                        : 0L;
-                resultMapper.markTerminalSuccess(row.getId(), groupJid, now);
-                if (OUTCOME_JOINED.equals(outcome)) {
-                    membershipStatusService.applyMembershipChanged(
-                            new AccountGroupMembershipChangedEvent(
-                                    event.tenantId(),
-                                    row.getAccountId(),
-                                    event.protocolAccountId(),
-                                    groupJid,
-                                    MEMBERSHIP_ACTION_ADD,
-                                    membershipOccurredAt,
-                                    event.eventId(),
-                                    JOIN_TASK_RESULT_SOURCE));
-                    marketingNewGroupService.enqueueDelayedNewGroups(
-                            row.getAccountId(),
-                            List.of(new MarketingNewGroupDTO(null, groupJid, null)),
-                            now);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                long now = currentTimeMillis.getAsLong();
+                String outcome = event.outcome().trim().toUpperCase(Locale.ROOT);
+                if (OUTCOME_JOINED.equals(outcome) || OUTCOME_ALREADY_JOINED.equals(outcome)) {
+                    String groupJid = OUTCOME_JOINED.equals(outcome)
+                            ? requiredJoinedGroupJid(event.groupJid())
+                            : safe(event.groupJid());
+                    long membershipOccurredAt = OUTCOME_JOINED.equals(outcome)
+                            ? requiredMembershipOccurredAt(event.timestamp())
+                            : 0L;
+                    resultMapper.markTerminalSuccess(row.getId(), groupJid, now);
+                    if (OUTCOME_JOINED.equals(outcome)) {
+                        membershipStatusService.applyMembershipChanged(
+                                new AccountGroupMembershipChangedEvent(
+                                        event.tenantId(),
+                                        row.getAccountId(),
+                                        event.protocolAccountId(),
+                                        groupJid,
+                                        MEMBERSHIP_ACTION_ADD,
+                                        membershipOccurredAt,
+                                        event.eventId(),
+                                        JOIN_TASK_RESULT_SOURCE));
+                        marketingNewGroupService.enqueueDelayedNewGroups(
+                                row.getAccountId(),
+                                List.of(new MarketingNewGroupDTO(null, groupJid, null)),
+                                now);
+                    }
+                    advanceAfterTerminal(task, row, now);
+                    return;
                 }
+                if (OUTCOME_PENDING_APPROVAL.equals(outcome)) {
+                    resultMapper.markTerminalFailure(
+                            row.getId(), JoinTaskFailureReason.JOIN_PENDING_APPROVAL.code(), now);
+                    advanceAfterTerminal(task, row, now);
+                    return;
+                }
+                if (!OUTCOME_FAILED.equals(outcome)) {
+                    throw new IllegalArgumentException("不支持的进群结果 outcome");
+                }
+                String reason = failureReason(event.reasonCode());
+                if (task.isRetryEnabled() && event.retryable()
+                        && event.attemptNo() <= task.getRetryLimit()) {
+                    resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
+                    return;
+                }
+                resultMapper.markTerminalFailure(row.getId(), reason, now);
                 advanceAfterTerminal(task, row, now);
-                return;
             }
-            if (OUTCOME_PENDING_APPROVAL.equals(outcome)) {
-                resultMapper.markTerminalFailure(
-                        row.getId(), JoinTaskFailureReason.JOIN_PENDING_APPROVAL.code(), now);
-                advanceAfterTerminal(task, row, now);
-                return;
-            }
-            if (!OUTCOME_FAILED.equals(outcome)) {
-                throw new IllegalArgumentException("不支持的进群结果 outcome");
-            }
-            String reason = failureReason(event.reasonCode());
-            if (task.isRetryEnabled() && event.retryable() && event.attemptNo() <= task.getRetryLimit()) {
-                resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
-                return;
-            }
-            resultMapper.markTerminalFailure(row.getId(), reason, now);
-            advanceAfterTerminal(task, row, now);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -216,16 +222,19 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
                 return;
             }
             JoinTask task = taskMapper.selectByTenantAndId(row.getJoinTaskId());
-            if (task == null) {
+            if (task == null || task.getOwnerUserId() == null) {
                 return;
             }
-            long now = currentTimeMillis.getAsLong();
-            String reason = JoinTaskFailureReason.KAFKA_PUBLISH_FAILED.code();
-            if (task.isRetryEnabled() && candidate.attemptNo() <= task.getRetryLimit()) {
-                resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
-            } else {
-                resultMapper.markTerminalFailure(row.getId(), reason, now);
-                advanceAfterTerminal(task, row, now);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                long now = currentTimeMillis.getAsLong();
+                String reason = JoinTaskFailureReason.KAFKA_PUBLISH_FAILED.code();
+                if (task.isRetryEnabled() && candidate.attemptNo() <= task.getRetryLimit()) {
+                    resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
+                } else {
+                    resultMapper.markTerminalFailure(row.getId(), reason, now);
+                    advanceAfterTerminal(task, row, now);
+                }
             }
         } finally {
             if (previousTenant == null) {

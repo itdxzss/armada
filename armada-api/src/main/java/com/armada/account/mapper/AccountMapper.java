@@ -13,6 +13,7 @@ import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
 import com.armada.account.model.vo.AccountWsPhoneExportRow;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -64,6 +65,10 @@ public interface AccountMapper {
      */
     Account selectActiveById(@Param("id") Long id);
 
+    /** 用户私有业务按 ID 解析活跃账号，缺 scope 时失败关闭。 */
+    Account selectActiveByIdForScope(@Param("id") Long id,
+                                     @Param("dataScope") DataScope dataScope);
+
     /**
      * 从指定账号分组随机选择在线正常且协议身份完整的活跃账号。
      *
@@ -81,6 +86,14 @@ public interface AccountMapper {
             @Param("onlineLoginState") int onlineLoginState,
             @Param("riskAllowed") int riskAllowed);
 
+    /** 按用户数据范围从指定分组选取通用协议账号。 */
+    Account selectRandomOnlineNormalByGroupIdForScope(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("riskAllowed") int riskAllowed,
+            @Param("dataScope") DataScope dataScope);
+
     /**
      * 查询指定账号组内全部在线正常且协议身份完整的账号。
      *
@@ -93,6 +106,13 @@ public interface AccountMapper {
             @Param("groupId") Long groupId,
             @Param("normalAccountState") int normalAccountState,
             @Param("onlineLoginState") int onlineLoginState);
+
+    /** 按用户数据范围读取指定分组的全部在线正常账号。 */
+    List<Account> selectOnlineNormalByGroupIdForScope(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("dataScope") DataScope dataScope);
 
     /**
      * 从指定分组随机选择在线正常且协议身份完整的 Web 拉手账号。
@@ -110,6 +130,15 @@ public interface AccountMapper {
             @Param("onlineLoginState") int onlineLoginState,
             @Param("riskAllowed") int riskAllowed,
             @Param("webProtocolId") String webProtocolId);
+
+    /** 按用户数据范围从指定分组选取 Web 协议账号。 */
+    Account selectRandomOnlineNormalWebByGroupIdForScope(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("riskAllowed") int riskAllowed,
+            @Param("webProtocolId") String webProtocolId,
+            @Param("dataScope") DataScope dataScope);
 
     /**
      * 按协议账号句柄查未软删账号。
@@ -130,6 +159,10 @@ public interface AccountMapper {
      * @return 活跃账号列表;不存在或已软删账号不会返回
      */
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /** 用户私有业务按 ID 批量解析活跃账号。 */
+    List<Account> selectActiveByIdsForScope(@Param("ids") List<Long> ids,
+                                            @Param("dataScope") DataScope dataScope);
 
     /**
      * 批量读取未软删账号的当前登录态。
@@ -152,6 +185,11 @@ public interface AccountMapper {
      */
     List<Account> selectActiveByWsPhones(@Param("wsPhones") List<String> wsPhones);
 
+    /** 用户私有业务按当前数据范围批量解析活跃账号。 */
+    List<Account> selectActiveByWsPhonesForScope(
+            @Param("wsPhones") List<String> wsPhones,
+            @Param("dataScope") DataScope dataScope);
+
     /**
      * 查询指定账号中未软删除的 WS 号码，不限制账号状态。
      *
@@ -160,7 +198,8 @@ public interface AccountMapper {
      * @param ids 当前租户前端所选账号 ID
      * @return 按账号 ID 升序排列的最小导出字段
      */
-    List<AccountWsPhoneExportRow> selectWsPhonesByIds(@Param("ids") List<Long> ids);
+    List<AccountWsPhoneExportRow> selectWsPhonesByIds(@Param("ids") List<Long> ids,
+                                                      @Param("dataScope") DataScope dataScope);
 
     /**
      * 在指定账号中筛选当前在线账号 ID。
@@ -171,6 +210,12 @@ public interface AccountMapper {
      */
     List<Long> selectOnlineAccountIdsByIds(@Param("ids") List<Long> ids,
                                            @Param("onlineLoginState") int onlineLoginState);
+
+    /** 按用户数据范围过滤指定账号的在线 ID。 */
+    List<Long> selectOnlineAccountIdsByIdsForScope(
+            @Param("ids") List<Long> ids,
+            @Param("onlineLoginState") int onlineLoginState,
+            @Param("dataScope") DataScope dataScope);
 
     /**
      * 查询账号导入时选择的 IP 国家。
@@ -259,7 +304,8 @@ public interface AccountMapper {
      * @param ids 当前租户账号 ID，调用方保证非空
      * @return 匹配数和互斥跳过原因聚合
      */
-    AccountBatchPreviewRow previewBatchTargetsByIds(@Param("ids") List<Long> ids);
+    AccountBatchPreviewRow previewBatchTargetsByIds(@Param("ids") List<Long> ids,
+                                                    @Param("dataScope") DataScope dataScope);
 
     /**
      * 按账号列表筛选条件预估全部匹配账号和批量登录跳过数量。
@@ -275,7 +321,8 @@ public interface AccountMapper {
      * @param ids 当前租户账号 ID，调用方保证非空
      * @return 活跃账号目标行，按 ID 升序
      */
-    List<AccountBatchTargetRow> selectBatchTargetsByIds(@Param("ids") List<Long> ids);
+    List<AccountBatchTargetRow> selectBatchTargetsByIds(@Param("ids") List<Long> ids,
+                                                        @Param("dataScope") DataScope dataScope);
 
     /**
      * 按列表筛选条件和稳定 ID 游标扫描批量目标。
@@ -286,12 +333,13 @@ public interface AccountMapper {
     List<AccountBatchTargetRow> selectBatchTargetsAfterId(AccountBatchTargetQuery query);
 
     /**
-     * 平台级账号统计卡:本租户全量单条聚合 SQL。
+     * 按当前 DataScope 聚合账号统计卡；普通用户仅统计自身，租户管理员统计当前租户全量。
      * tenant_id 由租户行隔离拦截器自动注入,SQL 不手写。
      *
+     * @param dataScope 服务端解析的数据范围
      * @return 统计卡聚合行(total/online/offline/banned/risk/assigned)
      */
-    AccountStatsVoRow statsSummary();
+    AccountStatsVoRow statsSummary(@Param("dataScope") DataScope dataScope);
 
     /**
      * 批量查删除闸门数据:取 account_state + dispatched_at,供严格口径校验。

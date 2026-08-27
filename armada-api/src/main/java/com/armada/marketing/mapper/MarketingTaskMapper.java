@@ -10,6 +10,7 @@ import com.armada.marketing.model.support.MarketingTargetResultSnapshot;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTaskAccountGroupStatRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -31,6 +32,10 @@ public interface MarketingTaskMapper {
 
     /** 按 ID 查未删任务。 */
     MarketingTask selectTaskById(@Param("id") Long id);
+
+    /** 用户请求按 ID 查任务；缺失或 SYSTEM 范围时不返回数据。 */
+    MarketingTask selectTaskByIdForScope(@Param("id") Long id,
+                                         @Param("scope") DataScope scope);
 
     /** 锁定任务主记录，作为暂停、关闭、结束与延迟到期提交的统一串行化边界。 */
     MarketingTask selectTaskByIdForUpdate(@Param("id") Long id);
@@ -324,6 +329,12 @@ public interface MarketingTaskMapper {
 
     /** 批量软删已完成或已关闭任务。 */
     int batchSoftDelete(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+
+    /** 用户批量删除前按稳定顺序锁定当前租户普通营销任务。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<MarketingTask> selectOrdinaryByTenantAndIdsForUpdate(
+            @Param("tenantId") Long tenantId,
+            @Param("ids") List<Long> ids);
 
     /** 分页总数。 */
     long countPage(@Param("q") MarketingTaskQuery query);

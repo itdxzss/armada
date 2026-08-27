@@ -8,6 +8,7 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.AccountImportLoginResult;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.AccountLoginStateCode;
@@ -39,6 +40,7 @@ import com.armada.marketing.grouppull.model.vo.GroupPullAccountRefRow;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -90,6 +92,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class MysqlModeMapperInMemoryTest {
 
     private static final long CURRENT_TENANT_ID = 7L;
+    private static final DataScope ADMIN_SCOPE = DataScope.all(1L);
 
     @Autowired
     private DataSource dataSource;
@@ -169,7 +172,8 @@ public class MysqlModeMapperInMemoryTest {
         List<Long> ids = new ArrayList<>(LongStream.rangeClosed(1, 101).boxed().toList());
         ids.add(1001L);
 
-        int deleted = groupLinkMapper.softDeleteByIds(ids, 2L);
+        int deleted = groupLinkMapper.softDeleteByIds(
+                ids, com.armada.shared.security.DataScope.all(1L), 2L);
 
         assertThat(deleted).isEqualTo(101);
         assertThat(queryLong("SELECT COUNT(*) FROM group_link WHERE tenant_id = 7 AND deleted_at = 2"))
@@ -344,6 +348,37 @@ public class MysqlModeMapperInMemoryTest {
     }
 
     @Test
+    void accountImportDispatchMapperSkipsUnownedHistoryAndLocksOneOwnedBatchAtATime() throws SQLException {
+        executeSql(
+                "INSERT INTO account_import_batch (id, tenant_id, owner_user_id, account_group_id) "
+                        + "VALUES (101, 7, 9, 11), (102, 7, 10, 11), (103, 7, NULL, 11), (201, 8, 20, 12)",
+                """
+                INSERT INTO account_import_detail
+                    (id, tenant_id, batch_id, line_no, ws_phone, account_id, parse_result,
+                     login_result, online_phase, dispatch_attempts, created_at)
+                VALUES
+                    (401, 7, 101, 1, '8613988000001', 501, 1, NULL, 1, 0, 100),
+                    (402, 7, 101, 2, '8613988000002', 502, 1, NULL, 1, 0, 100),
+                    (403, 7, 102, 1, '8613988000003', 503, 1, NULL, 1, 0, 100),
+                    (404, 7, 103, 1, '8613988000004', 504, 1, NULL, 1, 0, 100),
+                    (405, 8, 201, 1, '819012345678', 601, 1, NULL, 1, 0, 100)
+                """);
+
+        assertThat(accountImportDetailMapper.selectQueuedTenantIds(1, 1, 100))
+                .containsExactly(7L, 8L);
+
+        List<AccountImportDetail> locked = transactionTemplate.execute(status -> {
+            List<AccountImportDetail> rows = accountImportDetailMapper.selectQueuedForUpdate(7L, 1, 1, 500);
+            status.setRollbackOnly();
+            return rows;
+        });
+
+        assertThat(locked).isNotNull();
+        assertThat(locked).extracting(AccountImportDetail::getId).containsExactly(401L, 402L);
+        assertThat(locked).extracting(AccountImportDetail::getBatchId).containsOnly(101L);
+    }
+
+    @Test
     void groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary() throws SQLException {
         executeSql(
                 "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
@@ -359,6 +394,7 @@ public class MysqlModeMapperInMemoryTest {
                         + "VALUES (401, 7, 'FolderA', 1, FALSE, 100)");
 
         GroupFolderQuery query = new GroupFolderQuery();
+        query.applyDataScope(ADMIN_SCOPE);
         query.setPage(1);
         query.setPageSize(10);
 
@@ -369,7 +405,7 @@ public class MysqlModeMapperInMemoryTest {
                     assertThat(row.name()).isEqualTo("印度组");
                     assertThat(row.groupCount()).isEqualTo(1L);
                 });
-        assertThat(groupFolderMapper.selectOptions())
+        assertThat(groupFolderMapper.selectOptions(ADMIN_SCOPE))
                 .extracting(GroupFolderOptionVO::id)
                 .containsExactly(101L);
     }
@@ -378,34 +414,43 @@ public class MysqlModeMapperInMemoryTest {
     void groupFolderMapperWritesLocksSoftDeletesAndRevives() {
         GroupFolder row = new GroupFolder();
         row.setName("待运营组");
+        row.setOwnerUserId(501L);
         row.setCreatedAt(100L);
         row.setUpdatedAt(100L);
 
         assertThat(groupFolderMapper.insert(row)).isEqualTo(1);
         assertThat(row.getId()).isNotNull();
-        assertThat(groupFolderMapper.selectActiveByName("待运营组").getId()).isEqualTo(row.getId());
+        assertThat(groupFolderMapper.selectActiveByNameForOwner("待运营组", 501L).getId())
+                .isEqualTo(row.getId());
 
-        assertThat(groupFolderMapper.updateName(row.getId(), "已改名组", 200L)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectAnyByName("已改名组").getUpdatedAt()).isEqualTo(200L);
+        assertThat(groupFolderMapper.updateName(row.getId(), 501L, "已改名组", 200L))
+                .isEqualTo(1);
+        assertThat(groupFolderMapper.selectAnyByNameForOwner("已改名组", 501L).getUpdatedAt())
+                .isEqualTo(200L);
 
         List<GroupFolder> locked = transactionTemplate.execute(status -> {
-            List<GroupFolder> result = groupFolderMapper.selectActiveByIdsForUpdate(List.of(row.getId()));
+            List<GroupFolder> result = groupFolderMapper.selectActiveByIdsForUpdate(
+                    List.of(row.getId()), ADMIN_SCOPE);
             status.setRollbackOnly();
             return result;
         });
         assertThat(locked).isNotNull();
         assertThat(locked).extracting(GroupFolder::getId).containsExactly(row.getId());
 
-        assertThat(groupFolderMapper.softDeleteByIds(List.of(row.getId()), 300L)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectById(row.getId())).isNull();
-        assertThat(groupFolderMapper.selectDeletedByName("已改名组").getDeletedAt()).isEqualTo(300L);
+        assertThat(groupFolderMapper.softDeleteByIds(
+                List.of(row.getId()), ADMIN_SCOPE, 300L)).isEqualTo(1);
+        assertThat(groupFolderMapper.selectById(row.getId(), ADMIN_SCOPE)).isNull();
+        assertThat(groupFolderMapper.selectDeletedByNameForOwner("已改名组", 501L)
+                .getDeletedAt()).isEqualTo(300L);
         GroupFolder revived = new GroupFolder();
         revived.setId(row.getId());
         revived.setName("已改名组");
+        revived.setOwnerUserId(501L);
         revived.setUpdatedAt(400L);
         revived.setCreatedBy(501L);
         assertThat(groupFolderMapper.revive(revived)).isEqualTo(1);
-        assertThat(groupFolderMapper.selectById(row.getId()).getUpdatedAt()).isEqualTo(400L);
+        assertThat(groupFolderMapper.selectById(row.getId(), ADMIN_SCOPE).getUpdatedAt())
+                .isEqualTo(400L);
 
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupFolderMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
@@ -421,9 +466,11 @@ public class MysqlModeMapperInMemoryTest {
                         + "created_at, updated_at) "
                         + "VALUES (201, 7, 'chat.whatsapp.com/FolderDelete', 55, 101, 1, 1, 100, 100)");
 
-        assertThat(groupLinkMapper.countActiveByFolderIds(List.of(101L))).isEqualTo(1);
-        assertThat(groupLinkMapper.clearFolderByFolderIds(List.of(101L), 200L)).isEqualTo(1);
-        assertThat(groupFolderMapper.softDeleteByIds(List.of(101L), 200L)).isEqualTo(1);
+        assertThat(groupLinkMapper.countActiveByFolderIds(List.of(101L), ADMIN_SCOPE)).isEqualTo(1);
+        assertThat(groupLinkMapper.clearFolderByFolderIds(
+                List.of(101L), ADMIN_SCOPE, 200L)).isEqualTo(1);
+        assertThat(groupFolderMapper.softDeleteByIds(
+                List.of(101L), ADMIN_SCOPE, 200L)).isEqualTo(1);
 
         Map<String, Object> row = jdbcTemplate.queryForMap(
                 "SELECT folder_id, label_id, deleted_at, updated_at FROM group_link WHERE id = 201");
@@ -446,8 +493,10 @@ public class MysqlModeMapperInMemoryTest {
                         + "VALUES (202, 8, 'chat.whatsapp.com/Other', 1, 1, 100, 100)");
 
         List<GroupLink> locked = transactionTemplate.execute(status -> {
-            List<GroupLink> rows = groupLinkMapper.selectActiveByIdsForUpdate(List.of(201L, 202L));
-            assertThat(groupLinkMapper.assignFolder(List.of(201L, 202L), 101L, 200L)).isEqualTo(1);
+            List<GroupLink> rows = groupLinkMapper.selectActiveByIdsForUpdate(
+                    List.of(201L, 202L), ADMIN_SCOPE);
+            assertThat(groupLinkMapper.assignFolder(
+                    List.of(201L, 202L), 101L, ADMIN_SCOPE, 200L)).isEqualTo(1);
             return rows;
         });
 
@@ -650,12 +699,12 @@ public class MysqlModeMapperInMemoryTest {
     void accountObservedUpsertReturnsExistingIdAndPreservesOwnership() throws SQLException {
         executeSql("""
                 INSERT INTO group_link
-                    (id, tenant_id, link_url, group_name, label_id, import_batch_id,
+                    (id, tenant_id, owner_user_id, link_url, group_name, label_id, import_batch_id,
                      origin, membership_state, deleted_at, created_at, updated_at)
                 VALUES
-                    (21, 7, 'wa://group/120363existing@g.us', '旧群名', 31, 41,
+                    (21, 7, 1, 'wa://group/120363existing@g.us', '旧群名', 31, 41,
                      1, 3, 1000, 900, 900),
-                    (23, 8, 'wa://group/120363existing@g.us', '其他租户群名', 33, 43,
+                    (23, 8, 1, 'wa://group/120363existing@g.us', '其他租户群名', 33, 43,
                      2, 1, NULL, 902, 902)
                 """);
 
@@ -664,7 +713,8 @@ public class MysqlModeMapperInMemoryTest {
                     "wa://group/120363existing@g.us", "新群名", 2_000L);
 
             int affected = groupLinkMapper.upsertAccountObservedGroup(observed, "新群名");
-            GroupLink stored = groupLinkMapper.selectAnyByUrlForUpdate(observed.getLinkUrl());
+            GroupLink stored = groupLinkMapper.selectAnyByUrlForUpdate(
+                    observed.getLinkUrl(), observed.getOwnerUserId());
 
             assertThat(affected).isPositive();
             return stored;
@@ -703,10 +753,10 @@ public class MysqlModeMapperInMemoryTest {
 
         executeSql("""
                 INSERT INTO group_link
-                    (id, tenant_id, link_url, group_name, label_id, import_batch_id,
+                    (id, tenant_id, owner_user_id, link_url, group_name, label_id, import_batch_id,
                      origin, membership_state, deleted_at, created_at, updated_at)
                 VALUES
-                    (22, 7, 'wa://group/120363joined@g.us', '保留群名', 32, 42,
+                    (22, 7, 1, 'wa://group/120363joined@g.us', '保留群名', 32, 42,
                      2, 1, NULL, 901, 901)
                 """);
         transactionTemplate.executeWithoutResult(status -> {
@@ -965,6 +1015,7 @@ public class MysqlModeMapperInMemoryTest {
                 CREATE TABLE account_import_batch (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     account_group_id BIGINT NOT NULL
                 )
                 """,
@@ -980,6 +1031,9 @@ public class MysqlModeMapperInMemoryTest {
                     fail_reason VARCHAR(255),
                     login_result TINYINT,
                     online_phase TINYINT NOT NULL,
+                    online_dispatched_at BIGINT,
+                    login_settled_at BIGINT,
+                    dispatch_attempts INT DEFAULT 0,
                     login_reason VARCHAR(255),
                     created_at BIGINT NOT NULL
                 )
@@ -1095,12 +1149,14 @@ public class MysqlModeMapperInMemoryTest {
                 CREATE TABLE group_folder (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     name VARCHAR(100) NOT NULL,
+                    system_builtin TINYINT NOT NULL DEFAULT 0,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     created_by BIGINT,
                     deleted_at BIGINT,
-                    CONSTRAINT uq_group_folder_name UNIQUE (tenant_id, name)
+                    CONSTRAINT uq_group_folder_name UNIQUE (tenant_id, owner_user_id, name)
                 )
                 """,
                 """
@@ -1123,6 +1179,7 @@ public class MysqlModeMapperInMemoryTest {
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     group_id BIGINT,
                     group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
@@ -1139,7 +1196,7 @@ public class MysqlModeMapperInMemoryTest {
                     deleted_at BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
-                    CONSTRAINT uq_group_link_url UNIQUE (tenant_id, link_url)
+                    CONSTRAINT uq_group_link_url UNIQUE (tenant_id, owner_user_id, link_url)
                 )
                 """,
                 """
@@ -1486,7 +1543,8 @@ public class MysqlModeMapperInMemoryTest {
             return transactionTemplate.execute(status -> {
                 GroupLink row = observedGroup(linkUrl, "并发观察群", now);
                 groupLinkMapper.upsertAccountObservedGroup(row, row.getGroupName());
-                GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(linkUrl);
+                GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(
+                        linkUrl, row.getOwnerUserId());
                 return resolved.getId();
             });
         } finally {
@@ -1507,6 +1565,7 @@ public class MysqlModeMapperInMemoryTest {
 
     private GroupLink observedGroup(String linkUrl, String groupName, long now) {
         GroupLink row = new GroupLink();
+        row.setOwnerUserId(1L);
         row.setLinkUrl(linkUrl);
         row.setGroupName(groupName);
         row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());

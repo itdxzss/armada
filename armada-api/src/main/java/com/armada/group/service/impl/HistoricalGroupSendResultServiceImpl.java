@@ -11,6 +11,8 @@ import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultRepor
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedSink;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Objects;
@@ -70,39 +72,52 @@ public class HistoricalGroupSendResultServiceImpl implements ProtocolMessageSend
                 throw new BusinessException(ErrorCode.NOT_FOUND,
                         "历史群营销执行不存在: " + event.historicalExecutionId());
             }
-            HistoricalGroupPullMember member = memberMapper.selectByTenantAndId(
-                    event.tenantId(), event.historicalMemberId());
-            validateIdentity(event, execution, member);
-
-            if (!Integer.valueOf(HistoricalGroupMarketingStatus.SENDING.code())
-                    .equals(execution.getMarketingStatus())) {
-                log.info("历史群营销结果已跳过 executionId={} memberId={} commandId={} reason=execution_final",
-                        execution.getId(), member.getId(), event.commandId());
+            if (execution.getOwnerUserId() == null) {
+                log.info("历史群营销结果已跳过 executionId={} memberId={} commandId={} reason=owner_not_backfilled",
+                        execution.getId(), event.historicalMemberId(), event.commandId());
                 return;
             }
-
-            HistoricalGroupPullMember result = resultRow(event);
-            int updated;
-            try {
-                updated = memberMapper.updateSendResultIfSending(
-                        result, HistoricalGroupMemberSendStatus.SENDING.code());
-            } catch (DuplicateKeyException duplicateEvent) {
-                // send_result_event_id 在租户内唯一；重复投递不得触发 Kafka 业务重试。
-                log.info("历史群营销结果已跳过 executionId={} memberId={} eventId={} reason=duplicate_event",
-                        execution.getId(), member.getId(), event.eventId());
-                return;
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(execution.getOwnerUserId()))) {
+                applyResult(event, execution);
             }
-            if (updated != 1) {
-                log.info("历史群营销结果已跳过 executionId={} memberId={} commandId={} reason=duplicate_or_final",
-                        execution.getId(), member.getId(), event.commandId());
-                return;
-            }
-            aggregateIfComplete(execution.getId());
-            log.info("历史群营销结果已回写 executionId={} memberId={} commandId={} success={} eventId={}",
-                    execution.getId(), member.getId(), event.commandId(), event.success(), event.eventId());
         } finally {
             restoreTenant(previousTenantId);
         }
+    }
+
+    private void applyResult(ProtocolMessageSendResultReportedEvent event,
+                             HistoricalGroupPullExecution execution) {
+        HistoricalGroupPullMember member = memberMapper.selectByTenantAndId(
+                event.tenantId(), event.historicalMemberId());
+        validateIdentity(event, execution, member);
+
+        if (!Integer.valueOf(HistoricalGroupMarketingStatus.SENDING.code())
+                .equals(execution.getMarketingStatus())) {
+            log.info("历史群营销结果已跳过 executionId={} memberId={} commandId={} reason=execution_final",
+                    execution.getId(), member.getId(), event.commandId());
+            return;
+        }
+
+        HistoricalGroupPullMember result = resultRow(event);
+        int updated;
+        try {
+            updated = memberMapper.updateSendResultIfSending(
+                    result, HistoricalGroupMemberSendStatus.SENDING.code());
+        } catch (DuplicateKeyException duplicateEvent) {
+            // send_result_event_id 在租户内唯一；重复投递不得触发 Kafka 业务重试。
+            log.info("历史群营销结果已跳过 executionId={} memberId={} eventId={} reason=duplicate_event",
+                    execution.getId(), member.getId(), event.eventId());
+            return;
+        }
+        if (updated != 1) {
+            log.info("历史群营销结果已跳过 executionId={} memberId={} commandId={} reason=duplicate_or_final",
+                    execution.getId(), member.getId(), event.commandId());
+            return;
+        }
+        aggregateIfComplete(execution.getId());
+        log.info("历史群营销结果已回写 executionId={} memberId={} commandId={} success={} eventId={}",
+                    execution.getId(), member.getId(), event.commandId(), event.success(), event.eventId());
     }
 
     private void aggregateIfComplete(Long executionId) {

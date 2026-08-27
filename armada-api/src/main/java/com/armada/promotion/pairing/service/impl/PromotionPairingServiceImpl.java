@@ -21,6 +21,8 @@ import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -90,8 +92,10 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
 
         Long previousTenant = TenantContext.get();
         PromotionPairingSession session = null;
+        DataScopeContext.Scope ownerScope = null;
         try {
             TenantContext.set(context.tenantId());
+            ownerScope = DataScopeContext.open(DataScope.self(requireOwner(context.ownerUserId())));
             if (accountProvisionService.existsActiveByPhoneGlobally(normalizedPhone)) {
                 // 公开入口不泄露手机号是否属于其他租户，只返回统一的可重试提示。
                 throw new BusinessException(ErrorCode.CONFLICT, "配对暂不可用，请更换账号或稍后重试");
@@ -133,6 +137,9 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
                     session == null ? null : session.getId(), context.channelId(), ex.getClass().getSimpleName());
             throw new BusinessException(ErrorCode.CONFLICT, "配对请求失败，请重试");
         } finally {
+            if (ownerScope != null) {
+                ownerScope.close();
+            }
             restoreTenant(previousTenant);
         }
     }
@@ -210,11 +217,23 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(session.getTenantId());
-            return completionService.expireIfDue(
-                    session.getId(), session.getTenantId(), System.currentTimeMillis());
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(requireOwner(session.getOwnerUserId())))) {
+                return completionService.expireIfDue(
+                        session.getId(), session.getTenantId(), System.currentTimeMillis());
+            }
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private static long requireOwner(Long ownerUserId) {
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "推广渠道或配对会话缺少可信用户归属");
+        }
+        return ownerUserId;
     }
 
     private static void validateAccepted(PromotionPairingSession session, PairingAccepted accepted) {

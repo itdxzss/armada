@@ -14,14 +14,18 @@ import org.springframework.stereotype.Component;
 public class ProtocolGroupMembersResultAdapter implements ProtocolGroupMembersResultReportedSink {
 
     private final PullTaskMemberQueryResultService resultService;
+    private final TaskResultOwnerScopeRunner ownerScopeRunner;
 
-    public ProtocolGroupMembersResultAdapter(PullTaskMemberQueryResultService resultService) {
+    public ProtocolGroupMembersResultAdapter(PullTaskMemberQueryResultService resultService,
+                                             TaskResultOwnerScopeRunner ownerScopeRunner) {
         this.resultService = resultService;
+        this.ownerScopeRunner = ownerScopeRunner;
     }
 
     @Override
     public void handleMembersResultReported(ProtocolGroupMembersResultReportedEvent event) {
-        resultService.apply(new PullTaskMemberQueryCallback(
+        ownerScopeRunner.runForPullTask(event.tenantId(), event.pullTaskId(),
+                () -> resultService.apply(new PullTaskMemberQueryCallback(
                 event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.queryId(),
                 PullTaskMemberQueryPurpose.valueOf(event.purpose()), event.accountId(),
                 event.protocolAccountId(), event.protocolBackend(), event.commandId(),
@@ -29,6 +33,6 @@ public class ProtocolGroupMembersResultAdapter implements ProtocolGroupMembersRe
                 event.groupJid(), event.members().stream().map(fact -> new PullTaskMemberFact(
                 fact.targetJid(), fact.participantJid(), fact.phoneNumber(),
                 fact.inGroup(), fact.admin())).toList(),
-                event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
+                event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp())));
     }
 }

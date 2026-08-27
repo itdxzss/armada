@@ -7,7 +7,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.mapper.AccountGroupMembershipMapper;
-import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.GroupInviteLinkObservation;
 import com.armada.group.model.entity.AccountGroupMembership;
@@ -27,7 +26,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class GroupMetadataSnapshotPersistenceImplTest {
 
     @Mock private GroupLinkPreviewMapper previewMapper;
-    @Mock private GroupLinkMapper groupLinkMapper;
     @Mock private AccountGroupMembershipMapper membershipMapper;
     @Mock private GroupInviteLinkService inviteLinkService;
     @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
@@ -40,7 +38,8 @@ class GroupMetadataSnapshotPersistenceImplTest {
         assertThat(service().persist(preview, List.of())).isTrue();
 
         verify(previewMapper, never()).upsertCreatorCompatibility(anyList());
-        verify(groupLinkMapper).updateGroupName(10L, "新群名", 2_000L);
+        verify(currentLocalPersistence).applyProfile(
+                org.mockito.ArgumentMatchers.any());
         verify(currentSnapshotPersistence).replaceCompleteGroupMetadataSnapshot(
                 preview, List.of(), 2_000L, "metadata:10:2000");
     }
@@ -55,10 +54,6 @@ class GroupMetadataSnapshotPersistenceImplTest {
         assertThat(service().persist(preview, List.of())).isTrue();
 
         verify(previewMapper).upsertCreatorCompatibility(List.of(preview));
-        verify(groupLinkMapper, never()).updateGroupName(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
@@ -111,7 +106,7 @@ class GroupMetadataSnapshotPersistenceImplTest {
 
     private GroupMetadataSnapshotPersistenceImpl service() {
         return new GroupMetadataSnapshotPersistenceImpl(
-                previewMapper, groupLinkMapper, membershipMapper, inviteLinkService,
+                previewMapper, membershipMapper, inviteLinkService,
                 currentSnapshotPersistence, currentLocalPersistence);
     }
 

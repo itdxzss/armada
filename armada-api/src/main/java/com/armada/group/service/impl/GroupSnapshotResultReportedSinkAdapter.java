@@ -24,6 +24,10 @@ import com.armada.group.service.GroupSnapshotProperties;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupSnapshotResultReportedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupSnapshotResultReportedSink;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Map;
 import java.util.Optional;
@@ -99,30 +103,36 @@ public class GroupSnapshotResultReportedSinkAdapter
 
     private void settle(ProtocolGroupSnapshotResultReportedEvent event) {
         boolean invalidPayloadSettlement = isInvalidPayloadSettlement(event.scopes());
-        if (!invalidPayloadSettlement) {
-            validateAccountBinding(event);
+        if (invalidPayloadSettlement) {
+            settleInvalidPayload(event);
+            return;
         }
+        Account account = validateAccountBinding(event);
+        Long ownerUserId = requireOwner(account);
+        try (DataScopeContext.Scope ignored =
+                     DataScopeContext.open(DataScope.self(ownerUserId))) {
+            settleValidated(event, ownerUserId);
+        }
+    }
+
+    private void settleValidated(
+            ProtocolGroupSnapshotResultReportedEvent event,
+            Long ownerUserId) {
         if ("GROUP_BATCH_TASK_ITEM".equals(event.taskType())) {
-            settleBatch(event, invalidPayloadSettlement);
+            settleBatch(event, ownerUserId);
             return;
         }
         if (!"GROUP_METADATA_SYNC".equals(event.taskType())) {
             throw new IllegalArgumentException("群快照结算 taskType 不受支持");
         }
-        GroupMetadataSyncTask task = invalidPayloadSettlement
-                ? taskMapper.selectByCurrentCommandIdUnscoped(event.commandId())
-                : taskMapper.selectByCurrentCommandId(event.tenantId(), event.commandId());
+        GroupMetadataSyncTask task =
+                taskMapper.selectByCurrentCommandId(event.tenantId(), event.commandId());
         if (task == null) {
             metrics.recordStaleResult("COMMAND_NOT_CURRENT");
             log.info("群快照旧或重复结算已忽略 commandId={} taskId={}", event.commandId(), event.taskId());
             return;
         }
-        if (invalidPayloadSettlement) {
-            TenantContext.set(task.getTenantId());
-            settleTerminal(task, GroupMetadataSyncStatus.FAILED, "INVALID_PAYLOAD",
-                    "群快照命令字段非法", System.currentTimeMillis());
-            return;
-        }
+        requireSameOwner(ownerUserId, task.getOwnerUserId(), "群快照同步任务");
         validateCorrelation(task, event);
         int eventMask = scopeMask(event.scopes());
         if (eventMask != valueOrZero(task.getRequestedScopeMask())) {
@@ -155,7 +165,7 @@ public class GroupSnapshotResultReportedSinkAdapter
         rotateCandidate(task, errorCode, System.currentTimeMillis());
     }
 
-    private void validateAccountBinding(ProtocolGroupSnapshotResultReportedEvent event) {
+    private Account validateAccountBinding(ProtocolGroupSnapshotResultReportedEvent event) {
         Account account = accountMapper.selectActiveByProtocolAccountId(event.protocolAccountId());
         ProtocolBackend boundBackend;
         try {
@@ -172,32 +182,25 @@ public class GroupSnapshotResultReportedSinkAdapter
                 || !event.protocolBackend().equals(boundBackend.name())) {
             throw new IllegalArgumentException("群快照结算账号协议绑定不一致");
         }
+        return account;
     }
 
     private void settleBatch(
             ProtocolGroupSnapshotResultReportedEvent event,
-            boolean invalidPayloadSettlement) {
-        GroupBatchTaskItem item = invalidPayloadSettlement
-                ? batchItemMapper.selectByCurrentCommandIdUnscoped(event.commandId())
-                : batchItemMapper.selectByCurrentCommandId(event.tenantId(), event.commandId());
+            Long ownerUserId) {
+        GroupBatchTaskItem item =
+                batchItemMapper.selectByCurrentCommandId(event.tenantId(), event.commandId());
         if (item == null) {
             metrics.recordStaleResult("COMMAND_NOT_CURRENT");
             log.info("批量群快照旧或重复结算已忽略 commandId={} itemId={}",
                     event.commandId(), event.taskId());
             return;
         }
-        if (invalidPayloadSettlement) {
-            TenantContext.set(item.getTenantId());
-        }
-        GroupBatchTask task = batchTaskMapper.selectById(item.getTaskId());
+        GroupBatchTask task = batchTaskMapper.selectByIdForExecution(item.getTaskId());
         if (task == null) {
             throw new IllegalArgumentException("批量群快照所属任务不存在");
         }
-        if (invalidPayloadSettlement) {
-            settleBatchTerminal(item, task, false, "INVALID_PAYLOAD",
-                    "群快照命令字段非法", System.currentTimeMillis());
-            return;
-        }
+        requireSameOwner(ownerUserId, task.getOwnerUserId(), "批量群快照任务");
         GroupBatchTaskType type = GroupBatchTaskType.fromCode(task.getTaskType());
         validateBatchCorrelation(item, event);
         int expectedMask = type == GroupBatchTaskType.REFRESH_LINK
@@ -231,6 +234,71 @@ public class GroupSnapshotResultReportedSinkAdapter
             return;
         }
         rotateBatchCandidate(item, task, type, errorCode, now);
+    }
+
+    /** INVALID_PAYLOAD 的 envelope 字段不可信，只按全局 commandId 找回根记录并恢复 owner。 */
+    private void settleInvalidPayload(ProtocolGroupSnapshotResultReportedEvent event) {
+        if ("GROUP_BATCH_TASK_ITEM".equals(event.taskType())) {
+            GroupBatchTaskItem item =
+                    batchItemMapper.selectByCurrentCommandIdUnscoped(event.commandId());
+            if (item == null) {
+                metrics.recordStaleResult("COMMAND_NOT_CURRENT");
+                return;
+            }
+            TenantContext.set(item.getTenantId());
+            GroupBatchTask task = batchTaskMapper.selectByIdForExecution(item.getTaskId());
+            if (task == null) {
+                throw new IllegalArgumentException("批量群快照所属任务不存在");
+            }
+            try (DataScopeContext.Scope ignored = openOwnerScope(task.getOwnerUserId())) {
+                settleBatchTerminal(item, task, false, "INVALID_PAYLOAD",
+                        "群快照命令字段非法", System.currentTimeMillis());
+            }
+            return;
+        }
+        if (!"GROUP_METADATA_SYNC".equals(event.taskType())) {
+            throw new IllegalArgumentException("群快照结算 taskType 不受支持");
+        }
+        GroupMetadataSyncTask task =
+                taskMapper.selectByCurrentCommandIdUnscoped(event.commandId());
+        if (task == null) {
+            metrics.recordStaleResult("COMMAND_NOT_CURRENT");
+            return;
+        }
+        TenantContext.set(task.getTenantId());
+        try (DataScopeContext.Scope ignored = openOwnerScope(task.getOwnerUserId())) {
+            settleTerminal(task, GroupMetadataSyncStatus.FAILED, "INVALID_PAYLOAD",
+                    "群快照命令字段非法", System.currentTimeMillis());
+        }
+    }
+
+    private static DataScopeContext.Scope openOwnerScope(Long ownerUserId) {
+        if (ownerUserId == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属群快照任务不能结算");
+        }
+        return DataScopeContext.open(DataScope.self(ownerUserId));
+    }
+
+    private static Long requireOwner(Account account) {
+        if (account.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属账号不能结算用户私有群快照任务");
+        }
+        return account.getOwnerUserId();
+    }
+
+    private static void requireSameOwner(
+            Long accountOwnerUserId,
+            Long taskOwnerUserId,
+            String resourceName) {
+        if (!java.util.Objects.equals(accountOwnerUserId, taskOwnerUserId)) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    resourceName + "与执行账号归属不一致");
+        }
     }
 
     private void rotateBatchCandidate(

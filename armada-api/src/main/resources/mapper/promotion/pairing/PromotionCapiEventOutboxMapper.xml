@@ -3,7 +3,7 @@
 <mapper namespace="com.armada.promotion.pairing.mapper.PromotionCapiEventOutboxMapper">
 
   <sql id="Columns">
-    id, tenant_id, promotion_channel_id, pairing_session_id, event_stage,
+    id, tenant_id, owner_user_id, promotion_channel_id, pairing_session_id, event_stage,
     event_name, event_id, event_time, phone_sha256, client_ip, client_user_agent,
     fbp, fbc, event_source_url, status, retry_count, next_retry_at,
     locked_by, locked_at, sent_at, last_error_code, last_error_message,
@@ -21,13 +21,13 @@
 
   <insert id="batchInsert">
     INSERT INTO promotion_capi_event_outbox (
-      promotion_channel_id, pairing_session_id, event_stage, event_name, event_id,
+      owner_user_id, promotion_channel_id, pairing_session_id, event_stage, event_name, event_id,
       event_time, phone_sha256, client_ip, client_user_agent, fbp, fbc,
       event_source_url, status, retry_count, next_retry_at, sensitive_expires_at,
       created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="r" separator=",">
-      (#{r.promotionChannelId}, #{r.pairingSessionId}, #{r.eventStage},
+      (#{r.ownerUserId}, #{r.promotionChannelId}, #{r.pairingSessionId}, #{r.eventStage},
        #{r.eventName}, #{r.eventId}, #{r.eventTime}, #{r.phoneSha256},
        #{r.clientIp}, #{r.clientUserAgent}, #{r.fbp}, #{r.fbc},
        #{r.eventSourceUrl}, #{r.status}, #{r.retryCount}, #{r.nextRetryAt},

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
@@ -20,10 +21,16 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.AfterEach;
 import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.Test;
 
 class PullTaskExecutionDispatchCoordinatorTest {
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void claimCriteriaIncludesManagerPullerContactStage() {
@@ -238,7 +245,10 @@ class PullTaskExecutionDispatchCoordinatorTest {
         when(mapper.claimDue(any(PullTaskExecutionClaimCriteria.class))).thenReturn(1);
         when(mapper.selectClaimed("worker-fixed", 1_000L)).thenReturn(List.of(candidate));
         when(managerJoinProcessor.process(candidate, "worker-fixed", 1_000L))
-                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+                .thenAnswer(invocation -> {
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(17L);
+                    return PullTaskExecutionDispatchResult.ADVANCED;
+                });
         PullTaskExecutionDispatchCoordinator coordinator = new PullTaskExecutionDispatchCoordinator(
                 mapper, stageRouter(linkProcessor, managerJoinProcessor),
                 mock(PullTaskResourceRecoveryTransactionService.class),
@@ -336,6 +346,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setId(id);
         row.setTenantId(tenantId);
+        row.setOwnerUserId(17L);
         row.setTaskId(100L + id);
         row.setNormalizedLink(link);
         row.setInviteCode(link.substring(link.lastIndexOf('/') + 1));

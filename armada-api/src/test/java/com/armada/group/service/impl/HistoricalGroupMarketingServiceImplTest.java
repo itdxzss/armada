@@ -33,6 +33,8 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,6 +78,7 @@ class HistoricalGroupMarketingServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
+        DataScopeContext.open(DataScope.self(11L));
         execution = execution();
         members = new ArrayList<>();
         service = new HistoricalGroupMarketingServiceImpl(
@@ -86,7 +89,8 @@ class HistoricalGroupMarketingServiceImplTest {
                 messageCompositionService,
                 accountLookupService,
                 messageSendPort);
-        when(executionMapper.selectByTenantAndId(TENANT_ID, EXECUTION_ID)).thenReturn(execution);
+        org.mockito.Mockito.lenient().when(executionMapper.selectByTenantAndIdForScope(
+                eq(TENANT_ID), eq(EXECUTION_ID), any())).thenReturn(execution);
         org.mockito.Mockito.lenient().when(memberMapper.selectOrderedByExecutionId(EXECUTION_ID))
                 .thenAnswer(invocation -> List.copyOf(members));
     }
@@ -94,6 +98,7 @@ class HistoricalGroupMarketingServiceImplTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -130,6 +135,41 @@ class HistoricalGroupMarketingServiceImplTest {
                 });
         org.assertj.core.api.Assertions.assertThat(members.get(1).getSendStatus())
                 .isEqualTo(HistoricalGroupMemberSendStatus.NOT_APPLICABLE.code());
+    }
+
+    @Test
+    void administratorOperationNarrowsToTheExecutionOwnerForTemplateAndAccountReads() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        when(executionMapper.selectByTenantAndIdForScope(
+                eq(TENANT_ID), eq(EXECUTION_ID), eq(DataScope.all(99L))))
+                .thenReturn(execution);
+        members.add(member(11L, "8613900000011", true));
+        when(historicalGroupService.getHistoricalGroupDetail(201L, "120363target@g.us"))
+                .thenReturn(detail(true, "https://chat.whatsapp.com/fresh"));
+        when(messageCompositionService.compose(TEMPLATE_ID)).thenAnswer(invocation -> {
+            org.assertj.core.api.Assertions.assertThat(
+                    DataScopeContext.requireCurrent().actorUserId()).isEqualTo(11L);
+            org.assertj.core.api.Assertions.assertThat(
+                    DataScopeContext.requireCurrent().isSelf()).isTrue();
+            return textMessage();
+        });
+        when(executionMapper.claimMarketingIfNotStarted(
+                eq(EXECUTION_ID), anyInt(), anyInt(), eq(TEMPLATE_ID), anyLong()))
+                .thenReturn(1);
+        when(accountLookupService.findActiveProtocolRefsByPhones(List.of("8613900000011")))
+                .thenAnswer(invocation -> {
+                    org.assertj.core.api.Assertions.assertThat(
+                            DataScopeContext.requireCurrent().actorUserId()).isEqualTo(11L);
+                    return Map.of();
+                });
+        when(memberMapper.markSendFailedIfPending(any(), anyInt(), anyInt()))
+                .thenAnswer(invocation -> markFailed(invocation.getArgument(0)));
+
+        service.send(EXECUTION_ID, new HistoricalGroupMarketingSendDTO(TEMPLATE_ID));
+
+        org.assertj.core.api.Assertions.assertThat(DataScopeContext.requireCurrent())
+                .isEqualTo(DataScope.all(99L));
     }
 
     @Test
@@ -303,6 +343,8 @@ class HistoricalGroupMarketingServiceImplTest {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
         row.setId(EXECUTION_ID);
         row.setTenantId(TENANT_ID);
+        row.setOwnerUserId(11L);
+        row.setCreatedBy(11L);
         row.setOperationAccountId(101L);
         row.setSourceAccountGroupId(201L);
         row.setGroupJid("120363target@g.us");

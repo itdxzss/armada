@@ -4,6 +4,7 @@ import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -57,11 +58,17 @@ class JoinTaskResultServiceTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void apply_joinedMarksSuccessAndSchedulesOnlyNextSameAccountRow() {
         stubSubmitted(task(true, 2, 5), row(1));
+        when(resultMapper.markTerminalSuccess(26L, "120363@g.us", 10_000L)).thenAnswer(invocation -> {
+            org.assertj.core.api.Assertions.assertThat(
+                    DataScopeContext.requireCurrent().actorUserId()).isEqualTo(7L);
+            return 1;
+        });
 
         service.apply(event("JOINED", null, false, "120363@g.us", 1));
 
@@ -181,6 +188,12 @@ class JoinTaskResultServiceTest {
         JoinTaskResult row = row(2);
         when(resultMapper.selectSubmittedForUpdate(26L, "cmd-dead", 2)).thenReturn(row);
         when(taskMapper.selectByTenantAndId(9L)).thenReturn(task(true, 2, 5));
+        when(resultMapper.markRetry(26L, "KAFKA_PUBLISH_FAILED", 15_000L, 10_000L))
+                .thenAnswer(invocation -> {
+                    org.assertj.core.api.Assertions.assertThat(
+                            DataScopeContext.requireCurrent().actorUserId()).isEqualTo(7L);
+                    return 1;
+                });
 
         service.applyTransportFailure(new JoinTaskDeadCommandCandidate(1L, 26L, "cmd-dead", 2));
 
@@ -197,6 +210,7 @@ class JoinTaskResultServiceTest {
     private static JoinTask task(boolean retryEnabled, int retryLimit, int intervalSeconds) {
         JoinTask task = new JoinTask();
         task.setId(9L);
+        task.setOwnerUserId(7L);
         task.setRetryEnabled(retryEnabled);
         task.setRetryLimit(retryLimit);
         task.setDistributionMode("FIXED_ACCOUNTS_PER_LINK");

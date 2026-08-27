@@ -305,7 +305,7 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectAccountCandidateByAccountId(8L))
                 .thenReturn(account(8L, "8613000000001", "acc_8",
                         AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE));
-        when(templateMapper.selectById(18L)).thenReturn(template);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
         when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
@@ -358,7 +358,7 @@ class GroupCreationMarketingWorkerTest {
                 eq(GroupCreationMarketingItemStatus.GROUP_CREATING.code()), anyLong())).thenReturn(1);
         when(groupCreationMapper.selectTaskById(22L)).thenReturn(task);
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L)).thenReturn(account);
-        when(templateMapper.selectById(18L)).thenReturn(template);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
         when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
@@ -451,7 +451,7 @@ class GroupCreationMarketingWorkerTest {
                 anyLong());
         when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
-        when(templateMapper.selectById(18L)).thenReturn(template);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null));
         when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
@@ -647,7 +647,7 @@ class GroupCreationMarketingWorkerTest {
         when(groupCreationMapper.selectAccountCandidateByAccountId(7L)).thenReturn(account);
         lenient().when(groupCreatePort.create(any(GroupCreateCommand.class)))
                 .thenReturn(new GroupCreateResult("120363created@g.us", false, List.of()));
-        when(templateMapper.selectById(18L)).thenReturn(template);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
         when(messageComposer.compose(eq(template), any())).thenReturn(new MarketingMessageComposer.ComposedMessage(
                 "TEXT", "hello", null, null, true));
         when(groupCreationMapper.markItemMarketingSending(any(GroupCreationMarketingItemMarketingDispatch.class))).thenReturn(1);
@@ -657,6 +657,7 @@ class GroupCreationMarketingWorkerTest {
         GroupCreationMarketingItem item = new GroupCreationMarketingItem();
         item.setId(11L);
         item.setTenantId(1L);
+        item.setOwnerUserId(7L);
         item.setTaskId(22L);
         item.setAccountId(7L);
         item.setAccountPhone("8613000000000");
@@ -683,6 +684,7 @@ class GroupCreationMarketingWorkerTest {
         GroupCreationMarketingTask task = new GroupCreationMarketingTask();
         task.setId(22L);
         task.setTenantId(1L);
+        task.setOwnerUserId(7L);
         task.setTaskName("建群营销");
         task.setAccountGroupId(8L);
         task.setAccountGroupName("A组");
@@ -717,6 +719,7 @@ class GroupCreationMarketingWorkerTest {
     private MarketingTemplate template() {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(18L);
+        template.setOwnerUserId(7L);
         template.setTemplateName("模板");
         template.setLinkMode(1);
         template.setContent("hello");

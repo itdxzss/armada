@@ -11,6 +11,8 @@ import com.armada.group.service.GroupMetadataSyncLimits;
 import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.group.service.GroupSnapshotDispatchService;
 import com.armada.group.service.GroupSnapshotProperties;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.HashSet;
 import java.util.List;
@@ -77,12 +79,21 @@ public class GroupMetadataSyncJob {
         int deferred = 0;
         Set<String> dispatchedGroupKeys = new HashSet<>();
         for (GroupMetadataSyncTask task : tasks) {
+            if (task.getOwnerUserId() == null) {
+                taskService.fail(
+                        task,
+                        "DATA_OWNER_MISSING",
+                        "历史群同步任务未分配归属用户",
+                        now);
+                metrics.recordResult(GroupMetadataSyncMetrics.Result.FAILED);
+                continue;
+            }
             String groupKey = snapshotProperties.enabled() ? groupKey(task) : null;
             if (groupKey != null && !dispatchedGroupKeys.add(groupKey)) {
                 snapshotMetrics.recordDuplicateJid();
                 continue;
             }
-            TaskResult result = withTenant(task.getTenantId(), () -> process(task));
+            TaskResult result = withTenantAndOwner(task, () -> process(task));
             if (result == TaskResult.EXECUTED) {
                 executed++;
             } else if (result == TaskResult.DEFERRED) {
@@ -161,11 +172,16 @@ public class GroupMetadataSyncJob {
                         .equals(task.getTriggerSource());
     }
 
-    private static <T> T withTenant(Long tenantId, java.util.function.Supplier<T> action) {
+    private static <T> T withTenantAndOwner(
+            GroupMetadataSyncTask task,
+            java.util.function.Supplier<T> action) {
         Long previous = TenantContext.get();
         try {
-            TenantContext.set(tenantId);
-            return action.get();
+            TenantContext.set(task.getTenantId());
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                return action.get();
+            }
         } finally {
             if (previous == null) {
                 TenantContext.clear();
@@ -184,7 +200,8 @@ public class GroupMetadataSyncJob {
         if (task.getTenantId() == null || groupJid == null || groupJid.isBlank()) {
             return null;
         }
-        return task.getTenantId() + "\u0000" + groupJid.trim().toLowerCase(Locale.ROOT);
+        return task.getTenantId() + "\u0000" + task.getOwnerUserId() + "\u0000"
+                + groupJid.trim().toLowerCase(Locale.ROOT);
     }
 
     private enum TaskResult {

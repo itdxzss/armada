@@ -19,6 +19,8 @@ import com.armada.account.service.AccountService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -91,6 +93,7 @@ public class AccountServiceImpl implements AccountService {
      */
     @Override
     public PageResult<AccountListVO> listAccounts(AccountQuery query) {
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         query.setResolvedOccupancyGroupIds(null);
         if (hasAdvancedOccupancyFilter(query)) {
             List<Long> groupIds = accountGroupMapper.selectMarketingOccupancyGroupIds(query);
@@ -189,7 +192,7 @@ public class AccountServiceImpl implements AccountService {
      */
     @Override
     public AccountStatsVO getStats() {
-        AccountStatsVoRow row = accountMapper.statsSummary();
+        AccountStatsVoRow row = accountMapper.statsSummary(DataScopeAccess.requireCurrent());
         long unassigned = row.getTotal() - row.getAssigned();
         long restrictedTotal = row.getBanned()
                 + row.getUnbound()
@@ -227,11 +230,70 @@ public class AccountServiceImpl implements AccountService {
         if (accountIds == null || accountIds.isEmpty()) {
             return Map.of();
         }
+        List<Long> ids = accountIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        requireAccessibleAccounts(ids);
         Map<Long, Integer> states = new LinkedHashMap<>();
-        for (AccountState row : accountMapper.selectActiveLoginStatesByIds(accountIds)) {
+        for (AccountState row : accountMapper.selectActiveLoginStatesByIds(ids)) {
             states.put(row.getAccountId(), row.getLoginState());
         }
         return Collections.unmodifiableMap(states);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void requireAccessibleAccounts(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号列表不能为空");
+        }
+        List<Long> ids = accountIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号列表不能为空");
+        }
+        List<Account> accounts = accountMapper.selectActiveByIds(ids);
+        if (accounts.size() != ids.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不存在或已删除");
+        }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        accounts.forEach(account -> DataScopeAccess.requireCanAccess(
+                scope, account.getOwnerUserId(), "账号"));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void requireAccessibleAccountsInGroup(List<Long> accountIds, Long accountGroupId) {
+        if (accountGroupId == null || accountIds == null || accountIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号分组和账号列表不能为空");
+        }
+        List<Long> ids = accountIds.stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号列表不能为空");
+        }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        AccountGroup group = accountGroupMapper.selectById(accountGroupId);
+        if (group == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "账号分组不存在");
+        }
+        DataScopeAccess.requireCanAccess(scope, group.getOwnerUserId(), "账号分组");
+        List<Account> accounts = accountMapper.selectActiveByIds(ids);
+        if (accounts.size() != ids.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不存在或已删除");
+        }
+        for (Account account : accounts) {
+            DataScopeAccess.requireCanAccess(scope, account.getOwnerUserId(), "账号");
+            if (!accountGroupId.equals(account.getAccountGroupId())
+                    || !java.util.Objects.equals(group.getOwnerUserId(), account.getOwnerUserId())) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不属于指定分组或数据范围");
+            }
+        }
     }
 
     /**
@@ -267,6 +329,9 @@ public class AccountServiceImpl implements AccountService {
         if (accounts.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不存在或已删除，请刷新后重试");
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        accounts.forEach(account -> DataScopeAccess.requireCanAccess(
+                scope, account.getOwnerUserId(), "账号"));
 
         TreeSet<Long> involvedGroupIds = new TreeSet<>();
         involvedGroupIds.add(accountGroupId);
@@ -281,8 +346,22 @@ public class AccountServiceImpl implements AccountService {
         if (targetGroup == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "目标分组不存在: " + accountGroupId);
         }
+        DataScopeAccess.requireCanAccess(scope, targetGroup.getOwnerUserId(), "分组");
         if (targetGroup.getMarketingOccupancyTaskId() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "目标分组正被营销任务占用，不允许迁入账号");
+        }
+        for (Account account : accounts) {
+            if (!java.util.Objects.equals(account.getOwnerUserId(), targetGroup.getOwnerUserId())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "账号与目标分组归属不一致，不允许迁移");
+            }
+            Long sourceGroupId = account.getAccountGroupId();
+            if (sourceGroupId != null) {
+                AccountGroup sourceGroup = groupsById.get(sourceGroupId);
+                if (sourceGroup == null
+                        || !java.util.Objects.equals(sourceGroup.getOwnerUserId(), account.getOwnerUserId())) {
+                    throw new BusinessException(ErrorCode.VALIDATION, "账号与来源分组归属不一致，不允许迁移");
+                }
+            }
         }
 
         List<Long> sourceGroupIds = accounts.stream()
@@ -343,6 +422,13 @@ public class AccountServiceImpl implements AccountService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 列表不能为空");
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<Account> accounts = accountMapper.selectActiveByIds(ids);
+        if (accounts.size() != new LinkedHashSet<>(ids).size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分账号不存在或已删除，请刷新后重试");
+        }
+        accounts.forEach(account -> DataScopeAccess.requireCanAccess(
+                scope, account.getOwnerUserId(), "账号"));
         List<AccountDeleteGateRow> rows = accountMapper.selectStatesByIds(ids);
         // 全或无:先全量校验,任一不满足整批拒删
         for (AccountDeleteGateRow row : rows) {
@@ -367,4 +453,5 @@ public class AccountServiceImpl implements AccountService {
                 && DELETABLE_STATES.contains(row.getAccountState())
                 && row.getDispatchedAt() == null;
     }
+
 }

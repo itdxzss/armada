@@ -7,27 +7,41 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountOnlineAttemptLogMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountOnlineAttemptLog;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class AccountOnlineAttemptLogServiceImplTest {
 
     private final AccountOnlineAttemptLogMapper mapper = org.mockito.Mockito.mock(AccountOnlineAttemptLogMapper.class);
-    private final AccountOnlineAttemptLogServiceImpl service = new AccountOnlineAttemptLogServiceImpl(mapper);
+    private final AccountMapper accountMapper = org.mockito.Mockito.mock(AccountMapper.class);
+    private final AccountOnlineAttemptLogServiceImpl service =
+            new AccountOnlineAttemptLogServiceImpl(mapper, accountMapper);
+
+    @BeforeEach
+    void stubDiagnosedAccount() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 7L));
+    }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -157,9 +171,13 @@ class AccountOnlineAttemptLogServiceImplTest {
 
     @Test
     void recentByAccount_clampsNonPositiveLimitToDefaultAndMapsRows() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 2L));
         when(mapper.selectRecentByAccountId(9L, 20)).thenReturn(List.of(row()));
 
-        List<AccountOnlineAttemptLogVO> result = service.recentByAccount(9L, 0);
+        List<AccountOnlineAttemptLogVO> result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(1L))) {
+            result = service.recentByAccount(9L, 0);
+        }
 
         verify(mapper).selectRecentByAccountId(9L, 20);
         assertThat(result).singleElement().satisfies(vo -> {
@@ -173,19 +191,76 @@ class AccountOnlineAttemptLogServiceImplTest {
     }
 
     @Test
-    void recentByAccount_rejectsNullAccountId() {
-        assertThatThrownBy(() -> service.recentByAccount(null, 20))
-                .isInstanceOf(BusinessException.class)
-                .hasMessage("账号 ID 不能为空");
+    void recentByAccount_selfOwner_canReadLogs() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 7L));
+        when(mapper.selectRecentByAccountId(9L, 20)).thenReturn(List.of(row()));
+
+        List<AccountOnlineAttemptLogVO> result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(7L))) {
+            result = service.recentByAccount(9L, 20);
+        }
+
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    void recentByAccount_otherOwner_rejectsBeforeReadingLogs() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 8L));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(7L))) {
+            assertThatThrownBy(() -> service.recentByAccount(9L, 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
 
         verifyNoInteractions(mapper);
     }
 
     @Test
+    void recentByAccount_missingScope_rejectsBeforeReadingLogs() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 7L));
+
+        assertThatThrownBy(() -> service.recentByAccount(9L, 20))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void recentByAccount_systemScope_rejectsBeforeReadingLogs() {
+        when(accountMapper.selectActiveById(9L)).thenReturn(account(9L, 7L));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.system("test"))) {
+            assertThatThrownBy(() -> service.recentByAccount(9L, 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+        }
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void recentByAccount_rejectsNullAccountId() {
+        assertThatThrownBy(() -> service.recentByAccount(null, 20))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("账号 ID 不能为空");
+
+        verifyNoInteractions(mapper, accountMapper);
+    }
+
+    @Test
     void timeline_clampsLimitAboveMaxAndMapsRows() {
         when(mapper.selectByAttemptId("oa_1", 200)).thenReturn(List.of(row()));
+        when(accountMapper.selectActiveByIds(List.of(9L))).thenReturn(List.of(account(9L, 2L)));
 
-        List<AccountOnlineAttemptLogVO> result = service.timeline("oa_1", 500);
+        List<AccountOnlineAttemptLogVO> result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(1L))) {
+            result = service.timeline("oa_1", 500);
+        }
 
         verify(mapper).selectByAttemptId("oa_1", 200);
         assertThat(result).singleElement().satisfies(vo -> {
@@ -196,12 +271,77 @@ class AccountOnlineAttemptLogServiceImplTest {
     }
 
     @Test
+    void timeline_selfScope_validatesEveryReferencedAccountBeforeReturning() {
+        when(mapper.selectByAttemptId("oa_mixed", 20))
+                .thenReturn(List.of(row(9L), row(10L)));
+        when(accountMapper.selectActiveByIds(List.of(9L, 10L))).thenReturn(List.of(
+                account(9L, 7L),
+                account(10L, 8L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(7L))) {
+            assertThatThrownBy(() -> service.timeline("oa_mixed", 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+    }
+
+    @Test
+    void timeline_missingReferencedAccount_rejectsWholeTimeline() {
+        when(mapper.selectByAttemptId("oa_missing", 20)).thenReturn(List.of(row(9L)));
+        when(accountMapper.selectActiveByIds(List.of(9L))).thenReturn(List.of());
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(1L))) {
+            assertThatThrownBy(() -> service.timeline("oa_missing", 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+    }
+
+    @Test
+    void timeline_unknownAttemptIsNotFoundLikeAnInaccessibleAttempt() {
+        when(mapper.selectByAttemptId("oa_unknown", 20)).thenReturn(List.of());
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(1L))) {
+            assertThatThrownBy(() -> service.timeline("oa_unknown", 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(accountMapper);
+    }
+
+    @Test
+    void timeline_missingScopeRejectsEvenWhenTimelineWouldBeEmpty() {
+        assertThatThrownBy(() -> service.timeline("oa_empty", 20))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void timeline_systemScopeRejectsEvenWhenTimelineWouldBeEmpty() {
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.system("test"))) {
+            assertThatThrownBy(() -> service.timeline("oa_empty", 20))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+        }
+
+        verifyNoInteractions(mapper);
+    }
+
+    @Test
     void timeline_rejectsBlankAttemptId() {
         assertThatThrownBy(() -> service.timeline(" ", 20))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("上线尝试 ID 不能为空");
 
-        verifyNoInteractions(mapper);
+        verifyNoInteractions(mapper, accountMapper);
     }
 
     @Test
@@ -210,7 +350,7 @@ class AccountOnlineAttemptLogServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("上线尝试 ID 不能为空");
 
-        verifyNoInteractions(mapper);
+        verifyNoInteractions(mapper, accountMapper);
     }
 
     @Test
@@ -278,5 +418,19 @@ class AccountOnlineAttemptLogServiceImplTest {
         row.setOccurredAt(LocalDateTime.of(2026, 7, 2, 10, 18, 0, 123_000_000));
         row.setCreatedAt(LocalDateTime.of(2026, 7, 2, 10, 18, 1, 123_000_000));
         return row;
+    }
+
+    private static AccountOnlineAttemptLog row(Long accountId) {
+        AccountOnlineAttemptLog row = row();
+        row.setAccountId(accountId);
+        return row;
+    }
+
+    private static Account account(Long accountId, Long ownerUserId) {
+        Account account = new Account();
+        account.setId(accountId);
+        account.setOwnerUserId(ownerUserId);
+        account.setProtocolAccountId("acc_252625852450");
+        return account;
     }
 }

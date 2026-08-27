@@ -1,6 +1,7 @@
 package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 import com.armada.group.model.enums.GroupListType;
 
 /**
@@ -58,6 +59,18 @@ public class GroupLinkQuery extends PageQuery {
 
     /** 当前查询统一使用的 Unix 秒；由 service 设置，不接受请求参数语义。 */
     private Long nowSeconds;
+
+    /** 服务端注入的数据范围；不接受 HTTP 参数绑定。 */
+    private DataScope dataScope;
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入可信数据范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
+    }
 
     public Long getLabelId() {
         return labelId;

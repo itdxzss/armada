@@ -3,6 +3,8 @@ package com.armada.account.dispatch;
 import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +60,8 @@ public class AccountImportOnlineDispatcher {
         try {
             for (Long tenantId : tenantIds) {
                 TenantContext.set(tenantId);
-                try {
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                        DataScope.system("account import online dispatch"))) {
                     dispatched += worker.dispatchTenantBatch(tenantId);
                 } catch (RuntimeException ex) {
                     log.warn("账号导入自动上线租户派发失败,保留 QUEUED 等待重试 tenantId={}", tenantId, ex);

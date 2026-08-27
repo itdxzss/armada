@@ -31,9 +31,10 @@ class HistoricalGroupPullPersistenceDbTest extends DbTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    void v057CreatesExactColumnsStatusCommentsNullabilityAndIndexes() {
+    void v149KeepsExecutionSchemaAndMovesIdempotencyIntoOwnerScope() {
         assertThat(columnNames("historical_group_pull_execution")).containsExactly(
-                "id", "tenant_id", "created_by", "idempotency_key", "operation_account_id",
+                "id", "tenant_id", "owner_user_id", "created_by", "idempotency_key",
+                "unowned_idempotency_key", "operation_account_id", "source_account_group_id",
                 "group_jid", "group_subject_snapshot", "invite_link", "puller_account_group_id",
                 "puller_account_id", "single_add_count", "marketing_template_id", "normal_count",
                 "marketing_count", "invalid_count", "duplicate_count", "pull_success_count",
@@ -61,7 +62,8 @@ class HistoricalGroupPullPersistenceDbTest extends DbTestBase {
                 .isEqualTo("成员发送状态:0不适用 1待发送 2发送中 3成功 4失败");
 
         assertThat(nullableColumns("historical_group_pull_execution")).containsExactly(
-                "created_by", "group_subject_snapshot", "invite_link", "puller_account_id",
+                "owner_user_id", "created_by", "unowned_idempotency_key",
+                "source_account_group_id", "group_subject_snapshot", "invite_link", "puller_account_id",
                 "marketing_template_id", "failure_stage", "error_code", "error_message",
                 "started_at", "finished_at");
         assertThat(nullableColumns("historical_group_pull_member")).containsExactly(
@@ -69,8 +71,12 @@ class HistoricalGroupPullPersistenceDbTest extends DbTestBase {
                 "contact_error_message", "add_error_code", "add_error_message", "send_command_id",
                 "send_result_event_id", "send_error_code", "send_error_message");
 
-        assertIndex("historical_group_pull_execution", "uq_hgpe_tenant_idempotency", true,
-                List.of("tenant_id", "idempotency_key"));
+        assertIndex("historical_group_pull_execution", "uq_hgpe_owner_idempotency", true,
+                List.of("tenant_id", "owner_user_id", "idempotency_key"));
+        assertIndex("historical_group_pull_execution", "uq_hgpe_unowned_idempotency", true,
+                List.of("tenant_id", "unowned_idempotency_key"));
+        assertIndex("historical_group_pull_execution", "idx_hgpe_owner_time", false,
+                List.of("tenant_id", "owner_user_id", "created_at", "id"));
         assertIndex("historical_group_pull_execution", "idx_hgpe_tenant_account_group_time", false,
                 List.of("tenant_id", "operation_account_id", "group_jid", "created_at"));
         assertIndex("historical_group_pull_member", "uq_hgpm_tenant_execution_phone", true,
@@ -202,6 +208,8 @@ class HistoricalGroupPullPersistenceDbTest extends DbTestBase {
 
     private HistoricalGroupPullExecution newExecution(String idempotencyKey, long now) {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
+        row.setOwnerUserId(1001L);
+        row.setCreatedBy(1001L);
         row.setIdempotencyKey(idempotencyKey);
         row.setOperationAccountId(1001L);
         row.setGroupJid("120363test@g.us");

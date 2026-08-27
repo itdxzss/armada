@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.group.service.GroupFolderService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -65,11 +67,13 @@ class PullTaskGroupBanTerminationServiceTest {
                 taskMapper, resources, completionService, dispatchTrigger,
                 groupFolderService, () -> 900L);
         TenantContext.set(99L);
+        DataScopeContext.open(DataScope.self(501L));
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -80,7 +84,7 @@ class PullTaskGroupBanTerminationServiceTest {
         execution.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
         execution.setVersion(3);
         when(executionMapper.selectActiveByGroupLinkId(
-                eq(9011L), anyList(), eq("STANDARD"), eq("NORMAL_LINK"), anyList()))
+                eq(9011L), eq(501L), anyList(), eq("STANDARD"), eq("NORMAL_LINK"), anyList()))
                 .thenReturn(List.of(execution));
         when(executionMapper.transitionTerminal(any(PullTaskExecutionTerminalTransition.class)))
                 .thenReturn(0);

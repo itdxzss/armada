@@ -24,6 +24,7 @@ import com.armada.group.service.GroupMetadataSyncTaskService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -101,7 +102,9 @@ class AccountGroupMembershipReportPhaseServiceTest {
 
         InOrder lockOrder = inOrder(
                 groupLinkMapper, currentSnapshotPersistence, metadataSyncTaskService);
-        lockOrder.verify(groupLinkMapper).selectActiveByIdsForUpdate(List.of(20L));
+        lockOrder.verify(groupLinkMapper).selectActiveByIdsForUpdate(
+                org.mockito.ArgumentMatchers.eq(List.of(20L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class));
         lockOrder.verify(currentSnapshotPersistence).replaceVisibleGroups(
                 10L, event.groups(), true, 2_000L, "evt", List.of(group));
         lockOrder.verify(metadataSyncTaskService).enqueueClassifications(
@@ -157,7 +160,9 @@ class AccountGroupMembershipReportPhaseServiceTest {
                 currentSnapshotMapper, groupLinkMapper,
                 currentSnapshotPersistence, metadataSyncTaskService);
         lockOrder.verify(currentSnapshotMapper).selectContextForUpdate(10L);
-        lockOrder.verify(groupLinkMapper).selectActiveByIdsForUpdate(List.of(20L));
+        lockOrder.verify(groupLinkMapper).selectActiveByIdsForUpdate(
+                org.mockito.ArgumentMatchers.eq(List.of(20L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class));
         lockOrder.verify(currentSnapshotPersistence).replaceVisibleGroups(
                 10L, event.groups(), true, 2_000L, "evt", List.of(group));
         lockOrder.verify(metadataSyncTaskService).enqueueClassifications(
@@ -219,7 +224,7 @@ class AccountGroupMembershipReportPhaseServiceTest {
 
     private static Context context(String protocolAccountId, Long lastCompleteAt) {
         return new Context(
-                10L, "15550000001", "WEB", protocolAccountId,
+                10L, 501L, "15550000001", "WEB", protocolAccountId,
                 2, 1, 0, 1_000L, null, lastCompleteAt);
     }
 

@@ -9,6 +9,9 @@ public class PullTaskGroupExecution {
     /** 所属租户 ID。 */
     private Long tenantId;
 
+    /** 父任务 owner，仅供跨租户后台扫描联表投影。 */
+    private Long ownerUserId;
+
     /** 拉群任务 ID(→pull_task.id)；草稿期也非空。 */
     private Long taskId;
 
@@ -143,6 +146,14 @@ public class PullTaskGroupExecution {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public Long getTaskId() {

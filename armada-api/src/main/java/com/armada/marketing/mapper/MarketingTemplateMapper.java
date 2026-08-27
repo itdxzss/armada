@@ -2,6 +2,7 @@ package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -23,15 +24,24 @@ public interface MarketingTemplateMapper {
     /** 按 ID 查未删模板。 */
     MarketingTemplate selectById(@Param("id") Long id);
 
+    /** 用户请求按 ID 查询模板，缺失或 SYSTEM 范围时不返回数据。 */
+    MarketingTemplate selectByIdForScope(@Param("id") Long id,
+                                         @Param("scope") DataScope scope);
+
     /** 按 ID 集合批量查询未删除模板；调用方保证 ids 非空且已去重。 */
     List<MarketingTemplate> selectByIds(@Param("ids") List<Long> ids);
+
+    /** 用户请求批量查询模板，缺失或 SYSTEM 范围时不返回数据。 */
+    List<MarketingTemplate> selectByIdsForScope(@Param("ids") List<Long> ids,
+                                                @Param("scope") DataScope scope);
 
     /**
      * 按 ID 查询并锁定未删除模板。
      *
      * <p>创建营销任务时使用，和模板删除事务串行化，避免任务引用到并发软删除的模板。</p>
      */
-    MarketingTemplate selectByIdForUpdate(@Param("id") Long id);
+    MarketingTemplate selectByIdForUpdate(@Param("id") Long id,
+                                          @Param("scope") DataScope scope);
 
     /**
      * 按升序查询并锁定一组未删除模板 ID。
@@ -44,11 +54,13 @@ public interface MarketingTemplateMapper {
      * @return 当前租户内已锁定的未删除模板 ID
      */
     @InterceptorIgnore(tenantLine = "true")
-    List<Long> selectExistingIdsForUpdate(@Param("tenantId") Long tenantId,
-                                          @Param("ids") List<Long> ids);
+    List<MarketingTemplate> selectExistingForUpdate(@Param("tenantId") Long tenantId,
+                                                    @Param("ids") List<Long> ids);
 
-    /** 名称是否已存在(可排除指定 ID,用于修改场景)。 */
-    boolean existsByName(@Param("name") String name, @Param("excludeId") Long excludeId);
+    /** owner 范围内名称是否已存在（可排除当前 ID）。 */
+    boolean existsByNameForOwner(@Param("name") String name,
+                                 @Param("excludeId") Long excludeId,
+                                 @Param("ownerUserId") Long ownerUserId);
 
     /** 插入(不含 tenant_id 列,由拦截器注入)。 */
     int insert(MarketingTemplate entity);

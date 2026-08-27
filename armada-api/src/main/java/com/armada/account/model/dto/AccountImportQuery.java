@@ -1,6 +1,7 @@
 package com.armada.account.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 账号导入批次列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -32,6 +33,9 @@ public class AccountImportQuery extends PageQuery {
 
     /** 登录结果:有失败/无失败(可选)。 */
     private String login;
+
+    /** 服务端解析的数据范围；不参与 HTTP 绑定。 */
+    private DataScope dataScope;
 
     public Long getId() {
         return id;
@@ -95,5 +99,14 @@ public class AccountImportQuery extends PageQuery {
 
     public void setLogin(String login) {
         this.login = login;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端范围，避免被 Spring ModelAttribute 绑定。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

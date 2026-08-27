@@ -12,9 +12,13 @@ import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -36,9 +40,19 @@ class GroupLinkRegistryPullTaskTargetTest {
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    @BeforeEach
+    void setDataScope() {
+        DataScopeContext.open(DataScope.self(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void insertsNewLinkAsPullTaskTargetAndReturnsGeneratedId() {
-        when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(LINK_A, 1L)).thenReturn(null);
         when(groupLinkMapper.insert(any(GroupLink.class))).thenAnswer(invocation -> {
             invocation.getArgument(0, GroupLink.class).setId(77L);
             return 1;
@@ -56,24 +70,24 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     @Test
     void reusesActiveLinkWithoutInsertingOrReviving() {
-        when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(activeLink(55L));
+        when(groupLinkMapper.selectAnyByUrl(LINK_A, 1L)).thenReturn(activeLink(55L));
 
         assertThat(service().registerPullTaskTargets(List.of(LINK_A), 1000L))
                 .containsEntry(LINK_A, 55L);
 
         verify(groupLinkMapper, never()).insert(any(GroupLink.class));
-        verify(groupLinkMapper, never()).reviveAsStandaloneTarget(anyLong(), anyLong());
+        verify(groupLinkMapper, never()).reviveAsStandaloneTarget(anyLong(), anyLong(), anyLong());
     }
 
     @Test
     void currentObservedInviteReusesTheOriginalGroupEntry() {
         when(groupLinkMapper.selectActiveIdByInviteCode(
-                "BBBBBBBBBBBBBBBBBBBBBB")).thenReturn(55L);
+                "BBBBBBBBBBBBBBBBBBBBBB", 1L)).thenReturn(55L);
 
         assertThat(service().registerPullTaskTargets(List.of(LINK_B), 1000L))
                 .containsEntry(LINK_B, 55L);
 
-        verify(groupLinkMapper, never()).selectAnyByUrl(LINK_B);
+        verify(groupLinkMapper, never()).selectAnyByUrl(LINK_B, 1L);
         verify(groupLinkMapper, never()).insert(any(GroupLink.class));
     }
 
@@ -81,30 +95,30 @@ class GroupLinkRegistryPullTaskTargetTest {
     void revivesSoftDeletedLinkAndKeepsItsId() {
         GroupLink deleted = activeLink(66L);
         deleted.setDeletedAt(900L);
-        when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(deleted);
+        when(groupLinkMapper.selectAnyByUrl(LINK_A, 1L)).thenReturn(deleted);
 
         assertThat(service().registerPullTaskTargets(List.of(LINK_A), 1000L))
                 .containsEntry(LINK_A, 66L);
 
         // 软删行仍占 link_url 唯一键，必须复活原行而不是插新行。
-        verify(groupLinkMapper).reviveAsStandaloneTarget(66L, 1000L);
+        verify(groupLinkMapper).reviveAsStandaloneTarget(66L, 1L, 1000L);
         verify(groupLinkMapper, never()).insert(any(GroupLink.class));
     }
 
     @Test
     void registersEachDistinctLinkOnlyOnce() {
-        when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(activeLink(55L));
+        when(groupLinkMapper.selectAnyByUrl(LINK_A, 1L)).thenReturn(activeLink(55L));
 
         Map<String, Long> ids = service().registerPullTaskTargets(
                 List.of(LINK_A, LINK_A, LINK_A), 1000L);
 
         assertThat(ids).hasSize(1);
-        verify(groupLinkMapper).selectAnyByUrl(LINK_A);
+        verify(groupLinkMapper).selectAnyByUrl(LINK_A, 1L);
     }
 
     @Test
     void skipsUnparseableLinkWithoutFailingTheBatch() {
-        when(groupLinkMapper.selectAnyByUrl(LINK_B)).thenReturn(activeLink(88L));
+        when(groupLinkMapper.selectAnyByUrl(LINK_B, 1L)).thenReturn(activeLink(88L));
 
         Map<String, Long> ids = service().registerPullTaskTargets(
                 List.of("不是链接", LINK_B), 1000L);
@@ -114,7 +128,7 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     @Test
     void joinTaskPathStillRegistersWithJoinTaskOrigin() {
-        when(groupLinkMapper.selectAnyByUrl(LINK_A)).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(LINK_A, 1L)).thenReturn(null);
 
         service().registerJoinTaskTargets(List.of(LINK_A));
 
@@ -132,6 +146,7 @@ class GroupLinkRegistryPullTaskTargetTest {
     private static GroupLink activeLink(long id) {
         GroupLink link = new GroupLink();
         link.setId(id);
+        link.setOwnerUserId(1L);
         link.setLinkUrl(LINK_A);
         return link;
     }

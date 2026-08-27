@@ -6,6 +6,8 @@ import com.armada.group.model.vo.GroupLinkHealthCheckCandidate;
 import com.armada.platform.protocol.model.command.ProtocolGroupHealthCheckCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -60,15 +62,21 @@ public class GroupLinkHealthCheckService {
         }
         List<GroupLinkHealthCheckCandidate> candidates =
                 groupLinkMapper.selectHealthCheckCandidates(batchSize, AccountLoginStateCode.ONLINE);
-        Map<Long, List<ProtocolGroupHealthCheckCommandRequest>> byTenant = groupByTenant(candidates);
+        Map<OwnerScopeKey, List<ProtocolGroupHealthCheckCommandRequest>> byOwnerScope =
+                groupByOwnerScope(candidates);
         int enqueued = 0;
         Long previousTenant = TenantContext.get();
         try {
-            for (Map.Entry<Long, List<ProtocolGroupHealthCheckCommandRequest>> entry : byTenant.entrySet()) {
-                TenantContext.set(entry.getKey());
-                ProtocolCommandOutboxEnqueueResult result =
-                        outboxService.enqueueGroupHealthCheckCommands(entry.getValue());
-                enqueued += result.inserted();
+            for (Map.Entry<OwnerScopeKey, List<ProtocolGroupHealthCheckCommandRequest>> entry
+                    : byOwnerScope.entrySet()) {
+                OwnerScopeKey key = entry.getKey();
+                TenantContext.set(key.tenantId());
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                        DataScope.self(key.ownerUserId()))) {
+                    ProtocolCommandOutboxEnqueueResult result =
+                            outboxService.enqueueGroupHealthCheckCommands(entry.getValue());
+                    enqueued += result.inserted();
+                }
             }
         } finally {
             if (previousTenant == null) {
@@ -78,15 +86,22 @@ public class GroupLinkHealthCheckService {
             }
         }
         log.info("group_link.health_check.enqueued scanned={} enqueued={} tenantBatches={}",
-                candidates.size(), enqueued, byTenant.size());
-        return new EnqueueResult(candidates.size(), enqueued, byTenant.size());
+                candidates.size(), enqueued, byOwnerScope.size());
+        return new EnqueueResult(candidates.size(), enqueued, byOwnerScope.size());
     }
 
-    private static Map<Long, List<ProtocolGroupHealthCheckCommandRequest>> groupByTenant(
+    private static Map<OwnerScopeKey, List<ProtocolGroupHealthCheckCommandRequest>> groupByOwnerScope(
             List<GroupLinkHealthCheckCandidate> candidates) {
-        Map<Long, List<ProtocolGroupHealthCheckCommandRequest>> byTenant = new LinkedHashMap<>();
+        Map<OwnerScopeKey, List<ProtocolGroupHealthCheckCommandRequest>> byOwnerScope =
+                new LinkedHashMap<>();
         for (GroupLinkHealthCheckCandidate candidate : candidates) {
-            byTenant.computeIfAbsent(candidate.tenantId(), ignored -> new ArrayList<>())
+            if (candidate.ownerUserId() == null) {
+                log.error("群链接健康检查拒绝调度:链接缺少数据归属 tenantId={} groupLinkId={}",
+                        candidate.tenantId(), candidate.groupLinkId());
+                continue;
+            }
+            OwnerScopeKey key = new OwnerScopeKey(candidate.tenantId(), candidate.ownerUserId());
+            byOwnerScope.computeIfAbsent(key, ignored -> new ArrayList<>())
                     .add(new ProtocolGroupHealthCheckCommandRequest(
                             candidate.tenantId(),
                             candidate.groupLinkId(),
@@ -95,10 +110,14 @@ public class GroupLinkHealthCheckService {
                             candidate.protocolAccountId(),
                             SOURCE_SCHEDULED_GROUP_LINK_HEALTH));
         }
-        return byTenant;
+        return byOwnerScope;
     }
 
     /** 本轮群链接健康检查命令入队摘要。 */
     public record EnqueueResult(int scanned, int enqueued, int tenantBatches) {
+    }
+
+    /** 后台巡检必须按租户和群链接 owner 分批恢复上下文。 */
+    private record OwnerScopeKey(Long tenantId, Long ownerUserId) {
     }
 }

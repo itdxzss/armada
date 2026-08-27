@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskExecutionAbandon;
 import com.armada.task.model.dto.PullTaskExecutionManualChange;
@@ -97,6 +98,7 @@ public class PullTaskStandardLifecycleServiceImpl
     @Transactional(rollbackFor = Exception.class)
     public void resume(long taskId) {
         PullTask task = requiredTask(taskId);
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "拉群任务");
         if (PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {
             resources.dispatchTrigger().dispatchAfterCommit();
             return;
@@ -232,7 +234,8 @@ public class PullTaskStandardLifecycleServiceImpl
     }
 
     private PullTask requiredTask(long taskId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForScope(
+                taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }

@@ -5,12 +5,12 @@
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_import_batch (
-      account_group_id, source_file_name, source_file_type,
+      account_group_id, source_file_name, source_file_type, owner_user_id,
       import_format, device_os, account_type, ip_region, ip_allocation_mode,
       total_rows, imported_rows, duplicate_rows, format_error_rows,
       status, created_at, created_by
     ) VALUES (
-      #{accountGroupId}, #{sourceFileName}, #{sourceFileType},
+      #{accountGroupId}, #{sourceFileName}, #{sourceFileType}, #{ownerUserId},
       #{importFormat}, #{deviceOs}, #{accountType}, #{ipRegion}, #{ipAllocationMode},
       #{totalRows}, #{importedRows}, #{duplicateRows}, #{formatErrorRows},
       #{status}, #{createdAt}, #{createdBy}
@@ -41,6 +41,11 @@
   -->
   <sql id="filter">
     b.deleted_at IS NULL
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">AND b.owner_user_id = #{dataScope.actorUserId}</when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="id != null">AND b.id = #{id}</if>
     <if test="sourceFileName != null and sourceFileName != ''">AND b.source_file_name LIKE CONCAT('%', #{sourceFileName}, '%')</if>
     <if test="importFormat != null">AND b.import_format = #{importFormat}</if>

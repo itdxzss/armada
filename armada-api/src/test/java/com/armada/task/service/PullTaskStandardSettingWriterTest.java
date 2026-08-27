@@ -13,6 +13,8 @@ import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.entity.PullTaskStandardSetting;
@@ -21,6 +23,7 @@ import com.armada.task.model.enums.PullTaskPullerSyncMode;
 import com.armada.task.service.impl.PullTaskStandardSettingWriter;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -39,6 +42,7 @@ class PullTaskStandardSettingWriterTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.self(11L));
         when(accountGroupService.requireExisting(11L)).thenReturn(group("管理组"));
         when(accountGroupService.requireExisting(12L)).thenReturn(group("拉手组"));
         when(accountGroupService.requireExisting(13L)).thenReturn(group("站台组"));
@@ -48,7 +52,12 @@ class PullTaskStandardSettingWriterTest {
         when(accountLookup.findOnlineNormalStrictByGroupId(13L)).thenReturn(
                 java.util.List.of(ref(101L), ref(102L), ref(103L)));
         when(groupFolderService.requireExisting(18L))
-                .thenReturn(new GroupFolderOptionVO(18L, "印度群"));
+                .thenReturn(new GroupFolderOptionVO(18L, 501L, "印度群"));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
     }
 
     @Test
@@ -160,6 +169,19 @@ class PullTaskStandardSettingWriterTest {
         assertThat(captureSaved().getInitialStationCount()).isZero();
     }
 
+    @Test
+    void administratorCannotBuildTaskFromDifferentOwnersAccountGroups() {
+        AccountGroup foreignPullerGroup = group("其他用户拉手组");
+        foreignPullerGroup.setOwnerUserId(22L);
+        when(accountGroupService.requireExisting(12L)).thenReturn(foreignPullerGroup);
+
+        assertThatThrownBy(() -> writer.insert(request(0, null), 9L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("拉群任务账号分组归属不一致");
+
+        verify(mapper, never()).insert(org.mockito.ArgumentMatchers.any());
+    }
+
     private PullTaskStandardSetting captureSaved() {
         ArgumentCaptor<PullTaskStandardSetting> captor =
                 ArgumentCaptor.forClass(PullTaskStandardSetting.class);
@@ -194,6 +216,7 @@ class PullTaskStandardSettingWriterTest {
     private static AccountGroup group(String name) {
         AccountGroup group = new AccountGroup();
         group.setName(name);
+        group.setOwnerUserId(11L);
         return group;
     }
 

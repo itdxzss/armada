@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskGroupMarketingCandidateQuery;
 import com.armada.task.model.dto.PullTaskGroupMarketingWaitingPoolAddDTO;
@@ -90,6 +92,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
         executeSql("DROP ALL OBJECTS");
         executeSql(schema(), fixtures());
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(88L));
         reset(countryService);
         when(countryService.resolveActiveCountriesByPhoneNumbers(anyCollection()))
                 .thenReturn(Map.of("919900000001",
@@ -98,6 +101,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -105,28 +109,32 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     void deduplicatesGroupAndAggregatesEligibleManagersAcrossAccounts() {
         PullTaskGroupMarketingCandidateQuery query = query(false, null);
 
-        assertThat(candidateMapper.countPage(query)).isEqualTo(2);
-        assertThat(candidateMapper.selectPage(query, 0, 10))
+        assertThat(candidateMapper.countPage(query, DataScope.self(88L))).isEqualTo(2);
+        assertThat(candidateMapper.selectPage(query, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .containsExactly("120363001@g.us", "120363003@g.us");
 
-        PullTaskGroupMarketingCandidateRow mixed = candidateMapper.selectPage(query, 0, 10).get(0);
+        PullTaskGroupMarketingCandidateRow mixed = candidateMapper.selectPage(
+                query, 0, 10, DataScope.self(88L)).get(0);
         assertThat(mixed.getHistorical()).isTrue();
         assertThat(mixed.getSelfCollected()).isTrue();
         assertThat(mixed.getEligibleAccountCount()).isEqualTo(2);
         assertThat(mixed.getOnlineAccountCount()).isEqualTo(1);
         assertThat(mixed.getOwnerPhone()).isEqualTo("919900000001");
 
-        assertThat(candidateMapper.selectAccountsByGroupJids(List.of(mixed.getGroupJid())))
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(mixed.getGroupLinkId()), DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateAccountRow::getAccountId)
                 .containsExactly(101L, 102L);
 
-        assertThat(candidateMapper.selectByGroupJids(List.of(mixed.getGroupJid())))
+        assertThat(candidateMapper.selectByGroupJids(
+                List.of(mixed.getGroupJid()), DataScope.self(88L)))
                 .singleElement()
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .isEqualTo("120363001@g.us");
 
-        PullTaskGroupMarketingCandidateRow selfCollected = candidateMapper.selectPage(query, 0, 10).get(1);
+        PullTaskGroupMarketingCandidateRow selfCollected = candidateMapper.selectPage(
+                query, 0, 10, DataScope.self(88L)).get(1);
         assertThat(selfCollected.getSourceJoinTaskId()).isEqualTo(501L);
         assertThat(selfCollected.getSourceJoinTaskName()).isEqualTo("印度自收任务");
         assertThat(selfCollected.getSourceJoinedAt()).isEqualTo(3_300L);
@@ -144,10 +152,11 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
 
         PullTaskGroupMarketingCandidateQuery query = query(false, null);
 
-        assertThat(candidateMapper.selectPage(query, 0, 10))
+        assertThat(candidateMapper.selectPage(query, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .contains("120363001@g.us");
-        assertThat(candidateMapper.selectAccountsByGroupJids(List.of("120363001@g.us")))
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(1001L), DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateAccountRow::getAccountId)
                 .containsExactly(101L, 102L);
     }
@@ -155,12 +164,12 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     @Test
     void showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible() {
         PullTaskGroupMarketingCandidateQuery hidden = query(false, null);
-        assertThat(candidateMapper.selectPage(hidden, 0, 10))
+        assertThat(candidateMapper.selectPage(hidden, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .doesNotContain("120363002@g.us");
 
         PullTaskGroupMarketingCandidateQuery visible = query(true, null);
-        assertThat(candidateMapper.selectPage(visible, 0, 10))
+        assertThat(candidateMapper.selectPage(visible, 0, 10, DataScope.self(88L)))
                 .filteredOn(row -> "120363002@g.us".equals(row.getGroupJid()))
                 .singleElement()
                 .satisfies(row -> {
@@ -172,17 +181,18 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     @Test
     void filtersBySourceAndKeepsOtherTenantsOut() {
         PullTaskGroupMarketingCandidateQuery historical = query(false, PullTaskGroupSource.HISTORICAL);
-        assertThat(candidateMapper.selectPage(historical, 0, 10))
+        assertThat(candidateMapper.selectPage(historical, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .containsExactly("120363001@g.us");
 
         PullTaskGroupMarketingCandidateQuery selfCollected = query(false, PullTaskGroupSource.SELF_COLLECTED);
-        assertThat(candidateMapper.selectPage(selfCollected, 0, 10))
+        assertThat(candidateMapper.selectPage(selfCollected, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .containsExactly("120363003@g.us");
 
         TenantContext.set(8L);
-        assertThat(candidateMapper.selectPage(query(false, null), 0, 10))
+        assertThat(candidateMapper.selectPage(
+                query(false, null), 0, 10, DataScope.self(900L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .containsExactly("120363901@g.us");
     }
@@ -191,13 +201,99 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     void managerPhoneFilterDoesNotMatchOrdinaryMemberRelations() {
         PullTaskGroupMarketingCandidateQuery ordinaryMember = query(true, null);
         ordinaryMember.setManagerPhone("000003");
-        assertThat(candidateMapper.selectPage(ordinaryMember, 0, 10)).isEmpty();
+        assertThat(candidateMapper.selectPage(
+                ordinaryMember, 0, 10, DataScope.self(88L))).isEmpty();
 
         PullTaskGroupMarketingCandidateQuery manager = query(false, null);
         manager.setManagerPhone("000001");
-        assertThat(candidateMapper.selectPage(manager, 0, 10))
+        assertThat(candidateMapper.selectPage(manager, 0, 10, DataScope.self(88L)))
                 .extracting(PullTaskGroupMarketingCandidateRow::getGroupJid)
                 .containsExactly("120363001@g.us");
+    }
+
+    @Test
+    void candidateMapperSeparatesOwnersAndFailsClosed() throws SQLException {
+        insertSecondOwnerAndUnownedCandidates();
+        PullTaskGroupMarketingCandidateQuery query = query(false, null);
+
+        assertThat(candidateMapper.selectPage(query, 0, 10, DataScope.self(88L)))
+                .extracting(PullTaskGroupMarketingCandidateRow::getGroupLinkId)
+                .containsExactly(1001L, 1003L);
+        assertThat(candidateMapper.selectPage(query, 0, 10, DataScope.self(99L)))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getGroupLinkId()).isEqualTo(1101L);
+                    assertThat(row.getOwnerUserId()).isEqualTo(99L);
+                    assertThat(row.getSourceJoinTaskName()).isNull();
+                    assertThat(row.getEligibleAccountCount()).isEqualTo(1);
+                });
+        assertThat(candidateMapper.selectPage(query, 0, 10, DataScope.all(700L)))
+                .extracting(PullTaskGroupMarketingCandidateRow::getOwnerUserId)
+                .containsExactlyInAnyOrder(88L, 99L, null, 88L);
+
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(1101L), DataScope.self(88L))).isEmpty();
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(1101L), DataScope.self(99L)))
+                .extracting(PullTaskGroupMarketingCandidateAccountRow::getAccountId)
+                .containsExactly(105L);
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(1101L), DataScope.all(700L)))
+                .extracting(PullTaskGroupMarketingCandidateAccountRow::getAccountId)
+                .containsExactly(105L);
+
+        assertThat(candidateMapper.countPage(query, null)).isZero();
+        assertThat(candidateMapper.countPage(query, DataScope.system("test"))).isZero();
+        assertThat(candidateMapper.selectAccountsByGroupLinkIds(
+                List.of(1001L), DataScope.system("test"))).isEmpty();
+    }
+
+    @Test
+    void serviceUsesAllForAdminListingButSelfForAdminWaitingCreation()
+            throws SQLException {
+        insertSecondOwnerAndUnownedCandidates();
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(99L))) {
+            var candidates = groupService.listCandidates(query(false, null), 99L);
+            assertThat(candidates.list())
+                    .extracting(row -> row.ownerUserId())
+                    .contains(88L, 99L, null);
+
+            PullTaskGroupMarketingWaitingPoolVO rejected = groupService.addWaiting(
+                    new PullTaskGroupMarketingWaitingPoolAddDTO(
+                            SERVICE_TOKEN, "管理员不代创建", null,
+                            List.of("120363003@g.us")),
+                    99L);
+            assertThat(rejected.groups()).isEmpty();
+            assertThat(rejected.rejected()).singleElement();
+        }
+    }
+
+    @Test
+    void ordinaryUserCannotSeeAnotherUsersOccupancyTaskName() {
+        PullTaskGroupMarketingGroupOccupancy occupied = occupancy("other-pool", 99L, 5_000L);
+        occupied.setTaskNameSnapshot("用户99机密任务");
+        occupied.setExpiresAt(9_999_999_999_999L);
+        assertThat(occupancyMapper.insertWaiting(occupied)).isEqualTo(1);
+
+        var ordinary = groupService.listCandidates(query(false, null), 88L);
+        assertThat(ordinary.list())
+                .filteredOn(row -> "120363001@g.us".equals(row.groupJid()))
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.occupiedTaskName()).isNull();
+                    assertThat(row.disabledReason()).contains("其他等待池或任务")
+                            .doesNotContain("用户99机密任务");
+                });
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(700L))) {
+            var admin = groupService.listCandidates(query(false, null), 700L);
+            assertThat(admin.list())
+                    .filteredOn(row -> "120363001@g.us".equals(row.groupJid()))
+                    .singleElement()
+                    .extracting(row -> row.occupiedTaskName())
+                    .isEqualTo("用户99机密任务");
+        }
     }
 
     @Test
@@ -301,7 +397,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
         PullTaskGroupMarketingWaitingPoolVO conflict = groupService.addWaiting(
                 new PullTaskGroupMarketingWaitingPoolAddDTO(
                         OTHER_TOKEN, "竞争等待池", null, List.of("120363001@g.us")),
-                99L);
+                88L);
         assertThat(conflict.groups()).isEmpty();
         assertThat(conflict.rejected()).singleElement();
 
@@ -334,7 +430,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
             Future<PullTaskGroupMarketingWaitingPoolVO> first = executor.submit(
                     () -> addConcurrently(start, CONCURRENT_TOKEN_A, 88L));
             Future<PullTaskGroupMarketingWaitingPoolVO> second = executor.submit(
-                    () -> addConcurrently(start, CONCURRENT_TOKEN_B, 99L));
+                    () -> addConcurrently(start, CONCURRENT_TOKEN_B, 88L));
             start.countDown();
 
             List<PullTaskGroupMarketingWaitingPoolVO> results = List.of(
@@ -356,11 +452,13 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
             String token,
             long operatorId) throws Exception {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(operatorId));
         try {
             assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
             return groupService.addWaiting(new PullTaskGroupMarketingWaitingPoolAddDTO(
                     token, "并发抢占", null, List.of("120363001@g.us")), operatorId);
         } finally {
+            DataScopeContext.clear();
             TenantContext.clear();
         }
     }
@@ -428,10 +526,36 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
         }
     }
 
+    private void insertSecondOwnerAndUnownedCandidates() throws SQLException {
+        executeSql("""
+                INSERT INTO account VALUES
+                  (105, 7, 99, '919900000005', 5, NULL),
+                  (106, 7, NULL, '919900000006', 6, NULL);
+                INSERT INTO account_state VALUES
+                  (5, 7, 105, 2, 1, 'ONLINE'),
+                  (6, 7, 106, 2, 1, 'ONLINE');
+                INSERT INTO group_link VALUES
+                  (1101, 7, 99, 2001, '用户99群入口', 1, NULL),
+                  (1102, 7, NULL, 2001, '历史空归属群入口', 1, NULL);
+                INSERT INTO group_link_preview VALUES
+                  (10, 7, 1101, '120363001@g.us', '用户99群入口', 120,
+                   '919900000005', 0, 1700000000, NULL, 4000),
+                  (11, 7, 1102, '120363001@g.us', '历史空归属群入口', 120,
+                   '919900000006', 0, 1700000000, NULL, 4000);
+                INSERT INTO wa_group_participant VALUES
+                  (4010, 7, 2001, '919900000005', 1, 2),
+                  (4011, 7, 2001, '919900000006', 1, 2);
+                INSERT INTO wa_account_group_binding VALUES
+                  (5010, 7, 105, 2001, 4010, 1, 4200),
+                  (5011, 7, 106, 2001, 4011, 1, 4200)
+                """);
+    }
+
     private static String schema() {
         return """
                 CREATE TABLE account (
-                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, ws_phone VARCHAR(32),
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT,
+                    ws_phone VARCHAR(32),
                     account_group_id BIGINT, deleted_at BIGINT
                 );
                 CREATE TABLE account_state (
@@ -449,7 +573,8 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                     deleted_at BIGINT
                 );
                 CREATE TABLE group_link (
-                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT,
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT,
+                    group_id BIGINT,
                     group_name VARCHAR(128), is_historical TINYINT DEFAULT 0,
                     deleted_at BIGINT
                 );
@@ -486,7 +611,8 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                     was_in_initial_baseline TINYINT, last_observed_at BIGINT
                 );
                 CREATE TABLE join_task (
-                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, name VARCHAR(128),
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT,
+                    name VARCHAR(128),
                     deleted_at BIGINT
                 );
                 CREATE TABLE join_task_result (
@@ -514,11 +640,11 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
     private static String fixtures() {
         return """
                 INSERT INTO account VALUES
-                  (101, 7, '919900000001', 1, NULL),
-                  (102, 7, '919900000002', 2, NULL),
-                  (103, 7, '919900000003', 3, NULL),
-                  (104, 7, '919900000004', 4, NULL),
-                  (901, 8, '551100000001', 9, NULL);
+                  (101, 7, 88, '919900000001', 1, NULL),
+                  (102, 7, 88, '919900000002', 2, NULL),
+                  (103, 7, 88, '919900000003', 3, NULL),
+                  (104, 7, 88, '919900000004', 4, NULL),
+                  (901, 8, 900, '551100000001', 9, NULL);
                 INSERT INTO account_state VALUES
                   (1, 7, 101, 2, 1, 'ONLINE'),
                   (2, 7, 102, 2, 2, 'OFFLINE'),
@@ -530,10 +656,10 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                   (2, 7, 103, '[\"120363002@g.us\"]'),
                   (9, 8, 901, '[\"120363901@g.us\"]');
                 INSERT INTO group_link VALUES
-                  (1001, 7, 2001, '运营群一', 1, NULL),
-                  (1002, 7, 2002, '普通成员群', 1, NULL),
-                  (1003, 7, 2003, '自收群三', 0, NULL),
-                  (9001, 8, 2901, '巴西群', 1, NULL);
+                  (1001, 7, 88, 2001, '运营群一', 1, NULL),
+                  (1002, 7, 88, 2002, '普通成员群', 1, NULL),
+                  (1003, 7, 88, 2003, '自收群三', 0, NULL),
+                  (9001, 8, 900, 2901, '巴西群', 1, NULL);
                 INSERT INTO group_link_preview VALUES
                   (1, 7, 1001, '120363001@g.us', '印度群一', 120, '919900000001', 0, 1700000000, NULL, 4000),
                   (2, 7, 1002, '120363002@g.us', '印度群二', 80, '919900000099', 0, 1700000100, NULL, 4000),
@@ -580,8 +706,9 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                   (5, 7, 103, 1001, '120363001@g.us', 0, 1, 3350, 4000, NULL),
                   (9, 8, 901, 9001, '120363901@g.us', 1, 1, 3400, 4000, NULL);
                 INSERT INTO join_task VALUES
-                  (501, 7, '印度自收任务', NULL), (502, 7, 'A干扰任务', NULL),
-                  (901, 8, '巴西自收任务', NULL);
+                  (501, 7, 88, '印度自收任务', NULL),
+                  (502, 7, 88, 'A干扰任务', NULL),
+                  (901, 8, 900, '巴西自收任务', NULL);
                 INSERT INTO join_task_result VALUES
                   (1, 7, 501, 102, 'SUCCESS', '120363001@g.us', 1, 3100, 3200),
                   (2, 7, 501, 104, 'SUCCESS', '120363003@g.us', 1, 3300, 3400),

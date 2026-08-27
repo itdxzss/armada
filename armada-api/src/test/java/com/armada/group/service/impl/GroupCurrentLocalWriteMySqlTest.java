@@ -37,6 +37,8 @@ import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupSettingsPort;
 import com.armada.platform.protocol.model.result.GroupPictureResult;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -104,6 +106,7 @@ class GroupCurrentLocalWriteMySqlTest {
     @AfterAll
     static void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @BeforeEach
@@ -126,6 +129,8 @@ class GroupCurrentLocalWriteMySqlTest {
         jdbc.update("DELETE FROM group_link_preview");
         jdbc.update("DELETE FROM group_link");
         TenantContext.set(TENANT_ID);
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(1L));
     }
 
     @Test
@@ -302,7 +307,7 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
-    void migrateAlsoWritesInviteLabel() {
+    void migrateDoesNotWriteUserLabelIntoSharedInvite() {
         jdbc.update("""
                 INSERT INTO group_link (
                   id, tenant_id, link_url, label_id, origin, membership_state,
@@ -323,14 +328,16 @@ class GroupCurrentLocalWriteMySqlTest {
         GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(9L);
-        org.mockito.Mockito.when(labelMapper.selectById(9L)).thenReturn(label);
+        org.mockito.Mockito.when(labelMapper.selectById(
+                org.mockito.ArgumentMatchers.eq(9L),
+                org.mockito.ArgumentMatchers.any(DataScope.class))).thenReturn(label);
 
         service(mock(GroupFolderMapper.class), labelMapper).migrate(java.util.List.of(12L), 9L);
 
         assertThat(jdbc.queryForObject("""
                 SELECT label_id FROM wa_group_invite
                 WHERE tenant_id = 7 AND invite_code = 'MoveLabel'
-                """, Long.class)).isEqualTo(9L);
+                """, Long.class)).isEqualTo(1L);
         assertThat(jdbc.queryForObject("""
                 SELECT deleted_at FROM wa_group_invite
                 WHERE tenant_id = 7 AND invite_code = 'MoveLabel'
@@ -338,7 +345,7 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
-    void assignFolderAlsoWritesResolvedGroupFolder() {
+    void assignFolderDoesNotOverwriteSharedCanonicalGroupFolder() {
         jdbc.update("""
                 INSERT INTO group_link (
                   id, tenant_id, link_url, folder_id, origin, membership_state,
@@ -359,7 +366,9 @@ class GroupCurrentLocalWriteMySqlTest {
         GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
         GroupFolder folder = new GroupFolder();
         folder.setId(8L);
-        org.mockito.Mockito.when(folderMapper.selectActiveByIdsForUpdate(java.util.List.of(8L)))
+        org.mockito.Mockito.when(folderMapper.selectActiveByIdsForUpdate(
+                        org.mockito.ArgumentMatchers.eq(java.util.List.of(8L)),
+                        org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(java.util.List.of(folder));
 
         service(folderMapper, mock(GroupLinkLabelMapper.class))
@@ -368,7 +377,7 @@ class GroupCurrentLocalWriteMySqlTest {
         assertThat(jdbc.queryForObject("""
                 SELECT folder_id FROM wa_group
                 WHERE tenant_id = 7 AND group_jid = '120363-folder@g.us'
-                """, Long.class)).isEqualTo(8L);
+                """, Long.class)).isNull();
         assertThat(jdbc.queryForObject("""
                 SELECT deleted_at FROM wa_group
                 WHERE tenant_id = 7 AND group_jid = '120363-folder@g.us'
@@ -429,7 +438,6 @@ class GroupCurrentLocalWriteMySqlTest {
         preview.setUpdatedAt(2_000L);
         new GroupMetadataSnapshotPersistenceImpl(
                 snapshotPreviewMapper,
-                groupLinkMapper,
                 mock(AccountGroupMembershipMapper.class),
                 mock(GroupInviteLinkService.class),
                 currentSnapshotPersistence,
@@ -517,7 +525,7 @@ class GroupCurrentLocalWriteMySqlTest {
     }
 
     @Test
-    void folderDeleteAlsoClearsResolvedGroupFolder() {
+    void folderDeleteDoesNotClearSharedCanonicalGroupFolder() {
         seedResolvedGroup(23L, "120363-folder-delete@g.us", "FolderDelete");
         jdbc.update("UPDATE group_link SET folder_id = 40 WHERE id = 23");
         jdbc.update("""
@@ -527,20 +535,23 @@ class GroupCurrentLocalWriteMySqlTest {
         GroupFolderMapper folderMapper = mock(GroupFolderMapper.class);
         GroupFolder folder = new GroupFolder();
         folder.setId(40L);
-        org.mockito.Mockito.when(folderMapper.selectActiveByIdsForUpdate(java.util.List.of(40L)))
+        org.mockito.Mockito.when(folderMapper.selectActiveByIdsForUpdate(
+                        org.mockito.ArgumentMatchers.eq(java.util.List.of(40L)),
+                        org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(java.util.List.of(folder));
         org.mockito.Mockito.when(folderMapper.softDeleteByIds(
                 org.mockito.ArgumentMatchers.eq(java.util.List.of(40L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
-        new GroupFolderServiceImpl(folderMapper, groupLinkMapper, currentLocalPersistence,
+        new GroupFolderServiceImpl(folderMapper, groupLinkMapper,
                 mock(com.armada.task.service.PullTaskGroupOccupancyService.class))
                 .batchDelete(java.util.List.of(40L));
 
         assertThat(jdbc.queryForObject("""
                 SELECT folder_id FROM wa_group
                 WHERE tenant_id = 7 AND group_jid = '120363-folder-delete@g.us'
-                """, Long.class)).isNull();
+                """, Long.class)).isEqualTo(40L);
     }
 
     @Test
@@ -1189,15 +1200,25 @@ class GroupCurrentLocalWriteMySqlTest {
 
     private static GroupLinkLabelServiceImpl labelService() {
         GroupLinkLabelMapper labelMapper = mock(GroupLinkLabelMapper.class);
+        org.mockito.Mockito.when(labelMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenAnswer(invocation -> ((java.util.List<Long>) invocation.getArgument(0)).stream()
+                        .map(id -> {
+                            GroupLinkLabel label = new GroupLinkLabel();
+                            label.setId(id);
+                            return label;
+                        })
+                        .toList());
         org.mockito.Mockito.when(labelMapper.softDeleteByIds(
                 org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
         return new GroupLinkLabelServiceImpl(
                 labelMapper,
                 groupLinkMapper,
                 mock(GroupLinkImportBatchMapper.class),
-                mock(GroupConverter.class),
-                currentLocalPersistence);
+                mock(GroupConverter.class));
     }
 
     private static GroupDetailServiceImpl detailService(
@@ -1207,7 +1228,8 @@ class GroupCurrentLocalWriteMySqlTest {
         org.mockito.Mockito.when(snapshotReader.profile(
                         org.mockito.ArgumentMatchers.anyLong()))
                 .thenAnswer(invocation -> currentListMapper.selectGroupDetail(
-                        TENANT_ID, invocation.getArgument(0)));
+                        TENANT_ID, invocation.getArgument(0),
+                        com.armada.shared.security.DataScope.all(1L)));
         return new GroupDetailServiceImpl(
                 groupLinkMapper,
                 selector,

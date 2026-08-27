@@ -35,7 +35,7 @@ public interface AccountImportService {
     /**
      * 分页查询导入批次列表(LEFT JOIN account_group 取组名)。
      *
-     * <p>SQL 下推分页,结果按创建时间倒序排列。所有筛选条件均可选,默认返回当前租户全部批次。</p>
+     * <p>SQL 下推分页,结果按创建时间倒序排列。普通用户仅返回自己的批次，租户管理员返回当前租户全部批次。</p>
      *
      * @param query 批次列表查询参数(含分页/筛选字段)
      * @return 分页结果,元素为 AccountImportBatchListVO(record VO,含 groupName)

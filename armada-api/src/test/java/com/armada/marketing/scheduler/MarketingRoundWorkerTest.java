@@ -93,7 +93,7 @@ class MarketingRoundWorkerTest {
         });
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithTwoLinks());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(buttonTemplateWithTwoLinks());
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
@@ -615,8 +615,8 @@ class MarketingRoundWorkerTest {
 
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(imageTemplate());
-        when(fileMapper.selectById(88L)).thenReturn(imageFile());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(imageTemplate());
+        when(fileMapper.selectByIdForScope(eq(88L), any())).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
@@ -662,8 +662,8 @@ class MarketingRoundWorkerTest {
         }).when(taskMapper).insertSendAttempts(any());
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(normalLinkCardTemplate());
-        when(fileMapper.selectById(88L)).thenReturn(imageFile());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(normalLinkCardTemplate());
+        when(fileMapper.selectByIdForScope(eq(88L), any())).thenReturn(imageFile());
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
@@ -708,7 +708,7 @@ class MarketingRoundWorkerTest {
         }).when(taskMapper).insertSendAttempts(any());
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithButtons());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(buttonTemplateWithButtons());
         when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
@@ -756,7 +756,7 @@ class MarketingRoundWorkerTest {
         }).when(taskMapper).insertSendAttempts(any());
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(invalidButtonTemplate());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(invalidButtonTemplate());
         MarketingRoundWorker worker = new MarketingRoundWorker(
                 taskMapper,
                 defaultOccupancyService(),
@@ -804,7 +804,7 @@ class MarketingRoundWorkerTest {
         when(taskMapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
         MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-        when(templateMapper.selectById(77L)).thenReturn(template());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(template());
         return new MarketingRoundWorker(
                 taskMapper,
                 occupancyService,
@@ -885,6 +885,7 @@ class MarketingRoundWorkerTest {
         MarketingTask task = new MarketingTask();
         task.setId(42L);
         task.setTenantId(1L);
+        task.setOwnerUserId(7L);
         task.setStatus(2);
         task.setSendIntervalSeconds(30);
         task.setAccountGroupSendIntervalMs(500);
@@ -957,6 +958,7 @@ class MarketingRoundWorkerTest {
     private static MarketingTemplate template() {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(77L);
+        template.setOwnerUserId(7L);
         template.setTemplateName("template");
         template.setLinkMode(LinkMode.NORMAL.code());
         template.setContent("hello");
@@ -1013,6 +1015,7 @@ class MarketingRoundWorkerTest {
     private static MarketingTemplateFile imageFile() {
         MarketingTemplateFile file = new MarketingTemplateFile();
         file.setId(88L);
+        file.setOwnerUserId(7L);
         file.setContentType("image/png");
         file.setContent(new byte[] {1, 2, 3});
         return file;

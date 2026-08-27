@@ -1,12 +1,16 @@
 package com.armada.group.service.impl;
 
-import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.service.WhatsappGroupDepartedMemberService;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.slf4j.Logger;
@@ -20,15 +24,15 @@ public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSin
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolGroupDepartureSinkImpl.class);
 
-    private final AccountProtocolLookupService accountLookupService;
+    private final AccountMapper accountMapper;
     private final WhatsappGroupDepartedMemberService service;
     private final WhatsappGroupMemberCacheService memberCacheService;
 
     public ProtocolGroupDepartureSinkImpl(
-            AccountProtocolLookupService accountLookupService,
+            AccountMapper accountMapper,
             WhatsappGroupDepartedMemberService service,
             WhatsappGroupMemberCacheService memberCacheService) {
-        this.accountLookupService = accountLookupService;
+        this.accountMapper = accountMapper;
         this.service = service;
         this.memberCacheService = memberCacheService;
     }
@@ -43,25 +47,28 @@ public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSin
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            ProtocolAccountRef currentAccount = accountLookupService.findActiveProtocolRef(event.accountId())
-                    .orElse(null);
+            Account currentAccount = accountMapper.selectActiveById(event.accountId());
             if (!currentProtocolBinding(currentAccount, event.protocolAccountId())) {
                 log.warn("忽略账号不可见或协议绑定已过期的 WhatsApp 退群事件 tenantId={} accountId={} eventId={}",
                         event.tenantId(), event.accountId(), event.eventId());
                 return;
             }
-            List<WhatsappGroupDepartureFact> facts = event.participants().stream()
-                    .map(participant -> {
-                        String phone = effectivePhone(participant);
-                        return new WhatsappGroupDepartureFact(
-                                event.tenantId(), canonicalGroupJid(event.groupJid()),
-                                canonicalParticipantJid(participant, phone),
-                                phone, participant.exitedAt(), participant.exitType(),
-                                participant.exitedAt(), participant.sourceEventId(), event.sourceType());
-                    })
-                    .toList();
-            service.saveLatest(facts);
-            memberCacheService.applyDepartures(facts);
+            Long ownerUserId = requireOwner(currentAccount);
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                List<WhatsappGroupDepartureFact> facts = event.participants().stream()
+                        .map(participant -> {
+                            String phone = effectivePhone(participant);
+                            return new WhatsappGroupDepartureFact(
+                                    event.tenantId(), canonicalGroupJid(event.groupJid()),
+                                    canonicalParticipantJid(participant, phone),
+                                    phone, participant.exitedAt(), participant.exitType(),
+                                    participant.exitedAt(), participant.sourceEventId(), event.sourceType());
+                        })
+                        .toList();
+                service.saveLatest(facts);
+                memberCacheService.applyDepartures(facts);
+            }
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -71,10 +78,20 @@ public class ProtocolGroupDepartureSinkImpl implements ProtocolGroupDepartureSin
         }
     }
 
-    private static boolean currentProtocolBinding(ProtocolAccountRef account, String eventProtocolAccountId) {
+    private static boolean currentProtocolBinding(Account account, String eventProtocolAccountId) {
         return account != null
                 && eventProtocolAccountId != null
-                && account.protocolAccountId().equals(eventProtocolAccountId.trim());
+                && account.getProtocolAccountId() != null
+                && account.getProtocolAccountId().equals(eventProtocolAccountId.trim());
+    }
+
+    private static Long requireOwner(Account account) {
+        if (account.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属账号不能消费用户私有退群事件");
+        }
+        return account.getOwnerUserId();
     }
 
     private static String canonicalParticipantJid(

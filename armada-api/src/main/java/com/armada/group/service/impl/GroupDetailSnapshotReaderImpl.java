@@ -7,6 +7,7 @@ import com.armada.group.model.entity.GroupMetadataSyncTask;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.service.GroupDetailSnapshotReader;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -26,12 +27,14 @@ public class GroupDetailSnapshotReaderImpl implements GroupDetailSnapshotReader 
 
     @Override
     public GroupLinkPreview profile(Long groupLinkId) {
-        return currentMapper.selectGroupDetail(TenantContext.get(), groupLinkId);
+        return currentMapper.selectGroupDetail(
+                TenantContext.get(), groupLinkId, DataScopeAccess.requireCurrent());
     }
 
     @Override
     public List<WhatsappGroupMemberSnapshot> members(Long groupLinkId) {
-        return currentMapper.selectGroupDetailMembers(TenantContext.get(), groupLinkId);
+        return currentMapper.selectGroupDetailMembers(
+                TenantContext.get(), groupLinkId, DataScopeAccess.requireCurrent());
     }
 
     @Override

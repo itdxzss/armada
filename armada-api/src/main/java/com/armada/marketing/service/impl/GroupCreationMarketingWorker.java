@@ -35,10 +35,14 @@ import com.armada.platform.protocol.port.GroupMemberListPort;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -247,11 +251,19 @@ public class GroupCreationMarketingWorker {
      * @param item 建群营销执行项
      */
     public void processOne(GroupCreationMarketingItem item) {
+        if (item == null || item.getOwnerUserId() == null) {
+            log.error("建群营销执行拒绝处理:执行项缺少数据归属 tenantId={} itemId={} taskId={}",
+                    item == null ? null : item.getTenantId(),
+                    item == null ? null : item.getId(),
+                    item == null ? null : item.getTaskId());
+            return;
+        }
         Long previousTenant = TenantContext.get();
         if (item.getTenantId() != null) {
             TenantContext.set(item.getTenantId());
         }
-        try {
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                DataScope.self(item.getOwnerUserId()))) {
             doProcessOne(item);
         } finally {
             if (previousTenant == null) {
@@ -274,7 +286,12 @@ public class GroupCreationMarketingWorker {
         String operationId = "group-creation-marketing-item:" + item.getId();
 
         List<String> participants = participants(item.getMaterialContent());
-        ContactSaveSummary contactSaveSummary = preSaveContacts(accountRef, participants, operationId);
+        ContactSaveSummary contactSaveSummary = preSaveContacts(
+                accountRef,
+                participants,
+                operationId,
+                task.getTenantId(),
+                task.getOwnerUserId());
         GroupCreateResult groupResult;
         try {
             groupResult = groupCreatePort.create(new GroupCreateCommand(
@@ -321,8 +338,8 @@ public class GroupCreationMarketingWorker {
             return;
         }
 
-        MarketingTemplate template = requireTemplate(task.getMarketingTemplateId());
-        MarketingTemplateFile imageFile = template.getImageFileId() == null ? null : fileMapper.selectById(template.getImageFileId());
+        MarketingTemplate template = requireTemplate(task);
+        MarketingTemplateFile imageFile = requireTemplateImage(template);
         MarketingMessageComposer.ComposedMessage message = messageComposer.compose(template, imageFile);
         String protocolResultJson = protocolResultJson(contactSaveSummary, groupResult);
         GroupMemberSnapshot memberSnapshot = groupMemberSnapshot(
@@ -371,6 +388,8 @@ public class GroupCreationMarketingWorker {
             return null;
         }
         GroupCreationMarketingTask task = requireTask(item.getTaskId());
+        DataScopeAccess.requireCanAccess(
+                DataScopeContext.requireCurrent(), task.getOwnerUserId(), "建群营销任务");
         GroupCreationMarketingAccountCandidate account =
                 groupCreationMapper.selectAccountCandidateByAccountId(item.getAccountId());
         account = resolveExecutableAccount(item, task, account, now);
@@ -405,12 +424,14 @@ public class GroupCreationMarketingWorker {
     private ContactSaveSummary preSaveContacts(
             ProtocolAccountRef account,
             List<String> participants,
-            String operationId) {
+            String operationId,
+            Long tenantId,
+            Long ownerUserId) {
         int submitted = 0;
         List<ContactSaveFailure> failures = new ArrayList<>();
         for (String participant : participants) {
             try {
-                submitContactPreSave(account, participant, operationId);
+                submitContactPreSave(account, participant, operationId, tenantId, ownerUserId);
                 submitted++;
             } catch (RuntimeException ex) {
                 String reason = readableMessage(ex);
@@ -425,9 +446,14 @@ public class GroupCreationMarketingWorker {
     private void submitContactPreSave(
             ProtocolAccountRef account,
             String participant,
-            String operationId) {
+            String operationId,
+            Long tenantId,
+            Long ownerUserId) {
         CONTACT_PRE_SAVE_EXECUTOR.execute(() -> {
-            try {
+            Long previousTenant = TenantContext.get();
+            TenantContext.set(tenantId);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(ownerUserId))) {
                 contactPort.save(new ContactSaveCommand(
                         account,
                         participant,
@@ -436,6 +462,12 @@ public class GroupCreationMarketingWorker {
             } catch (RuntimeException ex) {
                 log.warn("建群营销联系人预保存异步失败 armadaAccountId={} operationId={} reason={}",
                         account.armadaAccountId(), operationId, readableMessage(ex));
+            } finally {
+                if (previousTenant == null) {
+                    TenantContext.clear();
+                } else {
+                    TenantContext.set(previousTenant);
+                }
             }
         });
     }
@@ -540,12 +572,33 @@ public class GroupCreationMarketingWorker {
         return task;
     }
 
-    private MarketingTemplate requireTemplate(Long templateId) {
-        MarketingTemplate template = templateMapper.selectById(templateId);
+    private MarketingTemplate requireTemplate(GroupCreationMarketingTask task) {
+        MarketingTemplate template = templateMapper.selectByIdForScope(
+                task.getMarketingTemplateId(), DataScopeAccess.requireCurrent());
         if (template == null) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + templateId);
+            throw new BusinessException(
+                    ErrorCode.NOT_FOUND,
+                    "营销模板不存在: " + task.getMarketingTemplateId());
         }
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(task.getOwnerUserId(), template.getOwnerUserId()),
+                "建群营销任务与模板");
         return template;
+    }
+
+    private MarketingTemplateFile requireTemplateImage(MarketingTemplate template) {
+        if (template.getImageFileId() == null) {
+            return null;
+        }
+        MarketingTemplateFile image = fileMapper.selectByIdForScope(
+                template.getImageFileId(), DataScopeAccess.requireCurrent());
+        if (image == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板图片不存在");
+        }
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(template.getOwnerUserId(), image.getOwnerUserId()),
+                "营销模板与图片");
+        return image;
     }
 
     private static boolean unusable(GroupCreationMarketingAccountCandidate account) {

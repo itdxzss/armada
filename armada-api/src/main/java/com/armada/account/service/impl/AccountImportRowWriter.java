@@ -10,6 +10,7 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScopeAccess;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -76,6 +77,7 @@ public class AccountImportRowWriter {
 
         // 步骤 ①:插入 account 主行
         Account account = buildAccount(wid, accountGroupId, meta.deviceOs(), meta.accountType(), meta.importFormat(), now);
+        account.setOwnerUserId(DataScopeAccess.requireCurrent().ownerUserIdForCreate());
         accountMapper.insert(account);
         Long accountId = account.getId();
 

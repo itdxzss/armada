@@ -4,9 +4,33 @@
 
   <sql id="activeFolderFilter">
     f.deleted_at IS NULL
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND f.owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="keyword != null and keyword != ''">
       AND f.name LIKE CONCAT('%', #{keyword}, '%')
     </if>
+  </sql>
+
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <sql id="explicitOwnerFilter">
+    <choose>
+      <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+      <otherwise>AND owner_user_id IS NULL</otherwise>
+    </choose>
   </sql>
 
   <sql id="currentHealthStatus">
@@ -31,6 +55,7 @@
 
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupFolderVO">
     SELECT f.id,
+           f.owner_user_id AS ownerUserId,
            f.name,
            f.system_builtin AS systemBuiltin,
            COUNT(CASE
@@ -47,6 +72,8 @@
     FROM group_folder f
     LEFT JOIN group_link g
       ON g.tenant_id = f.tenant_id
+     AND (g.owner_user_id = f.owner_user_id
+          OR (g.owner_user_id IS NULL AND f.owner_user_id IS NULL))
      AND g.folder_id = f.id
      AND g.deleted_at IS NULL
     LEFT JOIN wa_group current_group
@@ -62,39 +89,43 @@
       ON input_invite.tenant_id = g.tenant_id
      AND input_invite.id = g.group_invite_id
     WHERE <include refid="activeFolderFilter"/>
-    GROUP BY f.id, f.name, f.system_builtin, f.created_at, f.updated_at
+    GROUP BY f.id, f.owner_user_id, f.name, f.system_builtin, f.created_at, f.updated_at
     ORDER BY f.created_at DESC, f.id DESC
     LIMIT #{offset}, #{pageSize}
   </select>
 
   <select id="selectOptions" resultType="com.armada.group.model.vo.GroupFolderOptionVO">
-    SELECT id, name
+    SELECT id, owner_user_id AS ownerUserId, name
     FROM group_folder
     WHERE deleted_at IS NULL
       AND system_builtin = 0
+      <include refid="directScopeFilter"/>
     ORDER BY created_at DESC, id DESC
   </select>
 
-  <select id="selectActiveByName" resultType="com.armada.group.model.entity.GroupFolder">
+  <select id="selectActiveByNameForOwner" resultType="com.armada.group.model.entity.GroupFolder">
     SELECT *
     FROM group_folder
     WHERE name = #{name}
       AND deleted_at IS NULL
+      <include refid="explicitOwnerFilter"/>
     LIMIT 1
   </select>
 
-  <select id="selectDeletedByName" resultType="com.armada.group.model.entity.GroupFolder">
+  <select id="selectDeletedByNameForOwner" resultType="com.armada.group.model.entity.GroupFolder">
     SELECT *
     FROM group_folder
     WHERE name = #{name}
       AND deleted_at IS NOT NULL
+      <include refid="explicitOwnerFilter"/>
     LIMIT 1
   </select>
 
-  <select id="selectAnyByName" resultType="com.armada.group.model.entity.GroupFolder">
+  <select id="selectAnyByNameForOwner" resultType="com.armada.group.model.entity.GroupFolder">
     SELECT *
     FROM group_folder
     WHERE name = #{name}
+      <include refid="explicitOwnerFilter"/>
     LIMIT 1
   </select>
 
@@ -103,6 +134,7 @@
     FROM group_folder
     WHERE id = #{id}
       AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
     LIMIT 1
   </select>
 
@@ -111,6 +143,7 @@
     FROM group_folder
     WHERE tenant_id = #{tenantId}
       AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND id IN
       <foreach collection="ids" item="id" open="(" separator="," close=")">
         #{id}
@@ -120,13 +153,13 @@
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_folder (name, created_at, updated_at, created_by)
-    VALUES (#{name}, #{createdAt}, #{updatedAt}, #{createdBy})
+    INSERT INTO group_folder (owner_user_id, name, created_at, updated_at, created_by)
+    VALUES (#{ownerUserId}, #{name}, #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
 
   <insert id="upsertUsedSystemFolder">
-    INSERT INTO group_folder (name, system_builtin, created_at, updated_at)
-    VALUES (#{name}, 1, #{now}, #{now})
+    INSERT INTO group_folder (owner_user_id, name, system_builtin, created_at, updated_at)
+    VALUES (#{ownerUserId}, #{name}, 1, #{now}, #{now})
     ON DUPLICATE KEY UPDATE
       system_builtin = 1,
       deleted_at = NULL,
@@ -136,10 +169,12 @@
   <update id="revive">
     UPDATE group_folder
     SET name = #{name},
+        owner_user_id = #{ownerUserId},
         updated_at = #{updatedAt},
         created_by = #{createdBy},
         deleted_at = NULL
     WHERE id = #{id}
+      <include refid="explicitOwnerFilter"/>
       AND deleted_at IS NOT NULL
   </update>
 
@@ -148,6 +183,7 @@
     SET name = #{name},
         updated_at = #{updatedAt}
     WHERE id = #{id}
+      <include refid="explicitOwnerFilter"/>
       AND deleted_at IS NULL
   </update>
 
@@ -156,6 +192,7 @@
     SET deleted_at = #{deletedAt},
         updated_at = #{deletedAt}
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND id IN
       <foreach collection="ids" item="id" open="(" separator="," close=")">
         #{id}
@@ -185,6 +222,10 @@
      AND input_invite.id = g.group_invite_id
     WHERE g.deleted_at IS NULL
       AND g.folder_id = #{folderId}
+      <choose>
+        <when test="ownerUserId != null">AND g.owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND g.owner_user_id IS NULL</otherwise>
+      </choose>
       AND NULLIF(TRIM(g.link_url), '') IS NOT NULL
       AND (g.link_url NOT LIKE 'wa://group/%'
            OR NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL)
@@ -223,6 +264,10 @@
   <sql id="usableResourceConditions">
     g.deleted_at IS NULL
     AND g.folder_id = #{folderId}
+    <choose>
+      <when test="ownerUserId != null">AND g.owner_user_id = #{ownerUserId}</when>
+      <otherwise>AND g.owner_user_id IS NULL</otherwise>
+    </choose>
     AND NULLIF(TRIM(current_group.group_jid), '') IS NOT NULL
     AND NULLIF(TRIM(<include refid="currentInviteCode"/>), '') IS NOT NULL
     AND current_profile.health_status = 1

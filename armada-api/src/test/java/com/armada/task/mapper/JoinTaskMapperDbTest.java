@@ -1,6 +1,7 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.dto.JoinTaskFilter;
+import com.armada.shared.security.DataScope;
 import com.armada.task.model.entity.JoinTask;
 import com.armada.task.model.entity.JoinTaskResult;
 import com.armada.testsupport.DbTestBase;
@@ -111,32 +112,32 @@ class JoinTaskMapperDbTest extends DbTestBase {
         mapper.insert(t3);
 
         // 2a. keyword 命中 name（Alpha）
-        JoinTaskFilter byNameKw = new JoinTaskFilter("Alpha", null, null, null, null, null, null);
+        JoinTaskFilter byNameKw = new JoinTaskFilter("Alpha", null, null, null, null, null, null, DataScope.all(1L));
         assertThat(mapper.countPage(byNameKw)).isEqualTo(1);
         List<JoinTask> byNameResult = mapper.selectPage(byNameKw, 0, 10);
         assertThat(byNameResult).hasSize(1);
         assertThat(byNameResult.get(0).getName()).isEqualTo("进群任务Alpha");
 
         // 2b. keyword 命中 links_text（searchme → t3）
-        JoinTaskFilter byLinkKw = new JoinTaskFilter("searchme", null, null, null, null, null, null);
+        JoinTaskFilter byLinkKw = new JoinTaskFilter("searchme", null, null, null, null, null, null, DataScope.all(1L));
         assertThat(mapper.countPage(byLinkKw)).isEqualTo(1);
         assertThat(mapper.selectPage(byLinkKw, 0, 10).get(0).getName()).isEqualTo("进群任务Gamma");
 
         // 2c. status = RUNNING → 只有 t2
-        JoinTaskFilter byStatus = new JoinTaskFilter(null, "RUNNING", null, null, null, null, null);
+        JoinTaskFilter byStatus = new JoinTaskFilter(null, "RUNNING", null, null, null, null, null, DataScope.all(1L));
         assertThat(mapper.countPage(byStatus)).isEqualTo(1);
         assertThat(mapper.selectPage(byStatus, 0, 10).get(0).getName()).isEqualTo("进群任务Beta");
 
         // 2d. distributionMode = FIXED_ACCOUNT_MULTI_LINK → 只有 t2
-        JoinTaskFilter byMode = new JoinTaskFilter(null, null, null, "FIXED_ACCOUNT_MULTI_LINK", null, null, null);
+        JoinTaskFilter byMode = new JoinTaskFilter(null, null, null, "FIXED_ACCOUNT_MULTI_LINK", null, null, null, DataScope.all(1L));
         assertThat(mapper.countPage(byMode)).isEqualTo(1);
 
         // 2e. interval = "10-20s" → t1 + t3
-        JoinTaskFilter byInterval = new JoinTaskFilter(null, null, null, null, "10-20s", null, null);
+        JoinTaskFilter byInterval = new JoinTaskFilter(null, null, null, null, "10-20s", null, null, DataScope.all(1L));
         assertThat(mapper.countPage(byInterval)).isEqualTo(2);
 
         // 2f. dateFrom/dateTo 区间：只含 t2 + t3（base+500 ~ base+3000）
-        JoinTaskFilter byDate = new JoinTaskFilter(null, null, null, null, null, base + 500L, base + 3000L);
+        JoinTaskFilter byDate = new JoinTaskFilter(null, null, null, null, null, base + 500L, base + 3000L, DataScope.all(1L));
         assertThat(mapper.countPage(byDate)).isEqualTo(2);
         List<JoinTask> byDateList = mapper.selectPage(byDate, 0, 10);
         assertThat(byDateList).hasSize(2);
@@ -144,7 +145,7 @@ class JoinTaskMapperDbTest extends DbTestBase {
         assertThat(byDateList.get(0).getName()).isEqualTo("进群任务Gamma");
 
         // 2g. 分页：每页 2，offset=0 取恰好 2 条（LIMIT 生效），按 id DESC
-        JoinTaskFilter all = new JoinTaskFilter(null, null, null, null, null, null, null);
+        JoinTaskFilter all = new JoinTaskFilter(null, null, null, null, null, null, null, DataScope.all(1L));
         assertThat(mapper.countPage(all)).isEqualTo(3);
         List<JoinTask> page0 = mapper.selectPage(all, 0, 2);
         assertThat(page0).hasSize(2);
@@ -163,7 +164,7 @@ class JoinTaskMapperDbTest extends DbTestBase {
         JoinTask empty = buildTask("T4", "DRAFT", "FIXED_ACCOUNTS_PER_LINK", "", now + 3);
         mapper.insert(empty);
 
-        List<String> intervals = mapper.selectDistinctIntervals();
+        List<String> intervals = mapper.selectDistinctIntervals(DataScope.all(1L));
         assertThat(intervals).containsExactlyInAnyOrder("10-20s", "5-10s");
         assertThat(intervals).doesNotContain("");
     }

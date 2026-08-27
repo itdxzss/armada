@@ -7,6 +7,7 @@ import com.armada.group.model.dto.GroupLinkLabelQuery;
 import com.armada.group.model.entity.GroupLinkImportBatch;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
+import com.armada.shared.security.DataScope;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
 
     private GroupLinkLabel buildLabel(String name) {
         GroupLinkLabel label = new GroupLinkLabel();
+        label.setOwnerUserId(1L);
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试");
@@ -49,7 +51,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         mapper.insert(label);
         assertThat(label.getId()).isNotNull();
 
-        GroupLinkLabel found = mapper.selectActiveByName("测试分组A");
+        GroupLinkLabel found = mapper.selectActiveByName("测试分组A", 1L);
         assertThat(found).isNotNull();
         assertThat(found.getName()).isEqualTo("测试分组A");
         assertThat(found.getRegion()).isEqualTo("印度");
@@ -74,9 +76,12 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         insertActiveLink("chat.whatsapp.com/Count1", labelId);
         insertActiveLink("chat.whatsapp.com/Count2", labelId);
         Long softDeletedId = insertActiveLink("chat.whatsapp.com/CountDeleted", labelId);
-        groupLinkMapper.softDeleteByIds(java.util.List.of(softDeletedId), System.currentTimeMillis());
+        groupLinkMapper.softDeleteByIds(
+                java.util.List.of(softDeletedId),
+                com.armada.shared.security.DataScope.all(1L), System.currentTimeMillis());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setId(labelId);
         query.setPage(1);
         query.setPageSize(10);
@@ -104,6 +109,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         insertActiveLink("chat.whatsapp.com/Stats4", label.getId());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setId(label.getId());
         query.setPage(1);
         query.setPageSize(10);
@@ -130,9 +136,12 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
 
         insertImportBatch(source.getId(), "来源批次", "moved.txt", 2, 1, 0, 1);
         Long linkId = insertActiveLink("chat.whatsapp.com/MovedStats", source.getId());
-        groupLinkMapper.migrateToLabel(List.of(linkId), target.getId(), System.currentTimeMillis());
+        groupLinkMapper.migrateToLabel(
+                List.of(linkId), target.getId(),
+                com.armada.shared.security.DataScope.all(1L), System.currentTimeMillis());
 
         GroupLinkLabelQuery sourceQuery = new GroupLinkLabelQuery();
+        sourceQuery.applyDataScope(DataScope.all(1L));
         sourceQuery.setId(source.getId());
         sourceQuery.setPage(1);
         sourceQuery.setPageSize(10);
@@ -144,6 +153,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         assertThat(sourceRow.getStatus()).isEqualTo("FAILED");
 
         GroupLinkLabelQuery targetQuery = new GroupLinkLabelQuery();
+        targetQuery.applyDataScope(DataScope.all(1L));
         targetQuery.setId(target.getId());
         targetQuery.setPage(1);
         targetQuery.setPageSize(10);
@@ -179,6 +189,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         insertActiveLink("chat.whatsapp.com/OutsideRange1", outsideRange.getId());
 
         GroupLinkLabelQuery query = new GroupLinkLabelQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setKeyword("导入筛选");
         query.setStatus("PARTIAL");
         query.setImportedFrom(base);
@@ -208,6 +219,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
     /** 插入一条活跃 group_link 并返回 id。 */
     private Long insertActiveLink(String url, Long labelId) {
         com.armada.group.model.entity.GroupLink link = new com.armada.group.model.entity.GroupLink();
+        link.setOwnerUserId(1L);
         link.setLinkUrl(url);
         link.setLabelId(labelId);
         long now = System.currentTimeMillis();
@@ -227,6 +239,7 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
                                    int totalRows, int insertedRows, int adoptedRows, int failedRows,
                                    long createdAt) {
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
+        batch.setOwnerUserId(1L);
         batch.setLabelId(labelId);
         batch.setBatchName(batchName);
         batch.setSourceFileName(sourceFileName);
@@ -246,19 +259,19 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         Long id = label.getId();
 
         // 软删
-        mapper.softDeleteByIds(List.of(id), System.currentTimeMillis());
-        assertThat(mapper.selectActiveByName("复活测试分组")).isNull();
+        mapper.softDeleteByIds(List.of(id), DataScope.all(1L), System.currentTimeMillis());
+        assertThat(mapper.selectActiveByName("复活测试分组", 1L)).isNull();
 
         // 查软删
-        GroupLinkLabel deleted = mapper.selectDeletedByName("复活测试分组");
+        GroupLinkLabel deleted = mapper.selectDeletedByName("复活测试分组", 1L);
         assertThat(deleted).isNotNull();
         assertThat(deleted.getDeletedAt()).isNotNull();
 
         // 复活
-        mapper.reviveById(id, System.currentTimeMillis());
+        mapper.reviveById(id, 1L, System.currentTimeMillis());
 
         // 重新活跃
-        GroupLinkLabel revived = mapper.selectActiveByName("复活测试分组");
+        GroupLinkLabel revived = mapper.selectActiveByName("复活测试分组", 1L);
         assertThat(revived).isNotNull();
         assertThat(revived.getDeletedAt()).isNull();
     }
@@ -269,9 +282,9 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         mapper.insert(label);
         Long id = label.getId();
 
-        assertThat(mapper.selectById(id)).isNotNull();
-        mapper.softDeleteByIds(List.of(id), System.currentTimeMillis());
-        assertThat(mapper.selectById(id)).isNull();
+        assertThat(mapper.selectById(id, DataScope.all(1L))).isNotNull();
+        mapper.softDeleteByIds(List.of(id), DataScope.all(1L), System.currentTimeMillis());
+        assertThat(mapper.selectById(id, DataScope.all(1L))).isNull();
     }
 
     @Test
@@ -285,9 +298,9 @@ class GroupLinkLabelMapperDbTest extends DbTestBase {
         update.setRegion("巴基斯坦");
         update.setRemark("新备注");
         update.setUpdatedAt(System.currentTimeMillis());
-        mapper.updateProfile(update);
+        mapper.updateProfile(update, DataScope.all(1L));
 
-        GroupLinkLabel found = mapper.selectById(label.getId());
+        GroupLinkLabel found = mapper.selectById(label.getId(), DataScope.all(1L));
         assertThat(found.getName()).isEqualTo("修改后名称");
         assertThat(found.getRegion()).isEqualTo("巴基斯坦");
     }

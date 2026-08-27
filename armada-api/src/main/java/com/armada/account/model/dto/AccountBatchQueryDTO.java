@@ -5,7 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 /**
  * 按账号列表筛选条件执行批量操作的请求体。
  *
- * <p>本 DTO 故意不包含分页字段。空对象表示当前租户全部未软删账号；字符串在进入
+ * <p>本 DTO 故意不包含分页字段。空对象表示当前 DataScope 内全部未软删账号；字符串在进入
  * MyBatis 查询前统一去除首尾空白，避免列表与批量操作产生筛选口径差异。</p>
  *
  * @param keyword        账号前缀或备注关键字

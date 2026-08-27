@@ -2,6 +2,8 @@ package com.armada.marketing.service.impl;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.service.AccountGroupService;
 import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -24,9 +26,12 @@ import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.response.PageResult;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,6 +55,9 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     /** 普通营销任务 Mapper,用于停止建群营销时同步停止关联营销任务。 */
     private final MarketingTaskMapper marketingTaskMapper;
 
+    /** 账号分组服务，用于在读取候选账号前校验用户数据范围。 */
+    private final AccountGroupService accountGroupService;
+
     /** 建群营销 Excel 导出写入器。 */
     private final GroupCreationMarketingExportWorkbookWriter exportWorkbookWriter;
 
@@ -59,15 +67,18 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
      * @param mapper               建群营销任务 Mapper
      * @param templateMapper       营销模板 Mapper
      * @param marketingTaskMapper  普通营销任务 Mapper
+     * @param accountGroupService  账号分组访问校验服务
      * @param exportWorkbookWriter Excel 导出写入器
      */
     public GroupCreationMarketingTaskServiceImpl(GroupCreationMarketingTaskMapper mapper,
                                                  MarketingTemplateMapper templateMapper,
                                                  MarketingTaskMapper marketingTaskMapper,
+                                                 AccountGroupService accountGroupService,
                                                  GroupCreationMarketingExportWorkbookWriter exportWorkbookWriter) {
         this.mapper = mapper;
         this.templateMapper = templateMapper;
         this.marketingTaskMapper = marketingTaskMapper;
+        this.accountGroupService = accountGroupService;
         this.exportWorkbookWriter = exportWorkbookWriter;
     }
 
@@ -84,7 +95,16 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     @Transactional(rollbackFor = Exception.class)
     public GroupCreationMarketingTaskDetailVO createTask(CreateGroupCreationMarketingTaskDTO request) {
         validateRequest(request);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        AccountGroup accountGroup = accountGroupService.requireExisting(request.accountGroupId());
         MarketingTemplate template = requireTemplate(request.marketingTemplateId());
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(accountGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "建群营销任务分组与模板");
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope,
+                Arrays.asList(accountGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "建群营销任务");
         List<GroupCreationMarketingAccountCandidate> accounts =
                 usableAccounts(mapper.selectAccountCandidatesByGroupId(request.accountGroupId()));
         List<ValidMaterial> materials = validMaterials(request.materials());
@@ -95,6 +115,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
         long now = System.currentTimeMillis();
         GroupCreationMarketingTask task = buildTask(request, template, matchedCount,
                 Math.max(materials.size() - accounts.size(), 0), now);
+        task.setOwnerUserId(scope.ownerUserIdForCreate());
         mapper.insertTask(task);
         List<GroupCreationMarketingItem> items = buildItems(task.getId(), accounts, materials, matchedCount, request, now);
         mapper.insertItems(items);
@@ -112,6 +133,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     @Override
     public PageResult<GroupCreationMarketingTaskVO> listTasks(GroupCreationMarketingTaskQuery query) {
         GroupCreationMarketingTaskQuery normalized = query == null ? new GroupCreationMarketingTaskQuery() : query;
+        normalized.applyDataScope(DataScopeAccess.requireCurrent());
         long total = mapper.countPage(normalized);
         List<GroupCreationMarketingTaskVO> rows = total == 0
                 ? List.of()
@@ -129,7 +151,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
      */
     @Override
     public GroupCreationMarketingTaskDetailVO getDetail(Long id) {
-        GroupCreationMarketingTask task = mapper.selectTaskById(id);
+        GroupCreationMarketingTask task = mapper.selectTaskByIdForScope(id, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "建群营销任务不存在: " + id);
         }
@@ -153,6 +175,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
         if (accountGroupId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "请选择账号分组");
         }
+        accountGroupService.requireExisting(accountGroupId);
         return usableAccounts(mapper.selectAccountCandidatesByGroupId(accountGroupId));
     }
 
@@ -168,7 +191,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int stopTask(Long id) {
-        GroupCreationMarketingTask task = mapper.selectTaskById(id);
+        GroupCreationMarketingTask task = mapper.selectTaskByIdForScope(id, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "建群营销任务不存在: " + id);
         }
@@ -193,7 +216,13 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     @Override
     public GroupCreationMarketingExportFile exportTasks(List<Long> ids) {
         List<Long> normalizedIds = normalizeExportIds(ids);
-        List<GroupCreationMarketingExportRow> rows = mapper.selectExportRowsByTaskIds(normalizedIds);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<GroupCreationMarketingTask> tasks = mapper.selectTasksByIdsForScope(normalizedIds, scope);
+        if (tasks.size() != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分建群营销任务不存在或无权访问");
+        }
+        List<GroupCreationMarketingExportRow> rows =
+                mapper.selectExportRowsByTaskIdsForScope(normalizedIds, scope);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "选中的任务没有可导出的建群明细");
         }
@@ -240,7 +269,7 @@ public class GroupCreationMarketingTaskServiceImpl implements GroupCreationMarke
     }
 
     private MarketingTemplate requireTemplate(Long id) {
-        MarketingTemplate template = templateMapper.selectById(id);
+        MarketingTemplate template = templateMapper.selectByIdForScope(id, DataScopeAccess.requireCurrent());
         if (template == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + id);
         }

@@ -7,6 +7,8 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -104,62 +106,99 @@ public class JoinTaskDispatchTransactionService {
             if (rows.isEmpty()) {
                 return new JoinTaskDispatchStats(resultIds.size(), 0, 0, resultIds.size());
             }
-            List<Long> accountIds = rows.stream().map(JoinTaskResult::getAccountId).distinct().toList();
-            Map<Long, ProtocolAccountRef> refs = new LinkedHashMap<>();
-            for (ProtocolAccountRef ref : accountLookupService.findActiveProtocolRefs(accountIds)) {
-                refs.putIfAbsent(ref.armadaAccountId(), ref);
-            }
 
-            Map<Long, JoinTask> tasks = new LinkedHashMap<>();
-            List<PreparedCommand> prepared = new java.util.ArrayList<>(rows.size());
-            int skipped = 0;
+            // 调度线程没有 HTTP 身份。必须先从任务聚合根恢复 owner，再按 owner 分批读取账号；
+            // 不能把一个租户内不同用户的账号 ID 放进同一次查询，也不能用 SYSTEM 绕过隔离。
+            Map<Long, JoinTask> tasks = loadTasks(rows);
+            Map<Long, List<Long>> accountIdsByOwner = new LinkedHashMap<>();
             for (JoinTaskResult row : rows) {
-                ProtocolAccountRef ref = refs.get(row.getAccountId());
-                if (ref == null) {
-                    terminateBeforeSubmit(row, JoinTaskFailureReason.ACCOUNT_NOT_FOUND.code(), tasks, now);
-                    skipped++;
-                    continue;
+                Long ownerUserId = tasks.get(row.getJoinTaskId()).getOwnerUserId();
+                if (ownerUserId != null) {
+                    accountIdsByOwner.computeIfAbsent(ownerUserId, ignored -> new java.util.ArrayList<>())
+                            .add(row.getAccountId());
                 }
-                String inviteCode;
-                try {
-                    inviteCode = inviteCodeParser.parse(row.getLink());
-                } catch (IllegalArgumentException ex) {
-                    terminateBeforeSubmit(row, JoinTaskFailureReason.PROTOCOL_INVALID_GROUP_LINK.code(), tasks, now);
-                    skipped++;
-                    continue;
-                }
-                int attemptNo = Math.addExact(row.getAttemptNo(), 1);
-                prepared.add(new PreparedCommand(row, new ProtocolGroupJoinCommandRequest(
-                        tenantId,
-                        row.getJoinTaskId(),
-                        row.getId(),
-                        row.getAccountId(),
-                        ref.protocolAccountId(),
-                        ref.wsPhone(),
-                        ref.backend(),
-                        inviteCode,
-                        attemptNo,
-                        ProtocolGroupJoinCommandRequest.SOURCE_JOIN_TASK)));
             }
-
-            if (!prepared.isEmpty()) {
-                List<ProtocolGroupJoinCommandRequest> commands = prepared.stream()
-                        .map(PreparedCommand::command)
-                        .toList();
-                ProtocolCommandOutboxEnqueueResult result = outboxService.enqueueGroupJoinCommands(commands);
-                if (result.inserted() != commands.size() || result.commandIds().size() != commands.size()) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "进群命令 outbox 受理数量不一致");
-                }
-                // outbox 与 SUBMITTED 必须处于同一事务；任一行状态竞争都回滚本批命令，禁止孤儿命令。
-                for (int i = 0; i < prepared.size(); i++) {
-                    PreparedCommand item = prepared.get(i);
-                    if (resultMapper.markSubmitted(
-                            item.row().getId(), result.commandIds().get(i), item.command().attemptNo(), now) != 1) {
-                        throw new BusinessException(ErrorCode.CONFLICT, "进群任务明细状态已变化");
+            Map<OwnerAccountKey, ProtocolAccountRef> refs = new LinkedHashMap<>();
+            for (Map.Entry<Long, List<Long>> entry : accountIdsByOwner.entrySet()) {
+                Long ownerUserId = entry.getKey();
+                List<Long> accountIds = entry.getValue().stream().distinct().toList();
+                try (DataScopeContext.Scope ignored =
+                             DataScopeContext.open(DataScope.self(ownerUserId))) {
+                    for (ProtocolAccountRef ref : accountLookupService.findActiveProtocolRefs(accountIds)) {
+                        refs.putIfAbsent(new OwnerAccountKey(ownerUserId, ref.armadaAccountId()), ref);
                     }
                 }
             }
-            return new JoinTaskDispatchStats(resultIds.size(), rows.size(), prepared.size(), skipped);
+
+            Map<Long, List<PreparedCommand>> preparedByOwner = new LinkedHashMap<>();
+            int skipped = 0;
+            for (JoinTaskResult row : rows) {
+                JoinTask task = tasks.get(row.getJoinTaskId());
+                Long ownerUserId = task.getOwnerUserId();
+                if (ownerUserId == null) {
+                    terminateBeforeSubmit(
+                            row, JoinTaskFailureReason.DATA_OWNER_MISSING.code(), task, now);
+                    skipped++;
+                    continue;
+                }
+                try (DataScopeContext.Scope ignored =
+                             DataScopeContext.open(DataScope.self(ownerUserId))) {
+                    ProtocolAccountRef ref = refs.get(new OwnerAccountKey(ownerUserId, row.getAccountId()));
+                    if (ref == null) {
+                        terminateBeforeSubmit(row, JoinTaskFailureReason.ACCOUNT_NOT_FOUND.code(), task, now);
+                        skipped++;
+                        continue;
+                    }
+                    String inviteCode;
+                    try {
+                        inviteCode = inviteCodeParser.parse(row.getLink());
+                    } catch (IllegalArgumentException ex) {
+                        terminateBeforeSubmit(
+                                row, JoinTaskFailureReason.PROTOCOL_INVALID_GROUP_LINK.code(), task, now);
+                        skipped++;
+                        continue;
+                    }
+                    int attemptNo = Math.addExact(row.getAttemptNo(), 1);
+                    preparedByOwner.computeIfAbsent(
+                                    ownerUserId, ignoredOwner -> new java.util.ArrayList<>())
+                            .add(new PreparedCommand(row, new ProtocolGroupJoinCommandRequest(
+                                    tenantId,
+                                    row.getJoinTaskId(),
+                                    row.getId(),
+                                    row.getAccountId(),
+                                    ref.protocolAccountId(),
+                                    ref.wsPhone(),
+                                    ref.backend(),
+                                    inviteCode,
+                                    attemptNo,
+                                    ProtocolGroupJoinCommandRequest.SOURCE_JOIN_TASK)));
+                }
+            }
+
+            int preparedCount = 0;
+            for (Map.Entry<Long, List<PreparedCommand>> entry : preparedByOwner.entrySet()) {
+                List<PreparedCommand> prepared = entry.getValue();
+                preparedCount += prepared.size();
+                try (DataScopeContext.Scope ignored =
+                             DataScopeContext.open(DataScope.self(entry.getKey()))) {
+                    List<ProtocolGroupJoinCommandRequest> commands = prepared.stream()
+                            .map(PreparedCommand::command)
+                            .toList();
+                    ProtocolCommandOutboxEnqueueResult result = outboxService.enqueueGroupJoinCommands(commands);
+                    if (result.inserted() != commands.size() || result.commandIds().size() != commands.size()) {
+                        throw new BusinessException(ErrorCode.CONFLICT, "进群命令 outbox 受理数量不一致");
+                    }
+                    // outbox 与 SUBMITTED 必须处于同一事务；任一行状态竞争都回滚本批命令，禁止孤儿命令。
+                    for (int i = 0; i < prepared.size(); i++) {
+                        PreparedCommand item = prepared.get(i);
+                        if (resultMapper.markSubmitted(
+                                item.row().getId(), result.commandIds().get(i), item.command().attemptNo(), now) != 1) {
+                            throw new BusinessException(ErrorCode.CONFLICT, "进群任务明细状态已变化");
+                        }
+                    }
+                }
+            }
+            return new JoinTaskDispatchStats(resultIds.size(), rows.size(), preparedCount, skipped);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -169,21 +208,36 @@ public class JoinTaskDispatchTransactionService {
         }
     }
 
+    /** 在读取任何用户私有账号之前加载并校验每条明细所属的任务根。 */
+    private Map<Long, JoinTask> loadTasks(List<JoinTaskResult> rows) {
+        Map<Long, JoinTask> tasks = new LinkedHashMap<>();
+        for (JoinTaskResult row : rows) {
+            if (tasks.containsKey(row.getJoinTaskId())) {
+                continue;
+            }
+            JoinTask task = taskMapper.selectByTenantAndId(row.getJoinTaskId());
+            if (task == null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "进群任务不存在或已删除");
+            }
+            tasks.put(row.getJoinTaskId(), task);
+        }
+        return tasks;
+    }
+
     /**
      * 在命令写入前终结不可执行明细，并按随机间隔激活该账号下一行。
      *
      * @param row 已持锁的当前进群明细
      * @param reason 账号或链接前置校验失败原因码
-     * @param tasks 当前事务内的任务缓存，避免同任务重复查询
+     * @param task 当前明细所属且已校验存在的任务根
      * @param now 当前时间（epoch 毫秒）
      * @throws BusinessException 任务消失或明细状态竞争时抛出并回滚
      */
     private void terminateBeforeSubmit(JoinTaskResult row,
                                        String reason,
-                                       Map<Long, JoinTask> tasks,
+                                       JoinTask task,
                                        long now) {
-        JoinTask task = tasks.computeIfAbsent(row.getJoinTaskId(), taskMapper::selectByTenantAndId);
-        if (task == null || resultMapper.markTerminalFailure(row.getId(), reason, now) != 1) {
+        if (resultMapper.markTerminalFailure(row.getId(), reason, now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "进群任务明细状态已变化");
         }
         resultMapper.activateNextPending(
@@ -199,5 +253,9 @@ public class JoinTaskDispatchTransactionService {
      * @param command 与该明细一一对应的协议命令
      */
     private record PreparedCommand(JoinTaskResult row, ProtocolGroupJoinCommandRequest command) {
+    }
+
+    /** 账号 ID 只在所属用户范围内有读取资格，管理员批量调度也不能跨 owner 复用结果。 */
+    private record OwnerAccountKey(Long ownerUserId, Long accountId) {
     }
 }

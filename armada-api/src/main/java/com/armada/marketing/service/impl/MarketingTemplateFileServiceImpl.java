@@ -7,6 +7,8 @@ import com.armada.marketing.model.vo.MarketingTemplateFileVO;
 import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.io.IOException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -32,6 +34,7 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
 
         // 文件内容、文件名和 MIME 类型一起保存，模板详情回显时不依赖外部对象存储。
         MarketingTemplateFile row = new MarketingTemplateFile();
+        row.setOwnerUserId(DataScopeAccess.requireCurrent().ownerUserIdForCreate());
         row.setOriginalFilename(originalFilename(file));
         row.setContentType(file.getContentType());
         row.setSizeBytes((long) bytes.length);
@@ -44,8 +47,8 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
 
     @Override
     public MarketingTemplateFileContent content(Long id) {
-        // selectById 同样受租户拦截器约束，避免跨租户读取图片二进制。
-        MarketingTemplateFile row = mapper.selectById(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTemplateFile row = mapper.selectByIdForScope(id, scope);
         if (row == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板图片不存在: " + id);
         }

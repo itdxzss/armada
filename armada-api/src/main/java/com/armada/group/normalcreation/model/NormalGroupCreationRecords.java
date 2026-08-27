@@ -8,6 +8,7 @@ public final class NormalGroupCreationRecords {
 
     /** 任务插入行。 */
     public record TaskInsert(
+            Long ownerUserId,
             String idempotencyKey,
             Long adminAccountGroupId,
             Long secondaryAdminAccountGroupId,
@@ -29,6 +30,10 @@ public final class NormalGroupCreationRecords {
             int ephemeralDurationSeconds,
             long createdBy,
             long now) {
+    }
+
+    /** 后台回执从任务根恢复的可信用户归属。 */
+    public record TaskExecutionScope(Long ownerUserId, Long createdBy) {
     }
 
     /** 计划群插入行。 */

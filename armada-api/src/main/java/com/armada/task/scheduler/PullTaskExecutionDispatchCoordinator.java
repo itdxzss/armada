@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
@@ -194,11 +196,22 @@ public class PullTaskExecutionDispatchCoordinator {
     private PullTaskExecutionDispatchStats process(
             PullTaskGroupExecution candidate, long now,
             PullTaskExecutionDispatchStats stats) {
+        if (candidate.getOwnerUserId() == null) {
+            long nextRunAt = Math.addExact(now, properties.getRetryDelayMs());
+            executionMapper.releaseLockWithBackoff(
+                    candidate.getId(), lockOwner, now, nextRunAt);
+            log.warn("普通拉群执行行已跳过 tenantId={} taskId={} executionId={} reason=owner_not_backfilled",
+                    candidate.getTenantId(), candidate.getTaskId(), candidate.getId());
+            return stats.skip();
+        }
         try {
-            PullTaskExecutionDispatchResult result = processStage(candidate, now);
-            return result == PullTaskExecutionDispatchResult.LOST
-                    ? stats.skip()
-                    : stats.add(result);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(candidate.getOwnerUserId()))) {
+                PullTaskExecutionDispatchResult result = processStage(candidate, now);
+                return result == PullTaskExecutionDispatchResult.LOST
+                        ? stats.skip()
+                        : stats.add(result);
+            }
         } catch (RuntimeException ex) {
             // 释放租约但不推后 next_run_at，会让本行下一轮立刻回到队首再次失败；
             // 不可恢复的行会因此每秒重试并长期占用 claim 名额。异常一律退避后再试。

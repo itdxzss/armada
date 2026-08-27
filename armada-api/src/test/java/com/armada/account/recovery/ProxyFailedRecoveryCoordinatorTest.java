@@ -7,8 +7,11 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.resource.service.IpProxyService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -24,9 +27,15 @@ class ProxyFailedRecoveryCoordinatorTest {
     @Mock
     private AccountOnlineCommandService onlineCommandService;
 
+    @BeforeEach
+    void openScope() {
+        DataScopeContext.open(DataScope.self(10L));
+    }
+
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test

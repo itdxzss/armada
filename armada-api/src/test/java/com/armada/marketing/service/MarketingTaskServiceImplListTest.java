@@ -2,11 +2,14 @@ package com.armada.marketing.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountGroupService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.model.LinkMode;
@@ -18,7 +21,11 @@ import com.armada.marketing.model.vo.MarketingTaskVO;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.marketing.service.impl.MarketingAccountTreeRealtimeService;
 import com.armada.marketing.service.impl.MarketingTaskServiceImpl;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -52,8 +59,21 @@ class MarketingTaskServiceImplListTest {
     @Mock
     private AccountService accountService;
 
+    @Mock
+    private AccountGroupService accountGroupService;
+
     @InjectMocks
     private MarketingTaskServiceImpl service;
+
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(DataScope.self(11L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void listTasks_batchesDistinctTemplateIdsAndKeepsRowsWithMissingTemplates() {
@@ -67,7 +87,7 @@ class MarketingTaskServiceImplListTest {
                 10L, "活动标题", "活动正文", "https://example.com/promo");
         when(taskMapper.countPage(query)).thenReturn(3L);
         when(taskMapper.selectPage(query)).thenReturn(List.of(first, second, missing));
-        when(templateMapper.selectByIds(List.of(10L, 99L))).thenReturn(List.of(shared));
+        when(templateMapper.selectByIdsForScope(eq(List.of(10L, 99L)), any())).thenReturn(List.of(shared));
 
         List<MarketingTaskVO> rows = service.listTasks(query).list();
 
@@ -80,7 +100,7 @@ class MarketingTaskServiceImplListTest {
         assertThat(rows.get(2).marketingTemplateContent()).isNull();
         assertThat(rows.get(2).marketingTemplateBodyText()).isNull();
         assertThat(rows.get(2).marketingTemplatePromotionLink()).isNull();
-        verify(templateMapper).selectByIds(List.of(10L, 99L));
+        verify(templateMapper).selectByIdsForScope(eq(List.of(10L, 99L)), any());
         verify(templateMapper, never()).selectById(anyLong());
     }
 
@@ -99,7 +119,7 @@ class MarketingTaskServiceImplListTest {
                 """);
         when(taskMapper.countPage(query)).thenReturn(1L);
         when(taskMapper.selectPage(query)).thenReturn(List.of(task));
-        when(templateMapper.selectByIds(List.of(10L))).thenReturn(List.of(template));
+        when(templateMapper.selectByIdsForScope(eq(List.of(10L)), any())).thenReturn(List.of(template));
 
         MarketingTaskVO row = service.listTasks(query).list().get(0);
 
@@ -121,7 +141,7 @@ class MarketingTaskServiceImplListTest {
                 """);
         when(taskMapper.countPage(query)).thenReturn(1L);
         when(taskMapper.selectPage(query)).thenReturn(List.of(task));
-        when(templateMapper.selectByIds(List.of(10L))).thenReturn(List.of(template));
+        when(templateMapper.selectByIdsForScope(eq(List.of(10L)), any())).thenReturn(List.of(template));
 
         MarketingTaskVO row = service.listTasks(query).list().get(0);
 

@@ -15,6 +15,8 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -154,34 +156,42 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
                         event.eventId(), event.accountId(), event.action(), event.source());
                 return;
             }
-            Transition transition = transition(event.action());
-            long now = System.currentTimeMillis();
-            Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
-                    event.groupJid().trim(),
-                    null,
-                    ProtocolBackend.fromProtocolId(account.protocolId()),
-                    now);
-            String presenceSource = GROUP_SNAPSHOT_NOT_JOINED_SOURCE.equals(event.source())
-                    && transition.status() == AccountGroupMembershipStatus.NOT_IN_GROUP
-                    ? GROUP_SNAPSHOT_NOT_JOINED_SOURCE : transition.source();
-            currentPersistence.applySelfMembershipChanged(
-                    event.accountId(),
-                    event.groupJid().trim(),
-                    transition.status(),
-                    event.occurredAt(),
-                    event.eventId(),
-                    presenceSource);
-            if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
-                classificationService.classifyMembershipAdded(
-                        event.accountId(),
-                        new GroupClassificationCandidate(
-                                groupLinkId, event.groupJid().trim(), null),
-                        event.occurredAt(),
-                        now);
+            if (account.ownerUserId() == null) {
+                throw new BusinessException(
+                        ErrorCode.ACCESS_DENIED,
+                        "历史无归属账号不能消费用户私有群关系事件");
             }
-            log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
-                    event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
-                    transition.source());
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(account.ownerUserId()))) {
+                Transition transition = transition(event.action());
+                long now = System.currentTimeMillis();
+                Long groupLinkId = groupLinkRegistryService.registerAccountObservedGroup(
+                        event.groupJid().trim(),
+                        null,
+                        ProtocolBackend.fromProtocolId(account.protocolId()),
+                        now);
+                String presenceSource = GROUP_SNAPSHOT_NOT_JOINED_SOURCE.equals(event.source())
+                        && transition.status() == AccountGroupMembershipStatus.NOT_IN_GROUP
+                        ? GROUP_SNAPSHOT_NOT_JOINED_SOURCE : transition.source();
+                currentPersistence.applySelfMembershipChanged(
+                        event.accountId(),
+                        event.groupJid().trim(),
+                        transition.status(),
+                        event.occurredAt(),
+                        event.eventId(),
+                        presenceSource);
+                if (transition.status() == AccountGroupMembershipStatus.IN_GROUP) {
+                    classificationService.classifyMembershipAdded(
+                            event.accountId(),
+                            new GroupClassificationCandidate(
+                                    groupLinkId, event.groupJid().trim(), null),
+                            event.occurredAt(),
+                            now);
+                }
+                log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
+                        event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
+                        transition.source());
+            }
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

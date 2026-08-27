@@ -7,10 +7,13 @@ import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskCreationMode;
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.stereotype.Service;
 
 /** 创建普通群链接任务时组装并写入冻结执行配置。 */
@@ -45,6 +48,10 @@ public class PullTaskStandardSettingWriter {
         AccountGroup creator = creatorGroup(request);
         AccountGroup managerFinish = optionalAccountGroup(request.managerFinishGroupId());
         AccountGroup pullerFinish = optionalAccountGroup(request.pullerFinishGroupId());
+        List<Long> ownerUserIds = requireSameOwner(
+                manager, puller, station, creator, managerFinish, pullerFinish);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                DataScopeAccess.requireCurrent(), ownerUserIds, "拉群任务");
         GroupFolderOptionVO folder = request.groupFolderId() == null
                 ? null : groupFolderService.requireExisting(request.groupFolderId());
 
@@ -150,6 +157,17 @@ public class PullTaskStandardSettingWriter {
 
     private AccountGroup optionalAccountGroup(Long id) {
         return id == null ? null : accountGroupService.requireExisting(id);
+    }
+
+    private static List<Long> requireSameOwner(AccountGroup... groups) {
+        List<Long> ownerUserIds = new ArrayList<>();
+        for (AccountGroup group : groups) {
+            if (group != null) {
+                ownerUserIds.add(group.getOwnerUserId());
+            }
+        }
+        DataScopeAccess.requireSameOwner(ownerUserIds, "拉群任务账号分组");
+        return ownerUserIds;
     }
 
     private static void setAccountSnapshots(

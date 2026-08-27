@@ -2,6 +2,8 @@ package com.armada.marketing.service;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.service.AccountGroupService;
 import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
@@ -14,7 +16,12 @@ import com.armada.marketing.model.enums.GroupCreationMarketingTaskStatus;
 import com.armada.marketing.model.vo.GroupCreationMarketingAccountCandidate;
 import com.armada.marketing.service.impl.GroupCreationMarketingExportWorkbookWriter;
 import com.armada.marketing.service.impl.GroupCreationMarketingTaskServiceImpl;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +30,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -40,16 +48,25 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
     private MarketingTemplateMapper templateMapper;
     @Mock
     private MarketingTaskMapper marketingTaskMapper;
+    @Mock
+    private AccountGroupService accountGroupService;
 
     private GroupCreationMarketingTaskService service;
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.self(11L));
         service = new GroupCreationMarketingTaskServiceImpl(
                 mapper,
                 templateMapper,
                 marketingTaskMapper,
+                accountGroupService,
                 new GroupCreationMarketingExportWorkbookWriter());
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
     }
 
     @Test
@@ -58,7 +75,7 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
         task.setId(7L);
         task.setStatus(GroupCreationMarketingTaskStatus.SUCCESS.code());
         task.setMarketingTaskId(19L);
-        when(mapper.selectTaskById(7L)).thenReturn(task);
+        when(mapper.selectTaskByIdForScope(eq(7L), any())).thenReturn(task);
         when(mapper.countStoppableItems(7L)).thenReturn(0);
         when(mapper.stopTask(eq(7L), eq(GroupCreationMarketingTaskStatus.STOPPED.code()), eq(0), anyLong()))
                 .thenReturn(0);
@@ -73,8 +90,13 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
     void createTaskMatchesOnlyNormalOnlineUsableAccounts() {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(18L);
+        template.setOwnerUserId(11L);
         template.setTemplateName("活动模板");
-        when(templateMapper.selectById(18L)).thenReturn(template);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
+        AccountGroup group = new AccountGroup();
+        group.setId(8L);
+        group.setOwnerUserId(11L);
+        when(accountGroupService.requireExisting(8L)).thenReturn(group);
         when(mapper.selectAccountCandidatesByGroupId(8L)).thenReturn(List.of(
                 candidate(1L, "", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, null),
                 candidate(2L, "acc_offline", AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, 1, null),
@@ -103,7 +125,7 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
         storedTask.setFailedCount(0);
         storedTask.setAbandonedCount(0);
         storedTask.setSendIntervalSeconds(30);
-        when(mapper.selectTaskById(99L)).thenReturn(storedTask);
+        when(mapper.selectTaskByIdForScope(eq(99L), any())).thenReturn(storedTask);
         when(mapper.selectItemsByTaskId(99L)).thenReturn(List.of());
 
         service.createTask(new CreateGroupCreationMarketingTaskDTO(
@@ -126,6 +148,8 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
                 ArgumentCaptor.forClass(List.class);
         verify(mapper).insertTask(taskCaptor.capture());
         verify(mapper).insertItems(itemCaptor.capture());
+        verify(accountGroupService).requireExisting(8L);
+        assertThat(taskCaptor.getValue().getOwnerUserId()).isEqualTo(11L);
         assertThat(taskCaptor.getValue().getMatchedItemCount()).isEqualTo(1);
         assertThat(taskCaptor.getValue().getUnmatchedFileCount()).isEqualTo(1);
         assertThat(itemCaptor.getValue()).singleElement().satisfies(item -> {
@@ -133,6 +157,79 @@ class GroupCreationMarketingTaskServiceImplUnitTest {
             assertThat(item.getProtocolAccountId()).isEqualTo("acc_usable");
             assertThat(item.getFileName()).isEqualTo("a.txt");
         });
+    }
+
+    @Test
+    void accountCandidatesRejectsForeignGroupBeforeQueryingAccounts() {
+        when(accountGroupService.requireExisting(8L))
+                .thenThrow(new BusinessException(ErrorCode.NOT_FOUND, "分组不存在"));
+
+        assertThatThrownBy(() -> service.accountCandidates(8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组不存在");
+
+        verify(mapper, never()).selectAccountCandidatesByGroupId(anyLong());
+    }
+
+    @Test
+    void administratorCannotCreateTaskWithDifferentGroupAndTemplateOwners() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        AccountGroup group = new AccountGroup();
+        group.setId(8L);
+        group.setOwnerUserId(11L);
+        MarketingTemplate template = new MarketingTemplate();
+        template.setId(18L);
+        template.setOwnerUserId(22L);
+        when(accountGroupService.requireExisting(8L)).thenReturn(group);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
+
+        assertThatThrownBy(() -> service.createTask(new CreateGroupCreationMarketingTaskDTO(
+                "建群营销", 8L, "A组", 18L, "活动模板", 30, "活动群", null,
+                List.of(new GroupCreationMarketingMaterialDTO("a.txt", "8613900000000")))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组与模板归属不一致");
+
+        verify(mapper, never()).selectAccountCandidatesByGroupId(anyLong());
+        verify(mapper, never()).insertTask(any());
+    }
+
+    @Test
+    void administratorCannotCreateTaskOnBehalfOfAnotherOwner() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        AccountGroup group = new AccountGroup();
+        group.setId(8L);
+        group.setOwnerUserId(22L);
+        MarketingTemplate template = new MarketingTemplate();
+        template.setId(18L);
+        template.setOwnerUserId(22L);
+        when(accountGroupService.requireExisting(8L)).thenReturn(group);
+        when(templateMapper.selectByIdForScope(eq(18L), any())).thenReturn(template);
+
+        assertThatThrownBy(() -> service.createTask(new CreateGroupCreationMarketingTaskDTO(
+                "建群营销", 8L, "A组", 18L, "活动模板", 30, "活动群", null,
+                List.of(new GroupCreationMarketingMaterialDTO("a.txt", "8613900000000")))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只能使用当前操作者自己的资源");
+
+        verify(mapper, never()).selectAccountCandidatesByGroupId(anyLong());
+        verify(mapper, never()).insertTask(any());
+    }
+
+    @Test
+    void exportRejectsMixedAccessibleAndForeignTaskIdsAsAWhole() {
+        GroupCreationMarketingTask own = new GroupCreationMarketingTask();
+        own.setId(7L);
+        own.setOwnerUserId(11L);
+        when(mapper.selectTasksByIdsForScope(eq(List.of(7L, 9L)), any()))
+                .thenReturn(List.of(own));
+
+        assertThatThrownBy(() -> service.exportTasks(List.of(7L, 9L)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("部分建群营销任务不存在或无权访问");
+
+        verify(mapper, never()).selectExportRowsByTaskIdsForScope(anyList(), any());
     }
 
     private static GroupCreationMarketingAccountCandidate candidate(Long accountId,

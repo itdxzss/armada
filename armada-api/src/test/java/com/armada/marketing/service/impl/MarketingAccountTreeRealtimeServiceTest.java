@@ -1,14 +1,22 @@
 package com.armada.marketing.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountService;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountOccupancyOwnerRow;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
 import com.armada.marketing.model.vo.MarketingTargetCandidateRow;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -18,8 +26,11 @@ class MarketingAccountTreeRealtimeServiceTest {
     private final MarketingTaskMapper taskMapper = Mockito.mock(MarketingTaskMapper.class);
     private final MarketingAccountOccupancyService occupancyService =
             Mockito.mock(MarketingAccountOccupancyService.class);
+    private final AccountService accountService = Mockito.mock(AccountService.class);
+    private final AccountGroupService accountGroupService = Mockito.mock(AccountGroupService.class);
     private final MarketingAccountTreeRealtimeService service =
-            new MarketingAccountTreeRealtimeService(taskMapper, occupancyService);
+            new MarketingAccountTreeRealtimeService(
+                    taskMapper, occupancyService, accountService, accountGroupService);
 
     @Test
     void accountTreeReturnsChineseStatusAndGroupCount() {
@@ -40,6 +51,7 @@ class MarketingAccountTreeRealtimeServiceTest {
             assertThat(account.groupsError()).isFalse();
             assertThat(account.groups()).isEmpty();
         });
+        verify(accountGroupService).requireExisting(8L);
     }
 
     @Test
@@ -137,6 +149,7 @@ class MarketingAccountTreeRealtimeServiceTest {
             assertThat(group.membershipStatusText()).isEqualTo("被踢出");
             assertThat(group.statusUpdatedAt()).isEqualTo(2000L);
         });
+        verify(accountService).requireAccessibleAccounts(List.of(3L));
     }
 
     @Test
@@ -150,6 +163,30 @@ class MarketingAccountTreeRealtimeServiceTest {
         assertThat(account.disabledReason()).isEqualTo("群同步中");
         assertThat(account.groupsError()).isFalse();
         assertThat(account.groups()).isEmpty();
+    }
+
+    @Test
+    void accountTreeRejectsForeignGroupBeforeQueryingCandidateAccounts() {
+        when(accountGroupService.requireExisting(8L))
+                .thenThrow(new BusinessException(ErrorCode.NOT_FOUND, "分组不存在"));
+
+        assertThatThrownBy(() -> service.accountTree(8L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("分组不存在");
+
+        verify(taskMapper, never()).selectAccountTreeAccounts(anyLong());
+    }
+
+    @Test
+    void accountGroupsRejectsForeignAccountBeforeQueryingItsGroups() {
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.NOT_FOUND, "账号不存在"))
+                .when(accountService).requireAccessibleAccounts(List.of(3L));
+
+        assertThatThrownBy(() -> service.accountGroups(3L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号不存在");
+
+        verify(taskMapper, never()).selectAccountTreeAccount(anyLong());
     }
 
     @Test

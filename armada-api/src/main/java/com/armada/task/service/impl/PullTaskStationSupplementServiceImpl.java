@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskResourceSupplementTransition;
@@ -99,10 +100,12 @@ public class PullTaskStationSupplementServiceImpl implements PullTaskStationSupp
     }
 
     private Context context(long taskId, long executionId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForScope(
+                taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "拉群任务");
         if (task.getTaskType() != PullTaskType.STANDARD
                 || !NORMAL_LINK_MODE.equals(task.getMode())) {
             throw new BusinessException(ErrorCode.VALIDATION, "当前任务不是普通群链接任务");

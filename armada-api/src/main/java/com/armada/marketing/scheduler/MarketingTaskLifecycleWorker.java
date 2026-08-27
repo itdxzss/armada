@@ -4,8 +4,8 @@ import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.MarketingTask;
 import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
-import com.armada.shared.exception.BusinessException;
-import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,16 +38,19 @@ public class MarketingTaskLifecycleWorker {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
-            long now = System.currentTimeMillis();
-            int updated = taskMapper.startDueWaitingTask(taskId, now);
-            if (updated > 0) {
-                MarketingTask task = taskMapper.selectTaskById(taskId);
-                if (task == null) {
-                    throw new BusinessException(ErrorCode.NOT_FOUND, "营销任务不存在: " + taskId);
+            MarketingTask task = taskMapper.selectTaskById(taskId);
+            if (!hasOwner(task, tenantId, taskId, "自动启动")) {
+                return;
+            }
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                long now = System.currentTimeMillis();
+                int updated = taskMapper.startDueWaitingTask(taskId, now);
+                if (updated > 0) {
+                    int ownerCount = occupancyService.acquireAndLoadTaskAccounts(task, now).size();
+                    log.info("营销任务到达开始时间并启动 tenantId={} taskId={} startedAt={} accountOwners={}",
+                            tenantId, taskId, now, ownerCount);
                 }
-                int ownerCount = occupancyService.acquireAndLoadTaskAccounts(task, now).size();
-                log.info("营销任务到达开始时间并启动 tenantId={} taskId={} startedAt={} accountOwners={}",
-                        tenantId, taskId, now, ownerCount);
             }
         } finally {
             restoreTenant(previousTenant);
@@ -60,32 +63,54 @@ public class MarketingTaskLifecycleWorker {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
-            long now = System.currentTimeMillis();
             MarketingTask task = taskMapper.selectTaskById(taskId);
-            if (task != null
-                    && Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
-                            .equals(task.getBusinessType())) {
-                int updated = taskMapper.endExpiredGroupPullTask(taskId, now);
-                log.info(
-                        "拉群营销任务到期进入资源释放 tenantId={} taskId={} finishedAt={} updated={}",
-                        tenantId,
-                        taskId,
-                        now,
-                        updated);
+            if (!hasOwner(task, tenantId, taskId, "自动结束")) {
                 return;
             }
-            int updated = taskMapper.endExpiredTask(taskId, now);
-            if (updated > 0) {
-                int skipped = taskMapper.markTaskWaitingAttemptsSkipped(
-                        taskId, "TASK_EXPIRED", "营销任务已结束", now);
-                int released = occupancyService.releaseTaskAccounts(taskId);
-                log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={} "
-                                + "skippedWaiting={} releasedAccounts={}",
-                        tenantId, taskId, now, skipped, released);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                long now = System.currentTimeMillis();
+                if (Integer.valueOf(MarketingBusinessType.GROUP_PULL.code())
+                        .equals(task.getBusinessType())) {
+                    int updated = taskMapper.endExpiredGroupPullTask(taskId, now);
+                    log.info(
+                            "拉群营销任务到期进入资源释放 tenantId={} taskId={} finishedAt={} updated={}",
+                            tenantId,
+                            taskId,
+                            now,
+                            updated);
+                    return;
+                }
+                int updated = taskMapper.endExpiredTask(taskId, now);
+                if (updated > 0) {
+                    int skipped = taskMapper.markTaskWaitingAttemptsSkipped(
+                            taskId, "TASK_EXPIRED", "营销任务已结束", now);
+                    int released = occupancyService.releaseTaskAccounts(taskId);
+                    log.info("营销任务到达结束时间并结束 tenantId={} taskId={} finishedAt={} "
+                                    + "skippedWaiting={} releasedAccounts={}",
+                            tenantId, taskId, now, skipped, released);
+                }
             }
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private static boolean hasOwner(
+            MarketingTask task,
+            Long tenantId,
+            Long taskId,
+            String operation) {
+        if (task == null) {
+            log.warn("营销任务{}跳过:任务不存在 tenantId={} taskId={}", operation, tenantId, taskId);
+            return false;
+        }
+        if (task.getOwnerUserId() == null) {
+            log.error("营销任务{}拒绝执行:任务缺少数据归属 tenantId={} taskId={}",
+                    operation, tenantId, taskId);
+            return false;
+        }
+        return true;
     }
 
     private static void restoreTenant(Long previousTenant) {

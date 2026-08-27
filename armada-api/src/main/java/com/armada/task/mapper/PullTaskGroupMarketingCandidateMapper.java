@@ -2,6 +2,7 @@ package com.armada.task.mapper;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskGroupMarketingCandidateQuery;
 import com.armada.task.model.vo.PullTaskGroupMarketingCandidateAccountRow;
@@ -21,15 +22,18 @@ public interface PullTaskGroupMarketingCandidateMapper {
      * @param query 候选筛选条件
      * @return 去重后的群组数量
      */
-    default long countPage(PullTaskGroupMarketingCandidateQuery query) {
-        return countPageByTenant(requireTenantId(), query);
+    default long countPage(
+            PullTaskGroupMarketingCandidateQuery query,
+            DataScope scope) {
+        return countPageByTenant(requireTenantId(), query, scope);
     }
 
     /** 显式租户版候选统计，用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
     @InterceptorIgnore(tenantLine = "true")
     long countPageByTenant(
             @Param("tenantId") Long tenantId,
-            @Param("query") PullTaskGroupMarketingCandidateQuery query);
+            @Param("query") PullTaskGroupMarketingCandidateQuery query,
+            @Param("scope") DataScope scope);
 
     /**
      * 分页查询候选群组聚合事实。
@@ -42,8 +46,9 @@ public interface PullTaskGroupMarketingCandidateMapper {
     default List<PullTaskGroupMarketingCandidateRow> selectPage(
             PullTaskGroupMarketingCandidateQuery query,
             int offset,
-            int limit) {
-        return selectPageByTenant(requireTenantId(), query, offset, limit);
+            int limit,
+            DataScope scope) {
+        return selectPageByTenant(requireTenantId(), query, offset, limit, scope);
     }
 
     /** 显式租户版候选分页，用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
@@ -52,16 +57,19 @@ public interface PullTaskGroupMarketingCandidateMapper {
             @Param("tenantId") Long tenantId,
             @Param("query") PullTaskGroupMarketingCandidateQuery query,
             @Param("offset") int offset,
-            @Param("limit") int limit);
+            @Param("limit") int limit,
+            @Param("scope") DataScope scope);
 
     /**
      * 批量读取当前页各群全部可操作管理员账号。
      *
-     * @param groupJids 当前页群 JID
+     * @param groupLinkIds 当前页群入口 ID
+     * @param scope 当前数据范围
      * @return 在线优先的账号行
      */
-    List<PullTaskGroupMarketingCandidateAccountRow> selectAccountsByGroupJids(
-            @Param("groupJids") List<String> groupJids);
+    List<PullTaskGroupMarketingCandidateAccountRow> selectAccountsByGroupLinkIds(
+            @Param("groupLinkIds") List<Long> groupLinkIds,
+            @Param("scope") DataScope scope);
 
     /**
      * 按 JID 重新读取加入等待池所需的候选事实。
@@ -70,15 +78,17 @@ public interface PullTaskGroupMarketingCandidateMapper {
      * @return 仍存在本地快照的群组
      */
     default List<PullTaskGroupMarketingCandidateRow> selectByGroupJids(
-            List<String> groupJids) {
-        return selectByGroupJidsByTenant(requireTenantId(), groupJids);
+            List<String> groupJids,
+            DataScope scope) {
+        return selectByGroupJidsByTenant(requireTenantId(), groupJids, scope);
     }
 
     /** 显式租户版候选复核，用于绕过 JSON_TABLE 的租户 SQL 自动改写。 */
     @InterceptorIgnore(tenantLine = "true")
     List<PullTaskGroupMarketingCandidateRow> selectByGroupJidsByTenant(
             @Param("tenantId") Long tenantId,
-            @Param("groupJids") List<String> groupJids);
+            @Param("groupJids") List<String> groupJids,
+            @Param("scope") DataScope scope);
 
     /** 读取当前可信租户，缺失时拒绝执行显式租户 SQL。 */
     private static Long requireTenantId() {

@@ -3,6 +3,7 @@ package com.armada.group.mapper;
 import com.armada.group.model.dto.GroupLinkLabelQuery;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -20,23 +21,34 @@ public interface GroupLinkLabelMapper {
     List<GroupLinkLabelVoRow> selectPage(GroupLinkLabelQuery query);
 
     /** 按名称查活跃分组(校验重名/复活判断)。 */
-    GroupLinkLabel selectActiveByName(@Param("name") String name);
+    GroupLinkLabel selectActiveByName(@Param("name") String name,
+                                      @Param("ownerUserId") Long ownerUserId);
 
     /** 按名称查软删分组(复活场景)。 */
-    GroupLinkLabel selectDeletedByName(@Param("name") String name);
+    GroupLinkLabel selectDeletedByName(@Param("name") String name,
+                                       @Param("ownerUserId") Long ownerUserId);
 
     /** 按 ID 查活跃分组。 */
-    GroupLinkLabel selectById(@Param("id") Long id);
+    GroupLinkLabel selectById(@Param("id") Long id, @Param("scope") DataScope scope);
+
+    /** 按当前范围批量读取活跃分组，供批量操作整批授权。 */
+    List<GroupLinkLabel> selectActiveByIds(@Param("ids") List<Long> ids,
+                                           @Param("scope") DataScope scope);
 
     /** 插入新分组(id/tenant_id 由库或拦截器注入,时间由调用方传入)。 */
     int insert(GroupLinkLabel row);
 
     /** 复活软删分组(deleted_at=NULL)。 */
-    int reviveById(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+    int reviveById(@Param("id") Long id,
+                   @Param("ownerUserId") Long ownerUserId,
+                   @Param("updatedAt") long updatedAt);
 
     /** 更新分组基本信息(name/region/remark)。 */
-    int updateProfile(GroupLinkLabel row);
+    int updateProfile(@Param("row") GroupLinkLabel row,
+                      @Param("scope") DataScope scope);
 
     /** 批量软删除。 */
-    int softDeleteByIds(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+    int softDeleteByIds(@Param("ids") List<Long> ids,
+                        @Param("scope") DataScope scope,
+                        @Param("deletedAt") long deletedAt);
 }

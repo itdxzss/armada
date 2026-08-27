@@ -17,7 +17,9 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.state.AccountStateChangedSideEffect;
 import com.armada.resource.service.IpProxyService;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -41,6 +43,11 @@ class AccountStateEventServiceImplTest {
 
     @Mock
     private AccountStateChangedSideEffect sideEffect;
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void applyStateChanged_loginReplacedMarksAccountAsReplacedAndOffline() {
@@ -161,6 +168,7 @@ class AccountStateEventServiceImplTest {
     void applyStateChanged_proxyFailedOnlyPersistsStateAndDoesNotMutateProxy() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(501L);
         account.setProtocolAccountId("acc_8613800138000");
         AccountState currentState = new AccountState();
         currentState.setAccountId(100L);
@@ -203,6 +211,7 @@ class AccountStateEventServiceImplTest {
     private static Account account() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(501L);
         account.setProtocolAccountId("acc_8613800138000");
         return account;
     }
@@ -239,6 +248,7 @@ class AccountStateEventServiceImplTest {
     void applyStateChanged_proxyFailedSemanticOnlyPersistsStateAndDoesNotMutateProxy() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(501L);
         account.setProtocolAccountId("acc_8613800138000");
         AccountState currentState = new AccountState();
         currentState.setAccountId(100L);

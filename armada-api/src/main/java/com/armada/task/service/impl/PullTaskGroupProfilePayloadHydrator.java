@@ -185,7 +185,8 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
         if (fileKey == null) {
             return null;
         }
-        PullTaskGroupAvatarContent content = avatarService.content(tenantId, fileKey);
+        PullTaskGroupAvatarContent content =
+                avatarService.contentForTaskExecution(tenantId, fileKey);
         byte[] jpeg = PullTaskGroupAvatarJpegTranscoder.toSquareJpeg(content.content());
         return new ProtocolPullTaskGroupProfilePayload.Avatar(
                 Base64.getEncoder().encodeToString(jpeg),

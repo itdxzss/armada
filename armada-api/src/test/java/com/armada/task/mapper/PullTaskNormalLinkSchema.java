@@ -33,6 +33,7 @@ public final class PullTaskNormalLinkSchema {
             CREATE TABLE pull_task (
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 tenant_id BIGINT NOT NULL,
+                owner_user_id BIGINT,
                 task_type VARCHAR(32) NOT NULL DEFAULT 'STANDARD',
                 group_source VARCHAR(32),
                 task_name VARCHAR(128) NOT NULL,

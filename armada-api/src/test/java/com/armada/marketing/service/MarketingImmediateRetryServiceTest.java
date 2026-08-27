@@ -55,7 +55,7 @@ class MarketingImmediateRetryServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(templateMapper.selectById(77L)).thenReturn(textTemplate());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(textTemplate());
     }
 
     @Test
@@ -163,6 +163,7 @@ class MarketingImmediateRetryServiceTest {
         MarketingTask task = new MarketingTask();
         task.setId(42L);
         task.setTenantId(1L);
+        task.setOwnerUserId(7L);
         task.setStatus(2);
         task.setMarketingTemplateId(77L);
         task.setAccountGroupSendIntervalMs(750);
@@ -205,6 +206,7 @@ class MarketingImmediateRetryServiceTest {
     private static MarketingTemplate textTemplate() {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(77L);
+        template.setOwnerUserId(7L);
         template.setLinkMode(LinkMode.NORMAL.code());
         template.setContent("hello");
         template.setMentionAll(false);

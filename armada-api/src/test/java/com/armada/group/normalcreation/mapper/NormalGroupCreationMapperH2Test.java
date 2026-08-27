@@ -11,6 +11,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberRe
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -53,6 +54,8 @@ import org.springframework.transaction.support.TransactionTemplate;
         inheritListeners = false)
 class NormalGroupCreationMapperH2Test {
 
+    private static final DataScope ADMIN_SCOPE = DataScope.all(99L);
+
     @Autowired private DataSource dataSource;
     @Autowired private NormalGroupCreationMapper mapper;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -79,6 +82,7 @@ class NormalGroupCreationMapperH2Test {
                   creator_protocol_backend VARCHAR(16) NOT NULL DEFAULT 'WEB',
                   creator_ws_phone VARCHAR(32) NOT NULL DEFAULT '10001',
                   group_jid VARCHAR(128),
+                  group_link_id BIGINT,
                   create_partial TINYINT NOT NULL DEFAULT 0,
                   status VARCHAR(24) NOT NULL,
                   current_step VARCHAR(32) NOT NULL,
@@ -135,12 +139,18 @@ class NormalGroupCreationMapperH2Test {
                 CREATE TABLE normal_group_creation_task (
                   id BIGINT PRIMARY KEY,
                   tenant_id BIGINT NOT NULL,
+                  owner_user_id BIGINT DEFAULT 1,
                   idempotency_key VARCHAR(64),
                   member_account_group_id BIGINT,
                   total_count INT NOT NULL,
+                  success_count INT NOT NULL DEFAULT 0,
+                  failed_count INT NOT NULL DEFAULT 0,
                   status VARCHAR(24) NOT NULL,
+                  created_by BIGINT NOT NULL DEFAULT 1,
+                  created_at BIGINT NOT NULL DEFAULT 0,
+                  updated_at BIGINT NOT NULL DEFAULT 0,
                   deleted_at BIGINT,
-                  UNIQUE (tenant_id, idempotency_key)
+                  UNIQUE (tenant_id, owner_user_id, idempotency_key)
                 )
                 """);
         execute("""
@@ -265,6 +275,7 @@ class NormalGroupCreationMapperH2Test {
 
     @Test
     void everyDirectionSucceedingLeavesTheContactFailureFlagClear() throws SQLException {
+        insertTaskRoot();
         insertItem(11L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
         execute("""
                 INSERT INTO normal_group_creation_item_member (
@@ -283,12 +294,13 @@ class NormalGroupCreationMapperH2Test {
         assertThat(mapper.startGroupCreate(11L, "cmd-create", 200L)).isEqualTo(1);
 
         assertThat(value(11L, "contact_prepare_failed")).isEqualTo("0");
-        assertThat(mapper.selectContactFailures(99L)).isEmpty();
+        assertThat(mapper.selectContactFailures(99L, ADMIN_SCOPE)).isEmpty();
     }
 
     @Test
     void contactFailureReasonsAreKeptPerDirectionAndNotClearedByTheOtherDirection()
             throws SQLException {
+        insertTaskRoot();
         insertItem(12L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
         execute("""
                 INSERT INTO normal_group_creation_item_member (
@@ -315,7 +327,8 @@ class NormalGroupCreationMapperH2Test {
         assertThat(memberValue(121L, "creator_save_error_message"))
                 .isEqualTo("建群账号当前不在线，请重新上线后重试");
         assertThat(memberValue(121L, "member_save_error_code")).isNull();
-        assertThat(mapper.selectContactFailures(99L)).singleElement().satisfies(failure -> {
+        assertThat(mapper.selectContactFailures(99L, ADMIN_SCOPE))
+                .singleElement().satisfies(failure -> {
             assertThat(failure.itemId()).isEqualTo(12L);
             assertThat(failure.memberAccountId()).isEqualTo(21L);
             assertThat(failure.creatorSavedMemberStatus()).isEqualTo("FAILED");
@@ -471,36 +484,81 @@ class NormalGroupCreationMapperH2Test {
     }
 
     @Test
-    void idempotencyLookupReturnsOnlyTheExplicitTenantTask() throws SQLException {
+    void idempotencyLookupReturnsOnlyTheExplicitTenantAndOwnerTask() throws SQLException {
         execute("""
                 INSERT INTO normal_group_creation_task
-                  (id, tenant_id, idempotency_key, total_count, status, deleted_at)
+                  (id, tenant_id, owner_user_id, idempotency_key, total_count, status, deleted_at)
                 VALUES
-                  (701, 7, 'shared-idempotency-key', 1, 'PENDING', NULL),
-                  (801, 8, 'shared-idempotency-key', 1, 'PENDING', NULL)
+                  (701, 7, 1, 'shared-idempotency-key', 1, 'PENDING', NULL),
+                  (702, 7, 2, 'shared-idempotency-key', 1, 'PENDING', NULL),
+                  (801, 8, 1, 'shared-idempotency-key', 1, 'PENDING', NULL)
                 """);
         TenantContext.set(8L);
 
-        assertThat(mapper.selectTaskIdByIdempotencyKey(7L, "shared-idempotency-key"))
+        assertThat(mapper.selectTaskIdByIdempotencyKey(7L, 1L, "shared-idempotency-key"))
                 .isEqualTo(701L);
+        assertThat(mapper.selectTaskIdByIdempotencyKey(7L, 2L, "shared-idempotency-key"))
+                .isEqualTo(702L);
     }
 
     @Test
     void lockingIdempotencyLookupReturnsOnlyTheExplicitTenantTask() throws SQLException {
         execute("""
                 INSERT INTO normal_group_creation_task
-                  (id, tenant_id, idempotency_key, total_count, status, deleted_at)
+                  (id, tenant_id, owner_user_id, idempotency_key, total_count, status, deleted_at)
                 VALUES
-                  (702, 7, 'shared-lock-key', 1, 'PENDING', NULL),
-                  (802, 8, 'shared-lock-key', 1, 'PENDING', NULL)
+                  (703, 7, 1, 'shared-lock-key', 1, 'PENDING', NULL),
+                  (803, 8, 1, 'shared-lock-key', 1, 'PENDING', NULL)
                 """);
         TenantContext.set(8L);
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
 
         Long taskId = transactions.execute(status ->
-                mapper.selectTaskIdByIdempotencyKeyForUpdate(7L, "shared-lock-key"));
+                mapper.selectTaskIdByIdempotencyKeyForUpdate(
+                        7L, 1L, "shared-lock-key"));
 
-        assertThat(taskId).isEqualTo(702L);
+        assertThat(taskId).isEqualTo(703L);
+    }
+
+    @Test
+    void userTaskReadsFailClosedAndAdminCanSeeOwnedAndHistoricalRows() throws SQLException {
+        execute("""
+                INSERT INTO normal_group_creation_task
+                  (id, tenant_id, owner_user_id, idempotency_key, total_count,
+                   success_count, failed_count, status, created_by, created_at, updated_at, deleted_at)
+                VALUES
+                  (901, 7, 1, 'u1-task', 1, 0, 0, 'RUNNING', 1, 100, 100, NULL),
+                  (902, 7, 2, 'u2-task', 1, 0, 1, 'FAILED', 2, 100, 100, NULL),
+                  (903, 7, NULL, 'legacy-task', 1, 1, 0, 'SUCCESS', 3, 100, 100, NULL),
+                  (904, 8, 1, 'other-tenant-task', 1, 0, 0, 'RUNNING', 1, 100, 100, NULL)
+                """);
+        execute("""
+                INSERT INTO normal_group_creation_item
+                  (id, tenant_id, task_id, status, current_step, dispatch_stage,
+                   dispatch_status, next_dispatch_at, updated_at)
+                VALUES
+                  (911, 7, 901, 'RUNNING', 'CREATING_GROUP', 'GROUP_CREATE', 'SENT', 100, 100),
+                  (912, 7, 902, 'FAILED', 'CREATING_GROUP', 'GROUP_CREATE', 'NONE', 100, 100),
+                  (913, 7, 903, 'CREATED', 'DONE', 'DONE', 'NONE', 100, 100)
+                """);
+
+        DataScope userOne = DataScope.self(1L);
+        assertThat(mapper.selectTask(901L, userOne)).isNotNull();
+        assertThat(mapper.selectTask(902L, userOne)).isNull();
+        assertThat(mapper.selectTask(903L, userOne)).isNull();
+        assertThat(mapper.selectItems(902L, userOne)).isEmpty();
+        assertThat(mapper.selectTask(902L, ADMIN_SCOPE)).isNotNull();
+        assertThat(mapper.selectTask(903L, ADMIN_SCOPE)).isNotNull();
+        assertThat(mapper.selectItems(902L, ADMIN_SCOPE))
+                .extracting(item -> item.id())
+                .containsExactly(912L);
+        assertThat(mapper.selectTask(901L, null)).isNull();
+        assertThat(mapper.selectTask(901L, DataScope.system("mapper test"))).isNull();
+        assertThat(mapper.selectTask(904L, ADMIN_SCOPE)).isNull();
+
+        assertThat(mapper.selectTaskExecutionScope(7L, 902L).ownerUserId()).isEqualTo(2L);
+        assertThat(mapper.selectTaskExecutionScope(7L, 903L).ownerUserId()).isNull();
+        assertThat(mapper.selectTaskExecutionScope(7L, 904L)).isNull();
     }
 
     @Test
@@ -752,6 +810,15 @@ class NormalGroupCreationMapperH2Test {
                 """.formatted(
                 id, status, step, dispatchStatus,
                 prepareAttempts, createAttempts, postAttempts, eventId));
+    }
+
+    private void insertTaskRoot() throws SQLException {
+        execute("""
+                INSERT INTO normal_group_creation_task
+                  (id, tenant_id, owner_user_id, idempotency_key, total_count,
+                   status, created_by, created_at, updated_at, deleted_at)
+                VALUES (99, 7, 1, 'task-99', 1, 'RUNNING', 1, 100, 100, NULL)
+                """);
     }
 
     private String value(long id, String column) throws SQLException {

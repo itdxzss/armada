@@ -8,6 +8,7 @@ package com.armada.group.model.vo;
 public class GroupLinkVoRow {
 
     private Long id;
+    private Long ownerUserId;
     /** {@code link_url} 列通过 SELECT {@code AS url} 映射到此字段(非 underscore 自动转换)。 */
     private String url;
     private String groupName;
@@ -51,6 +52,14 @@ public class GroupLinkVoRow {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getUrl() {

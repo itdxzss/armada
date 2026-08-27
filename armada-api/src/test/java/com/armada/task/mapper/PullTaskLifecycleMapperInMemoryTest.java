@@ -3,6 +3,7 @@ package com.armada.task.mapper;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskQuery;
 import com.armada.task.model.entity.PullTask;
@@ -65,7 +66,9 @@ class PullTaskLifecycleMapperInMemoryTest {
 
     @Test
     void standardDraftIsHiddenFromListButMarketingDraftStaysVisible() {
-        var filter = new PullTaskQuery().toFilter();
+        PullTaskQuery query = new PullTaskQuery();
+        query.applyDataScope(DataScope.all(501L));
+        var filter = query.toFilter();
         List<PullTask> rows = mapper.selectPage(filter, 0, 50);
 
         // STANDARD 草稿是创建页未提交的计划,不进列表(ADR-0007);
@@ -80,7 +83,9 @@ class PullTaskLifecycleMapperInMemoryTest {
 
     @Test
     void listExcludesOtherTenants() {
-        List<PullTask> rows = mapper.selectPage(new PullTaskQuery().toFilter(), 0, 50);
+        PullTaskQuery query = new PullTaskQuery();
+        query.applyDataScope(DataScope.all(501L));
+        List<PullTask> rows = mapper.selectPage(query.toFilter(), 0, 50);
 
         assertThat(rows).extracting(PullTask::getId).doesNotContain(4L);
     }

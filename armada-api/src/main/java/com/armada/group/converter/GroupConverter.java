@@ -53,6 +53,7 @@ public interface GroupConverter {
         GroupMembershipState membershipState = GroupMembershipState.fromCode(row.getMembershipState());
         return new GroupLinkVO(
                 row.getId(),
+                row.getOwnerUserId(),
                 row.getUrl(),
                 displayGroupName(row),
                 row.getWaSubject(),

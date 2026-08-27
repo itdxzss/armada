@@ -6,6 +6,8 @@ import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.grouppull.service.GroupPullMarketingAllocator;
 import com.armada.marketing.grouppull.service.GroupPullMarketingExecutionWorker;
 import com.armada.marketing.grouppull.service.GroupPullMarketingReleaseService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import jakarta.annotation.PreDestroy;
 import java.util.List;
@@ -149,8 +151,14 @@ public class GroupPullMarketingScheduler {
      * @param task 跨租户扫描得到的任务最小投影
      */
     private void allocateSafely(GroupPullTaskDispatchRow task) {
+        if (task.ownerUserId() == null) {
+            log.error("拉群营销资源分配拒绝执行:任务缺少数据归属 tenantId={} taskId={}",
+                    task.tenantId(), task.taskId());
+            return;
+        }
         try {
-            runInTenant(task.tenantId(), () -> allocateAvailableSlots(task.taskId()));
+            runInOwnerScope(task.tenantId(), task.ownerUserId(),
+                    () -> allocateAvailableSlots(task.taskId()));
         } catch (RuntimeException exception) {
             log.error(
                     "拉群营销资源分配调度失败 tenantId={} taskId={}",
@@ -199,6 +207,11 @@ public class GroupPullMarketingScheduler {
      * @param execution 跨租户扫描得到的执行最小投影
      */
     private void submitExecution(GroupPullExecutionDispatchRow execution) {
+        if (execution.ownerUserId() == null) {
+            log.error("拉群营销到期执行拒绝调度:任务缺少数据归属 tenantId={} executionId={}",
+                    execution.tenantId(), execution.executionId());
+            return;
+        }
         if (!scheduledExecutionIds.add(execution.executionId())) {
             return;
         }
@@ -219,8 +232,14 @@ public class GroupPullMarketingScheduler {
      * @param execution 待推进的执行最小投影
      */
     private void processSafely(GroupPullExecutionDispatchRow execution) {
+        if (execution.ownerUserId() == null) {
+            log.error("拉群营销执行拒绝调度:任务缺少数据归属 tenantId={} executionId={}",
+                    execution.tenantId(), execution.executionId());
+            return;
+        }
         try {
-            runInTenant(execution.tenantId(), () -> executionWorker.process(execution.executionId()));
+            runInOwnerScope(execution.tenantId(), execution.ownerUserId(),
+                    () -> executionWorker.process(execution.executionId()));
         } catch (RuntimeException exception) {
             log.error(
                     "拉群营销到期执行调度失败 tenantId={} executionId={}",
@@ -254,8 +273,14 @@ public class GroupPullMarketingScheduler {
      * @param task 跨租户扫描得到的任务最小投影
      */
     private void releaseSafely(GroupPullTaskDispatchRow task) {
+        if (task.ownerUserId() == null) {
+            log.error("拉群营销资源释放拒绝执行:任务缺少数据归属 tenantId={} taskId={}",
+                    task.tenantId(), task.taskId());
+            return;
+        }
         try {
-            runInTenant(task.tenantId(), () -> releaseService.tryRelease(task.taskId()));
+            runInOwnerScope(task.tenantId(), task.ownerUserId(),
+                    () -> releaseService.tryRelease(task.taskId()));
         } catch (RuntimeException exception) {
             log.error(
                     "拉群营销资源释放调度失败 tenantId={} taskId={}",
@@ -271,9 +296,9 @@ public class GroupPullMarketingScheduler {
      * @param tenantId 后台任务所属租户 ID
      * @param action 需要在该租户上下文内执行的动作
      */
-    private static void runInTenant(Long tenantId, Runnable action) {
+    private static void runInOwnerScope(Long tenantId, Long ownerUserId, Runnable action) {
         Long previousTenantId = TenantContext.get();
-        try {
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(ownerUserId))) {
             TenantContext.set(tenantId);
             action.run();
         } finally {

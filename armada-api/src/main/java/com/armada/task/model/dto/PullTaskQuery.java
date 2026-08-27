@@ -1,6 +1,7 @@
 package com.armada.task.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 import com.armada.task.model.enums.PullTaskGroupSource;
 import com.armada.task.model.enums.PullTaskType;
 
@@ -25,6 +26,9 @@ public class PullTaskQuery extends PageQuery {
     /** 操作员展示名关键字。 */
     private String operator;
 
+    /** 服务端从可信认证身份注入的数据范围，不参与 HTTP 参数绑定。 */
+    private DataScope dataScope;
+
     /**
      * 转为 Mapper 共享的不可变筛选对象。
      *
@@ -32,7 +36,8 @@ public class PullTaskQuery extends PageQuery {
      */
     public PullTaskFilter toFilter() {
         return new PullTaskFilter(
-                id, normalize(keyword), normalize(status), taskType, groupSource, normalize(operator));
+                id, normalize(keyword), normalize(status), taskType, groupSource,
+                normalize(operator), dataScope);
     }
 
     private static String normalize(String value) {
@@ -88,5 +93,14 @@ public class PullTaskQuery extends PageQuery {
 
     public void setOperator(String operator) {
         this.operator = operator;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端数据范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

@@ -13,6 +13,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.promotion.pairing.mapper.PromotionCapiEventOutboxMapper;
 import com.armada.promotion.pairing.model.entity.PromotionCapiEventOutbox;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +35,7 @@ class PromotionCapiEventDispatcherTest {
 
     @AfterEach
     void clearTenant() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -57,6 +59,7 @@ class PromotionCapiEventDispatcherTest {
         when(channelService.deliverFacebookCapi(org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     assertThat(TenantContext.get()).isEqualTo(7L);
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(81L);
                     return new PromotionChannelCapiDeliveryResult(true, false, null, null);
                 });
         TenantContext.set(99L);
@@ -116,6 +119,22 @@ class PromotionCapiEventDispatcherTest {
     }
 
     @Test
+    void historicalUnownedEventIsTerminatedWithoutCallingFacebook() {
+        PromotionCapiEventOutbox row = row(0);
+        row.setOwnerUserId(null);
+        stubClaim(row);
+        PromotionCapiEventDispatcher dispatcher =
+                new PromotionCapiEventDispatcher(outboxMapper, channelService, 10, 6, 30_000L, "worker-1");
+
+        assertThat(dispatcher.dispatchOnce()).isEqualTo(1);
+
+        verify(channelService, never()).deliverFacebookCapi(org.mockito.ArgumentMatchers.any());
+        verify(outboxMapper).markDead(
+                eq(row), eq("DATA_OWNER_MISSING"), eq("Meta CAPI 正式事件投递失败"), anyLong());
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
     void claimsEachCandidateImmediatelyBeforeItsDelivery() {
         PromotionCapiEventOutbox first = row(1L, 0);
         PromotionCapiEventOutbox second = row(2L, 0);
@@ -164,6 +183,7 @@ class PromotionCapiEventDispatcherTest {
         PromotionCapiEventOutbox row = new PromotionCapiEventOutbox();
         row.setId(id);
         row.setTenantId(7L);
+        row.setOwnerUserId(81L);
         row.setPromotionChannelId(501L);
         row.setEventName("Lead");
         row.setEventId("capi_event_" + id);

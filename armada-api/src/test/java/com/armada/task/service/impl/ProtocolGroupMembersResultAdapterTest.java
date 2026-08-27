@@ -1,8 +1,11 @@
 package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.armada.platform.kafka.consumer.group.ProtocolGroupMemberFact;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupMembersResultReportedEvent;
@@ -19,8 +22,13 @@ class ProtocolGroupMembersResultAdapterTest {
     void mapsDiscoveryPurposeIntoTaskCallback() {
         PullTaskMemberQueryResultService resultService =
                 mock(PullTaskMemberQueryResultService.class);
+        TaskResultOwnerScopeRunner ownerScopeRunner = mock(TaskResultOwnerScopeRunner.class);
+        when(ownerScopeRunner.runForPullTask(anyLong(), anyLong(), any())).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(2).run();
+            return true;
+        });
         ProtocolGroupMembersResultAdapter adapter =
-                new ProtocolGroupMembersResultAdapter(resultService);
+                new ProtocolGroupMembersResultAdapter(resultService, ownerScopeRunner);
 
         adapter.handleMembersResultReported(new ProtocolGroupMembersResultReportedEvent(
                 "event-701", 7L, 100L, 11L, 701L, "MANAGER_ADMIN_DISCOVERY",

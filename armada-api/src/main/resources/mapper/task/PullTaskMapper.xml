@@ -14,6 +14,13 @@
 
   <sql id="filter">
     task_row.deleted_at IS NULL
+    <choose>
+      <when test="filter.dataScope != null and filter.dataScope.isSelf()">
+        AND task_row.owner_user_id = #{filter.dataScope.actorUserId}
+      </when>
+      <when test="filter.dataScope != null and filter.dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <!-- STANDARD 草稿是创建页未提交的计划，不进列表(ADR-0007)；
          GROUP_MARKETING 的 DRAFT 是既有可见状态，不能一起隐藏。 -->
     AND NOT (task_row.task_type = #{filter.hiddenTaskType}
@@ -46,6 +53,7 @@
   <select id="selectPage" resultType="com.armada.task.model.entity.PullTask">
     SELECT
       task_row.id, task_row.tenant_id, task_row.task_type, task_row.group_source,
+      task_row.owner_user_id,
       task_row.task_name, (<include refid="effectiveGroupName"/>) AS group_name,
       task_row.mode, task_row.creation_mode, task_row.status,
       task_row.primary_stage, task_row.blocking_reason,
@@ -60,6 +68,20 @@
     WHERE <include refid="filter"/>
     ORDER BY task_row.id DESC
     LIMIT #{limit} OFFSET #{offset}
+  </select>
+
+  <select id="selectByIdsForScope" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, owner_user_id, task_type, status, created_by, deleted_at
+    FROM pull_task
+    WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    <choose>
+      <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    ORDER BY id
   </select>
 
   <!-- 删除条件在数据库层重复校验，防止前端按钮或 Service 状态过期。 -->
@@ -116,16 +138,16 @@
        tenant_id 由租户拦截器注入。 -->
   <insert id="insertDraftRow" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task (
-      task_type, task_name, mode, status, group_count, expected_pull_count,
+      owner_user_id, task_type, task_name, mode, status, group_count, expected_pull_count,
       config_json, operator_name, created_by, created_at, updated_at
     ) VALUES (
-      #{taskType}, #{taskName}, #{mode}, #{status}, #{groupCount}, #{expectedPullCount},
+      #{ownerUserId}, #{taskType}, #{taskName}, #{mode}, #{status}, #{groupCount}, #{expectedPullCount},
       #{configJson}, #{operatorName}, #{createdBy}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
   <select id="selectLatestDraft" resultType="com.armada.task.model.entity.PullTask">
-    SELECT id, tenant_id, task_type, task_name, mode, status, version,
+    SELECT id, tenant_id, owner_user_id, task_type, task_name, mode, status, version,
            group_count, expected_pull_count, created_by, remark,
            created_at, updated_at
     FROM pull_task
@@ -133,6 +155,7 @@
       AND task_type = #{taskType}
       AND status = #{status}
       AND created_by = #{createdBy}
+      AND owner_user_id = #{createdBy}
     ORDER BY id DESC
     LIMIT 1
   </select>
@@ -155,13 +178,28 @@
   </update>
 
   <select id="selectLifecycle" resultType="com.armada.task.model.entity.PullTask">
-    SELECT id, tenant_id, task_type, task_name, mode, creation_mode, status,
+    SELECT id, tenant_id, owner_user_id, task_type, task_name, mode, creation_mode, status,
            primary_stage, blocking_reason, started_at, finished_at, version,
            group_count, expected_pull_count, created_by, remark,
            created_at, updated_at
     FROM pull_task
     WHERE id = #{id}
       AND deleted_at IS NULL
+  </select>
+
+  <select id="selectLifecycleForScope" resultType="com.armada.task.model.entity.PullTask">
+    SELECT id, tenant_id, owner_user_id, task_type, task_name, mode, creation_mode, status,
+           primary_stage, blocking_reason, started_at, finished_at, version,
+           group_count, expected_pull_count, created_by, remark,
+           created_at, updated_at
+    FROM pull_task
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    <choose>
+      <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
   </select>
 
   <!-- 条件 UPDATE 同时承担父任务串行化与槽位复核；不使用显式悲观锁查询。 -->

@@ -4,6 +4,7 @@ import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.entity.WhatsappGroupMemberSnapshot;
 import com.armada.group.model.vo.GroupLinkVoRow;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -37,16 +38,19 @@ public interface GroupListCurrentMapper {
     /** 批量读取群入口对应的 WhatsApp 当前真实群名。 */
     List<GroupLinkVoRow> selectWhatsAppGroupNames(
             @Param("tenantId") Long tenantId,
-            @Param("groupLinkIds") List<Long> groupLinkIds);
+            @Param("groupLinkIds") List<Long> groupLinkIds,
+            @Param("scope") DataScope scope);
 
     /** 读取群详情当前资料；沿用现有详情投影，避免改变业务层字段语义。 */
     GroupLinkPreview selectGroupDetail(
             @Param("tenantId") Long tenantId,
-            @Param("groupLinkId") Long groupLinkId);
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("scope") DataScope scope);
 
     /** 读取群详情最近一次完整成员快照，不混入完整快照后的增量状态。 */
     List<WhatsappGroupMemberSnapshot> selectGroupDetailMembers(
             @Param("tenantId") Long tenantId,
-            @Param("groupLinkId") Long groupLinkId);
+            @Param("groupLinkId") Long groupLinkId,
+            @Param("scope") DataScope scope);
 
 }

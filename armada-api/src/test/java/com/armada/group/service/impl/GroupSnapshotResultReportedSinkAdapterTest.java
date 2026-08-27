@@ -30,6 +30,7 @@ import com.armada.group.service.GroupBatchSnapshotDispatchService;
 import com.armada.group.service.GroupSnapshotProperties;
 import com.armada.group.observability.GroupSnapshotMetrics;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupSnapshotResultReportedEvent;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -57,12 +58,14 @@ class GroupSnapshotResultReportedSinkAdapterTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     private void stubAccountBinding() {
         Account account = new Account();
         account.setId(100L);
         account.setTenantId(1L);
+        account.setOwnerUserId(501L);
         account.setProtocolId("WEB");
         account.setProtocolAccountId("acc-100");
         org.mockito.Mockito.lenient()
@@ -201,10 +204,11 @@ class GroupSnapshotResultReportedSinkAdapterTest {
         item.setUpdatedAt(1_000L);
         GroupBatchTask batch = new GroupBatchTask();
         batch.setId(900L);
+        batch.setOwnerUserId(501L);
         batch.setTaskType(GroupBatchTaskType.REFRESH_INFO.code());
         batch.setStatus(GroupBatchTaskStatus.RUNNING.code());
         when(batchItemMapper.selectByCurrentCommandId(1L, "cmd-batch")).thenReturn(item);
-        when(batchTaskMapper.selectById(900L)).thenReturn(batch);
+        when(batchTaskMapper.selectByIdForExecution(900L)).thenReturn(batch);
         when(batchItemMapper.settleCurrentCommand(
                 any(), eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()))).thenReturn(1);
 
@@ -236,10 +240,11 @@ class GroupSnapshotResultReportedSinkAdapterTest {
         item.setUpdatedAt(1_000L);
         GroupBatchTask batch = new GroupBatchTask();
         batch.setId(901L);
+        batch.setOwnerUserId(501L);
         batch.setTaskType(GroupBatchTaskType.REFRESH_LINK.code());
         batch.setStatus(GroupBatchTaskStatus.RUNNING.code());
         when(batchItemMapper.selectByCurrentCommandId(1L, "cmd-invite")).thenReturn(item);
-        when(batchTaskMapper.selectById(901L)).thenReturn(batch);
+        when(batchTaskMapper.selectByIdForExecution(901L)).thenReturn(batch);
         when(batchItemMapper.settleCurrentCommand(
                 any(), eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()))).thenReturn(1);
 
@@ -278,10 +283,11 @@ class GroupSnapshotResultReportedSinkAdapterTest {
         item.setUpdatedAt(1_000L);
         GroupBatchTask batch = new GroupBatchTask();
         batch.setId(902L);
+        batch.setOwnerUserId(501L);
         batch.setTaskType(GroupBatchTaskType.REFRESH_LINK.code());
         batch.setStatus(GroupBatchTaskStatus.RUNNING.code());
         when(batchItemMapper.selectByCurrentCommandId(1L, "cmd-bad-request")).thenReturn(item);
-        when(batchTaskMapper.selectById(902L)).thenReturn(batch);
+        when(batchTaskMapper.selectByIdForExecution(902L)).thenReturn(batch);
         when(selector.find(5001L, 1)).thenReturn(Optional.empty());
         when(batchItemMapper.settleCurrentCommand(
                 any(), eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()))).thenReturn(1);
@@ -317,6 +323,7 @@ class GroupSnapshotResultReportedSinkAdapterTest {
         task.setId(9001L);
         task.setTenantId(1L);
         task.setGroupLinkId(5001L);
+        task.setOwnerUserId(501L);
         task.setGroupJid("120363000@g.us");
         task.setStatus(GroupMetadataSyncStatus.RUNNING.code());
         task.setExecutionAccountId(100L);

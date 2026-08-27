@@ -4,6 +4,8 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScope;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -49,7 +51,8 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         if (accountId == null) {
             return Optional.empty();
         }
-        return toProtocolRef(accountMapper.selectActiveById(accountId));
+        return toProtocolRef(accountMapper.selectActiveByIdForScope(
+                accountId, DataScopeAccess.requireCurrent()));
     }
 
     /** {@inheritDoc} */
@@ -59,11 +62,13 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
             LOGGER.info("账号协议随机选号无候选: groupId为空");
             return Optional.empty();
         }
-        Optional<ProtocolAccountRef> selected = toProtocolRef(accountMapper.selectRandomOnlineNormalByGroupId(
+        Optional<ProtocolAccountRef> selected = toProtocolRef(
+                accountMapper.selectRandomOnlineNormalByGroupIdForScope(
                 groupId,
                 AccountStateCode.NORMAL,
                 AccountLoginStateCode.ONLINE,
-                RISK_ALLOWED));
+                RISK_ALLOWED,
+                DataScopeAccess.requireCurrent()));
         if (selected.isEmpty()) {
             LOGGER.info("账号协议随机选号无候选: groupId={}", groupId);
         }
@@ -76,10 +81,11 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         if (groupId == null) {
             return List.of();
         }
-        return accountMapper.selectOnlineNormalByGroupId(
+        return accountMapper.selectOnlineNormalByGroupIdForScope(
                         groupId,
                         AccountStateCode.NORMAL,
-                        AccountLoginStateCode.ONLINE).stream()
+                        AccountLoginStateCode.ONLINE,
+                        DataScopeAccess.requireCurrent()).stream()
                 .map(AccountProtocolLookupServiceImpl::toProtocolRef)
                 .flatMap(Optional::stream)
                 .toList();
@@ -91,10 +97,11 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         if (groupId == null) {
             return List.of();
         }
-        return accountMapper.selectOnlineNormalByGroupId(
+        return accountMapper.selectOnlineNormalByGroupIdForScope(
                         groupId,
                         AccountStateCode.NORMAL,
-                        AccountLoginStateCode.ONLINE).stream()
+                        AccountLoginStateCode.ONLINE,
+                        DataScopeAccess.requireCurrent()).stream()
                 .map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
                 .flatMap(Optional::stream)
                 .toList();
@@ -108,12 +115,13 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
             return Optional.empty();
         }
         Optional<ProtocolAccountRef> selected = toProtocolRef(
-                accountMapper.selectRandomOnlineNormalWebByGroupId(
+                accountMapper.selectRandomOnlineNormalWebByGroupIdForScope(
                         groupId,
                         AccountStateCode.NORMAL,
                         AccountLoginStateCode.ONLINE,
                         RISK_ALLOWED,
-                        ProtocolBackend.WEB.name()));
+                        ProtocolBackend.WEB.name(),
+                        DataScopeAccess.requireCurrent()));
         if (selected.isEmpty()) {
             LOGGER.info("账号协议 Web 随机选号无候选: groupId={}", groupId);
         }
@@ -128,7 +136,8 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
             return Map.of();
         }
         Map<String, ProtocolAccountRef> refsByPhone = new LinkedHashMap<>();
-        for (Account account : accountMapper.selectActiveByWsPhones(requestedPhones)) {
+        for (Account account : accountMapper.selectActiveByWsPhonesForScope(
+                requestedPhones, DataScopeAccess.requireCurrent())) {
             toProtocolRef(account).ifPresent(ref -> refsByPhone.putIfAbsent(ref.wsPhone(), ref));
         }
         Map<String, ProtocolAccountRef> refs = new LinkedHashMap<>();
@@ -156,7 +165,7 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         if (requestedIds.isEmpty()) {
             return List.of();
         }
-        return resolveActiveProtocolRefs(requestedIds);
+        return resolveActiveProtocolRefs(requestedIds, DataScopeAccess.requireCurrent());
     }
 
     /** {@inheritDoc} */
@@ -166,20 +175,24 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
         if (requestedIds.isEmpty()) {
             return List.of();
         }
-        LinkedHashSet<Long> onlineIds = new LinkedHashSet<>(accountMapper.selectOnlineAccountIdsByIds(
-                requestedIds, AccountLoginStateCode.ONLINE));
+        DataScope scope = DataScopeAccess.requireCurrent();
+        LinkedHashSet<Long> onlineIds = new LinkedHashSet<>(
+                accountMapper.selectOnlineAccountIdsByIdsForScope(
+                        requestedIds, AccountLoginStateCode.ONLINE, scope));
         List<Long> onlineRequestedIds = requestedIds.stream()
                 .filter(onlineIds::contains)
                 .toList();
-        return resolveActiveProtocolRefs(onlineRequestedIds);
+        return resolveActiveProtocolRefs(onlineRequestedIds, scope);
     }
 
-    private List<ProtocolAccountRef> resolveActiveProtocolRefs(List<Long> requestedIds) {
+    private List<ProtocolAccountRef> resolveActiveProtocolRefs(
+            List<Long> requestedIds,
+            DataScope scope) {
         if (requestedIds.isEmpty()) {
             return List.of();
         }
         Map<Long, ProtocolAccountRef> refsById = new LinkedHashMap<>();
-        for (Account account : accountMapper.selectActiveByIds(requestedIds)) {
+        for (Account account : accountMapper.selectActiveByIdsForScope(requestedIds, scope)) {
             toProtocolRef(account).ifPresent(ref -> refsById.putIfAbsent(ref.armadaAccountId(), ref));
         }
         return requestedIds.stream()

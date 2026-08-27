@@ -1,6 +1,7 @@
 package com.armada.task.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 进群任务列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -30,9 +31,12 @@ public class JoinTaskQuery extends PageQuery {
     /** 创建时间区间上界(epoch 毫秒,不含,可选)。 */
     private Long dateTo;
 
+    /** 服务端从可信认证身份注入的数据范围，不参与 HTTP 参数绑定。 */
+    private DataScope dataScope;
+
     /** 组装 SQL 下推用的筛选条件对象。 */
     public JoinTaskFilter toFilter() {
-        return new JoinTaskFilter(keyword, status, groupId, distributionMode, interval, dateFrom, dateTo);
+        return new JoinTaskFilter(keyword, status, groupId, distributionMode, interval, dateFrom, dateTo, dataScope);
     }
 
     public String getKeyword() {
@@ -89,5 +93,14 @@ public class JoinTaskQuery extends PageQuery {
 
     public void setDateTo(Long dateTo) {
         this.dateTo = dateTo;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端数据范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

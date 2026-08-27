@@ -1,6 +1,7 @@
 package com.armada.marketing.mapper;
 
 import com.armada.marketing.model.entity.MarketingTemplateFile;
+import com.armada.shared.security.DataScope;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -15,4 +16,8 @@ public interface MarketingTemplateFileMapper {
 
     /** 按 ID 查询未删图片文件。 */
     MarketingTemplateFile selectById(@Param("id") Long id);
+
+    /** 用户请求按 ID 查询图片，缺失或 SYSTEM 范围时不返回数据。 */
+    MarketingTemplateFile selectByIdForScope(@Param("id") Long id,
+                                             @Param("scope") DataScope scope);
 }

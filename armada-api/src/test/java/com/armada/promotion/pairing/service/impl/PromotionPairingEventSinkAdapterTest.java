@@ -9,6 +9,8 @@ import com.armada.platform.protocol.model.result.PairingCredentialExport;
 import com.armada.platform.protocol.port.PairingLoginPort;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
+import com.armada.shared.security.DataScopeContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -24,11 +26,17 @@ class PromotionPairingEventSinkAdapterTest {
     @Mock
     private PromotionPairingCompletionService completionService;
 
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void completedEventAcceptsBaileysMultiDevicePhoneSuffix() {
         PromotionPairingSession session = new PromotionPairingSession();
         session.setId(7001L);
         session.setTenantId(7L);
+        session.setOwnerUserId(81L);
         session.setCreatedAt(1_000L);
         session.setPhone("919876543210");
         session.setProtocolAccountId("acc_919876543210");

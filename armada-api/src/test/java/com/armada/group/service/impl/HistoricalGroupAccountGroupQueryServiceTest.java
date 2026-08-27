@@ -1,6 +1,8 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,9 +18,14 @@ import com.armada.group.model.vo.HistoricalGroupPageRow;
 import com.armada.platform.country.model.vo.CountryReferenceVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -39,6 +46,16 @@ class HistoricalGroupAccountGroupQueryServiceTest {
     @InjectMocks
     private HistoricalGroupAccountGroupQueryService service;
 
+    @BeforeEach
+    void setUpScope() {
+        DataScopeContext.open(DataScope.self(11L));
+    }
+
+    @AfterEach
+    void clearScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void listsAccountGroupHistoryWithGroupLevelFactsAndCountry() {
         HistoricalGroupQuery query = new HistoricalGroupQuery();
@@ -47,6 +64,7 @@ class HistoricalGroupAccountGroupQueryServiceTest {
         query.setPageSize(20);
         AccountGroup group = new AccountGroup();
         group.setId(12L);
+        group.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(group);
         when(membershipMapper.countHistoricalGroupsByAccountGroup(12L)).thenReturn(21L);
 
@@ -111,6 +129,7 @@ class HistoricalGroupAccountGroupQueryServiceTest {
         query.setPageSize(20);
         AccountGroup group = new AccountGroup();
         group.setId(12L);
+        group.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(group);
         when(membershipMapper.countHistoricalGroupsByAccountGroup(12L)).thenReturn(1L);
 
@@ -140,6 +159,22 @@ class HistoricalGroupAccountGroupQueryServiceTest {
             assertThat(item.subject()).isEqualTo("内部身份群");
             assertThat(item.accountPhones()).containsExactly("51943333070");
         });
+    }
+
+    @Test
+    void rejectsForeignAccountGroupBeforeReadingHistoricalMemberships() {
+        HistoricalGroupQuery query = new HistoricalGroupQuery();
+        query.setAccountGroupId(12L);
+        AccountGroup group = new AccountGroup();
+        group.setId(12L);
+        group.setOwnerUserId(22L);
+        when(accountGroupMapper.selectById(12L)).thenReturn(group);
+
+        assertThatThrownBy(() -> service.list(query))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号组不存在");
+
+        verify(membershipMapper, never()).countHistoricalGroupsByAccountGroup(12L);
     }
 
     private static HistoricalGroupAccountPhoneRow accountPhone(

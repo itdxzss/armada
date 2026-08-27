@@ -16,6 +16,7 @@ import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -70,6 +71,9 @@ public class GroupOperationServiceImpl implements GroupOperationService {
         if (account == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + accountId);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireAssignedOwner(account.getOwnerUserId(), "账号");
         String protocolAccountId = account.getProtocolAccountId();
         if (protocolAccountId == null || protocolAccountId.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定协议账号: " + accountId);

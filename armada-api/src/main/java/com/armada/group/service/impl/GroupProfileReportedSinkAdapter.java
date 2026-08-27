@@ -15,10 +15,15 @@ import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.util.WhatsappJids;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -77,24 +82,46 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleProfileReported(ProtocolGroupProfileReportedEvent event) {
-        TenantContext.set(event.tenantId());
+        Long previousTenant = TenantContext.get();
         try {
-            Long groupLinkId = registerGroupLink(event);
-            // 任何 PROFILE/P/B 写之前先统一取得 GL→G(PRIMARY)；groupCreatedAt 为空也不能跳过。
-            snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
-            writeCreator(event, groupLinkId);
-            queueInviteCodeFetch(event, groupLinkId);
-            // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
-            snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
-            applyProfileFields(event);
-            applyMembers(event);
-            writeControlledBindings(event);
-            if (event.commandId() != null && !event.commandId().isBlank()) {
-                taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
-                batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
+            TenantContext.set(event.tenantId());
+            Account sourceAccount = accountMapper.selectActiveById(event.accountId());
+            if (sourceAccount == null
+                    || !Objects.equals(normalizeJid(sourceAccount.getProtocolAccountId()),
+                    normalizeJid(event.protocolAccountId()))) {
+                log.warn("协议群资料上报账号不存在或协议句柄已过期 eventId={} accountId={}",
+                        event.eventId(), event.accountId());
+                return;
+            }
+            Long ownerUserId = sourceAccount.getOwnerUserId();
+            if (ownerUserId == null) {
+                throw new BusinessException(
+                        ErrorCode.ACCESS_DENIED,
+                        "历史无归属账号不能消费用户私有群资料事件");
+            }
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                Long groupLinkId = registerGroupLink(event);
+                // 任何 PROFILE/P/B 写之前先统一取得 GL→G(PRIMARY)；groupCreatedAt 为空也不能跳过。
+                snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
+                writeCreator(event, groupLinkId);
+                queueInviteCodeFetch(event, groupLinkId, ownerUserId);
+                // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
+                snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
+                applyProfileFields(event);
+                applyMembers(event);
+                writeControlledBindings(event, ownerUserId);
+                if (event.commandId() != null && !event.commandId().isBlank()) {
+                    taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
+                    batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
+                }
             }
         } finally {
-            TenantContext.clear();
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
         }
     }
 
@@ -118,7 +145,10 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
      * <p>失败只告警:取邀请码失败是常态(号掉线、非管理员、群已封),
      * 邀请码是补充事实,不该让整条资料事件重投,把群名与成员一起卡住。</p>
      */
-    private void queueInviteCodeFetch(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
+    private void queueInviteCodeFetch(
+            ProtocolGroupProfileReportedEvent event,
+            Long groupLinkId,
+            Long ownerUserId) {
         if (groupLinkId == null) {
             return;
         }
@@ -128,7 +158,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             inviteFetchExecutor.execute(() -> {
                 TenantContext.set(tenantId);
-                try {
+                try (DataScopeContext.Scope ignored =
+                             DataScopeContext.open(DataScope.self(ownerUserId))) {
                     inviteLinkService.refreshCurrentInviteCode(groupLinkId, groupJid, null);
                 } catch (RuntimeException e) {
                     log.warn("协议群资料上报主动取邀请码失败,资料与成员照常落库 eventId={} groupLinkId={}",
@@ -237,7 +268,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
      * <p>放在成员落库之后：绑定与成员事实同属一次观察，先落成员再对齐绑定。
      * 失败只告警，不让整条资料事件重投。</p>
      */
-    private void writeControlledBindings(ProtocolGroupProfileReportedEvent event) {
+    private void writeControlledBindings(
+            ProtocolGroupProfileReportedEvent event,
+            Long ownerUserId) {
         if (!event.membersComplete() || event.members() == null || event.members().isEmpty()) {
             return;
         }
@@ -256,6 +289,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                 return;
             }
             for (Account account : accounts) {
+                if (!Objects.equals(ownerUserId, account.getOwnerUserId())) {
+                    continue;
+                }
                 ProtocolGroupProfileReportedEvent.Member member =
                         findMemberByPhone(event, account.getWsPhone());
                 if (member == null || account.getId() == null) {
@@ -336,5 +372,9 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             log.warn("协议成员号码无法归一成 PN JID,该成员按无号码落库 phone={}", phone);
             return null;
         }
+    }
+
+    private static String normalizeJid(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

@@ -22,6 +22,8 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -89,14 +91,17 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             HistoricalGroupPullCreateDTO request,
             MultipartFile file) {
         Long tenantId = requireTenantId();
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long ownerUserId = scope.ownerUserIdForCreate();
         String idempotencyKey = requireIdempotencyKey(request);
         HistoricalGroupPullExecution existing =
-                executionMapper.selectByTenantAndIdempotencyKey(tenantId, idempotencyKey);
+                executionMapper.selectByTenantOwnerAndIdempotencyKey(
+                        tenantId, ownerUserId, idempotencyKey);
         if (existing != null) {
             return toVO(existing, memberMapper.selectOrderedByExecutionId(existing.getId()));
         }
 
-        HistoricalGroupDetailVO detail = validator.validateAndLoadFreshDetail(request);
+        HistoricalGroupDetailVO detail = validator.validateForCreateAndLoadFreshDetail(request);
         HistoricalGroupMaterialParser.ParseResult parsed = parser.parse(file);
         if (parsed.members().isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "料子中没有有效手机号");
@@ -104,11 +109,12 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
         Map<String, ProtocolAccountRef> marketingAccounts = accountLookupService.findActiveProtocolRefsByPhones(
                 marketingPhones(parsed.members()));
         long now = System.currentTimeMillis();
-        HistoricalGroupPullExecution execution = buildExecution(request, detail, parsed, idempotencyKey, now);
+        HistoricalGroupPullExecution execution = buildExecution(
+                request, detail, parsed, idempotencyKey, ownerUserId, now);
         try {
             executionMapper.insert(execution);
         } catch (DuplicateKeyException ex) {
-            return concurrentExistingOrThrow(tenantId, idempotencyKey, ex);
+            return concurrentExistingOrThrow(tenantId, ownerUserId, idempotencyKey, ex);
         }
         List<HistoricalGroupPullMember> members =
                 buildMembers(execution.getId(), parsed.members(), marketingAccounts, now);
@@ -132,15 +138,22 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             throw new BusinessException(ErrorCode.VALIDATION, "执行 ID 必须大于 0");
         }
         Long tenantId = requireTenantId();
-        HistoricalGroupPullExecution execution = executionMapper.selectByTenantAndId(tenantId, id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        HistoricalGroupPullExecution execution =
+                executionMapper.selectByTenantAndIdForScope(tenantId, id, scope);
         if (execution == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "历史群拉人执行不存在: " + id);
         }
         if (execution.getPullStatus() != HistoricalGroupPullStatus.PENDING.code()) {
             throw new BusinessException(ErrorCode.CONFLICT, "只有待执行状态可以启动");
         }
-        HistoricalGroupDetailVO detail = validator.validateAndLoadFreshDetail(
-                startValidationRequest(execution));
+        if (execution.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属执行不能启动，请重新创建执行");
+        }
+        HistoricalGroupDetailVO detail = validator.validateExistingAndLoadFreshDetail(
+                startValidationRequest(execution), execution.getOwnerUserId());
         long now = System.currentTimeMillis();
         executionMapper.updateOperationAccountIfPending(
                 id,
@@ -156,7 +169,8 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             throw new BusinessException(ErrorCode.CONFLICT, "执行状态已变化，请刷新后重试");
         }
         dispatchTrigger.dispatchAfterCommit(tenantId, id);
-        HistoricalGroupPullExecution running = executionMapper.selectByTenantAndId(tenantId, id);
+        HistoricalGroupPullExecution running =
+                executionMapper.selectByTenantAndIdForScope(tenantId, id, scope);
         return requireExecution(running, "历史群拉人执行不存在: " + id);
     }
 
@@ -167,7 +181,8 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             throw new BusinessException(ErrorCode.VALIDATION, "执行 ID 必须大于 0");
         }
         HistoricalGroupPullExecution execution =
-                executionMapper.selectByTenantAndId(requireTenantId(), id);
+                executionMapper.selectByTenantAndIdForScope(
+                        requireTenantId(), id, DataScopeAccess.requireCurrent());
         return requireExecution(execution, "历史群拉人执行不存在: " + id);
     }
 
@@ -177,8 +192,10 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
         if (sourceAccountGroupId == null || groupJid == null || groupJid.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "来源账号组 ID 和目标群 JID 不能为空");
         }
-        HistoricalGroupPullExecution execution = executionMapper.selectLatestByTenantSourceGroupAndGroup(
-                requireTenantId(), sourceAccountGroupId, groupJid.trim());
+        HistoricalGroupPullExecution execution =
+                executionMapper.selectLatestByTenantSourceGroupAndGroupForScope(
+                        requireTenantId(), sourceAccountGroupId, groupJid.trim(),
+                        DataScopeAccess.requireCurrent());
         if (execution == null) {
             return Optional.empty();
         }
@@ -187,10 +204,12 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
 
     private HistoricalGroupPullExecutionVO concurrentExistingOrThrow(
             Long tenantId,
+            Long ownerUserId,
             String idempotencyKey,
             DuplicateKeyException cause) {
         HistoricalGroupPullExecution existing =
-                executionMapper.selectByTenantAndIdempotencyKeyForUpdate(tenantId, idempotencyKey);
+                executionMapper.selectByTenantOwnerAndIdempotencyKeyForUpdate(
+                        tenantId, ownerUserId, idempotencyKey);
         if (existing == null) {
             throw cause;
         }
@@ -211,8 +230,11 @@ public class HistoricalGroupPullExecutionServiceImpl implements HistoricalGroupP
             HistoricalGroupDetailVO detail,
             HistoricalGroupMaterialParser.ParseResult parsed,
             String idempotencyKey,
+            Long ownerUserId,
             long now) {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
+        row.setOwnerUserId(ownerUserId);
+        row.setCreatedBy(ownerUserId);
         row.setIdempotencyKey(idempotencyKey);
         row.setOperationAccountId(detail.accountId());
         row.setSourceAccountGroupId(request.sourceAccountGroupId());

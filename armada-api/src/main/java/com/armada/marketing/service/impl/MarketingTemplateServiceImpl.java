@@ -1,6 +1,7 @@
 package com.armada.marketing.service.impl;
 
 import com.armada.marketing.converter.MarketingTemplateConverter;
+import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.ButtonType;
@@ -9,13 +10,17 @@ import com.armada.marketing.model.MessageButton;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.entity.MarketingTemplate;
+import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.shared.util.HttpUrlValidator;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -42,15 +47,18 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private static final String CLONE_SUFFIX = "副本";
 
     private final MarketingTemplateMapper mapper;
+    private final MarketingTemplateFileMapper fileMapper;
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateConverter converter;
     private final MarketingAccountOccupancyService occupancyService;
 
     public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper,
+                                        MarketingTemplateFileMapper fileMapper,
                                         MarketingTaskMapper taskMapper,
                                         MarketingTemplateConverter converter,
                                         MarketingAccountOccupancyService occupancyService) {
         this.mapper = mapper;
+        this.fileMapper = fileMapper;
         this.taskMapper = taskMapper;
         this.converter = converter;
         this.occupancyService = occupancyService;
@@ -64,12 +72,15 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      */
     @Override
     public PageResult<MarketingTemplateVO> list(MarketingTemplateQuery query) {
-        long total = mapper.countPage(query);
+        MarketingTemplateQuery scopedQuery = query == null ? new MarketingTemplateQuery() : query;
+        scopedQuery.applyDataScope(DataScopeAccess.requireCurrent());
+        long total = mapper.countPage(scopedQuery);
         List<MarketingTemplateVO> rows = total == 0
                 ? List.of()
-                : converter.toVOList(mapper.selectPage(query));
-        log.debug("营销模板列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
-        return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+                : converter.toVOList(mapper.selectPage(scopedQuery));
+        log.debug("营销模板列表查询 total={} page={} pageSize={}",
+                total, scopedQuery.getPage(), scopedQuery.getPageSize());
+        return PageResult.of(rows, scopedQuery.getPage(), scopedQuery.getPageSize(), total);
     }
 
     /**
@@ -81,16 +92,19 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO create(MarketingTemplateDTO dto) {
-        LinkMode mode = validate(dto, null);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long ownerUserId = scope.ownerUserIdForCreate();
+        LinkMode mode = validate(dto, null, ownerUserId, scope);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
+        entity.setOwnerUserId(ownerUserId);
         long now = System.currentTimeMillis();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         mapper.insert(entity);
         log.info("营销模板已创建 id={} name={} linkMode={}",
                 entity.getId(), entity.getTemplateName(), entity.getLinkMode());
-        return converter.toVO(mapper.selectById(entity.getId()));
+        return converter.toVO(mapper.selectByIdForScope(entity.getId(), scope));
     }
 
     /**
@@ -103,15 +117,16 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO update(Long id, MarketingTemplateDTO dto) {
-        requireExisting(id);
-        LinkMode mode = validate(dto, id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTemplate existing = requireExisting(id, scope);
+        LinkMode mode = validate(dto, id, existing.getOwnerUserId(), scope);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
         entity.setId(id);
         entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
         log.info("营销模板已更新 id={} name={}", id, entity.getTemplateName());
-        return converter.toVO(mapper.selectById(id));
+        return converter.toVO(mapper.selectByIdForScope(id, scope));
     }
 
     /**
@@ -125,13 +140,20 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public MarketingTemplateVO clone(Long id) {
-        MarketingTemplate origin = requireExisting(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTemplate origin = requireExisting(id, scope);
+        long ownerUserId = scope.ownerUserIdForCreate();
+        if (!Objects.equals(ownerUserId, origin.getOwnerUserId())) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "共享/转移上线前不能复制其他用户的营销模板");
+        }
+        validateImageFile(origin.getImageFileId(), ownerUserId, scope);
         String cloneName = origin.getTemplateName() + CLONE_SUFFIX;
         // excludeId 传 null:复制是新建,没有"自身"需要排除
-        if (mapper.existsByName(cloneName, null)) {
+        if (mapper.existsByNameForOwner(cloneName, null, ownerUserId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "副本已存在,请先重命名后再复制");
         }
         MarketingTemplate copy = new MarketingTemplate();
+        copy.setOwnerUserId(ownerUserId);
         copy.setTemplateName(cloneName);
         copy.setLinkMode(origin.getLinkMode());
         copy.setTextType(origin.getTextType());
@@ -148,7 +170,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setUpdatedAt(now);
         mapper.insert(copy);
         log.info("营销模板已复制 sourceId={} newId={} name={}", id, copy.getId(), cloneName);
-        return converter.toVO(mapper.selectById(copy.getId()));
+        return converter.toVO(mapper.selectByIdForScope(copy.getId(), scope));
     }
 
     /**
@@ -166,13 +188,19 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         if (normalizedIds.isEmpty()) {
             return;
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
         // 必须先锁模板再扫描关联任务：如果创建任务先拿到锁，本事务等待后可以看到并结束新任务；
         // 如果删除先拿到锁，创建事务会在软删除提交后查不到模板，从而整体回滚。
         Long tenantId = TenantContext.get();
         if (tenantId == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
-        List<Long> lockedTemplateIds = mapper.selectExistingIdsForUpdate(tenantId, normalizedIds);
+        List<MarketingTemplate> lockedTemplates = mapper.selectExistingForUpdate(tenantId, normalizedIds);
+        if (lockedTemplates.size() != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分营销模板不存在");
+        }
+        lockedTemplates.forEach(template ->
+                DataScopeAccess.requireCanAccess(scope, template.getOwnerUserId(), "营销模板"));
         if (taskMapper.countActiveGroupPullTasksByTemplateIds(normalizedIds) > 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板正在被拉群营销任务使用，不能删除");
         }
@@ -181,12 +209,12 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         int releasedAccounts = occupancyService.releaseAccountsByTemplateIds(normalizedIds);
         mapper.softDeleteByIds(normalizedIds, now);
         log.info("营销模板批量软删除 requested={} locked={} abnormalCompletedTasks={} releasedAccounts={} ids={}",
-                normalizedIds.size(), lockedTemplateIds.size(), completedTasks, releasedAccounts, normalizedIds);
+                normalizedIds.size(), lockedTemplates.size(), completedTasks, releasedAccounts, normalizedIds);
     }
 
     /** 按 ID 取未删模板,不存在即抛 404;update/clone 等写操作都先过这道存在性校验。 */
-    private MarketingTemplate requireExisting(Long id) {
-        MarketingTemplate entity = mapper.selectById(id);
+    private MarketingTemplate requireExisting(Long id, DataScope scope) {
+        MarketingTemplate entity = mapper.selectByIdForScope(id, scope);
         if (entity == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + id);
         }
@@ -194,20 +222,24 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * 保存前统一校验:模板名/内容必填、名称在租户内不重复、消息类型合法、按钮规则。
+     * 保存前统一校验:模板名/内容必填、名称在 owner 范围内不重复、图片同 owner、消息类型合法、按钮规则。
      *
      * @param excludeId 名称查重时要排除的 ID;新增传 {@code null},编辑传当前模板 ID 以放过自身
      */
-    private LinkMode validate(MarketingTemplateDTO dto, Long excludeId) {
+    private LinkMode validate(MarketingTemplateDTO dto,
+                              Long excludeId,
+                              Long ownerUserId,
+                              DataScope scope) {
         if (!StringUtils.hasText(dto.templateName())) {
             throw new BusinessException(ErrorCode.VALIDATION, "模板名称不能为空");
         }
         if (!StringUtils.hasText(dto.content())) {
             throw new BusinessException(ErrorCode.VALIDATION, "内容不能为空");
         }
-        if (mapper.existsByName(dto.templateName(), excludeId)) {
+        if (mapper.existsByNameForOwner(dto.templateName(), excludeId, ownerUserId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());
         }
+        validateImageFile(dto.imageFileId(), ownerUserId, scope);
         LinkMode mode = LinkMode.fromCode(dto.linkMode());
         if (mode != LinkMode.BUTTON
                 && StringUtils.hasText(dto.promotionLink())
@@ -216,6 +248,19 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         }
         validateButtons(mode, dto.buttons());
         return mode;
+    }
+
+    /** 图片是用户私有资源；模板只能引用相同 owner 的图片，避免形成隐式共享关系。 */
+    private void validateImageFile(Long imageFileId, Long ownerUserId, DataScope scope) {
+        if (imageFileId == null) {
+            return;
+        }
+        MarketingTemplateFile file = fileMapper.selectByIdForScope(imageFileId, scope);
+        if (file == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板图片不存在: " + imageFileId);
+        }
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(ownerUserId, file.getOwnerUserId()), "营销模板与图片");
     }
 
     /**

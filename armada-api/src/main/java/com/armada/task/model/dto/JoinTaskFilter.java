@@ -1,5 +1,7 @@
 package com.armada.task.model.dto;
 
+import com.armada.shared.security.DataScope;
+
 /**
  * 进群任务列表筛选条件，供 {@code JoinTaskMapper.countPage} / {@code selectPage} 复用。
  *
@@ -14,6 +16,7 @@ package com.armada.task.model.dto;
  * @param interval         进群间隔展示标签（匹配 interval_label）
  * @param dateFrom         创建时间下限（epoch 毫秒，含）
  * @param dateTo           创建时间上限（epoch 毫秒，不含）
+ * @param dataScope        服务端可信身份对应的数据范围
  */
 public record JoinTaskFilter(
         String keyword,
@@ -22,6 +25,7 @@ public record JoinTaskFilter(
         String distributionMode,
         String interval,
         Long dateFrom,
-        Long dateTo
+        Long dateTo,
+        DataScope dataScope
 ) {
 }

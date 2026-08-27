@@ -5,6 +5,8 @@ import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
 import com.armada.promotion.channel.service.PromotionChannelService;
 import com.armada.promotion.pairing.mapper.PromotionCapiEventOutboxMapper;
 import com.armada.promotion.pairing.model.entity.PromotionCapiEventOutbox;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.UUID;
@@ -92,16 +94,28 @@ public class PromotionCapiEventDispatcher {
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(row.getTenantId());
-            PromotionChannelCapiDeliveryResult result = channelService.deliverFacebookCapi(toCommand(row));
-            if (result.success()) {
-                outboxMapper.markSent(row, System.currentTimeMillis());
+            if (row.getOwnerUserId() == null || row.getOwnerUserId() <= 0) {
+                log.warn("正式 CAPI 事件缺少数据归属，拒绝投递 outboxId={} channelId={}",
+                        row.getId(), row.getPromotionChannelId());
+                handleFailure(row, false, "DATA_OWNER_MISSING");
                 return;
             }
-            handleFailure(row, result.retryable(), result.errorCode());
-        } catch (RuntimeException ex) {
-            log.warn("正式 CAPI 投递异常 outboxId={} channelId={} errorType={}",
-                    row.getId(), row.getPromotionChannelId(), ex.getClass().getSimpleName());
-            handleFailure(row, true, "DELIVERY_EXCEPTION");
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(row.getOwnerUserId()))) {
+                try {
+                    PromotionChannelCapiDeliveryResult result =
+                            channelService.deliverFacebookCapi(toCommand(row));
+                    if (result.success()) {
+                        outboxMapper.markSent(row, System.currentTimeMillis());
+                        return;
+                    }
+                    handleFailure(row, result.retryable(), result.errorCode());
+                } catch (RuntimeException ex) {
+                    log.warn("正式 CAPI 投递异常 outboxId={} channelId={} errorType={}",
+                            row.getId(), row.getPromotionChannelId(), ex.getClass().getSimpleName());
+                    handleFailure(row, true, "DELIVERY_EXCEPTION");
+                }
+            }
         } finally {
             restoreTenant(previousTenant);
         }

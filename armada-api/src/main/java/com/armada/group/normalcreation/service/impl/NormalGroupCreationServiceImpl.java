@@ -1,5 +1,6 @@
 package com.armada.group.normalcreation.service.impl;
 
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
@@ -11,6 +12,7 @@ import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberRe
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminInsert;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskInsert;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskExecutionScope;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationCreateDTO;
 import com.armada.group.normalcreation.model.dto.NormalGroupCreationSettingsDTO;
 import com.armada.group.normalcreation.model.vo.NormalGroupCreationItemVO;
@@ -23,6 +25,8 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScope;
 import com.armada.shared.tenant.TenantContext;
 import java.security.SecureRandom;
 import java.util.ArrayList;
@@ -81,17 +85,23 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
     @Transactional
     public NormalGroupCreationTaskVO create(
             String idempotencyKey, NormalGroupCreationCreateDTO request, long userId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long actorUserId = scope.ownerUserIdForCreate();
+        if (userId != actorUserId) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "创建人与当前数据范围不一致");
+        }
         String normalizedKey = requireIdempotencyKey(idempotencyKey);
         Long tenantId = TenantContext.get();
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
         }
-        Long existingId = mapper.selectTaskIdByIdempotencyKey(tenantId, normalizedKey);
+        Long existingId = mapper.selectTaskIdByIdempotencyKey(
+                tenantId, actorUserId, normalizedKey);
         if (existingId != null) {
-            return mapper.selectTask(existingId);
+            return mapper.selectTask(existingId, scope);
         }
-        ValidatedRequest validated = validate(request);
-        admissionGuard.checkRate(tenantId, userId);
+        ValidatedRequest validated = validate(request, scope);
+        admissionGuard.checkRate(tenantId, actorUserId);
         List<ProtocolAccountRef> creators =
                 new ArrayList<>(strictOnlineGroupAccounts(validated.adminGroupId()));
         List<ProtocolAccountRef> members =
@@ -137,6 +147,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
 
         long now = System.currentTimeMillis();
         TaskInsert task = new TaskInsert(
+                actorUserId,
                 normalizedKey,
                 validated.adminGroupId(),
                 validated.secondaryAdminGroupId(),
@@ -156,22 +167,26 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                 validated.settings().addMembersAllowed(),
                 validated.settings().joinApprovalEnabled(),
                 validated.settings().ephemeralDurationSeconds(),
-                userId,
+                actorUserId,
                 now);
         try {
             if (mapper.insertTask(task) == 0) {
                 return mapper.selectTask(
-                        mapper.selectTaskIdByIdempotencyKeyForUpdate(tenantId, normalizedKey));
+                        mapper.selectTaskIdByIdempotencyKeyForUpdate(
+                                tenantId, actorUserId, normalizedKey),
+                        scope);
             }
         } catch (DuplicateKeyException ex) {
             Long concurrentTaskId =
-                    mapper.selectTaskIdByIdempotencyKeyForUpdate(tenantId, normalizedKey);
+                    mapper.selectTaskIdByIdempotencyKeyForUpdate(
+                            tenantId, actorUserId, normalizedKey);
             if (concurrentTaskId == null) {
                 throw ex;
             }
-            return mapper.selectTask(concurrentTaskId);
+            return mapper.selectTask(concurrentTaskId, scope);
         }
-        Long taskId = mapper.selectTaskIdByIdempotencyKey(tenantId, normalizedKey);
+        Long taskId = mapper.selectTaskIdByIdempotencyKey(
+                tenantId, actorUserId, normalizedKey);
         if (taskId == null) {
             throw unavailable();
         }
@@ -252,34 +267,48 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                     mapper.selectSecondaryAdminWorks(item.id()));
         }
         mapper.refreshTaskSummary(taskId, System.currentTimeMillis());
-        return mapper.selectTask(taskId);
+        return mapper.selectTask(taskId, scope);
     }
 
     @Override
     public NormalGroupCreationTaskDetailVO detail(long taskId) {
-        NormalGroupCreationTaskVO task = mapper.selectTask(taskId);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        NormalGroupCreationTaskVO task = mapper.selectTask(taskId, scope);
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群任务不存在");
         }
-        List<NormalGroupCreationItemVO> items = mapper.selectItems(taskId);
+        List<NormalGroupCreationItemVO> items = mapper.selectItems(taskId, scope);
         return new NormalGroupCreationTaskDetailVO(
-                task, items, mapper.selectContactFailures(taskId));
+                task, items, mapper.selectContactFailures(taskId, scope));
     }
 
     @Override
     public void retry(long taskId, long itemId, long userId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (userId != scope.actorUserId()) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "操作人与当前数据范围不一致");
+        }
         Long tenantId = TenantContext.get();
         if (tenantId == null || tenantId <= 0) {
             throw new BusinessException(ErrorCode.TENANT_MISSING, "租户上下文缺失");
         }
         transactionTemplate.executeWithoutResult(status ->
-                retryInTransaction(tenantId, taskId, itemId));
+                retryInTransaction(tenantId, taskId, itemId, scope));
     }
 
     private void retryInTransaction(
             Long tenantId,
             long taskId,
-            long itemId) {
+            long itemId,
+            DataScope scope) {
+        if (mapper.selectTask(taskId, scope) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群任务不存在");
+        }
+        TaskExecutionScope taskScope = mapper.selectTaskExecutionScope(tenantId, taskId);
+        if (taskScope == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "新建普群任务不存在");
+        }
+        DataScopeAccess.requireAssignedOwner(taskScope.ownerUserId(), "新建普群任务");
         ItemWork item = mapper.selectItemWorkForUpdate(tenantId, itemId);
         validateRetryItem(item, taskId);
         long now = System.currentTimeMillis();
@@ -429,7 +458,9 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                 && member.memberWsPhone().equals(account.wsPhone());
     }
 
-    private ValidatedRequest validate(NormalGroupCreationCreateDTO request) {
+    private ValidatedRequest validate(
+            NormalGroupCreationCreateDTO request,
+            DataScope scope) {
         if (request == null) {
             throw validation("请求不能为空");
         }
@@ -437,26 +468,35 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                 || request.memberAccountGroupId() == null) {
             throw validation("管理员分组和成员分组不能为空");
         }
-        accountGroupService.requireExisting(request.adminAccountGroupId());
-        accountGroupService.requireExisting(request.memberAccountGroupId());
+        AccountGroup adminGroup = accountGroupService.requireExisting(request.adminAccountGroupId());
+        AccountGroup memberGroup = accountGroupService.requireExisting(request.memberAccountGroupId());
+        List<Long> ownerUserIds = new ArrayList<>();
+        ownerUserIds.add(adminGroup.getOwnerUserId());
+        ownerUserIds.add(memberGroup.getOwnerUserId());
         Long secondaryAdminGroupId = request.secondaryAdminAccountGroupId();
         int secondaryAdminCount = 0;
         if (secondaryAdminGroupId != null) {
-            accountGroupService.requireExisting(secondaryAdminGroupId);
+            ownerUserIds.add(accountGroupService.requireExisting(secondaryAdminGroupId).getOwnerUserId());
             secondaryAdminCount = positive(
                     request.secondaryAdminCount(), "每群次管理员数量", MAX_SECONDARY_ADMIN_COUNT);
         } else if (request.secondaryAdminCount() != null && request.secondaryAdminCount() != 0) {
             throw validation("未选择次管理员分组时，每群次管理员数量必须为 0");
         }
         if (request.folderId() != null) {
-            groupFolderService.requireExisting(request.folderId());
+            ownerUserIds.add(
+                    groupFolderService.requireExisting(request.folderId()).ownerUserId());
         }
         if (request.successMigrationGroupId() != null) {
-            accountGroupService.requireExisting(request.successMigrationGroupId());
+            ownerUserIds.add(accountGroupService.requireExisting(
+                    request.successMigrationGroupId()).getOwnerUserId());
         }
         if (request.failedMigrationGroupId() != null) {
-            accountGroupService.requireExisting(request.failedMigrationGroupId());
+            ownerUserIds.add(accountGroupService.requireExisting(
+                    request.failedMigrationGroupId()).getOwnerUserId());
         }
+        DataScopeAccess.requireSameOwner(ownerUserIds, "建群任务账号分组");
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope, ownerUserIds, "建群任务账号分组和群文件夹");
         int groupCount = positive(request.groupCount(), "建群数量", MAX_GROUP_COUNT);
         String source = textOrDefault(request.memberSource(), "CONTROLLED_GROUP")
                 .toUpperCase(Locale.ROOT);

@@ -1,6 +1,7 @@
 package com.armada.marketing.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 营销任务列表查询。GET 列表用 {@code @ModelAttribute} 绑定,故为可变 class。
@@ -21,6 +22,9 @@ public class MarketingTaskQuery extends PageQuery {
 
     /** 最后发送时间上界(epoch 毫秒)。 */
     private Long endTime;
+
+    /** 服务端从可信身份注入的数据范围，不参与 HTTP 绑定。 */
+    private DataScope dataScope;
 
     public Long getId() {
         return id;
@@ -60,5 +64,14 @@ public class MarketingTaskQuery extends PageQuery {
 
     public void setEndTime(Long endTime) {
         this.endTime = endTime;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

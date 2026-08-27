@@ -1,8 +1,13 @@
 package com.armada.task.service.impl;
 
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
+import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.vo.PullTaskAvatarReference;
 import com.armada.task.service.PullTaskGroupAvatarService;
 import com.armada.task.service.PullTaskMutationService;
@@ -70,6 +75,11 @@ public class PullTaskMutationServiceImpl implements PullTaskMutationService {
             return 0;
         }
         List<Long> taskIds = List.copyOf(distinctIds);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<PullTask> tasks = mapper.selectByIdsForScope(taskIds, scope);
+        if (tasks.size() != taskIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分拉群任务不存在或无权访问");
+        }
         List<PullTaskAvatarReference> avatarReferences =
                 standardGroupSettingMapper.selectActiveAvatarReferencesByTaskIds(taskIds);
         int deleted = mapper.batchSoftDeleteAllowed(taskIds, System.currentTimeMillis());
@@ -98,7 +108,8 @@ public class PullTaskMutationServiceImpl implements PullTaskMutationService {
             Long previousTenantId = TenantContext.get();
             try {
                 TenantContext.set(reference.tenantId());
-                avatarService.delete(reference.tenantId(), reference.avatarFileKey());
+                avatarService.deleteAfterTaskRemoval(
+                        reference.tenantId(), reference.avatarFileKey());
             } catch (RuntimeException exception) {
                 log.warn(
                         "拉群任务头像提交后删除失败 tenantId={} taskId={} avatarFileKey={} errorType={}",

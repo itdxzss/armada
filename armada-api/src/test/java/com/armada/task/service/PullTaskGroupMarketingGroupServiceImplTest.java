@@ -7,6 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.country.service.CountryService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper;
 import com.armada.task.mapper.PullTaskGroupMarketingGroupOccupancyMapper;
 import com.armada.task.model.dto.PullTaskGroupMarketingWaitingPoolAddDTO;
@@ -15,6 +17,7 @@ import com.armada.task.model.vo.PullTaskGroupMarketingCandidateRow;
 import com.armada.task.service.impl.PullTaskGroupMarketingGroupServiceImpl;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,14 +45,20 @@ class PullTaskGroupMarketingGroupServiceImplTest {
     /** 装配只使用 test double 的服务。 */
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.self(7L));
         service = new PullTaskGroupMarketingGroupServiceImpl(
                 candidateMapper, occupancyMapper, countryService);
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
     }
 
     /** 数据库唯一键竞争失败时必须逐群拒绝，不能把冲突群误报为入池成功。 */
     @Test
     void addWaitingReportsConcurrentOccupancyConflict() {
-        when(candidateMapper.selectByGroupJids(List.of(GROUP_JID)))
+        when(candidateMapper.selectByGroupJids(List.of(GROUP_JID), DataScope.self(7L)))
                 .thenReturn(List.of(healthyCandidate()));
         when(occupancyMapper.selectCreatorByToken(TOKEN)).thenReturn(null);
         when(occupancyMapper.insertWaiting(any(PullTaskGroupMarketingGroupOccupancy.class)))

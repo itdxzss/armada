@@ -23,8 +23,12 @@ import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.account.model.vo.AccountStatsVoRow;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,6 +36,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class AccountServiceImplTest {
+
+    @BeforeEach
+    void setUpDataScope() {
+        DataScopeContext.open(DataScope.all(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Mock
     private AccountMapper accountMapper;
@@ -106,6 +120,87 @@ class AccountServiceImplTest {
     }
 
     @Test
+    void requireAccessibleAccountsInGroup_hidesForeignGroupBeforeAccountLookup() {
+        AccountGroup group = group(20L, null);
+        group.setOwnerUserId(10L);
+        when(accountGroupMapper.selectById(20L)).thenReturn(group);
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.requireAccessibleAccountsInGroup(List.of(1L), 20L))
+                    .isInstanceOfSatisfying(com.armada.shared.exception.BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(
+                                    com.armada.shared.exception.ErrorCode.NOT_FOUND.code()));
+        }
+
+        verify(accountMapper, never()).selectActiveByIds(anyList());
+    }
+
+    @Test
+    void requireAccessibleAccountsRejectsMixedOwnerBatch() {
+        Account own = account(1L, 20L);
+        own.setOwnerUserId(9L);
+        Account foreign = account(2L, 21L);
+        foreign.setOwnerUserId(10L);
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L))).thenReturn(List.of(own, foreign));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.requireAccessibleAccounts(List.of(1L, 2L)))
+                    .isInstanceOfSatisfying(com.armada.shared.exception.BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(
+                                    com.armada.shared.exception.ErrorCode.NOT_FOUND.code()));
+        }
+    }
+
+    @Test
+    void requireAccessibleAccountsAllowsAdministratorToReadAnotherOwnersAccount() {
+        Account account = account(1L, 20L);
+        account.setOwnerUserId(9L);
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        service.requireAccessibleAccounts(List.of(1L));
+
+        verify(accountMapper).selectActiveByIds(List.of(1L));
+    }
+
+    @Test
+    void requireAccessibleAccountsInGroup_rejectsMixedOwnerOrMembershipBeforeTaskCanFreezeIds() {
+        AccountGroup group = group(20L, null);
+        group.setOwnerUserId(9L);
+        Account first = account(1L, 20L);
+        first.setOwnerUserId(9L);
+        Account second = account(2L, 21L);
+        second.setOwnerUserId(9L);
+        when(accountGroupMapper.selectById(20L)).thenReturn(group);
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L))).thenReturn(List.of(first, second));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.requireAccessibleAccountsInGroup(List.of(1L, 2L), 20L))
+                    .isInstanceOfSatisfying(com.armada.shared.exception.BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(
+                                    com.armada.shared.exception.ErrorCode.NOT_FOUND.code()));
+        }
+    }
+
+    @Test
+    void requireAccessibleAccountsInGroup_allowsAdminForAnotherOwnersConsistentGroup() {
+        AccountGroup group = group(20L, null);
+        group.setOwnerUserId(9L);
+        Account first = account(1L, 20L);
+        first.setOwnerUserId(9L);
+        Account second = account(2L, 20L);
+        second.setOwnerUserId(9L);
+        when(accountGroupMapper.selectById(20L)).thenReturn(group);
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L))).thenReturn(List.of(first, second));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        service.requireAccessibleAccountsInGroup(List.of(1L, 2L), 20L);
+    }
+
+    @Test
     void migrateGroupRejectsMovingOutOfActiveBuilderGroup() {
         Account account = account(1L, 10L);
         when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
@@ -159,6 +254,28 @@ class AccountServiceImplTest {
     }
 
     @Test
+    void migrateGroupHidesForeignTargetBeforeReportingItsOccupancy() {
+        Account account = account(1L, 10L);
+        account.setOwnerUserId(1L);
+        AccountGroup source = group(10L, null);
+        source.setOwnerUserId(1L);
+        AccountGroup foreignTarget = group(20L, 82L);
+        foreignTarget.setOwnerUserId(2L);
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
+        when(accountGroupMapper.selectByIds(List.of(10L, 20L)))
+                .thenReturn(List.of(source, foreignTarget));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(1L))) {
+            assertThatThrownBy(() -> service.migrateGroup(List.of(1L), 20L))
+                    .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                    .hasMessage("分组不存在");
+        }
+
+        verify(accountMapper, never()).migrateGroupIfAvailable(anyList(), any(), anyLong(), anyLong());
+    }
+
+    @Test
     void migrateGroupUpdatesEachOriginalSourceWithItsOwnCondition() {
         when(accountMapper.selectActiveByIds(List.of(1L, 2L, 3L)))
                 .thenReturn(List.of(account(1L, 10L), account(2L, 11L), account(3L, 20L)));
@@ -209,6 +326,27 @@ class AccountServiceImplTest {
     }
 
     @Test
+    void migrateGroup_movesOnlyWhenAccountAndGroupsShareOwner() {
+        Account account = account(1L, 10L);
+        account.setOwnerUserId(9L);
+        AccountGroup source = group(10L, null);
+        source.setOwnerUserId(9L);
+        AccountGroup target = group(20L, null);
+        target.setOwnerUserId(9L);
+        when(accountMapper.selectActiveByIds(List.of(1L))).thenReturn(List.of(account));
+        when(accountGroupMapper.selectByIds(List.of(10L, 20L))).thenReturn(List.of(source, target));
+        when(accountMapper.migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong()))
+                .thenReturn(1);
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            service.migrateGroup(List.of(1L), 20L);
+        }
+
+        verify(accountMapper).migrateGroupIfAvailable(eq(List.of(1L)), eq(10L), eq(20L), anyLong());
+    }
+
+    @Test
     void getStatsIncludesRestrictedAccountStateInRestrictedTotal() {
         AccountStatsVoRow row = new AccountStatsVoRow();
         row.setTotal(30);
@@ -218,7 +356,7 @@ class AccountServiceImplTest {
         row.setExported(4);
         row.setRestricted(5);
         row.setAssigned(9);
-        when(accountMapper.statsSummary()).thenReturn(row);
+        when(accountMapper.statsSummary(any())).thenReturn(row);
 
         AccountStatsVO result = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter).getStats();
 
@@ -231,6 +369,8 @@ class AccountServiceImplTest {
     void getLoginStatesByIdsReturnsCurrentStatesIncludingUnreportedState() {
         AccountState online = loginState(11L, 1);
         AccountState unreported = loginState(12L, null);
+        when(accountMapper.selectActiveByIds(List.of(11L, 12L)))
+                .thenReturn(List.of(account(11L, 20L), account(12L, 20L)));
         when(accountMapper.selectActiveLoginStatesByIds(List.of(11L, 12L)))
                 .thenReturn(List.of(online, unreported));
         AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);

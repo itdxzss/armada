@@ -15,6 +15,8 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -33,19 +35,22 @@ class AccountGroupSyncCommandServiceTest {
     @AfterEach
     void clearTenantContext() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void enqueueDueSyncCommands_groupsCandidatesByTenantAndRestoresTenantContextForOutboxInsert() {
         List<AccountGroupSyncCandidate> candidates = List.of(
-                new AccountGroupSyncCandidate(1L, 101L, "acc_101", "WEB"),
-                new AccountGroupSyncCandidate(1L, 102L, "acc_102", "ANDROID"),
-                new AccountGroupSyncCandidate(2L, 201L, "acc_201", null));
+                new AccountGroupSyncCandidate(1L, 11L, 101L, "acc_101", "WEB"),
+                new AccountGroupSyncCandidate(1L, 11L, 102L, "acc_102", "ANDROID"),
+                new AccountGroupSyncCandidate(2L, 22L, 201L, "acc_201", null));
         when(accountMapper.selectGroupSyncCandidates(50, 1, 2, 2)).thenReturn(candidates);
         List<Long> tenantContextDuringOutboxCalls = new ArrayList<>();
+        List<Long> ownerContextDuringOutboxCalls = new ArrayList<>();
         List<Long> tenantContextDuringWatermarkUpdates = new ArrayList<>();
         when(outboxService.enqueueAccountGroupSyncCommands(Mockito.anyList())).thenAnswer(inv -> {
             tenantContextDuringOutboxCalls.add(TenantContext.get());
+            ownerContextDuringOutboxCalls.add(DataScopeContext.requireCurrent().actorUserId());
             @SuppressWarnings("unchecked")
             List<ProtocolAccountGroupSyncCommandRequest> commands = inv.getArgument(0, List.class);
             return new ProtocolCommandOutboxEnqueueResult(null,
@@ -66,6 +71,7 @@ class AccountGroupSyncCommandServiceTest {
         assertThat(result.enqueued()).isEqualTo(3);
         assertThat(result.tenantBatches()).isEqualTo(2);
         assertThat(tenantContextDuringOutboxCalls).containsExactly(1L, 2L);
+        assertThat(ownerContextDuringOutboxCalls).containsExactly(11L, 22L);
         assertThat(tenantContextDuringWatermarkUpdates).containsExactly(1L, 2L);
         assertThat(TenantContext.get()).isNull();
 
@@ -102,6 +108,7 @@ class AccountGroupSyncCommandServiceTest {
     void enqueueInitialBaselineSync_enqueuesPendingAccountOnlyOnFirstOnline() {
         TenantContext.set(7L);
         Account account = account(101L, "acc_101", "ANDROID");
+        DataScopeContext.open(DataScope.self(9L));
         when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(7L, List.of(101L)))
                 .thenReturn(List.of(new AccountGroupBaselineStateRow(
                         101L, AccountGroupBaselineStateCode.PENDING, null)));
@@ -130,6 +137,7 @@ class AccountGroupSyncCommandServiceTest {
     void enqueueInitialBaselineSync_skipsCapturedAndPendingBaselineRequestedByEarlierOnline() {
         TenantContext.set(7L);
         Account captured = account(101L, "acc_101", "ANDROID");
+        DataScopeContext.open(DataScope.self(9L));
         when(accountMapper.selectGroupBaselineStatesByTenantAndAccountIds(7L, List.of(101L)))
                 .thenReturn(List.of(new AccountGroupBaselineStateRow(
                         101L, AccountGroupBaselineStateCode.CAPTURED, 1_000L)));
@@ -149,6 +157,7 @@ class AccountGroupSyncCommandServiceTest {
     private static Account account(long accountId, String protocolAccountId, String protocolId) {
         Account account = new Account();
         account.setId(accountId);
+        account.setOwnerUserId(9L);
         account.setProtocolAccountId(protocolAccountId);
         account.setProtocolId(protocolId);
         return account;

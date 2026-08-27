@@ -1,9 +1,12 @@
 package com.armada.group.service;
 
+import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.service.AccountGroupService;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import org.springframework.stereotype.Component;
 
 /** 为历史群详情和写操作选择同账号组内的在线管理员。 */
@@ -11,14 +14,19 @@ import org.springframework.stereotype.Component;
 public final class HistoricalGroupExecutionAccountSelector {
 
     private final AccountGroupMembershipMapper mapper;
+    private final AccountGroupService accountGroupService;
 
     /**
      * 创建历史群执行账号选择器。
      *
      * @param mapper 账号群关系数据访问
+     * @param accountGroupService 账号分组数据范围校验服务
      */
-    public HistoricalGroupExecutionAccountSelector(AccountGroupMembershipMapper mapper) {
+    public HistoricalGroupExecutionAccountSelector(
+            AccountGroupMembershipMapper mapper,
+            AccountGroupService accountGroupService) {
         this.mapper = mapper;
+        this.accountGroupService = accountGroupService;
     }
 
     /**
@@ -32,6 +40,8 @@ public final class HistoricalGroupExecutionAccountSelector {
         if (accountGroupId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号组 ID 不能为空");
         }
+        AccountGroup accountGroup = accountGroupService.requireExisting(accountGroupId);
+        DataScopeAccess.requireAssignedOwner(accountGroup.getOwnerUserId(), "账号组");
         String normalizedJid = normalize(groupJid);
         if (normalizedJid == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "群 JID 不能为空");

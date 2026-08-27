@@ -13,7 +13,10 @@ import com.armada.marketing.model.enums.MarketingBusinessType;
 import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -75,6 +79,8 @@ class MarketingTaskExportServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.self(5L));
         service = new MarketingTaskExportServiceImpl(
                 mapper,
                 countryService,
@@ -85,9 +91,14 @@ class MarketingTaskExportServiceImplTest {
         lenient().when(countryService.activePhonePrefixResolver()).thenReturn(phone -> null);
     }
 
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void createCountryEntryJobUsesServerSnapshotAndNormalizesSelection() {
-        when(mapper.selectTasksByIds(List.of(7L, 9L)))
+        when(mapper.selectTasksByIdsForScope(eq(List.of(7L, 9L)), any()))
                 .thenReturn(List.of(ordinaryTask(9L), ordinaryTask(7L)));
         when(countryService.requireActiveOption("ID", false))
                 .thenReturn(new CountryOptionVO(
@@ -113,6 +124,7 @@ class MarketingTaskExportServiceImplTest {
         MarketingTaskExportJob job = captor.getValue();
         assertThat(job.getTenantId()).isEqualTo(3L);
         assertThat(job.getCreatedBy()).isEqualTo(5L);
+        assertThat(job.getDataScopeMode()).isEqualTo("SELF");
         assertThat(job.getExportMode()).isEqualTo("COUNTRY_ENTRY");
         assertThat(job.getTaskIdsJson()).isEqualTo("[7,9]");
         assertThat(job.getCountryIso2sJson()).isEqualTo("[\"ID\",\"MY\"]");
@@ -135,7 +147,7 @@ class MarketingTaskExportServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("单次最多导出 100 个营销任务");
 
-        verify(mapper, never()).selectTasksByIds(any());
+        verify(mapper, never()).selectTasksByIdsForScope(any(), any());
         verify(mapper, never()).insertJob(any());
     }
 
@@ -151,7 +163,7 @@ class MarketingTaskExportServiceImplTest {
                 .hasMessage("单次最多选择 249 个国家或地区");
 
         verify(countryService, never()).requireActiveOption(anyString(), eq(false));
-        verify(mapper, never()).selectTasksByIds(any());
+        verify(mapper, never()).selectTasksByIdsForScope(any(), any());
         verify(mapper, never()).insertJob(any());
     }
 
@@ -167,7 +179,7 @@ class MarketingTaskExportServiceImplTest {
                 .hasMessage("国家或地区编码必须为 2 位 ISO2");
 
         verify(countryService, never()).requireActiveOption(anyString(), eq(false));
-        verify(mapper, never()).selectTasksByIds(any());
+        verify(mapper, never()).selectTasksByIdsForScope(any(), any());
         verify(mapper, never()).insertJob(any());
     }
 
@@ -175,7 +187,7 @@ class MarketingTaskExportServiceImplTest {
     void createJobRejectsGroupPullTaskWithoutWritingJob() {
         MarketingTask task = ordinaryTask(9L);
         task.setBusinessType(MarketingBusinessType.GROUP_PULL.code());
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(task));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any())).thenReturn(List.of(task));
 
         assertThatThrownBy(() -> service.createJob(
                 new MarketingTaskExportRequestDTO("FULL", List.of(9L), List.of()),
@@ -187,8 +199,23 @@ class MarketingTaskExportServiceImplTest {
     }
 
     @Test
+    void createJobRejectsMixedAccessibleAndForeignTaskIdsAsAWhole() {
+        when(mapper.selectTasksByIdsForScope(eq(List.of(7L, 9L)), any()))
+                .thenReturn(List.of(ordinaryTask(7L)));
+
+        assertThatThrownBy(() -> service.createJob(
+                new MarketingTaskExportRequestDTO("FULL", List.of(7L, 9L), List.of()),
+                principal()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("部分营销任务不存在或无权访问");
+
+        verify(mapper, never()).insertJob(any());
+    }
+
+    @Test
     void createJobReturnsExistingActiveJobWhenRequestIsDuplicated() {
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any()))
+                .thenReturn(List.of(ordinaryTask(9L)));
         MarketingTaskExportJob existing = new MarketingTaskExportJob();
         existing.setId(77L);
         existing.setTenantId(3L);
@@ -213,7 +240,8 @@ class MarketingTaskExportServiceImplTest {
 
     @Test
     void createJobRejectsDifferentRequestWhileCreatorHasActiveJob() {
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any()))
+                .thenReturn(List.of(ordinaryTask(9L)));
         org.mockito.Mockito.doThrow(new DuplicateKeyException("creator has active job"))
                 .when(mapper).insertJob(any(MarketingTaskExportJob.class));
         when(mapper.selectActiveJob(eq(3L), eq(5L), anyString())).thenReturn(null);
@@ -236,10 +264,42 @@ class MarketingTaskExportServiceImplTest {
         existing.setSummaryRowCount(0);
         existing.setDetailRowCount(0);
         existing.setCreatedAt(FIXED_CLOCK.millis());
-        when(mapper.selectJobByIdForUser(77L, 5L)).thenReturn(existing);
+        when(mapper.selectJobByIdForScope(77L, DataScope.self(5L))).thenReturn(existing);
 
         assertThat(service.getJob(77L, principal()).id()).isEqualTo(77L);
-        verify(mapper).selectJobByIdForUser(77L, 5L);
+        verify(mapper).selectJobByIdForScope(77L, DataScope.self(5L));
+    }
+
+    @Test
+    void tenantAdministratorCanReadAnotherUsersExportJob() {
+        DataScopeContext.open(DataScope.all(5L));
+        MarketingTaskExportJob existing = new MarketingTaskExportJob();
+        existing.setId(77L);
+        existing.setCreatedBy(8L);
+        existing.setExportMode("FULL");
+        existing.setStatus("PENDING");
+        existing.setSnapshotAt(FIXED_CLOCK.millis());
+        existing.setSummaryRowCount(0);
+        existing.setDetailRowCount(0);
+        existing.setCreatedAt(FIXED_CLOCK.millis());
+        when(mapper.selectJobByIdForScope(77L, DataScope.all(5L))).thenReturn(existing);
+
+        assertThat(service.getJob(77L, adminPrincipal()).id()).isEqualTo(77L);
+        verify(mapper).selectJobByIdForScope(77L, DataScope.all(5L));
+    }
+
+    @Test
+    void requestMethodsFailClosedWithoutTrustedOrMatchingScope() {
+        DataScopeContext.clear();
+        assertThatThrownBy(() -> service.getJob(77L, principal()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        DataScopeContext.open(DataScope.all(5L));
+        assertThatThrownBy(() -> service.getJob(77L, principal()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+        verify(mapper, never()).selectJobByIdForScope(any(), any());
     }
 
     @Test
@@ -309,7 +369,12 @@ class MarketingTaskExportServiceImplTest {
                 eq(3L), eq(88L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), anyString()))
                 .thenReturn(1);
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any())).thenAnswer(invocation -> {
+            DataScope scope = invocation.getArgument(1);
+            assertThat(scope).isEqualTo(DataScope.self(5L));
+            assertThat(DataScopeContext.requireCurrent()).isEqualTo(scope);
+            return List.of(ordinaryTask(9L));
+        });
         when(mapper.renewJobLease(eq(3L), eq(88L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
@@ -383,7 +448,8 @@ class MarketingTaskExportServiceImplTest {
                 eq(3L), eq(89L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), anyString()))
                 .thenReturn(1);
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any()))
+                .thenReturn(List.of(ordinaryTask(9L)));
         when(mapper.renewJobLease(eq(3L), eq(89L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
@@ -447,7 +513,8 @@ class MarketingTaskExportServiceImplTest {
                 eq(3L), eq(90L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), anyString()))
                 .thenReturn(1);
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any()))
+                .thenReturn(List.of(ordinaryTask(9L)));
         when(mapper.renewJobLease(eq(3L), eq(90L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1, 0);
@@ -488,7 +555,8 @@ class MarketingTaskExportServiceImplTest {
                 eq(3L), eq(91L), eq(FIXED_CLOCK.millis()),
                 eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L), anyString()))
                 .thenReturn(1);
-        when(mapper.selectTasksByIds(List.of(9L))).thenReturn(List.of(ordinaryTask(9L)));
+        when(mapper.selectTasksByIdsForScope(eq(List.of(9L)), any()))
+                .thenReturn(List.of(ordinaryTask(9L)));
         when(mapper.renewJobLease(eq(3L), eq(91L), anyString(),
                 eq(FIXED_CLOCK.millis()), eq(FIXED_CLOCK.millis() + 30 * 60 * 1000L)))
                 .thenReturn(1);
@@ -520,6 +588,7 @@ class MarketingTaskExportServiceImplTest {
         job.setId(id);
         job.setTenantId(3L);
         job.setCreatedBy(5L);
+        job.setDataScopeMode("SELF");
         job.setExportMode(mode);
         job.setTaskIdsJson("[9]");
         job.setCountryIso2sJson("[]");
@@ -533,6 +602,12 @@ class MarketingTaskExportServiceImplTest {
 
     private static AuthPrincipal principal() {
         return new AuthPrincipal(5L, 3L, "tester", "测试", "t3", "租户3", List.of(), List.of());
+    }
+
+    private static AuthPrincipal adminPrincipal() {
+        return new AuthPrincipal(
+                5L, 3L, "admin", "管理员", "t3", "租户3",
+                List.of("TENANT_ADMIN"), List.of());
     }
 
 }

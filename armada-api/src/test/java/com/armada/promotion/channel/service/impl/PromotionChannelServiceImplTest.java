@@ -13,6 +13,7 @@ import com.armada.platform.country.model.vo.CountryOptionVO;
 import com.armada.platform.country.service.CountryService;
 import com.armada.promotion.channel.converter.PromotionChannelConverter;
 import com.armada.promotion.channel.mapper.PromotionChannelMapper;
+import com.armada.promotion.channel.model.dto.PromotionChannelCapiEventDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelCreateDTO;
 import com.armada.promotion.channel.model.dto.PromotionChannelQuery;
 import com.armada.promotion.channel.model.dto.PromotionChannelProbeDTO;
@@ -30,6 +31,8 @@ import com.armada.promotion.channel.service.FacebookCapiClient;
 import com.armada.promotion.channel.support.ChannelCodeGenerator;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +48,8 @@ import org.springframework.dao.DuplicateKeyException;
 
 @ExtendWith(MockitoExtension.class)
 class PromotionChannelServiceImplTest {
+
+    private static final DataScope USER_SCOPE = DataScope.self(20001L);
 
     @Mock
     private PromotionChannelMapper mapper;
@@ -66,6 +71,7 @@ class PromotionChannelServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(1L);
+        DataScopeContext.open(USER_SCOPE);
         service = new PromotionChannelServiceImpl(
                 mapper,
                 countryService,
@@ -78,6 +84,7 @@ class PromotionChannelServiceImplTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -129,7 +136,7 @@ class PromotionChannelServiceImplTest {
     }
 
     @Test
-    void createPersistsOwnerAsCreatorAndEncryptsFacebookToken() {
+    void createUsesTrustedActorAsOwnerAndIgnoresRequestedOwner() {
         PromotionLandingTemplate template = template(11L, "基础领奖");
         CountryOptionVO target = country("IN", "印度", "+91");
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template);
@@ -148,8 +155,10 @@ class PromotionChannelServiceImplTest {
             return 1;
         }).when(mapper).insertChannel(any(PromotionChannel.class));
 
-        var result = service.create(request(11L, "IN", "IN", "https://GO.example.com", 1,
-                "pixel-123", "secret-token"));
+        var result = service.create(new PromotionChannelCreateDTO(
+                "印度渠道", 29999L, "IN", 11L, "https://GO.example.com",
+                "#E11D48", true, "IN", 1, "pixel-123", "secret-token",
+                "Lead", "InitiateCheckout", "CompleteRegistration", true, true));
 
         ArgumentCaptor<PromotionDomain> domainCaptor = ArgumentCaptor.forClass(PromotionDomain.class);
         verify(mapper).insertDomain(domainCaptor.capture());
@@ -180,7 +189,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void detailReturnsAllEditableFieldsWithoutLoadingCountryOptions() {
-        when(mapper.selectDetailById(51L)).thenReturn(detailRow());
+        when(mapper.selectDetailById(51L, USER_SCOPE)).thenReturn(detailRow());
 
         var result = service.detail(51L);
 
@@ -207,7 +216,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void detailRejectsMissingOrDeletedChannel() {
-        when(mapper.selectDetailById(999L)).thenReturn(null);
+        when(mapper.selectDetailById(999L, USER_SCOPE)).thenReturn(null);
 
         assertThatThrownBy(() -> service.detail(999L))
                 .isInstanceOf(BusinessException.class)
@@ -231,12 +240,12 @@ class PromotionChannelServiceImplTest {
                 51L, new PromotionChannelProbeDTO("TEST12345")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("探测功能未启用");
-        verify(mapper, never()).selectProbeConfigByChannelId(any());
+        verify(mapper, never()).selectProbeConfigByChannelIdForScope(any(), any());
     }
 
     @Test
     void probeSendsFacebookTestEventAndPersistsSuccess() {
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(probeRow(1, true));
         when(mapper.markProbeRunning(
                 any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
                 .thenReturn(1);
@@ -277,7 +286,7 @@ class PromotionChannelServiceImplTest {
         PromotionChannelProbeConfigRow row = probeRow(3, false);
         row.setTrackingConfigId(null);
         row.setTrackingId(null);
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(row);
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(row);
 
         var result = service.probe(51L, new PromotionChannelProbeDTO(null));
 
@@ -296,7 +305,7 @@ class PromotionChannelServiceImplTest {
     void probeReturnsFailureDetailWhenFacebookTrackingIsUnconfigured() {
         PromotionChannelProbeConfigRow row = probeRow(1, false);
         row.setTrackingId(null);
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(row);
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(row);
 
         var result = service.probe(51L, new PromotionChannelProbeDTO(null));
 
@@ -311,7 +320,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void probePersistsSanitizedFacebookFailure() {
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(probeRow(1, true));
         when(mapper.markProbeRunning(
                 any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
                 .thenReturn(1);
@@ -340,7 +349,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void probeRejectsDuplicateRunningRequest() {
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(probeRow(1, true));
         when(mapper.markProbeRunning(
                 any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
                 .thenReturn(0);
@@ -355,7 +364,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void probeDoesNotOverwriteResultWhenTrackingConfigurationChangesDuringRequest() {
-        when(mapper.selectProbeConfigByChannelId(51L)).thenReturn(probeRow(1, true));
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(probeRow(1, true));
         when(mapper.markProbeRunning(
                 any(PromotionChannelTrackingConfig.class), any(Long.class), any(Long.class)))
                 .thenReturn(1);
@@ -511,12 +520,77 @@ class PromotionChannelServiceImplTest {
             assertThat(item.promotionLink()).isEqualTo("http://go.example.com/a8k2m9qx");
             assertThat(item.splitLink()).isEqualTo("http://go.example.com/a8k2m9qx/1");
         });
+        assertThat(query.getDataScope()).isEqualTo(USER_SCOPE);
         verify(mapper).selectPage(query);
     }
 
     @Test
+    void managementReadsFailClosedWithoutTrustedDataScope() {
+        DataScopeContext.clear();
+
+        assertThatThrownBy(() -> service.detail(51L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getCode())
+                        .isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+        assertThatThrownBy(() -> service.page(new PromotionChannelQuery()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(error -> assertThat(((BusinessException) error).getCode())
+                        .isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verify(mapper, never()).selectDetailById(any(), any());
+        verify(mapper, never()).countPage(any());
+    }
+
+    @Test
+    void adminUpdatesAnotherUsersChannelWithoutTransferringOwnership() {
+        DataScope adminScope = DataScope.all(9001L);
+        PromotionChannel existing = channel(51L, 20002L);
+        when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "基础领奖"));
+        when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
+        when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
+        PromotionDomain domain = domain(31L, 11L, "go.example.com");
+        when(mapper.selectActiveDomainByHost("go.example.com")).thenReturn(domain);
+        when(mapper.selectActiveDomainByIdForUpdate(31L)).thenReturn(domain);
+        when(mapper.selectActiveChannelById(51L, adminScope)).thenReturn(existing);
+        when(mapper.updateChannel(any(PromotionChannel.class))).thenReturn(1);
+
+        PromotionChannelUpdateDTO request = new PromotionChannelUpdateDTO(
+                "管理员更新", 77777L, "IN", 11L, "go.example.com",
+                "#2563EB", false, "IN", 3, null, null,
+                null, null, null, true, false, 1);
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(adminScope)) {
+            service.update(51L, request);
+        }
+
+        ArgumentCaptor<PromotionChannel> channelCaptor = ArgumentCaptor.forClass(PromotionChannel.class);
+        verify(mapper).updateChannel(channelCaptor.capture());
+        assertThat(channelCaptor.getValue().getOwnerUserId()).isEqualTo(20002L);
+        assertThat(channelCaptor.getValue().getUpdatedBy()).isEqualTo(9001L);
+        verify(mapper).softDeleteTrackingConfig(
+                org.mockito.ArgumentMatchers.eq(51L),
+                org.mockito.ArgumentMatchers.eq(9001L),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void internalFacebookDeliveryUsesTrustedOwnerDataScope() {
+        when(mapper.selectProbeConfigByChannelIdForScope(51L, USER_SCOPE)).thenReturn(probeRow(1, true));
+        when(tokenCipher.decrypt(
+                any(byte[].class), org.mockito.ArgumentMatchers.eq("key-v1"), any(byte[].class)))
+                .thenReturn("secret-token");
+        when(facebookCapiClient.send(any())).thenReturn(FacebookCapiClient.Result.accepted());
+
+        var result = service.deliverFacebookCapi(new PromotionChannelCapiEventDTO(
+                51L, "https://go.example.com/a8k2m9qx", "Lead", "event-1",
+                1_700_000_000L, "a".repeat(64), "127.0.0.1", "test-agent", null, null));
+
+        assertThat(result.success()).isTrue();
+        verify(mapper).selectProbeConfigByChannelIdForScope(51L, USER_SCOPE);
+    }
+
+    @Test
     void updateReusesValidationAndReplacesProvidedTrackingToken() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(channel(51L, 20001L));
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "基础领奖"));
         when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
         when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));
@@ -620,7 +694,7 @@ class PromotionChannelServiceImplTest {
         InOrder order = inOrder(mapper);
         order.verify(mapper).clearTrackingCredentials(
                 org.mockito.ArgumentMatchers.eq(51L),
-                org.mockito.ArgumentMatchers.eq(20002L),
+                org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong());
         order.verify(mapper).updateTrackingConfig(any(PromotionChannelTrackingConfig.class));
         verify(tokenCipher, never()).encrypt(any());
@@ -668,7 +742,7 @@ class PromotionChannelServiceImplTest {
 
         verify(mapper).softDeleteTrackingConfig(
                 org.mockito.ArgumentMatchers.eq(51L),
-                org.mockito.ArgumentMatchers.eq(20002L),
+                org.mockito.ArgumentMatchers.eq(20001L),
                 org.mockito.ArgumentMatchers.anyLong());
         verify(mapper, never()).updateTrackingConfig(any());
     }
@@ -677,9 +751,9 @@ class PromotionChannelServiceImplTest {
     void deleteReleasesDomainAfterLastActiveChannelIsDeleted() {
         PromotionChannel channel = channel(51L, 20001L);
         channel.setPromotionDomainId(31L);
-        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L, USER_SCOPE))
                 .thenReturn(domain(31L, 11L, "go.example.com"));
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(channel);
         when(mapper.softDeleteChannel(
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -693,7 +767,7 @@ class PromotionChannelServiceImplTest {
         service.delete(51L);
 
         InOrder order = inOrder(mapper);
-        order.verify(mapper).selectActiveDomainByChannelIdForUpdate(51L);
+        order.verify(mapper).selectActiveDomainByChannelIdForUpdate(51L, USER_SCOPE);
         order.verify(mapper).softDeleteChannel(
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -713,9 +787,9 @@ class PromotionChannelServiceImplTest {
     void deleteKeepsDomainWhileAnotherActiveChannelStillUsesIt() {
         PromotionChannel channel = channel(51L, 20001L);
         channel.setPromotionDomainId(31L);
-        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L, USER_SCOPE))
                 .thenReturn(domain(31L, 11L, "go.example.com"));
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(channel);
         when(mapper.softDeleteChannel(
                 org.mockito.ArgumentMatchers.eq(51L),
                 org.mockito.ArgumentMatchers.eq(20001L),
@@ -732,11 +806,11 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void deleteRejectsWhenChannelChangesDomainWhileWaitingForLock() {
-        when(mapper.selectActiveDomainByChannelIdForUpdate(51L))
+        when(mapper.selectActiveDomainByChannelIdForUpdate(51L, USER_SCOPE))
                 .thenReturn(domain(31L, 11L, "old.example.com"));
         PromotionChannel channel = channel(51L, 20001L);
         channel.setPromotionDomainId(32L);
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel);
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(channel);
 
         assertThatThrownBy(() -> service.delete(51L))
                 .isInstanceOf(BusinessException.class)
@@ -750,7 +824,7 @@ class PromotionChannelServiceImplTest {
 
     @Test
     void deleteRejectsMissingOrAlreadyDeletedChannel() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(null);
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(null);
 
         BusinessException exception = org.assertj.core.api.Assertions.catchThrowableOfType(
                 () -> service.delete(51L), BusinessException.class);
@@ -801,7 +875,7 @@ class PromotionChannelServiceImplTest {
     }
 
     private void stubUpdateReferences() {
-        when(mapper.selectActiveChannelById(51L)).thenReturn(channel(51L, 20001L));
+        when(mapper.selectActiveChannelById(51L, USER_SCOPE)).thenReturn(channel(51L, 20001L));
         when(mapper.selectAvailableTemplateById(11L)).thenReturn(template(11L, "基础领奖"));
         when(countryService.requireActiveOption("IN", true)).thenReturn(country("IN", "印度", "+91"));
         when(countryService.requireActiveOption("IN", false)).thenReturn(country("IN", "印度", "+91"));

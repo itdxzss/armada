@@ -49,11 +49,14 @@ import com.armada.resource.service.IpProxyAllocationRequest;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,12 +110,18 @@ class AccountOnlineCommandServiceImplTest {
 
     @BeforeEach
     void allowManualOnlineStateClaimsAndSnapshotWritesByDefault() {
+        DataScopeContext.open(DataScope.all(1L));
         lenient().doAnswer(invocation -> invocation.<List<Long>>getArgument(0).size())
                 .when(stateMapper).updateDesiredLoginState(any(), anyInt(), anyLong());
         lenient().doAnswer(invocation -> invocation.<List<Long>>getArgument(0).size())
                 .when(stateMapper).claimPendingOnline(any(), anyLong());
         lenient().doAnswer(invocation -> invocation.<List<AccountState>>getArgument(0).size())
                 .when(stateMapper).updateProxySnapshots(any());
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
     }
 
     @Test
@@ -143,6 +152,130 @@ class AccountOnlineCommandServiceImplTest {
         verify(stateMapper).updateDesiredLoginState(
                 eq(List.of(100L)), eq(AccountLoginStateCode.ONLINE), anyLong());
         verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void online_selfOwner_canReachIdempotentResult() {
+        Account account = ownedAccount(100L, "acc_8613800138000", 9L);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L))
+                .thenReturn(loginState(100L, AccountLoginStateCode.PENDING_ONLINE));
+
+        AccountOnlineVO result;
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            result = service.online(100L);
+        }
+
+        assertThat(result.stateSource()).isEqualTo("ALREADY_PENDING");
+    }
+
+    @Test
+    void online_allScope_canAccessAnotherOwnersAccount() {
+        Account account = ownedAccount(100L, "acc_8613800138000", 9L);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(stateMapper.selectByAccountId(100L))
+                .thenReturn(loginState(100L, AccountLoginStateCode.PENDING_ONLINE));
+
+        assertThat(service.online(100L).stateSource()).isEqualTo("ALREADY_PENDING");
+    }
+
+    @Test
+    void online_otherOwner_rejectsBeforeStateProxyOrOutboxWork() {
+        when(accountMapper.selectActiveById(100L))
+                .thenReturn(ownedAccount(100L, "acc_8613800138000", 10L));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.online(100L))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void online_missingScope_rejectsBeforeStateProxyOrOutboxWork() {
+        DataScopeContext.clear();
+        when(accountMapper.selectActiveById(100L))
+                .thenReturn(ownedAccount(100L, "acc_8613800138000", 9L));
+
+        assertThatThrownBy(() -> service.online(100L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void online_systemScope_rejectsBeforeStateProxyOrOutboxWork() {
+        when(accountMapper.selectActiveById(100L))
+                .thenReturn(ownedAccount(100L, "acc_8613800138000", 9L));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.system("test"))) {
+            assertThatThrownBy(() -> service.online(100L))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+        }
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void onlineBatchWithProtocolBackends_mixedOwnersRejectsWholeBatchBeforeMutation() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(
+                ownedAccount(100L, "acc_100", 9L),
+                ownedAccount(101L, "acc_101", 10L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.onlineBatchWithProtocolBackends(List.of(
+                    new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                    new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID))))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void takeoverBatch_mixedOwnersRejectsWholeBatchBeforeMutation() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(
+                ownedAccount(100L, "acc_100", 9L),
+                ownedAccount(101L, "acc_101", 10L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.takeoverBatch(ids))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void offlineBatchWithProtocolBackends_mixedOwnersRejectsWholeBatchBeforeMutation() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(
+                ownedAccount(100L, "acc_100", 9L),
+                ownedAccount(101L, "acc_101", 10L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.offlineBatchWithProtocolBackends(List.of(
+                    new AccountLifecycleCommandItem(100L, ProtocolBackend.WEB),
+                    new AccountLifecycleCommandItem(101L, ProtocolBackend.ANDROID))))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("code")
+                    .isEqualTo(ErrorCode.NOT_FOUND.code());
+        }
+
+        verifyNoInteractions(stateMapper, credentialMapper, ipProxyService, protocolCommandOutboxService);
     }
 
     @Test
@@ -187,6 +320,7 @@ class AccountOnlineCommandServiceImplTest {
     void online_validAccountCredentialAndAllocatedProxy_enqueuesOutboxCommandAndMapsAcceptedVo() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(9L);
         account.setWsPhone("8613800138000");
         account.setProtocolAccountId("acc_8613800138000");
         AccountCredential credential = new AccountCredential();
@@ -247,6 +381,7 @@ class AccountOnlineCommandServiceImplTest {
     void online_androidProtocolAccount_enqueuesAndroidBackendCommand() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(9L);
         account.setWsPhone("8613800138000");
         account.setProtocolAccountId("acc_8613800138000");
         account.setProtocolId("ANDROID");
@@ -293,6 +428,7 @@ class AccountOnlineCommandServiceImplTest {
         try {
             Account account = new Account();
             account.setId(100L);
+            account.setOwnerUserId(9L);
             account.setProtocolAccountId("acc_8613800138000");
             String credentialJson = "{\"creds\":{},\"keys\":{}}";
             AccountCredential credential = new AccountCredential();
@@ -378,7 +514,42 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void onlineBatch_mixedOwnersRejectsWholeBatchBeforeMutation() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(
+                ownedAccount(100L, "acc_100", 9L),
+                ownedAccount(101L, "acc_101", 10L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.onlineBatch(ids))
+                    .isInstanceOfSatisfying(BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code()));
+        }
+
+        verify(stateMapper, never()).updateDesiredLoginState(any(), anyInt(), anyLong());
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
+    void offlineBatch_mixedOwnersRejectsWholeBatchBeforeMutation() {
+        List<Long> ids = List.of(100L, 101L);
+        when(accountMapper.selectActiveByIds(ids)).thenReturn(List.of(
+                ownedAccount(100L, "acc_100", 9L),
+                ownedAccount(101L, "acc_101", 10L)));
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(9L))) {
+            assertThatThrownBy(() -> service.offlineBatch(ids))
+                    .isInstanceOfSatisfying(BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code()));
+        }
+
+        verify(stateMapper, never()).updateDesiredLoginState(any(), anyInt(), anyLong());
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
     void reonlineAfterProxyFailure_enqueuesOnlineCommandWithAttemptLineageAndProxyFailedSource() {
+        DataScopeContext.open(DataScope.self(9L));
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
         ProxyEndpoint endpoint = onlineEndpoint();
@@ -707,6 +878,7 @@ class AccountOnlineCommandServiceImplTest {
 
     @Test
     void reonlineForTakeover_currentTakingOverEnqueuesSingleOnlineWithTakeoverSource() {
+        DataScopeContext.open(DataScope.self(9L));
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
         ProxyEndpoint endpoint = onlineEndpoint();
@@ -1014,6 +1186,7 @@ class AccountOnlineCommandServiceImplTest {
 
     @Test
     void reloginOnlineAccountsByProxyIds_onlyReloginsOnlineBoundAccountsAndExcludesDeletedProxies() {
+        DataScopeContext.clear();
         List<Long> proxyIds = List.of(10L, 11L);
         List<Long> boundAccountIds = List.of(100L, 101L, 102L);
         when(ipProxyService.findBoundAccountIdsByProxyIds(proxyIds)).thenReturn(boundAccountIds);
@@ -1110,6 +1283,7 @@ class AccountOnlineCommandServiceImplTest {
     void online_missingCredential_throwsValidationBeforeProxyLookup() {
         Account account = new Account();
         account.setId(100L);
+        account.setOwnerUserId(9L);
         account.setProtocolAccountId("acc_8613800138000");
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(credentialMapper.selectByAccountId(100L)).thenReturn(null);
@@ -1122,6 +1296,19 @@ class AccountOnlineCommandServiceImplTest {
         verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
     }
 
+    @Test
+    void adminCannotOnlineHistoricalUnownedAccount() {
+        Account account = account(100L, "acc_8613800138000");
+        account.setOwnerUserId(null);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+
+        assertThatThrownBy(() -> service.online(100L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verifyNoInteractions(credentialMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
     private static Account onlineAccount() {
         return account(100L, "acc_8613800138000");
     }
@@ -1129,7 +1316,14 @@ class AccountOnlineCommandServiceImplTest {
     private static Account account(Long accountId, String protocolAccountId) {
         Account account = new Account();
         account.setId(accountId);
+        account.setOwnerUserId(9L);
         account.setProtocolAccountId(protocolAccountId);
+        return account;
+    }
+
+    private static Account ownedAccount(Long accountId, String protocolAccountId, Long ownerUserId) {
+        Account account = account(accountId, protocolAccountId);
+        account.setOwnerUserId(ownerUserId);
         return account;
     }
 

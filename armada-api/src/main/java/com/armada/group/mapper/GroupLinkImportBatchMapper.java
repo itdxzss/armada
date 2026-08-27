@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.GroupLinkImportBatch;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -33,5 +34,7 @@ public interface GroupLinkImportBatchMapper {
      * @param labelIds 分组 ID 列表
      * @return 更新行数
      */
-    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds, @Param("deletedAt") long deletedAt);
+    int softDeleteByLabelIds(@Param("ids") List<Long> labelIds,
+                             @Param("scope") DataScope scope,
+                             @Param("deletedAt") long deletedAt);
 }

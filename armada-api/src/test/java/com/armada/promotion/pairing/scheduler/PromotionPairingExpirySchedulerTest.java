@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.service.impl.PromotionPairingCompletionService;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -27,6 +28,7 @@ class PromotionPairingExpirySchedulerTest {
     @AfterEach
     void clearTenantContext() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -34,6 +36,7 @@ class PromotionPairingExpirySchedulerTest {
         PromotionPairingSession session = new PromotionPairingSession();
         session.setId(7001L);
         session.setTenantId(7L);
+        session.setOwnerUserId(81L);
         when(sessionMapper.selectExpiredActive(anyLong(), eq(100))).thenReturn(List.of(session));
         TenantContext.set(99L);
         PromotionPairingExpiryScheduler scheduler =

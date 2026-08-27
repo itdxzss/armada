@@ -42,6 +42,23 @@ public interface AccountService {
     Map<Long, Integer> getLoginStatesByIds(List<Long> accountIds);
 
     /**
+     * 校验一组账号均在当前用户数据范围内。
+     *
+     * @param accountIds 待访问账号 ID
+     */
+    void requireAccessibleAccounts(List<Long> accountIds);
+
+    /**
+     * 校验一组账号均属于指定分组、归属一致且在当前用户数据范围内。
+     *
+     * <p>供营销、任务等跨域创建入口在冻结账号快照前调用，混入不可见账号时整批拒绝。</p>
+     *
+     * @param accountIds 待冻结账号 ID
+     * @param accountGroupId 请求指定的账号分组 ID
+     */
+    void requireAccessibleAccountsInGroup(List<Long> accountIds, Long accountGroupId);
+
+    /**
      * 批量迁移分组:将指定账号迁移到目标分组。
      *
      * <p>实现要点:① ids 非空;② 目标分组存在(软删的不算);③ UPDATE account SET account_group_id。

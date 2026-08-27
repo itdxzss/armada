@@ -14,10 +14,13 @@ import com.armada.group.model.enums.GroupLinkOrigin;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -36,8 +39,14 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Mock
     private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    @BeforeEach
+    void setDataScope() {
+        DataScopeContext.open(DataScope.self(1L));
+    }
+
     @AfterEach
     void clearTenant() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -47,14 +56,14 @@ class GroupLinkRegistryServiceImplUnitTest {
                 new GroupLinkRegistryServiceImpl(
                         groupLinkMapper, previewMapper,
                         currentSnapshotPersistence);
-        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363001@g.us"))
+        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363001@g.us", 1L))
                 .thenReturn(88L);
 
         Long result = service.registerAccountObservedGroup(
                 "120363001@g.us", "测试群", ProtocolBackend.ANDROID, 1000L);
 
         assertThat(result).isEqualTo(88L);
-        verify(groupLinkMapper).touchAccountObservedGroup(88L, "测试群", 2, 1000L);
+        verify(groupLinkMapper).touchAccountObservedGroup(88L, 1L, "测试群", 2, 1000L);
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
     }
 
@@ -64,14 +73,14 @@ class GroupLinkRegistryServiceImplUnitTest {
                 new GroupLinkRegistryServiceImpl(
                         groupLinkMapper, previewMapper,
                         currentSnapshotPersistence);
-        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363002@g.us"))
+        when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363002@g.us", 1L))
                 .thenReturn(null);
         org.mockito.Mockito.doReturn(1).when(groupLinkMapper).upsertAccountObservedGroup(
                 org.mockito.ArgumentMatchers.any(GroupLink.class),
                 org.mockito.ArgumentMatchers.eq("新群"));
         GroupLink resolved = new GroupLink();
         resolved.setId(99L);
-        when(groupLinkMapper.selectAnyByUrlForUpdate("wa://group/120363002@g.us"))
+        when(groupLinkMapper.selectAnyByUrlForUpdate("wa://group/120363002@g.us", 1L))
                 .thenReturn(resolved);
 
         Long result = service.registerAccountObservedGroup(
@@ -86,9 +95,10 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(rowCaptor.getValue().getOrigin()).isEqualTo(GroupLinkOrigin.ACCOUNT_SYNC.code());
         assertThat(rowCaptor.getValue().getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
         assertThat(rowCaptor.getValue().getSyncProtocolMask()).isEqualTo(2);
-        verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us");
+        verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us", 1L);
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
         verify(groupLinkMapper, never()).touchAccountObservedGroup(
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt(),
@@ -99,7 +109,7 @@ class GroupLinkRegistryServiceImplUnitTest {
     void batchNewHandleFallsBackToJidWhenObservedNameIsBlank() {
         TenantContext.set(7L);
         when(groupLinkMapper.selectAccountObservedHandles(
-                7L, List.of("120363003@g.us")))
+                7L, 1L, List.of("120363003@g.us")))
                 .thenReturn(
                         List.of(),
                         List.of(new com.armada.group.model.vo.AccountObservedGroupHandle(
@@ -115,7 +125,8 @@ class GroupLinkRegistryServiceImplUnitTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AccountObservedGroupWrite>> rows = ArgumentCaptor.forClass(List.class);
         verify(groupLinkMapper).upsertAccountObservedGroups(
-                org.mockito.ArgumentMatchers.eq(7L), rows.capture());
+                org.mockito.ArgumentMatchers.eq(7L),
+                org.mockito.ArgumentMatchers.eq(1L), rows.capture());
         assertThat(rows.getValue()).singleElement().satisfies(row -> {
             assertThat(row.insertGroupName()).isEqualTo("120363003@g.us");
             assertThat(row.observedGroupName()).isNull();
@@ -127,6 +138,12 @@ class GroupLinkRegistryServiceImplUnitTest {
         GroupLinkRegistryServiceImpl service = new GroupLinkRegistryServiceImpl(
                 groupLinkMapper, previewMapper,
                 currentSnapshotPersistence);
+        GroupLink visible = new GroupLink();
+        visible.setId(77L);
+        visible.setOwnerUserId(1L);
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(77L),
+                org.mockito.ArgumentMatchers.any(DataScope.class))).thenReturn(visible);
 
         service.registerKnownMembership(
                 77L, "120363003@g.us", 301L, true, 3_000L);

@@ -81,6 +81,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
         accountQuery.setPhone("923300000501");
         accountQuery.setPage(1);
         accountQuery.setPageSize(10);
+        accountQuery.applyDataScope(com.armada.shared.security.DataScope.all(1L));
 
         assertThat(accountMapper.selectPage(accountQuery))
                 .singleElement()
@@ -328,22 +329,23 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     void groupJidHandleLookupPrefersActiveCanonicalReference() throws SQLException {
         execute("""
                 INSERT INTO group_link
-                  (id, tenant_id, group_id, link_url, group_name, membership_state, deleted_at)
+                  (id, tenant_id, owner_user_id, group_id, link_url, group_name, membership_state, deleted_at)
                 VALUES
-                  (2002, 7, 1001, 'wa://group/archived-alias', 'archived', 2, 900)
+                  (2002, 7, 1, 1001, 'wa://group/archived-alias', 'archived', 2, 900)
                 """);
 
         assertThat(groupLinkMapper.selectIdByGroupJidIncludingDeleted(
-                "in-group@g.us")).isEqualTo(2001L);
+                "in-group@g.us", 1L)).isEqualTo(2001L);
 
         execute("UPDATE group_link SET deleted_at = 901 WHERE id = 2001");
         assertThat(groupLinkMapper.selectIdByGroupJidIncludingDeleted(
-                "in-group@g.us")).isEqualTo(2001L);
+                "in-group@g.us", 1L)).isEqualTo(2001L);
     }
 
     @Test
     void currentGroupIdentityReadsCanonicalGroupAndInviteReferences() {
-        assertThat(groupLinkMapper.selectCurrentIdentity(2001L))
+        assertThat(groupLinkMapper.selectCurrentIdentity(
+                2001L, com.armada.shared.security.DataScope.all(1L)))
                 .satisfies(identity -> {
                     assertThat(identity.groupLinkId()).isEqualTo(2001L);
                     assertThat(identity.groupJid()).isEqualTo("in-group@g.us");
@@ -354,7 +356,8 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     private void createSchema() throws SQLException {
         execute("""
                 CREATE TABLE account (
-                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, ws_phone VARCHAR(32) NOT NULL,
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT,
+                  ws_phone VARCHAR(32) NOT NULL,
                   account_type TINYINT NOT NULL, device_os TINYINT, number_source TINYINT,
                   channel_name VARCHAR(128), protocol_id VARCHAR(32), protocol_account_id VARCHAR(64),
                   group_baseline_state TINYINT NOT NULL, account_group_id BIGINT, ownership TINYINT NOT NULL,
@@ -453,7 +456,7 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 )
                 """, """
                 CREATE TABLE group_link (
-                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_id BIGINT,
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT, group_id BIGINT,
                   group_invite_id BIGINT,
                   link_url VARCHAR(255), group_name VARCHAR(128), membership_state TINYINT,
                   deleted_at BIGINT
@@ -471,12 +474,13 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 "INSERT INTO account_group (id, tenant_id, name, deleted_at) VALUES (11, 7, '当前租户组', NULL)",
                 """
                 INSERT INTO account
-                  (id, tenant_id, ws_phone, account_type, ownership, protocol_id, protocol_account_id,
+                  (id, tenant_id, owner_user_id, ws_phone, account_type, ownership,
+                   protocol_id, protocol_account_id,
                    group_baseline_state, account_group_id, created_at, deleted_at)
                 VALUES
-                  (501, 7, '923300000501', 1, 1, 'wa-web', 'acc_501', 3, 11, 100, NULL),
-                  (502, 7, '923300000502', 1, 1, 'wa-web', 'acc_502', 3, NULL, 100, NULL),
-                  (601, 8, '923300000601', 1, 1, 'wa-web', 'acc_601', 3, 11, 100, NULL)
+                  (501, 7, 1, '923300000501', 1, 1, 'wa-web', 'acc_501', 3, 11, 100, NULL),
+                  (502, 7, 1, '923300000502', 1, 1, 'wa-web', 'acc_502', 3, NULL, 100, NULL),
+                  (601, 8, 2, '923300000601', 1, 1, 'wa-web', 'acc_601', 3, 11, 100, NULL)
                 """,
                 """
                 INSERT INTO account_state
@@ -549,10 +553,10 @@ public class GroupMembershipCountSemanticsMapperH2Test {
                 """,
                 """
                 INSERT INTO group_link
-                  (id, tenant_id, group_id, group_invite_id,
+                  (id, tenant_id, owner_user_id, group_id, group_invite_id,
                    link_url, group_name, membership_state, deleted_at)
                 VALUES
-                  (2001, 7, 1001, 5001, 'https://chat.whatsapp.com/current',
+                  (2001, 7, 1, 1001, 5001, 'https://chat.whatsapp.com/current',
                    'current handle', 2, NULL)
                 """,
                 """

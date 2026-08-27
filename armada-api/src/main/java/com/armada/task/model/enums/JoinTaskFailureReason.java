@@ -15,6 +15,9 @@ public enum JoinTaskFailureReason {
     /** 明细绑定的账号不存在或已不可用。 */
     ACCOUNT_NOT_FOUND("ACCOUNT_NOT_FOUND", "账号不存在"),
 
+    /** 历史任务没有可信用户归属，调度器禁止代替任意用户执行。 */
+    DATA_OWNER_MISSING("DATA_OWNER_MISSING", "历史任务未分配归属用户"),
+
     /** 账号当前未在协议层在线。 */
     ACCOUNT_NOT_ONLINE("ACCOUNT_NOT_ONLINE", "账号未在线"),
 

@@ -3,6 +3,8 @@ package com.armada.task.scheduler;
 import com.armada.group.service.GroupFolderService;
 import com.armada.group.model.vo.GroupPoolResourceVO;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
@@ -86,7 +88,7 @@ public class PullTaskExecutionTransactionService {
                 PullTaskStandardSetting setting =
                         settingMapper.selectByTaskId(candidate.getTaskId());
                 GroupPoolResourceVO resource = requiresRuntimeGroup(parent, candidate)
-                        ? nextAvailableResource(setting) : null;
+                        ? nextAvailableResource(setting, parent.getOwnerUserId()) : null;
                 if (requiresRuntimeGroup(parent, candidate) && resource == null) {
                     waitForGroupResource(parent, now);
                     release(candidate.getId(), lockOwner, now);
@@ -112,9 +114,9 @@ public class PullTaskExecutionTransactionService {
                     return Optional.empty();
                 }
                 if (resource != null) {
-                    GroupPoolResourceVO locked = groupFolderService
-                            .requireUsableResourceForUpdate(
-                                    setting.getSourceGroupFolderId(), resource.groupLinkId());
+                    GroupPoolResourceVO locked = requireUsableResourceForUpdate(
+                            setting.getSourceGroupFolderId(), resource.groupLinkId(),
+                            parent.getOwnerUserId());
                     if (!resource.equals(locked)) {
                         throw new IllegalStateException("领取群组期间群组身份已变化");
                     }
@@ -165,12 +167,15 @@ public class PullTaskExecutionTransactionService {
         }
     }
 
-    private GroupPoolResourceVO nextAvailableResource(PullTaskStandardSetting setting) {
+    private GroupPoolResourceVO nextAvailableResource(
+            PullTaskStandardSetting setting, Long ownerUserId) {
         if (setting == null || setting.getSourceGroupFolderId() == null) {
             return null;
         }
-        List<GroupPoolResourceVO> resources =
-                groupFolderService.usableResources(setting.getSourceGroupFolderId());
+        List<GroupPoolResourceVO> resources;
+        try (DataScopeContext.Scope ignored = openOwnerScope(ownerUserId)) {
+            resources = groupFolderService.usableResources(setting.getSourceGroupFolderId());
+        }
         if (resources == null || resources.isEmpty()) {
             return null;
         }
@@ -183,6 +188,20 @@ public class PullTaskExecutionTransactionService {
                 .filter(resource -> !occupied.contains(resource.groupJid()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private GroupPoolResourceVO requireUsableResourceForUpdate(
+            long folderId, long groupLinkId, Long ownerUserId) {
+        try (DataScopeContext.Scope ignored = openOwnerScope(ownerUserId)) {
+            return groupFolderService.requireUsableResourceForUpdate(folderId, groupLinkId);
+        }
+    }
+
+    private static DataScopeContext.Scope openOwnerScope(Long ownerUserId) {
+        if (ownerUserId == null) {
+            throw new IllegalStateException("历史无归属拉群任务不能领取用户群资源");
+        }
+        return DataScopeContext.open(DataScope.self(ownerUserId));
     }
 
     private static boolean requiresRuntimeGroup(

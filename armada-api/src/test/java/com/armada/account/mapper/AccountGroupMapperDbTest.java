@@ -10,6 +10,7 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.vo.AccountGroupVoRow;
 import com.armada.testsupport.DbTestBase;
+import com.armada.shared.security.DataScope;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -76,8 +77,8 @@ class AccountGroupMapperDbTest extends DbTestBase {
         AccountGroup g = build("分组A");
         mapper.insert(g);
         assertThat(g.getId()).isNotNull();
-        assertThat(mapper.selectActiveByName("分组A")).isNotNull();
-        assertThat(mapper.selectDeletedByName("分组A")).isNull();
+        assertThat(mapper.selectActiveByNameForOwner("分组A", null)).isNotNull();
+        assertThat(mapper.selectDeletedByNameForOwner("分组A", null)).isNull();
     }
 
     @Test
@@ -85,10 +86,10 @@ class AccountGroupMapperDbTest extends DbTestBase {
         AccountGroup g = build("分组B");
         mapper.insert(g);
         mapper.softDeleteByIds(List.of(g.getId()), 1_700_000_000_001L);
-        assertThat(mapper.selectActiveByName("分组B")).isNull();
-        assertThat(mapper.selectDeletedByName("分组B")).isNotNull();
+        assertThat(mapper.selectActiveByNameForOwner("分组B", null)).isNull();
+        assertThat(mapper.selectDeletedByNameForOwner("分组B", null)).isNotNull();
         mapper.reviveById(g.getId());
-        assertThat(mapper.selectActiveByName("分组B")).isNotNull();
+        assertThat(mapper.selectActiveByNameForOwner("分组B", null)).isNotNull();
     }
 
     @Test
@@ -132,6 +133,7 @@ class AccountGroupMapperDbTest extends DbTestBase {
         mapper.insert(newer);
 
         AccountGroupQuery query = new AccountGroupQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setKeyword("排序");
         query.setPageSize(10);
         List<AccountGroupVoRow> rows = mapper.selectPage(query);
@@ -173,6 +175,7 @@ class AccountGroupMapperDbTest extends DbTestBase {
         AccountGroupQuery query = new AccountGroupQuery();
         query.setId(group.getId());
         query.setPageSize(10);
+        query.applyDataScope(DataScope.all(1L));
 
         AccountGroupVoRow row = mapper.selectPage(query).get(0);
 

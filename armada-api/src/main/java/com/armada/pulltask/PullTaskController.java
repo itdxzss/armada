@@ -5,6 +5,8 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.security.AuthPrincipal;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,6 +71,7 @@ public class PullTaskController {
         int expectedPullCount = nonBlankLineCount(text(request.get("materialText")));
         String groupName = mapText(request.get("groupProfile"), "groupName");
         String remark = nullableText(request.get("remark"));
+        DataScope scope = requireRequestScope(principal);
         long now = System.currentTimeMillis();
         String config;
         try {
@@ -76,15 +79,15 @@ public class PullTaskController {
         } catch (JsonProcessingException ex) {
             throw new BusinessException(ErrorCode.VALIDATION, "任务配置格式错误");
         }
-        jdbc.update("INSERT INTO pull_task (tenant_id,task_name,mode,status,group_name,group_count," +
+        jdbc.update("INSERT INTO pull_task (tenant_id,owner_user_id,task_name,mode,status,group_name,group_count," +
                         "expected_pull_count,config_json,operator_name,created_by,remark,created_at,updated_at) " +
-                        "VALUES (?,?,?,'WAIT_START',?,?,?,?,?,?,?,?,?)",
-                principal.tenantId(), taskName, mode, nullable(groupName), groupCount,
+                        "VALUES (?,?,?,?,'WAIT_START',?,?,?,?,?,?,?,?,?)",
+                principal.tenantId(), scope.ownerUserIdForCreate(), taskName, mode, nullable(groupName), groupCount,
                 expectedPullCount, config, displayName(principal), principal.userId(), remark, now, now);
         Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         log.info("拉群任务配置已保存 tenantId={} taskId={} mode={} groupCount={} expectedPullCount={} operator={}",
                 principal.tenantId(), id, mode, groupCount, expectedPullCount, principal.username());
-        return ApiResponse.ok(requireRow(principal.tenantId(), id));
+        return ApiResponse.ok(requireRow(principal, id));
     }
 
     /** 查询任务配置详情。 */
@@ -92,10 +95,8 @@ public class PullTaskController {
     public ApiResponse<Map<String, Object>> detail(
             @PathVariable Long id,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        Map<String, Object> result = requireRow(principal.tenantId(), id);
-        String json = jdbc.queryForObject(
-                "SELECT CAST(config_json AS CHAR) FROM pull_task WHERE tenant_id=? AND id=? AND deleted_at IS NULL",
-                String.class, principal.tenantId(), id);
+        Map<String, Object> result = requireRow(principal, id);
+        String json = requireConfigJson(principal, id);
         try {
             result.put("config", objectMapper.readValue(json, MAP_TYPE));
         } catch (JsonProcessingException ex) {
@@ -113,7 +114,7 @@ public class PullTaskController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int pageSize,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        requireRow(principal.tenantId(), id);
+        requireRow(principal, id);
         int safePage = Math.max(1, page);
         int safePageSize = Math.min(200, Math.max(1, pageSize));
         return ApiResponse.ok(PageResult.of(List.of(), safePage, safePageSize, 0));
@@ -124,7 +125,7 @@ public class PullTaskController {
     public ApiResponse<Map<String, Object>> lifecycle(
             @PathVariable Long id,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        requireRow(principal.tenantId(), id);
+        requireRow(principal, id);
         log.warn("拉群任务执行操作被拒绝：执行器未接入 tenantId={} taskId={} operator={}",
                 principal.tenantId(), id, principal.username());
         throw new BusinessException(ErrorCode.VALIDATION, "拉群任务执行器尚未接入，当前只能保存和查看任务配置");
@@ -136,7 +137,7 @@ public class PullTaskController {
     public ApiResponse<Integer> unsupportedGroupOperation(
             @PathVariable Long id,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        requireRow(principal.tenantId(), id);
+        requireRow(principal, id);
         throw new BusinessException(ErrorCode.VALIDATION, "任务尚未开始执行，没有可操作的群组明细");
     }
 
@@ -145,27 +146,60 @@ public class PullTaskController {
     public ApiResponse<Map<String, String>> export(
             @PathVariable Long id,
             @AuthenticationPrincipal AuthPrincipal principal) {
-        Map<String, Object> task = requireRow(principal.tenantId(), id);
+        Map<String, Object> task = requireRow(principal, id);
         String content = "任务ID\t任务名称\t模式\t状态\t群数量\t预计拉人数\n" +
                 task.get("id") + "\t" + task.get("taskName") + "\t" + task.get("mode") + "\t" +
                 task.get("status") + "\t" + task.get("groupCount") + "\t" + task.get("expectedPullCount") + "\n";
         return ApiResponse.ok(Map.of("filename", "拉群任务_" + id + ".txt", "content", content));
     }
 
-    private Map<String, Object> requireRow(long tenantId, Long id) {
+    private Map<String, Object> requireRow(AuthPrincipal principal, Long id) {
+        ScopedSql scopedSql = scopedSql(principal, id);
         List<Map<String, Object>> rows = jdbc.query(
                 "SELECT id,task_name,group_name,mode,status,group_count,expected_pull_count," +
                         "operator_name,created_at,updated_at,remark FROM pull_task " +
-                        "WHERE tenant_id=? AND id=? AND deleted_at IS NULL",
+                        "WHERE tenant_id=? AND id=? AND deleted_at IS NULL" + scopedSql.ownerPredicate(),
                 (rs, n) -> row(rs.getLong("id"), rs.getString("task_name"),
                         rs.getString("group_name"), rs.getString("mode"), rs.getString("status"),
                         rs.getInt("group_count"), rs.getInt("expected_pull_count"),
                         rs.getString("operator_name"), rs.getLong("created_at"),
-                        rs.getLong("updated_at"), rs.getString("remark")), tenantId, id);
+                        rs.getLong("updated_at"), rs.getString("remark")), scopedSql.arguments());
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }
         return rows.get(0);
+    }
+
+    private String requireConfigJson(AuthPrincipal principal, Long id) {
+        ScopedSql scopedSql = scopedSql(principal, id);
+        List<String> rows = jdbc.query(
+                "SELECT config_json FROM pull_task " +
+                        "WHERE tenant_id=? AND id=? AND deleted_at IS NULL" + scopedSql.ownerPredicate(),
+                (rs, rowNum) -> rs.getString(1), scopedSql.arguments());
+        if (rows.isEmpty()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
+        }
+        return rows.get(0);
+    }
+
+    private ScopedSql scopedSql(AuthPrincipal principal, Long id) {
+        DataScope scope = requireRequestScope(principal);
+        String ownerPredicate;
+        Object[] arguments;
+        if (scope.isSelf()) {
+            ownerPredicate = " AND owner_user_id=?";
+            arguments = new Object[]{principal.tenantId(), id, scope.actorUserId()};
+        } else if (scope.isAll()) {
+            ownerPredicate = "";
+            arguments = new Object[]{principal.tenantId(), id};
+        } else {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "后台范围不能直接访问用户私有数据");
+        }
+        return new ScopedSql(ownerPredicate, arguments);
+    }
+
+    private static DataScope requireRequestScope(AuthPrincipal principal) {
+        return DataScopeAccess.requireCurrentForPrincipal(principal);
     }
 
     private static Map<String, Object> row(long id, String taskName, String groupName,
@@ -238,6 +272,9 @@ public class PullTaskController {
 
     private static String displayName(AuthPrincipal principal) {
         return hasText(principal.nickname()) ? principal.nickname() : principal.username();
+    }
+
+    private record ScopedSql(String ownerPredicate, Object[] arguments) {
     }
 
 }

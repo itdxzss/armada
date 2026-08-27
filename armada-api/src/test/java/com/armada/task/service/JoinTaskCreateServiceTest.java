@@ -1,8 +1,14 @@
 package com.armada.task.service;
 
+import com.armada.account.mapper.AccountGroupMapper;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
 import com.armada.task.mapper.JoinTaskResultMapper;
@@ -24,6 +30,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -42,16 +49,26 @@ class JoinTaskCreateServiceTest {
     @Mock
     private GroupLinkRegistryService groupLinkRegistryService;
 
+    @Mock
+    private AccountMapper accountMapper;
+
+    @Mock
+    private AccountGroupMapper accountGroupMapper;
+
     private JoinTaskServiceImpl service;
+    private DataScopeContext.Scope dataScope;
 
     @BeforeEach
     void setUp() {
         TenantContext.set(1L);
-        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService);
+        dataScope = DataScopeContext.open(DataScope.self(1001L));
+        service = new JoinTaskServiceImpl(
+                joinTaskMapper, resultMapper, groupLinkRegistryService, accountMapper, accountGroupMapper);
     }
 
     @AfterEach
     void tearDown() {
+        dataScope.close();
         TenantContext.clear();
     }
 
@@ -163,13 +180,19 @@ class JoinTaskCreateServiceTest {
             inserted.set(task);
             return 1;
         }).when(joinTaskMapper).insert(any(JoinTask.class));
-        when(joinTaskMapper.selectByTenantAndId(99L)).thenAnswer(invocation -> inserted.get());
+        when(joinTaskMapper.selectByTenantAndIdForScope(eq(99L), any())).thenAnswer(invocation -> inserted.get());
+        when(accountMapper.selectActiveByIds(List.of(1L, 2L)))
+                .thenReturn(List.of(accountRow(1L, 1L, 1001L), accountRow(2L, 1L, 1001L)));
+        when(accountGroupMapper.selectByIds(List.of(1L)))
+                .thenReturn(List.of(groupRow(1L, 1001L)));
 
         service.createTask(req);
 
         ArgumentCaptor<List<JoinTaskResult>> rows = ArgumentCaptor.forClass(List.class);
         verify(resultMapper).insertResults(rows.capture());
         assertThat(inserted.get().getTotal()).isEqualTo(3);
+        assertThat(inserted.get().getOwnerUserId()).isEqualTo(1001L);
+        assertThat(inserted.get().getCreatedBy()).isEqualTo(1001L);
         assertThat(rows.getValue()).hasSize(3);
         assertThat(rows.getValue()).allSatisfy(row -> {
             assertThat(row.getDispatchState()).isEqualTo(JoinTaskDispatchState.WAITING);
@@ -205,6 +228,21 @@ class JoinTaskCreateServiceTest {
 
     private static SelectedAccount account(long id) {
         return new SelectedAccount(id, "9" + id);
+    }
+
+    private static Account accountRow(long id, long groupId, Long ownerUserId) {
+        Account account = new Account();
+        account.setId(id);
+        account.setAccountGroupId(groupId);
+        account.setOwnerUserId(ownerUserId);
+        return account;
+    }
+
+    private static AccountGroup groupRow(long id, Long ownerUserId) {
+        AccountGroup group = new AccountGroup();
+        group.setId(id);
+        group.setOwnerUserId(ownerUserId);
+        return group;
     }
 
     private static String links(int count) {

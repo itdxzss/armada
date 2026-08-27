@@ -48,10 +48,13 @@ import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -99,6 +102,7 @@ class GroupDetailServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.all(1L));
         service = new GroupDetailServiceImpl(
                 groupLinkMapper,
                 selector,
@@ -114,9 +118,17 @@ class GroupDetailServiceImplTest {
                 businessDepartureService);
     }
 
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void detailReadsPersistedMetadataAndMembersWithoutProtocolCall() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "本地群名", "本地备注"));
         GroupLinkPreview preview = preview("120363detail@g.us");
         preview.setWaSubject("真实群名");
         preview.setMetadataObservedAt(1_722_470_400_000L);
@@ -152,7 +164,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void detailWithoutCompletedSnapshotReturnsPendingState() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "本地群名", "本地备注"));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.PENDING));
 
@@ -168,7 +183,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void requestMetadataSyncOnlyEnqueuesDurableTask() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "本地群名", "本地备注"));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
 
         var result = service.requestMetadataSync(10L);
@@ -183,8 +201,44 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
+    void historicalUnownedGroupCannotEnqueueMetadataSync() {
+        GroupLink unowned = activeLink(10L, "历史群", null);
+        unowned.setOwnerUserId(null);
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(unowned);
+
+        assertThatThrownBy(() -> service.requestMetadataSync(10L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verifyNoInteractions(metadataSyncTaskService, selector, groupMetadataPort);
+    }
+
+    @Test
+    void historicalUnownedGroupCannotRunProtocolMutation() {
+        GroupLink unowned = activeLink(10L, "历史群", null);
+        unowned.setOwnerUserId(null);
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(unowned);
+
+        assertThatThrownBy(() -> service.updateSubject(
+                10L, new GroupSubjectCommandDTO("新群名")))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verifyNoInteractions(selector, groupProfilePort);
+    }
+
+    @Test
     void detailKeepsUnknownEphemeralDurationUnknown() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "本地群名", null));
         GroupLinkPreview preview = preview("120363detail@g.us");
         preview.setMetadataObservedAt(1_722_470_400_000L);
         preview.setEphemeralDurationSeconds(123);
@@ -200,7 +254,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void membersRejectsUnavailablePersistedSnapshot() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "本地群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.DEFERRED));
 
@@ -211,11 +268,15 @@ class GroupDetailServiceImplTest {
 
     @Test
     void updateSubjectUsesSelectedAccountAndWritesMirrorAfterProtocolSuccess() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", "备注"));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "旧群名", "备注"));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupLinkMapper.updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
@@ -225,6 +286,7 @@ class GroupDetailServiceImplTest {
         order.verify(groupProfilePort).updateSubject(webAccount(), "120363detail@g.us", "新群名");
         order.verify(groupLinkMapper).updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong());
         org.mockito.ArgumentCaptor<GroupLinkPreview> currentCaptor =
@@ -236,12 +298,16 @@ class GroupDetailServiceImplTest {
 
     @Test
     void updateSubjectPreservesSelectedAndroidProtocolReference() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "旧群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(
                 7L, "ANDROID", "android_7", "919000000001", true));
         when(groupLinkMapper.updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
@@ -253,7 +319,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void updateSubjectTimeoutConfirmedBySameAccountWritesMirror() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "旧群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
@@ -262,6 +331,7 @@ class GroupDetailServiceImplTest {
                 .thenReturn(metadata("新群名", false, false, false, false, 0));
         when(groupLinkMapper.updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong())).thenReturn(1);
 
@@ -271,13 +341,17 @@ class GroupDetailServiceImplTest {
         verify(groupMetadataPort).getMetadata(webAccount(), "120363detail@g.us");
         verify(groupLinkMapper).updateGroupName(
                 org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.eq("新群名"),
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test
     void updateSubjectTimeoutUnconfirmedThrowsDedicatedError() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "旧群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "旧群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
@@ -292,6 +366,7 @@ class GroupDetailServiceImplTest {
         verify(selector).require(10L);
         verify(groupLinkMapper, never()).updateGroupName(
                 org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyLong());
     }
@@ -314,7 +389,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void updateTimedMessagePersistsSubmittedStateWithoutMetadataRead() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
 
@@ -337,7 +415,10 @@ class GroupDetailServiceImplTest {
 
     @Test
     void updateTimedMessageTimeoutIsReportedWithoutMetadataConfirmation() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         doThrow(new ProtocolException(ProtocolErrorCode.TIMEOUT, "timeout"))
@@ -769,7 +850,10 @@ class GroupDetailServiceImplTest {
     void updateAvatarSendsBase64AndPersistsProtocolReadbackUrl() {
         byte[] bytes = "avatar-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         MockMultipartFile file = new MockMultipartFile("file", "avatar.jpg", "image/jpeg", bytes);
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
@@ -791,7 +875,10 @@ class GroupDetailServiceImplTest {
     void updateAvatarAppliedWithoutReadbackUrlDoesNotWriteMirror() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
@@ -809,7 +896,10 @@ class GroupDetailServiceImplTest {
     void updateAvatarTimeoutConfirmedByChangedUrlUsesSameAccount() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
@@ -831,7 +921,10 @@ class GroupDetailServiceImplTest {
     void updateAvatarTimeoutWithUnchangedUrlThrowsDedicatedError() {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "avatar.jpg", "image/jpeg", new byte[]{1, 2, 3});
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(selector.require(10L)).thenReturn(new GroupExecutionAccount(7L, null, "acc_7", "acc_7", true));
         when(groupProfilePort.updatePicture(
@@ -886,7 +979,10 @@ class GroupDetailServiceImplTest {
     }
 
     private void givenLiveTarget() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", null));
+        when(groupLinkMapper.selectActiveById(
+                org.mockito.ArgumentMatchers.eq(10L),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", null));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
     }
 
@@ -1015,6 +1111,7 @@ jid, null,
     private static GroupLink activeLink(Long id, String name, String remark) {
         GroupLink link = new GroupLink();
         link.setId(id);
+        link.setOwnerUserId(1L);
         link.setGroupName(name);
         link.setRemark(remark);
         return link;

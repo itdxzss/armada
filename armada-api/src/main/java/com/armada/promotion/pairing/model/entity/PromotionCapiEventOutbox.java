@@ -5,6 +5,7 @@ public class PromotionCapiEventOutbox {
 
     private Long id;
     private Long tenantId;
+    private Long ownerUserId;
     private Long promotionChannelId;
     private Long pairingSessionId;
     private Integer eventStage;
@@ -33,6 +34,8 @@ public class PromotionCapiEventOutbox {
     public void setId(Long id) { this.id = id; }
     public Long getTenantId() { return tenantId; }
     public void setTenantId(Long tenantId) { this.tenantId = tenantId; }
+    public Long getOwnerUserId() { return ownerUserId; }
+    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public Long getPromotionChannelId() { return promotionChannelId; }
     public void setPromotionChannelId(Long promotionChannelId) { this.promotionChannelId = promotionChannelId; }
     public Long getPairingSessionId() { return pairingSessionId; }

@@ -6,6 +6,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -13,6 +15,8 @@ import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.service.impl.GroupCurrentInvitePersistence;
 import com.armada.group.service.impl.GroupLinkHealthReportServiceImpl;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class GroupLinkHealthReportServiceImplTest {
 
     @Mock private GroupLinkMapper groupLinkMapper;
+    @Mock private AccountMapper accountMapper;
     @Mock private GroupCurrentInvitePersistence currentInvitePersistence;
 
     private GroupLinkHealthReportServiceImpl service;
@@ -35,18 +40,22 @@ class GroupLinkHealthReportServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.clear();
+        DataScopeContext.clear();
         service = new GroupLinkHealthReportServiceImpl(
-                groupLinkMapper, currentInvitePersistence);
+                groupLinkMapper, accountMapper, currentInvitePersistence);
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void healthyEventWritesAvailableCurrentProfileAndRestoresTenant() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630health@g.us"))
+        when(accountMapper.selectActiveByProtocolAccountId("acc"))
+                .thenReturn(account(501L));
+        when(groupLinkMapper.selectActiveIdByGroupJidAndId("1203630health@g.us", 200L, 501L))
                 .thenReturn(200L);
         when(currentInvitePersistence.findHealth("1203630health@g.us"))
                 .thenReturn(currentHealth(44, 3));
@@ -63,11 +72,14 @@ class GroupLinkHealthReportServiceImplTest {
         assertThat(row.getValue().getCurrentCount()).isEqualTo(55);
         assertThat(row.getValue().getHealthFailureCount()).isZero();
         assertThat(TenantContext.get()).isNull();
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     @Test
     void errorPreservesCurrentCountAndIncrementsFailureCount() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630error@g.us"))
+        when(accountMapper.selectActiveByProtocolAccountId("acc"))
+                .thenReturn(account(501L));
+        when(groupLinkMapper.selectActiveIdByGroupJidAndId("1203630error@g.us", 201L, 501L))
                 .thenReturn(201L);
         when(currentInvitePersistence.findHealth("1203630error@g.us"))
                 .thenReturn(currentHealth(66, 2));
@@ -87,7 +99,8 @@ class GroupLinkHealthReportServiceImplTest {
 
     @Test
     void unknownGroupSkipsCurrentHealthWrite() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630missing@g.us"))
+        when(accountMapper.selectActiveByProtocolAccountId("acc")).thenReturn(account(1L));
+        when(groupLinkMapper.selectActiveIdByGroupJid("1203630missing@g.us", 1L))
                 .thenReturn(null);
 
         assertThat(service.applyHealthReported(event(
@@ -99,14 +112,31 @@ class GroupLinkHealthReportServiceImplTest {
 
     @Test
     void conflictingHandleAndGroupJidAreRejected() {
-        when(groupLinkMapper.selectActiveIdByGroupJid("1203630mismatch@g.us"))
-                .thenReturn(999L);
-
+        when(accountMapper.selectActiveByProtocolAccountId("acc"))
+                .thenReturn(account(501L));
         assertThatThrownBy(() -> service.applyHealthReported(event(
                 12L, 204L, "1203630mismatch@g.us", "BANNED", null,
                 "CHAT_SUSPENDED")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("群链接健康事件 groupLinkId 与 groupJid 不一致");
+        verify(groupLinkMapper).selectActiveIdByGroupJidAndId(
+                "1203630mismatch@g.us", 204L, 501L);
+    }
+
+    @Test
+    void historicalUnownedExecutionAccountIsRejected() {
+        when(accountMapper.selectActiveByProtocolAccountId("acc"))
+                .thenReturn(account(null));
+
+        assertThatThrownBy(() -> service.applyHealthReported(event(
+                12L, 204L, "1203630mismatch@g.us", "BANNED", null,
+                "CHAT_SUSPENDED")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(error -> ((BusinessException) error).getCode())
+                .isEqualTo(ErrorCode.ACCESS_DENIED.code());
+
+        verifyNoInteractions(currentInvitePersistence);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     private static GroupLinkHealthReportedEvent event(
@@ -126,5 +156,12 @@ class GroupLinkHealthReportServiceImplTest {
         current.setCurrentCount(count);
         current.setHealthFailureCount(failures);
         return current;
+    }
+
+    private static Account account(Long ownerUserId) {
+        Account account = new Account();
+        account.setOwnerUserId(ownerUserId);
+        account.setProtocolAccountId("acc");
+        return account;
     }
 }

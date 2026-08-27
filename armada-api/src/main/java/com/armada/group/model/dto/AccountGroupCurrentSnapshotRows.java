@@ -11,6 +11,7 @@ public final class AccountGroupCurrentSnapshotRows {
     /** 账号及旧 baseline 上下文；目标 sync state 只用于保留已证明的空 baseline。 */
     public record Context(
             Long accountId,
+            Long ownerUserId,
             String wsPhone,
             String protocolId,
             String protocolAccountId,
@@ -20,6 +21,7 @@ public final class AccountGroupCurrentSnapshotRows {
             Long baselineCapturedAt,
             Long lastSyncRequestedAt,
             Long lastCompleteAt) {
+
     }
 
     /** 写前普通一致性读得到的已有 G/self-M/B 状态。 */

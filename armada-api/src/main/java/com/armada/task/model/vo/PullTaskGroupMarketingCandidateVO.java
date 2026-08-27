@@ -8,6 +8,7 @@ import java.util.List;
  * 拉群营销候选群组展示与选择事实。
  *
  * @param groupLinkId 群链接主键
+ * @param ownerUserId 群入口归属用户 ID；管理员全量视图用于区分归属
  * @param groupJid WhatsApp 群唯一 JID
  * @param groupName 当前群名称
  * @param source 历史群或自收群来源
@@ -36,6 +37,7 @@ import java.util.List;
  */
 public record PullTaskGroupMarketingCandidateVO(
         Long groupLinkId,
+        Long ownerUserId,
         String groupJid,
         String groupName,
         PullTaskGroupSource source,

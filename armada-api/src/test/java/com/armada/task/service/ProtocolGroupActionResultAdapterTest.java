@@ -1,8 +1,11 @@
 package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.armada.platform.kafka.consumer.group.ProtocolGroupActionResultReportedEvent;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
@@ -19,6 +22,7 @@ import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.service.impl.ProtocolGroupActionResultAdapter;
+import com.armada.task.service.impl.TaskResultOwnerScopeRunner;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -34,12 +38,20 @@ class ProtocolGroupActionResultAdapterTest {
             mock(PullTaskProtocolResultCallbackService.class);
     private final PullTaskGroupSettingsResultService groupSettingsResultService =
             mock(PullTaskGroupSettingsResultService.class);
-	private final PullTaskCreatorLeaveResultService creatorLeaveResultService =
-			mock(PullTaskCreatorLeaveResultService.class);
-    private final ProtocolGroupActionResultAdapter adapter =
-            new ProtocolGroupActionResultAdapter(
-                    service, inviteService, managerAdminResultService,
-                    groupSettingsResultService, callbackService, creatorLeaveResultService);
+    private final PullTaskCreatorLeaveResultService creatorLeaveResultService =
+            mock(PullTaskCreatorLeaveResultService.class);
+    private final TaskResultOwnerScopeRunner ownerScopeRunner = mock(TaskResultOwnerScopeRunner.class);
+    private final ProtocolGroupActionResultAdapter adapter;
+
+    ProtocolGroupActionResultAdapterTest() {
+        when(ownerScopeRunner.runForPullTask(anyLong(), anyLong(), any())).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(2).run();
+            return true;
+        });
+        adapter = new ProtocolGroupActionResultAdapter(
+                service, inviteService, managerAdminResultService,
+                groupSettingsResultService, callbackService, creatorLeaveResultService, ownerScopeRunner);
+    }
 
     @Test
     void creatorLeavePromoteEventRoutesToDedicatedStateMachine() {

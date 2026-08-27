@@ -1,7 +1,9 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,8 +15,12 @@ import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.model.vo.WhatsappGroupMemberStateVO;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,8 +35,16 @@ class GroupParticipantObservationServiceImplTest {
     @Mock private AccountMapper accountMapper;
     @Mock private AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
 
+    @BeforeEach
+    void setUpScope() {
+        DataScopeContext.open(DataScope.self(7L));
+        Account observer = account(10L, "15550000010");
+        lenient().when(accountMapper.selectActiveById(10L)).thenReturn(observer);
+    }
+
     @AfterEach
     void clearTenant() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -44,7 +58,8 @@ class GroupParticipantObservationServiceImplTest {
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
                         "123456789012345@lid", "15550000001", true, false,
                         "admin", true, "ROLE_EVENT", 1_000L, "event-1")));
-        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+        when(accountMapper.selectActiveByWsPhonesForScope(
+                List.of("15550000001"), DataScope.self(7L)))
                 .thenReturn(List.of(account(77L, "15550000001")));
 
         service().apply(List.of(input));
@@ -77,8 +92,9 @@ class GroupParticipantObservationServiceImplTest {
 
         service().apply(List.of(input));
 
-        verify(accountMapper, never()).selectActiveByWsPhones(
-                org.mockito.ArgumentMatchers.anyList());
+        verify(accountMapper, never()).selectActiveByWsPhonesForScope(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class));
         verify(currentSnapshotPersistence, never()).applyControlledParticipantObservation(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString(),
@@ -97,7 +113,8 @@ class GroupParticipantObservationServiceImplTest {
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
                         "15550000001@s.whatsapp.net", "15550000001", false, false,
                         "member", false, "REMOVE_EVENT", 2_000L, "event-remove")));
-        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+        when(accountMapper.selectActiveByWsPhonesForScope(
+                List.of("15550000001"), DataScope.self(7L)))
                 .thenReturn(List.of(account(77L, "15550000001")));
 
         when(currentSnapshotPersistence.applyControlledParticipantObservation(
@@ -124,7 +141,8 @@ class GroupParticipantObservationServiceImplTest {
                 .thenReturn(List.of(new WhatsappGroupMemberStateVO(
                         "15550000001@s.whatsapp.net", "15550000001", false, false,
                         "member", true, "ADD_EVENT", 2_000L, "event-add")));
-        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+        when(accountMapper.selectActiveByWsPhonesForScope(
+                List.of("15550000001"), DataScope.self(7L)))
                 .thenReturn(List.of(account(77L, "15550000001")));
         when(currentSnapshotPersistence.applyControlledParticipantObservation(
                 77L, "120363-test@g.us", true, false,
@@ -140,7 +158,8 @@ class GroupParticipantObservationServiceImplTest {
 
     @Test
     void reconcileControlledJoinsDetectsTransitionBeforeGenericAddIsWritten() {
-        when(accountMapper.selectActiveByWsPhones(List.of("15550000001")))
+        when(accountMapper.selectActiveByWsPhonesForScope(
+                List.of("15550000001"), DataScope.self(7L)))
                 .thenReturn(List.of(account(77L, "15550000001")));
         when(currentSnapshotPersistence.applyControlledParticipantObservation(
                 77L, "120363-test@g.us", true, false,
@@ -170,8 +189,40 @@ class GroupParticipantObservationServiceImplTest {
         service().reconcileControlledMemberships(
                 7L, "120363-test@g.us", List.of("123456789012345@lid"));
 
-        verify(accountMapper, never()).selectActiveByWsPhones(
+        verify(accountMapper, never()).selectActiveByWsPhonesForScope(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class));
+    }
+
+    @Test
+    void rejectsObservationFromHistoricalUnownedAccountBeforeWritingFacts() {
+        Account unowned = account(10L, "15550000010");
+        unowned.setOwnerUserId(null);
+        when(accountMapper.selectActiveById(10L)).thenReturn(unowned);
+
+        assertThatThrownBy(() -> service().apply(List.of(observation(
+                "15550000001@s.whatsapp.net", "15550000001", true, false,
+                WhatsappGroupMemberStateSource.ADD_EVENT, 1_000L, "event-unowned"))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("缺少数据归属");
+
+        verify(currentSnapshotPersistence, never()).applyParticipantObservations(
                 org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void standaloneReconciliationFailsWhenDataScopeIsMissing() {
+        DataScopeContext.clear();
+
+        assertThatThrownBy(() -> service().reconcileControlledJoins(
+                7L, "120363-test@g.us", List.of("15550000001@s.whatsapp.net"),
+                2_000L, "event-add"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("数据访问范围");
+
+        verify(accountMapper, never()).selectActiveByWsPhonesForScope(
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class));
     }
 
     private GroupParticipantObservationServiceImpl service() {
@@ -196,6 +247,7 @@ class GroupParticipantObservationServiceImplTest {
         Account account = new Account();
         account.setId(id);
         account.setTenantId(7L);
+        account.setOwnerUserId(7L);
         account.setWsPhone(phone);
         return account;
     }

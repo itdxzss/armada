@@ -143,6 +143,7 @@ class PullTaskDraftMapperInMemoryTest {
 
     private static PullTask draftRow() {
         PullTask row = new PullTask();
+        row.setOwnerUserId(CREATOR);
         row.setTaskName("未命名草稿");
         row.setOperatorName("运营甲");
         row.setCreatedBy(CREATOR);

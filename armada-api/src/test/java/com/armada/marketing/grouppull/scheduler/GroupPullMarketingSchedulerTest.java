@@ -6,6 +6,7 @@ import com.armada.marketing.grouppull.model.vo.GroupPullTaskDispatchRow;
 import com.armada.marketing.grouppull.service.GroupPullMarketingAllocator;
 import com.armada.marketing.grouppull.service.GroupPullMarketingExecutionWorker;
 import com.armada.marketing.grouppull.service.GroupPullMarketingReleaseService;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
@@ -47,14 +48,15 @@ class GroupPullMarketingSchedulerTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void scanDispatchesThreeBoundedPhasesWithTenantContext() throws InterruptedException {
         GroupPullMarketingMapper mapper = mapper(
-                List.of(new GroupPullTaskDispatchRow(11L, 101L)),
-                List.of(new GroupPullExecutionDispatchRow(22L, 202L)),
-                List.of(new GroupPullTaskDispatchRow(33L, 303L)));
+                List.of(new GroupPullTaskDispatchRow(11L, 1001L, 101L)),
+                List.of(new GroupPullExecutionDispatchRow(22L, 2002L, 202L)),
+                List.of(new GroupPullTaskDispatchRow(33L, 3003L, 303L)));
         RecordingAllocator allocator = new RecordingAllocator(List.of(
                 allocated(1L), allocated(2L), allocated(3L), allocated(4L), allocated(5L)));
         RecordingWorker worker = new RecordingWorker(1);
@@ -68,10 +70,13 @@ class GroupPullMarketingSchedulerTest {
         assertThat(worker.await()).isTrue();
         assertThat(allocator.taskIds).containsExactly(101L, 101L, 101L, 101L, 101L);
         assertThat(allocator.tenantIds).containsOnly(11L);
+        assertThat(allocator.ownerUserIds).containsOnly(1001L);
         assertThat(worker.executionIds).containsExactly(202L);
         assertThat(worker.tenantIds).containsExactly(22L);
+        assertThat(worker.ownerUserIds).containsExactly(2002L);
         assertThat(releaseService.taskIds).containsExactly(303L);
         assertThat(releaseService.tenantIds).containsExactly(33L);
+        assertThat(releaseService.ownerUserIds).containsExactly(3003L);
         assertThat(TenantContext.get()).isEqualTo(99L);
         scheduler.shutdown();
     }
@@ -79,7 +84,7 @@ class GroupPullMarketingSchedulerTest {
     @Test
     void allocationStopsWhenAResourceBecomesUnavailable() {
         GroupPullMarketingMapper mapper = mapper(
-                List.of(new GroupPullTaskDispatchRow(11L, 101L)), List.of(), List.of());
+                List.of(new GroupPullTaskDispatchRow(11L, 1001L, 101L)), List.of(), List.of());
         RecordingAllocator allocator = new RecordingAllocator(List.of(
                 allocated(1L),
                 new GroupPullMarketingAllocator.AllocationResult(
@@ -97,8 +102,8 @@ class GroupPullMarketingSchedulerTest {
     void oneTaskFailureDoesNotBlockFollowingTasks() {
         GroupPullMarketingMapper mapper = mapper(
                 List.of(
-                        new GroupPullTaskDispatchRow(11L, 101L),
-                        new GroupPullTaskDispatchRow(22L, 202L)),
+                        new GroupPullTaskDispatchRow(11L, 1001L, 101L),
+                        new GroupPullTaskDispatchRow(22L, 2002L, 202L)),
                 List.of(),
                 List.of());
         RecordingAllocator allocator = new RecordingAllocator(List.of(
@@ -119,6 +124,7 @@ class GroupPullMarketingSchedulerTest {
 
         assertThat(allocator.taskIds).containsExactly(202L);
         assertThat(allocator.tenantIds).containsExactly(22L);
+        assertThat(allocator.ownerUserIds).containsExactly(2002L);
         scheduler.shutdown();
     }
 
@@ -127,7 +133,7 @@ class GroupPullMarketingSchedulerTest {
             throws InterruptedException {
         GroupPullMarketingMapper mapper = mapper(
                 List.of(),
-                List.of(new GroupPullExecutionDispatchRow(22L, 202L)),
+                List.of(new GroupPullExecutionDispatchRow(22L, 2002L, 202L)),
                 List.of());
         BlockingWorker worker = new BlockingWorker();
         GroupPullMarketingScheduler scheduler = new GroupPullMarketingScheduler(
@@ -139,6 +145,27 @@ class GroupPullMarketingSchedulerTest {
 
         assertThat(worker.awaitDuplicateExecution()).isFalse();
         worker.release();
+        scheduler.shutdown();
+    }
+
+    @Test
+    void unownedHistoricalRowsAreNeverDispatched() throws InterruptedException {
+        GroupPullMarketingMapper mapper = mapper(
+                List.of(new GroupPullTaskDispatchRow(11L, null, 101L)),
+                List.of(new GroupPullExecutionDispatchRow(22L, null, 202L)),
+                List.of(new GroupPullTaskDispatchRow(33L, null, 303L)));
+        RecordingAllocator allocator = new RecordingAllocator(List.of());
+        RecordingWorker worker = new RecordingWorker(0);
+        RecordingReleaseService releaseService = new RecordingReleaseService();
+        GroupPullMarketingScheduler scheduler =
+                new GroupPullMarketingScheduler(mapper, allocator, worker, releaseService);
+
+        scheduler.scan();
+
+        assertThat(worker.await()).isTrue();
+        assertThat(allocator.taskIds).isEmpty();
+        assertThat(worker.executionIds).isEmpty();
+        assertThat(releaseService.taskIds).isEmpty();
         scheduler.shutdown();
     }
 
@@ -168,6 +195,7 @@ class GroupPullMarketingSchedulerTest {
         private final Deque<AllocationResult> results;
         private final List<Long> taskIds = new ArrayList<>();
         private final List<Long> tenantIds = new ArrayList<>();
+        private final List<Long> ownerUserIds = new ArrayList<>();
 
         private RecordingAllocator(List<AllocationResult> results) {
             super(null, null, NO_OP_TRANSACTION_MANAGER);
@@ -178,6 +206,7 @@ class GroupPullMarketingSchedulerTest {
         public AllocationResult allocateOne(Long taskId) {
             taskIds.add(taskId);
             tenantIds.add(TenantContext.get());
+            ownerUserIds.add(DataScopeContext.requireCurrent().actorUserId());
             return results.removeFirst();
         }
     }
@@ -187,6 +216,7 @@ class GroupPullMarketingSchedulerTest {
         private final CountDownLatch latch;
         private final List<Long> executionIds = new CopyOnWriteArrayList<>();
         private final List<Long> tenantIds = new CopyOnWriteArrayList<>();
+        private final List<Long> ownerUserIds = new CopyOnWriteArrayList<>();
 
         private RecordingWorker(int expectedExecutions) {
             super(null, null, null, null, null, null, null, null, null, null, null, null, null,
@@ -198,6 +228,7 @@ class GroupPullMarketingSchedulerTest {
         public void process(Long executionId) {
             executionIds.add(executionId);
             tenantIds.add(TenantContext.get());
+            ownerUserIds.add(DataScopeContext.requireCurrent().actorUserId());
             latch.countDown();
         }
 
@@ -250,6 +281,7 @@ class GroupPullMarketingSchedulerTest {
 
         private final List<Long> taskIds = new ArrayList<>();
         private final List<Long> tenantIds = new ArrayList<>();
+        private final List<Long> ownerUserIds = new ArrayList<>();
 
         private RecordingReleaseService() {
             super(null, null, null, null, null);
@@ -259,6 +291,7 @@ class GroupPullMarketingSchedulerTest {
         public boolean tryRelease(Long taskId) {
             taskIds.add(taskId);
             tenantIds.add(TenantContext.get());
+            ownerUserIds.add(DataScopeContext.requireCurrent().actorUserId());
             return true;
         }
     }

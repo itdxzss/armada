@@ -10,6 +10,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
@@ -34,6 +36,9 @@ class AccountStateChangedSinkAdapterTest {
 
     @Mock
     private AccountStateEventService service;
+
+    @Mock
+    private AccountMapper accountMapper;
 
     @Mock
     private ProxyFailedRecoveryCoordinator recoveryCoordinator;
@@ -89,6 +94,7 @@ class AccountStateChangedSinkAdapterTest {
                 "evt-2", 1L, 100L, "acc_861800000001", "VERIFYING", "PROXY_FAILED",
                 1782626401000L, "PROXY_FAILED", 408, "batch_online", "oa_failed_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account());
 
         adapter.handleStateChanged(platformEvent);
 
@@ -113,6 +119,7 @@ class AccountStateChangedSinkAdapterTest {
                 "evt-online", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account());
 
         adapter.handleStateChanged(platformEvent);
 
@@ -131,6 +138,7 @@ class AccountStateChangedSinkAdapterTest {
                 "evt-online-lock", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account());
         doThrow(new CannotAcquireLockException("group metadata lock timeout"))
                 .when(metadataSyncTaskService).resumeDeferredInviteCodeForAccount(100L, 1782626401000L);
 
@@ -152,6 +160,7 @@ class AccountStateChangedSinkAdapterTest {
                 "evt-online-rejected", 1L, 100L, "acc_861800000001", "VERIFYING", "ONLINE",
                 1782626401000L, null, null, "batch_online", "oa_online_1", 7L, "worker-a");
         when(service.applyStateChanged(any())).thenReturn(true);
+        when(accountMapper.selectActiveById(100L)).thenReturn(account());
         doThrow(new RejectedExecutionException("metadata recovery queue full"))
                 .when(inviteRecoveryExecutor).execute(any(Runnable.class));
 
@@ -160,5 +169,13 @@ class AccountStateChangedSinkAdapterTest {
 
         verify(service).applyStateChanged(any());
         verifyNoInteractions(metadataSyncTaskService);
+    }
+
+    private static Account account() {
+        Account account = new Account();
+        account.setId(100L);
+        account.setOwnerUserId(7L);
+        account.setProtocolAccountId("acc_861800000001");
+        return account;
     }
 }

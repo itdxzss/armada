@@ -2,6 +2,26 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkImportDetailMapper">
 
+  <sql id="queryScopeFilter">
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND b.owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND b.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <insert id="batchInsert">
     INSERT INTO group_link_import_detail (
       batch_id, line_no, raw_url, group_name, result, success_type, fail_reason,
@@ -21,6 +41,7 @@
   -->
   <sql id="detailFilter">
     d.tenant_id = b.tenant_id AND b.deleted_at IS NULL
+    <include refid="queryScopeFilter"/>
     <if test="batchId != null">AND d.batch_id = #{batchId}</if>
     <if test="labelId != null">
       AND (
@@ -30,6 +51,8 @@
             FROM group_link g
             WHERE g.id = d.group_link_id
               AND g.tenant_id = d.tenant_id
+              AND (g.owner_user_id = b.owner_user_id
+                   OR (g.owner_user_id IS NULL AND b.owner_user_id IS NULL))
               AND g.deleted_at IS NULL
               AND g.label_id = #{labelId}
           )
@@ -72,6 +95,7 @@
     WHERE b.deleted_at IS NULL
       AND d.tenant_id = b.tenant_id
       AND d.result = 2
+      <include refid="directScopeFilter"/>
       <if test="batchId != null">AND d.batch_id = #{batchId}</if>
       <if test="labelId != null">AND b.label_id = #{labelId}</if>
     ORDER BY d.batch_id DESC, d.line_no ASC

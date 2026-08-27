@@ -184,10 +184,12 @@ class GroupListCurrentMapperMySqlTest {
                 + "WHERE id = 803");
         jdbc.update("UPDATE wa_group_participant SET presence_status = 2 WHERE id = 802");
 
-        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 201L))
+        assertThat(currentMapper.selectGroupDetailMembers(
+                TENANT_ID, 201L, com.armada.shared.security.DataScope.all(1L)))
                 .extracting(member -> member.getParticipantJid())
                 .containsExactly("1001@s.whatsapp.net");
-        assertThat(currentMapper.selectGroupDetailMembers(TENANT_ID, 201L))
+        assertThat(currentMapper.selectGroupDetailMembers(
+                TENANT_ID, 201L, com.armada.shared.security.DataScope.all(1L)))
                 .allSatisfy(member -> {
                     assertThat(member.getGroupLinkId()).isEqualTo(201L);
                     assertThat(member.getSnapshotAt()).isEqualTo(500L);

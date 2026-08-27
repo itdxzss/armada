@@ -4,15 +4,19 @@ import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
+import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
 import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedSink;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
-import java.util.Objects;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +76,28 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                 handleGroupCreationMarketingResult(event, resultAt);
                 return;
             }
+            handleMarketingResult(event, resultAt);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private void handleMarketingResult(ProtocolMessageSendResultReportedEvent event, long resultAt) {
+        MarketingTaskSendAttempt attempt = taskMapper.selectSendAttemptById(event.attemptId());
+        if (!matchesTrustedAttempt(attempt, event)) {
+            logSkippedMarketingResult(event, "trusted_attempt_mismatch");
+            return;
+        }
+        MarketingTask task = taskMapper.selectTaskById(attempt.getMarketingTaskId());
+        if (task == null || task.getOwnerUserId() == null) {
+            logSkippedMarketingResult(event, task == null ? "task_not_found" : "owner_not_backfilled");
+            return;
+        }
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(task.getOwnerUserId()))) {
             if (!event.success() && immediateRetryService.retryIfEligible(event, resultAt)) {
                 log.info("新群即时营销失败已进入单次重试 tenantId={} taskId={} targetId={} "
                                 + "attemptId={} commandId={}",
@@ -119,12 +145,6 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                         event.roundNo(), event.commandId(), event.protocolAccountId(), event.groupJid(),
                         event.success());
             }
-        } finally {
-            if (previousTenant == null) {
-                TenantContext.clear();
-            } else {
-                TenantContext.set(previousTenant);
-            }
         }
     }
 
@@ -161,46 +181,41 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
     }
 
     private void handleGroupCreationMarketingResult(ProtocolMessageSendResultReportedEvent event, long resultAt) {
-        if (!event.success()) {
-            handleGroupCreationMarketingFailure(event, resultAt);
+        GroupCreationMarketingItem item = groupCreationMapper.selectItemById(event.groupCreationItemId());
+        if (!matchesCurrentMarketingSend(item, event.commandId())
+                || (event.groupCreationTaskId() != null
+                && !Objects.equals(item.getTaskId(), event.groupCreationTaskId()))) {
+            logSkippedGroupCreationResult(event, "trusted_item_mismatch");
             return;
         }
-        int updated = event.success()
-                ? groupCreationMapper.markItemSuccessByCommandId(
-                        event.groupCreationItemId(), event.commandId(), event.groupJid(), event.messageId(), resultAt)
-                : 0;
-        if (updated > 0) {
-            log.info("建群营销发送结果已回写 tenantId={} taskId={} itemId={} commandId={} "
-                            + "protocolAccountId={} groupJid={} success={} messageId={} reasonCode={} workerId={}",
-                    event.tenantId(), event.groupCreationTaskId(), event.groupCreationItemId(), event.commandId(),
-                    event.protocolAccountId(), event.groupJid(), event.success(), event.messageId(),
-                    event.reasonCode(), event.workerId());
-        } else {
-            log.info("建群营销发送结果已跳过 tenantId={} taskId={} itemId={} commandId={} "
-                            + "protocolAccountId={} groupJid={} success={} reason=duplicate_or_final",
-                    event.tenantId(), event.groupCreationTaskId(), event.groupCreationItemId(), event.commandId(),
-                    event.protocolAccountId(), event.groupJid(), event.success());
+        GroupCreationMarketingTask task = groupCreationMapper.selectTaskById(item.getTaskId());
+        if (task == null || task.getOwnerUserId() == null) {
+            logSkippedGroupCreationResult(event, task == null ? "task_not_found" : "owner_not_backfilled");
+            return;
+        }
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(task.getOwnerUserId()))) {
+            if (!event.success()) {
+                handleGroupCreationMarketingFailure(event, item, task, resultAt);
+                return;
+            }
+            int updated = groupCreationMapper.markItemSuccessByCommandId(
+                    item.getId(), event.commandId(), event.groupJid(), event.messageId(), resultAt);
+            if (updated > 0) {
+                log.info("建群营销发送结果已回写 tenantId={} taskId={} itemId={} commandId={} "
+                                + "protocolAccountId={} groupJid={} success={} messageId={} reasonCode={} workerId={}",
+                        event.tenantId(), task.getId(), item.getId(), event.commandId(),
+                        event.protocolAccountId(), event.groupJid(), event.success(), event.messageId(),
+                        event.reasonCode(), event.workerId());
+            } else {
+                logSkippedGroupCreationResult(event, "duplicate_or_final");
+            }
         }
     }
 
-    private void handleGroupCreationMarketingFailure(ProtocolMessageSendResultReportedEvent event, long resultAt) {
-        GroupCreationMarketingItem item = groupCreationMapper.selectItemById(event.groupCreationItemId());
-        if (!matchesCurrentMarketingSend(item, event.commandId())) {
-            log.info("建群营销发送失败结果已跳过 tenantId={} taskId={} itemId={} commandId={} "
-                            + "protocolAccountId={} groupJid={} success=false reason=duplicate_or_final",
-                    event.tenantId(), event.groupCreationTaskId(), event.groupCreationItemId(), event.commandId(),
-                    event.protocolAccountId(), event.groupJid());
-            return;
-        }
-        GroupCreationMarketingTask task = groupCreationMapper.selectTaskById(
-                event.groupCreationTaskId() == null ? item.getTaskId() : event.groupCreationTaskId());
-        if (task == null) {
-            log.info("建群营销发送失败结果已跳过 tenantId={} taskId={} itemId={} commandId={} "
-                            + "protocolAccountId={} groupJid={} success=false reason=task_not_found",
-                    event.tenantId(), event.groupCreationTaskId(), event.groupCreationItemId(), event.commandId(),
-                    event.protocolAccountId(), event.groupJid());
-            return;
-        }
+    private void handleGroupCreationMarketingFailure(ProtocolMessageSendResultReportedEvent event,
+                                                     GroupCreationMarketingItem item,
+                                                     GroupCreationMarketingTask task,
+                                                     long resultAt) {
         String reasonCode = StringUtils.hasText(event.reasonCode()) ? event.reasonCode() : "MESSAGE_SEND_FAILED";
         String reasonMessage = StringUtils.hasText(event.reasonMessage()) ? event.reasonMessage() : reasonCode;
         boolean retried = retryService.resetMarketingSendingItemForAccountRetry(
@@ -214,6 +229,27 @@ public class MarketingSendResultServiceImpl implements ProtocolMessageSendResult
                         + "protocolAccountId={} groupJid={} retried={} reasonCode={} workerId={}",
                 event.tenantId(), task.getId(), item.getId(), event.commandId(),
                 event.protocolAccountId(), event.groupJid(), retried, reasonCode, event.workerId());
+    }
+
+    private static boolean matchesTrustedAttempt(MarketingTaskSendAttempt attempt,
+                                                 ProtocolMessageSendResultReportedEvent event) {
+        return attempt != null
+                && Objects.equals(attempt.getMarketingTaskId(), event.marketingTaskId())
+                && Objects.equals(attempt.getTargetId(), event.targetId())
+                && Objects.equals(attempt.getCommandId(), event.commandId());
+    }
+
+    private static void logSkippedMarketingResult(ProtocolMessageSendResultReportedEvent event, String reason) {
+        log.info("营销发送结果已跳过 tenantId={} taskId={} targetId={} attemptId={} commandId={} reason={}",
+                event.tenantId(), event.marketingTaskId(), event.targetId(), event.attemptId(),
+                event.commandId(), reason);
+    }
+
+    private static void logSkippedGroupCreationResult(ProtocolMessageSendResultReportedEvent event, String reason) {
+        log.info("建群营销发送结果已跳过 tenantId={} taskId={} itemId={} commandId={} "
+                        + "protocolAccountId={} groupJid={} success={} reason={}",
+                event.tenantId(), event.groupCreationTaskId(), event.groupCreationItemId(), event.commandId(),
+                event.protocolAccountId(), event.groupJid(), event.success(), reason);
     }
 
     private static boolean matchesCurrentMarketingSend(GroupCreationMarketingItem item, String commandId) {

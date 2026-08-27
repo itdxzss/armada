@@ -5,6 +5,8 @@ import com.armada.account.model.AccountProxyFailedRecoveryCandidate;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountProxyFailureContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.slf4j.Logger;
@@ -49,9 +51,15 @@ public class ProxyFailedRecoveryDispatcher {
         int attempted = 0;
         try {
             for (AccountProxyFailedRecoveryCandidate candidate : candidates) {
+                if (candidate.ownerUserId() == null) {
+                    log.error("账号代理失败补偿拒绝执行:账号缺少数据归属 tenantId={} accountId={}",
+                            candidate.tenantId(), candidate.accountId());
+                    continue;
+                }
                 TenantContext.set(candidate.tenantId());
                 attempted++;
-                try {
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                        DataScope.self(candidate.ownerUserId()))) {
                     AccountProxyFailureContext failureContext = latestFailureContext(candidate.accountId());
                     String failedAttemptId = failureContext == null ? null : failureContext.onlineAttemptId();
                     Long failedProxyId = failureContext == null ? null : failureContext.proxyId();

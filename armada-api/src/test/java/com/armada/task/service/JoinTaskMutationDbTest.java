@@ -320,7 +320,8 @@ class JoinTaskMutationDbTest extends DbTestBase {
 
         service.updateTask(created.id(), updateReq);
 
-        GroupLink registered = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/GGGHHHIII333");
+        GroupLink registered = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/GGGHHHIII333", 1L);
         assertThat(registered).isNotNull();
         assertThat(registered.getOrigin()).isEqualTo(GroupLinkOrigin.JOIN_TASK.code());
         assertThat(registered.getMembershipState()).isEqualTo(GroupMembershipState.TARGET.code());

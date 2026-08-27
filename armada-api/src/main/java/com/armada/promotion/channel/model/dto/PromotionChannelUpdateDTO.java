@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonAlias;
  * 推广渠道编辑入参。渠道 ID 来自路径，租户由请求上下文提供。
  *
  * @param channelName 渠道名称
- * @param ownerUserId 归属用户 ID，同时作为当前阶段的修改人
+ * @param ownerUserId 兼容旧前端的过渡字段；服务端忽略该值且不允许通过编辑转移归属
  * @param targetCountry 国家下拉 value；真实国家为 ISO2，混合国家为 MIXED
  * @param landingTemplateId 绑定的落地页模板 ID
  * @param domain 访问域名，可传纯域名或 https:// 前缀

@@ -3,6 +3,8 @@ package com.armada.task.service.impl;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -63,8 +65,12 @@ public class PullTaskStandardCreateTransactionService {
     /** 校验并把完整大表单一次冻结到数据库。 */
     @Transactional(rollbackFor = Exception.class)
     public SubmissionResult submit(PullTaskStandardCreateDTO request, long userId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.actorUserId() == null || !scope.actorUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "提交用户与当前登录用户不一致");
+        }
         validate(request);
-        PullTask task = requireOwnTask(request.draftTaskId(), userId);
+        PullTask task = requireOwnTask(request.draftTaskId(), userId, scope);
         if (STATUS_WAIT_START.equals(task.getStatus())
                 || PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {
             log.info("普通群链接任务重复提交，返回既有任务 taskId={}", task.getId());
@@ -94,7 +100,7 @@ public class PullTaskStandardCreateTransactionService {
             fillGroupLinkIds(rows);
         }
         freezeRows(task.getId());
-        return new SubmissionResult(submitTask(task, request, rows), true);
+        return new SubmissionResult(submitTask(task, request, rows, scope), true);
     }
 
     private void validate(PullTaskStandardCreateDTO request) {
@@ -158,8 +164,8 @@ public class PullTaskStandardCreateTransactionService {
         }
     }
 
-    private PullTask requireOwnTask(long taskId, long userId) {
-        PullTask task = pullTaskMapper.selectLifecycle(taskId);
+    private PullTask requireOwnTask(long taskId, long userId, DataScope scope) {
+        PullTask task = pullTaskMapper.selectLifecycleForScope(taskId, scope);
         if (task == null || task.getCreatedBy() == null || !task.getCreatedBy().equals(userId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "草稿不存在或不属于当前用户");
         }
@@ -272,7 +278,8 @@ public class PullTaskStandardCreateTransactionService {
     private PullTaskStandardCreatedVO submitTask(
             PullTask task,
             PullTaskStandardCreateDTO request,
-            List<PullTaskGroupExecution> rows) {
+            List<PullTaskGroupExecution> rows,
+            DataScope scope) {
         PullTask update = new PullTask();
         update.setId(task.getId());
         update.setTaskName(request.taskName().trim());
@@ -285,7 +292,7 @@ public class PullTaskStandardCreateTransactionService {
         if (pullTaskMapper.submitDraft(update, System.currentTimeMillis()) == 0) {
             throw new BusinessException(ErrorCode.CONFLICT, "任务已被并发提交，请刷新后重试");
         }
-        PullTask saved = pullTaskMapper.selectLifecycle(task.getId());
+        PullTask saved = pullTaskMapper.selectLifecycleForScope(task.getId(), scope);
         return toCreatedVO(saved);
     }
 

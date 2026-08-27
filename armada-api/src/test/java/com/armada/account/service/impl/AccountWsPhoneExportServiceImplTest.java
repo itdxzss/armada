@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,8 @@ import com.armada.account.model.dto.AccountWsPhoneExportDTO;
 import com.armada.account.model.vo.AccountWsPhoneExportFile;
 import com.armada.account.model.vo.AccountWsPhoneExportRow;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,12 +42,18 @@ class AccountWsPhoneExportServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.all(1L));
         service = new AccountWsPhoneExportServiceImpl(accountMapper, FIXED_CLOCK);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
     }
 
     @Test
     void exportCleansDeduplicatesAndCountsActualLines() {
-        when(accountMapper.selectWsPhonesByIds(List.of(3L, 1L, 2L)))
+        when(accountMapper.selectWsPhonesByIds(eq(List.of(3L, 1L, 2L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(
                         row(1L, "+60 (12) 345-6789"),
                         row(2L, "60-12-345-6789"),
@@ -57,12 +66,12 @@ class AccountWsPhoneExportServiceImplTest {
         assertThat(new String(file.bytes(), StandardCharsets.UTF_8))
                 .isEqualTo("60123456789\n001234");
         assertThat(file.exportedCount()).isEqualTo(2);
-        verify(accountMapper).selectWsPhonesByIds(List.of(3L, 1L, 2L));
+        verify(accountMapper).selectWsPhonesByIds(eq(List.of(3L, 1L, 2L)), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void exportSkipsNullEmptyAndNonDigitPhones() {
-        when(accountMapper.selectWsPhonesByIds(List.of(1L, 2L, 3L)))
+        when(accountMapper.selectWsPhonesByIds(eq(List.of(1L, 2L, 3L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(Arrays.asList(row(1L, null), row(2L, "  +()-  "), row(3L, "")));
 
         assertThatThrownBy(() -> service.export(
@@ -73,7 +82,7 @@ class AccountWsPhoneExportServiceImplTest {
 
     @Test
     void exportUsesFallbackAndSanitizesUnsafeFilenameCharacters() {
-        when(accountMapper.selectWsPhonesByIds(List.of(1L)))
+        when(accountMapper.selectWsPhonesByIds(eq(List.of(1L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(row(1L, "8613800138000")));
 
         AccountWsPhoneExportFile fallback = service.export(
@@ -91,10 +100,12 @@ class AccountWsPhoneExportServiceImplTest {
         for (long id = 1; id <= 501; id++) {
             ids.add(id);
         }
-        when(accountMapper.selectWsPhonesByIds(anyList()))
+        when(accountMapper.selectWsPhonesByIds(anyList(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     List<Long> chunk = invocation.getArgument(0);
-                    return chunk.contains(501L) ? List.of(row(501L, "8613800138000")) : List.of();
+                    return chunk.stream()
+                            .map(id -> row(id, id.equals(501L) ? "8613800138000" : null))
+                            .toList();
                 });
 
         AccountWsPhoneExportFile file = service.export(new AccountWsPhoneExportDTO(ids, null));
@@ -102,7 +113,7 @@ class AccountWsPhoneExportServiceImplTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Long>> chunks = ArgumentCaptor.forClass(List.class);
         verify(accountMapper, org.mockito.Mockito.times(2))
-                .selectWsPhonesByIds(chunks.capture());
+                .selectWsPhonesByIds(chunks.capture(), org.mockito.ArgumentMatchers.any());
         assertThat(chunks.getAllValues()).extracting(List::size).containsExactly(500, 1);
         assertThat(file.exportedCount()).isEqualTo(1);
     }
@@ -123,7 +134,7 @@ class AccountWsPhoneExportServiceImplTest {
         assertThatThrownBy(() -> service.export(new AccountWsPhoneExportDTO(tooMany, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("单次最多导出 2000 个账号");
-        verify(accountMapper, never()).selectWsPhonesByIds(anyList());
+        verify(accountMapper, never()).selectWsPhonesByIds(anyList(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -132,22 +143,24 @@ class AccountWsPhoneExportServiceImplTest {
         for (long id = 1; id <= 2000; id++) {
             ids.add(id);
         }
-        when(accountMapper.selectWsPhonesByIds(anyList()))
+        when(accountMapper.selectWsPhonesByIds(anyList(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(invocation -> {
                     List<Long> chunk = invocation.getArgument(0);
-                    return chunk.contains(2000L) ? List.of(row(2000L, "8613800138000")) : List.of();
+                    return chunk.stream()
+                            .map(id -> row(id, id.equals(2000L) ? "8613800138000" : null))
+                            .toList();
                 });
 
         AccountWsPhoneExportFile file = service.export(new AccountWsPhoneExportDTO(ids, null));
 
         assertThat(file.exportedCount()).isEqualTo(1);
         verify(accountMapper, org.mockito.Mockito.times(4))
-                .selectWsPhonesByIds(anyList());
+                .selectWsPhonesByIds(anyList(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void exportConvertsDataAccessFailureToStableBusinessError() {
-        when(accountMapper.selectWsPhonesByIds(List.of(1L)))
+        when(accountMapper.selectWsPhonesByIds(eq(List.of(1L)), org.mockito.ArgumentMatchers.any()))
                 .thenThrow(new IllegalStateException("database details"));
 
         assertThatThrownBy(() -> service.export(new AccountWsPhoneExportDTO(List.of(1L), null)))

@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
 import com.armada.task.model.dto.PullTaskFilter;
+import com.armada.task.model.dto.PullTaskQuery;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupMarketingSetting;
 import com.armada.task.model.entity.PullTaskGroupMarketingSummary;
@@ -57,11 +59,13 @@ class PullTaskMapperInMemoryTest {
                 CREATE TABLE pull_task (
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     task_type VARCHAR(32) NOT NULL,
                     group_source VARCHAR(32),
                     task_name VARCHAR(128) NOT NULL,
                     group_name VARCHAR(128),
                     mode VARCHAR(32) NOT NULL,
+                    creation_mode VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK',
                     status VARCHAR(32) NOT NULL,
                     primary_stage VARCHAR(64),
                     blocking_reason VARCHAR(255),
@@ -71,6 +75,7 @@ class PullTaskMapperInMemoryTest {
                     group_count INT NOT NULL,
                     expected_pull_count INT NOT NULL,
                     operator_name VARCHAR(64),
+                    created_by BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     last_business_executed_at BIGINT,
@@ -140,22 +145,24 @@ class PullTaskMapperInMemoryTest {
                 )
                 """, """
                 INSERT INTO pull_task VALUES
-                  (10, 7, 'STANDARD', NULL, '普通链接任务', NULL, 'NORMAL_LINK',
-                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 900, 900, NULL, NULL, NULL),
-                  (11, 7, 'STANDARD', NULL, '普通任务甲', '普通群', 'OLD_LINK',
-                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 2, 100, '运营甲', 1000, 1000, NULL, NULL, NULL),
-                  (12, 7, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
-                   'OLD_LINK', 'EXECUTING', '拉人中', NULL, NULL, NULL, 1, 5, 10000, '运营乙',
-                   2000, 2100, 2050, '重点任务', NULL),
-                  (13, 7, 'GROUP_MARKETING', 'MIXED', '混合营销任务', '巴西混合群',
-                   'OLD_LINK', 'EXECUTING', '等待营销', NULL, NULL, NULL, 1, 3, 5000, '运营丙',
-                   3000, 3100, NULL, NULL, NULL),
-                  (14, 7, 'GROUP_MARKETING', 'HISTORICAL', '已删除印度任务', '印度群',
-                   'OLD_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营乙',
-                   4000, 4100, NULL, NULL, 4200),
-                  (21, 8, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
-                   'OLD_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 5, 10000, '运营乙',
-                   2000, 2100, NULL, NULL, NULL)
+                  (9, 7, NULL, 'STANDARD', NULL, '历史无归属任务', NULL, 'OLD_LINK', 'PASTED_LINK',
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '历史运营', NULL, 800, 800, NULL, NULL, NULL),
+                  (10, 7, 1001, 'STANDARD', NULL, '普通链接任务', NULL, 'NORMAL_LINK', 'PASTED_LINK',
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 1001, 900, 900, NULL, NULL, NULL),
+                  (11, 7, 1001, 'STANDARD', NULL, '普通任务甲', '普通群', 'OLD_LINK', 'PASTED_LINK',
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 2, 100, '运营甲', 1001, 1000, 1000, NULL, NULL, NULL),
+                  (12, 7, 1002, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
+                   'OLD_LINK', 'PASTED_LINK', 'EXECUTING', '拉人中', NULL, NULL, NULL, 1, 5, 10000, '运营乙',
+                   1002, 2000, 2100, 2050, '重点任务', NULL),
+                  (13, 7, 1002, 'GROUP_MARKETING', 'MIXED', '混合营销任务', '巴西混合群',
+                   'OLD_LINK', 'PASTED_LINK', 'EXECUTING', '等待营销', NULL, NULL, NULL, 1, 3, 5000, '运营丙',
+                   1002, 3000, 3100, NULL, NULL, NULL),
+                  (14, 7, 1002, 'GROUP_MARKETING', 'HISTORICAL', '已删除印度任务', '印度群',
+                   'OLD_LINK', 'PASTED_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营乙',
+                   1002, 4000, 4100, NULL, NULL, 4200),
+                  (21, 8, 1002, 'GROUP_MARKETING', 'HISTORICAL', '印度营销任务', '印度历史群',
+                   'OLD_LINK', 'PASTED_LINK', 'EXECUTING', NULL, NULL, NULL, NULL, 1, 5, 10000, '运营乙',
+                   1002, 2000, 2100, NULL, NULL, NULL)
                 """, """
                 INSERT INTO pull_task_standard_group_setting (
                     tenant_id, task_id, group_name, is_material_filename_as_group_name
@@ -180,7 +187,7 @@ class PullTaskMapperInMemoryTest {
     void filtersMarketingTasksAndKeepsTenantRowsIsolated() {
         PullTaskFilter filter = new PullTaskFilter(
                 null, "印度", "EXECUTING", PullTaskType.GROUP_MARKETING,
-                PullTaskGroupSource.HISTORICAL, "乙");
+                PullTaskGroupSource.HISTORICAL, "乙", DataScope.all(9001L));
 
         assertThat(mapper.countPage(filter)).isEqualTo(1);
         assertThat(mapper.selectPage(filter, 0, 10))
@@ -195,16 +202,51 @@ class PullTaskMapperInMemoryTest {
     }
 
     @Test
+    void userScopesProtectListLifecycleAndBatchRoots() {
+        PullTaskFilter u1 = scopedFilter(DataScope.self(1001L));
+        PullTaskFilter u2 = scopedFilter(DataScope.self(1002L));
+        PullTaskFilter admin = scopedFilter(DataScope.all(9001L));
+
+        assertThat(mapper.countPage(u1)).isEqualTo(2);
+        assertThat(mapper.countPage(u2)).isEqualTo(2);
+        assertThat(mapper.countPage(admin)).isEqualTo(5);
+        assertThat(mapper.selectLifecycleForScope(10L, DataScope.self(1001L))).isNotNull();
+        assertThat(mapper.selectLifecycleForScope(12L, DataScope.self(1001L))).isNull();
+        assertThat(mapper.selectLifecycleForScope(9L, DataScope.all(9001L))).isNotNull();
+        assertThat(mapper.selectByIdsForScope(
+                java.util.List.of(10L, 12L), DataScope.self(1001L)))
+                .extracting(PullTask::getId)
+                .containsExactly(10L);
+    }
+
+    @Test
+    void missingAndSystemScopesFailClosed() {
+        assertThat(mapper.countPage(scopedFilter(null))).isZero();
+        assertThat(mapper.countPage(scopedFilter(DataScope.system("pull task maintenance"))))
+                .isZero();
+        assertThat(mapper.selectLifecycleForScope(10L, null)).isNull();
+        assertThat(mapper.selectByIdsForScope(
+                java.util.List.of(10L), DataScope.system("pull task maintenance")))
+                .isEmpty();
+    }
+
+    private static PullTaskFilter scopedFilter(DataScope scope) {
+        PullTaskQuery query = new PullTaskQuery();
+        query.applyDataScope(scope);
+        return query.toFilter();
+    }
+
+    @Test
     void supportsExactFieldsLimitAndDescendingIdOrder() {
         assertThat(mapper.selectPage(new PullTaskFilter(
-                11L, null, null, PullTaskType.STANDARD, null, null), 0, 10))
+                11L, null, null, PullTaskType.STANDARD, null, null, DataScope.all(9001L)), 0, 10))
                 .extracting(PullTask::getId)
                 .containsExactly(11L);
         assertThat(mapper.countPage(new PullTaskFilter(
                 null, null, null, PullTaskType.GROUP_MARKETING,
-                PullTaskGroupSource.MIXED, null))).isEqualTo(1);
+                PullTaskGroupSource.MIXED, null, DataScope.all(9001L)))).isEqualTo(1);
         assertThat(mapper.selectPage(new PullTaskFilter(
-                null, null, null, null, null, null), 0, 2))
+                null, null, null, null, null, null, DataScope.all(9001L)), 0, 2))
                 .extracting(PullTask::getId)
                 .containsExactly(13L, 12L);
     }
@@ -212,7 +254,7 @@ class PullTaskMapperInMemoryTest {
     @Test
     void standardNormalLinkListUsesNormalizedGroupSettingName() {
         PullTaskFilter keyword = new PullTaskFilter(
-                null, "新客户群", null, PullTaskType.STANDARD, null, null);
+                null, "新客户群", null, PullTaskType.STANDARD, null, null, DataScope.all(9001L));
 
         assertThat(mapper.countPage(keyword)).isEqualTo(1);
         assertThat(mapper.selectPage(keyword, 0, 10)).singleElement()
@@ -221,7 +263,7 @@ class PullTaskMapperInMemoryTest {
                     assertThat(task.getGroupName()).isEqualTo("新客户群");
                 });
         assertThat(mapper.selectPage(new PullTaskFilter(
-                11L, null, null, null, null, null), 0, 10)).singleElement()
+                11L, null, null, null, null, null, DataScope.all(9001L)), 0, 10)).singleElement()
                 .satisfies(task -> assertThat(task.getGroupName()).isEqualTo("普通群"));
     }
 
@@ -280,27 +322,29 @@ class PullTaskMapperInMemoryTest {
     void softDeletesOnlyStatusesAllowedForEachTaskType() throws SQLException {
         executeSql("""
                 INSERT INTO pull_task VALUES
-                  (15, 7, 'STANDARD', NULL, '已完成普通任务', NULL, 'OLD_LINK',
-                   'COMPLETED', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
-                  (16, 7, 'STANDARD', NULL, '执行中普通任务', NULL, 'OLD_LINK',
-                   'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
-                  (17, 7, 'GROUP_MARKETING', 'HISTORICAL', '营销草稿', NULL, 'OLD_LINK',
-                   'DRAFT', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
-                  (18, 7, 'GROUP_MARKETING', 'HISTORICAL', '营销待开始', NULL, 'OLD_LINK',
-                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL)
+                  (15, 7, 1001, 'STANDARD', NULL, '已完成普通任务', NULL, 'OLD_LINK', 'PASTED_LINK',
+                   'COMPLETED', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 1001, 5000, 5000, NULL, NULL, NULL),
+                  (16, 7, 1001, 'STANDARD', NULL, '执行中普通任务', NULL, 'OLD_LINK', 'PASTED_LINK',
+                   'EXECUTING', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 1001, 5000, 5000, NULL, NULL, NULL),
+                  (17, 7, 1001, 'GROUP_MARKETING', 'HISTORICAL', '营销草稿', NULL, 'OLD_LINK', 'PASTED_LINK',
+                   'DRAFT', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 1001, 5000, 5000, NULL, NULL, NULL),
+                  (18, 7, 1001, 'GROUP_MARKETING', 'HISTORICAL', '营销待开始', NULL, 'OLD_LINK', 'PASTED_LINK',
+                   'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 1001, 5000, 5000, NULL, NULL, NULL)
                 """);
 
         assertThat(mapper.batchSoftDeleteAllowed(
                 java.util.List.of(11L, 15L, 16L, 17L, 18L), 9_000L)).isEqualTo(3);
         assertThat(mapper.selectPage(
-                new PullTaskFilter(null, null, null, null, null, null), 0, 20))
+                new PullTaskFilter(null, null, null, null, null, null,
+                        DataScope.all(9001L)), 0, 20))
                 .extracting(PullTask::getId)
                 .contains(16L, 18L)
                 .doesNotContain(11L, 15L, 17L);
 
         TenantContext.set(8L);
         assertThat(mapper.selectPage(
-                new PullTaskFilter(null, null, null, null, null, null), 0, 20))
+                new PullTaskFilter(null, null, null, null, null, null,
+                        DataScope.all(9001L)), 0, 20))
                 .extracting(PullTask::getId)
                 .containsExactly(21L);
     }

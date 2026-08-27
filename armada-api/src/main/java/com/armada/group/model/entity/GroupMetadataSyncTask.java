@@ -12,6 +12,9 @@ public class GroupMetadataSyncTask {
     /** 群入口 ID。 */
     private Long groupLinkId;
 
+    /** 群入口归属用户 ID；跨租户调度查询从 group_link 派生，历史数据可为空。 */
+    private Long ownerUserId;
+
     /** 调度查询解析出的 WhatsApp 群 JID；非任务表持久列。 */
     private String groupJid;
 
@@ -97,6 +100,14 @@ public class GroupMetadataSyncTask {
 
     public void setGroupLinkId(Long groupLinkId) {
         this.groupLinkId = groupLinkId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getGroupJid() {

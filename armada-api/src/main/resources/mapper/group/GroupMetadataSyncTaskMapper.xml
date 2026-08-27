@@ -149,6 +149,7 @@
            task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
            task.last_started_at, task.last_success_at,
            task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
+           link.owner_user_id AS ownerUserId,
            current_profile.member_snapshot_at AS memberSnapshotAt,
            COALESCE(
              NULLIF(TRIM(current_group.group_jid), ''),
@@ -301,6 +302,7 @@
            task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
            task.last_started_at, task.last_success_at,
            task.last_error_code, task.last_error_message, task.created_at, task.updated_at,
+           link.owner_user_id AS ownerUserId,
            COALESCE(NULLIF(TRIM(current_group.group_jid), ''),
              CASE WHEN link.link_url LIKE 'wa://group/%'
                THEN SUBSTRING(link.link_url, CHAR_LENGTH('wa://group/') + 1) ELSE NULL END) AS groupJid
@@ -324,8 +326,13 @@
            task.rerun_requested, task.current_command_id, task.requested_scope_mask,
            task.completed_scope_mask, task.candidate_cursor, task.result_deadline_at,
            task.last_started_at, task.last_success_at, task.last_error_code,
-           task.last_error_message, task.created_at, task.updated_at
+           task.last_error_message, task.created_at, task.updated_at,
+           link.owner_user_id AS ownerUserId
     FROM group_metadata_sync_task task
+    INNER JOIN group_link link
+      ON link.tenant_id = task.tenant_id
+     AND link.id = task.group_link_id
+     AND link.deleted_at IS NULL
     WHERE task.current_command_id = #{commandId}
     LIMIT 1
   </select>

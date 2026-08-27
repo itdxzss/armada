@@ -5,6 +5,7 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
@@ -13,6 +14,8 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.util.List;
 import java.util.Set;
@@ -35,17 +38,14 @@ public class GroupFolderServiceImpl implements GroupFolderService {
 
     private final GroupFolderMapper folderMapper;
     private final GroupLinkMapper groupLinkMapper;
-    private final GroupCurrentLocalPersistence currentLocalPersistence;
     private final PullTaskGroupOccupancyService taskGroupOccupancyService;
 
     public GroupFolderServiceImpl(
             GroupFolderMapper folderMapper,
             GroupLinkMapper groupLinkMapper,
-            GroupCurrentLocalPersistence currentLocalPersistence,
             PullTaskGroupOccupancyService taskGroupOccupancyService) {
         this.folderMapper = folderMapper;
         this.groupLinkMapper = groupLinkMapper;
-        this.currentLocalPersistence = currentLocalPersistence;
         this.taskGroupOccupancyService = taskGroupOccupancyService;
     }
 
@@ -55,6 +55,7 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         if (query == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
         }
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         long total = folderMapper.countPage(query);
         List<GroupFolderVO> rows = total == 0 ? List.of() : folderMapper.selectPage(query);
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
@@ -63,23 +64,29 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     /** {@inheritDoc} */
     @Override
     public List<GroupFolderOptionVO> options() {
-        return folderMapper.selectOptions();
+        return folderMapper.selectOptions(DataScopeAccess.requireCurrent());
     }
 
     /** {@inheritDoc} */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public GroupFolderVO create(GroupFolderWriteDTO request, long userId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (!scope.actorUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "创建人和当前操作者不一致");
+        }
+        Long ownerUserId = scope.ownerUserIdForCreate();
         String name = normalizeName(request);
-        if (folderMapper.selectActiveByName(name) != null) {
+        if (folderMapper.selectActiveByNameForOwner(name, ownerUserId) != null) {
             throw duplicateName();
         }
 
         long now = System.currentTimeMillis();
-        GroupFolder deleted = folderMapper.selectDeletedByName(name);
+        GroupFolder deleted = folderMapper.selectDeletedByNameForOwner(name, ownerUserId);
         GroupFolder row = new GroupFolder();
+        row.setOwnerUserId(ownerUserId);
         row.setName(name);
-        row.setCreatedBy(userId);
+        row.setCreatedBy(scope.actorUserId());
         row.setUpdatedAt(now);
         try {
             if (deleted == null) {
@@ -97,24 +104,28 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         } catch (DuplicateKeyException exception) {
             throw duplicateName();
         }
-        return new GroupFolderVO(row.getId(), name, false, 0L, row.getCreatedAt(), now);
+        return new GroupFolderVO(
+                row.getId(), ownerUserId, name, false, 0L, row.getCreatedAt(), now);
     }
 
     /** {@inheritDoc} */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(long id, GroupFolderWriteDTO request) {
-        GroupFolder current = requireEntity(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupFolder current = requireEntity(id, scope);
         if (Boolean.TRUE.equals(current.getSystemBuiltin())) {
             throw new BusinessException(ErrorCode.CONFLICT, "系统分组不允许修改名称");
         }
         String name = normalizeName(request);
-        GroupFolder owner = folderMapper.selectAnyByName(name);
+        GroupFolder owner = folderMapper.selectAnyByNameForOwner(
+                name, current.getOwnerUserId());
         if (owner != null && !current.getId().equals(owner.getId())) {
             throw duplicateName();
         }
         try {
-            if (folderMapper.updateName(id, name, System.currentTimeMillis()) != 1) {
+            if (folderMapper.updateName(
+                    id, current.getOwnerUserId(), name, System.currentTimeMillis()) != 1) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在或已删除: " + id);
             }
         } catch (DuplicateKeyException exception) {
@@ -127,8 +138,9 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public GroupFolderDeleteVO batchDelete(List<Long> ids) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         List<Long> normalizedIds = normalizeIds(ids);
-        List<GroupFolder> folders = folderMapper.selectActiveByIdsForUpdate(normalizedIds);
+        List<GroupFolder> folders = folderMapper.selectActiveByIdsForUpdate(normalizedIds, scope);
         if (folders.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组分组不存在或已删除，请刷新后重试");
         }
@@ -137,14 +149,13 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         }
         taskGroupOccupancyService.requireFoldersNotInUse(normalizedIds);
 
-        int groupCount = groupLinkMapper.countActiveByFolderIds(normalizedIds);
+        int groupCount = groupLinkMapper.countActiveByFolderIds(normalizedIds, scope);
         long now = System.currentTimeMillis();
-        int cleared = groupLinkMapper.clearFolderByFolderIds(normalizedIds, now);
+        int cleared = groupLinkMapper.clearFolderByFolderIds(normalizedIds, scope, now);
         if (cleared != groupCount) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组关系已变化，请刷新后重试");
         }
-        currentLocalPersistence.applyLegacyFolderDeletion(normalizedIds, now);
-        int deleted = folderMapper.softDeleteByIds(normalizedIds, now);
+        int deleted = folderMapper.softDeleteByIds(normalizedIds, scope, now);
         if (deleted != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组状态已变化，请刷新后重试");
         }
@@ -156,33 +167,34 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     /** {@inheritDoc} */
     @Override
     public GroupFolderOptionVO requireExisting(long id) {
-        GroupFolder row = requireCustomFolder(id);
-        return new GroupFolderOptionVO(row.getId(), row.getName());
+        GroupFolder row = requireCustomFolder(id, DataScopeAccess.requireCurrent());
+        return new GroupFolderOptionVO(row.getId(), row.getOwnerUserId(), row.getName());
     }
 
     /** {@inheritDoc} */
     @Override
     public List<String> usableLinks(long id) {
-        requireCustomFolder(id);
-        return folderMapper.selectUsableLinks(id);
+        GroupFolder row = requireCustomFolder(id, DataScopeAccess.requireCurrent());
+        return folderMapper.selectUsableLinks(id, row.getOwnerUserId());
     }
 
     /** {@inheritDoc} */
     @Override
     public List<GroupPoolResourceVO> usableResources(long id) {
-        requireCustomFolder(id);
-        return folderMapper.selectUsableResources(id);
+        GroupFolder row = requireCustomFolder(id, DataScopeAccess.requireCurrent());
+        return folderMapper.selectUsableResources(id, row.getOwnerUserId());
     }
 
     /** {@inheritDoc} */
     @Override
     public GroupPoolResourceVO requireUsableResourceForUpdate(long folderId, long groupLinkId) {
-        requireCustomFolder(folderId);
+        GroupFolder folder = requireCustomFolder(folderId, DataScopeAccess.requireCurrent());
         if (groupLinkId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "群组 ID 必须为正整数");
         }
         GroupPoolResourceVO resource =
-                folderMapper.selectUsableResourceForUpdate(folderId, groupLinkId);
+                folderMapper.selectUsableResourceForUpdate(
+                        folderId, groupLinkId, folder.getOwnerUserId());
         if (resource == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组已移出资源池或当前不可用");
         }
@@ -194,16 +206,20 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Transactional(rollbackFor = Exception.class)
     public void moveToUsed(long groupLinkId) {
         requirePositiveGroupId(groupLinkId);
+        DataScope scope = DataScopeAccess.requireCurrent();
         long now = System.currentTimeMillis();
-        folderMapper.upsertUsedSystemFolder(USED_FOLDER_NAME, now);
-        GroupFolder used = folderMapper.selectActiveByName(USED_FOLDER_NAME);
+        GroupLink group = requireGroupForUpdate(groupLinkId, scope);
+        Long ownerUserId = group.getOwnerUserId();
+        folderMapper.upsertUsedSystemFolder(USED_FOLDER_NAME, ownerUserId, now);
+        GroupFolder used = folderMapper.selectActiveByNameForOwner(
+                USED_FOLDER_NAME, ownerUserId);
         if (used == null || !Boolean.TRUE.equals(used.getSystemBuiltin())) {
             throw new IllegalStateException("系统已使用群组创建失败");
         }
-        if (folderMapper.selectActiveByIdsForUpdate(List.of(used.getId())).size() != 1) {
+        if (folderMapper.selectActiveByIdsForUpdate(List.of(used.getId()), scope).size() != 1) {
             throw new IllegalStateException("系统已使用群组状态发生变化");
         }
-        assignSingleGroup(groupLinkId, used.getId(), now);
+        assignSingleGroup(group, used.getId(), scope, now);
     }
 
     /** {@inheritDoc} */
@@ -211,18 +227,27 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Transactional(rollbackFor = Exception.class)
     public void moveToUngrouped(long groupLinkId) {
         requirePositiveGroupId(groupLinkId);
-        assignSingleGroup(groupLinkId, null, System.currentTimeMillis());
+        DataScope scope = DataScopeAccess.requireCurrent();
+        assignSingleGroup(
+                requireGroupForUpdate(groupLinkId, scope), null, scope,
+                System.currentTimeMillis());
     }
 
-    private void assignSingleGroup(long groupLinkId, Long folderId, long now) {
-        List<Long> ids = List.of(groupLinkId);
-        if (groupLinkMapper.selectActiveByIdsForUpdate(ids).size() != 1) {
-            throw new BusinessException(ErrorCode.NOT_FOUND, "群组不存在或已删除: " + groupLinkId);
-        }
-        if (groupLinkMapper.assignFolder(ids, folderId, now) != 1) {
+    private void assignSingleGroup(
+            GroupLink group, Long folderId, DataScope scope, long now) {
+        List<Long> ids = List.of(group.getId());
+        if (groupLinkMapper.assignFolder(ids, folderId, scope, now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "群组分组关系已变化，请刷新后重试");
         }
-        currentLocalPersistence.applyGroupFolder(ids, folderId, now);
+    }
+
+    private GroupLink requireGroupForUpdate(long groupLinkId, DataScope scope) {
+        List<GroupLink> groups = groupLinkMapper.selectActiveByIdsForUpdate(
+                List.of(groupLinkId), scope);
+        if (groups.size() != 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群组不存在或已删除: " + groupLinkId);
+        }
+        return groups.get(0);
     }
 
     private static void requirePositiveGroupId(long groupLinkId) {
@@ -231,19 +256,19 @@ public class GroupFolderServiceImpl implements GroupFolderService {
         }
     }
 
-    private GroupFolder requireEntity(long id) {
+    private GroupFolder requireEntity(long id, DataScope scope) {
         if (id <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "群组分组 ID 必须为正整数");
         }
-        GroupFolder row = folderMapper.selectById(id);
+        GroupFolder row = folderMapper.selectById(id, scope);
         if (row == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群组分组不存在或已删除: " + id);
         }
         return row;
     }
 
-    private GroupFolder requireCustomFolder(long id) {
-        GroupFolder row = requireEntity(id);
+    private GroupFolder requireCustomFolder(long id, DataScope scope) {
+        GroupFolder row = requireEntity(id, scope);
         if (Boolean.TRUE.equals(row.getSystemBuiltin())) {
             throw new BusinessException(ErrorCode.CONFLICT, "系统分组不能作为任务资源池");
         }

@@ -52,6 +52,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     private GroupLinkLabel insertLabel(String name) {
         GroupLinkLabel label = new GroupLinkLabel();
+        label.setOwnerUserId(1L);
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试分组");
@@ -64,6 +65,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     private GroupLinkImportBatch insertBatch(Long labelId, String fileName) {
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
+        batch.setOwnerUserId(1L);
         batch.setLabelId(labelId);
         batch.setBatchName("测试批次");
         batch.setSourceFileName(fileName);
@@ -74,6 +76,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
 
     private GroupLink buildLink(String url, Long labelId, Long batchId) {
         GroupLink link = new GroupLink();
+        link.setOwnerUserId(1L);
         link.setLinkUrl(url);
         link.setGroupName("测试群");
         link.setLabelId(labelId);
@@ -110,18 +113,22 @@ class GroupLinkMapperDbTest extends DbTestBase {
         assertThat(link.getId()).isNotNull();
 
         // 2. 软删
-        mapper.softDeleteByIds(List.of(link.getId()), System.currentTimeMillis());
+        mapper.softDeleteByIds(
+                List.of(link.getId()), com.armada.shared.security.DataScope.all(1L),
+                System.currentTimeMillis());
 
         // 3. selectAnyByUrl 命中(含软删)
-        GroupLink found = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest");
+        GroupLink found = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest", 1L);
         assertThat(found).isNotNull();
         assertThat(found.getDeletedAt()).isNotNull();
 
         // 4. adoptToLabel 复活+改归属
-        mapper.adoptToLabel(found.getId(), label2.getId(), batch2.getId(), "新群名", System.currentTimeMillis());
+        mapper.adoptToLabel(
+                found.getId(), label2.getId(), batch2.getId(), "新群名", 1L,
+                System.currentTimeMillis());
 
         // 5. 再次查询应为活跃且 label 已改
-        GroupLink revived = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest");
+        GroupLink revived = mapper.selectAnyByUrl("chat.whatsapp.com/ReviveTest", 1L);
         assertThat(revived).isNotNull();
         assertThat(revived.getDeletedAt()).isNull();
         assertThat(revived.getLabelId()).isEqualTo(label2.getId());
@@ -137,7 +144,9 @@ class GroupLinkMapperDbTest extends DbTestBase {
         existing.setOrigin(GroupLinkOrigin.IMPORT.code());
         existing.setMembershipState(GroupMembershipState.TARGET.code());
         mapper.insert(existing);
-        mapper.softDeleteByIds(List.of(existing.getId()), System.currentTimeMillis());
+        mapper.softDeleteByIds(
+                List.of(existing.getId()), com.armada.shared.security.DataScope.all(1L),
+                System.currentTimeMillis());
 
         GroupLink observed = buildLink(existing.getLinkUrl(), null, null);
         observed.setGroupName("账号同步群名");
@@ -145,7 +154,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
         observed.setMembershipState(GroupMembershipState.JOINED.code());
         mapper.upsertAccountObservedGroup(observed, "账号同步群名");
 
-        GroupLink after = mapper.selectAnyByUrl(existing.getLinkUrl());
+        GroupLink after = mapper.selectAnyByUrl(existing.getLinkUrl(), 1L);
         assertThat(after.getId()).isEqualTo(existing.getId());
         assertThat(after.getDeletedAt()).isNull();
         assertThat(after.getLabelId()).isEqualTo(label.getId());
@@ -164,9 +173,13 @@ class GroupLinkMapperDbTest extends DbTestBase {
         GroupLink deleted = buildLink("chat.whatsapp.com/SelectActiveByIdsB", label.getId(), batch.getId());
         mapper.insert(active);
         mapper.insert(deleted);
-        mapper.softDeleteByIds(List.of(deleted.getId()), System.currentTimeMillis());
+        mapper.softDeleteByIds(
+                List.of(deleted.getId()), com.armada.shared.security.DataScope.all(1L),
+                System.currentTimeMillis());
 
-        List<GroupLink> rows = mapper.selectActiveByIds(List.of(active.getId(), deleted.getId(), -1L));
+        List<GroupLink> rows = mapper.selectActiveByIds(
+                List.of(active.getId(), deleted.getId(), -1L),
+                com.armada.shared.security.DataScope.all(1L));
 
         assertThat(rows).extracting(GroupLink::getId).containsExactly(active.getId());
     }
@@ -182,10 +195,10 @@ class GroupLinkMapperDbTest extends DbTestBase {
         mapper.insert(link);
 
         int updated = mapper.adoptActiveIntoImport(
-                link.getId(), label.getId(), batch.getId(), System.currentTimeMillis());
+                link.getId(), label.getId(), batch.getId(), 1L, System.currentTimeMillis());
         assertThat(updated).isEqualTo(1);
 
-        GroupLink after = mapper.selectAnyByUrl("chat.whatsapp.com/AdoptFromPullTask");
+        GroupLink after = mapper.selectAnyByUrl("chat.whatsapp.com/AdoptFromPullTask", 1L);
         assertThat(after.getLabelId()).isEqualTo(label.getId());
         assertThat(after.getImportBatchId()).isEqualTo(batch.getId());
         assertThat(after.getOrigin()).isEqualTo(GroupLinkOrigin.PULL_TASK.code());
@@ -239,7 +252,9 @@ class GroupLinkMapperDbTest extends DbTestBase {
         mapper.insert(buildLink("chat.whatsapp.com/CascadeTest2", label.getId(), batch.getId()));
 
         // 级联软删
-        int deleted = mapper.softDeleteByLabelIds(List.of(label.getId()), System.currentTimeMillis());
+        int deleted = mapper.softDeleteByLabelIds(
+                List.of(label.getId()), com.armada.shared.security.DataScope.all(1L),
+                System.currentTimeMillis());
         assertThat(deleted).isEqualTo(2);
 
         assertThat(jdbc.queryForObject(
@@ -274,6 +289,7 @@ class GroupLinkMapperDbTest extends DbTestBase {
     private Account insertAccount(String phone, String protocolAccountId, int loginState) {
         long now = System.currentTimeMillis();
         Account account = new Account();
+        account.setOwnerUserId(1L);
         account.setWsPhone(phone);
         account.setAccountType(1);
         account.setOwnership(1);

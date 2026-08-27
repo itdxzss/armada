@@ -2,10 +2,13 @@ package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
@@ -20,6 +23,7 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -36,10 +40,14 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
         PullTaskGroupExecution execution = new PullTaskGroupExecution();
         execution.setId(9L);
         execution.setTenantId(7L);
+        execution.setOwnerUserId(17L);
         when(executionMapper.selectUnknownResultCandidates(any()))
                 .thenReturn(List.of(execution));
         when(service.reconcile(execution, 40_000L, 45_000L, 50_000L))
-                .thenReturn(new PullTaskUnknownResultReconciliationStats(2, 1));
+                .thenAnswer(invocation -> {
+                    assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(17L);
+                    return new PullTaskUnknownResultReconciliationStats(2, 1);
+                });
         PullTaskUnknownResultReconciliationCoordinator coordinator =
                 new PullTaskUnknownResultReconciliationCoordinator(
                         executionMapper, service, properties);
@@ -59,5 +67,26 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
         assertThat(criteria.getValue().excludedReasonCodes()).containsExactly("GROUP_BANNED");
         assertThat(result).isEqualTo(new PullTaskUnknownResultReconciliationStats(2, 1));
         assertThat(TenantContext.get()).isEqualTo(99L);
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
+    void skipsHistoricalOwnerlessExecution() {
+        PullTaskGroupExecutionMapper executionMapper = mock(PullTaskGroupExecutionMapper.class);
+        PullTaskUnknownResultReconciliationService service =
+                mock(PullTaskUnknownResultReconciliationService.class);
+        PullTaskExecutionDispatchProperties properties = new PullTaskExecutionDispatchProperties();
+        PullTaskGroupExecution execution = new PullTaskGroupExecution();
+        execution.setId(9L);
+        execution.setTenantId(7L);
+        when(executionMapper.selectUnknownResultCandidates(any())).thenReturn(List.of(execution));
+        PullTaskUnknownResultReconciliationCoordinator coordinator =
+                new PullTaskUnknownResultReconciliationCoordinator(
+                        executionMapper, service, properties);
+
+        PullTaskUnknownResultReconciliationStats result = coordinator.reconcileOnce(50_000L);
+
+        verify(service, never()).reconcile(any(), anyLong(), anyLong(), anyLong());
+        assertThat(result).isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
     }
 }

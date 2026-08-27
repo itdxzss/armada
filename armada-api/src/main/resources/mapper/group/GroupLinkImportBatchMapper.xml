@@ -2,10 +2,20 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkImportBatchMapper">
 
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link_import_batch (label_id, batch_name, source_file_name,
+    INSERT INTO group_link_import_batch (owner_user_id, label_id, batch_name, source_file_name,
       total_rows, inserted_rows, adopted_rows, duplicate_rows, failed_rows, created_at, created_by)
-    VALUES (#{labelId}, #{batchName}, #{sourceFileName},
+    VALUES (#{ownerUserId}, #{labelId}, #{batchName}, #{sourceFileName},
       #{totalRows}, #{insertedRows}, #{adoptedRows}, #{duplicateRows}, #{failedRows}, #{createdAt}, #{createdBy})
   </insert>
 
@@ -17,11 +27,14 @@
         duplicate_rows = #{duplicateRows},
         failed_rows = #{failedRows}
     WHERE id = #{id}
+      AND owner_user_id = #{ownerUserId}
   </update>
 
   <update id="softDeleteByLabelIds">
     UPDATE group_link_import_batch SET deleted_at = #{deletedAt}
-    WHERE deleted_at IS NULL AND label_id IN
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND label_id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 

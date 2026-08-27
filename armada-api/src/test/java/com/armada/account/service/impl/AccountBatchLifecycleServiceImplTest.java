@@ -7,6 +7,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountBatchPreviewDTO;
@@ -25,10 +26,14 @@ import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
@@ -40,6 +45,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class AccountBatchLifecycleServiceImplTest {
+
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(DataScope.all(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Mock
     private AccountMapper accountMapper;
@@ -53,7 +68,7 @@ class AccountBatchLifecycleServiceImplTest {
     @Test
     void onlineByIdsAccepts2000AndCallsFour500AccountChunks() {
         List<Long> ids = range(1, 2_000);
-        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(targets(ids, null, true));
+        when(accountMapper.selectBatchTargetsByIds(eq(ids), any())).thenReturn(targets(ids, null, true));
         when(commandService.onlineBatch(any())).thenAnswer(invocation -> accepted(invocation.getArgument(0)));
 
         AccountBatchCommandResultVO result = service.onlineByIds(ids);
@@ -71,7 +86,7 @@ class AccountBatchLifecycleServiceImplTest {
     @Test
     void onlineByIdsSkipsBlockedMissingCredentialAndAlreadyOnlineStatesButKeepsOfflineAccount() {
         List<Long> ids = List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L);
-        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(List.of(
+        when(accountMapper.selectBatchTargetsByIds(eq(ids), any())).thenReturn(List.of(
                 target(1L, AccountStateCode.BANNED, true),
                 target(2L, AccountStateCode.UNBOUND, true),
                 target(3L, AccountStateCode.TAKING_OVER, true),
@@ -121,7 +136,7 @@ class AccountBatchLifecycleServiceImplTest {
     @Test
     void onlineByIdsRejectsTargetsMissingFromCurrentTenantBeforeSubmitting() {
         List<Long> ids = List.of(1L, 2L);
-        when(accountMapper.selectBatchTargetsByIds(ids))
+        when(accountMapper.selectBatchTargetsByIds(eq(ids), any()))
                 .thenReturn(List.of(target(1L, AccountStateCode.NORMAL, true)));
 
         assertThatThrownBy(() -> service.onlineByIds(ids))
@@ -134,7 +149,7 @@ class AccountBatchLifecycleServiceImplTest {
     @Test
     void offlineByIdsCallsTwo1000AccountChunksWithoutCredentialSkipping() {
         List<Long> ids = range(1, 2_000);
-        when(accountMapper.selectBatchTargetsByIds(ids))
+        when(accountMapper.selectBatchTargetsByIds(eq(ids), any()))
                 .thenReturn(targets(ids, AccountStateCode.BANNED, false));
         when(commandService.offlineBatch(any())).thenAnswer(invocation -> accepted(invocation.getArgument(0)));
 

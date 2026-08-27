@@ -70,7 +70,9 @@ public interface AccountGroupMapper {
      * @param name 分组名称(精确匹配)
      * @return 活跃分组;不存在时返回 null
      */
-    AccountGroup selectActiveByName(@Param("name") String name);
+    /** 按 owner 查活跃同名分组。 */
+    AccountGroup selectActiveByNameForOwner(@Param("name") String name,
+                                            @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 按名称查软删分组(deleted_at IS NOT NULL)。
@@ -80,7 +82,9 @@ public interface AccountGroupMapper {
      * @param name 分组名称(精确匹配)
      * @return 软删分组;不存在时返回 null
      */
-    AccountGroup selectDeletedByName(@Param("name") String name);
+    /** 按 owner 查软删同名分组。 */
+    AccountGroup selectDeletedByNameForOwner(@Param("name") String name,
+                                             @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 按主键查活跃分组(deleted_at IS NULL)。
@@ -137,14 +141,8 @@ public interface AccountGroupMapper {
      */
     int countActiveBuilderGroupReferences(@Param("groupIds") List<Long> groupIds);
 
-    /**
-     * 查系统内置分组(system_builtin=1)。
-     *
-     * <p>全租户唯一一条;用于懒创建默认分组及导入时的默认分组解析。</p>
-     *
-     * @return 系统内置分组;不存在时返回 null
-     */
-    AccountGroup selectSystemBuiltin();
+    /** 按 owner 查系统默认分组；不存在时返回 null。 */
+    AccountGroup selectSystemBuiltinForOwner(@Param("ownerUserId") Long ownerUserId);
 
     /**
      * 插入新分组行。

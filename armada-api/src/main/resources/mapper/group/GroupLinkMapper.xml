@@ -2,20 +2,52 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkMapper">
 
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <sql id="handleScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND handle.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <!-- 含软删记录,供 upsert 复活判断 -->
   <select id="selectAnyByUrl" resultType="com.armada.group.model.entity.GroupLink">
-    SELECT * FROM group_link WHERE link_url = #{url} LIMIT 1
+    SELECT * FROM group_link
+    WHERE link_url = #{url}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+    LIMIT 1
   </select>
 
   <!-- RR 下 upsert 后必须使用当前读，否则既有 read view 可能看不到等待期间提交的唯一键行。 -->
   <select id="selectAnyByUrlForUpdate" resultType="com.armada.group.model.entity.GroupLink">
-    SELECT * FROM group_link WHERE link_url = #{url} FOR UPDATE
+    SELECT * FROM group_link
+    WHERE link_url = #{url}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+    FOR UPDATE
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link (link_url, group_name, label_id, import_batch_id, origin, membership_state, remark,
+    INSERT INTO group_link (owner_user_id, link_url, group_name, label_id, import_batch_id, origin, membership_state, remark,
       created_at, updated_at, created_by)
-    VALUES (#{linkUrl}, #{groupName}, #{labelId}, #{importBatchId},
+    VALUES (#{ownerUserId}, #{linkUrl}, #{groupName}, #{labelId}, #{importBatchId},
       COALESCE(#{origin}, 1), COALESCE(#{membershipState}, 1), #{remark},
       #{createdAt}, #{updatedAt}, #{createdBy})
   </insert>
@@ -23,9 +55,11 @@
   <!-- 账号首次观察群入口使用租户内 URL 唯一键原子登记；最终 ID 由调用方写后按 URL 读取。 -->
   <insert id="upsertAccountObservedGroup">
     INSERT INTO group_link (
-      link_url, group_name, origin, membership_state, sync_protocol_mask, created_at, updated_at
+      owner_user_id, link_url, group_name, origin, membership_state,
+      sync_protocol_mask, created_at, updated_at
     ) VALUES (
-      #{row.linkUrl}, #{row.groupName}, #{row.origin}, #{row.membershipState}, #{row.syncProtocolMask},
+      #{row.ownerUserId}, #{row.linkUrl}, #{row.groupName}, #{row.origin},
+      #{row.membershipState}, #{row.syncProtocolMask},
       #{row.createdAt}, #{row.updatedAt}
     )
     ON DUPLICATE KEY UPDATE
@@ -46,8 +80,11 @@
     LEFT JOIN wa_group current_group
       ON current_group.tenant_id = handle.tenant_id
      AND current_group.id = handle.group_id
-    WHERE current_group.group_jid = #{groupJid}
-       OR handle.link_url = CONCAT('wa://group/', #{groupJid})
+    WHERE handle.owner_user_id = #{ownerUserId}
+      AND (
+        current_group.group_jid = #{groupJid}
+        OR handle.link_url = CONCAT('wa://group/', #{groupJid})
+      )
     ORDER BY CASE WHEN handle.deleted_at IS NULL THEN 0 ELSE 1 END,
              handle.id ASC
     LIMIT 1
@@ -75,6 +112,7 @@
                CASE WHEN handle.deleted_at IS NULL THEN 0 ELSE 1 END AS activeRank
         FROM group_link handle
         WHERE handle.tenant_id = #{tenantId}
+          AND handle.owner_user_id = #{ownerUserId}
           AND handle.link_url IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
           CONCAT('wa://group/', #{groupJid})
@@ -89,6 +127,7 @@
           ON handle.tenant_id = current_group.tenant_id
          AND handle.group_id = current_group.id
         WHERE current_group.tenant_id = #{tenantId}
+          AND handle.owner_user_id = #{ownerUserId}
           AND current_group.group_jid IN
         <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">
           #{groupJid}
@@ -104,6 +143,7 @@
     SELECT *
     FROM group_link FORCE INDEX (PRIMARY)
     WHERE tenant_id = #{tenantId}
+      AND owner_user_id = #{ownerUserId}
       AND id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY id ASC
@@ -113,12 +153,13 @@
   <!-- 一条多值 upsert 按已有句柄 ID、再按缺失 JID 的稳定顺序处理。 -->
   <insert id="upsertAccountObservedGroups">
     INSERT INTO group_link (
-      tenant_id, id, link_url, group_name, origin, membership_state,
+      tenant_id, owner_user_id, id, link_url, group_name, origin, membership_state,
       sync_protocol_mask, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{tenantId}, #{row.groupLinkId}, #{row.linkUrl}, #{row.insertGroupName}, #{row.origin},
+        #{tenantId}, #{ownerUserId}, #{row.groupLinkId}, #{row.linkUrl},
+        #{row.insertGroupName}, #{row.origin},
         #{row.membershipState}, #{row.syncProtocolMask}, #{row.createdAt}, #{row.updatedAt}
       )
     </foreach>
@@ -152,6 +193,7 @@
         END,
         updated_at = #{updatedAt}
     WHERE id = #{groupLinkId}
+      AND owner_user_id = #{ownerUserId}
   </update>
 
   <select id="selectActiveIdByInviteCode" resultType="long">
@@ -162,6 +204,7 @@
      AND handle.group_invite_id = current_invite.id
      AND handle.deleted_at IS NULL
     WHERE current_invite.invite_code = #{inviteCode}
+      AND handle.owner_user_id = #{ownerUserId}
       AND current_invite.deleted_at IS NULL
     ORDER BY current_invite.updated_at DESC, handle.id ASC
     LIMIT 1
@@ -176,6 +219,7 @@
         group_name = COALESCE(#{groupName}, group_name),
         updated_at = #{updatedAt}
     WHERE id = #{id}
+      AND owner_user_id = #{ownerUserId}
   </update>
 
   <update id="adoptActiveIntoImport">
@@ -184,6 +228,7 @@
         import_batch_id = #{batchId},
         updated_at = #{updatedAt}
     WHERE id = #{id}
+      AND owner_user_id = #{ownerUserId}
       AND deleted_at IS NULL
       AND label_id IS NULL
   </update>
@@ -195,6 +240,7 @@
         import_batch_id = NULL,
         updated_at = #{updatedAt}
     WHERE id = #{id}
+      AND owner_user_id = #{ownerUserId}
   </update>
 
   <update id="markSelfBuiltGroup">
@@ -207,6 +253,10 @@
         membership_state = 3,
         updated_at = #{updatedAt}
     WHERE id = #{id}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
   </update>
 
   <update id="markHistorical">
@@ -215,6 +265,7 @@
         updated_at = GREATEST(updated_at, #{updatedAt})
     WHERE id = #{groupLinkId}
       AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND is_historical = 0
   </update>
 
@@ -224,6 +275,7 @@
         updated_at = GREATEST(updated_at, #{updatedAt})
     WHERE id = #{groupLinkId}
       AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND is_post_control = 0
   </update>
 
@@ -248,6 +300,7 @@
       updated_at = GREATEST(updated_at, #{updatedAt})
     </set>
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
     <trim prefix="AND (" suffix=")" suffixOverrides="OR">
       <if test="historicalIds != null and historicalIds.size() &gt; 0">
         (is_historical = 0 AND id IN
@@ -272,6 +325,7 @@
     FROM group_link
     WHERE deleted_at IS NULL
       AND id = #{id}
+      <include refid="directScopeFilter"/>
     LIMIT 1
   </select>
 
@@ -297,6 +351,7 @@
      AND input_invite.deleted_at IS NULL
     WHERE handle.id = #{id}
       AND handle.deleted_at IS NULL
+      <include refid="handleScopeFilter"/>
     LIMIT 1
   </select>
 
@@ -307,11 +362,31 @@
       ON current_group.tenant_id = link.tenant_id
      AND current_group.id = link.group_id
     WHERE link.deleted_at IS NULL
+      <choose>
+        <when test="ownerUserId != null">AND link.owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND link.owner_user_id IS NULL</otherwise>
+      </choose>
       AND (
         current_group.group_jid = #{groupJid}
         OR link.link_url = CONCAT('wa://group/', #{groupJid})
       )
     ORDER BY link.id ASC
+    LIMIT 1
+  </select>
+
+  <select id="selectActiveIdByGroupJidAndId" resultType="long">
+    SELECT link.id
+    FROM group_link link
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = link.tenant_id
+     AND current_group.id = link.group_id
+    WHERE link.id = #{groupLinkId}
+      AND link.deleted_at IS NULL
+      AND link.owner_user_id = #{ownerUserId}
+      AND (
+        current_group.group_jid = #{groupJid}
+        OR link.link_url = CONCAT('wa://group/', #{groupJid})
+      )
     LIMIT 1
   </select>
 
@@ -322,6 +397,7 @@
         updated_at = #{updatedAt}
     WHERE deleted_at IS NULL
       AND id = #{id}
+      <include refid="directScopeFilter"/>
   </update>
 
   <update id="updateGroupName">
@@ -330,6 +406,7 @@
         updated_at = #{updatedAt}
     WHERE deleted_at IS NULL
       AND id = #{id}
+      <include refid="directScopeFilter"/>
   </update>
 
   <!--
@@ -340,9 +417,10 @@
       3. 同一群链接多个在线账号时管理员优先,否则按 join_task_result.id 取最早一条,避免重复命令。
   -->
   <select id="selectHealthCheckCandidates" resultType="com.armada.group.model.vo.GroupLinkHealthCheckCandidate">
-    SELECT tenantId, groupLinkId, groupJid, accountId, protocolAccountId
+    SELECT tenantId, ownerUserId, groupLinkId, groupJid, accountId, protocolAccountId
     FROM (
       SELECT g.tenant_id AS tenantId,
+             g.owner_user_id AS ownerUserId,
              g.id AS groupLinkId,
              current_group.group_jid AS groupJid,
              a.id AS accountId,
@@ -367,6 +445,8 @@
       INNER JOIN account a
         ON a.tenant_id = r.tenant_id
        AND a.id = r.account_id
+       AND (a.owner_user_id = g.owner_user_id
+            OR (a.owner_user_id IS NULL AND g.owner_user_id IS NULL))
        AND a.deleted_at IS NULL
        AND a.protocol_account_id IS NOT NULL
        AND a.protocol_account_id != ''
@@ -389,6 +469,7 @@
     SELECT *
     FROM group_link
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
     ORDER BY id ASC
@@ -400,24 +481,32 @@
 
   <update id="migrateToLabel">
     UPDATE group_link SET label_id = #{labelId}, updated_at = #{updatedAt}
-    WHERE deleted_at IS NULL AND id IN
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
   <update id="softDeleteByIds">
     UPDATE group_link SET deleted_at = #{deletedAt}
-    WHERE deleted_at IS NULL AND id IN
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
   <update id="softDeleteByLabelIds">
     UPDATE group_link SET deleted_at = #{deletedAt}
-    WHERE deleted_at IS NULL AND label_id IN
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND label_id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 
   <select id="countActiveByIds" resultType="int">
-    SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL AND id IN
+    SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </select>
 
@@ -425,6 +514,7 @@
     SELECT COUNT(*)
     FROM group_link
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND folder_id IN
     <foreach collection="folderIds" item="id" open="(" separator="," close=")">#{id}</foreach>
   </select>
@@ -434,6 +524,7 @@
     SET folder_id = NULL,
         updated_at = #{updatedAt}
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND folder_id IN
     <foreach collection="folderIds" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>
@@ -443,6 +534,7 @@
     FROM group_link FORCE INDEX (PRIMARY)
     WHERE tenant_id = #{tenantId}
       AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY id
@@ -454,6 +546,7 @@
     SET folder_id = #{folderId},
         updated_at = #{updatedAt}
     WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
       AND id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
   </update>

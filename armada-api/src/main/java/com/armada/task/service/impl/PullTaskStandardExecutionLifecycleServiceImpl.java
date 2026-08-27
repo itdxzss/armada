@@ -4,6 +4,9 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskExecutionManualTransition;
@@ -115,6 +118,7 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     @Transactional(rollbackFor = Exception.class)
     public void resume(long taskId, long executionId) {
         PullTask parent = requiredTask(taskId);
+        DataScopeAccess.requireAssignedOwner(parent.getOwnerUserId(), "拉群任务");
         requireActiveParent(parent, "恢复群");
         PullTaskGroupExecution execution = requiredExecution(taskId, executionId);
         requireNonTerminal(execution, "恢复");
@@ -159,12 +163,19 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void terminateBannedGroup(long tenantId, long groupLinkId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (!scope.isSelf()) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "群封禁事件必须恢复为群资源所属用户范围");
+        }
         Long previousTenantId = TenantContext.get();
         try {
             TenantContext.set(tenantId);
             List<PullTaskGroupExecution> executions =
                     resources.executionMapper().selectActiveByGroupLinkId(
                             groupLinkId,
+                            scope.actorUserId(),
                             NON_TERMINAL_STATUSES,
                             PullTaskType.STANDARD.name(),
                             NORMAL_LINK_MODE,
@@ -202,7 +213,9 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     private void retryTxtWithAnotherGroup(
             PullTask parent, PullTaskGroupExecution failed, long now) {
         if (failed.getGroupLinkId() != null) {
-            groupFolderService.moveToUngrouped(failed.getGroupLinkId());
+            try (DataScopeContext.Scope ignored = openOwnerScope(parent.getOwnerUserId())) {
+                groupFolderService.moveToUngrouped(failed.getGroupLinkId());
+            }
         }
         PullTaskGroupExecution retry = new PullTaskGroupExecution();
         retry.setTaskId(failed.getTaskId());
@@ -230,6 +243,13 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
         }
         resources.pull().materialMapper().copyForRetry(failed.getId(), retry.getId(), now);
         dispatchIfRunning(parent);
+    }
+
+    private static DataScopeContext.Scope openOwnerScope(Long ownerUserId) {
+        if (ownerUserId == null) {
+            throw new IllegalStateException("历史无归属拉群任务不能变更用户群文件夹");
+        }
+        return DataScopeContext.open(DataScope.self(ownerUserId));
     }
 
     private void cancelNotSubmitted(long taskId, long executionId, long now) {
@@ -320,7 +340,8 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
     }
 
     private PullTask requiredTask(long taskId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForScope(
+                taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }

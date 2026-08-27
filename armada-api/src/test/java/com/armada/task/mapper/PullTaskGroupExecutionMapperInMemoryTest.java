@@ -466,9 +466,9 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     @Test
     void claimDueUsesCallerSuppliedBusinessConditions() throws SQLException {
         executeRaw("INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, config_json, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, config_json, "
                 + "created_at, updated_at) VALUES "
-                + "(400, 7, 'GROUP_MARKETING', 'task', 'OLD_LINK', 'PAUSED', '{}', 100, 100)");
+                + "(400, 7, 501, 'GROUP_MARKETING', 'task', 'OLD_LINK', 'PAUSED', '{}', 100, 100)");
         mapper.insertDraft(draft(400L, 1, "chat.whatsapp.com/DDDD", 1));
         executeRaw("UPDATE pull_task_group_execution "
                 + "SET stage = 7, manual_paused = 1 WHERE task_id = 400");
@@ -585,6 +585,7 @@ class PullTaskGroupExecutionMapperInMemoryTest {
         TenantContext.set(7L);
         assertThat(mapper.selectActiveByGroupLinkId(
                 9000L,
+                501L,
                 List.of(
                         PullTaskExecutionStatus.WAIT_START.code(),
                         PullTaskExecutionStatus.EXECUTING.code(),
@@ -850,9 +851,9 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     private void insertParent(long tenantId, long taskId, String status) {
         try {
             executeRaw("INSERT INTO pull_task "
-                    + "(id, tenant_id, task_type, task_name, mode, status, config_json, "
+                    + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, config_json, "
                     + "created_at, updated_at) VALUES (" + taskId + ", " + tenantId
-                    + ", 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                    + ", 501, 'STANDARD', 'task', 'NORMAL_LINK', '" + status
                     + "', '{}', 100, 100)");
         } catch (SQLException e) {
             throw new IllegalStateException(e);

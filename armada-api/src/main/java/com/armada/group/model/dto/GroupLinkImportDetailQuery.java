@@ -3,6 +3,7 @@ package com.armada.group.model.dto;
 import com.armada.group.model.GroupLinkImportResult;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 群链接导入明细列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -24,6 +25,18 @@ public class GroupLinkImportDetailQuery extends PageQuery {
 
     /** 失败原因过滤:重复/格式错误;通常配合 result=2 使用。 */
     private String failReason;
+
+    /** 服务端注入的数据范围；不接受 HTTP 参数绑定。 */
+    private DataScope dataScope;
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入可信数据范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
+    }
 
     public Long getLabelId() {
         return labelId;

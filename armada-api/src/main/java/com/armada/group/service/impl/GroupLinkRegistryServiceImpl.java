@@ -14,6 +14,8 @@ import com.armada.group.service.GroupLinkUrls;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Collections;
 import java.util.Comparator;
@@ -88,11 +90,14 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                                              ProtocolBackend observedBackend,
                                              long now) {
         String normalizedJid = normalizeRequired(groupJid, "账号群同步缺少 groupJid");
+        long ownerUserId = currentOwnerUserId();
         String normalizedName = clamp(blankToNull(groupName), 128);
         int syncProtocolMask = observedBackend == ProtocolBackend.ANDROID ? 2 : 1;
-        Long groupLinkId = groupLinkMapper.selectIdByGroupJidIncludingDeleted(normalizedJid);
+        Long groupLinkId = groupLinkMapper.selectIdByGroupJidIncludingDeleted(
+                normalizedJid, ownerUserId);
         if (groupLinkId == null) {
             GroupLink row = new GroupLink();
+            row.setOwnerUserId(ownerUserId);
             row.setLinkUrl(SELF_BUILT_LINK_PREFIX + normalizedJid);
             row.setGroupName(normalizedName == null ? normalizedJid : normalizedName);
             row.setOrigin(GroupLinkOrigin.ACCOUNT_SYNC.code());
@@ -101,14 +106,15 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.upsertAccountObservedGroup(row, normalizedName);
-            GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(row.getLinkUrl());
+            GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(
+                    row.getLinkUrl(), ownerUserId);
             if (resolved == null || resolved.getId() == null) {
                 throw new BusinessException(ErrorCode.CONFLICT, "账号群入口登记失败");
             }
             return resolved.getId();
         }
         groupLinkMapper.touchAccountObservedGroup(
-                groupLinkId, normalizedName, syncProtocolMask, now);
+                groupLinkId, ownerUserId, normalizedName, syncProtocolMask, now);
         return groupLinkId;
     }
 
@@ -131,9 +137,11 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
         int syncProtocolMask = observedBackend == ProtocolBackend.ANDROID ? 2 : 1;
+        long ownerUserId = currentOwnerUserId();
         List<String> groupJids = List.copyOf(normalized.keySet());
         Map<String, AccountObservedGroupHandle> existing = handlesByJid(
-                groupLinkMapper.selectAccountObservedHandles(tenantId, groupJids));
+                groupLinkMapper.selectAccountObservedHandles(
+                        tenantId, ownerUserId, groupJids));
         List<Long> existingIds = existing.values().stream()
                 .map(AccountObservedGroupHandle::groupLinkId)
                 .filter(java.util.Objects::nonNull)
@@ -141,7 +149,8 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                 .sorted()
                 .toList();
         if (!existingIds.isEmpty()) {
-            groupLinkMapper.selectAccountObservedByIdsForUpdate(tenantId, existingIds);
+            groupLinkMapper.selectAccountObservedByIdsForUpdate(
+                    tenantId, ownerUserId, existingIds);
         }
         List<AccountObservedGroupWrite> rows = normalized.entrySet().stream()
                 .sorted(Comparator
@@ -156,10 +165,11 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                         entry.getKey(), entry.getValue(), existing.get(entry.getKey()),
                         syncProtocolMask, now))
                 .toList();
-        groupLinkMapper.upsertAccountObservedGroups(tenantId, rows);
+        groupLinkMapper.upsertAccountObservedGroups(tenantId, ownerUserId, rows);
 
         Map<String, AccountObservedGroupHandle> resolved = handlesByJid(
-                groupLinkMapper.selectAccountObservedHandles(tenantId, groupJids));
+                groupLinkMapper.selectAccountObservedHandles(
+                        tenantId, ownerUserId, groupJids));
         if (resolved.size() != normalized.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "账号群入口批量登记结果不完整");
         }
@@ -219,8 +229,9 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             return;
         }
         long now = System.currentTimeMillis();
+        long ownerUserId = currentOwnerUserId();
         for (String url : urls) {
-            registerOne(url, now, GroupLinkOrigin.JOIN_TASK);
+            registerOne(url, now, GroupLinkOrigin.JOIN_TASK, ownerUserId);
         }
     }
 
@@ -235,10 +246,11 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Long> registerPullTaskTargets(List<String> normalizedLinks, long now) {
         Map<String, Long> idsByUrl = new LinkedHashMap<>();
+        long ownerUserId = currentOwnerUserId();
         for (String raw : normalizedLinks) {
             GroupLinkUrls.tryNormalize(raw).ifPresent(url ->
                     idsByUrl.computeIfAbsent(url, key -> registerOne(key, now,
-                            GroupLinkOrigin.PULL_TASK)));
+                            GroupLinkOrigin.PULL_TASK, ownerUserId)));
         }
         return idsByUrl;
     }
@@ -251,16 +263,18 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      * @param origin 首次入池来源；仅在新建时写入，已存在的行不改写
      * @return 复用、复活或新建后的 {@code group_link.id}
      */
-    private Long registerOne(String url, long now, GroupLinkOrigin origin) {
+    private Long registerOne(
+            String url, long now, GroupLinkOrigin origin, Long ownerUserId) {
         Long currentInviteGroupLinkId = groupLinkMapper.selectActiveIdByInviteCode(
-                inviteCode(url));
+                inviteCode(url), ownerUserId);
         if (currentInviteGroupLinkId != null && currentInviteGroupLinkId > 0) {
             return currentInviteGroupLinkId;
         }
-        GroupLink existing = groupLinkMapper.selectAnyByUrl(url);
+        GroupLink existing = groupLinkMapper.selectAnyByUrl(url, ownerUserId);
         if (existing == null) {
             // 全新链接:作为任务目标进入群组池,但不归入任何导入链接分组。
             GroupLink row = new GroupLink();
+            row.setOwnerUserId(ownerUserId);
             row.setLinkUrl(url);
             row.setOrigin(origin.code());
             row.setMembershipState(GroupMembershipState.TARGET.code());
@@ -271,7 +285,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         }
         if (existing.getDeletedAt() != null) {
             // 软删行仍占唯一键,必须复活原行;不复活直接插入会撞唯一键。
-            groupLinkMapper.reviveAsStandaloneTarget(existing.getId(), now);
+            groupLinkMapper.reviveAsStandaloneTarget(existing.getId(), ownerUserId, now);
         }
         // 已存在且活跃时故意不改:origin 是首次入池来源,membership_state 只能由后续状态回写升级。
         return existing.getId();
@@ -304,15 +318,30 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
                                        String ownerPhone,
                                        Integer memberCount,
                                        long now) {
+        return registerSelfBuiltGroupForOwner(
+                currentOwnerUserId(), groupJid, groupName, ownerAccountId,
+                ownerPhone, memberCount, now);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long registerSelfBuiltGroupForOwner(Long ownerUserId,
+                                               String groupJid,
+                                               String groupName,
+                                               Long ownerAccountId,
+                                               String ownerPhone,
+                                               Integer memberCount,
+                                               long now) {
         String normalizedJid = normalizeRequired(groupJid, "自建群缺少 groupJid");
         if (ownerAccountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "自建群缺少 ownerAccountId");
         }
         String linkUrl = SELF_BUILT_LINK_PREFIX + normalizedJid;
-        GroupLink existing = groupLinkMapper.selectAnyByUrl(linkUrl);
+        GroupLink existing = groupLinkMapper.selectAnyByUrl(linkUrl, ownerUserId);
         Long groupLinkId;
         if (existing == null) {
             GroupLink row = new GroupLink();
+            row.setOwnerUserId(ownerUserId);
             row.setLinkUrl(linkUrl);
             row.setGroupName(clamp(blankToNull(groupName), 128));
             row.setOrigin(GroupLinkOrigin.SELF_BUILT.code());
@@ -323,7 +352,8 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             groupLinkId = row.getId();
         } else {
             groupLinkId = existing.getId();
-            groupLinkMapper.markSelfBuiltGroup(groupLinkId, clamp(blankToNull(groupName), 128), now);
+            groupLinkMapper.markSelfBuiltGroup(
+                    groupLinkId, ownerUserId, clamp(blankToNull(groupName), 128), now);
         }
         GroupLinkPreview preview = new GroupLinkPreview();
         preview.setGroupLinkId(groupLinkId);
@@ -363,6 +393,10 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             long now) {
         if (groupLinkId == null || accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "登记在群关系缺少账号或群入口");
+        }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (groupLinkMapper.selectActiveById(groupLinkId, scope) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群入口不存在");
         }
         upsertKnownMembership(
                 groupLinkId,
@@ -461,5 +495,9 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private static long currentOwnerUserId() {
+        return DataScopeAccess.requireCurrent().ownerUserIdForCreate();
     }
 }

@@ -19,6 +19,9 @@ import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -32,6 +35,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -92,6 +96,10 @@ public class MarketingTaskWhatsAppMemberProvider {
     }
 
     private void collect(ExportRequest request, ExportSink rows) {
+        withContext(request.tenantId(), request.dataScope(), () -> collectInContext(request, rows));
+    }
+
+    private void collectInContext(ExportRequest request, ExportSink rows) {
         List<MarketingTaskGroupExportRow> groupRows = mapper.selectGroupRowsList(
                 request.tenantId(), request.taskIds(), request.snapshotAt());
         if (groupRows == null || groupRows.isEmpty()) {
@@ -126,7 +134,7 @@ public class MarketingTaskWhatsAppMemberProvider {
                 Map.copyOf(incompleteObserverIds), accounts, accountLocks, request.ownershipCheck());
         queryAndMergeGroups(
                 groups, request.tenantId(), request.snapshotAt(), cachedByGroup,
-                queryContext, rows);
+                request.dataScope(), queryContext, rows);
     }
 
     private void queryAndMergeGroups(
@@ -134,6 +142,7 @@ public class MarketingTaskWhatsAppMemberProvider {
             Long tenantId,
             long snapshotAt,
             Map<String, WhatsappGroupMemberCacheSnapshotVO> cachedByGroup,
+            DataScope dataScope,
             QueryContext queryContext,
             ExportSink rows) {
         ExecutorService executor = Executors.newFixedThreadPool(Math.min(MAX_PARALLEL_GROUPS, groups.size()));
@@ -152,9 +161,9 @@ public class MarketingTaskWhatsAppMemberProvider {
                         tenantId, batchGroupJids);
                 List<CompletableFuture<GroupSnapshot>> futures = batch.stream()
                         .map(group -> CompletableFuture.supplyAsync(
-                                () -> queryGroup(
+                                () -> withContext(tenantId, dataScope, () -> queryGroup(
                                         group, cachedByGroup.get(group.getGroupJid()),
-                                        tenantId, snapshotAt, queryContext), executor))
+                                        tenantId, snapshotAt, queryContext)), executor))
                         .toList();
                 for (CompletableFuture<GroupSnapshot> future : futures) {
                     GroupSnapshot snapshot = future.join();
@@ -691,6 +700,31 @@ public class MarketingTaskWhatsAppMemberProvider {
         return normalized.substring(0, 4) + "***" + normalized.substring(normalized.length() - 4);
     }
 
+    private static <T> T withContext(Long tenantId, DataScope dataScope, Supplier<T> action) {
+        if (tenantId == null || dataScope == null
+                || (!dataScope.isSelf() && !dataScope.isAll()) || action == null) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "营销导出缺少可信数据范围");
+        }
+        Long previousTenant = TenantContext.get();
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(dataScope)) {
+            TenantContext.set(tenantId);
+            return action.get();
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private static void withContext(Long tenantId, DataScope dataScope, Runnable action) {
+        withContext(tenantId, dataScope, () -> {
+            action.run();
+            return Boolean.TRUE;
+        });
+    }
+
     private record GroupKey(Long taskId, String groupJid) {
     }
 
@@ -707,6 +741,7 @@ public class MarketingTaskWhatsAppMemberProvider {
             List<Long> taskIds,
             long snapshotAt,
             CountryService.PhonePrefixResolver countryResolver,
+            DataScope dataScope,
             Runnable ownershipCheck) {
     }
 

@@ -14,6 +14,8 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -69,6 +71,7 @@ class PullTaskStationSupplementServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(501L));
         PullTaskNormalLinkH2Support.resetSchema(
                 dataSource, task(), setting(), execution(), usedStation());
         reset(accountLookup, accountGroupService, dispatchTrigger);
@@ -82,6 +85,7 @@ class PullTaskStationSupplementServiceTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -171,9 +175,9 @@ class PullTaskStationSupplementServiceTest {
 
     private static String task() {
         return "INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
                 + "config_json, created_at, updated_at) VALUES "
-                + "(1, 7, 'STANDARD', 'task', 'NORMAL_LINK', 'EXECUTING', 1, '{}', 100, 100)";
+                + "(1, 7, 501, 'STANDARD', 'task', 'NORMAL_LINK', 'EXECUTING', 1, '{}', 100, 100)";
     }
 
     private static String setting() {
@@ -194,7 +198,7 @@ class PullTaskStationSupplementServiceTest {
                 + "execution_status, stage, manual_paused, wait_resource_type, reason_code, "
                 + "next_run_at, version, created_at, updated_at) VALUES "
                 + "(11, 7, 1, 1, 'chat.whatsapp.com/AAAA', 'AAAA', 1, 1, 'a.txt', "
-                + "'120363group@g.us', 3, 5, 0, 3, 'STATION_UNAVAILABLE', 5000, 2, 100, 100)";
+                + "'120363group@g.us', 3, 6, 0, 3, 'STATION_UNAVAILABLE', 5000, 2, 100, 100)";
     }
 
     private static String usedStation() {

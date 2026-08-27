@@ -1,6 +1,7 @@
 package com.armada.marketing.grouppull.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 拉群营销任务一级列表查询条件。
@@ -23,6 +24,9 @@ public class GroupPullMarketingTaskQuery extends PageQuery {
 
     /** 营销分组及账号资源状态码。 */
     private Integer resourceStatus;
+
+    /** 服务端从可信身份注入的数据范围，不参与 HTTP 绑定。 */
+    private DataScope dataScope;
 
     public Long getId() {
         return id;
@@ -62,5 +66,14 @@ public class GroupPullMarketingTaskQuery extends PageQuery {
 
     public void setResourceStatus(Integer resourceStatus) {
         this.resourceStatus = resourceStatus;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

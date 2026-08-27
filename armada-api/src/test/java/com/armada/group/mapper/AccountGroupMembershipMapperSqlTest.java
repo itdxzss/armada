@@ -19,6 +19,8 @@ class AccountGroupMembershipMapperSqlTest {
         assertTrue(xml.contains("<select id=\"selectGroupExecutionAccountsByPhones\""));
         assertTrue(xml.contains("self_participant.presence_status = 1"));
         assertTrue(xml.contains("COALESCE(binding.last_observed_at, 0) DESC"));
+        assertTrue(xml.contains("a.owner_user_id = group_handle.owner_user_id"));
+        assertTrue(xml.contains("controlled_account.owner_user_id = group_handle.owner_user_id"));
         assertFalse(xml.contains("FROM account_group_membership"));
     }
 

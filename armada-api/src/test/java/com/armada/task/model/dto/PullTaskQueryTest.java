@@ -21,7 +21,7 @@ class PullTaskQueryTest {
 
         assertThat(query.toFilter()).isEqualTo(new PullTaskFilter(
                 8L, "印度", "EXECUTING", PullTaskType.GROUP_MARKETING,
-                PullTaskGroupSource.HISTORICAL, "运营甲"));
+                PullTaskGroupSource.HISTORICAL, "运营甲", null));
     }
 
     @Test
@@ -34,7 +34,7 @@ class PullTaskQueryTest {
         query.setPageSize(20_000);
 
         assertThat(query.toFilter()).isEqualTo(
-                new PullTaskFilter(null, null, null, null, null, null));
+                new PullTaskFilter(null, null, null, null, null, null, null));
         assertThat(query.getPage()).isEqualTo(1);
         assertThat(query.getPageSize()).isEqualTo(1_000);
         assertThat(query.getOffset()).isZero();

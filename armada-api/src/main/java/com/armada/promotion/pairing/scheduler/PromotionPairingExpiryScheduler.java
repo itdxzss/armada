@@ -3,6 +3,8 @@ package com.armada.promotion.pairing.scheduler;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.service.impl.PromotionPairingCompletionService;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.slf4j.Logger;
@@ -56,7 +58,13 @@ public class PromotionPairingExpiryScheduler {
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(session.getTenantId());
-            completionService.expireIfDue(session.getId(), session.getTenantId(), now);
+            if (session.getOwnerUserId() == null) {
+                throw new IllegalStateException("历史无归属推广配对会话不能自动终结");
+            }
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(session.getOwnerUserId()))) {
+                completionService.expireIfDue(session.getId(), session.getTenantId(), now);
+            }
         } catch (RuntimeException ex) {
             log.warn("推广配对过期回收失败 sessionId={} tenantId={} errorType={}",
                     session.getId(), session.getTenantId(), ex.getClass().getSimpleName());

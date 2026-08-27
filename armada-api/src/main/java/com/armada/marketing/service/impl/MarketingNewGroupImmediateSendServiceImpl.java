@@ -27,6 +27,9 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -135,32 +138,33 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
-        if (!canRegisterNewGroup(task, detectedAt)) {
+        if (!canRegisterNewGroup(task, detectedAt) || !hasOwner(task, "登记新群")) {
             return;
         }
+        try (DataScopeContext.Scope ignored = openTaskOwnerScope(task)) {
+            boolean delayed = delayEnabled(task);
+            ClaimedImmediateTargets claimed = delayed
+                    ? claimWaitingAttempts(task, target, candidates, detectedAt)
+                    : claimImmediateAttempts(task, target, candidates, detectedAt);
+            if (claimed.attempts().isEmpty()) {
+                return;
+            }
+            if (delayed) {
+                log.info("新群首次营销已进入等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
+                        task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
+                        claimed.attempts().get(0).getScheduledSendAt());
+                return;
+            }
 
-        boolean delayed = delayEnabled(task);
-        ClaimedImmediateTargets claimed = delayed
-                ? claimWaitingAttempts(task, target, candidates, detectedAt)
-                : claimImmediateAttempts(task, target, candidates, detectedAt);
-        if (claimed.attempts().isEmpty()) {
-            return;
+            MarketingMessageComposer.ComposedMessage message;
+            try {
+                message = messageFactory.composeTaskMessage(task);
+            } catch (BusinessException ex) {
+                markLocalTemplateFailures(task, claimed.attempts(), ex.getMessage(), detectedAt);
+                return;
+            }
+            enqueueClaimed(task, claimed.targets(), claimed.attempts(), message, detectedAt);
         }
-        if (delayed) {
-            log.info("新群首次营销已进入等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
-                    task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
-                    claimed.attempts().get(0).getScheduledSendAt());
-            return;
-        }
-
-        MarketingMessageComposer.ComposedMessage message;
-        try {
-            message = messageFactory.composeTaskMessage(task);
-        } catch (BusinessException ex) {
-            markLocalTemplateFailures(task, claimed.attempts(), ex.getMessage(), detectedAt);
-            return;
-        }
-        enqueueClaimed(task, claimed.targets(), claimed.attempts(), message, detectedAt);
     }
 
     /**
@@ -180,18 +184,23 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         MarketingTask candidateTask = taskMapper.selectTaskById(target.getMarketingTaskId());
-        if (candidateTask == null || !delayEnabled(candidateTask)) {
+        if (candidateTask == null || !delayEnabled(candidateTask)
+                || !hasOwner(candidateTask, "登记延迟新群")) {
             return;
         }
-        MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
-        if (!canRegisterNewGroup(task, detectedAt) || !delayEnabled(task)) {
-            return;
-        }
-        ClaimedImmediateTargets claimed = claimWaitingAttempts(task, target, candidates, detectedAt);
-        if (!claimed.attempts().isEmpty()) {
-            log.info("群成员增量新群已进入延迟等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
-                    task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
-                    claimed.attempts().get(0).getScheduledSendAt());
+        try (DataScopeContext.Scope ignored = openTaskOwnerScope(candidateTask)) {
+            MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
+            if (!canRegisterNewGroup(task, detectedAt) || !delayEnabled(task)) {
+                return;
+            }
+            DataScopeAccess.requireCanAccess(
+                    DataScopeContext.requireCurrent(), task.getOwnerUserId(), "营销任务");
+            ClaimedImmediateTargets claimed = claimWaitingAttempts(task, target, candidates, detectedAt);
+            if (!claimed.attempts().isEmpty()) {
+                log.info("群成员增量新群已进入延迟等待 tenantId={} taskId={} accountId={} groups={} scheduledSendAt={}",
+                        task.getTenantId(), task.getId(), target.getAccountId(), claimed.attempts().size(),
+                        claimed.attempts().get(0).getScheduledSendAt());
+            }
         }
     }
 
@@ -235,9 +244,19 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         MarketingTask task = taskMapper.selectTaskByIdForUpdate(marketingTaskId);
-        if (task == null) {
+        if (task == null || !hasOwner(task, "提交延迟新群")) {
             return;
         }
+        try (DataScopeContext.Scope ignored = openTaskOwnerScope(task)) {
+            submitDueWaitingAttemptsForTask(tenantId, task, attemptIds, submittedAt);
+        }
+    }
+
+    private void submitDueWaitingAttemptsForTask(Long tenantId,
+                                                 MarketingTask task,
+                                                 List<Long> attemptIds,
+                                                 long submittedAt) {
+        Long marketingTaskId = task.getId();
         List<MarketingTaskSendAttempt> waiting = taskMapper.selectWaitingAttemptsForUpdate(
                 tenantId, marketingTaskId, attemptIds, submittedAt);
         if (waiting.isEmpty()) {
@@ -359,39 +378,59 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
             return;
         }
         MarketingTask task = taskMapper.selectTaskById(marketingTaskId);
-        MarketingTaskTarget target = taskMapper.selectTargetById(targetId);
-        if (!isSendableGroupPullTarget(task, target, marketingTaskId, detectedAt)
-                || taskMapper.countSendableGroupPullTarget(targetId) != 1) {
+        if (task == null || !hasOwner(task, "固定群首发")) {
             return;
         }
-        MarketingNewGroupDTO group = new MarketingNewGroupDTO(
-                target.getGroupLinkId(), target.getGroupJid(), target.getGroupName());
-        MarketingTaskSendAttempt attempt = immediateAttempt(task, target, group, detectedAt);
-        try {
-            if (taskMapper.insertSendAttempt(attempt) != 1) {
+        try (DataScopeContext.Scope ignored = openTaskOwnerScope(task)) {
+            MarketingTaskTarget target = taskMapper.selectTargetById(targetId);
+            if (!isSendableGroupPullTarget(task, target, marketingTaskId, detectedAt)
+                    || taskMapper.countSendableGroupPullTarget(targetId) != 1) {
                 return;
             }
-        } catch (DuplicateKeyException duplicate) {
-            log.debug(
-                    "拉群营销固定群首发重复跳过 tenantId={} taskId={} targetId={}",
-                    task.getTenantId(), task.getId(), targetId);
-            return;
-        }
+            MarketingNewGroupDTO group = new MarketingNewGroupDTO(
+                    target.getGroupLinkId(), target.getGroupJid(), target.getGroupName());
+            MarketingTaskSendAttempt attempt = immediateAttempt(task, target, group, detectedAt);
+            try {
+                if (taskMapper.insertSendAttempt(attempt) != 1) {
+                    return;
+                }
+            } catch (DuplicateKeyException duplicate) {
+                log.debug(
+                        "拉群营销固定群首发重复跳过 tenantId={} taskId={} targetId={}",
+                        task.getTenantId(), task.getId(), targetId);
+                return;
+            }
 
-        MarketingMessageComposer.ComposedMessage message;
-        try {
-            message = messageFactory.composeTaskMessage(task);
-        } catch (BusinessException exception) {
-            markLocalTemplateFailures(task, List.of(attempt), exception.getMessage(), detectedAt);
-            return;
+            MarketingMessageComposer.ComposedMessage message;
+            try {
+                message = messageFactory.composeTaskMessage(task);
+            } catch (BusinessException exception) {
+                markLocalTemplateFailures(task, List.of(attempt), exception.getMessage(), detectedAt);
+                return;
+            }
+            enqueueClaimed(
+                    task,
+                    List.of(new MarketingResolvedTarget(
+                            target, target.getGroupLinkId(), target.getGroupJid(), target.getGroupName())),
+                    List.of(attempt),
+                    message,
+                    detectedAt);
         }
-        enqueueClaimed(
-                task,
-                List.of(new MarketingResolvedTarget(
-                        target, target.getGroupLinkId(), target.getGroupJid(), target.getGroupName())),
-                List.of(attempt),
-                message,
-                detectedAt);
+    }
+
+    private static boolean hasOwner(MarketingTask task, String operation) {
+        if (task.getOwnerUserId() != null) {
+            return true;
+        }
+        log.error("营销任务{}拒绝执行:任务缺少数据归属 tenantId={} taskId={}",
+                operation, task.getTenantId(), task.getId());
+        return false;
+    }
+
+    private static DataScopeContext.Scope openTaskOwnerScope(MarketingTask task) {
+        DataScopeContext.current().ifPresent(scope ->
+                DataScopeAccess.requireCanAccess(scope, task.getOwnerUserId(), "营销任务"));
+        return DataScopeContext.open(DataScope.self(task.getOwnerUserId()));
     }
 
     /**

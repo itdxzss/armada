@@ -3,6 +3,7 @@ package com.armada.task.service.impl;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.response.PageResult;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
@@ -149,7 +150,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
     }
 
     private PullTask requireTask(long taskId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForScope(
+                taskId, DataScopeAccess.requireCurrent());
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }

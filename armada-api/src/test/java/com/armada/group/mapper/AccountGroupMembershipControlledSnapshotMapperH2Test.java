@@ -77,7 +77,8 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
     @Test
     void selectsFreshMetadataAdminBeforeMembershipSnapshotIsPersisted() {
         assertThat(mapper.selectGroupExecutionAccountsByPhones(
-                201L, List.of("1001", "1002", "1003", "1004"), 1, GroupExecutableAccountStates.executable(), 4))
+                201L, List.of("1001", "1002", "1003", "1004", "1005"),
+                1, GroupExecutableAccountStates.executable(), 5))
                 .containsExactly(new GroupExecutionAccount(
                         301L, "WEB", "acc_1001", "1001", true));
     }
@@ -101,7 +102,8 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
     private void createSchema() throws SQLException {
         execute("""
                 CREATE TABLE account (
-                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, ws_phone VARCHAR(32) NOT NULL,
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, owner_user_id BIGINT,
+                  ws_phone VARCHAR(32) NOT NULL,
                   protocol_id VARCHAR(32), protocol_account_id VARCHAR(64),
                   deleted_at BIGINT
                 )
@@ -121,7 +123,7 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                 """, """
                 CREATE TABLE group_link (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
-                  group_id BIGINT, deleted_at BIGINT
+                  owner_user_id BIGINT, group_id BIGINT, deleted_at BIGINT
                 )
                 """, """
                 CREATE TABLE wa_account_group_binding (
@@ -155,12 +157,14 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
     private void insertFixtures() throws SQLException {
         execute("""
                 INSERT INTO account
-                  (id, tenant_id, ws_phone, protocol_id, protocol_account_id, deleted_at)
+                  (id, tenant_id, owner_user_id, ws_phone, protocol_id,
+                   protocol_account_id, deleted_at)
                 VALUES
-                  (301, 7, '1001', 'WEB', 'acc_1001', NULL),
-                  (302, 7, '1002', 'ANDROID', 'acc_1002', NULL),
-                  (303, 7, '1003', 'WEB', 'acc_1003', 999),
-                  (401, 8, '1004', 'WEB', 'acc_1004', NULL)
+                  (301, 7, 1, '1001', 'WEB', 'acc_1001', NULL),
+                  (302, 7, 1, '1002', 'ANDROID', 'acc_1002', NULL),
+                  (303, 7, 1, '1003', 'WEB', 'acc_1003', 999),
+                  (304, 7, 99, '1005', 'WEB', 'acc_1005', NULL),
+                  (401, 8, 2, '1004', 'WEB', 'acc_1004', NULL)
                 """, """
                 INSERT INTO account_state
                   (tenant_id, account_id, login_state, account_state)
@@ -168,11 +172,12 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                   (7, 301, 1, 2),
                   (7, 302, 2, 2),
                   (7, 303, 1, 2),
+                  (7, 304, 1, 2),
                   (8, 401, 1, 2)
                 """, """
-                INSERT INTO group_link (id, tenant_id, group_id, deleted_at) VALUES
-                  (201, 7, 1001, NULL),
-                  (202, 8, 1002, NULL)
+                INSERT INTO group_link (id, tenant_id, owner_user_id, group_id, deleted_at) VALUES
+                  (201, 7, 1, 1001, NULL),
+                  (202, 8, 2, 1002, NULL)
                 """, """
                 INSERT INTO wa_group (id, tenant_id, group_jid) VALUES
                   (1001, 7, '120363snapshot@g.us'),
@@ -185,6 +190,7 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                   (5002, 7, 1001, '1002', NULL, '1002@lid', 1, 1),
                   (5003, 7, 1001, '1003', '1003@s.whatsapp.net', NULL, 1, 2),
                   (5004, 7, 1001, '9999', '9999@s.whatsapp.net', NULL, 1, 2),
+                  (5006, 7, 1001, '1005', '1005@s.whatsapp.net', NULL, 1, 2),
                   (5005, 8, 1002, '1004', '1004@s.whatsapp.net', NULL, 1, 2)
                 """, """
                 INSERT INTO wa_account_group_binding
@@ -194,6 +200,7 @@ class AccountGroupMembershipControlledSnapshotMapperH2Test {
                   (6001, 7, 301, 1001, 5001, 300, 100),
                   (6002, 7, 302, 1001, 5002, 300, 200),
                   (6003, 7, 303, 1001, 5003, 300, 300),
+                  (6005, 7, 304, 1001, 5006, 300, 500),
                   (6004, 8, 401, 1002, 5005, 300, 400)
                 """, """
                 INSERT INTO whatsapp_group_member_snapshot

@@ -1,6 +1,7 @@
 package com.armada.marketing.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.shared.security.DataScope;
 
 /**
  * 营销模板列表查询。GET 列表用 {@code @ModelAttribute} 绑定,故为可变 class extends PageQuery。
@@ -20,6 +21,9 @@ public class MarketingTemplateQuery extends PageQuery {
 
     /** 消息类型码(1普通/2按钮/3图文内容);为空不参与。 */
     private Integer linkMode;
+
+    /** 服务端从可信身份注入的数据范围，不参与 HTTP 绑定。 */
+    private DataScope dataScope;
 
     public Long getId() {
         return id;
@@ -51,5 +55,14 @@ public class MarketingTemplateQuery extends PageQuery {
 
     public void setLinkMode(Integer linkMode) {
         this.linkMode = linkMode;
+    }
+
+    public DataScope getDataScope() {
+        return dataScope;
+    }
+
+    /** 仅供 Service 注入服务端范围。 */
+    public void applyDataScope(DataScope dataScope) {
+        this.dataScope = dataScope;
     }
 }

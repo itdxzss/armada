@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.GroupBatchTask;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -24,15 +25,25 @@ public interface GroupBatchTaskMapper {
      * @param id 任务 ID
      * @return 任务主记录;不存在时为 null
      */
-    GroupBatchTask selectById(@Param("id") Long id);
+    GroupBatchTask selectById(@Param("id") Long id, @Param("scope") DataScope scope);
+
+    /**
+     * 在已恢复任务租户的后台执行链读取任务根，不接受 HTTP 用户范围。
+     *
+     * @param id 任务 ID
+     * @return 任务主记录；不存在时为 null
+     */
+    GroupBatchTask selectByIdForExecution(@Param("id") Long id);
 
     /**
      * 按前端幂等键读取当前租户已有任务。
      *
      * @param requestId 前端幂等键
+     * @param ownerUserId 当前操作者 owner；管理员也只能复用自己创建的任务
      * @return 已有任务;不存在时为 null
      */
-    GroupBatchTask selectByRequestId(@Param("requestId") String requestId);
+    GroupBatchTask selectByRequestId(@Param("requestId") String requestId,
+                                     @Param("ownerUserId") Long ownerUserId);
 
     /**
      * 跨租户扫描仍需推进的批量任务,供调度器领取。
@@ -81,7 +92,14 @@ public interface GroupBatchTaskMapper {
     int cancelIfRunnable(@Param("taskId") Long taskId,
                          @Param("canceledStatus") int canceledStatus,
                          @Param("runnableStatuses") List<Integer> runnableStatuses,
+                         @Param("scope") DataScope scope,
                          @Param("now") long now);
+
+    /** 将历史空 owner 的可运行任务终止为失败，防止后台越权执行。 */
+    int failUnownedIfRunnable(@Param("taskId") Long taskId,
+                              @Param("failedStatus") int failedStatus,
+                              @Param("runnableStatuses") List<Integer> runnableStatuses,
+                              @Param("now") long now);
 
     /**
      * 跨租户读取任务主状态,供调度线程判断是否已被取消。

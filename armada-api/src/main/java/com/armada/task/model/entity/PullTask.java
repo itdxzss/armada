@@ -13,6 +13,9 @@ public class PullTask {
     /** 租户 ID。 */
     private Long tenantId;
 
+    /** 数据归属用户 ID；新建任务由可信身份写入，历史数据可为空。 */
+    private Long ownerUserId;
+
     /** 公共任务类型。 */
     private PullTaskType taskType;
 
@@ -102,6 +105,14 @@ public class PullTask {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public PullTaskType getTaskType() {

@@ -11,6 +11,7 @@ import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.enums.GroupLinkImportFailReason;
 import com.armada.group.model.vo.GroupLinkImportDetailVoRow;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
 import com.armada.testsupport.DbTestBase;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
     private GroupLinkLabel insertLabel(String name) {
         GroupLinkLabel label = new GroupLinkLabel();
+        label.setOwnerUserId(1L);
         label.setName(name);
         label.setRegion("印度");
         label.setRemark("测试");
@@ -50,6 +52,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
     private GroupLinkImportBatch insertBatch(Long labelId, String fileName) {
         GroupLinkImportBatch batch = new GroupLinkImportBatch();
+        batch.setOwnerUserId(1L);
         batch.setLabelId(labelId);
         batch.setBatchName("测试批次");
         batch.setSourceFileName(fileName);
@@ -72,6 +75,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
     private Long insertActiveLink(Long labelId, Long batchId, String url) {
         GroupLink link = new GroupLink();
+        link.setOwnerUserId(1L);
         link.setLinkUrl(url);
         link.setLabelId(labelId);
         link.setImportBatchId(batchId);
@@ -101,6 +105,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         assertThat(inserted).isEqualTo(3);
 
         GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setBatchId(batch.getId());
         query.setPage(1);
         query.setPageSize(10);
@@ -132,7 +137,8 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         );
         detailMapper.batchInsert(details);
 
-        List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(null, batch.getId());
+        List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(
+                null, batch.getId(), DataScope.all(1L));
         assertThat(failed).hasSize(2);
         failed.forEach(r -> assertThat(r.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code()));
     }
@@ -152,6 +158,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         ));
 
         GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setBatchId(batch.getId());
         query.setResult(GroupLinkImportResult.FAILED.code());
         query.setFailReason(GroupLinkImportFailReason.DUPLICATE);
@@ -178,6 +185,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         ));
 
         GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setBatchId(batch.getId());
         query.setResult(3);
         query.setPage(1);
@@ -207,6 +215,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         ));
 
         GroupLinkImportDetailQuery query = new GroupLinkImportDetailQuery();
+        query.applyDataScope(DataScope.all(1L));
         query.setLabelId(label.getId());
         query.setPage(1);
         query.setPageSize(10);
@@ -229,9 +238,12 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
                 GroupLinkImportResult.FAILED.code(), GroupLinkImportFailReason.FORMAT_ERROR);
         detailMapper.batchInsert(List.of(success, failed));
 
-        groupLinkMapper.migrateToLabel(List.of(linkId), targetLabel.getId(), System.currentTimeMillis());
+        groupLinkMapper.migrateToLabel(
+                List.of(linkId), targetLabel.getId(),
+                com.armada.shared.security.DataScope.all(1L), System.currentTimeMillis());
 
         GroupLinkImportDetailQuery sourceQuery = new GroupLinkImportDetailQuery();
+        sourceQuery.applyDataScope(DataScope.all(1L));
         sourceQuery.setLabelId(sourceLabel.getId());
         sourceQuery.setPage(1);
         sourceQuery.setPageSize(10);
@@ -241,6 +253,7 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
                 .containsExactly("bad-current-owner-url");
 
         GroupLinkImportDetailQuery targetQuery = new GroupLinkImportDetailQuery();
+        targetQuery.applyDataScope(DataScope.all(1L));
         targetQuery.setLabelId(targetLabel.getId());
         targetQuery.setPage(1);
         targetQuery.setPageSize(10);
@@ -267,7 +280,8 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
         );
         detailMapper.batchInsert(details);
 
-        List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(label.getId(), null);
+        List<GroupLinkImportDetailVoRow> failed = detailMapper.selectFailed(
+                label.getId(), null, DataScope.all(1L));
         assertThat(failed).hasSize(2);
         failed.forEach(r -> assertThat(r.getResult()).isEqualTo(GroupLinkImportResult.FAILED.code()));
     }
@@ -286,7 +300,8 @@ class GroupLinkImportDetailMapperDbTest extends DbTestBase {
 
         // 切回租户1,用最弱条件(labelId=null, batchId=null)查询,断言查不到租户2的数据
         TenantContext.set(1L);
-        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(null, null);
+        List<GroupLinkImportDetailVoRow> rows = detailMapper.selectFailed(
+                null, null, DataScope.all(1L));
         boolean containsTenant2Row = rows.stream()
                 .anyMatch(r -> "chat.whatsapp.com/T2F1".equals(r.getRawUrl()));
         assertThat(containsTenant2Row).isFalse();

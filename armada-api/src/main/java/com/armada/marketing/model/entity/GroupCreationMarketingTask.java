@@ -4,6 +4,7 @@ public class GroupCreationMarketingTask {
 
     private Long id;
     private Long tenantId;
+    private Long ownerUserId;
     private String taskName;
     private Long accountGroupId;
     private String accountGroupName;
@@ -39,6 +40,14 @@ public class GroupCreationMarketingTask {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getTaskName() {

@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -41,9 +43,13 @@ import com.armada.task.service.impl.PullTaskStandardReadFactMappers;
 import com.armada.task.service.impl.PullTaskStandardReadResources;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class PullTaskStandardReadServiceTest {
+
+    private static final DataScope USER_SCOPE = DataScope.self(501L);
 
     private final PullTaskMapper taskMapper = mock(PullTaskMapper.class);
     private final PullTaskGroupExecutionMapper executionMapper =
@@ -70,12 +76,22 @@ class PullTaskStandardReadServiceTest {
                             accountMapper, materialMapper, callMapper, actionMapper)),
             groupLinkService);
 
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(USER_SCOPE);
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void readsTaskExecutionCallsRolesAndMemberFactsWithoutStaticSamples() {
         PullTask task = task();
         PullTaskGroupExecution execution = execution(11L);
         execution.setSourceFileName("印度料子包.txt");
-        when(taskMapper.selectLifecycle(100L)).thenReturn(task);
+        when(taskMapper.selectLifecycleForScope(100L, USER_SCOPE)).thenReturn(task);
         when(executionMapper.selectById(11L)).thenReturn(execution);
         PullTaskGroupAccount manager = account(501L, PullTaskGroupAccountRole.MANAGER);
         manager.setAdminStatus(3);
@@ -169,7 +185,7 @@ class PullTaskStandardReadServiceTest {
 
     @Test
     void executionMustBelongToTheRequestedTask() {
-        when(taskMapper.selectLifecycle(100L)).thenReturn(task());
+        when(taskMapper.selectLifecycleForScope(100L, USER_SCOPE)).thenReturn(task());
         PullTaskGroupExecution otherTask = execution(11L);
         otherTask.setTaskId(101L);
         when(executionMapper.selectById(11L)).thenReturn(otherTask);
@@ -183,7 +199,7 @@ class PullTaskStandardReadServiceTest {
     void submittedDetailsRejectCreatorScopedDraftTasks() {
         PullTask draft = task();
         draft.setStatus("DRAFT");
-        when(taskMapper.selectLifecycle(100L)).thenReturn(draft);
+        when(taskMapper.selectLifecycleForScope(100L, USER_SCOPE)).thenReturn(draft);
 
         assertThatThrownBy(() -> service.task(100L))
                 .isInstanceOf(BusinessException.class)
@@ -197,7 +213,7 @@ class PullTaskStandardReadServiceTest {
         query.setPageSize(1);
         query.setKeyword("  AAAA  ");
         query.setExecutionStatus(2);
-        when(taskMapper.selectLifecycle(100L)).thenReturn(task());
+        when(taskMapper.selectLifecycleForScope(100L, USER_SCOPE)).thenReturn(task());
         PullTaskStandardExecutionFilter filter = new PullTaskStandardExecutionFilter(
                 100L, "AAAA", 2, null, null, null);
         when(readMapper.countExecutions(filter)).thenReturn(2L);

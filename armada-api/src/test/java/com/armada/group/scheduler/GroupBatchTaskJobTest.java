@@ -117,6 +117,7 @@ class GroupBatchTaskJobTest {
         GroupBatchTask task = new GroupBatchTask();
         task.setId(900L);
         task.setTenantId(TENANT_ID);
+        task.setOwnerUserId(501L);
         task.setTaskType(type.code());
         task.setStatus(GroupBatchTaskStatus.PENDING.code());
         return task;

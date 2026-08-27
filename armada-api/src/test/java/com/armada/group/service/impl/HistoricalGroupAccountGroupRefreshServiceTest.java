@@ -1,9 +1,11 @@
 package com.armada.group.service.impl;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,9 +33,12 @@ import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -58,6 +63,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.self(11L));
         org.mockito.Mockito.lenient().when(snapshotService.prepareVisibleGroups(
                         org.mockito.ArgumentMatchers.anyLong(),
                         org.mockito.ArgumentMatchers.anyList(),
@@ -82,10 +88,16 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 inviteLinkService);
     }
 
+    @AfterEach
+    void clearScope() {
+        DataScopeContext.clear();
+    }
+
     @Test
     void refreshesEveryOnlineAccountAndFetchesInviteOnceForAdminGroup() {
         AccountGroup accountGroup = new AccountGroup();
         accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
         ProtocolAccountRef first = new ProtocolAccountRef(
                 1L, ProtocolBackend.WEB, "web-1", "8611");
@@ -166,6 +178,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     void isolatesOneAccountFailureAndPersistsTheOtherAccountSnapshot() {
         AccountGroup accountGroup = new AccountGroup();
         accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
         ProtocolAccountRef failed = new ProtocolAccountRef(
                 1L, ProtocolBackend.WEB, "web-1", "8611");
@@ -213,6 +226,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     void isolatesOneAccountPersistenceFailureAndContinuesWithTheOtherAccount() {
         AccountGroup accountGroup = new AccountGroup();
         accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
         ProtocolAccountRef failed = new ProtocolAccountRef(
                 1L, ProtocolBackend.WEB, "web-1", "8611");
@@ -257,6 +271,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     void currentModelWriteFailureDoesNotCountAccountAsSuccessfullyRefreshed() {
         AccountGroup accountGroup = new AccountGroup();
         accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
         ProtocolAccountRef account = new ProtocolAccountRef(
                 1L, ProtocolBackend.WEB, "web-1", "8611");
@@ -289,6 +304,7 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
     void isolatesOneInvitePersistenceFailureAndContinuesWithTheOtherGroup() {
         AccountGroup accountGroup = new AccountGroup();
         accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(11L);
         when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
         ProtocolAccountRef account = new ProtocolAccountRef(
                 1L, ProtocolBackend.WEB, "web-1", "8611");
@@ -320,5 +336,35 @@ class HistoricalGroupAccountGroupRefreshServiceTest {
                 org.mockito.ArgumentMatchers.argThat(observation ->
                         "120363second@g.us".equals(observation.groupJid())
                                 && "SecondCode".equals(observation.inviteCode())));
+    }
+
+    @Test
+    void rejectsForeignAccountGroupBeforeLookingUpProtocolAccounts() {
+        AccountGroup accountGroup = new AccountGroup();
+        accountGroup.setId(12L);
+        accountGroup.setOwnerUserId(22L);
+        when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
+
+        assertThatThrownBy(() -> service.refresh(12L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号组不存在");
+
+        verify(accountLookupService, never()).findOnlineNormalByGroupId(12L);
+    }
+
+    @Test
+    void administratorCannotRefreshHistoricalUnownedAccountGroup() {
+        AccountGroup accountGroup = new AccountGroup();
+        accountGroup.setId(12L);
+        when(accountGroupMapper.selectById(12L)).thenReturn(accountGroup);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.all(11L))) {
+            assertThatThrownBy(() -> service.refresh(12L))
+                    .isInstanceOfSatisfying(BusinessException.class, ex ->
+                            assertThat(ex.getCode()).isEqualTo(
+                                    com.armada.shared.exception.ErrorCode.ACCESS_DENIED.code()));
+        }
+
+        verify(accountLookupService, never()).findOnlineNormalByGroupId(12L);
     }
 }

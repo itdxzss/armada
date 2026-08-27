@@ -33,6 +33,7 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
     private final PullTaskGroupSettingsResultService groupSettingsResultService;
     private final PullTaskProtocolResultCallbackService callbackService;
     private final PullTaskCreatorLeaveResultService creatorLeaveResultService;
+    private final TaskResultOwnerScopeRunner ownerScopeRunner;
 
     /**
      * 创建群动作结果适配器。
@@ -43,6 +44,7 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
      * @param groupSettingsResultService 群设置结果状态机
      * @param callbackService 批量拉人和料子提权结果状态机
      * @param creatorLeaveResultService 群主退群结果状态机
+     * @param ownerScopeRunner 任务 owner 数据范围执行器
      */
     public ProtocolGroupActionResultAdapter(
             PullTaskContactSaveResultService contactSaveResultService,
@@ -50,18 +52,25 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
             PullTaskManagerAdminResultService managerAdminResultService,
             PullTaskGroupSettingsResultService groupSettingsResultService,
             PullTaskProtocolResultCallbackService callbackService,
-            PullTaskCreatorLeaveResultService creatorLeaveResultService) {
+            PullTaskCreatorLeaveResultService creatorLeaveResultService,
+            TaskResultOwnerScopeRunner ownerScopeRunner) {
         this.contactSaveResultService = contactSaveResultService;
         this.pullerInviteResultService = pullerInviteResultService;
         this.managerAdminResultService = managerAdminResultService;
         this.groupSettingsResultService = groupSettingsResultService;
         this.callbackService = callbackService;
         this.creatorLeaveResultService = creatorLeaveResultService;
+        this.ownerScopeRunner = ownerScopeRunner;
     }
 
     /** {@inheritDoc} */
     @Override
     public void handleActionResultReported(ProtocolGroupActionResultReportedEvent event) {
+        ownerScopeRunner.runForPullTask(
+                event.tenantId(), event.pullTaskId(), () -> routeActionResult(event));
+    }
+
+    private void routeActionResult(ProtocolGroupActionResultReportedEvent event) {
         if ("pull_task_contact_save".equals(event.source())) {
             contactSaveResultService.apply(new PullTaskContactSaveCallback(
                     event.tenantId(), event.pullTaskId(), event.groupExecutionId(), event.actionId(),

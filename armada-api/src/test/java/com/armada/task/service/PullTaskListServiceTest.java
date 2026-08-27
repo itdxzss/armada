@@ -1,12 +1,16 @@
 package com.armada.task.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.mapper.PullTaskGroupMarketingSummaryMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardReadMapper;
@@ -24,10 +28,14 @@ import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
 import com.armada.task.service.impl.PullTaskListServiceImpl;
 import java.math.BigDecimal;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /** 拉群任务统一列表统计映射和操作集合测试。 */
 class PullTaskListServiceTest {
+
+    private static final DataScope USER_SCOPE = DataScope.self(1001L);
 
     private final PullTaskMapper taskMapper = mock(PullTaskMapper.class);
     private final PullTaskGroupMarketingSummaryMapper summaryMapper =
@@ -36,6 +44,16 @@ class PullTaskListServiceTest {
             mock(PullTaskStandardReadMapper.class);
     private final PullTaskListService service =
             new PullTaskListServiceImpl(taskMapper, summaryMapper, standardReadMapper);
+
+    @BeforeEach
+    void openDataScope() {
+        DataScopeContext.open(USER_SCOPE);
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     @Test
     void mapsMarketingFormulasAndKeepsMissingSummaryUnknown() {
@@ -48,6 +66,7 @@ class PullTaskListServiceTest {
         standard.setCreatedAt(1_000L);
         standard.setUpdatedAt(2_000L);
         PullTaskGroupMarketingSummary summary = summary(12L);
+        query.applyDataScope(USER_SCOPE);
         PullTaskFilter filter = query.toFilter();
         when(taskMapper.countPage(filter)).thenReturn(2L);
         when(taskMapper.selectPage(filter, 0, 10)).thenReturn(List.of(marketing, standard));
@@ -89,6 +108,7 @@ class PullTaskListServiceTest {
     @Test
     void returnsEmptyPageWithoutLoadingRowsOrSummaries() {
         PullTaskQuery query = new PullTaskQuery();
+        query.applyDataScope(USER_SCOPE);
         PullTaskFilter filter = query.toFilter();
         when(taskMapper.countPage(filter)).thenReturn(0L);
 
@@ -104,6 +124,7 @@ class PullTaskListServiceTest {
     void draftMarketingTaskAllowsDeleteWithoutAdvertisingExecutorActions() {
         PullTaskQuery query = new PullTaskQuery();
         PullTask task = task(15L, PullTaskType.GROUP_MARKETING, "DRAFT");
+        query.applyDataScope(USER_SCOPE);
         PullTaskFilter filter = query.toFilter();
         when(taskMapper.countPage(filter)).thenReturn(1L);
         when(taskMapper.selectPage(filter, 0, 10)).thenReturn(List.of(task));
@@ -124,6 +145,7 @@ class PullTaskListServiceTest {
         PullTask completed = normalLinkTask(24L, "COMPLETED");
         PullTask ended = normalLinkTask(25L, "ENDED");
         PullTaskQuery query = new PullTaskQuery();
+        query.applyDataScope(USER_SCOPE);
         PullTaskFilter filter = query.toFilter();
         when(taskMapper.countPage(filter)).thenReturn(6L);
         when(taskMapper.selectPage(filter, 0, 10))
@@ -143,6 +165,17 @@ class PullTaskListServiceTest {
                 PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
         assertThat(rows.get(5).allowedActions()).containsExactly(
                 PullTaskListAction.DETAIL, PullTaskListAction.DELETE);
+    }
+
+    @Test
+    void missingDataScopeFailsClosedBeforeQueryingMapper() {
+        DataScopeContext.clear();
+
+        assertThatThrownBy(() -> service.list(new PullTaskQuery()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("缺少数据访问范围");
+
+        verify(taskMapper, never()).countPage(org.mockito.ArgumentMatchers.any());
     }
 
     private static PullTask task(Long id, PullTaskType type, String status) {

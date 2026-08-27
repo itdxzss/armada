@@ -20,12 +20,14 @@ import com.armada.group.model.vo.GroupFolderDeleteVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.service.impl.GroupFolderServiceImpl;
-import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -44,18 +46,22 @@ class GroupFolderServiceImplTest {
     private GroupLinkMapper groupLinkMapper;
 
     @Mock
-    private GroupCurrentLocalPersistence currentLocalPersistence;
-
-    @Mock
     private PullTaskGroupOccupancyService taskGroupOccupancyService;
 
     private GroupFolderServiceImpl service;
 
+    private DataScopeContext.Scope scopeHandle;
+
     @BeforeEach
     void setUp() {
+        scopeHandle = DataScopeContext.open(DataScope.self(501L));
         service = new GroupFolderServiceImpl(
-                folderMapper, groupLinkMapper, currentLocalPersistence,
-                taskGroupOccupancyService);
+                folderMapper, groupLinkMapper, taskGroupOccupancyService);
+    }
+
+    @AfterEach
+    void tearDown() {
+        scopeHandle.close();
     }
 
     @Test
@@ -86,15 +92,15 @@ class GroupFolderServiceImplTest {
         assertThat(captor.getValue().getCreatedBy()).isEqualTo(501L);
         assertThat(result.id()).isEqualTo(9L);
         assertThat(result.groupCount()).isZero();
-        verify(folderMapper).selectActiveByName("印度组");
-        verify(folderMapper).selectDeletedByName("印度组");
+        verify(folderMapper).selectActiveByNameForOwner("印度组", 501L);
+        verify(folderMapper).selectDeletedByNameForOwner("印度组", 501L);
     }
 
     @Test
     void createRevivesSoftDeletedNameInsteadOfInserting() {
         GroupFolder deleted = folder(7L, "印度组");
         deleted.setDeletedAt(90L);
-        when(folderMapper.selectDeletedByName("印度组")).thenReturn(deleted);
+        when(folderMapper.selectDeletedByNameForOwner("印度组", 501L)).thenReturn(deleted);
         when(folderMapper.revive(any())).thenReturn(1);
 
         GroupFolderVO result = service.create(new GroupFolderWriteDTO("印度组"), 501L);
@@ -117,7 +123,7 @@ class GroupFolderServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("100");
 
-        when(folderMapper.selectActiveByName("印度组"))
+        when(folderMapper.selectActiveByNameForOwner("印度组", 501L))
                 .thenReturn(folder(1L, "印度组"));
         assertThatThrownBy(() -> service.create(new GroupFolderWriteDTO("印度组"), 501L))
                 .isInstanceOf(BusinessException.class)
@@ -135,7 +141,7 @@ class GroupFolderServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("系统分组");
 
-        when(folderMapper.selectById(99L)).thenReturn(used);
+        when(folderMapper.selectById(eq(99L), any(DataScope.class))).thenReturn(used);
         assertThatThrownBy(() -> service.update(
                 99L, new GroupFolderWriteDTO("改名")))
                 .isInstanceOf(BusinessException.class)
@@ -144,12 +150,13 @@ class GroupFolderServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("资源池");
 
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L)))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(99L)), any(DataScope.class)))
                 .thenReturn(List.of(used));
         assertThatThrownBy(() -> service.batchDelete(List.of(99L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("系统分组");
-        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
+        verify(folderMapper, never()).softDeleteByIds(any(), any(), anyLong());
     }
 
     @Test
@@ -164,71 +171,83 @@ class GroupFolderServiceImplTest {
 
     @Test
     void updateRejectsNameOwnedByAnotherSoftDeletedFolder() {
-        when(folderMapper.selectById(10L)).thenReturn(folder(10L, "旧名称"));
+        when(folderMapper.selectById(eq(10L), any(DataScope.class)))
+                .thenReturn(folder(10L, "旧名称"));
         GroupFolder deleted = folder(11L, "新名称");
         deleted.setDeletedAt(200L);
-        when(folderMapper.selectAnyByName("新名称")).thenReturn(deleted);
+        when(folderMapper.selectAnyByNameForOwner("新名称", 501L)).thenReturn(deleted);
 
         assertThatThrownBy(() -> service.update(
                 10L, new GroupFolderWriteDTO(" 新名称 ")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已存在");
-        verify(folderMapper, never()).updateName(anyLong(), any(), anyLong());
+        verify(folderMapper, never()).updateName(anyLong(), any(), any(), anyLong());
     }
 
     @Test
     void batchDeleteLocksFoldersClearsGroupsAndThenSoftDeletes() {
         List<Long> normalizedIds = List.of(1L, 2L);
-        when(folderMapper.selectActiveByIdsForUpdate(normalizedIds))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(normalizedIds), any(DataScope.class)))
                 .thenReturn(List.of(folder(1L, "一组"), folder(2L, "二组")));
-        when(groupLinkMapper.countActiveByFolderIds(normalizedIds)).thenReturn(3);
-        when(groupLinkMapper.clearFolderByFolderIds(eq(normalizedIds), anyLong())).thenReturn(3);
-        when(folderMapper.softDeleteByIds(eq(normalizedIds), anyLong())).thenReturn(2);
+        when(groupLinkMapper.countActiveByFolderIds(
+                eq(normalizedIds), any(DataScope.class))).thenReturn(3);
+        when(groupLinkMapper.clearFolderByFolderIds(
+                eq(normalizedIds), any(DataScope.class), anyLong())).thenReturn(3);
+        when(folderMapper.softDeleteByIds(
+                eq(normalizedIds), any(DataScope.class), anyLong())).thenReturn(2);
 
         GroupFolderDeleteVO result = service.batchDelete(List.of(2L, 1L, 2L));
 
         assertThat(result.deletedFolderCount()).isEqualTo(2);
         assertThat(result.ungroupedGroupCount()).isEqualTo(3);
         InOrder order = inOrder(groupLinkMapper, folderMapper);
-        order.verify(groupLinkMapper).clearFolderByFolderIds(eq(normalizedIds), anyLong());
-        order.verify(folderMapper).softDeleteByIds(eq(normalizedIds), anyLong());
+        order.verify(groupLinkMapper).clearFolderByFolderIds(
+                eq(normalizedIds), any(DataScope.class), anyLong());
+        order.verify(folderMapper).softDeleteByIds(
+                eq(normalizedIds), any(DataScope.class), anyLong());
     }
 
     @Test
     void batchDeleteRejectsMissingFolderWithoutClearingGroups() {
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L, 11L)))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(10L, 11L)), any(DataScope.class)))
                 .thenReturn(List.of(folder(10L, "印度组")));
 
         assertThatThrownBy(() -> service.batchDelete(List.of(11L, 10L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("部分群组分组不存在");
-        verify(groupLinkMapper, never()).clearFolderByFolderIds(any(), anyLong());
-        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
+        verify(groupLinkMapper, never()).clearFolderByFolderIds(any(), any(), anyLong());
+        verify(folderMapper, never()).softDeleteByIds(any(), any(), anyLong());
     }
 
     @Test
     void batchDeleteRejectsConcurrentFolderRelationshipChange() {
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L)))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(10L)), any(DataScope.class)))
                 .thenReturn(List.of(folder(10L, "印度组")));
-        when(groupLinkMapper.countActiveByFolderIds(List.of(10L))).thenReturn(3);
-        when(groupLinkMapper.clearFolderByFolderIds(eq(List.of(10L)), anyLong()))
+        when(groupLinkMapper.countActiveByFolderIds(
+                eq(List.of(10L)), any(DataScope.class))).thenReturn(3);
+        when(groupLinkMapper.clearFolderByFolderIds(
+                eq(List.of(10L)), any(DataScope.class), anyLong()))
                 .thenReturn(2);
 
         assertThatThrownBy(() -> service.batchDelete(List.of(10L)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("关系已变化");
-        verify(folderMapper, never()).softDeleteByIds(any(), anyLong());
+        verify(folderMapper, never()).softDeleteByIds(any(), any(), anyLong());
     }
 
     @Test
     void requireExistingAndUsableLinksDoNotExposeGroupEntityAcrossDomain() {
-        when(folderMapper.selectById(8L)).thenReturn(folder(8L, "可用组"));
-        when(folderMapper.selectUsableLinks(8L))
+        when(folderMapper.selectById(eq(8L), any(DataScope.class)))
+                .thenReturn(folder(8L, "可用组"));
+        when(folderMapper.selectUsableLinks(8L, 501L))
                 .thenReturn(List.of("chat.whatsapp.com/AAA"));
 
         GroupFolderOptionVO snapshot = service.requireExisting(8L);
 
-        assertThat(snapshot).isEqualTo(new GroupFolderOptionVO(8L, "可用组"));
+        assertThat(snapshot).isEqualTo(new GroupFolderOptionVO(8L, 501L, "可用组"));
         assertThat(service.usableLinks(8L))
                 .containsExactly("chat.whatsapp.com/AAA");
     }
@@ -238,7 +257,7 @@ class GroupFolderServiceImplTest {
         assertThatThrownBy(() -> service.requireExisting(0L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("正整数");
-        when(folderMapper.selectById(8L)).thenReturn(null);
+        when(folderMapper.selectById(eq(8L), any(DataScope.class))).thenReturn(null);
         assertThatThrownBy(() -> service.requireExisting(8L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
@@ -250,24 +269,29 @@ class GroupFolderServiceImplTest {
         used.setSystemBuiltin(true);
         GroupLink group = new GroupLink();
         group.setId(501L);
-        when(folderMapper.selectActiveByName("已使用群组")).thenReturn(used);
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L))).thenReturn(List.of(used));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(501L)))
+        group.setOwnerUserId(501L);
+        when(folderMapper.selectActiveByNameForOwner("已使用群组", 501L)).thenReturn(used);
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(99L)), any(DataScope.class))).thenReturn(List.of(used));
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                eq(List.of(501L)), any(DataScope.class)))
                 .thenReturn(List.of(group));
-        when(groupLinkMapper.assignFolder(eq(List.of(501L)), eq(99L), anyLong()))
+        when(groupLinkMapper.assignFolder(
+                eq(List.of(501L)), eq(99L), any(DataScope.class), anyLong()))
                 .thenReturn(1);
 
         service.moveToUsed(501L);
 
-        verify(folderMapper).upsertUsedSystemFolder(eq("已使用群组"), anyLong());
-        verify(groupLinkMapper).assignFolder(eq(List.of(501L)), eq(99L), anyLong());
-        verify(currentLocalPersistence).applyGroupFolder(eq(List.of(501L)), eq(99L), anyLong());
+        verify(folderMapper).upsertUsedSystemFolder(eq("已使用群组"), eq(501L), anyLong());
+        verify(groupLinkMapper).assignFolder(
+                eq(List.of(501L)), eq(99L), any(DataScope.class), anyLong());
     }
 
     private static GroupFolder folder(long id, String name) {
         GroupFolder row = new GroupFolder();
         row.setId(id);
         row.setName(name);
+        row.setOwnerUserId(501L);
         row.setCreatedAt(100L);
         row.setUpdatedAt(100L);
         return row;

@@ -3,6 +3,7 @@ package com.armada.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,8 +22,11 @@ import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.stream.IntStream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,13 +47,20 @@ class GroupOperationServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.all(1L));
         service = new GroupOperationServiceImpl(accountMapper, groupCreatePort);
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
     }
 
     @Test
     void createGroupResolvesOnlineProtocolAccountAndMapsResult() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
         account.setWsPhone("861111");
@@ -91,6 +102,7 @@ class GroupOperationServiceImplTest {
     void createGroupRejectsOfflineAccountBeforeCallingProtocol() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolAccountId("acc_861111");
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
@@ -107,9 +119,50 @@ class GroupOperationServiceImplTest {
     }
 
     @Test
+    void createGroupHidesAnotherUsersAccountBeforeCheckingOnlineState() {
+        Account account = new Account();
+        account.setId(7L);
+        account.setOwnerUserId(2L);
+        account.setProtocolAccountId("acc_861111");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(DataScope.self(1L))) {
+            assertThatThrownBy(() -> service.createGroup(new GroupCreateDTO(
+                    7L,
+                    "测试群",
+                    List.of("8613900000000"))))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessage("账号不存在");
+        }
+
+        verify(accountMapper, never()).selectOnlineAccountIdsByIds(any(), anyInt());
+        verify(groupCreatePort, never()).create(any(GroupCreateCommand.class));
+    }
+
+    @Test
+    void createGroupRejectsHistoricalUnownedAccountForAdministrator() {
+        Account account = new Account();
+        account.setId(7L);
+        account.setProtocolAccountId("acc_861111");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+
+        assertThatThrownBy(() -> service.createGroup(new GroupCreateDTO(
+                7L,
+                "测试群",
+                List.of("8613900000000"))))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(
+                                com.armada.shared.exception.ErrorCode.ACCESS_DENIED.code()));
+
+        verify(accountMapper, never()).selectOnlineAccountIdsByIds(any(), anyInt());
+        verify(groupCreatePort, never()).create(any(GroupCreateCommand.class));
+    }
+
+    @Test
     void createGroupAllowsMoreThanFiftyParticipants() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
         account.setWsPhone("861111");
@@ -134,6 +187,7 @@ class GroupOperationServiceImplTest {
     void createGroupMapsProtocolAccountBusyToBusinessConflict() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolId("WEB");
         account.setProtocolAccountId("acc_861111");
         account.setWsPhone("861111");
@@ -162,6 +216,7 @@ class GroupOperationServiceImplTest {
     void createGroupRoutesAndroidAccountUsingCurrentProtocolFacts() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolId("ANDROID");
         account.setProtocolAccountId("acc_android");
         account.setWsPhone("919000000001");

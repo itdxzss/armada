@@ -2,16 +2,36 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountMapper">
 
+  <sql id="directAccountDataScope">
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <sql id="aliasedAccountDataScope">
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND a.owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account (
-      ws_phone, account_type, device_os, number_source, channel_name,
+      ws_phone, account_type, device_os, number_source, channel_name, owner_user_id,
       ownership, lease_until, account_group_id,
       protocol_id, protocol_account_id, protocol_address,
       priority, dispatched_at, remark,
       created_at, updated_at, created_by
     ) VALUES (
-      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName},
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{ownerUserId},
       #{ownership}, #{leaseUntil}, #{accountGroupId},
       #{protocolId}, #{protocolAccountId}, #{protocolAddress},
       #{priority}, #{dispatchedAt}, #{remark},
@@ -22,13 +42,13 @@
   <!-- 推广配对专用写入：保留通用 insert 原样，仅此入口写渠道归因。 -->
   <insert id="insertPromotionAccount" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account (
-      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id,
+      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id, owner_user_id,
       ownership, lease_until, account_group_id,
       protocol_id, protocol_account_id, protocol_address,
       priority, dispatched_at, remark,
       created_at, updated_at, created_by
     ) VALUES (
-      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
+      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId}, #{ownerUserId},
       #{ownership}, #{leaseUntil}, #{accountGroupId},
       #{protocolId}, #{protocolAccountId}, #{protocolAddress},
       #{priority}, #{dispatchedAt}, #{remark},
@@ -61,6 +81,15 @@
     LIMIT 1
   </select>
 
+  <select id="selectActiveByIdForScope"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      <include refid="directAccountDataScope"/>
+    LIMIT 1
+  </select>
+
   <!--
     指定账号分组随机选在线正常拉手账号。协议字段必须完整，风险未上报或明确允许且未禁言。
     选号刻意不连接营销/任务占用表：占用是具体任务事实，不能改变账号作为通用拉手的可用性。
@@ -89,6 +118,30 @@
     LIMIT 1
   </select>
 
+  <select id="selectRandomOnlineNormalByGroupIdForScope"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      <include refid="aliasedAccountDataScope"/>
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.protocol_id IS NOT NULL
+      AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
+      AND s.mute_status IS NULL
+    ORDER BY RAND()
+    LIMIT 1
+  </select>
+
   <select id="selectOnlineNormalByGroupId"
           resultType="com.armada.account.model.entity.Account">
     SELECT a.*
@@ -97,6 +150,25 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+    ORDER BY a.id ASC
+  </select>
+
+  <select id="selectOnlineNormalByGroupIdForScope"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      <include refid="aliasedAccountDataScope"/>
       AND a.account_group_id = #{groupId}
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
@@ -138,6 +210,33 @@
     LIMIT 1
   </select>
 
+  <select id="selectRandomOnlineNormalWebByGroupIdForScope"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      <include refid="aliasedAccountDataScope"/>
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND (
+        a.protocol_id IS NULL
+        OR TRIM(a.protocol_id) = ''
+        OR UPPER(TRIM(a.protocol_id)) = #{webProtocolId}
+      )
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
+      AND s.mute_status IS NULL
+    ORDER BY RAND()
+    LIMIT 1
+  </select>
+
   <select id="selectActiveByProtocolAccountId" resultType="com.armada.account.model.entity.Account">
     SELECT * FROM account
     WHERE protocol_account_id = #{protocolAccountId}
@@ -149,6 +248,20 @@
     <if test="ids != null and ids.size() &gt; 0">
     SELECT * FROM account
     WHERE deleted_at IS NULL
+      AND id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT * FROM account WHERE 1=0
+    </if>
+  </select>
+
+  <select id="selectActiveByIdsForScope"
+          resultType="com.armada.account.model.entity.Account">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT * FROM account
+    WHERE deleted_at IS NULL
+      <include refid="directAccountDataScope"/>
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>
@@ -193,6 +306,26 @@
     </if>
   </select>
 
+  <select id="selectActiveByWsPhonesForScope"
+          resultType="com.armada.account.model.entity.Account">
+    <if test="wsPhones != null and wsPhones.size() &gt; 0">
+    SELECT * FROM account
+    WHERE deleted_at IS NULL
+      <choose>
+        <when test="dataScope != null and dataScope.isSelf()">
+          AND owner_user_id = #{dataScope.actorUserId}
+        </when>
+        <when test="dataScope != null and dataScope.isAll()"></when>
+        <otherwise>AND 1 = 0</otherwise>
+      </choose>
+      AND ws_phone IN
+    <foreach collection="wsPhones" item="phone" open="(" separator="," close=")">#{phone}</foreach>
+    </if>
+    <if test="wsPhones == null or wsPhones.size() == 0">
+    SELECT * FROM account WHERE 1=0
+    </if>
+  </select>
+
   <!--
     导出所选未软删除账号的最小 WS 号码字段，不关联状态表；tenant_id 由租户拦截器注入。
   -->
@@ -202,6 +335,11 @@
     SELECT a.id, a.ws_phone AS wsPhone
     FROM account a
     WHERE a.deleted_at IS NULL
+      <choose>
+        <when test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</when>
+        <when test="dataScope != null and dataScope.isAll()"></when>
+        <otherwise>AND 1 = 0</otherwise>
+      </choose>
       AND a.id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY a.id ASC
@@ -218,6 +356,22 @@
     FROM account a
     INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      AND s.login_state = #{onlineLoginState}
+      AND a.id IN
+    <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT NULL FROM DUAL WHERE 1=0
+    </if>
+  </select>
+
+  <select id="selectOnlineAccountIdsByIdsForScope" resultType="long">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT a.id
+    FROM account a
+    INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      <include refid="aliasedAccountDataScope"/>
       AND s.login_state = #{onlineLoginState}
       AND a.id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
@@ -270,6 +424,7 @@
   -->
   <select id="selectGroupSyncCandidates" resultType="com.armada.account.model.vo.AccountGroupSyncCandidate">
     SELECT a.tenant_id AS tenantId,
+           a.owner_user_id AS ownerUserId,
            a.id AS accountId,
            a.protocol_account_id AS protocolAccountId,
            <include refid="protocolBackendCase"/> AS protocolBackend
@@ -344,6 +499,11 @@
   -->
   <sql id="filter">
     a.deleted_at IS NULL
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="keyword != null and keyword != ''">
       AND (a.ws_phone LIKE CONCAT(#{keyword}, '%')
            OR a.remark LIKE CONCAT('%', #{keyword}, '%'))
@@ -520,6 +680,11 @@
     SELECT <include refid="batchPreviewColumns"/>
     <include refid="batchTargetJoins"/>
     WHERE a.deleted_at IS NULL
+      <choose>
+        <when test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</when>
+        <when test="dataScope != null and dataScope.isAll()"></when>
+        <otherwise>AND 1 = 0</otherwise>
+      </choose>
       AND a.id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
   </select>
@@ -534,6 +699,11 @@
     SELECT <include refid="batchTargetColumns"/>
     <include refid="batchTargetJoins"/>
     WHERE a.deleted_at IS NULL
+      <choose>
+        <when test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</when>
+        <when test="dataScope != null and dataScope.isAll()"></when>
+        <otherwise>AND 1 = 0</otherwise>
+      </choose>
       AND a.id IN
     <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     ORDER BY a.id ASC
@@ -550,7 +720,7 @@
 
 
   <!--
-    平台级统计卡:本租户全量单条聚合 SQL。
+    统计卡按当前 DataScope 聚合；普通用户仅统计自身，租户管理员统计当前租户全量。
     tenant_id 由拦截器注入,不手写。
     offline 统计可操作生命周期下的离线登录态:account_state IN (1,2,6,7) AND login_state=2。
     封禁/导出/解绑/账号受限不计入离线账号,待上线单独按 login_state=3 统计。
@@ -559,7 +729,7 @@
   -->
   <select id="statsSummary" resultType="com.armada.account.model.vo.AccountStatsVoRow">
     SELECT
-      COUNT(*)                                                            AS total,
+      COUNT(*) AS total,
       COALESCE(SUM(CASE WHEN s.login_state = 1 THEN 1 ELSE 0 END), 0) AS online,
       COALESCE(SUM(CASE WHEN s.account_state IN (1, 2, 6, 7) AND s.login_state = 2 THEN 1 ELSE 0 END), 0) AS offline,
       COALESCE(SUM(CASE WHEN s.login_state = 3 THEN 1 ELSE 0 END), 0) AS pendingOnline,
@@ -573,6 +743,11 @@
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <choose>
+        <when test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</when>
+        <when test="dataScope != null and dataScope.isAll()"></when>
+        <otherwise>AND 1 = 0</otherwise>
+      </choose>
   </select>
 
 

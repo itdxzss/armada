@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -10,6 +11,8 @@ import static org.mockito.Mockito.when;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupCreatorLeaveStatus;
 import com.armada.group.model.vo.GroupCreatorLeaveAccount;
 import com.armada.platform.protocol.model.enums.GroupParticipantAction;
@@ -18,6 +21,10 @@ import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.port.GroupLeavePort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +39,9 @@ class GroupCreatorLeaveServiceImplTest {
     private AccountGroupMembershipMapper membershipMapper;
 
     @Mock
+    private GroupLinkMapper groupLinkMapper;
+
+    @Mock
     private GroupParticipantPort participantPort;
 
     @Mock
@@ -41,7 +51,38 @@ class GroupCreatorLeaveServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new GroupCreatorLeaveServiceImpl(membershipMapper, participantPort, leavePort);
+        DataScopeContext.open(DataScope.all(1L));
+        GroupLink link = new GroupLink();
+        link.setId(91L);
+        link.setOwnerUserId(1L);
+        org.mockito.Mockito.lenient().when(groupLinkMapper.selectActiveById(
+                eq(91L), any(DataScope.class))).thenReturn(link);
+        service = new GroupCreatorLeaveServiceImpl(
+                membershipMapper, groupLinkMapper, participantPort, leavePort);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
+    }
+
+    @Test
+    void historicalUnownedGroupCannotLeaveEvenForAdministrator() {
+        GroupLink unowned = new GroupLink();
+        unowned.setId(91L);
+        when(groupLinkMapper.selectActiveById(eq(91L), any(DataScope.class)))
+                .thenReturn(unowned);
+
+        var capability = service.capability(91L);
+        assertThat(capability.executable()).isFalse();
+        assertThat(capability.blockedReasonCode()).isEqualTo("DATA_OWNER_MISSING");
+
+        assertThatThrownBy(() -> service.execute(91L, null))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        verify(membershipMapper, never()).selectCreatorLeaveAccounts(91L);
+        verify(leavePort, never()).leave(any(), any());
     }
 
     @Test

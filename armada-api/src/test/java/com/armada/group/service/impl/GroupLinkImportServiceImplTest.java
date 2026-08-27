@@ -35,7 +35,10 @@ import com.armada.group.service.GroupInvitePageMetadata;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -76,6 +79,7 @@ class GroupLinkImportServiceImplTest {
 
     @BeforeEach
     void stubValidInvitePage() {
+        DataScopeContext.open(DataScope.self(1L));
         lenient().when(invitePageFetcher.fetch(anyString())).thenAnswer(invocation -> {
             String url = invocation.getArgument(0);
             String inviteCode = url.substring(url.lastIndexOf('/') + 1);
@@ -83,11 +87,17 @@ class GroupLinkImportServiceImplTest {
         });
     }
 
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
+
     /** 辅助:构造一个有效的 label stub */
     private void stubValidLabel(Long labelId) {
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(labelId);
-        when(labelMapper.selectById(labelId)).thenReturn(label);
+        label.setOwnerUserId(1L);
+        when(labelMapper.selectById(eq(labelId), any(DataScope.class))).thenReturn(label);
     }
 
     /** 辅助:让 importBatchMapper.insert 填充自增 id */
@@ -115,7 +125,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(1L);
         stubBatchInsert(10L);
         stubLinkInsert(100L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(1L, "batch1", null,
@@ -135,7 +145,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(1L);
         stubBatchInsert(10L);
         stubLinkInsert(100L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
         when(invitePageFetcher.fetch("chat.whatsapp.com/AbcDef1234567890123456"))
                 .thenReturn(new GroupInvitePageMetadata(
                         "AbcDef1234567890123456",
@@ -165,7 +175,7 @@ class GroupLinkImportServiceImplTest {
     void invitePageFetchFailure_marksInvalid_andDoesNotInsertLink() {
         stubValidLabel(1L);
         stubBatchInsert(10L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
         when(invitePageFetcher.fetch(anyString())).thenThrow(new IllegalStateException("page unavailable"));
 
         GroupLinkImportResultVO result = service.importLinks(
@@ -195,7 +205,7 @@ class GroupLinkImportServiceImplTest {
     void invitePageWithAvatarButNoSubject_marksInvalid_andDoesNotInsertLink() {
         stubValidLabel(1L);
         stubBatchInsert(10L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
         when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
                 "AbcDef1234567890123456",
                 null,
@@ -218,7 +228,7 @@ class GroupLinkImportServiceImplTest {
         GroupLink existing = new GroupLink();
         existing.setId(200L);
         existing.setDeletedAt(System.currentTimeMillis());
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
         when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
                 "AbcDef1234567890123456", null, null));
 
@@ -228,7 +238,8 @@ class GroupLinkImportServiceImplTest {
 
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
-        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
+        verify(groupLinkMapper, never()).adoptToLabel(
+                anyLong(), anyLong(), anyLong(), any(), anyLong(), anyLong());
     }
 
     @Test
@@ -240,7 +251,7 @@ class GroupLinkImportServiceImplTest {
         existing.setLabelId(null);
         existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
         existing.setDeletedAt(null);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
         when(invitePageFetcher.fetch(anyString())).thenReturn(new GroupInvitePageMetadata(
                 "AbcDef1234567890123456", null, null));
 
@@ -250,7 +261,8 @@ class GroupLinkImportServiceImplTest {
 
         assertThat(result.successRows()).isZero();
         assertThat(result.failedRows()).isEqualTo(1);
-        verify(groupLinkMapper, never()).adoptActiveIntoImport(anyLong(), anyLong(), anyLong(), anyLong());
+        verify(groupLinkMapper, never()).adoptActiveIntoImport(
+                anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
     }
 
     @Test
@@ -261,7 +273,7 @@ class GroupLinkImportServiceImplTest {
         existing.setId(200L);
         existing.setLabelId(99L);
         existing.setDeletedAt(null);  // 活跃链接
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
@@ -271,8 +283,10 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.successRows()).isEqualTo(0);
         assertThat(result.failedRows()).isEqualTo(1);
         assertThat(result.duplicateRows()).isEqualTo(1);
-        verify(groupLinkMapper, never()).adoptToLabel(anyLong(), anyLong(), anyLong(), any(), anyLong());
-        verify(groupLinkMapper, never()).adoptActiveIntoImport(anyLong(), anyLong(), anyLong(), anyLong());
+        verify(groupLinkMapper, never()).adoptToLabel(
+                anyLong(), anyLong(), anyLong(), any(), anyLong(), anyLong());
+        verify(groupLinkMapper, never()).adoptActiveIntoImport(
+                anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
         verify(groupLinkMapper, never()).insert(any());
         verify(invitePageFetcher, never()).fetch(anyString());
     }
@@ -286,8 +300,9 @@ class GroupLinkImportServiceImplTest {
         existing.setLabelId(null);
         existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
         existing.setDeletedAt(null);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
-        when(groupLinkMapper.adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong())).thenReturn(1);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
+        when(groupLinkMapper.adoptActiveIntoImport(
+                eq(200L), eq(2L), eq(20L), eq(1L), anyLong())).thenReturn(1);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
@@ -296,7 +311,8 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.totalRows()).isEqualTo(1);
         assertThat(result.successRows()).isEqualTo(1);
         assertThat(result.failedRows()).isEqualTo(0);
-        verify(groupLinkMapper).adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong());
+        verify(groupLinkMapper).adoptActiveIntoImport(
+                eq(200L), eq(2L), eq(20L), eq(1L), anyLong());
     }
 
     @Test
@@ -308,8 +324,9 @@ class GroupLinkImportServiceImplTest {
         existing.setLabelId(null);
         existing.setOrigin(GroupLinkOrigin.PULL_TASK.code());
         existing.setDeletedAt(null);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
-        when(groupLinkMapper.adoptActiveIntoImport(eq(200L), eq(2L), eq(20L), anyLong())).thenReturn(0);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
+        when(groupLinkMapper.adoptActiveIntoImport(
+                eq(200L), eq(2L), eq(20L), eq(1L), anyLong())).thenReturn(0);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
@@ -328,7 +345,7 @@ class GroupLinkImportServiceImplTest {
         GroupLink existing = new GroupLink();
         existing.setId(200L);
         existing.setDeletedAt(System.currentTimeMillis());  // 软删链接
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(existing);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(existing);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(2L, "batch2", null,
@@ -338,7 +355,8 @@ class GroupLinkImportServiceImplTest {
         assertThat(result.successRows()).isEqualTo(1);  // 复活计入新增成功
         assertThat(result.failedRows()).isEqualTo(0);
         // 软删链接:复活并改归属本分组
-        verify(groupLinkMapper).adoptToLabel(eq(200L), eq(2L), eq(20L), eq(null), anyLong());
+        verify(groupLinkMapper).adoptToLabel(
+                eq(200L), eq(2L), eq(20L), eq(null), eq(1L), anyLong());
         verify(groupLinkMapper, never()).insert(any());
     }
 
@@ -347,7 +365,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(3L);
         stubBatchInsert(30L);
         stubLinkInsert(300L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         // 同一 url 出现两次
         GroupLinkImportResultVO result = service.importLinks(
@@ -368,7 +386,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(4L);
         stubBatchInsert(40L);
         stubLinkInsert(400L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         GroupLinkImportResultVO result = service.importLinks(
                 new GroupLinkImportDTO(4L, "batch4", null,
@@ -422,7 +440,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(5L);
         stubBatchInsert(50L);
         stubLinkInsert(500L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(5L, "batch5", null,
                 List.of("https://chat.whatsapp.com/Code112345678901234567",
@@ -439,7 +457,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(7L);
         stubBatchInsert(70L);
         stubLinkInsert(700L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(7L, "   ", null,
                 List.of("https://chat.whatsapp.com/Blank12345678901234567"), null));
@@ -454,7 +472,7 @@ class GroupLinkImportServiceImplTest {
         stubValidLabel(8L);
         stubBatchInsert(80L);
         stubLinkInsert(800L);
-        when(groupLinkMapper.selectAnyByUrl(anyString())).thenReturn(null);
+        when(groupLinkMapper.selectAnyByUrl(anyString(), eq(1L))).thenReturn(null);
 
         service.importLinks(new GroupLinkImportDTO(8L, "batch8", null,
                 List.of("https://chat.whatsapp.com/WithFile12345678901234"), "links.csv"));
@@ -468,7 +486,7 @@ class GroupLinkImportServiceImplTest {
 
     @Test
     void labelNotExists_throws() {
-        when(labelMapper.selectById(anyLong())).thenReturn(null);
+        when(labelMapper.selectById(anyLong(), any(DataScope.class))).thenReturn(null);
 
         assertThatThrownBy(() -> service.importLinks(
                 new GroupLinkImportDTO(99L, "x", null, List.of("https://chat.whatsapp.com/X"), null)))
@@ -562,7 +580,7 @@ class GroupLinkImportServiceImplTest {
         row.setResult(GroupLinkImportResult.FAILED.code());
         row.setCreatedAt(1_717_243_200_000L);  // UTC 12:00 → Asia/Shanghai 20:00
 
-        when(detailMapper.selectFailed(null, 10L)).thenReturn(List.of(row));
+        when(detailMapper.selectFailed(null, 10L, DataScope.self(1L))).thenReturn(List.of(row));
 
         List<String[]> rows = service.exportFailed(null, 10L);
 
@@ -586,7 +604,7 @@ class GroupLinkImportServiceImplTest {
         row.setResult(GroupLinkImportResult.FAILED.code());
         row.setCreatedAt(null);
 
-        when(detailMapper.selectFailed(1L, null)).thenReturn(List.of(row));
+        when(detailMapper.selectFailed(1L, null, DataScope.self(1L))).thenReturn(List.of(row));
 
         List<String[]> rows = service.exportFailed(1L, null);
 
@@ -600,7 +618,7 @@ class GroupLinkImportServiceImplTest {
 
     @Test
     void exportFailed_emptyResult_returnsEmptyList() {
-        when(detailMapper.selectFailed(99L, null)).thenReturn(List.of());
+        when(detailMapper.selectFailed(99L, null, DataScope.self(1L))).thenReturn(List.of());
 
         List<String[]> rows = service.exportFailed(99L, null);
 

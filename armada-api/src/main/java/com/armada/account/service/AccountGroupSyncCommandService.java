@@ -13,6 +13,9 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -75,16 +78,22 @@ public class AccountGroupSyncCommandService {
                 AccountLoginStateCode.ONLINE,
                 AccountStateCode.NORMAL,
                 AccountGroupBaselineStateCode.CAPTURED);
-        Map<Long, List<ProtocolAccountGroupSyncCommandRequest>> byTenant = groupByTenant(candidates);
+        Map<OwnerScopeKey, List<ProtocolAccountGroupSyncCommandRequest>> byOwnerScope =
+                groupByOwnerScope(candidates);
         int enqueued = 0;
         Long previousTenant = TenantContext.get();
         try {
-            for (Map.Entry<Long, List<ProtocolAccountGroupSyncCommandRequest>> entry : byTenant.entrySet()) {
-                TenantContext.set(entry.getKey());
-                ProtocolCommandOutboxEnqueueResult result =
-                        outboxService.enqueueAccountGroupSyncCommands(entry.getValue());
-                markRequested(entry.getValue());
-                enqueued += result.inserted();
+            for (Map.Entry<OwnerScopeKey, List<ProtocolAccountGroupSyncCommandRequest>> entry
+                    : byOwnerScope.entrySet()) {
+                OwnerScopeKey key = entry.getKey();
+                TenantContext.set(key.tenantId());
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                        DataScope.self(key.ownerUserId()))) {
+                    ProtocolCommandOutboxEnqueueResult result =
+                            outboxService.enqueueAccountGroupSyncCommands(entry.getValue());
+                    markRequested(entry.getValue());
+                    enqueued += result.inserted();
+                }
             }
         } finally {
             if (previousTenant == null) {
@@ -94,8 +103,8 @@ public class AccountGroupSyncCommandService {
             }
         }
         log.info("account_group.sync.enqueued scanned={} enqueued={} tenantBatches={}",
-                candidates.size(), enqueued, byTenant.size());
-        return new EnqueueResult(candidates.size(), enqueued, byTenant.size());
+                candidates.size(), enqueued, byOwnerScope.size());
+        return new EnqueueResult(candidates.size(), enqueued, byOwnerScope.size());
     }
 
     /**
@@ -120,6 +129,8 @@ public class AccountGroupSyncCommandService {
                 || account.getProtocolAccountId().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "首次群全量同步缺少账号定位字段");
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
         AccountGroupBaselineStateRow baseline = accountMapper
                 .selectGroupBaselineStatesByTenantAndAccountIds(tenantId, List.of(account.getId()))
                 .stream()
@@ -146,11 +157,18 @@ public class AccountGroupSyncCommandService {
         return true;
     }
 
-    private static Map<Long, List<ProtocolAccountGroupSyncCommandRequest>> groupByTenant(
+    private static Map<OwnerScopeKey, List<ProtocolAccountGroupSyncCommandRequest>> groupByOwnerScope(
             List<AccountGroupSyncCandidate> candidates) {
-        Map<Long, List<ProtocolAccountGroupSyncCommandRequest>> byTenant = new LinkedHashMap<>();
+        Map<OwnerScopeKey, List<ProtocolAccountGroupSyncCommandRequest>> byOwnerScope =
+                new LinkedHashMap<>();
         for (AccountGroupSyncCandidate candidate : candidates) {
-            byTenant.computeIfAbsent(candidate.tenantId(), ignored -> new ArrayList<>())
+            if (candidate.ownerUserId() == null) {
+                log.error("账号群同步拒绝调度:账号缺少数据归属 tenantId={} accountId={}",
+                        candidate.tenantId(), candidate.accountId());
+                continue;
+            }
+            OwnerScopeKey key = new OwnerScopeKey(candidate.tenantId(), candidate.ownerUserId());
+            byOwnerScope.computeIfAbsent(key, ignored -> new ArrayList<>())
                     .add(new ProtocolAccountGroupSyncCommandRequest(
                             candidate.tenantId(),
                             candidate.accountId(),
@@ -158,7 +176,7 @@ public class AccountGroupSyncCommandService {
                             protocolBackend(candidate.protocolBackend()),
                             SOURCE_SCHEDULED_ACCOUNT_GROUP_SYNC));
         }
-        return byTenant;
+        return byOwnerScope;
     }
 
     /**
@@ -216,5 +234,9 @@ public class AccountGroupSyncCommandService {
 
     /** 本轮账号群同步命令入队摘要。 */
     public record EnqueueResult(int scanned, int enqueued, int tenantBatches) {
+    }
+
+    /** 后台同步必须按租户和账号 owner 分批恢复上下文。 */
+    private record OwnerScopeKey(Long tenantId, Long ownerUserId) {
     }
 }

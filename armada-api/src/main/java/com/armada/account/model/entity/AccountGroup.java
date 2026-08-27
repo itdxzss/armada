@@ -12,7 +12,10 @@ public class AccountGroup {
     /** 租户 ID(拦截器注入,不手写)。 */
     private Long tenantId;
 
-    /** 分组名称(租户内不可重复)。 */
+    /** 数据归属用户 ID；历史系统分组数据可为空，仅管理员可见。 */
+    private Long ownerUserId;
+
+    /** 分组名称(同一 owner 的活跃分组内不可重复；历史无 owner 数据仍受兼容约束)。 */
     private String name;
 
     /** 备注。 */
@@ -52,6 +55,14 @@ public class AccountGroup {
 
     public Long getTenantId() {
         return tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public void setTenantId(Long tenantId) {

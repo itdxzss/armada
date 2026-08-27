@@ -2,6 +2,8 @@ package com.armada.task.service.impl;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
@@ -58,11 +60,16 @@ public class PullTaskStandardDraftWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public PullTask ensureDraft(long userId, String operatorName, long now) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.actorUserId() == null || !scope.actorUserId().equals(userId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "草稿用户与当前身份不一致");
+        }
         PullTask existing = pullTaskMapper.selectLatestDraftByCreator(userId);
         if (existing != null) {
             return existing;
         }
         PullTask draft = new PullTask();
+        draft.setOwnerUserId(scope.ownerUserIdForCreate());
         draft.setTaskName(DRAFT_TASK_NAME);
         draft.setOperatorName(operatorName);
         draft.setCreatedBy(userId);

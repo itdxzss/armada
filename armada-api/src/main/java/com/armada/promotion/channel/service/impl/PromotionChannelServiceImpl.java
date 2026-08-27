@@ -35,6 +35,8 @@ import com.armada.promotion.channel.support.PromotionDomainNormalizer;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.tenant.TenantContext;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -132,7 +134,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 || !SHA256_HEX_PATTERN.matcher(event.phoneSha256()).matches()) {
             return deliveryFailure(false, "INVALID_EVENT", "正式事件参数不完整或不合法");
         }
-        PromotionChannelProbeConfigRow config = mapper.selectProbeConfigByChannelId(event.channelId());
+        DataScope scope = DataScopeAccess.requireCurrent();
+        PromotionChannelProbeConfigRow config =
+                mapper.selectProbeConfigByChannelIdForScope(event.channelId(), scope);
         if (config == null || config.getPlatform() == null
                 || config.getPlatform() != PromotionPlatform.FACEBOOK.code()
                 || !StringUtils.hasText(config.getTrackingId()) || !hasCompleteToken(config)) {
@@ -170,8 +174,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromotionChannelVO create(PromotionChannelCreateDTO request) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         // 步骤1：统一完成必填、长度、平台能力和域名格式校验，避免无效数据进入后续数据库操作。
-        ValidatedWrite value = validate(request);
+        ValidatedWrite value = validate(request, scope.ownerUserIdForCreate());
 
         // 步骤2：模板、目标国家和预选区号必须引用现有主数据；跨业务域的国家数据只通过 CountryService 获取。
         PromotionLandingTemplate template = mapper.selectAvailableTemplateById(value.landingTemplateId());
@@ -210,8 +215,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
      */
     @Override
     public PageResult<PromotionChannelVO> page(PromotionChannelQuery query) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         // 步骤1：限制筛选值和 IN 集合规模，避免无效 ID 或超大查询拖垮数据库。
         validateQuery(query);
+        query.applyDataScope(scope);
 
         // 步骤2：先查总数；无数据时不再执行列表 SQL 和国家主数据查询。
         long total = mapper.countPage(query);
@@ -250,9 +257,10 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(readOnly = true)
     public PromotionChannelDetailVO detail(Long id) {
         requirePositive(id, "渠道");
+        DataScope scope = DataScopeAccess.requireCurrent();
 
         // 单条 SQL 读取表单所需字段；Mapper 投影从类型上排除 Token 明文、密文和指纹。
-        PromotionChannelDetailRow row = mapper.selectDetailById(id);
+        PromotionChannelDetailRow row = mapper.selectDetailById(id, scope);
         if (row == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
@@ -309,11 +317,12 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     /** {@inheritDoc} */
     @Override
     public PromotionChannelProbeVO probe(Long id, PromotionChannelProbeDTO request) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         if (!probeEnabled) {
             throw new BusinessException(ErrorCode.VALIDATION, "Facebook CAPI 探测功能未启用");
         }
         requirePositive(id, "渠道");
-        PromotionChannelProbeConfigRow config = mapper.selectProbeConfigByChannelId(id);
+        PromotionChannelProbeConfigRow config = mapper.selectProbeConfigByChannelIdForScope(id, scope);
         if (config == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
@@ -329,7 +338,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         }
 
         String testEventCode = requireTestEventCode(request);
-        PromotionChannelTrackingConfig running = probeUpdate(config, PROBE_DB_STATUS_RUNNING, checkedAt);
+        PromotionChannelTrackingConfig running = probeUpdate(
+                config, PROBE_DB_STATUS_RUNNING, checkedAt, scope.actorUserId());
         running.setLastProbeEventName(PROBE_EVENT_NAME);
         if (mapper.markProbeRunning(
                 running,
@@ -347,7 +357,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         } catch (BusinessException ex) {
             return completeProbe(config, false, null,
                     PROBE_ERROR_TOKEN_DECRYPT_FAILED,
-                    "Access Token 无法解密，请重新配置", checkedAt, System.currentTimeMillis());
+                    "Access Token 无法解密，请重新配置", checkedAt,
+                    System.currentTimeMillis(), scope.actorUserId());
         }
 
         String eventId = "probe_" + UUID.randomUUID().toString().replace("-", "");
@@ -359,10 +370,12 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         FacebookCapiClient.Result clientResult = facebookCapiClient.probe(command);
         if (clientResult == null) {
             return completeProbe(config, false, eventId, PROBE_ERROR_INVALID_RESPONSE,
-                    "Facebook 返回结果无法识别", checkedAt, System.currentTimeMillis());
+                    "Facebook 返回结果无法识别", checkedAt,
+                    System.currentTimeMillis(), scope.actorUserId());
         }
         return completeProbe(config, clientResult.success(), eventId,
-                clientResult.errorCode(), clientResult.errorMessage(), checkedAt, System.currentTimeMillis());
+                clientResult.errorCode(), clientResult.errorMessage(), checkedAt,
+                System.currentTimeMillis(), scope.actorUserId());
     }
 
     /**
@@ -375,7 +388,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, PromotionChannelUpdateDTO request) {
         requirePositive(id, "渠道");
-        ValidatedWrite value = validate(request);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        ValidatedWrite value = validate(request, scope.actorUserId());
 
         // 模板与国家继续复用新增路径的主数据校验，防止编辑绕过已有业务约束。
         requireAvailableTemplate(value.landingTemplateId());
@@ -385,19 +399,21 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
         // 先锁定目标域名再锁渠道，和删除流程保持统一锁序，避免写入已被并发释放的域名。
         PromotionDomain domain = resolveDomain(value);
-        PromotionChannel existing = requireActiveChannel(id);
+        PromotionChannel existing = requireActiveChannel(id, scope);
         requireReusableTrackingToken(value, existing);
         long now = System.currentTimeMillis();
         PromotionChannel channel = buildChannel(
                 value, targetCountry.value(), preselectedCountry.value(), domain.getId(), now);
         channel.setId(id);
+        // 归属在共享/转移功能上线前不可通过编辑改变；管理员编辑他人渠道时也保留原 owner。
+        channel.setOwnerUserId(existing.getOwnerUserId());
         if (mapper.updateChannel(channel) != 1) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
 
         syncTrackingConfig(value, existing, now);
-        log.info("推广渠道已更新 id={} ownerUserId={} platform={} status={}",
-                id, value.ownerUserId(), value.platform().code(), value.status());
+        log.info("推广渠道已更新 id={} ownerUserId={} actorUserId={} platform={} status={}",
+                id, existing.getOwnerUserId(), scope.actorUserId(), value.platform().code(), value.status());
     }
 
     /**
@@ -409,10 +425,12 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         requirePositive(id, "渠道");
+        DataScope scope = DataScopeAccess.requireCurrent();
+        long actorUserId = scope.actorUserId();
         Long tenantId = TenantContext.get();
         // 先锁共享域名、再锁渠道，保证同一域名下多个渠道并发删除时不会形成交叉等待。
-        PromotionDomain domain = mapper.selectActiveDomainByChannelIdForUpdate(id);
-        PromotionChannel channel = requireActiveChannel(id);
+        PromotionDomain domain = mapper.selectActiveDomainByChannelIdForUpdate(id, scope);
+        PromotionChannel channel = requireActiveChannel(id, scope);
         if (domain == null || !domain.getId().equals(channel.getPromotionDomainId())) {
             // 等待渠道锁期间若编辑已切换域名，本次旧快照不能继续判断，应回滚后重试。
             throw new BusinessException(ErrorCode.CONFLICT, "渠道域名绑定已变化，请重试删除");
@@ -420,22 +438,22 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         long now = System.currentTimeMillis();
 
         // 渠道与追踪配置保留软删历史，不破坏账号等存量数据对渠道的引用。
-        if (mapper.softDeleteChannel(id, channel.getOwnerUserId(), now) != 1) {
+        if (mapper.softDeleteChannel(id, actorUserId, now) != 1) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
-        mapper.softDeleteTrackingConfig(id, channel.getOwnerUserId(), now);
+        mapper.softDeleteTrackingConfig(id, actorUserId, now);
 
         // 只有不存在其他有效渠道时才释放模板—域名关系；共享该关系的其他渠道不会受影响。
         boolean domainReleased = false;
         if (domain != null
                 && mapper.selectAnyActiveChannelIdByDomainForUpdate(tenantId, domain.getId()) == null) {
-            if (mapper.softDeleteDomain(domain.getId(), channel.getOwnerUserId(), now) != 1) {
+            if (mapper.softDeleteDomain(domain.getId(), actorUserId, now) != 1) {
                 throw new BusinessException(ErrorCode.CONFLICT, "域名绑定状态已变化，请重试");
             }
             domainReleased = true;
         }
-        log.info("推广渠道已软删除 id={} ownerUserId={} domainReleased={}",
-                id, channel.getOwnerUserId(), domainReleased);
+        log.info("推广渠道已软删除 id={} ownerUserId={} actorUserId={} domainReleased={}",
+                id, channel.getOwnerUserId(), actorUserId, domainReleased);
     }
 
     /** 平台不支持或配置不完整时返回页面可展示的失败详情，不调用 Facebook。 */
@@ -460,7 +478,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             String errorCode,
             String errorMessage,
             long startedAt,
-            long probedAt) {
+            long probedAt,
+            long actorUserId) {
         String stableErrorCode = success
                 ? null
                 : (StringUtils.hasText(errorCode) ? errorCode : PROBE_ERROR_INVALID_RESPONSE);
@@ -470,7 +489,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         String eventName = eventId == null ? null : PROBE_EVENT_NAME;
 
         PromotionChannelTrackingConfig result = probeUpdate(
-                config, success ? PROBE_DB_STATUS_SUCCESS : PROBE_DB_STATUS_FAILED, probedAt);
+                config, success ? PROBE_DB_STATUS_SUCCESS : PROBE_DB_STATUS_FAILED,
+                probedAt, actorUserId);
         result.setLastProbeEventName(eventName);
         result.setLastProbeEventId(eventId);
         result.setLastProbeErrorCode(stableErrorCode);
@@ -502,7 +522,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     private static PromotionChannelTrackingConfig probeUpdate(
             PromotionChannelProbeConfigRow config,
             int status,
-            long updatedAt) {
+            long updatedAt,
+            long actorUserId) {
         PromotionChannelTrackingConfig row = new PromotionChannelTrackingConfig();
         row.setChannelId(config.getChannelId());
         row.setProviderType(config.getPlatform());
@@ -510,7 +531,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setTokenFingerprint(config.getTokenFingerprint());
         row.setLastProbeStatus(status);
         row.setLastProbedAt(updatedAt);
-        row.setUpdatedBy(config.getOwnerUserId());
+        row.setUpdatedBy(actorUserId);
         row.setUpdatedAt(updatedAt);
         return row;
     }
@@ -574,11 +595,11 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
      *
      * <p>FB/TikTok 的追踪 ID 与 Token 必须成对出现；快手和 MGSKY Ads 不接受 CAPI 字段。</p>
      */
-    private ValidatedWrite validate(PromotionChannelCreateDTO request) {
+    private ValidatedWrite validate(PromotionChannelCreateDTO request, long actorUserId) {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新增渠道参数不能为空");
         }
-        return validate(request, false, CHANNEL_STATUS_ENABLED, true);
+        return validate(request, false, CHANNEL_STATUS_ENABLED, true, actorUserId);
     }
 
     /**
@@ -587,7 +608,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
      * <p>字段级校验允许 Token 留空；后续结合已锁定的渠道和追踪配置，
      * 仅在平台、追踪 ID 未变且旧密文完整时允许复用。</p>
      */
-    private ValidatedWrite validate(PromotionChannelUpdateDTO request) {
+    private ValidatedWrite validate(PromotionChannelUpdateDTO request, long actorUserId) {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "编辑渠道参数不能为空");
         }
@@ -609,7 +630,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                 request.loginSuccessEventName(),
                 request.inAppOpenAllowed(),
                 request.marketingAllowed());
-        return validate(common, true, status, false);
+        return validate(common, true, status, false, actorUserId);
     }
 
     /** 复用新增与编辑的字段校验，并按调用场景区分 Token 留空语义。 */
@@ -617,9 +638,9 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             PromotionChannelCreateDTO request,
             boolean existingTokenMayBeKept,
             int status,
-            boolean applyRuntimeDefaults) {
+            boolean applyRuntimeDefaults,
+            long actorUserId) {
         String channelName = requiredText(request.channelName(), "渠道名称", 128);
-        requirePositive(request.ownerUserId(), "归属用户");
         requirePositive(request.landingTemplateId(), "绑定模板");
         String targetCountry = requiredText(request.targetCountry(), "目标国家", 16);
         String preselectedCountry = requiredText(request.preselectedCountry(), "预选区号", 16);
@@ -650,7 +671,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         }
         return new ValidatedWrite(
                 channelName,
-                request.ownerUserId(),
+                actorUserId,
                 targetCountry,
                 request.landingTemplateId(),
                 domainHost,
@@ -717,8 +738,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         PromotionDomain created = new PromotionDomain();
         created.setDomainHost(value.domainHost());
         created.setLandingTemplateId(value.landingTemplateId());
-        created.setCreatedBy(value.ownerUserId());
-        created.setUpdatedBy(value.ownerUserId());
+        created.setCreatedBy(value.actorUserId());
+        created.setUpdatedBy(value.actorUserId());
         created.setCreatedAt(now);
         created.setUpdatedAt(now);
         try {
@@ -768,7 +789,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             long now) {
         PromotionChannel row = new PromotionChannel();
         row.setChannelName(value.channelName());
-        row.setOwnerUserId(value.ownerUserId());
+        row.setOwnerUserId(value.actorUserId());
         row.setPromotionDomainId(domainId);
         row.setThemeColor(value.themeColor());
         row.setIsAppDownloadShown(value.showAppDownload() == null
@@ -780,8 +801,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setIsInAppOpenAllowed(value.inAppOpenAllowed() ? 1 : 0);
         row.setIsMarketingAllowed(value.marketingAllowed() ? 1 : 0);
         row.setStatus(value.status());
-        row.setCreatedBy(value.ownerUserId());
-        row.setUpdatedBy(value.ownerUserId());
+        row.setCreatedBy(value.actorUserId());
+        row.setUpdatedBy(value.actorUserId());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;
@@ -825,8 +846,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
         row.setLeadEventName(value.leadEventName());
         row.setLoginRequestEventName(value.loginRequestEventName());
         row.setLoginSuccessEventName(value.loginSuccessEventName());
-        row.setCreatedBy(value.ownerUserId());
-        row.setUpdatedBy(value.ownerUserId());
+        row.setCreatedBy(value.actorUserId());
+        row.setUpdatedBy(value.actorUserId());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         return row;
@@ -844,14 +865,14 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
             long now) {
         Long channelId = existing.getId();
         if (!value.platform().capiSupported()) {
-            mapper.softDeleteTrackingConfig(channelId, value.ownerUserId(), now);
+            mapper.softDeleteTrackingConfig(channelId, value.actorUserId(), now);
             return;
         }
         boolean platformChanged = !Integer.valueOf(value.platform().code()).equals(existing.getPlatform());
         boolean trackingIdCleared = !StringUtils.hasText(value.trackingId());
         if (!StringUtils.hasText(value.accessToken()) && (platformChanged || trackingIdCleared)) {
             // 不允许把旧平台 Token 带到新平台；显式清空追踪 ID 时也同步清除失去归属的密文。
-            mapper.clearTrackingCredentials(channelId, value.ownerUserId(), now);
+            mapper.clearTrackingCredentials(channelId, value.actorUserId(), now);
         }
         PromotionChannelTrackingConfig tracking = buildTrackingConfig(value, channelId, now);
         if (mapper.updateTrackingConfig(tracking) == 0) {
@@ -860,8 +881,8 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
     }
 
     /** 查询当前租户内有效渠道，不存在或已软删时统一抛 NOT_FOUND。 */
-    private PromotionChannel requireActiveChannel(Long id) {
-        PromotionChannel channel = mapper.selectActiveChannelById(id);
+    private PromotionChannel requireActiveChannel(Long id, DataScope scope) {
+        PromotionChannel channel = mapper.selectActiveChannelById(id, scope);
         if (channel == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "渠道不存在或已删除: " + id);
         }
@@ -1026,7 +1047,7 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
 
     private record ValidatedWrite(
             String channelName,
-            Long ownerUserId,
+            Long actorUserId,
             String targetCountry,
             Long landingTemplateId,
             String domainHost,

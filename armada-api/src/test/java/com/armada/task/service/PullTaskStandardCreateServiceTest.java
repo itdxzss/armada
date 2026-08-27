@@ -17,6 +17,8 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -83,6 +85,7 @@ class PullTaskStandardCreateServiceTest {
 
     private static final long CREATOR = 501L;
     private static final long OTHER_CREATOR = 602L;
+    private static final DataScope CREATOR_SCOPE = DataScope.self(CREATOR);
     private static final String OPERATOR = "运营甲";
     private static final String LINK_A = "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA";
     private static final String LINK_B = "chat.whatsapp.com/BBBBBBBBBBBBBBBBBBBBBB";
@@ -120,12 +123,14 @@ class PullTaskStandardCreateServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(CREATOR_SCOPE);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         registryFailure.set(false);
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -218,7 +223,7 @@ class PullTaskStandardCreateServiceTest {
         PullTaskStandardSetting savedSetting = new PullTaskStandardSetting();
         savedSetting.setAutoStart(1);
         when(standardSettingMapper.selectByTaskId(9L)).thenReturn(savedSetting);
-        when(taskMapper.selectLifecycle(9L)).thenReturn(executing);
+        when(taskMapper.selectLifecycleForScope(9L, CREATOR_SCOPE)).thenReturn(executing);
 
         PullTaskStandardCreatedVO result = retryableService.create(request, CREATOR);
 
@@ -232,8 +237,10 @@ class PullTaskStandardCreateServiceTest {
         executionMapper.freezeDraftRows(occupiedTaskId, 800L);
         long taskId = seedDraftWithTwoRows(OTHER_CREATOR);
 
-        assertThatThrownBy(() -> service.create(validRequest(taskId), OTHER_CREATOR))
-                .isInstanceOf(BusinessException.class);
+        try (var ignored = DataScopeContext.open(DataScope.self(OTHER_CREATOR))) {
+            assertThatThrownBy(() -> service.create(validRequest(taskId), OTHER_CREATOR))
+                    .isInstanceOf(BusinessException.class);
+        }
 
         // 整单回滚：草稿完整保留，可继续编辑。
         PullTask task = pullTaskMapper.selectLifecycle(taskId);
@@ -277,6 +284,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedNewGroupDraft(CREATOR);
         AccountGroup creatorGroup = new AccountGroup();
         creatorGroup.setName("建群人组");
+        creatorGroup.setOwnerUserId(CREATOR);
         when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
 
         service.create(newGroupRequest(taskId), CREATOR);
@@ -303,6 +311,7 @@ class PullTaskStandardCreateServiceTest {
         long taskId = seedNewGroupDraft(CREATOR);
         AccountGroup creatorGroup = new AccountGroup();
         creatorGroup.setName("建群人组");
+        creatorGroup.setOwnerUserId(CREATOR);
         when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
         PullTaskStandardGroupSettingDTO current = validGroupSetting();
         PullTaskStandardGroupSettingDTO withoutExplicitSwitch =
@@ -490,27 +499,33 @@ class PullTaskStandardCreateServiceTest {
      * @return 草稿任务 ID
      */
     private long seedDraftWithTwoRows(long creator) {
-        long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
-        writer.append(taskId, List.of(
-                appendRow(1, LINK_A, "a.txt", 1, "8613800138001"),
-                appendRow(2, LINK_B, "b.txt", 2, "8613800138002")), 200L);
-        return taskId;
+        try (var ignored = DataScopeContext.open(DataScope.self(creator))) {
+            long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
+            writer.append(taskId, List.of(
+                    appendRow(1, LINK_A, "a.txt", 1, "8613800138001"),
+                    appendRow(2, LINK_B, "b.txt", 2, "8613800138002")), 200L);
+            return taskId;
+        }
     }
 
     private long seedNewGroupDraft(long creator) {
-        long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
-        writer.append(taskId, List.of(
-                newGroupAppendRow(1, "a.txt", "8613800138001"),
-                newGroupAppendRow(2, "b.txt", "8613800138002")), 200L);
-        return taskId;
+        try (var ignored = DataScopeContext.open(DataScope.self(creator))) {
+            long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
+            writer.append(taskId, List.of(
+                    newGroupAppendRow(1, "a.txt", "8613800138001"),
+                    newGroupAppendRow(2, "b.txt", "8613800138002")), 200L);
+            return taskId;
+        }
     }
 
     private long seedResourcePoolDraft(long creator) {
-        long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
-        writer.append(taskId, List.of(
-                resourcePoolAppendRow(1, "a.txt", "8613800138001"),
-                resourcePoolAppendRow(2, "b.txt", "8613800138002")), 200L);
-        return taskId;
+        try (var ignored = DataScopeContext.open(DataScope.self(creator))) {
+            long taskId = writer.ensureDraft(creator, OPERATOR, 100L).getId();
+            writer.append(taskId, List.of(
+                    resourcePoolAppendRow(1, "a.txt", "8613800138001"),
+                    resourcePoolAppendRow(2, "b.txt", "8613800138002")), 200L);
+            return taskId;
+        }
     }
 
     private static AppendRow resourcePoolAppendRow(int seq, String fileName, String phone) {
@@ -827,7 +842,7 @@ class PullTaskStandardCreateServiceTest {
         GroupFolderService groupFolderService() {
             GroupFolderService mock = mock(GroupFolderService.class);
             when(mock.requireExisting(anyLong()))
-                    .thenReturn(new GroupFolderOptionVO(18L, "默认群分组"));
+                    .thenReturn(new GroupFolderOptionVO(18L, 501L, "默认群分组"));
             return mock;
         }
 
@@ -836,6 +851,7 @@ class PullTaskStandardCreateServiceTest {
             AccountGroupService mock = mock(AccountGroupService.class);
             AccountGroup group = new AccountGroup();
             group.setName("默认分组");
+            group.setOwnerUserId(CREATOR);
             when(mock.requireExisting(anyLong())).thenReturn(group);
             return mock;
         }

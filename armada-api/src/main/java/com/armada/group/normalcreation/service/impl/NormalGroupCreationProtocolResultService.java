@@ -12,6 +12,7 @@ import com.armada.group.normalcreation.mapper.NormalGroupCreationMapper;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.ItemWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.MemberWork;
 import com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork;
+import com.armada.group.normalcreation.model.NormalGroupCreationRecords.TaskExecutionScope;
 import com.armada.group.normalcreation.model.enums.NormalGroupCreationErrorMessage;
 import com.armada.group.normalcreation.support.NormalGroupCreationParticipantEligibility;
 import com.armada.group.normalcreation.support.NormalGroupCreationSubject;
@@ -29,6 +30,8 @@ import com.armada.platform.protocol.port.GroupParticipantPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
@@ -99,28 +102,38 @@ public class NormalGroupCreationProtocolResultService
                     || !Objects.equals(item.taskId(), event.taskId())) {
                 throw validation("新建普群结果关联任务不存在或租户不一致");
             }
-            String expectedStep = expectedStep(event.action());
-            if (!expectedStep.equals(item.currentStep()) || terminal(item.status())) {
-                log.info("忽略重复或迟到的新建普群结果 tenantId={} itemId={} action={} commandId={}",
-                        event.tenantId(), event.itemId(), event.action(), event.commandId());
-                return;
+            TaskExecutionScope taskScope = mapper.selectTaskExecutionScope(
+                    event.tenantId(), event.taskId());
+            if (taskScope == null) {
+                throw validation("新建普群结果关联任务不存在或已删除");
             }
-            ContactTarget contactTarget = validateActorAndCommand(item, event);
-            if ("CONTACT_PREPARE".equals(event.action())) {
-                if (contactTarget != null) {
-                    contactSettled(item, contactTarget, event);
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    executionDataScope(taskScope))) {
+                String expectedStep = expectedStep(event.action());
+                if (!expectedStep.equals(item.currentStep()) || terminal(item.status())) {
+                    log.info("忽略重复或迟到的新建普群结果 tenantId={} itemId={} action={} commandId={}",
+                            event.tenantId(), event.itemId(), event.action(), event.commandId());
+                    return;
                 }
-                return;
-            }
-            if (!"SUCCESS".equals(event.outcome())) {
-                applyFailure(item, event, expectedStep);
-                return;
-            }
-            switch (event.action()) {
-                case "GROUP_CREATE" -> groupCreated(item, event);
-                case "GROUP_SETTINGS_APPLY" -> settingsApplied(item, event);
-                case "GROUP_LEAVE" -> complete(event, "LEAVING_GROUP", "SUCCESS");
-                default -> throw validation("新建普群结果 action 非法");
+                ContactTarget contactTarget = validateActorAndCommand(item, event);
+                if ("CONTACT_PREPARE".equals(event.action())) {
+                    if (contactTarget != null) {
+                        contactSettled(item, contactTarget, event);
+                    }
+                    return;
+                }
+                if (!"SUCCESS".equals(event.outcome())) {
+                    applyFailure(item, event, expectedStep);
+                    return;
+                }
+                switch (event.action()) {
+                    case "GROUP_CREATE" -> groupCreated(item, event);
+                    case "GROUP_SETTINGS_APPLY" ->
+                            settingsApplied(item, event, taskScope.ownerUserId());
+                    case "GROUP_LEAVE" -> complete(
+                            event, "LEAVING_GROUP", "SUCCESS", taskScope.ownerUserId());
+                    default -> throw validation("新建普群结果 action 非法");
+                }
             }
         } finally {
             restoreTenant(previousTenant);
@@ -433,7 +446,8 @@ public class NormalGroupCreationProtocolResultService
 
     private void settingsApplied(
             ItemWork item,
-            ProtocolNormalGroupCreationResultReportedEvent event) {
+            ProtocolNormalGroupCreationResultReportedEvent event,
+            Long ownerUserId) {
         if ("LEAVE".equals(item.creatorLeavePolicy())) {
             String leaveCommandId = commandDispatcher.enqueueCreatorAction(item, "GROUP_LEAVE");
             if (mapper.startGroupLeave(
@@ -442,19 +456,20 @@ public class NormalGroupCreationProtocolResultService
             }
             return;
         }
-        complete(event, "APPLYING_SETTINGS", "SKIPPED");
+        complete(event, "APPLYING_SETTINGS", "SKIPPED", ownerUserId);
     }
 
     private void complete(
             ProtocolNormalGroupCreationResultReportedEvent event,
             String expectedStep,
-            String leaveStatus) {
+            String leaveStatus,
+            Long ownerUserId) {
         ItemWork item = mapper.selectItemWork(event.itemId());
         List<MemberWork> members = mapper.selectMemberWorks(item.id());
         List<SecondaryAdminWork> secondaryAdmins = mapper.selectSecondaryAdminWorks(item.id());
         long now = System.currentTimeMillis();
-        Long groupLinkId = groupLinkRegistryService.registerSelfBuiltGroup(
-                item.groupJid(), item.groupSubject(), item.creatorAccountId(),
+        Long groupLinkId = groupLinkRegistryService.registerSelfBuiltGroupForOwner(
+                ownerUserId, item.groupJid(), item.groupSubject(), item.creatorAccountId(),
                 item.creatorWsPhone(), members.size() + secondaryAdmins.size() + 1, now);
         if (mapper.updateGroupLink(item.id(), groupLinkId, now) != 1) {
             throw unavailable("群组列表入口回写失败");
@@ -606,6 +621,13 @@ public class NormalGroupCreationProtocolResultService
         if (targetGroupId != null) {
             accountService.migrateGroup(List.of(accountId), targetGroupId);
         }
+    }
+
+    private static DataScope executionDataScope(TaskExecutionScope taskScope) {
+        if (taskScope.ownerUserId() == null) {
+            throw validation("历史新建普群任务缺少数据归属，不能处理协议结果");
+        }
+        return DataScope.self(taskScope.ownerUserId());
     }
 
     private static String safeMessage(ProtocolNormalGroupCreationResultReportedEvent event) {

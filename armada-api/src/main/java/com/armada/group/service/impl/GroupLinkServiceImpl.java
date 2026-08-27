@@ -39,6 +39,8 @@ import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.service.PullTaskGroupOccupancyService;
@@ -147,6 +149,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
         validateStatus(query.getStatus());
         normalizeAndValidateListQuery(query);
+        query.applyDataScope(DataScopeAccess.requireCurrent());
         query.setNowSeconds(Instant.now().getEpochSecond());
         Long tenantId = TenantContext.get();
         long total = groupListCurrentMapper.count(tenantId, query);
@@ -212,8 +215,10 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         }
         Map<Long, String> groupNames = new HashMap<>();
         Long tenantId = TenantContext.get();
+        DataScope scope = DataScopeAccess.requireCurrent();
         for (GroupLinkVoRow row
-                : groupListCurrentMapper.selectWhatsAppGroupNames(tenantId, distinctIds)) {
+                : groupListCurrentMapper.selectWhatsAppGroupNames(
+                        tenantId, distinctIds, scope)) {
             if (row.getId() != null
                     && row.getWaSubject() != null
                     && !row.getWaSubject().isBlank()) {
@@ -242,7 +247,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
             throw new BusinessException(ErrorCode.VALIDATION, "至少提交一个字段");
         }
 
-        GroupLink link = groupLinkMapper.selectActiveById(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupLink link = groupLinkMapper.selectActiveById(id, scope);
         if (link == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
@@ -258,7 +264,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
                 : normalizeProfileField(dto.avatarUrl(), AVATAR_URL_MAX_LENGTH, "头像URL");
 
         long now = System.currentTimeMillis();
-        int updated = groupLinkMapper.updateProfile(id, groupName, remark, now);
+        int updated = groupLinkMapper.updateProfile(id, scope, groupName, remark, now);
         if (updated == 0) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
@@ -418,27 +424,39 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (accountId == null || accountId <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "操作账号 ID 不能为空");
         }
-        GroupLink link = groupLinkMapper.selectActiveById(id);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupLink link = groupLinkMapper.selectActiveById(id, scope);
         if (link == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + id);
         }
+        long groupOwnerUserId = DataScopeAccess.requireAssignedOwner(
+                link.getOwnerUserId(), "群链接");
         // groupJid 是协议层真实操作群的唯一寻址字段;导入链接刚入池时可能还没有解析出来。
-        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(id);
+        GroupCurrentIdentity identity = groupLinkMapper.selectCurrentIdentity(id, scope);
         if (identity == null || identity.groupJid() == null || identity.groupJid().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接尚未解析群 JID,请先预览或等待账号群同步");
         }
         return new GroupProfileTarget(
                 identity.groupJid().trim(),
                 accountId,
-                resolveOnlineProtocolAccount(accountId));
+                resolveOnlineProtocolAccount(accountId, groupOwnerUserId));
     }
 
     /** 将本地账号 ID 转成完整协议账号引用,并确认账号当前在线。 */
-    private ProtocolAccountRef resolveOnlineProtocolAccount(Long accountId) {
+    private ProtocolAccountRef resolveOnlineProtocolAccount(
+            Long accountId,
+            long groupOwnerUserId) {
         Account account = accountMapper.selectActiveById(accountId);
         if (account == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + accountId);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        long accountOwnerUserId = DataScopeAccess.requireAssignedOwner(
+                account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireSameOwner(
+                List.of(groupOwnerUserId, accountOwnerUserId),
+                "群链接与操作账号");
         String protocolAccountId = account.getProtocolAccountId();
         if (protocolAccountId == null || protocolAccountId.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定协议账号: " + accountId);
@@ -482,25 +500,35 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int migrate(List<Long> linkIds, Long targetLabelId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         if (linkIds == null || linkIds.isEmpty() || linkIds.size() > BATCH_MAX) {
             throw new BusinessException(ErrorCode.VALIDATION, "linkIds 数量须为 1.." + BATCH_MAX);
         }
+        if (linkIds.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "linkIds 不能包含空值");
+        }
+        List<Long> distinctIds = linkIds.stream().distinct().toList();
         if (targetLabelId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "目标分组 ID 不能为空");
         }
         // 校验目标分组存在
-        if (labelMapper.selectById(targetLabelId) == null) {
+        com.armada.group.model.entity.GroupLinkLabel targetLabel =
+                labelMapper.selectById(targetLabelId, scope);
+        if (targetLabel == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "目标分组不存在: " + targetLabelId);
         }
-        // 校验 linkIds 全部活跃
-        int activeCount = groupLinkMapper.countActiveByIds(linkIds);
-        if (activeCount != linkIds.size()) {
+        // 整批读取后同时校验可见性、存活状态和目标分组归属，避免跨用户重挂。
+        List<GroupLink> links = groupLinkMapper.selectActiveByIds(distinctIds, scope);
+        if (links.size() != distinctIds.size()) {
             throw new BusinessException(ErrorCode.VALIDATION,
-                    "部分群链接不存在或已删除,迁移取消(期望 " + linkIds.size() + " 条,活跃 " + activeCount + " 条)");
+                    "部分群链接不存在或已删除,迁移取消");
         }
+        List<Long> owners = new ArrayList<>(links.size() + 1);
+        owners.add(targetLabel.getOwnerUserId());
+        links.forEach(link -> owners.add(link.getOwnerUserId()));
+        DataScopeAccess.requireSameOwner(owners, "群链接迁移");
         long now = System.currentTimeMillis();
-        int n = groupLinkMapper.migrateToLabel(linkIds, targetLabelId, now);
-        currentLocalPersistence.applyInviteLabel(linkIds, targetLabelId, now);
+        int n = groupLinkMapper.migrateToLabel(distinctIds, targetLabelId, scope, now);
         log.info("群链接批量迁移 count={} targetLabelId={}", n, targetLabelId);
         return n;
     }
@@ -517,9 +545,11 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         // 入参仍然使用 Armada 本地账号 ID 和 group_link.id,避免前端感知协议层账号句柄。
         List<Long> ids = validatePreviewRequest(dto);
         // 实时预览必须由一个协议账号发起;这里把本地账号解析成协议层 accountId。
-        String protocolAccountId = resolveProtocolAccountId(dto.accountId());
+        Account previewAccount = resolveProtocolAccount(dto.accountId());
         // 先一次性查出活跃链接,后面按请求顺序组装结果;缺失或已删除的 ID 返回单条失败。
         Map<Long, GroupLink> linksById = loadActiveLinks(ids);
+        requirePreviewOwnership(previewAccount, linksById.values());
+        String protocolAccountId = previewAccount.getProtocolAccountId();
 
         List<GroupLinkPreviewItemVO> items = new ArrayList<>(ids.size());
         int succeeded = 0;
@@ -562,9 +592,13 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "ids 不能为空");
         }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        List<Long> normalizedIds = List.copyOf(new TreeSet<>(ids));
+        if (groupLinkMapper.countActiveByIds(normalizedIds, scope) != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分群链接不存在或已删除，删除取消");
+        }
         long now = System.currentTimeMillis();
-        int n = groupLinkMapper.softDeleteByIds(ids, now);
-        currentLocalPersistence.applyLegacyDeletion(ids, now);
+        int n = groupLinkMapper.softDeleteByIds(normalizedIds, scope, now);
         log.info("群链接批量删除 count={} requestedCount={}", n, ids.size());
         return n;
     }
@@ -578,29 +612,37 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int assignFolder(List<Long> ids, Long folderId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         List<Long> normalizedIds = normalizeFolderAssignmentIds(ids);
+        GroupFolder targetFolder = null;
         if (folderId != null) {
             if (folderId <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION, "目标群组分组 ID 必须为正整数");
             }
             List<GroupFolder> targetFolders =
-                    folderMapper.selectActiveByIdsForUpdate(List.of(folderId));
+                    folderMapper.selectActiveByIdsForUpdate(List.of(folderId), scope);
             if (targetFolders.size() != 1) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "目标群组分组不存在或已删除");
             }
             if (Boolean.TRUE.equals(targetFolders.get(0).getSystemBuiltin())) {
                 throw new BusinessException(ErrorCode.CONFLICT, "不能手工移动群组到系统分组");
             }
+            targetFolder = targetFolders.get(0);
         }
 
-        List<GroupLink> groups = groupLinkMapper.selectActiveByIdsForUpdate(normalizedIds);
+        List<GroupLink> groups = groupLinkMapper.selectActiveByIdsForUpdate(normalizedIds, scope);
         if (groups.size() != normalizedIds.size()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "部分群组不存在或已删除，请刷新后重试");
         }
+        if (targetFolder != null) {
+            List<Long> owners = new ArrayList<>(groups.size() + 1);
+            owners.add(targetFolder.getOwnerUserId());
+            groups.forEach(group -> owners.add(group.getOwnerUserId()));
+            DataScopeAccess.requireSameOwner(owners, "群组与目标文件夹");
+        }
         taskGroupOccupancyService.requireUnoccupied(normalizedIds);
         long now = System.currentTimeMillis();
-        int updated = groupLinkMapper.assignFolder(normalizedIds, folderId, now);
-        currentLocalPersistence.applyGroupFolder(normalizedIds, folderId, now);
+        int updated = groupLinkMapper.assignFolder(normalizedIds, folderId, scope, now);
         log.info("群组批量设置运营分组 count={} folderId={} ids={}",
                 updated, folderId, normalizedIds);
         return updated;
@@ -647,16 +689,31 @@ public class GroupLinkServiceImpl implements GroupLinkService {
      *
      * <p>协议层 master/worker 只认识 {@code protocol_account_id},不能直接使用本地自增主键。</p>
      */
-    private String resolveProtocolAccountId(Long accountId) {
+    private Account resolveProtocolAccount(Long accountId) {
         Account account = accountMapper.selectActiveById(accountId);
         if (account == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + accountId);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireAssignedOwner(account.getOwnerUserId(), "账号");
         String protocolAccountId = account.getProtocolAccountId();
         if (protocolAccountId == null || protocolAccountId.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号未绑定协议账号: " + accountId);
         }
-        return protocolAccountId;
+        return account;
+    }
+
+    private static void requirePreviewOwnership(
+            Account account,
+            java.util.Collection<GroupLink> links) {
+        List<Long> owners = new ArrayList<>(links.size() + 1);
+        owners.add(account.getOwnerUserId());
+        for (GroupLink link : links) {
+            DataScopeAccess.requireAssignedOwner(link.getOwnerUserId(), "群链接");
+            owners.add(link.getOwnerUserId());
+        }
+        DataScopeAccess.requireSameOwner(owners, "预览账号与群链接");
     }
 
     /**
@@ -665,7 +722,8 @@ public class GroupLinkServiceImpl implements GroupLinkService {
      * <p>MyBatis 租户拦截器会自动补 tenant_id,这里不手写租户条件。</p>
      */
     private Map<Long, GroupLink> loadActiveLinks(List<Long> ids) {
-        List<GroupLink> links = groupLinkMapper.selectActiveByIds(ids);
+        List<GroupLink> links = groupLinkMapper.selectActiveByIds(
+                ids, DataScopeAccess.requireCurrent());
         Map<Long, GroupLink> linksById = new HashMap<>(links.size());
         for (GroupLink link : links) {
             linksById.put(link.getId(), link);

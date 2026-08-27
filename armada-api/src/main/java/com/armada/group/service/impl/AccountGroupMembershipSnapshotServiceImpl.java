@@ -17,6 +17,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -115,7 +116,8 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                         .thenComparing(ResolvedGroup::groupJid))
                 .toList();
         Map<Long, GroupLink> handlesById = groupLinkMapper.selectActiveByIds(
-                        groupsByHandle.stream().map(ResolvedGroup::groupLinkId).distinct().toList())
+                        groupsByHandle.stream().map(ResolvedGroup::groupLinkId).distinct().toList(),
+                        DataScopeAccess.requireCurrent())
                 .stream()
                 .collect(java.util.stream.Collectors.toMap(
                         GroupLink::getId,

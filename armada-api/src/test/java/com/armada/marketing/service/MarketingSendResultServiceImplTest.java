@@ -7,13 +7,17 @@ import com.armada.marketing.mapper.GroupCreationMarketingTaskMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.entity.GroupCreationMarketingItem;
 import com.armada.marketing.model.entity.GroupCreationMarketingTask;
+import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.enums.GroupCreationMarketingItemStatus;
 import com.armada.marketing.model.support.MarketingSendAttemptResult;
 import com.armada.marketing.service.impl.GroupCreationMarketingRetryService;
 import com.armada.marketing.service.impl.MarketingImmediateRetryService;
 import com.armada.marketing.service.impl.MarketingSendResultServiceImpl;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
+import com.armada.shared.security.DataScopeContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
@@ -34,15 +38,27 @@ class MarketingSendResultServiceImplTest {
     private final MarketingSendResultServiceImpl service =
             new MarketingSendResultServiceImpl(mapper, groupCreationMapper, retryService, immediateRetryService);
 
+    @BeforeEach
+    void setUpTrustedRoots() {
+        when(mapper.selectSendAttemptById(9001L)).thenReturn(marketingAttempt());
+        when(mapper.selectTaskById(42L)).thenReturn(marketingTask());
+        when(groupCreationMapper.selectItemById(11L)).thenReturn(groupCreationItem());
+        when(groupCreationMapper.selectTaskById(22L)).thenReturn(groupCreationTask());
+    }
+
     @AfterEach
-    void clearTenant() {
+    void clearContexts() {
         com.armada.shared.tenant.TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
     void successEventUpdatesAttemptAndIncrementsSuccessCountOnce() {
         ProtocolMessageSendResultReportedEvent event = event(true);
-        when(mapper.markAttemptSuccess(successResult())).thenReturn(1);
+        when(mapper.markAttemptSuccess(successResult())).thenAnswer(invocation -> {
+            assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(7L);
+            return 1;
+        });
         when(mapper.selectSuccessfulAttemptGroupJid(42L, 9001L)).thenReturn("120363001@g.us");
         when(mapper.insertSuccessfulGroupFromAttempt(1L, 42L, 9001L, 1783159200000L)).thenReturn(1);
         when(mapper.incrementTaskSuccessfulGroupCount(42L, 1783159200000L)).thenReturn(1);
@@ -56,6 +72,7 @@ class MarketingSendResultServiceImplTest {
         verify(mapper).incrementTaskSuccessfulGroupCount(42L, 1783159200000L);
         verify(mapper).incrementTaskSendCounters(42L, 1, 0, 1783159200000L);
         verify(groupCreationMapper).markItemSuccessByMarketingAttemptId(9001L, 1783159200000L);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     @Test
@@ -237,6 +254,51 @@ class MarketingSendResultServiceImplTest {
     }
 
     @Test
+    void forgedMarketingTaskIdDoesNotMutateTrustedAttempt() {
+        ProtocolMessageSendResultReportedEvent event = marketingEventWithTaskId(43L);
+
+        service.handleSendResultReported(event);
+
+        verify(mapper, never()).selectTaskById(42L);
+        verify(immediateRetryService, never()).retryIfEligible(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+        verify(mapper, never()).markAttemptSuccess(org.mockito.ArgumentMatchers.any());
+        verify(mapper, never()).markAttemptFailed(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void historicalOwnerlessMarketingTaskDoesNotAcceptResult() {
+        MarketingTask task = marketingTask();
+        task.setOwnerUserId(null);
+        when(mapper.selectTaskById(42L)).thenReturn(task);
+
+        service.handleSendResultReported(event(true));
+
+        verify(mapper, never()).markAttemptSuccess(org.mockito.ArgumentMatchers.any());
+        verify(mapper, never()).incrementTaskSendCounters(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyLong());
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
+    @Test
+    void forgedGroupCreationTaskIdDoesNotMutateTrustedItem() {
+        ProtocolMessageSendResultReportedEvent event = groupCreationEventWithTaskId(23L);
+
+        service.handleSendResultReported(event);
+
+        verify(groupCreationMapper, never()).selectTaskById(22L);
+        verify(groupCreationMapper, never()).markItemSuccessByCommandId(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void supportsExistingSourcesButExplicitlyRejectsHistoricalGroupPull() {
         assertThat(service.supports(event(true))).isTrue();
         assertThat(service.supports(groupCreationEvent(true))).isTrue();
@@ -293,6 +355,34 @@ class MarketingSendResultServiceImplTest {
                 1783159199000L,
                 null,
                 null);
+    }
+
+    private static ProtocolMessageSendResultReportedEvent marketingEventWithTaskId(Long taskId) {
+        ProtocolMessageSendResultReportedEvent event = event(true);
+        return new ProtocolMessageSendResultReportedEvent(
+                event.eventId(),
+                event.tenantId(),
+                taskId,
+                event.targetId(),
+                event.attemptId(),
+                event.roundNo(),
+                event.protocolAccountId(),
+                event.groupJid(),
+                event.commandId(),
+                event.success(),
+                event.messageId(),
+                event.reasonCode(),
+                event.reasonMessage(),
+                event.timestamp(),
+                event.workerId(),
+                event.groupCreationTaskId(),
+                event.groupCreationItemId(),
+                event.source(),
+                event.groupStatus(),
+                event.groupStatusReason(),
+                event.groupStatusCheckedAt(),
+                event.historicalExecutionId(),
+                event.historicalMemberId());
     }
 
     private static MarketingSendAttemptResult successResult() {
@@ -405,6 +495,50 @@ class MarketingSendResultServiceImplTest {
                 null);
     }
 
+    private static ProtocolMessageSendResultReportedEvent groupCreationEventWithTaskId(Long taskId) {
+        ProtocolMessageSendResultReportedEvent event = groupCreationEvent(true);
+        return new ProtocolMessageSendResultReportedEvent(
+                event.eventId(),
+                event.tenantId(),
+                event.marketingTaskId(),
+                event.targetId(),
+                event.attemptId(),
+                event.roundNo(),
+                event.protocolAccountId(),
+                event.groupJid(),
+                event.commandId(),
+                event.success(),
+                event.messageId(),
+                event.reasonCode(),
+                event.reasonMessage(),
+                event.timestamp(),
+                event.workerId(),
+                taskId,
+                event.groupCreationItemId(),
+                event.source(),
+                event.groupStatus(),
+                event.groupStatusReason(),
+                event.groupStatusCheckedAt(),
+                event.historicalExecutionId(),
+                event.historicalMemberId());
+    }
+
+    private static MarketingTaskSendAttempt marketingAttempt() {
+        MarketingTaskSendAttempt attempt = new MarketingTaskSendAttempt();
+        attempt.setId(9001L);
+        attempt.setMarketingTaskId(42L);
+        attempt.setTargetId(501L);
+        attempt.setCommandId("cmd_1");
+        return attempt;
+    }
+
+    private static MarketingTask marketingTask() {
+        MarketingTask task = new MarketingTask();
+        task.setId(42L);
+        task.setOwnerUserId(7L);
+        return task;
+    }
+
     private static GroupCreationMarketingItem groupCreationItem() {
         GroupCreationMarketingItem item = new GroupCreationMarketingItem();
         item.setId(11L);
@@ -420,6 +554,7 @@ class MarketingSendResultServiceImplTest {
     private static GroupCreationMarketingTask groupCreationTask() {
         GroupCreationMarketingTask task = new GroupCreationMarketingTask();
         task.setId(22L);
+        task.setOwnerUserId(7L);
         task.setAccountGroupId(8L);
         return task;
     }

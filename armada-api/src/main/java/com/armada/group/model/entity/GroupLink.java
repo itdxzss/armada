@@ -17,6 +17,9 @@ public class GroupLink {
     /** 租户 ID(拦截器注入,不手写)。 */
     private Long tenantId;
 
+    /** 归属用户 ID；历史待分配数据为 null。 */
+    private Long ownerUserId;
+
     /** 归一化后群邀请链接(租户内唯一,按字节精确去重)。 */
     private String linkUrl;
 
@@ -92,6 +95,14 @@ public class GroupLink {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getLinkUrl() {

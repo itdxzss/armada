@@ -5,6 +5,7 @@ import com.armada.marketing.export.model.vo.MarketingTaskCountryEntryExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupExportRow;
 import com.armada.marketing.export.model.vo.MarketingTaskGroupMemberExportRow;
 import com.armada.marketing.model.entity.MarketingTask;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -17,11 +18,9 @@ import org.apache.ibatis.session.ResultHandler;
 @Mapper
 public interface MarketingTaskExportMapper {
 
-    /**
-     * @param taskIds 营销任务 ID 集合
-     * @return 当前租户可见且未删除的任务
-     */
-    List<MarketingTask> selectTasksByIds(@Param("taskIds") List<Long> taskIds);
+    /** 用户创建导出作业前按当前数据范围整批校验任务。 */
+    List<MarketingTask> selectTasksByIdsForScope(@Param("taskIds") List<Long> taskIds,
+                                                @Param("scope") DataScope scope);
 
     /**
      * @param job 待持久化的导出作业
@@ -31,11 +30,11 @@ public interface MarketingTaskExportMapper {
 
     /**
      * @param id 作业 ID
-     * @param createdBy 创建用户 ID
-     * @return 当前租户和用户可见的作业
+     * @param scope 当前用户数据范围
+     * @return 当前租户和范围内可见的作业
      */
-    MarketingTaskExportJob selectJobByIdForUser(@Param("id") Long id,
-                                                @Param("createdBy") Long createdBy);
+    MarketingTaskExportJob selectJobByIdForScope(@Param("id") Long id,
+                                                 @Param("scope") DataScope scope);
 
     /**
      * @param tenantId 租户 ID

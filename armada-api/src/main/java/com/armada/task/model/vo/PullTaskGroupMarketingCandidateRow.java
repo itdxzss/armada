@@ -5,6 +5,8 @@ public class PullTaskGroupMarketingCandidateRow {
 
     /** 群链接主键。 */
     private Long groupLinkId;
+    /** 群入口归属用户。 */
+    private Long ownerUserId;
     /** WhatsApp 群唯一 JID。 */
     private String groupJid;
     /** 当前群名称。 */
@@ -62,6 +64,8 @@ public class PullTaskGroupMarketingCandidateRow {
 
     public Long getGroupLinkId() { return groupLinkId; }
     public void setGroupLinkId(Long groupLinkId) { this.groupLinkId = groupLinkId; }
+    public Long getOwnerUserId() { return ownerUserId; }
+    public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
     public String getGroupJid() { return groupJid; }
     public void setGroupJid(String groupJid) { this.groupJid = groupJid; }
     public String getGroupName() { return groupName; }

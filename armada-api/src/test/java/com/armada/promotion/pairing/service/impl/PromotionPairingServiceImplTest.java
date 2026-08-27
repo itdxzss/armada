@@ -109,12 +109,14 @@ class PromotionPairingServiceImplTest {
         PromotionPairingSession expiredSnapshot = new PromotionPairingSession();
         expiredSnapshot.setId(7001L);
         expiredSnapshot.setTenantId(7L);
+        expiredSnapshot.setOwnerUserId(81L);
         expiredSnapshot.setStatus(PromotionPairingStatus.WAITING_CONFIRMATION.code());
         expiredSnapshot.setExpiresAt(1L);
 
         PromotionPairingSession completedSnapshot = new PromotionPairingSession();
         completedSnapshot.setId(7001L);
         completedSnapshot.setTenantId(7L);
+        completedSnapshot.setOwnerUserId(81L);
         completedSnapshot.setStatus(PromotionPairingStatus.SUCCEEDED.code());
         completedSnapshot.setExpiresAt(1L);
         completedSnapshot.setAccountId(901L);

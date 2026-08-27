@@ -2,8 +2,13 @@ package com.armada.task.service.impl;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeMode;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.task.mapper.PullTaskGroupAvatarFileMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
+import com.armada.task.model.entity.PullTaskGroupAvatarFile;
 import com.armada.task.model.vo.PullTaskGroupAvatarContent;
 import com.armada.task.model.vo.PullTaskGroupAvatarUploadVO;
 import com.armada.task.service.PullTaskGroupAvatarService;
@@ -14,6 +19,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -37,20 +43,24 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
 
     private final Path storageRoot;
     private final PullTaskStandardGroupSettingMapper settingMapper;
+    private final PullTaskGroupAvatarFileMapper fileMapper;
     private final Map<AvatarKey, LockReference> fileLocks = new HashMap<>();
 
     /** 创建本地头像服务。 */
     public PullTaskGroupAvatarServiceImpl(
             @Value("${armada.pull-task.avatar.storage-dir:/app/data/pull-task-avatars}")
             String storageDir,
-            PullTaskStandardGroupSettingMapper settingMapper) {
+            PullTaskStandardGroupSettingMapper settingMapper,
+            PullTaskGroupAvatarFileMapper fileMapper) {
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
         this.settingMapper = settingMapper;
+        this.fileMapper = fileMapper;
     }
 
     /** {@inheritDoc} */
     @Override
     public PullTaskGroupAvatarUploadVO upload(long tenantId, MultipartFile file) {
+        DataScope scope = requireUserScope(tenantId);
         ImageFormat format = validateAndRead(file);
         byte[] bytes = format.bytes();
         Path tenantDir = tenantDirectory(tenantId);
@@ -69,6 +79,16 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
             deleteQuietly(temporary);
             throw new BusinessException(ErrorCode.CONFLICT, "群头像保存失败，请重试");
         }
+        PullTaskGroupAvatarFile metadata = new PullTaskGroupAvatarFile();
+        metadata.setFileKey(fileKey);
+        metadata.setOwnerUserId(scope.ownerUserIdForCreate());
+        metadata.setCreatedAt(System.currentTimeMillis());
+        try {
+            fileMapper.insert(metadata);
+        } catch (RuntimeException exception) {
+            deleteQuietly(target);
+            throw new BusinessException(ErrorCode.CONFLICT, "群头像保存失败，请重试");
+        }
         return new PullTaskGroupAvatarUploadVO(
                 fileKey, displayFileName(file), previewUrl(fileKey));
     }
@@ -76,25 +96,20 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
     /** {@inheritDoc} */
     @Override
     public PullTaskGroupAvatarContent content(long tenantId, String fileKey) {
+        DataScope scope = requireUserScope(tenantId);
         String canonicalFileKey = requireCanonicalFileKey(fileKey);
-        Path path = requireFile(tenantId, canonicalFileKey);
-        try {
-            return new PullTaskGroupAvatarContent(
-                    contentType(canonicalFileKey), Files.readAllBytes(path));
-        } catch (IOException e) {
-            throw notFound();
-        }
+        requireMetadataAccess(canonicalFileKey, scope, true);
+        return readContent(tenantId, canonicalFileKey);
     }
 
     /** {@inheritDoc} */
     @Override
-    public void requireStored(long tenantId, String fileKey) {
-        requireFile(tenantId, fileKey);
+    public PullTaskGroupAvatarContent contentForTaskExecution(long tenantId, String fileKey) {
+        String canonicalFileKey = requireCanonicalFileKey(fileKey);
+        return readContent(tenantId, canonicalFileKey);
     }
 
-    /** {@inheritDoc} */
-    @Override
-    public void requireUnbound(long tenantId, String fileKey) {
+    private void requireUnbound(long tenantId, String fileKey) {
         String canonicalFileKey = requireCanonicalFileKey(fileKey);
         requireFile(tenantId, canonicalFileKey);
         if (activeBindingCount(tenantId, canonicalFileKey) > 0) {
@@ -105,7 +120,12 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
     /** {@inheritDoc} */
     @Override
     public void reserveForBinding(long tenantId, String fileKey) {
+        DataScope scope = requireUserScope(tenantId);
         String canonicalFileKey = requireCanonicalFileKey(fileKey);
+        PullTaskGroupAvatarFile metadata =
+                requireMetadataAccess(canonicalFileKey, scope, false);
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope, List.of(metadata.getOwnerUserId()), "群头像");
         AvatarKey key = new AvatarKey(tenantId, canonicalFileKey);
         LockReference reference = acquire(key);
         boolean retainedByTransaction = false;
@@ -132,7 +152,20 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
     /** {@inheritDoc} */
     @Override
     public void delete(long tenantId, String fileKey) {
+        DataScope scope = requireUserScope(tenantId);
         String canonicalFileKey = requireCanonicalFileKey(fileKey);
+        requireMetadataAccess(canonicalFileKey, scope, true);
+        deleteUnboundFile(tenantId, canonicalFileKey);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public void deleteAfterTaskRemoval(long tenantId, String fileKey) {
+        String canonicalFileKey = requireCanonicalFileKey(fileKey);
+        deleteUnboundFile(tenantId, canonicalFileKey);
+    }
+
+    private void deleteUnboundFile(long tenantId, String canonicalFileKey) {
         AvatarKey key = new AvatarKey(tenantId, canonicalFileKey);
         LockReference reference = acquire(key);
         try {
@@ -143,6 +176,7 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
             } catch (IOException e) {
                 throw new BusinessException(ErrorCode.CONFLICT, "群头像删除失败，请重试");
             }
+            deleteMetadata(tenantId, canonicalFileKey);
         } finally {
             release(key, reference);
         }
@@ -166,7 +200,11 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
                         .toMillis() > cutoffEpochMillis) {
                     return false;
                 }
-                return Files.deleteIfExists(path);
+                boolean deleted = Files.deleteIfExists(path);
+                if (deleted) {
+                    deleteMetadata(tenantId, canonicalFileKey);
+                }
+                return deleted;
             } catch (IOException exception) {
                 return false;
             }
@@ -186,6 +224,59 @@ public class PullTaskGroupAvatarServiceImpl implements PullTaskGroupAvatarServic
             } else {
                 TenantContext.set(previousTenantId);
             }
+        }
+    }
+
+    private PullTaskGroupAvatarFile requireMetadataAccess(
+            String fileKey, DataScope scope, boolean allowHistoricalForAdmin) {
+        PullTaskGroupAvatarFile metadata = fileMapper.selectByFileKeyForScope(fileKey, scope);
+        if (metadata == null) {
+            if (allowHistoricalForAdmin && scope.isAll()) {
+                return null;
+            }
+            throw notFound();
+        }
+        DataScopeAccess.requireCanAccess(scope, metadata.getOwnerUserId(), "群头像");
+        return metadata;
+    }
+
+    private void deleteMetadata(long tenantId, String fileKey) {
+        Long previousTenantId = TenantContext.get();
+        try {
+            TenantContext.set(tenantId);
+            fileMapper.deleteByFileKey(fileKey);
+        } finally {
+            restoreTenant(previousTenantId);
+        }
+    }
+
+    private PullTaskGroupAvatarContent readContent(long tenantId, String fileKey) {
+        Path path = requireFile(tenantId, fileKey);
+        try {
+            return new PullTaskGroupAvatarContent(contentType(fileKey), Files.readAllBytes(path));
+        } catch (IOException e) {
+            throw notFound();
+        }
+    }
+
+    private static DataScope requireUserScope(long tenantId) {
+        Long currentTenantId = TenantContext.get();
+        if (currentTenantId == null || currentTenantId != tenantId) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        DataScope scope = DataScopeAccess.requireCurrent();
+        if (scope.mode() == DataScopeMode.SYSTEM) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED, "后台范围不能直接访问用户私有数据");
+        }
+        return scope;
+    }
+
+    private static void restoreTenant(Long previousTenantId) {
+        if (previousTenantId == null) {
+            TenantContext.clear();
+        } else {
+            TenantContext.set(previousTenantId);
         }
     }
 

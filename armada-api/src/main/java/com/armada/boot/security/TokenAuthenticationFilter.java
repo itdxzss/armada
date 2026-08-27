@@ -6,6 +6,8 @@ import com.armada.platform.auth.model.AuthSession;
 import com.armada.platform.auth.service.SessionService;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -30,6 +32,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(TokenAuthenticationFilter.class);
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String PUBLIC_API_PREFIX = "/api/public/";
 
     private final SessionService sessionService;
     private final CurrentIdentityService identityService;
@@ -45,21 +48,21 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
     }
 
     @Override
-    protected boolean shouldNotFilter(HttpServletRequest request) {
-        return request.getRequestURI().startsWith("/api/public/");
-    }
-
-    @Override
     protected void doFilterInternal(
             HttpServletRequest request,
             HttpServletResponse response,
             FilterChain filterChain) throws ServletException, IOException {
-        String token = bearerToken(request.getHeader(HttpHeaders.AUTHORIZATION));
-        if (token.isEmpty()) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+        clearRequestContexts();
         try {
+            if (request.getRequestURI().startsWith(PUBLIC_API_PREFIX)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            String token = bearerToken(request.getHeader(HttpHeaders.AUTHORIZATION));
+            if (token.isEmpty()) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             Optional<AuthSession> session = sessionService.resolve(token);
             if (session.isEmpty()) {
                 log.debug("auth.token.reject reason=missing_or_expired method={} path={}",
@@ -67,19 +70,31 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                 filterChain.doFilter(request, response);
                 return;
             }
-            authenticate(session.get(), request);
-            filterChain.doFilter(request, response);
+            Optional<DataScope> dataScope = authenticate(session.get(), request);
+            if (dataScope.isPresent()) {
+                try (DataScopeContext.Scope ignored = DataScopeContext.open(dataScope.get())) {
+                    filterChain.doFilter(request, response);
+                }
+            } else {
+                filterChain.doFilter(request, response);
+            }
         } catch (AuthInfrastructureException ex) {
             log.error("认证基础设施不可用: method={}, path={}", request.getMethod(), request.getRequestURI(), ex);
             responseWriter.write(response, HttpStatus.SERVICE_UNAVAILABLE.value(),
                     ErrorCode.AUTH_SERVICE_UNAVAILABLE);
         } finally {
-            TenantContext.clear();
-            SecurityContextHolder.clearContext();
+            clearRequestContexts();
         }
     }
 
-    private void authenticate(AuthSession session, HttpServletRequest request) {
+    /** 请求开始和结束都清理线程上下文，匿名/公共请求也不能继承线程池残留身份。 */
+    private static void clearRequestContexts() {
+        DataScopeContext.clear();
+        TenantContext.clear();
+        SecurityContextHolder.clearContext();
+    }
+
+    private Optional<DataScope> authenticate(AuthSession session, HttpServletRequest request) {
         TenantContext.set(session.tenantId());
         Optional<AuthPrincipal> principal = identityService.load(session.userId(), session.tenantId());
         if (principal.isEmpty()) {
@@ -87,7 +102,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                     session.userId(), session.tenantId(), request.getMethod(), request.getRequestURI());
             sessionService.invalidateUser(session.userId());
             TenantContext.clear();
-            return;
+            return Optional.empty();
         }
         AuthPrincipal identity = principal.get();
         ArrayList<SimpleGrantedAuthority> authorities = new ArrayList<>();
@@ -98,6 +113,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         log.debug("auth.token.accept userId={} tenantId={} authorityCount={} method={} path={}",
                 identity.userId(), identity.tenantId(), authorities.size(),
                 request.getMethod(), request.getRequestURI());
+        return Optional.of(DataScope.fromPrincipal(identity));
     }
 
     private static String bearerToken(String authorization) {

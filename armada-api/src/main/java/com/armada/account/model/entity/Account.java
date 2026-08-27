@@ -13,6 +13,9 @@ public class Account {
     /** 租户 ID(拦截器注入,不手写 SQL)。 */
     private Long tenantId;
 
+    /** 数据归属用户 ID；新建账号由服务端从当前身份写入，历史数据可为空。 */
+    private Long ownerUserId;
+
     /** WA 号(按字节精确去重,租户内唯一)。 */
     private String wsPhone;
 
@@ -83,6 +86,14 @@ public class Account {
 
     public Long getTenantId() {
         return tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public void setTenantId(Long tenantId) {

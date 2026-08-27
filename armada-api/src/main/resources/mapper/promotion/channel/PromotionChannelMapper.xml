@@ -2,6 +2,28 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.promotion.channel.mapper.PromotionChannelMapper">
 
+  <!-- 登录态单资源访问范围；缺失或 SYSTEM 范围一律失败关闭。 -->
+  <sql id="channelDataScope">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND c.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <!-- 分页查询的范围来自服务端注入的 query.dataScope。 -->
+  <sql id="channelQueryDataScope">
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND c.owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <!-- 新增前校验：模板必须属于当前租户、处于启用状态且未软删。 -->
   <select id="selectAvailableTemplateById"
           resultType="com.armada.promotion.channel.model.entity.PromotionLandingTemplate">
@@ -74,6 +96,7 @@
       FROM promotion_channel c
       WHERE c.id = #{channelId}
         AND c.deleted_at IS NULL
+        <include refid="channelDataScope"/>
     )
       AND d.is_active = 1
     FOR UPDATE
@@ -137,9 +160,10 @@
            updated_by AS updatedBy,
            created_at AS createdAt,
            updated_at AS updatedAt
-    FROM promotion_channel
-    WHERE id = #{id}
-      AND deleted_at IS NULL
+    FROM promotion_channel c
+    WHERE c.id = #{id}
+      AND c.deleted_at IS NULL
+      <include refid="channelDataScope"/>
     FOR UPDATE
   </select>
 
@@ -177,6 +201,7 @@
       ON tc.channel_id = c.id AND tc.deleted_at IS NULL
     WHERE c.id = #{id}
       AND c.deleted_at IS NULL
+      <include refid="channelDataScope"/>
     LIMIT 1
   </select>
 
@@ -254,11 +279,8 @@
     LIMIT 1
   </select>
 
-  <!--
-    只有渠道域内部 CAPI 服务允许读取 Token 密文；查询仍受租户拦截器和三张表软删除条件约束，
-    该投影禁止复用于列表、详情或导出接口。
-  -->
-  <select id="selectProbeConfigByChannelId"
+  <!-- CAPI 投递和登录态探测复用同一敏感投影，并按可信身份限制渠道归属。 -->
+  <select id="selectProbeConfigByChannelIdForScope"
           resultType="com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow">
     SELECT c.id AS channelId,
            c.owner_user_id AS ownerUserId,
@@ -277,6 +299,7 @@
       ON tc.channel_id = c.id AND tc.deleted_at IS NULL
     WHERE c.id = #{id}
       AND c.deleted_at IS NULL
+      <include refid="channelDataScope"/>
     LIMIT 1
   </select>
 
@@ -340,7 +363,6 @@
   <update id="updateChannel">
     UPDATE promotion_channel
     SET channel_name = #{channelName},
-        owner_user_id = #{ownerUserId},
         promotion_domain_id = #{promotionDomainId},
         theme_color = COALESCE(#{themeColor}, theme_color),
         is_app_download_shown = COALESCE(#{isAppDownloadShown}, is_app_download_shown),
@@ -439,6 +461,7 @@
   <!-- countPage/selectPage 共用筛选，保证分页总数与列表口径一致。 -->
   <sql id="pageFilter">
     c.deleted_at IS NULL
+    <include refid="channelQueryDataScope"/>
     <!-- 真实国家和混合国家统一按 CountryOptionVO.value 精确筛选。 -->
     <if test="targetCountry != null and targetCountry != ''">
       AND c.target_country_value = #{targetCountry}

@@ -1,6 +1,7 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.entity.HistoricalGroupPullExecution;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -16,25 +17,34 @@ public interface HistoricalGroupPullExecutionMapper {
     HistoricalGroupPullExecution selectByTenantAndId(@Param("tenantId") Long tenantId,
                                                        @Param("id") Long id);
 
+    /** 用户请求按当前数据范围查询执行快照。 */
+    HistoricalGroupPullExecution selectByTenantAndIdForScope(
+            @Param("tenantId") Long tenantId,
+            @Param("id") Long id,
+            @Param("scope") DataScope scope);
+
     /** 锁定单个执行，串行化同一执行下并发到达的营销结果聚合。 */
     HistoricalGroupPullExecution selectByTenantAndIdForUpdate(@Param("tenantId") Long tenantId,
                                                                @Param("id") Long id);
 
     /** 按当前租户创建幂等键查询原执行。 */
-    HistoricalGroupPullExecution selectByTenantAndIdempotencyKey(
+    HistoricalGroupPullExecution selectByTenantOwnerAndIdempotencyKey(
             @Param("tenantId") Long tenantId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("idempotencyKey") String idempotencyKey);
 
     /** 唯一键并发冲突后以当前读重新取得已提交的原执行。 */
-    HistoricalGroupPullExecution selectByTenantAndIdempotencyKeyForUpdate(
+    HistoricalGroupPullExecution selectByTenantOwnerAndIdempotencyKeyForUpdate(
             @Param("tenantId") Long tenantId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("idempotencyKey") String idempotencyKey);
 
     /** 按来源账号组和目标群查询最近创建的执行。 */
-    HistoricalGroupPullExecution selectLatestByTenantSourceGroupAndGroup(
+    HistoricalGroupPullExecution selectLatestByTenantSourceGroupAndGroupForScope(
             @Param("tenantId") Long tenantId,
             @Param("sourceAccountGroupId") Long sourceAccountGroupId,
-            @Param("groupJid") String groupJid);
+            @Param("groupJid") String groupJid,
+            @Param("scope") DataScope scope);
 
     /** 启动前把本次重新选择的管理员账号写入待执行记录。 */
     int updateOperationAccountIfPending(

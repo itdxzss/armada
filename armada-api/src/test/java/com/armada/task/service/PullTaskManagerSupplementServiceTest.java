@@ -14,6 +14,8 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -74,6 +76,7 @@ class PullTaskManagerSupplementServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(501L));
         PullTaskNormalLinkH2Support.resetSchema(dataSource,
                 task(), setting(), execution(), unavailableManager());
         reset(accountLookup, accountGroupService, dispatchTrigger);
@@ -85,6 +88,7 @@ class PullTaskManagerSupplementServiceTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -195,9 +199,9 @@ class PullTaskManagerSupplementServiceTest {
 
     private static String task() {
         return "INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
                 + "config_json, created_at, updated_at) VALUES "
-                + "(1, 7, 'STANDARD', 'task', 'NORMAL_LINK', 'EXECUTING', 1, '{}', 100, 100)";
+                + "(1, 7, 501, 'STANDARD', 'task', 'NORMAL_LINK', 'EXECUTING', 1, '{}', 100, 100)";
     }
 
     private static String setting() {

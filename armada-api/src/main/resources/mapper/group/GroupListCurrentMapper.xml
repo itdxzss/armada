@@ -2,6 +2,16 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupListCurrentMapper">
 
+  <sql id="handleDirectScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND handle.owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <!--
     「可用管理员」探针:群内存在角色为管理员/群主、且我方持有的账号当前在线可执行。
     account_state 取三态(正常/被抢登/抢登中)——能不能干活看 login_state,
@@ -13,6 +23,8 @@
     INNER JOIN account execution_account
       ON execution_account.tenant_id = participant.tenant_id
      AND execution_account.ws_phone = participant.phone
+     AND (execution_account.owner_user_id = handle.owner_user_id
+          OR (execution_account.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
      AND execution_account.deleted_at IS NULL
      AND execution_account.protocol_account_id IS NOT NULL
      AND TRIM(execution_account.protocol_account_id) &lt;&gt; ''
@@ -60,8 +72,10 @@
     FROM group_link handle
     <if test="query.sourceFileName != null and query.sourceFileName != ''">
       LEFT JOIN group_link_import_batch source_batch
-        ON source_batch.tenant_id = handle.tenant_id
+       ON source_batch.tenant_id = handle.tenant_id
        AND source_batch.id = handle.import_batch_id
+       AND (source_batch.owner_user_id = handle.owner_user_id
+            OR (source_batch.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
     </if>
     <if test="needsLegacyPreview">
       LEFT JOIN group_link_preview legacy_preview
@@ -114,14 +128,21 @@
   <sql id="currentListFilter">
     handle.tenant_id = #{tenantId}
     AND handle.deleted_at IS NULL
+    <choose>
+      <when test="query.dataScope != null and query.dataScope.isSelf()">
+        AND handle.owner_user_id = #{query.dataScope.actorUserId}
+      </when>
+      <when test="query.dataScope != null and query.dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="query.labelId != null">
       AND handle.label_id = #{query.labelId}
     </if>
     <if test="query.folderId != null">
-      AND COALESCE(current_group.folder_id, handle.folder_id) = #{query.folderId}
+      AND handle.folder_id = #{query.folderId}
     </if>
     <if test="query.withoutFolder != null and query.withoutFolder">
-      AND COALESCE(current_group.folder_id, handle.folder_id) IS NULL
+      AND handle.folder_id IS NULL
     </if>
     <if test="query.groupTypeHistorical">
       AND handle.is_historical = 1
@@ -204,8 +225,7 @@
     <if test="query.keyword != null and query.keyword != ''">
       AND (
         COALESCE(
-          NULLIF(TRIM(current_group.display_name), ''),
-          NULLIF(TRIM(input_invite.display_name), ''),
+          NULLIF(TRIM(handle.group_name), ''),
           current_profile.subject,
           input_invite.preview_subject
         ) LIKE CONCAT('%', #{query.keyword}, '%')
@@ -224,6 +244,9 @@
             INNER JOIN account controlled_account
               ON controlled_account.tenant_id = participant.tenant_id
              AND controlled_account.ws_phone = participant.phone
+             AND (controlled_account.owner_user_id = handle.owner_user_id
+                  OR (controlled_account.owner_user_id IS NULL
+                      AND handle.owner_user_id IS NULL))
              AND controlled_account.deleted_at IS NULL
             WHERE participant.tenant_id = current_group.tenant_id
               AND participant.group_id = current_group.id
@@ -245,14 +268,14 @@
 
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupLinkVoRow">
     WITH page_ids AS (
-      SELECT handle.tenant_id, handle.id
+      SELECT handle.tenant_id, handle.owner_user_id, handle.id
       <include refid="currentListFrom"/>
       WHERE <include refid="currentListFilter"/>
       ORDER BY handle.created_at DESC, handle.id DESC
       LIMIT #{query.offset}, #{query.pageSize}
     ),
     page_groups AS (
-      SELECT DISTINCT page.tenant_id, current_group.id AS group_id
+      SELECT DISTINCT page.tenant_id, page.owner_user_id, current_group.id AS group_id
       FROM page_ids page
       INNER JOIN group_link page_handle
         ON page_handle.tenant_id = page.tenant_id
@@ -264,6 +287,7 @@
     admins AS (
       SELECT participant.tenant_id,
              participant.group_id,
+             page_group.owner_user_id,
              GROUP_CONCAT(
                DISTINCT participant.phone
                 ORDER BY participant.phone SEPARATOR ', '
@@ -282,8 +306,11 @@
         ON participant.tenant_id = page_group.tenant_id
        AND participant.group_id = page_group.group_id
       STRAIGHT_JOIN account controlled_account
-        ON controlled_account.tenant_id = participant.tenant_id
+       ON controlled_account.tenant_id = participant.tenant_id
        AND controlled_account.ws_phone = participant.phone
+       AND (controlled_account.owner_user_id = page_group.owner_user_id
+            OR (controlled_account.owner_user_id IS NULL
+                AND page_group.owner_user_id IS NULL))
        AND controlled_account.deleted_at IS NULL
        LEFT JOIN account_state execution_state
          ON execution_state.tenant_id = controlled_account.tenant_id
@@ -292,13 +319,13 @@
         AND participant.role IN (2, 3)
         AND participant.phone IS NOT NULL
         AND TRIM(participant.phone) &lt;&gt; ''
-      GROUP BY participant.tenant_id, participant.group_id
+      GROUP BY participant.tenant_id, participant.group_id, page_group.owner_user_id
     )
     SELECT handle.id,
+           handle.owner_user_id AS ownerUserId,
            handle.link_url AS url,
            COALESCE(
-             NULLIF(TRIM(current_group.display_name), ''),
-             NULLIF(TRIM(input_invite.display_name), ''),
+             NULLIF(TRIM(handle.group_name), ''),
              current_profile.subject,
              input_invite.preview_subject
            ) AS groupName,
@@ -314,7 +341,7 @@
            handle.sync_protocol_mask AS syncProtocolMask,
            handle.origin,
            handle.membership_state AS membershipState,
-           COALESCE(current_group.remark, input_invite.remark) AS remark,
+           handle.remark,
            COALESCE(current_group.avatar_url, input_invite.avatar_url) AS avatarUrl,
            COALESCE(
              current_profile.metadata_observed_at,
@@ -329,7 +356,7 @@
            handle.created_at AS createdAt,
            handle.is_historical AS isHistorical,
            handle.is_post_control AS isPostControl,
-           COALESCE(current_group.folder_id, handle.folder_id) AS folderId,
+           handle.folder_id AS folderId,
            folder.name AS folderName,
            CASE
              WHEN COALESCE(current_invite.invite_code, input_invite.invite_code) IS NULL
@@ -358,8 +385,10 @@
       ON legacy_preview.tenant_id = handle.tenant_id
      AND legacy_preview.group_link_id = handle.id
     LEFT JOIN group_link_import_batch source_batch
-      ON source_batch.tenant_id = handle.tenant_id
-     AND source_batch.id = handle.import_batch_id
+       ON source_batch.tenant_id = handle.tenant_id
+       AND source_batch.id = handle.import_batch_id
+       AND (source_batch.owner_user_id = handle.owner_user_id
+            OR (source_batch.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
     LEFT JOIN wa_group current_group
       ON current_group.tenant_id = handle.tenant_id
      AND current_group.id = handle.group_id
@@ -375,12 +404,16 @@
     LEFT JOIN admins
       ON admins.tenant_id = current_group.tenant_id
      AND admins.group_id = current_group.id
+     AND (admins.owner_user_id = handle.owner_user_id
+          OR (admins.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
     LEFT JOIN country country
       ON country.iso2 = legacy_preview.creator_country_iso2
      AND country.deleted_at IS NULL
     LEFT JOIN group_folder folder
       ON folder.tenant_id = handle.tenant_id
-     AND folder.id = COALESCE(current_group.folder_id, handle.folder_id)
+     AND folder.id = handle.folder_id
+     AND (folder.owner_user_id = handle.owner_user_id
+          OR (folder.owner_user_id IS NULL AND handle.owner_user_id IS NULL))
      AND folder.deleted_at IS NULL
     LEFT JOIN group_metadata_sync_task metadata_task
       ON metadata_task.tenant_id = handle.tenant_id
@@ -401,6 +434,7 @@
      AND current_profile.group_id = current_group.id
     WHERE handle.tenant_id = #{tenantId}
       AND handle.deleted_at IS NULL
+      <include refid="handleDirectScopeFilter"/>
       AND current_profile.subject IS NOT NULL
       AND TRIM(current_profile.subject) &lt;&gt; ''
       AND handle.id IN
@@ -441,6 +475,7 @@
     WHERE handle.tenant_id = #{tenantId}
       AND handle.id = #{groupLinkId}
       AND handle.deleted_at IS NULL
+      <include refid="handleDirectScopeFilter"/>
     LIMIT 1
   </select>
 
@@ -478,6 +513,7 @@
     WHERE handle.tenant_id = #{tenantId}
       AND handle.id = #{groupLinkId}
       AND handle.deleted_at IS NULL
+      <include refid="handleDirectScopeFilter"/>
     ORDER BY isOwner DESC, isAdmin DESC, participantJid ASC, participant.id ASC
   </select>
 

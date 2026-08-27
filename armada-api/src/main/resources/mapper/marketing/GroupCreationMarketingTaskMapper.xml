@@ -6,6 +6,7 @@
     <resultMap id="TaskResultMap" type="com.armada.marketing.model.entity.GroupCreationMarketingTask">
         <id column="id" property="id"/>
         <result column="tenant_id" property="tenantId"/>
+        <result column="owner_user_id" property="ownerUserId"/>
         <result column="task_name" property="taskName"/>
         <result column="account_group_id" property="accountGroupId"/>
         <result column="account_group_name" property="accountGroupName"/>
@@ -31,6 +32,7 @@
     <resultMap id="ItemResultMap" type="com.armada.marketing.model.entity.GroupCreationMarketingItem">
         <id column="id" property="id"/>
         <result column="tenant_id" property="tenantId"/>
+        <result column="owner_user_id" property="ownerUserId"/>
         <result column="task_id" property="taskId"/>
         <result column="file_index" property="fileIndex"/>
         <result column="file_name" property="fileName"/>
@@ -61,7 +63,7 @@
     </resultMap>
 
     <sql id="TaskColumns">
-        id, tenant_id, task_name, account_group_id, account_group_name, marketing_template_id,
+        id, tenant_id, owner_user_id, task_name, account_group_id, account_group_name, marketing_template_id,
         marketing_template_name, marketing_task_id, status, matched_item_count, unmatched_file_count,
         success_count, failed_count, abandoned_count, send_interval_seconds, group_name_prefix, remark, created_by,
         created_at, updated_at, finished_at, deleted_at
@@ -78,6 +80,13 @@
     <sql id="TaskFilter">
         <where>
             deleted_at IS NULL
+            <choose>
+                <when test="q.dataScope != null and q.dataScope.isSelf()">
+                    AND owner_user_id = #{q.dataScope.actorUserId}
+                </when>
+                <when test="q.dataScope != null and q.dataScope.isAll()"></when>
+                <otherwise>AND 1 = 0</otherwise>
+            </choose>
             <if test="q.id != null">AND id = #{q.id}</if>
             <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
             <if test="q.status != null">AND status = #{q.status}</if>
@@ -87,11 +96,11 @@
     <insert id="insertTask" parameterType="com.armada.marketing.model.entity.GroupCreationMarketingTask"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO group_creation_marketing_task
-            (task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
+            (owner_user_id, task_name, account_group_id, account_group_name, marketing_template_id, marketing_template_name,
              marketing_task_id, status, matched_item_count, unmatched_file_count, success_count, failed_count,
              abandoned_count, send_interval_seconds, group_name_prefix, remark, created_by, created_at, updated_at, finished_at)
         VALUES
-            (#{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
+            (#{ownerUserId}, #{taskName}, #{accountGroupId}, #{accountGroupName}, #{marketingTemplateId}, #{marketingTemplateName},
              #{marketingTaskId}, #{status}, #{matchedItemCount}, #{unmatchedFileCount}, #{successCount},
              #{failedCount}, #{abandonedCount}, #{sendIntervalSeconds}, #{groupNamePrefix}, #{remark}, #{createdBy},
              #{createdAt}, #{updatedAt}, #{finishedAt})
@@ -118,6 +127,32 @@
         FROM group_creation_marketing_task
         WHERE id = #{id}
           AND deleted_at IS NULL
+    </select>
+
+    <select id="selectTaskByIdForScope" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_creation_marketing_task
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
+    </select>
+
+    <select id="selectTasksByIdsForScope" resultMap="TaskResultMap">
+        SELECT <include refid="TaskColumns"/>
+        FROM group_creation_marketing_task
+        WHERE deleted_at IS NULL
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
+        ORDER BY id ASC
     </select>
 
     <select id="selectItemById" resultMap="ItemResultMap">
@@ -148,7 +183,7 @@
         LIMIT #{q.pageSize} OFFSET #{q.offset}
     </select>
 
-    <select id="selectExportRowsByTaskIds"
+    <select id="selectExportRowsByTaskIdsForScope"
             resultType="com.armada.marketing.model.vo.GroupCreationMarketingExportRow">
         SELECT i.task_id AS taskId,
                i.group_subject AS groupSubject,
@@ -157,6 +192,11 @@
         FROM group_creation_marketing_item i
         JOIN group_creation_marketing_task t ON t.id = i.task_id
         WHERE t.deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND t.owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
           AND i.task_id IN
           <foreach collection="taskIds" item="taskId" open="(" separator="," close=")">
               #{taskId}
@@ -275,11 +315,20 @@
     </update>
 
     <select id="selectDueItems" resultMap="ItemResultMap">
-        SELECT <include refid="ItemColumns"/>
-        FROM group_creation_marketing_item
-        WHERE status = 1
-          AND next_run_at &lt;= #{now}
-        ORDER BY next_run_at ASC, id ASC
+        SELECT i.id, i.tenant_id, t.owner_user_id, i.task_id, i.file_index, i.file_name,
+               i.material_content, i.participant_count, i.account_id, i.account_phone,
+               i.protocol_account_id, i.group_subject, i.group_jid, i.group_link_id,
+               i.participant_result_json, i.send_member_count, i.send_member_count_checked_at,
+               i.retry_history_json, i.marketing_task_id, i.marketing_target_id,
+               i.marketing_attempt_id, i.command_id, i.status, i.reason_code, i.reason_message,
+               i.next_run_at, i.started_at, i.finished_at, i.created_at, i.updated_at
+        FROM group_creation_marketing_item i
+        JOIN group_creation_marketing_task t ON t.id = i.task_id
+                                            AND t.tenant_id = i.tenant_id
+                                            AND t.deleted_at IS NULL
+        WHERE i.status = 1
+          AND i.next_run_at &lt;= #{now}
+        ORDER BY i.next_run_at ASC, i.id ASC
         LIMIT #{limit}
     </select>
 

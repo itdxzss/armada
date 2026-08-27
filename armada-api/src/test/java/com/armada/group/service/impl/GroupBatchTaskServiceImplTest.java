@@ -22,6 +22,8 @@ import com.armada.group.model.enums.GroupBatchTaskItemStatus;
 import com.armada.group.model.enums.GroupBatchTaskStatus;
 import com.armada.group.model.vo.GroupBatchTaskAcceptedVO;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -57,10 +59,12 @@ class GroupBatchTaskServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
+        DataScopeContext.open(DataScope.self(OPERATOR_ID));
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -80,7 +84,7 @@ class GroupBatchTaskServiceImplTest {
         existing.setId(900L);
         existing.setCreatedAt(1_000L);
         existing.setStatus(2);
-        when(taskMapper.selectByRequestId("req-dup")).thenReturn(existing);
+        when(taskMapper.selectByRequestId("req-dup", OPERATOR_ID)).thenReturn(existing);
 
         GroupBatchTaskAcceptedVO accepted = service().submitRefreshLinks(
                 new GroupBatchSubmitDTO(List.of(101L), "req-dup"), OPERATOR_ID);
@@ -92,7 +96,8 @@ class GroupBatchTaskServiceImplTest {
 
     @Test
     void refreshLinksRecordsStateBlockedGroupsAsFailedItemsInsteadOfExecutingThem() {
-        when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L, 102L)), any(DataScope.class)))
                 .thenReturn(List.of(groupLink(101L), groupLink(102L)));
         when(healthMapper.selectLinkRefreshBlockedIds(List.of(101L, 102L)))
                 .thenReturn(List.of(102L));
@@ -111,7 +116,8 @@ class GroupBatchTaskServiceImplTest {
 
     @Test
     void refreshInfoAcceptsStateBlockedGroupsBecauseReadingInfoIsNotAWriteOperation() {
-        when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L, 102L)), any(DataScope.class)))
                 .thenReturn(List.of(groupLink(101L), groupLink(102L)));
         when(healthMapper.selectLinkRefreshBlockedIds(List.of(101L, 102L)))
                 .thenReturn(List.of(102L));
@@ -125,19 +131,17 @@ class GroupBatchTaskServiceImplTest {
     }
 
     @Test
-    void submitDeduplicatesIdsAndDropsGroupsOutsideTheTenant() {
-        when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
+    void submitDeduplicatesIdsAndRejectsMixedInvisibleGroups() {
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L, 102L)), any(DataScope.class)))
                 .thenReturn(List.of(groupLink(101L)));
         when(healthMapper.selectLinkRefreshBlockedIds(anyList())).thenReturn(List.of());
 
-        service().submitRefreshInfo(
-                new GroupBatchSubmitDTO(List.of(101L, 101L, 102L), "req-dedup"), OPERATOR_ID);
-
-        assertThat(capturedItems()).extracting(GroupBatchTaskItem::getGroupLinkId)
-                .containsExactly(101L);
-        ArgumentCaptor<GroupBatchTask> task = ArgumentCaptor.forClass(GroupBatchTask.class);
-        verify(taskMapper).insert(task.capture());
-        assertThat(task.getValue().getTotalCount()).isEqualTo(1);
+        assertThatThrownBy(() -> service().submitRefreshInfo(
+                new GroupBatchSubmitDTO(List.of(101L, 101L, 102L), "req-dedup"), OPERATOR_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("部分所选群组不存在");
+        verify(taskMapper, never()).insert(any());
     }
 
     @SuppressWarnings("unchecked")
@@ -151,12 +155,15 @@ class GroupBatchTaskServiceImplTest {
         GroupLink link = new GroupLink();
         link.setId(id);
         link.setTenantId(TENANT_ID);
+        link.setOwnerUserId(OPERATOR_ID);
         return link;
     }
 
     @Test
     void closingTheDialogCancelsRemainingItemsSoTheyStopSendingProtocolCalls() {
-        when(taskMapper.selectById(900L)).thenReturn(taskWithStatus(GroupBatchTaskStatus.RUNNING));
+        when(taskMapper.selectById(
+                org.mockito.ArgumentMatchers.eq(900L), any(DataScope.class)))
+                .thenReturn(taskWithStatus(GroupBatchTaskStatus.RUNNING));
         when(itemMapper.cancelPending(
                 org.mockito.ArgumentMatchers.eq(900L),
                 anyInt(),
@@ -178,24 +185,26 @@ class GroupBatchTaskServiceImplTest {
                 org.mockito.ArgumentMatchers.eq(List.of(
                         GroupBatchTaskStatus.PENDING.code(),
                         GroupBatchTaskStatus.RUNNING.code())),
+                any(DataScope.class),
                 anyLong());
     }
 
     @Test
     void cancelingAnAlreadyFinishedTaskChangesNothing() {
-        when(taskMapper.selectById(900L))
+        when(taskMapper.selectById(org.mockito.ArgumentMatchers.eq(900L), any(DataScope.class)))
                 .thenReturn(taskWithStatus(GroupBatchTaskStatus.COMPLETED));
 
         assertThat(service().cancel(900L)).isZero();
 
         // 已完成的任务没有待执行项；改写状态会把成功的批次显示成已取消。
         verify(itemMapper, never()).cancelPending(any(), anyInt(), anyInt(), anyInt(), anyLong());
-        verify(taskMapper, never()).cancelIfRunnable(any(), anyInt(), anyList(), anyLong());
+        verify(taskMapper, never()).cancelIfRunnable(any(), anyInt(), anyList(), any(), anyLong());
     }
 
     @Test
     void cancelRejectsATaskOutsideTheCurrentTenant() {
-        when(taskMapper.selectById(900L)).thenReturn(null);
+        when(taskMapper.selectById(org.mockito.ArgumentMatchers.eq(900L), any(DataScope.class)))
+                .thenReturn(null);
 
         assertThatThrownBy(() -> service().cancel(900L))
                 .isInstanceOf(BusinessException.class);
@@ -205,6 +214,7 @@ class GroupBatchTaskServiceImplTest {
         GroupBatchTask task = new GroupBatchTask();
         task.setId(900L);
         task.setTenantId(TENANT_ID);
+        task.setOwnerUserId(OPERATOR_ID);
         task.setTaskType(1);
         task.setStatus(status.code());
         task.setTotalCount(3);

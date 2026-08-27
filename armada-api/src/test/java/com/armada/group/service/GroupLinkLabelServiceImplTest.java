@@ -19,10 +19,13 @@ import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.vo.GroupLinkLabelVO;
 import com.armada.group.model.vo.GroupLinkLabelVoRow;
 import com.armada.group.service.impl.GroupLinkLabelServiceImpl;
-import com.armada.group.service.impl.GroupCurrentLocalPersistence;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -47,11 +50,18 @@ class GroupLinkLabelServiceImplTest {
     @Mock
     private GroupConverter converter;
 
-    @Mock
-    private GroupCurrentLocalPersistence currentLocalPersistence;
-
     @InjectMocks
     private GroupLinkLabelServiceImpl service;
+
+    @BeforeEach
+    void setDataScope() {
+        DataScopeContext.open(DataScope.self(1L));
+    }
+
+    @AfterEach
+    void clearDataScope() {
+        DataScopeContext.clear();
+    }
 
     // ---- list ----
 
@@ -72,7 +82,8 @@ class GroupLinkLabelServiceImplTest {
         GroupLinkLabelQuery q = new GroupLinkLabelQuery();
         GroupLinkLabelVoRow row = new GroupLinkLabelVoRow();
         GroupLinkLabelVO vo = new GroupLinkLabelVO(
-                1L, "分组A", null, null, 0L, 0L, 0L, 0L, 0L, null, null, "EMPTY", null, null);
+                1L, 1L, "分组A", null, null, 0L, 0L, 0L, 0L, 0L,
+                null, null, "EMPTY", null, null);
         when(labelMapper.countPage(q)).thenReturn(1L);
         when(labelMapper.selectPage(q)).thenReturn(List.of(row));
         when(converter.toLabelVOList(List.of(row))).thenReturn(List.of(vo));
@@ -97,7 +108,7 @@ class GroupLinkLabelServiceImplTest {
     void create_activeNameExists_throws() {
         GroupLinkLabel existing = new GroupLinkLabel();
         existing.setId(99L);
-        when(labelMapper.selectActiveByName("已存在")).thenReturn(existing);
+        when(labelMapper.selectActiveByName("已存在", 1L)).thenReturn(existing);
 
         assertThatThrownBy(() -> service.create(new GroupLinkLabelDTO("已存在", null, null)))
                 .isInstanceOf(BusinessException.class)
@@ -107,24 +118,25 @@ class GroupLinkLabelServiceImplTest {
 
     @Test
     void create_deletedNameExists_reviveAndUpdate_notInsert() {
-        when(labelMapper.selectActiveByName("复活分组")).thenReturn(null);
+        when(labelMapper.selectActiveByName("复活分组", 1L)).thenReturn(null);
         GroupLinkLabel deleted = new GroupLinkLabel();
         deleted.setId(10L);
         deleted.setName("复活分组");
-        when(labelMapper.selectDeletedByName("复活分组")).thenReturn(deleted);
+        when(labelMapper.selectDeletedByName("复活分组", 1L)).thenReturn(deleted);
         // 读回行:含真实时间戳
         GroupLinkLabel saved = new GroupLinkLabel();
         saved.setId(10L);
+        saved.setOwnerUserId(1L);
         saved.setName("复活分组");
         saved.setRegion("印度");
         saved.setCreatedAt(1_704_067_200_000L);
         saved.setUpdatedAt(1_717_243_200_000L);
-        when(labelMapper.selectById(10L)).thenReturn(saved);
+        when(labelMapper.selectById(eq(10L), any(DataScope.class))).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("复活分组", "印度", "备注"));
 
-        verify(labelMapper).reviveById(eq(10L), anyLong());
-        verify(labelMapper).updateProfile(any());
+        verify(labelMapper).reviveById(eq(10L), eq(1L), anyLong());
+        verify(labelMapper).updateProfile(any(), any(DataScope.class));
         verify(labelMapper, never()).insert(any());
         assertThat(vo.id()).isEqualTo(10L);
         assertThat(vo.createdAt()).isNotNull();
@@ -133,8 +145,8 @@ class GroupLinkLabelServiceImplTest {
 
     @Test
     void create_newName_inserts() {
-        when(labelMapper.selectActiveByName("新分组")).thenReturn(null);
-        when(labelMapper.selectDeletedByName("新分组")).thenReturn(null);
+        when(labelMapper.selectActiveByName("新分组", 1L)).thenReturn(null);
+        when(labelMapper.selectDeletedByName("新分组", 1L)).thenReturn(null);
         // insert 填充自增 id(doAnswer 模拟 MyBatis useGeneratedKeys)
         org.mockito.Mockito.doAnswer(inv -> {
             GroupLinkLabel row = inv.getArgument(0);
@@ -144,11 +156,12 @@ class GroupLinkLabelServiceImplTest {
         // 读回行:含真实时间戳
         GroupLinkLabel saved = new GroupLinkLabel();
         saved.setId(99L);
+        saved.setOwnerUserId(1L);
         saved.setName("新分组");
         saved.setRegion("巴基斯坦");
         saved.setCreatedAt(1_717_200_000_000L);
         saved.setUpdatedAt(1_717_200_000_000L);
-        when(labelMapper.selectById(99L)).thenReturn(saved);
+        when(labelMapper.selectById(eq(99L), any(DataScope.class))).thenReturn(saved);
 
         GroupLinkLabelVO vo = service.create(new GroupLinkLabelDTO("新分组", "巴基斯坦", null));
 
@@ -165,49 +178,51 @@ class GroupLinkLabelServiceImplTest {
         assertThatThrownBy(() -> service.update(1L, new GroupLinkLabelDTO("  ", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("名称不能为空");
-        verify(labelMapper, never()).selectById(any());
-        verify(labelMapper, never()).updateProfile(any());
+        verify(labelMapper, never()).selectById(any(), any());
+        verify(labelMapper, never()).updateProfile(any(), any());
     }
 
     @Test
     void update_notFound_throws() {
-        when(labelMapper.selectById(42L)).thenReturn(null);
+        when(labelMapper.selectById(eq(42L), any(DataScope.class))).thenReturn(null);
 
         assertThatThrownBy(() -> service.update(42L, new GroupLinkLabelDTO("X", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
-        verify(labelMapper, never()).updateProfile(any());
+        verify(labelMapper, never()).updateProfile(any(), any());
     }
 
     @Test
     void update_conflictingName_throws() {
         GroupLinkLabel cur = new GroupLinkLabel();
         cur.setId(1L);
-        when(labelMapper.selectById(1L)).thenReturn(cur);
+        cur.setOwnerUserId(1L);
+        when(labelMapper.selectById(eq(1L), any(DataScope.class))).thenReturn(cur);
 
         GroupLinkLabel other = new GroupLinkLabel();
         other.setId(2L);
-        when(labelMapper.selectActiveByName("冲突名")).thenReturn(other);
+        when(labelMapper.selectActiveByName("冲突名", 1L)).thenReturn(other);
 
         assertThatThrownBy(() -> service.update(1L, new GroupLinkLabelDTO("冲突名", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已存在");
-        verify(labelMapper, never()).updateProfile(any());
+        verify(labelMapper, never()).updateProfile(any(), any());
     }
 
     @Test
     void update_sameName_allowsSelf() {
         GroupLinkLabel cur = new GroupLinkLabel();
         cur.setId(1L);
-        when(labelMapper.selectById(1L)).thenReturn(cur);
+        cur.setOwnerUserId(1L);
+        when(labelMapper.selectById(eq(1L), any(DataScope.class))).thenReturn(cur);
         // 查到的是自身
         GroupLinkLabel self = new GroupLinkLabel();
         self.setId(1L);
-        when(labelMapper.selectActiveByName("同名")).thenReturn(self);
+        when(labelMapper.selectActiveByName("同名", 1L)).thenReturn(self);
 
         service.update(1L, new GroupLinkLabelDTO("同名", "印度", null));
 
-        verify(labelMapper).updateProfile(any());
+        verify(labelMapper).updateProfile(any(), any(DataScope.class));
     }
 
     // ---- batchDelete ----
@@ -235,13 +250,24 @@ class GroupLinkLabelServiceImplTest {
     @Test
     void batchDelete_valid_cascadeSoftDelete() {
         List<Long> ids = List.of(1L, 2L);
-        when(labelMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(2);
+        GroupLinkLabel first = new GroupLinkLabel();
+        first.setId(1L);
+        first.setOwnerUserId(1L);
+        GroupLinkLabel second = new GroupLinkLabel();
+        second.setId(2L);
+        second.setOwnerUserId(1L);
+        when(labelMapper.selectActiveByIds(eq(ids), any(DataScope.class)))
+                .thenReturn(List.of(first, second));
+        when(labelMapper.softDeleteByIds(
+                eq(ids), any(DataScope.class), anyLong())).thenReturn(2);
 
         int result = service.batchDelete(ids);
 
-        verify(groupLinkMapper).softDeleteByLabelIds(eq(ids), anyLong());
-        verify(importBatchMapper).softDeleteByLabelIds(eq(ids), anyLong());
-        verify(labelMapper).softDeleteByIds(eq(ids), anyLong());
+        verify(groupLinkMapper).softDeleteByLabelIds(
+                eq(ids), any(DataScope.class), anyLong());
+        verify(importBatchMapper).softDeleteByLabelIds(
+                eq(ids), any(DataScope.class), anyLong());
+        verify(labelMapper).softDeleteByIds(eq(ids), any(DataScope.class), anyLong());
         assertThat(result).isEqualTo(2);
     }
 }

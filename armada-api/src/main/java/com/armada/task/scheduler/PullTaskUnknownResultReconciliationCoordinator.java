@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskUnknownReconciliationCriteria;
@@ -79,8 +81,14 @@ public class PullTaskUnknownResultReconciliationCoordinator {
             long participantCutoff,
             long now,
             Counter total) {
+        if (execution.getOwnerUserId() == null) {
+            log.info("普通拉群未知结果已跳过 tenantId={} executionId={} reason=owner_not_backfilled",
+                    execution.getTenantId(), execution.getId());
+            return;
+        }
         Long previous = TenantContext.get();
-        try {
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                DataScope.self(execution.getOwnerUserId()))) {
             TenantContext.set(execution.getTenantId());
             total.add(service.reconcile(execution, cutoff, participantCutoff, now));
         } catch (RuntimeException ex) {

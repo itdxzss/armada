@@ -20,6 +20,9 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -84,6 +87,22 @@ public class MarketingImmediateRetryService {
             return false;
         }
         MarketingTask task = taskMapper.selectTaskById(attempt.getMarketingTaskId());
+        if (task == null || task.getOwnerUserId() == null) {
+            return false;
+        }
+        DataScopeContext.current().ifPresent(scope ->
+                DataScopeAccess.requireCanAccess(scope, task.getOwnerUserId(), "营销任务"));
+        try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                DataScope.self(task.getOwnerUserId()))) {
+            return retryOwnedTask(event, resultAt, attempt, task);
+        }
+    }
+
+    private boolean retryOwnedTask(
+            ProtocolMessageSendResultReportedEvent event,
+            long resultAt,
+            MarketingTaskSendAttempt attempt,
+            MarketingTask task) {
         MarketingTaskTarget target = taskMapper.selectTargetById(attempt.getTargetId());
         if (!retryEnabledAndSending(task, target, resultAt)) {
             return false;

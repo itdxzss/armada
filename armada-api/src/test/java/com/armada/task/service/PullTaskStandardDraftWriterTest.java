@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -62,11 +64,13 @@ class PullTaskStandardDraftWriterTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(CREATOR));
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -82,7 +86,10 @@ class PullTaskStandardDraftWriterTest {
     @Test
     void ensureDraftIsPerCreator() {
         PullTask mine = writer.ensureDraft(CREATOR, "运营甲", 100L);
-        PullTask others = writer.ensureDraft(602L, "运营乙", 100L);
+        PullTask others;
+        try (var ignored = DataScopeContext.open(DataScope.self(602L))) {
+            others = writer.ensureDraft(602L, "运营乙", 100L);
+        }
 
         assertThat(others.getId()).isNotEqualTo(mine.getId());
     }

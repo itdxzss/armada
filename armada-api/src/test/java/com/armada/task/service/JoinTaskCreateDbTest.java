@@ -300,13 +300,14 @@ class JoinTaskCreateDbTest extends DbTestBase {
 
         service.createTask(req);
 
-        GroupLink registered = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/CreateRegistryA");
+        GroupLink registered = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/CreateRegistryA", 1L);
         assertThat(registered).isNotNull();
         assertThat(registered.getOrigin()).isEqualTo(GroupLinkOrigin.JOIN_TASK.code());
         assertThat(registered.getMembershipState()).isEqualTo(GroupMembershipState.TARGET.code());
         assertThat(registered.getLabelId()).isNull();
         assertThat(registered.getImportBatchId()).isNull();
-        assertThat(groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/")).isNull();
+        assertThat(groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/", 1L)).isNull();
     }
 
     /**
@@ -315,6 +316,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
     @Test
     void case8_createTask_revivesSoftDeletedGroupLinkTarget() {
         GroupLink existing = new GroupLink();
+        existing.setOwnerUserId(1L);
         existing.setLinkUrl("chat.whatsapp.com/ReviveJoinTaskTarget");
         existing.setOrigin(GroupLinkOrigin.JOIN_TASK.code());
         existing.setMembershipState(GroupMembershipState.TARGET.code());
@@ -322,7 +324,8 @@ class JoinTaskCreateDbTest extends DbTestBase {
         existing.setCreatedAt(now);
         existing.setUpdatedAt(now);
         groupLinkMapper.insert(existing);
-        groupLinkMapper.softDeleteByIds(List.of(existing.getId()), now + 1);
+        groupLinkMapper.softDeleteByIds(
+                List.of(existing.getId()), com.armada.shared.security.DataScope.all(1L), now + 1);
 
         CreateJoinTaskDTO req = new CreateJoinTaskDTO(
                 "复活登记测试",
@@ -336,7 +339,8 @@ class JoinTaskCreateDbTest extends DbTestBase {
 
         service.createTask(req);
 
-        GroupLink revived = groupLinkMapper.selectAnyByUrl("chat.whatsapp.com/ReviveJoinTaskTarget");
+        GroupLink revived = groupLinkMapper.selectAnyByUrl(
+                "chat.whatsapp.com/ReviveJoinTaskTarget", 1L);
         assertThat(revived).isNotNull();
         assertThat(revived.getId()).isEqualTo(existing.getId());
         assertThat(revived.getDeletedAt()).isNull();

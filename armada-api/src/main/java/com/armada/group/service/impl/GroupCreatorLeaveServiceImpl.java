@@ -3,6 +3,8 @@ package com.armada.group.service.impl;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.mapper.AccountGroupMembershipMapper;
+import com.armada.group.mapper.GroupLinkMapper;
+import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.enums.GroupCreatorLeaveStatus;
 import com.armada.group.model.vo.GroupCreatorLeaveAccount;
 import com.armada.group.model.vo.GroupCreatorLeaveCapabilityVO;
@@ -14,6 +16,10 @@ import com.armada.platform.protocol.model.enums.GroupParticipantAction;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.port.GroupLeavePort;
 import com.armada.platform.protocol.port.GroupParticipantPort;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -40,21 +46,31 @@ public class GroupCreatorLeaveServiceImpl implements GroupCreatorLeaveService {
                     .thenComparing(GroupCreatorLeaveAccount::accountId);
 
     private final AccountGroupMembershipMapper membershipMapper;
+    private final GroupLinkMapper groupLinkMapper;
     private final GroupParticipantPort participantPort;
     private final GroupLeavePort leavePort;
 
     public GroupCreatorLeaveServiceImpl(
             AccountGroupMembershipMapper membershipMapper,
+            GroupLinkMapper groupLinkMapper,
             GroupParticipantPort participantPort,
             GroupLeavePort leavePort) {
         this.membershipMapper = membershipMapper;
+        this.groupLinkMapper = groupLinkMapper;
         this.participantPort = participantPort;
         this.leavePort = leavePort;
     }
 
     @Override
     public GroupCreatorLeaveCapabilityVO capability(Long groupLinkId) {
-        GroupCreatorLeavePlan plan = plan(groupLinkId, null);
+        GroupLink link = requireVisibleLink(groupLinkId);
+        if (link.getOwnerUserId() == null || link.getOwnerUserId() <= 0) {
+            return new GroupCreatorLeaveCapabilityVO(
+                    false,
+                    "DATA_OWNER_MISSING",
+                    "历史无归属群只能查看，不能执行群主退群");
+        }
+        GroupCreatorLeavePlan plan = selectCandidates(groupLinkId, null);
         if (!plan.executable()) {
             return new GroupCreatorLeaveCapabilityVO(
                     false,
@@ -93,6 +109,23 @@ public class GroupCreatorLeaveServiceImpl implements GroupCreatorLeaveService {
     }
 
     private GroupCreatorLeavePlan select(Long groupLinkId, Long preferredCreatorAccountId) {
+        GroupLink link = requireVisibleLink(groupLinkId);
+        DataScopeAccess.requireAssignedOwner(link.getOwnerUserId(), "群链接");
+        return selectCandidates(groupLinkId, preferredCreatorAccountId);
+    }
+
+    private GroupLink requireVisibleLink(Long groupLinkId) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        GroupLink link = groupLinkMapper.selectActiveById(groupLinkId, scope);
+        if (link == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群链接不存在或已删除: " + groupLinkId);
+        }
+        return link;
+    }
+
+    private GroupCreatorLeavePlan selectCandidates(
+            Long groupLinkId,
+            Long preferredCreatorAccountId) {
         List<GroupCreatorLeaveAccount> accounts = membershipMapper.selectCreatorLeaveAccounts(groupLinkId);
         List<GroupCreatorLeaveAccount> safeAccounts = accounts == null ? List.of() : accounts;
 

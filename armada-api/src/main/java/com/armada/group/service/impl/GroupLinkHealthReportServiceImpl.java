@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupLinkHealthReportedEvent;
 import com.armada.group.model.entity.GroupLinkHealth;
@@ -7,6 +9,8 @@ import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.service.GroupLinkHealthReportService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -39,6 +43,8 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
 
     private final GroupLinkMapper groupLinkMapper;
 
+    private final AccountMapper accountMapper;
+
     private final GroupCurrentInvitePersistence currentInvitePersistence;
 
     /**
@@ -48,8 +54,10 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
      * @param currentInvitePersistence 新群模型当前邀请码写入
      */
     public GroupLinkHealthReportServiceImpl(GroupLinkMapper groupLinkMapper,
+                                            AccountMapper accountMapper,
                                             GroupCurrentInvitePersistence currentInvitePersistence) {
         this.groupLinkMapper = groupLinkMapper;
+        this.accountMapper = accountMapper;
         this.currentInvitePersistence = currentInvitePersistence;
     }
 
@@ -68,21 +76,32 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            Long groupLinkId = resolveGroupLinkId(event);
-            if (groupLinkId == null) {
+            Account executionAccount = accountMapper.selectActiveByProtocolAccountId(
+                    event.protocolAccountId().trim());
+            if (executionAccount == null) {
                 log.warn("群链接健康事件未匹配有效群,跳过 tenantId={} groupJid={} eventId={} protocolAccountId={}",
                         event.tenantId(), event.groupJid(), event.eventId(), event.protocolAccountId());
                 return Optional.empty();
             }
-            GroupLinkHealth current = currentInvitePersistence.findHealth(event.groupJid());
-            GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
-            currentInvitePersistence.applyHealth(event.groupJid(), row);
-            log.info("群链接健康事件已回写 tenantId={} groupLinkId={} groupJid={} health={} status={} "
-                            + "banned={} failureCount={} eventId={} protocolAccountId={}",
-                    event.tenantId(), groupLinkId, event.groupJid(), event.health(),
-                    row.getHealthStatus(), row.getBanned(), row.getHealthFailureCount(),
-                    event.eventId(), event.protocolAccountId());
-            return Optional.of(groupLinkId);
+            Long ownerUserId = requireOwner(executionAccount);
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                Long groupLinkId = resolveGroupLinkId(event, ownerUserId);
+                if (groupLinkId == null) {
+                    log.warn("群链接健康事件未匹配有效群,跳过 tenantId={} groupJid={} eventId={} protocolAccountId={}",
+                            event.tenantId(), event.groupJid(), event.eventId(), event.protocolAccountId());
+                    return Optional.empty();
+                }
+                GroupLinkHealth current = currentInvitePersistence.findHealth(event.groupJid());
+                GroupLinkHealth row = buildHealthRow(event, current, groupLinkId);
+                currentInvitePersistence.applyHealth(event.groupJid(), row);
+                log.info("群链接健康事件已回写 tenantId={} groupLinkId={} groupJid={} health={} status={} "
+                                + "banned={} failureCount={} eventId={} protocolAccountId={}",
+                        event.tenantId(), groupLinkId, event.groupJid(), event.health(),
+                        row.getHealthStatus(), row.getBanned(), row.getHealthFailureCount(),
+                        event.eventId(), event.protocolAccountId());
+                return Optional.of(groupLinkId);
+            }
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -122,16 +141,27 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
      * <p>命令型健康检查仍可携带 groupLinkId；实时 WhatsApp 通知只有 groupJid，需在当前
      * 租户内反查。两者同时存在且反查到不同记录时拒绝更新，避免串群写状态。</p>
      */
-    private Long resolveGroupLinkId(GroupLinkHealthReportedEvent event) {
-        Long byGroupJid = groupLinkMapper.selectActiveIdByGroupJid(event.groupJid());
-        if (event.groupLinkId() == null) {
-            return byGroupJid;
+    private Long resolveGroupLinkId(GroupLinkHealthReportedEvent event, Long ownerUserId) {
+        if (event.groupLinkId() != null) {
+            Long matched = groupLinkMapper.selectActiveIdByGroupJidAndId(
+                    event.groupJid(), event.groupLinkId(), ownerUserId);
+            if (!event.groupLinkId().equals(matched)) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "群链接健康事件 groupLinkId 与 groupJid 不一致");
+            }
+            return matched;
         }
-        if (byGroupJid != null && !event.groupLinkId().equals(byGroupJid)) {
-            throw new BusinessException(ErrorCode.VALIDATION,
-                    "群链接健康事件 groupLinkId 与 groupJid 不一致");
+        return groupLinkMapper.selectActiveIdByGroupJid(
+                event.groupJid(), ownerUserId);
+    }
+
+    private static Long requireOwner(Account account) {
+        if (account.getOwnerUserId() == null) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED,
+                    "历史无归属账号不能回写用户私有群健康状态");
         }
-        return event.groupLinkId();
+        return account.getOwnerUserId();
     }
 
     /**
@@ -227,6 +257,9 @@ public class GroupLinkHealthReportServiceImpl implements GroupLinkHealthReportSe
         }
         if (event.health() == null || event.health().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 health");
+        }
+        if (event.protocolAccountId() == null || event.protocolAccountId().isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接健康事件缺少 protocolAccountId");
         }
     }
 

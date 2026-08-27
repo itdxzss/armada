@@ -5,6 +5,11 @@
   <!-- 共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入 -->
   <sql id="filter">
     deleted_at IS NULL
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">AND owner_user_id = #{dataScope.actorUserId}</when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="keyword != null and keyword != ''">AND name LIKE CONCAT('%', #{keyword}, '%')</if>
     <if test="id != null">AND id = #{id}</if>
   </sql>
@@ -19,17 +24,20 @@
            g.marketing_occupancy_task_id AS marketingOccupancyTaskId,
            g.marketing_locked_at AS marketingLockedAt,
            g.system_builtin AS systemBuiltin,
-           (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS accountCount,
+           (SELECT COUNT(*) FROM account a WHERE a.account_group_id = g.id AND a.deleted_at IS NULL
+             <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>) AS accountCount,
            (SELECT COUNT(*)
              FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
-             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.login_state = 1) AS onlineCount,
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.login_state = 1
+               <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>) AS onlineCount,
            <!-- 与 AccountMapper.selectOnlineNormalByGroupId 及严格协议解析保持同一可执行口径。 -->
            (SELECT COUNT(*)
               FROM account a
               INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
              WHERE a.account_group_id = g.id
                AND a.deleted_at IS NULL
+               <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>
                AND s.account_state = 2
                AND s.login_state = 1
                AND a.ws_phone IS NOT NULL
@@ -40,18 +48,21 @@
            (SELECT COUNT(*)
               FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
-             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.risk_status &gt; 1) AS riskCount,
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.risk_status &gt; 1
+               <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>) AS riskCount,
            (SELECT COALESCE(SUM(CASE WHEN s.account_state = 3 THEN 1 ELSE 0 END), 0)
                    + COALESCE(SUM(CASE WHEN s.account_state = 5 THEN 1 ELSE 0 END), 0)
                    + COALESCE(SUM(CASE WHEN s.mute_status IS NOT NULL THEN 1 ELSE 0 END), 0)
                    + COALESCE(SUM(CASE WHEN s.account_state = 4 THEN 1 ELSE 0 END), 0)
               FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
-             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL) AS restrictedCount,
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL
+               <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>) AS restrictedCount,
            (SELECT COUNT(*)
               FROM account a
               LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
-             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.account_state = 3) AS bannedCount,
+             WHERE a.account_group_id = g.id AND a.deleted_at IS NULL AND s.account_state = 3
+               <if test="dataScope != null and dataScope.isSelf()">AND a.owner_user_id = #{dataScope.actorUserId}</if>) AS bannedCount,
            g.created_at AS createdAt, g.updated_at AS updatedAt
     FROM account_group g
     WHERE <include refid="filter"/>
@@ -108,6 +119,11 @@
       ON pull_task.marketing_task_id = task.id
      AND pull_task.tenant_id = task.tenant_id
     WHERE g.deleted_at IS NULL
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">AND g.owner_user_id = #{dataScope.actorUserId}</when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
     <if test="marketingOccupancyType != null and marketingOccupancyType != ''">
       <choose>
         <when test='marketingOccupancyType == "FREE"'>
@@ -212,12 +228,24 @@
       AND g.deleted_at IS NULL
   </select>
 
-  <select id="selectActiveByName" resultType="com.armada.account.model.entity.AccountGroup">
-    SELECT * FROM account_group WHERE name = #{name} AND deleted_at IS NULL LIMIT 1
+  <select id="selectActiveByNameForOwner" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group
+    WHERE name = #{name}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+      AND deleted_at IS NULL LIMIT 1
   </select>
 
-  <select id="selectDeletedByName" resultType="com.armada.account.model.entity.AccountGroup">
-    SELECT * FROM account_group WHERE name = #{name} AND deleted_at IS NOT NULL LIMIT 1
+  <select id="selectDeletedByNameForOwner" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group
+    WHERE name = #{name}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+      AND deleted_at IS NOT NULL LIMIT 1
   </select>
 
   <select id="selectById" resultType="com.armada.account.model.entity.AccountGroup">
@@ -255,14 +283,15 @@
       AND resource_status IN (2, 3)
   </select>
 
-  <select id="selectSystemBuiltin" resultType="com.armada.account.model.entity.AccountGroup">
-    SELECT * FROM account_group WHERE system_builtin = 1 AND deleted_at IS NULL LIMIT 1
+  <select id="selectSystemBuiltinForOwner" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT * FROM account_group
+    WHERE system_builtin = 1 AND owner_user_id = #{ownerUserId} AND deleted_at IS NULL LIMIT 1
   </select>
 
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO account_group (name, remark, system_builtin, created_at, updated_at, created_by)
-    VALUES (#{name}, #{remark}, #{systemBuiltin}, #{createdAt}, #{updatedAt}, #{createdBy})
+    INSERT INTO account_group (name, remark, system_builtin, created_at, updated_at, created_by, owner_user_id)
+    VALUES (#{name}, #{remark}, #{systemBuiltin}, #{createdAt}, #{updatedAt}, #{createdBy}, #{ownerUserId})
   </insert>
 
   <update id="reviveById">

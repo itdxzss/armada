@@ -10,6 +10,7 @@ import com.armada.platform.protocol.model.result.ProtocolProbeResult;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +36,7 @@ public class AccountLifecycleCommandServiceImpl implements AccountLifecycleComma
     @Override
     public AccountStatusVO refreshStatus(Long accountId) {
         Account account = loadAccount(accountId);
+        requireCanAccess(account);
         String protocolAccountId = requireProtocolAccountId(account);
         ProtocolAccountStatus status = accountLifecyclePort.status(protocolAccountId);
         log.info("账号协议状态主动刷新 accountId={} protocolAccountId={} state={} stateSource={}",
@@ -46,6 +48,7 @@ public class AccountLifecycleCommandServiceImpl implements AccountLifecycleComma
     @Override
     public AccountProbeVO probe(Long accountId) {
         Account account = loadAccount(accountId);
+        requireCanAccess(account);
         String protocolAccountId = requireProtocolAccountId(account);
         ProtocolProbeResult probe = accountLifecyclePort.probe(protocolAccountId);
         log.info("账号协议主动探活 accountId={} protocolAccountId={} ok={} latencyMs={} reasonCode={}",
@@ -71,6 +74,12 @@ public class AccountLifecycleCommandServiceImpl implements AccountLifecycleComma
             throw new BusinessException(ErrorCode.VALIDATION, "协议账号 ID 为空: " + account.getId());
         }
         return protocolAccountId;
+    }
+
+    private static void requireCanAccess(Account account) {
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), account.getOwnerUserId(), "账号");
+        DataScopeAccess.requireAssignedOwner(account.getOwnerUserId(), "账号");
     }
 
     private static AccountStatusVO toStatusVO(Long accountId,

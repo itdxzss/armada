@@ -9,6 +9,7 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.AccountProxyFailedRecoveryCandidate;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountProxyFailureContext;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +33,7 @@ class ProxyFailedRecoveryDispatcherTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -39,8 +41,8 @@ class ProxyFailedRecoveryDispatcherTest {
         long now = 10_000L;
         when(stateMapper.selectProxyFailedRecoveryCandidates(2, "PROXY_FAILED", 2, 5_000L, 1_000))
                 .thenReturn(List.of(
-                        new AccountProxyFailedRecoveryCandidate(1L, 100L),
-                        new AccountProxyFailedRecoveryCandidate(2L, 200L)));
+                        new AccountProxyFailedRecoveryCandidate(1L, 10L, 100L),
+                        new AccountProxyFailedRecoveryCandidate(2L, 20L, 200L)));
         when(attemptLogService.latestProxyFailure(100L))
                 .thenReturn(new AccountProxyFailureContext("oa_100", 7L));
         when(attemptLogService.latestProxyFailure(200L))
@@ -59,8 +61,8 @@ class ProxyFailedRecoveryDispatcherTest {
     void dispatchOnce_oneCandidateFailureDoesNotBlockLaterAccounts() {
         when(stateMapper.selectProxyFailedRecoveryCandidates(2, "PROXY_FAILED", 2, 5_000L, 1_000))
                 .thenReturn(List.of(
-                        new AccountProxyFailedRecoveryCandidate(1L, 100L),
-                        new AccountProxyFailedRecoveryCandidate(1L, 101L)));
+                        new AccountProxyFailedRecoveryCandidate(1L, 10L, 100L),
+                        new AccountProxyFailedRecoveryCandidate(1L, 11L, 101L)));
         doThrow(new IllegalStateException("unexpected"))
                 .when(coordinator).recover(1L, 100L, null, null);
 

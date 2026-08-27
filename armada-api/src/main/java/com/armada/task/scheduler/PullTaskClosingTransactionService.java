@@ -1,6 +1,8 @@
 package com.armada.task.scheduler;
 
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -70,7 +72,9 @@ public class PullTaskClosingTransactionService {
             accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
             if (parent.getCreationMode() == PullTaskCreationMode.RESOURCE_POOL
                     && candidate.getGroupLinkId() != null) {
-                groupFolderService.moveToUsed(candidate.getGroupLinkId());
+                try (DataScopeContext.Scope ignored = openOwnerScope(parent.getOwnerUserId())) {
+                    groupFolderService.moveToUsed(candidate.getGroupLinkId());
+                }
             }
             parentCompletionService.completeIfTerminalByExecutionId(candidate.getId(), now);
             return PullTaskExecutionDispatchResult.ADVANCED;
@@ -119,5 +123,12 @@ public class PullTaskClosingTransactionService {
         } else {
             TenantContext.set(previousTenant);
         }
+    }
+
+    private static DataScopeContext.Scope openOwnerScope(Long ownerUserId) {
+        if (ownerUserId == null) {
+            throw new IllegalStateException("历史无归属拉群任务不能变更用户群文件夹");
+        }
+        return DataScopeContext.open(DataScope.self(ownerUserId));
     }
 }

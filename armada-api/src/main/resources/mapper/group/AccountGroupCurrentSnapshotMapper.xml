@@ -5,6 +5,7 @@
   <select id="selectContext"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
     SELECT a.id AS accountId,
+           a.owner_user_id AS ownerUserId,
            a.ws_phone AS wsPhone,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,
@@ -26,6 +27,7 @@
   <select id="selectContextForUpdateByTenant"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
     SELECT a.id AS accountId,
+           a.owner_user_id AS ownerUserId,
            a.ws_phone AS wsPhone,
            a.protocol_id AS protocolId,
            a.protocol_account_id AS protocolAccountId,

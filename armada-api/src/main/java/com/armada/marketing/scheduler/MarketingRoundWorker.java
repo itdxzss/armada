@@ -26,6 +26,8 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -92,7 +94,20 @@ public class MarketingRoundWorker {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
-            doRunRound(taskId);
+            MarketingTask task = taskMapper.selectTaskById(taskId);
+            if (task == null) {
+                log.warn("营销任务轮次跳过:任务不存在 taskId={}", taskId);
+                return;
+            }
+            if (task.getOwnerUserId() == null) {
+                log.error("营销任务轮次拒绝执行:任务缺少数据归属 tenantId={} taskId={}",
+                        tenantId, taskId);
+                return;
+            }
+            try (DataScopeContext.Scope ignored = DataScopeContext.open(
+                    DataScope.self(task.getOwnerUserId()))) {
+                doRunRound(task);
+            }
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -108,12 +123,8 @@ public class MarketingRoundWorker {
      * <p>这里按固定顺序完成任务状态校验、目标解析、积压保护、轮次抢占、attempt 入库和 outbox 写入。
      * 先解析目标再抢占轮次,是为了账号动态维度没有可发送群时只推迟下一轮,不空耗一个轮次号。</p>
      */
-    private void doRunRound(Long taskId) {
-        MarketingTask task = taskMapper.selectTaskById(taskId);
-        if (task == null) {
-            log.warn("营销任务轮次跳过:任务不存在 taskId={}", taskId);
-            return;
-        }
+    private void doRunRound(MarketingTask task) {
+        Long taskId = task.getId();
         if (!Integer.valueOf(MarketingTaskStatus.SENDING.code()).equals(task.getStatus())) {
             log.debug("营销任务轮次跳过:任务非发送中 tenantId={} taskId={} status={}",
                     task.getTenantId(), task.getId(), task.getStatus());

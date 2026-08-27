@@ -15,6 +15,7 @@ import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -220,9 +221,13 @@ public class HistoricalGroupAccountGroupRefreshService {
         if (accountGroupId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号组 ID 不能为空");
         }
-        if (accountGroupMapper.selectById(accountGroupId) == null) {
+        var accountGroup = accountGroupMapper.selectById(accountGroupId);
+        if (accountGroup == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "账号组不存在: " + accountGroupId);
         }
+        DataScopeAccess.requireCanAccess(
+                DataScopeAccess.requireCurrent(), accountGroup.getOwnerUserId(), "账号组");
+        DataScopeAccess.requireAssignedOwner(accountGroup.getOwnerUserId(), "账号组");
     }
 
     private static String inviteCode(GroupInviteResult invite) {

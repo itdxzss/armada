@@ -17,29 +17,37 @@ public class ProtocolGroupJoinResultRouter implements ProtocolGroupJoinResultRep
 
     private final JoinTaskResultService joinTaskService;
     private final PullTaskManagerJoinResultService pullTaskService;
+    private final TaskResultOwnerScopeRunner ownerScopeRunner;
 
     /**
      * 创建进群结果路由器。
      *
      * @param joinTaskService 旧进群任务结果状态机
      * @param pullTaskService 普通拉群管理员踩链接结果状态机
+     * @param ownerScopeRunner 任务 owner 数据范围执行器
      */
     public ProtocolGroupJoinResultRouter(
             JoinTaskResultService joinTaskService,
-            PullTaskManagerJoinResultService pullTaskService) {
+            PullTaskManagerJoinResultService pullTaskService,
+            TaskResultOwnerScopeRunner ownerScopeRunner) {
         this.joinTaskService = joinTaskService;
         this.pullTaskService = pullTaskService;
+        this.ownerScopeRunner = ownerScopeRunner;
     }
 
     /** {@inheritDoc} */
     @Override
     public void handleJoinResultReported(ProtocolGroupJoinResultReportedEvent event) {
         if (event.correlation() instanceof ProtocolJoinTaskGroupJoinCorrelation correlation) {
-            joinTaskService.apply(toJoinTaskEvent(event, correlation));
+            ownerScopeRunner.runForJoinTask(
+                    event.tenantId(), correlation.joinTaskId(),
+                    () -> joinTaskService.apply(toJoinTaskEvent(event, correlation)));
             return;
         }
         if (event.correlation() instanceof ProtocolPullTaskGroupJoinCorrelation correlation) {
-            pullTaskService.apply(toPullTaskCallback(event, correlation));
+            ownerScopeRunner.runForPullTask(
+                    event.tenantId(), correlation.pullTaskId(),
+                    () -> pullTaskService.apply(toPullTaskCallback(event, correlation)));
             return;
         }
         throw new IllegalArgumentException("不支持的进群结果关联类型");

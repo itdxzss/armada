@@ -64,7 +64,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        when(templateMapper.selectById(77L)).thenReturn(textTemplate());
+        when(templateMapper.selectByIdForScope(eq(77L), any())).thenReturn(textTemplate());
         when(mapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         when(membershipStatusService.findCurrentMessageSendPermissions(any())).thenReturn(List.of());
     }
@@ -243,7 +243,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTemplate currentTemplate = textTemplate();
         currentTemplate.setId(88L);
         currentTemplate.setContent("到期时任务当前模板消息");
-        when(templateMapper.selectById(88L)).thenReturn(currentTemplate);
+        when(templateMapper.selectByIdForScope(eq(88L), any())).thenReturn(currentTemplate);
         MarketingTaskTarget target = dynamicTarget();
         MarketingAccountOccupancyOwnerRow owner = new MarketingAccountOccupancyOwnerRow();
         owner.setAccountId(target.getAccountId());
@@ -275,7 +275,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         assertThat(command.target().groupJid()).isEqualTo("120363a@g.us");
         assertThat(command.payload().content().text()).isEqualTo("到期时任务当前模板消息");
         assertThat(command.correlation().marketing().attemptId()).isEqualTo(9_001L);
-        verify(templateMapper).selectById(88L);
+        verify(templateMapper).selectByIdForScope(eq(88L), any());
         verify(mapper).markWaitingAttemptSubmitted(eq(9_001L), any(), eq(3_000L));
         verify(mapper, never()).markWaitingAttemptSkipped(any(), any(), any(), anyLong());
     }
@@ -317,7 +317,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
                 501L, 9_001L, "NO_PERMISSION", "当前账号没有发言权限", 3_000L);
         verify(mapper).incrementTaskSendCounters(42L, 0, 1, 3_000L);
         verify(messagePort, never()).enqueue(any());
-        verify(templateMapper, never()).selectById(anyLong());
+        verify(templateMapper, never()).selectByIdForScope(anyLong(), any());
     }
 
     @Test
@@ -527,6 +527,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         MarketingTask task = new MarketingTask();
         task.setId(42L);
         task.setTenantId(1L);
+        task.setOwnerUserId(7L);
         task.setBusinessType(1);
         task.setStatus(2);
         task.setMarketingTemplateId(77L);
@@ -586,6 +587,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private static MarketingTemplate textTemplate() {
         MarketingTemplate template = new MarketingTemplate();
         template.setId(77L);
+        template.setOwnerUserId(7L);
         template.setTemplateName("即时营销模板");
         template.setLinkMode(LinkMode.NORMAL.code());
         template.setContent("hello");

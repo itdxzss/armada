@@ -31,6 +31,8 @@ import com.armada.group.service.HistoricalGroupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +52,7 @@ import org.springframework.mock.web.MockMultipartFile;
 class HistoricalGroupPullExecutionServiceImplTest {
 
     private static final long TENANT_ID = 71L;
+    private static final long OWNER_USER_ID = 11L;
 
     @Mock
     private HistoricalGroupMaterialParser parser;
@@ -71,6 +74,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
+        DataScopeContext.open(DataScope.self(OWNER_USER_ID));
         service = new HistoricalGroupPullExecutionServiceImpl(
                 parser,
                 new HistoricalGroupPullCreateValidator(
@@ -84,6 +88,7 @@ class HistoricalGroupPullExecutionServiceImplTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -121,6 +126,39 @@ class HistoricalGroupPullExecutionServiceImplTest {
         assertThat(executionCaptor.getValue().getGroupSubjectSnapshot()).isEqualTo("fresh-subject");
         assertThat(executionCaptor.getValue().getSourceAccountGroupId()).isEqualTo(201L);
         assertThat(executionCaptor.getValue().getOperationAccountId()).isEqualTo(101L);
+        assertThat(executionCaptor.getValue().getOwnerUserId()).isEqualTo(OWNER_USER_ID);
+        assertThat(executionCaptor.getValue().getCreatedBy()).isEqualTo(OWNER_USER_ID);
+    }
+
+    @Test
+    void rejectsDifferentOwnerSourceAndPullerGroupsBeforeReadingHistoricalGroup() {
+        HistoricalGroupPullCreateDTO request = request(10, "mixed-owner");
+        AccountGroup source = new AccountGroup();
+        source.setOwnerUserId(11L);
+        AccountGroup puller = new AccountGroup();
+        puller.setOwnerUserId(22L);
+        when(accountGroupService.requireExisting(request.sourceAccountGroupId())).thenReturn(source);
+        when(accountGroupService.requireExisting(request.pullerAccountGroupId())).thenReturn(puller);
+
+        assertThatThrownBy(() -> service.create(request, file()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("历史群拉人任务账号分组归属不一致");
+
+        verify(historicalGroupService, never()).getHistoricalGroupDetail(any(), any());
+    }
+
+    @Test
+    void administratorCannotCreateAnExecutionFromAnotherUsersGroups() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.all(99L));
+        HistoricalGroupPullCreateDTO request = request(10, "admin-other-owner");
+        prepareOwnership(request);
+
+        assertThatThrownBy(() -> service.create(request, file()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("只能使用当前操作者自己的资源");
+
+        verify(parser, never()).parse(any());
     }
 
     @Test
@@ -190,7 +228,8 @@ class HistoricalGroupPullExecutionServiceImplTest {
     void repeatedIdempotencyKeyReturnsExistingWithoutParsingOrInsertingMembers() {
         HistoricalGroupPullCreateDTO request = request(10, "existing-key");
         HistoricalGroupPullExecution existing = execution(903L, request);
-        when(executionMapper.selectByTenantAndIdempotencyKey(TENANT_ID, request.idempotencyKey()))
+        when(executionMapper.selectByTenantOwnerAndIdempotencyKey(
+                TENANT_ID, OWNER_USER_ID, request.idempotencyKey()))
                 .thenReturn(existing);
         when(memberMapper.selectOrderedByExecutionId(903L)).thenReturn(List.of());
 
@@ -213,10 +252,12 @@ class HistoricalGroupPullExecutionServiceImplTest {
         when(parser.parse(any())).thenReturn(parseResult());
         when(accountLookupService.findActiveProtocolRefsByPhones(List.of("8613900000002")))
                 .thenReturn(Map.of());
-        when(executionMapper.selectByTenantAndIdempotencyKey(TENANT_ID, request.idempotencyKey()))
+        when(executionMapper.selectByTenantOwnerAndIdempotencyKey(
+                TENANT_ID, OWNER_USER_ID, request.idempotencyKey()))
                 .thenReturn(null);
         doThrow(new DuplicateKeyException("idempotency race")).when(executionMapper).insert(any());
-        when(executionMapper.selectByTenantAndIdempotencyKeyForUpdate(TENANT_ID, request.idempotencyKey()))
+        when(executionMapper.selectByTenantOwnerAndIdempotencyKeyForUpdate(
+                TENANT_ID, OWNER_USER_ID, request.idempotencyKey()))
                 .thenReturn(winner);
         when(memberMapper.selectOrderedByExecutionId(904L)).thenReturn(List.of());
 
@@ -235,7 +276,10 @@ class HistoricalGroupPullExecutionServiceImplTest {
         running.setInviteLink("persisted-create-link");
         running.setPullStatus(HistoricalGroupPullStatus.RUNNING.code());
         prepareOwnership(request);
-        when(executionMapper.selectByTenantAndId(TENANT_ID, 905L))
+        when(executionMapper.selectByTenantAndIdForScope(
+                org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                org.mockito.ArgumentMatchers.eq(905L),
+                org.mockito.ArgumentMatchers.any()))
                 .thenReturn(pending, running);
         when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-start-link", true, false));
@@ -261,7 +305,10 @@ class HistoricalGroupPullExecutionServiceImplTest {
         HistoricalGroupPullCreateDTO request = request(10, "start-running");
         HistoricalGroupPullExecution running = execution(906L, request);
         running.setPullStatus(HistoricalGroupPullStatus.RUNNING.code());
-        when(executionMapper.selectByTenantAndId(TENANT_ID, 906L)).thenReturn(running);
+        when(executionMapper.selectByTenantAndIdForScope(
+                org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                org.mockito.ArgumentMatchers.eq(906L),
+                org.mockito.ArgumentMatchers.any())).thenReturn(running);
 
         assertThatThrownBy(() -> service.start(906L))
                 .isInstanceOf(BusinessException.class)
@@ -281,7 +328,10 @@ class HistoricalGroupPullExecutionServiceImplTest {
         HistoricalGroupPullCreateDTO request = request(10, "start-race");
         HistoricalGroupPullExecution pending = execution(907L, request);
         prepareOwnership(request);
-        when(executionMapper.selectByTenantAndId(TENANT_ID, 907L)).thenReturn(pending);
+        when(executionMapper.selectByTenantAndIdForScope(
+                org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                org.mockito.ArgumentMatchers.eq(907L),
+                org.mockito.ArgumentMatchers.any())).thenReturn(pending);
         when(historicalGroupService.getHistoricalGroupDetail(request.sourceAccountGroupId(), request.groupJid()))
                 .thenReturn(detail("fresh-start-link", true, false));
         when(executionMapper.claimStatus(
@@ -305,7 +355,10 @@ class HistoricalGroupPullExecutionServiceImplTest {
         persisted.setPullerAccountId(501L);
         ProtocolAccountRef puller =
                 new ProtocolAccountRef(501L, ProtocolBackend.WEB, "puller-501", "8613700000501");
-        when(executionMapper.selectByTenantAndId(TENANT_ID, 908L)).thenReturn(persisted);
+        when(executionMapper.selectByTenantAndIdForScope(
+                org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                org.mockito.ArgumentMatchers.eq(908L),
+                org.mockito.ArgumentMatchers.any())).thenReturn(persisted);
         when(memberMapper.selectOrderedByExecutionId(908L)).thenReturn(List.of());
         when(accountLookupService.findActiveProtocolRef(501L)).thenReturn(Optional.of(puller));
 
@@ -316,12 +369,12 @@ class HistoricalGroupPullExecutionServiceImplTest {
     }
 
     private void prepareOwnership(HistoricalGroupPullCreateDTO request) {
-        ProtocolAccountRef operationAccount =
-                new ProtocolAccountRef(101L, ProtocolBackend.WEB, "operation-101", "8613700000101");
-        when(accountGroupService.requireExisting(request.sourceAccountGroupId()))
-                .thenReturn(new AccountGroup());
-        when(accountGroupService.requireExisting(request.pullerAccountGroupId()))
-                .thenReturn(new AccountGroup());
+        AccountGroup source = new AccountGroup();
+        source.setOwnerUserId(OWNER_USER_ID);
+        AccountGroup puller = new AccountGroup();
+        puller.setOwnerUserId(OWNER_USER_ID);
+        when(accountGroupService.requireExisting(request.sourceAccountGroupId())).thenReturn(source);
+        when(accountGroupService.requireExisting(request.pullerAccountGroupId())).thenReturn(puller);
     }
 
     private static HistoricalGroupMaterialParser.ParseResult parseResult() {
@@ -371,6 +424,8 @@ class HistoricalGroupPullExecutionServiceImplTest {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
         row.setId(id);
         row.setTenantId(TENANT_ID);
+        row.setOwnerUserId(OWNER_USER_ID);
+        row.setCreatedBy(OWNER_USER_ID);
         row.setIdempotencyKey(request.idempotencyKey());
         row.setSourceAccountGroupId(request.sourceAccountGroupId());
         row.setOperationAccountId(101L);

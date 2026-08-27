@@ -2,6 +2,7 @@ package com.armada.task.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.armada.shared.security.DataScope;
 import com.armada.task.model.dto.PullTaskGroupMarketingCandidateQuery;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -43,7 +44,7 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
     @Test
     void candidateAccountsUseCurrentPresenceAndKeepLegacyCreatorCompatibility()
             throws Exception {
-        BoundSql sql = boundSql(null, "selectAccountsByGroupJids");
+        BoundSql sql = boundSql(null, "selectAccountsByGroupLinkIds");
 
         assertThat(sql.getSql())
                 .contains("FROM wa_account_group_binding binding")
@@ -51,7 +52,21 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
                 .contains("self_participant.role IN (2, 3)")
                 .contains("legacy_preview.owner_phone")
                 .contains("binding.last_observed_at")
+                .contains("a.owner_user_id = handle.owner_user_id")
                 .doesNotContain("account_group_membership");
+    }
+
+    @Test
+    void candidateQueryScopesHandlesAndOwnerMatchesJoinedFacts() throws Exception {
+        BoundSql sql = boundSql(null, "selectPageByTenant");
+
+        assertThat(sql.getSql())
+                .contains("handle.owner_user_id = ?")
+                .contains("a.owner_user_id = handle.owner_user_id")
+                .contains("jr.owner_user_id = handle.owner_user_id")
+                .contains("filter_handle.owner_user_id = handle.owner_user_id")
+                .contains("fa.owner_user_id = filter_handle.owner_user_id")
+                .contains("GROUP BY current_group.group_jid, handle.owner_user_id");
     }
 
     private static BoundSql boundSql(String databaseId, String statementId)
@@ -68,10 +83,14 @@ class PullTaskGroupMarketingCandidateMapperSqlTest {
         }
         Map<String, Object> parameters = new HashMap<>();
         parameters.put("tenantId", 7L);
-        parameters.put("query", new PullTaskGroupMarketingCandidateQuery());
+        PullTaskGroupMarketingCandidateQuery query = new PullTaskGroupMarketingCandidateQuery();
+        query.setManagerPhone("000001");
+        parameters.put("query", query);
         parameters.put("offset", 0);
         parameters.put("limit", 10);
         parameters.put("groupJids", List.of("120363001@g.us"));
+        parameters.put("groupLinkIds", List.of(1001L));
+        parameters.put("scope", DataScope.self(88L));
         return configuration.getMappedStatement(NAMESPACE + statementId)
                 .getBoundSql(parameters);
     }

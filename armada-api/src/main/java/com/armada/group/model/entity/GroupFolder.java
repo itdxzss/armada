@@ -9,6 +9,9 @@ public class GroupFolder {
     /** 所属租户 ID。 */
     private Long tenantId;
 
+    /** 归属用户 ID；历史待分配数据为 null。 */
+    private Long ownerUserId;
+
     /** 分组名称。 */
     private String name;
 
@@ -41,6 +44,14 @@ public class GroupFolder {
 
     public void setTenantId(Long tenantId) {
         this.tenantId = tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getName() {

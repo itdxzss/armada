@@ -2,18 +2,46 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkLabelMapper">
 
+  <sql id="directScopeFilter">
+    <choose>
+      <when test="scope != null and scope.isSelf()">
+        AND owner_user_id = #{scope.actorUserId}
+      </when>
+      <when test="scope != null and scope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
+  <sql id="labelScopeFilter">
+    <choose>
+      <when test="dataScope != null and dataScope.isSelf()">
+        AND l.owner_user_id = #{dataScope.actorUserId}
+      </when>
+      <when test="dataScope != null and dataScope.isAll()"></when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+  </sql>
+
   <sql id="currentSuccessRows">
-    (SELECT COUNT(*) FROM group_link g WHERE g.label_id = l.id AND g.deleted_at IS NULL)
+    (SELECT COUNT(*) FROM group_link g
+      WHERE g.label_id = l.id
+        AND (g.owner_user_id = l.owner_user_id
+             OR (g.owner_user_id IS NULL AND l.owner_user_id IS NULL))
+        AND g.deleted_at IS NULL)
   </sql>
 
   <sql id="failedRowsByBatch">
     COALESCE((SELECT SUM(b.failed_rows) FROM group_link_import_batch b
-      WHERE b.label_id = l.id AND b.deleted_at IS NULL), 0)
+      WHERE b.label_id = l.id
+        AND (b.owner_user_id = l.owner_user_id
+             OR (b.owner_user_id IS NULL AND l.owner_user_id IS NULL))
+        AND b.deleted_at IS NULL), 0)
   </sql>
 
   <!-- 共享筛选片段:countPage 与 selectPage 复用,保证口径一致;tenant_id 由拦截器注入 -->
   <sql id="filter">
     l.deleted_at IS NULL
+    <include refid="labelScopeFilter"/>
     <if test="keyword != null and keyword != ''">
       AND (
         l.name LIKE CONCAT('%', #{keyword}, '%')
@@ -21,6 +49,8 @@
           SELECT 1
           FROM group_link_import_batch b
           WHERE b.label_id = l.id
+            AND (b.owner_user_id = l.owner_user_id
+                 OR (b.owner_user_id IS NULL AND l.owner_user_id IS NULL))
             AND b.deleted_at IS NULL
             AND (
               b.source_file_name LIKE CONCAT('%', #{keyword}, '%')
@@ -38,6 +68,8 @@
         SELECT 1
         FROM group_link_import_batch ib
         WHERE ib.label_id = l.id
+          AND (ib.owner_user_id = l.owner_user_id
+               OR (ib.owner_user_id IS NULL AND l.owner_user_id IS NULL))
           AND ib.deleted_at IS NULL
           <if test="importedFrom != null">AND ib.created_at &gt;= #{importedFrom}</if>
           <if test="importedTo != null">AND ib.created_at &lt;= #{importedTo}</if>
@@ -70,21 +102,30 @@
   </select>
 
   <select id="selectPage" resultType="com.armada.group.model.vo.GroupLinkLabelVoRow">
-    SELECT l.id, l.name, l.region, l.remark,
+    SELECT l.id, l.owner_user_id AS ownerUserId, l.name, l.region, l.remark,
            <include refid="currentSuccessRows"/> AS linkCount,
            (SELECT COUNT(*) FROM group_link_import_batch b
-             WHERE b.label_id = l.id AND b.deleted_at IS NULL) AS fileCount,
+             WHERE b.label_id = l.id
+               AND (b.owner_user_id = l.owner_user_id
+                    OR (b.owner_user_id IS NULL AND l.owner_user_id IS NULL))
+               AND b.deleted_at IS NULL) AS fileCount,
            (<include refid="currentSuccessRows"/> + <include refid="failedRowsByBatch"/>) AS totalRows,
            <include refid="currentSuccessRows"/> AS successRows,
            <include refid="failedRowsByBatch"/> AS failedRows,
            (SELECT b2.source_file_name
               FROM group_link_import_batch b2
-             WHERE b2.label_id = l.id AND b2.deleted_at IS NULL
+             WHERE b2.label_id = l.id
+               AND (b2.owner_user_id = l.owner_user_id
+                    OR (b2.owner_user_id IS NULL AND l.owner_user_id IS NULL))
+               AND b2.deleted_at IS NULL
              ORDER BY b2.created_at DESC, b2.id DESC
              LIMIT 1) AS latestSourceFile,
            (SELECT b2.created_at
               FROM group_link_import_batch b2
-             WHERE b2.label_id = l.id AND b2.deleted_at IS NULL
+             WHERE b2.label_id = l.id
+               AND (b2.owner_user_id = l.owner_user_id
+                    OR (b2.owner_user_id IS NULL AND l.owner_user_id IS NULL))
+               AND b2.deleted_at IS NULL
              ORDER BY b2.created_at DESC, b2.id DESC
              LIMIT 1) AS latestImportedAt,
            CASE
@@ -103,35 +144,69 @@
   </select>
 
   <select id="selectActiveByName" resultType="com.armada.group.model.entity.GroupLinkLabel">
-    SELECT * FROM group_link_label WHERE name = #{name} AND deleted_at IS NULL LIMIT 1
+    SELECT * FROM group_link_label
+    WHERE name = #{name}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+      AND deleted_at IS NULL
+    LIMIT 1
   </select>
 
   <select id="selectDeletedByName" resultType="com.armada.group.model.entity.GroupLinkLabel">
-    SELECT * FROM group_link_label WHERE name = #{name} AND deleted_at IS NOT NULL LIMIT 1
+    SELECT * FROM group_link_label
+    WHERE name = #{name}
+      <choose>
+        <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+        <otherwise>AND owner_user_id IS NULL</otherwise>
+      </choose>
+      AND deleted_at IS NOT NULL
+    ORDER BY id ASC
+    LIMIT 1
   </select>
 
   <select id="selectById" resultType="com.armada.group.model.entity.GroupLinkLabel">
     SELECT * FROM group_link_label WHERE id = #{id} AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+  </select>
+
+  <select id="selectActiveByIds" resultType="com.armada.group.model.entity.GroupLinkLabel">
+    SELECT * FROM group_link_label
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    ORDER BY id ASC
   </select>
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-    INSERT INTO group_link_label (name, region, remark, created_at, updated_at, created_by)
-    VALUES (#{name}, #{region}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
+    INSERT INTO group_link_label (
+      owner_user_id, name, region, remark, created_at, updated_at, created_by
+    ) VALUES (
+      #{ownerUserId}, #{name}, #{region}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy}
+    )
   </insert>
 
   <update id="reviveById">
-    UPDATE group_link_label SET deleted_at = NULL, updated_at = #{updatedAt} WHERE id = #{id}
+    UPDATE group_link_label
+    SET deleted_at = NULL, updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND owner_user_id = #{ownerUserId}
   </update>
 
   <update id="updateProfile">
     UPDATE group_link_label
-    SET name = #{name}, region = #{region}, remark = #{remark}, updated_at = #{updatedAt}
-    WHERE id = #{id} AND deleted_at IS NULL
+    SET name = #{row.name}, region = #{row.region}, remark = #{row.remark}, updated_at = #{row.updatedAt}
+    WHERE id = #{row.id} AND deleted_at IS NULL
+      <include refid="directScopeFilter"/>
   </update>
 
   <update id="softDeleteByIds">
     UPDATE group_link_label SET deleted_at = #{deletedAt}
-    WHERE deleted_at IS NULL AND id IN
+    WHERE deleted_at IS NULL
+      <include refid="directScopeFilter"/>
+      AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
   </update>
 

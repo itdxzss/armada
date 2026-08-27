@@ -5,7 +5,7 @@
 
     <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段 -->
     <sql id="Columns">
-        id, tenant_id, template_name, link_mode, text_type, image_file_id,
+        id, tenant_id, owner_user_id, template_name, link_mode, text_type, image_file_id,
         content, body_text, buttons, promotion_link, mention_all, remark,
         created_at, updated_at, created_by, deleted_at
     </sql>
@@ -14,6 +14,13 @@
     <sql id="FilterWhere">
         <where>
             deleted_at IS NULL
+            <choose>
+                <when test="q.dataScope != null and q.dataScope.isSelf()">
+                    AND owner_user_id = #{q.dataScope.actorUserId}
+                </when>
+                <when test="q.dataScope != null and q.dataScope.isAll()"></when>
+                <otherwise>AND 1 = 0</otherwise>
+            </choose>
             <if test="q.id != null">AND id = #{q.id}</if>
             <if test="q.keyword != null and q.keyword != ''">AND template_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
             <if test="q.textType != null and q.textType != ''">AND text_type = #{q.textType}</if>
@@ -41,6 +48,17 @@
         WHERE id = #{id} AND deleted_at IS NULL
     </select>
 
+    <select id="selectByIdForScope" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        WHERE id = #{id} AND deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
+    </select>
+
     <select id="selectByIds" resultType="com.armada.marketing.model.entity.MarketingTemplate">
         SELECT <include refid="Columns"/>
         FROM marketing_template
@@ -48,17 +66,34 @@
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
     </select>
 
+    <select id="selectByIdsForScope" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
+        FROM marketing_template
+        WHERE deleted_at IS NULL AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
+    </select>
+
     <!-- 创建任务先锁定素材事实源，保证并发删除必须等任务创建事务结束后再处理关联任务 -->
     <select id="selectByIdForUpdate" resultType="com.armada.marketing.model.entity.MarketingTemplate">
         SELECT <include refid="Columns"/>
         FROM marketing_template
         WHERE id = #{id} AND deleted_at IS NULL
+        <choose>
+            <when test="scope != null and scope.isSelf()">AND owner_user_id = #{scope.actorUserId}</when>
+            <when test="scope != null and scope.isAll()"></when>
+            <otherwise>AND 1 = 0</otherwise>
+        </choose>
         FOR UPDATE
     </select>
 
     <!-- 显式限定租户并绕过自动改写，防止 JSqlParser 把 ORDER BY 移到 FOR UPDATE 之后。 -->
-    <select id="selectExistingIdsForUpdate" resultType="long">
-        SELECT id
+    <select id="selectExistingForUpdate" resultType="com.armada.marketing.model.entity.MarketingTemplate">
+        SELECT <include refid="Columns"/>
         FROM marketing_template
         WHERE tenant_id = #{tenantId}
           AND deleted_at IS NULL
@@ -68,10 +103,14 @@
         FOR UPDATE
     </select>
 
-    <select id="existsByName" resultType="boolean">
+    <select id="existsByNameForOwner" resultType="boolean">
         SELECT EXISTS(
             SELECT 1 FROM marketing_template
             WHERE template_name = #{name} AND deleted_at IS NULL
+            <choose>
+                <when test="ownerUserId != null">AND owner_user_id = #{ownerUserId}</when>
+                <otherwise>AND owner_user_id IS NULL</otherwise>
+            </choose>
             <if test="excludeId != null">AND id != #{excludeId}</if>
         )
     </select>
@@ -79,10 +118,10 @@
     <insert id="insert" parameterType="com.armada.marketing.model.entity.MarketingTemplate"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_template
-            (template_name, link_mode, text_type, image_file_id, content, body_text,
+            (owner_user_id, template_name, link_mode, text_type, image_file_id, content, body_text,
              buttons, promotion_link, mention_all, remark, created_at, updated_at, created_by)
         VALUES
-            (#{templateName}, #{linkMode}, #{textType}, #{imageFileId}, #{content}, #{bodyText},
+            (#{ownerUserId}, #{templateName}, #{linkMode}, #{textType}, #{imageFileId}, #{content}, #{bodyText},
              #{buttons}, #{promotionLink}, #{mentionAll}, #{remark}, #{createdAt}, #{updatedAt}, #{createdBy})
     </insert>
 

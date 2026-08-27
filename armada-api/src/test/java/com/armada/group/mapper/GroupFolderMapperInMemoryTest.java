@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -43,9 +45,12 @@ class GroupFolderMapperInMemoryTest {
     @Autowired
     private GroupFolderMapper mapper;
 
+    private DataScope scope;
+
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        scope = DataScope.self(501L);
         resetSchema();
     }
 
@@ -68,7 +73,7 @@ class GroupFolderMapperInMemoryTest {
         insertLink(5L, 7L, folder.getId(), "chat.whatsapp.com/DELETED", 900L);
         insertHealth(5L, 7L, 5L, 1, 0);
 
-        GroupFolderQuery query = new GroupFolderQuery();
+        GroupFolderQuery query = query();
         List<GroupFolderVO> rows = mapper.selectPage(query);
 
         assertThat(mapper.countPage(query)).isEqualTo(1);
@@ -76,7 +81,7 @@ class GroupFolderMapperInMemoryTest {
             assertThat(row.name()).isEqualTo("印度组");
             assertThat(row.groupCount()).isEqualTo(1);
         });
-        assertThat(mapper.selectUsableLinks(folder.getId()))
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L))
                 .containsExactly("chat.whatsapp.com/AVAILABLE");
     }
 
@@ -88,11 +93,11 @@ class GroupFolderMapperInMemoryTest {
         insertHealth(1L, 7L, 1L, 1, 0);
         execute("UPDATE group_link_health SET health_status = 2 WHERE group_link_id = 1");
 
-        GroupFolderQuery query = new GroupFolderQuery();
+        GroupFolderQuery query = query();
 
         assertThat(mapper.selectPage(query)).singleElement()
                 .satisfies(row -> assertThat(row.groupCount()).isEqualTo(1));
-        assertThat(mapper.selectUsableLinks(folder.getId()))
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L))
                 .containsExactly("chat.whatsapp.com/CURRENT");
     }
 
@@ -104,9 +109,9 @@ class GroupFolderMapperInMemoryTest {
         insertPreview(1L, 7L, 1L, "AbCdEfGhIjKlMnOpQrStUv");
         insertHealth(1L, 7L, 1L, 1, 0);
 
-        GroupFolderQuery query = new GroupFolderQuery();
+        GroupFolderQuery query = query();
 
-        assertThat(mapper.selectUsableLinks(folder.getId()))
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L))
                 .containsExactly("chat.whatsapp.com/AbCdEfGhIjKlMnOpQrStUv");
         assertThat(mapper.selectPage(query)).singleElement()
                 .satisfies(row -> assertThat(row.groupCount()).isEqualTo(1));
@@ -120,7 +125,7 @@ class GroupFolderMapperInMemoryTest {
         insertPreview(1L, 7L, 1L, "CurrentInviteCode0001");
         insertHealth(1L, 7L, 1L, 1, 0);
 
-        assertThat(mapper.selectUsableResources(folder.getId())).singleElement()
+        assertThat(mapper.selectUsableResources(folder.getId(), 501L)).singleElement()
                 .satisfies(resource -> {
                     assertThat(resource.groupLinkId()).isEqualTo(1L);
                     assertThat(resource.groupJid()).isEqualTo("120363001@g.us");
@@ -128,8 +133,8 @@ class GroupFolderMapperInMemoryTest {
                             .isEqualTo("chat.whatsapp.com/CurrentInviteCode0001");
                     assertThat(resource.inviteCode()).isEqualTo("CurrentInviteCode0001");
                 });
-        assertThat(mapper.selectUsableResourceForUpdate(folder.getId(), 1L))
-                .isEqualTo(mapper.selectUsableResources(folder.getId()).get(0));
+        assertThat(mapper.selectUsableResourceForUpdate(folder.getId(), 1L, 501L))
+                .isEqualTo(mapper.selectUsableResources(folder.getId(), 501L).get(0));
     }
 
     @Test
@@ -141,7 +146,7 @@ class GroupFolderMapperInMemoryTest {
         insertPreview(1L, 7L, 1L, "CurrentInviteCode0002");
         insertHealth(1L, 7L, 1L, 1, 0);
 
-        assertThat(mapper.selectUsableLinks(folder.getId()))
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L))
                 .containsExactly("chat.whatsapp.com/CurrentInviteCode0002");
     }
 
@@ -153,9 +158,9 @@ class GroupFolderMapperInMemoryTest {
         insertPreview(1L, 7L, 1L, null);
         insertHealth(1L, 7L, 1L, 1, 0);
 
-        GroupFolderQuery query = new GroupFolderQuery();
+        GroupFolderQuery query = query();
 
-        assertThat(mapper.selectUsableLinks(folder.getId())).isEmpty();
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L)).isEmpty();
         assertThat(mapper.selectPage(query)).singleElement()
                 .satisfies(row -> assertThat(row.groupCount()).isZero());
     }
@@ -167,13 +172,13 @@ class GroupFolderMapperInMemoryTest {
         insertLink(1L, 7L, folder.getId(), "chat.whatsapp.com/ONE", null);
         insertLink(2L, 7L, folder.getId(), "chat.whatsapp.com/TWO", null);
 
-        assertThat(mapper.softDeleteByIds(List.of(folder.getId()), 500L)).isEqualTo(1);
+        assertThat(mapper.softDeleteByIds(List.of(folder.getId()), scope, 500L)).isEqualTo(1);
 
         assertThat(count("SELECT COUNT(*) FROM group_link WHERE deleted_at IS NULL"))
                 .isEqualTo(2);
         assertThat(count("SELECT COUNT(*) FROM group_link WHERE folder_id = " + folder.getId()))
                 .isEqualTo(2);
-        assertThat(mapper.selectById(folder.getId())).isNull();
+        assertThat(mapper.selectById(folder.getId(), scope)).isNull();
     }
 
     @Test
@@ -184,9 +189,9 @@ class GroupFolderMapperInMemoryTest {
         insertHealth(1L, 7L, 1L, 1, 0);
 
         TenantContext.set(8L);
-        assertThat(mapper.selectById(folder.getId())).isNull();
-        assertThat(mapper.selectUsableLinks(folder.getId())).isEmpty();
-        assertThat(mapper.softDeleteByIds(List.of(folder.getId()), 500L)).isZero();
+        assertThat(mapper.selectById(folder.getId(), scope)).isNull();
+        assertThat(mapper.selectUsableLinks(folder.getId(), 501L)).isEmpty();
+        assertThat(mapper.softDeleteByIds(List.of(folder.getId()), scope, 500L)).isZero();
     }
 
     @Test
@@ -194,17 +199,54 @@ class GroupFolderMapperInMemoryTest {
         GroupFolder custom = folder("今日待拉群", 100L);
         mapper.insert(custom);
         execute("INSERT INTO group_folder "
-                + "(tenant_id, name, system_builtin, created_at, updated_at) "
-                + "VALUES (7, '已使用群组', 1, 100, 100)");
+                + "(tenant_id, owner_user_id, name, system_builtin, created_at, updated_at) "
+                + "VALUES (7, 501, '已使用群组', 1, 100, 100)");
 
-        assertThat(mapper.selectOptions())
+        assertThat(mapper.selectOptions(scope))
                 .containsExactly(new com.armada.group.model.vo.GroupFolderOptionVO(
-                        custom.getId(), "今日待拉群"));
+                        custom.getId(), 501L, "今日待拉群"));
+    }
+
+    @Test
+    void userScopeSeesOnlyOwnFoldersWhileAdminSeesOwnedAndHistoricalRows()
+            throws SQLException {
+        execute("INSERT INTO group_folder "
+                + "(id, tenant_id, owner_user_id, name, created_at, updated_at) VALUES "
+                + "(101, 7, 501, '同名组', 100, 100), "
+                + "(102, 7, 502, '同名组', 101, 101), "
+                + "(103, 7, NULL, '历史组', 102, 102), "
+                + "(201, 8, 501, '跨租户组', 103, 103)");
+
+        GroupFolderQuery selfQuery = query();
+        assertThat(mapper.countPage(selfQuery)).isEqualTo(1);
+        assertThat(mapper.selectPage(selfQuery))
+                .extracting(GroupFolderVO::id)
+                .containsExactly(101L);
+        assertThat(mapper.selectOptions(scope))
+                .extracting(GroupFolderOptionVO::id)
+                .containsExactly(101L);
+
+        GroupFolderQuery adminQuery = new GroupFolderQuery();
+        adminQuery.applyDataScope(DataScope.all(9001L));
+        assertThat(mapper.countPage(adminQuery)).isEqualTo(3);
+        assertThat(mapper.selectPage(adminQuery))
+                .extracting(GroupFolderVO::id)
+                .containsExactly(103L, 102L, 101L);
+    }
+
+    @Test
+    void missingOrSystemScopeFailsClosed() {
+        GroupFolderQuery missingScope = new GroupFolderQuery();
+        assertThat(mapper.countPage(missingScope)).isZero();
+        assertThat(mapper.selectPage(missingScope)).isEmpty();
+        assertThat(mapper.selectOptions(DataScope.system("folder-job"))).isEmpty();
+        assertThat(mapper.selectById(1L, null)).isNull();
     }
 
     private GroupFolder folder(String name, long now) {
         GroupFolder row = new GroupFolder();
         row.setName(name);
+        row.setOwnerUserId(501L);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         row.setCreatedBy(501L);
@@ -217,19 +259,21 @@ class GroupFolderMapperInMemoryTest {
                 CREATE TABLE group_folder (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     name VARCHAR(100) NOT NULL,
                     system_builtin TINYINT NOT NULL DEFAULT 0,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT NOT NULL,
                     created_by BIGINT,
                     deleted_at BIGINT,
-                    CONSTRAINT uq_group_folder_name UNIQUE (tenant_id, name)
+                    CONSTRAINT uq_group_folder_name UNIQUE (tenant_id, owner_user_id, name)
                 )
                 """);
         execute("""
                 CREATE TABLE group_link (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
+                    owner_user_id BIGINT,
                     group_id BIGINT,
                     group_invite_id BIGINT,
                     link_url VARCHAR(255) NOT NULL,
@@ -298,9 +342,9 @@ class GroupFolderMapperInMemoryTest {
         Long groupId = internalGroup ? id : null;
         Long inviteId = internalGroup ? null : id;
         execute("INSERT INTO group_link "
-                + "(id, tenant_id, group_id, group_invite_id, link_url, folder_id, updated_at, "
+                + "(id, tenant_id, owner_user_id, group_id, group_invite_id, link_url, folder_id, updated_at, "
                 + "deleted_at) VALUES ("
-                + id + ", " + tenantId + ", " + sqlLong(groupId) + ", " + sqlLong(inviteId)
+                + id + ", " + tenantId + ", 501, " + sqlLong(groupId) + ", " + sqlLong(inviteId)
                 + ", '" + link + "', " + folderId + ", 100, "
                 + (deletedAt == null ? "NULL" : deletedAt) + ")");
         if (internalGroup) {
@@ -351,6 +395,12 @@ class GroupFolderMapperInMemoryTest {
 
     private String sqlLong(Long value) {
         return value == null ? "NULL" : value.toString();
+    }
+
+    private GroupFolderQuery query() {
+        GroupFolderQuery query = new GroupFolderQuery();
+        query.applyDataScope(scope);
+        return query;
     }
 
     private long count(String sql) throws SQLException {

@@ -11,6 +11,9 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -66,12 +69,14 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.all(501L));
         PullTaskNormalLinkH2Support.resetSchemaWithProtocolOutbox(dataSource,
                 task(1L, 7L, "EXECUTING"),
                 task(2L, 7L, "EXECUTING"),
                 task(3L, 7L, "COMPLETED"),
                 task(4L, 8L, "EXECUTING"),
                 task(5L, 7L, "PAUSED"),
+                unownedTask(6L, 7L, "EXECUTING"),
                 execution(11L, 7L, 1L, 1, 2, 4, 0),
                 execution(12L, 7L, 1L, 2, 3, 5, 0),
                 execution(13L, 7L, 1L, 3, 4, 7, 0),
@@ -79,6 +84,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 execution(31L, 7L, 3L, 1, 4, 7, 0),
                 execution(41L, 8L, 4L, 1, 2, 5, 0),
                 execution(51L, 7L, 5L, 1, 2, 5, 1),
+                execution(61L, 7L, 6L, 1, 2, 5, 1),
                 puller(101L, 7L, 1L, 11L, 501L, null),
                 puller(102L, 7L, 1L, 12L, 502L, null),
                 puller(201L, 7L, 2L, 21L, 601L, 700L));
@@ -90,6 +96,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -118,6 +125,16 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(intColumn("manual_paused", "pull_task_group_execution", 21L)).isZero();
         assertThat(longColumn("released_at", "pull_task_group_account", 201L)).isEqualTo(700L);
         verify(dispatchTrigger).dispatchAfterCommit();
+    }
+
+    @Test
+    void administratorCannotResumeHistoricalUnownedExecution() {
+        assertThatThrownBy(() -> lifecycleService.resume(6L, 61L))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(ErrorCode.ACCESS_DENIED.code()));
+
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 61L)).isEqualTo(1);
+        verify(dispatchTrigger, org.mockito.Mockito.never()).dispatchAfterCommit();
     }
 
     @Test
@@ -171,6 +188,8 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         insertEndFacts();
         execute("UPDATE pull_task_group_execution SET group_link_id = 9011 WHERE id = 41");
         TenantContext.set(99L);
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.self(501L));
 
         banTerminationService.terminateBannedGroup(7L, 9011L);
 
@@ -212,6 +231,8 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
     @Test
     void repeatedGroupBanIsIdempotentAndKeepsTxtWaitingForAnotherGroup() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.self(501L));
         banTerminationService.terminateBannedGroup(7L, 9021L);
         int version = intColumn("version", "pull_task_group_execution", 21L);
         banTerminationService.terminateBannedGroup(7L, 9021L);
@@ -231,6 +252,8 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
     @Test
     void groupBanFailsLastPausedExecutionButKeepsParentPaused() {
+        DataScopeContext.clear();
+        DataScopeContext.open(DataScope.self(501L));
         banTerminationService.terminateBannedGroup(7L, 9051L);
 
         assertThat(intColumn("execution_status", "pull_task_group_execution", 51L)).isEqualTo(5);
@@ -318,9 +341,17 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
     private static String task(long id, long tenantId, String status) {
         return "INSERT INTO pull_task "
-                + "(id, tenant_id, task_type, task_name, mode, status, version, "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
                 + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
-                + ", 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + ", 501, 'STANDARD', 'task', 'NORMAL_LINK', '" + status
+                + "', 1, '{}', 100, 100)";
+    }
+
+    private static String unownedTask(long id, long tenantId, String status) {
+        return "INSERT INTO pull_task "
+                + "(id, tenant_id, owner_user_id, task_type, task_name, mode, status, version, "
+                + "config_json, created_at, updated_at) VALUES (" + id + ", " + tenantId
+                + ", NULL, 'STANDARD', 'historical-task', 'NORMAL_LINK', '" + status
                 + "', 1, '{}', 100, 100)";
     }
 

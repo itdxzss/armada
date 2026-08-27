@@ -244,24 +244,25 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
 
     private Long insertAccountGroup(String name, long now) {
         return insertReturningId("""
-                INSERT INTO account_group (tenant_id, name, remark, system_builtin, created_at, updated_at)
-                VALUES (?, ?, NULL, 0, ?, ?)
+                INSERT INTO account_group
+                    (tenant_id, owner_user_id, name, remark, system_builtin, created_at, updated_at)
+                VALUES (?, 1, ?, NULL, 0, ?, ?)
                 """, TEST_TENANT_ID, name, now, now);
     }
 
     private Long insertTemplate(String name, long now) {
         return insertReturningId("""
                 INSERT INTO marketing_template
-                    (tenant_id, template_name, link_mode, text_type, content, body_text, created_at, updated_at)
-                VALUES (?, ?, 1, 'text', 'content', 'body', ?, ?)
+                    (tenant_id, owner_user_id, template_name, link_mode, text_type, content, body_text, created_at, updated_at)
+                VALUES (?, 1, ?, 1, 'text', 'content', 'body', ?, ?)
                 """, TEST_TENANT_ID, name, now, now);
     }
 
     private Long insertAccount(Long groupId, String phone, String protocolAccountId, long now) {
         return insertReturningId("""
                 INSERT INTO account
-                    (tenant_id, ws_phone, account_type, ownership, account_group_id, protocol_account_id, created_at, updated_at)
-                VALUES (?, ?, 1, 1, ?, ?, ?, ?)
+                    (tenant_id, owner_user_id, ws_phone, account_type, ownership, account_group_id, protocol_account_id, created_at, updated_at)
+                VALUES (?, 1, ?, 1, 1, ?, ?, ?, ?)
                 """, TEST_TENANT_ID, phone, groupId, protocolAccountId, now, now);
     }
 
@@ -309,12 +310,12 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
     private Long insertExportTask(String name, int matchedItemCount, long now) {
         return insertReturningId("""
                 INSERT INTO group_creation_marketing_task
-                    (tenant_id, task_name, account_group_id, account_group_name,
+                    (tenant_id, owner_user_id, task_name, account_group_id, account_group_name,
                      marketing_template_id, marketing_template_name, status,
                      matched_item_count, unmatched_file_count, success_count,
                      failed_count, abandoned_count, send_interval_seconds,
                      created_at, updated_at)
-                VALUES (?, ?, 1, 'A组', 1, '模板', 3, ?, 0, ?, 0, 0, 30, ?, ?)
+                VALUES (?, 1, ?, 1, 'A组', 1, '模板', 3, ?, 0, ?, 0, 0, 30, ?, ?)
                 """, TEST_TENANT_ID, name, matchedItemCount, matchedItemCount, now, now);
     }
 

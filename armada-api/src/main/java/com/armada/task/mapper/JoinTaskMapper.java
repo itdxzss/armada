@@ -2,6 +2,7 @@ package com.armada.task.mapper;
 
 import com.armada.task.model.dto.JoinTaskFilter;
 import com.armada.task.model.entity.JoinTask;
+import com.armada.shared.security.DataScope;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -32,6 +33,14 @@ public interface JoinTaskMapper {
      */
     JoinTask selectByTenantAndId(@Param("id") Long id);
 
+    /** 用户请求按 ID 查询任务；缺失或 SYSTEM 范围时不返回数据。 */
+    JoinTask selectByTenantAndIdForScope(@Param("id") Long id,
+                                         @Param("scope") DataScope scope);
+
+    /** 用户批量操作按 owner 范围读取任务根，用于整批授权校验。 */
+    List<JoinTask> selectByIdsForScope(@Param("ids") List<Long> ids,
+                                       @Param("scope") DataScope scope);
+
     /**
      * 按筛选条件统计当前租户下符合条件的任务总数，用于分页 total。
      *
@@ -57,7 +66,7 @@ public interface JoinTaskMapper {
      *
      * @return 去重后的间隔标签列表，按字母升序
      */
-    List<String> selectDistinctIntervals();
+    List<String> selectDistinctIntervals(@Param("scope") DataScope scope);
 
     /**
      * 覆盖更新任务配置列和计数器（{@code total/pending}），仅更新未软删行。

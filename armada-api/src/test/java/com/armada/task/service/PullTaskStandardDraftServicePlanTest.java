@@ -9,6 +9,8 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupFolderService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -78,12 +80,14 @@ class PullTaskStandardDraftServicePlanTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
+        DataScopeContext.open(DataScope.self(CREATOR));
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         org.mockito.Mockito.reset(groupFolderService);
     }
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -224,8 +228,11 @@ class PullTaskStandardDraftServicePlanTest {
                 List.of(txt("a.txt", "8613800138001\n")), CREATOR, OPERATOR);
         executionMapper.freezeDraftRows(service.current(CREATOR).draftTaskId(), 900L);
 
-        PullTaskStandardDraftVO view = linkPlan(null, LINK_A + "\n" + LINK_C,
-                List.of(txt("c.txt", "8613800138003\n")), 602L, "运营乙");
+        PullTaskStandardDraftVO view;
+        try (var ignored = DataScopeContext.open(DataScope.self(602L))) {
+            view = linkPlan(null, LINK_A + "\n" + LINK_C,
+                    List.of(txt("c.txt", "8613800138003\n")), 602L, "运营乙");
+        }
 
         assertThat(view.linkLines()).extracting(PullTaskStandardLinkLineVO::status)
                 .containsExactly(PullTaskStandardLinkLineStatus.OCCUPIED,

@@ -25,6 +25,9 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
+import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -278,7 +281,11 @@ class MarketingTaskWhatsAppMemberProviderTest {
         when(memberCacheService.findByGroupJids(7L, List.of("120363-test@g.us")))
                 .thenReturn(Map.of("120363-test@g.us", persisted));
         when(accountLookupService.findActiveProtocolRefs(List.of(10L))).thenReturn(List.of(account));
-        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenReturn(metadata);
+        when(metadataPort.getMetadata(account, "120363-test@g.us")).thenAnswer(ignored -> {
+            assertThat(TenantContext.get()).isEqualTo(7L);
+            assertThat(DataScopeContext.requireCurrent()).isEqualTo(DataScope.self(81L));
+            return metadata;
+        });
         when(memberCacheService.replaceCompleteSnapshot(
                 7L, 10L, "120363-test@g.us", metadata, 1_000L)).thenReturn(fresh);
         when(departedMemberService.findByGroupJids(7L, List.of("120363-test@g.us")))
@@ -545,6 +552,6 @@ class MarketingTaskWhatsAppMemberProviderTest {
     private static MarketingTaskWhatsAppMemberProvider.ExportRequest request(
             CountryService.PhonePrefixResolver countries) {
         return new MarketingTaskWhatsAppMemberProvider.ExportRequest(
-                7L, List.of(179L), 1_000L, countries, () -> { });
+                7L, List.of(179L), 1_000L, countries, DataScope.self(81L), () -> { });
     }
 }

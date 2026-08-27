@@ -17,6 +17,7 @@ import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -111,7 +112,8 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
             return GroupClassificationPlan.empty();
         }
         Map<Long, GroupLink> activeLinks = groupLinkMapper.selectActiveByIds(
-                        List.copyOf(byGroupLinkId.keySet())).stream()
+                        List.copyOf(byGroupLinkId.keySet()),
+                        DataScopeAccess.requireCurrent()).stream()
                 .collect(Collectors.toMap(
                         GroupLink::getId,
                         Function.identity(),
@@ -128,7 +130,8 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
             return new GroupClassificationPlan(desired, Map.of());
         }
         Map<Long, GroupLink> lockedLinks = groupLinkMapper.selectActiveByIdsForUpdate(
-                        List.copyOf(classificationsToPersist.keySet())).stream()
+                        List.copyOf(classificationsToPersist.keySet()),
+                        DataScopeAccess.requireCurrent()).stream()
                 .collect(Collectors.toMap(
                         GroupLink::getId,
                         Function.identity(),
@@ -148,7 +151,8 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
             }
         });
         int affected = groupLinkMapper.markClassifications(
-                historicalToPersist, postControlToPersist, now);
+                historicalToPersist, postControlToPersist,
+                DataScopeAccess.requireCurrent(), now);
         if (affected != lockedClassifications.size()) {
             throw new BusinessException(ErrorCode.CONFLICT, "群分类批量提升结果不完整");
         }
@@ -256,14 +260,16 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
     }
 
     private void markAndEnqueueHistorical(Long groupLinkId, long now) {
-        if (groupLinkMapper.markHistorical(groupLinkId, now) == 1) {
+        if (groupLinkMapper.markHistorical(
+                groupLinkId, DataScopeAccess.requireCurrent(), now) == 1) {
             metadataSyncTaskService.enqueue(
                     groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, now);
         }
     }
 
     private void markAndEnqueuePostControl(Long groupLinkId, long now) {
-        if (groupLinkMapper.markPostControl(groupLinkId, now) == 1) {
+        if (groupLinkMapper.markPostControl(
+                groupLinkId, DataScopeAccess.requireCurrent(), now) == 1) {
             metadataSyncTaskService.enqueue(
                     groupLinkId, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED, now);
         }

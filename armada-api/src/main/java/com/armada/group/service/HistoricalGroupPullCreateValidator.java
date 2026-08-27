@@ -1,10 +1,13 @@
 package com.armada.group.service;
 
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.service.AccountGroupService;
 import com.armada.group.model.dto.HistoricalGroupPullCreateDTO;
 import com.armada.group.model.vo.HistoricalGroupDetailVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
+import java.util.Arrays;
 import org.springframework.stereotype.Component;
 
 /** 历史群拉人创建前的租户资源与服务端邀请链接硬门禁。 */
@@ -39,10 +42,37 @@ public class HistoricalGroupPullCreateValidator {
      * @return 含 fresh 群名和邀请链接的实时详情
      * @throws BusinessException 参数、账号组、历史群范围或邀请链接不合法时抛出
      */
-    public HistoricalGroupDetailVO validateAndLoadFreshDetail(HistoricalGroupPullCreateDTO request) {
+    public HistoricalGroupDetailVO validateForCreateAndLoadFreshDetail(
+            HistoricalGroupPullCreateDTO request) {
+        return validateAndLoadFreshDetail(request, null, true);
+    }
+
+    /** 启动既有执行时校验其持久化 owner 与两个账号分组归属一致。 */
+    public HistoricalGroupDetailVO validateExistingAndLoadFreshDetail(
+            HistoricalGroupPullCreateDTO request,
+            Long executionOwnerUserId) {
+        return validateAndLoadFreshDetail(request, executionOwnerUserId, false);
+    }
+
+    private HistoricalGroupDetailVO validateAndLoadFreshDetail(
+            HistoricalGroupPullCreateDTO request,
+            Long executionOwnerUserId,
+            boolean creating) {
         validateFields(request);
-        accountGroupService.requireExisting(request.sourceAccountGroupId());
-        accountGroupService.requireExisting(request.pullerAccountGroupId());
+        AccountGroup sourceGroup = accountGroupService.requireExisting(request.sourceAccountGroupId());
+        AccountGroup pullerGroup = accountGroupService.requireExisting(request.pullerAccountGroupId());
+        DataScopeAccess.requireSameOwner(
+                creating
+                        ? Arrays.asList(sourceGroup.getOwnerUserId(), pullerGroup.getOwnerUserId())
+                        : Arrays.asList(sourceGroup.getOwnerUserId(), pullerGroup.getOwnerUserId(),
+                                executionOwnerUserId),
+                "历史群拉人任务账号分组");
+        if (creating) {
+            DataScopeAccess.requireOwnedByActorForCreate(
+                    DataScopeAccess.requireCurrent(),
+                    Arrays.asList(sourceGroup.getOwnerUserId(), pullerGroup.getOwnerUserId()),
+                    "历史群拉人任务账号分组");
+        }
         HistoricalGroupDetailVO detail = historicalGroupService.getHistoricalGroupDetail(
                 request.sourceAccountGroupId(), request.groupJid().trim());
         if (!detail.linkAvailable() || !hasText(detail.inviteUrl())) {

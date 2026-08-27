@@ -20,6 +20,8 @@ import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.model.result.GroupParticipantBatchResult;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -114,7 +116,21 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         Long previousTenantId = TenantContext.get();
         try {
             TenantContext.set(tenantId);
-            executeInTenant(tenantId, executionId);
+            HistoricalGroupPullExecution execution =
+                    executionMapper.selectByTenantAndId(tenantId, executionId);
+            if (execution == null
+                    || execution.getPullStatus() != HistoricalGroupPullStatus.RUNNING.code()) {
+                log.info("历史群拉人 worker 跳过非运行执行 executionId={}", executionId);
+                return;
+            }
+            if (execution.getOwnerUserId() == null) {
+                failUnownedExecution(executionId);
+                return;
+            }
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(execution.getOwnerUserId()))) {
+                executeInTenant(execution);
+            }
         } finally {
             restoreTenant(previousTenantId);
         }
@@ -125,15 +141,10 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
      *
      * <p>只有运行中的执行可以继续；拉手选择和进群属于前置步骤，失败时会统一终结全部未完成成员。</p>
      *
-     * @param tenantId 执行所属租户 ID
-     * @param executionId 已认领的执行 ID
+     * @param execution 已按租户读取并验证归属的运行中执行
      */
-    private void executeInTenant(Long tenantId, Long executionId) {
-        HistoricalGroupPullExecution execution = executionMapper.selectByTenantAndId(tenantId, executionId);
-        if (execution == null || execution.getPullStatus() != HistoricalGroupPullStatus.RUNNING.code()) {
-            log.info("历史群拉人 worker 跳过非运行执行 executionId={}", executionId);
-            return;
-        }
+    private void executeInTenant(HistoricalGroupPullExecution execution) {
+        Long executionId = execution.getId();
         List<HistoricalGroupPullMember> members = memberMapper.selectOrderedByExecutionId(executionId);
         Optional<ProtocolAccountRef> selected =
                 accountLookupService.findRandomOnlineNormalWebByGroupId(execution.getPullerAccountGroupId());
@@ -168,6 +179,21 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
         processContacts(puller, members);
         processAddBatches(execution, puller, members);
         finalizer.finish(executionId, null, null, null);
+    }
+
+    /** 历史 NULL owner 不能被后台线程解释为任意用户范围。 */
+    private void failUnownedExecution(Long executionId) {
+        long now = System.currentTimeMillis();
+        HistoricalGroupPullExecution terminal = new HistoricalGroupPullExecution();
+        terminal.setId(executionId);
+        terminal.setPullStatus(HistoricalGroupPullStatus.FAILED.code());
+        terminal.setFailureStage("DATA_SCOPE");
+        terminal.setErrorCode("OWNER_USER_MISSING");
+        terminal.setErrorMessage("历史无归属执行不能访问用户私有资源，请重新创建执行");
+        terminal.setFinishedAt(now);
+        terminal.setUpdatedAt(now);
+        executionMapper.finishIfRunning(
+                terminal, HistoricalGroupPullStatus.RUNNING.code());
     }
 
     /**

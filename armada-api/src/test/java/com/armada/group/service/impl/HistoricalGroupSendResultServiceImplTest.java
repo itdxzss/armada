@@ -17,6 +17,7 @@ import com.armada.group.model.enums.HistoricalGroupMaterialType;
 import com.armada.group.model.enums.HistoricalGroupMemberSendStatus;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -53,6 +54,7 @@ class HistoricalGroupSendResultServiceImplTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        DataScopeContext.clear();
     }
 
     @Test
@@ -75,7 +77,10 @@ class HistoricalGroupSendResultServiceImplTest {
         HistoricalGroupPullMember failed = member(MEMBER_ID, HistoricalGroupMemberSendStatus.FAILED);
         when(executionMapper.selectByTenantAndIdForUpdate(TENANT_ID, EXECUTION_ID)).thenReturn(execution);
         when(memberMapper.selectByTenantAndId(TENANT_ID, MEMBER_ID)).thenReturn(target);
-        when(memberMapper.updateSendResultIfSending(any(), anyInt())).thenReturn(1);
+        when(memberMapper.updateSendResultIfSending(any(), anyInt())).thenAnswer(invocation -> {
+            assertThat(DataScopeContext.requireCurrent().actorUserId()).isEqualTo(17L);
+            return 1;
+        });
         when(memberMapper.selectOrderedByExecutionId(EXECUTION_ID)).thenReturn(List.of(succeeded, failed));
 
         service.handleSendResultReported(event(false, "evt-failure", COMMAND_ID));
@@ -99,6 +104,7 @@ class HistoricalGroupSendResultServiceImplTest {
         assertThat(terminal.getValue().getSendSuccessCount()).isEqualTo(1);
         assertThat(terminal.getValue().getSendFailureCount()).isEqualTo(1);
         assertThat(TenantContext.get()).isEqualTo(99L);
+        assertThat(DataScopeContext.current()).isEmpty();
     }
 
     @Test
@@ -161,10 +167,24 @@ class HistoricalGroupSendResultServiceImplTest {
         assertThat(TenantContext.get()).isEqualTo(99L);
     }
 
+    @Test
+    void ignoresResultForHistoricalOwnerlessExecution() {
+        HistoricalGroupPullExecution execution = execution();
+        execution.setOwnerUserId(null);
+        when(executionMapper.selectByTenantAndIdForUpdate(TENANT_ID, EXECUTION_ID)).thenReturn(execution);
+
+        service.handleSendResultReported(event(true, "evt-ownerless", COMMAND_ID));
+
+        verify(memberMapper, never()).selectByTenantAndId(TENANT_ID, MEMBER_ID);
+        verify(memberMapper, never()).updateSendResultIfSending(any(), anyInt());
+        assertThat(DataScopeContext.current()).isEmpty();
+    }
+
     private static HistoricalGroupPullExecution execution() {
         HistoricalGroupPullExecution row = new HistoricalGroupPullExecution();
         row.setId(EXECUTION_ID);
         row.setTenantId(TENANT_ID);
+        row.setOwnerUserId(17L);
         row.setGroupJid("120363history@g.us");
         row.setMarketingStatus(HistoricalGroupMarketingStatus.SENDING.code());
         return row;

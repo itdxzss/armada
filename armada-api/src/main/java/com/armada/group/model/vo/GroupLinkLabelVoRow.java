@@ -8,6 +8,7 @@ package com.armada.group.model.vo;
 public class GroupLinkLabelVoRow {
 
     private Long id;
+    private Long ownerUserId;
     private String name;
     private String region;
     private String remark;
@@ -28,6 +29,14 @@ public class GroupLinkLabelVoRow {
 
     public void setId(Long id) {
         this.id = id;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public String getName() {

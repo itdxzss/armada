@@ -3,6 +3,8 @@ package com.armada.marketing.service.impl;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountService;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.marketing.mapper.MarketingTaskMapper;
 import com.armada.marketing.model.vo.MarketingAccountTreeAccountRow;
@@ -40,16 +42,26 @@ public class MarketingAccountTreeRealtimeService {
     private final MarketingTaskMapper taskMapper;
     private final MarketingAccountOccupancyService occupancyService;
 
+    /** 账号与分组跨域访问门禁。 */
+    private final AccountService accountService;
+    private final AccountGroupService accountGroupService;
+
     /**
      * 创建营销账号树查库服务。
      *
      * @param taskMapper       营销任务 mapper,用于查询账号和账号当前群候选
      * @param occupancyService 普通营销账号占用服务
+     * @param accountService 账号数据范围校验服务
+     * @param accountGroupService 账号分组数据范围校验服务
      */
     public MarketingAccountTreeRealtimeService(MarketingTaskMapper taskMapper,
-                                               MarketingAccountOccupancyService occupancyService) {
+                                               MarketingAccountOccupancyService occupancyService,
+                                               AccountService accountService,
+                                               AccountGroupService accountGroupService) {
         this.taskMapper = taskMapper;
         this.occupancyService = occupancyService;
+        this.accountService = accountService;
+        this.accountGroupService = accountGroupService;
     }
 
     /**
@@ -65,6 +77,7 @@ public class MarketingAccountTreeRealtimeService {
         if (groupId == null) {
             return new MarketingAccountTreeVO(List.of());
         }
+        accountGroupService.requireExisting(groupId);
         List<MarketingAccountTreeAccountRow> accounts = taskMapper.selectAccountTreeAccounts(groupId);
         if (accounts.isEmpty()) {
             log.info("营销账号树首屏查询 groupId={} accounts=0", groupId);
@@ -84,8 +97,7 @@ public class MarketingAccountTreeRealtimeService {
     /**
      * 懒加载单个账号当前库内可营销群。
      *
-     * <p>本接口不校验账号分组归属。前端只会对首屏账号树里的账号触发懒加载,
-     * 后端保留租户隔离、在线、风控、禁言等账号候选条件，并返回该账号全部当前关系状态。</p>
+     * <p>后端先校验账号归属，再读取该账号的当前群关系。</p>
      *
      * @param accountId 账号 ID
      * @return 账号节点及其可营销群
@@ -94,6 +106,7 @@ public class MarketingAccountTreeRealtimeService {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不能为空");
         }
+        accountService.requireAccessibleAccounts(List.of(accountId));
         MarketingAccountTreeAccountRow account = taskMapper.selectAccountTreeAccount(accountId);
         if (account == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号不可用: " + accountId);

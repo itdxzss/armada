@@ -15,9 +15,12 @@ import com.armada.group.model.enums.GroupMetadataSyncTrigger;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.service.impl.GroupClassificationServiceImpl;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -39,8 +42,14 @@ class GroupClassificationServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        DataScopeContext.open(DataScope.self(501L));
         service = new GroupClassificationServiceImpl(
                 currentSnapshotMapper, groupLinkMapper, registryService, metadataSyncTaskService);
+    }
+
+    @AfterEach
+    void tearDown() {
+        DataScopeContext.clear();
     }
 
     @Test
@@ -55,20 +64,33 @@ class GroupClassificationServiceImplTest {
                         existing("120363-new@g.us", 0, 1_500L)));
         GroupLink historical = activeLink(101L, false, false);
         GroupLink postControl = activeLink(102L, false, false);
-        when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L, 102L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(historical, postControl));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                org.mockito.ArgumentMatchers.eq(List.of(101L, 102L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(historical, postControl));
         when(groupLinkMapper.markClassifications(
-                List.of(101L), List.of(102L), 2_000L)).thenReturn(2);
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.eq(List.of(102L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L))).thenReturn(2);
 
         service.classifyVisibleGroups(ACCOUNT_ID, List.of(
                 candidate(101L, "120363-old@g.us"),
                 candidate(102L, "120363-new@g.us")), 2_000L);
 
         verify(groupLinkMapper).markClassifications(
-                List.of(101L), List.of(102L), 2_000L);
-        verify(groupLinkMapper, never()).markPostControl(101L, 2_000L);
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.eq(List.of(102L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L));
+        verify(groupLinkMapper, never()).markPostControl(
+                org.mockito.ArgumentMatchers.eq(101L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L));
         verify(metadataSyncTaskService).enqueueClassifications(
                 Map.of(
                         101L, GroupMetadataSyncTrigger.BASELINE_CAPTURED,
@@ -97,13 +119,18 @@ class GroupClassificationServiceImplTest {
         GroupLink alreadyHistorical = new GroupLink();
         alreadyHistorical.setId(101L);
         alreadyHistorical.setIsHistorical(true);
-        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(alreadyHistorical));
 
         service.classifyVisibleGroups(
                 ACCOUNT_ID, List.of(candidate(101L, "120363-old@g.us")), 2_000L);
 
-        verify(groupLinkMapper, never()).markHistorical(101L, 2_000L);
+        verify(groupLinkMapper, never()).markHistorical(
+                org.mockito.ArgumentMatchers.eq(101L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L));
         verifyNoInteractions(metadataSyncTaskService);
     }
 
@@ -116,15 +143,24 @@ class GroupClassificationServiceImplTest {
         when(currentSnapshotMapper.selectSelfMembershipExisting(
                 ACCOUNT_ID, "15550000001@s.whatsapp.net", "120363-new@g.us"))
                 .thenReturn(null);
-        when(groupLinkMapper.markPostControl(102L, 2_001L)).thenReturn(1);
+        when(groupLinkMapper.markPostControl(
+                org.mockito.ArgumentMatchers.eq(102L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_001L))).thenReturn(1);
 
         service.classifyMembershipAdded(
                 ACCOUNT_ID, candidate(101L, "120363-old@g.us"), 1_001L, 2_000L);
         service.classifyMembershipAdded(
                 ACCOUNT_ID, candidate(102L, "120363-new@g.us"), 1_001L, 2_001L);
 
-        verify(groupLinkMapper, never()).markPostControl(101L, 2_000L);
-        verify(groupLinkMapper).markPostControl(102L, 2_001L);
+        verify(groupLinkMapper, never()).markPostControl(
+                org.mockito.ArgumentMatchers.eq(101L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L));
+        verify(groupLinkMapper).markPostControl(
+                org.mockito.ArgumentMatchers.eq(102L),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_001L));
     }
 
     @Test
@@ -133,11 +169,19 @@ class GroupClassificationServiceImplTest {
                 java.util.Map.of("120363-old@g.us", "历史群"),
                 ProtocolBackend.WEB,
                 2_000L)).thenReturn(java.util.Map.of("120363-old@g.us", 101L));
-        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(activeLink(101L, false, false)));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(activeLink(101L, false, false)));
-        when(groupLinkMapper.markClassifications(List.of(101L), List.of(), 2_000L))
+        when(groupLinkMapper.markClassifications(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.eq(List.of()),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L)))
                 .thenReturn(1);
 
         service.captureHistoricalBaseline(
@@ -145,7 +189,11 @@ class GroupClassificationServiceImplTest {
                 ProtocolBackend.WEB,
                 2_000L);
 
-        verify(groupLinkMapper).markClassifications(List.of(101L), List.of(), 2_000L);
+        verify(groupLinkMapper).markClassifications(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.eq(List.of()),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
+                org.mockito.ArgumentMatchers.eq(2_000L));
         verify(metadataSyncTaskService).enqueueClassifications(
                 Map.of(101L, GroupMetadataSyncTrigger.BASELINE_CAPTURED), 2_000L);
     }
@@ -156,9 +204,13 @@ class GroupClassificationServiceImplTest {
                 java.util.Map.of("120363-old@g.us", "历史群"),
                 ProtocolBackend.WEB,
                 2_000L)).thenReturn(java.util.Map.of("120363-old@g.us", 101L));
-        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(activeLink(101L, false, false)));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                org.mockito.ArgumentMatchers.eq(List.of(101L)),
+                org.mockito.ArgumentMatchers.any(DataScope.class)))
                 .thenReturn(List.of(activeLink(101L, true, false)));
 
         service.captureHistoricalBaseline(
@@ -169,6 +221,7 @@ class GroupClassificationServiceImplTest {
         verify(groupLinkMapper, never()).markClassifications(
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.any(DataScope.class),
                 org.mockito.ArgumentMatchers.anyLong());
         verifyNoInteractions(metadataSyncTaskService);
     }
@@ -187,7 +240,7 @@ class GroupClassificationServiceImplTest {
 
     private static Context context(int state) {
         return new Context(
-                ACCOUNT_ID, "15550000001", "WEB", "acc-11", state,
+                ACCOUNT_ID, 501L, "15550000001", "WEB", "acc-11", state,
                 state == AccountGroupBaselineStateCode.CAPTURED ? 1 : 0,
                 1, CAPTURED_AT, null, null);
     }

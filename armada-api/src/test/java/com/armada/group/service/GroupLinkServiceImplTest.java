@@ -3,6 +3,7 @@ package com.armada.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -49,6 +50,8 @@ import com.armada.platform.protocol.port.GroupProfilePort;
 import com.armada.platform.protocol.port.GroupPreviewPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.service.PullTaskGroupOccupancyService;
 import java.time.Instant;
@@ -116,6 +119,7 @@ class GroupLinkServiceImplTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(TENANT_ID);
+        DataScopeContext.open(DataScope.all(1L));
         service = new GroupLinkServiceImpl(
                 groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, labelMapper,
                 converter, countryService, accountMapper, groupPreviewPort, groupProfilePort,
@@ -124,6 +128,7 @@ class GroupLinkServiceImplTest {
 
     @AfterEach
     void tearDown() {
+        DataScopeContext.clear();
         TenantContext.clear();
     }
 
@@ -138,7 +143,7 @@ class GroupLinkServiceImplTest {
         GroupLinkVoRow missing = new GroupLinkVoRow();
         missing.setId(13L);
         when(groupListCurrentMapper.selectWhatsAppGroupNames(
-                TENANT_ID, List.of(11L, 12L, 13L)))
+                eq(TENANT_ID), eq(List.of(11L, 12L, 13L)), any(DataScope.class)))
                 .thenReturn(List.of(named, blank, missing));
 
         Map<Long, String> result = service.findWhatsAppGroupNamesByIds(
@@ -146,7 +151,7 @@ class GroupLinkServiceImplTest {
 
         assertThat(result).containsExactly(Map.entry(11L, "WhatsApp 真实群名"));
         verify(groupListCurrentMapper).selectWhatsAppGroupNames(
-                TENANT_ID, List.of(11L, 12L, 13L));
+                eq(TENANT_ID), eq(List.of(11L, 12L, 13L)), any(DataScope.class));
     }
 
     @Test
@@ -232,7 +237,7 @@ class GroupLinkServiceImplTest {
         q.setLabelId(1L);
         GroupLinkVoRow row = new GroupLinkVoRow();
         GroupLinkVO vo = new GroupLinkVO(
-                1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
+                1L, 1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
                 "UNCHECKED", "未检测", null, null, null, null,
                 3, null, null, null, null, null, null, null, null, null, null, 1000L,
                 false, false, null, null, null, List.of(), false, 0,
@@ -319,40 +324,48 @@ class GroupLinkServiceImplTest {
         first.setId(101L);
         GroupLink second = new GroupLink();
         second.setId(102L);
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L))).thenReturn(List.of(folder));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(10L)), any(DataScope.class))).thenReturn(List.of(folder));
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                eq(List.of(101L, 102L)), any(DataScope.class)))
                 .thenReturn(List.of(first, second));
-        when(groupLinkMapper.assignFolder(eq(List.of(101L, 102L)), eq(10L), anyLong()))
+        when(groupLinkMapper.assignFolder(
+                eq(List.of(101L, 102L)), eq(10L), any(DataScope.class), anyLong()))
                 .thenReturn(2);
 
         int updated = service.assignFolder(List.of(102L, 101L, 101L), 10L);
 
         assertThat(updated).isEqualTo(2);
         InOrder order = inOrder(folderMapper, groupLinkMapper);
-        order.verify(folderMapper).selectActiveByIdsForUpdate(List.of(10L));
-        order.verify(groupLinkMapper).selectActiveByIdsForUpdate(List.of(101L, 102L));
-        order.verify(groupLinkMapper).assignFolder(eq(List.of(101L, 102L)), eq(10L), anyLong());
+        order.verify(folderMapper).selectActiveByIdsForUpdate(
+                eq(List.of(10L)), any(DataScope.class));
+        order.verify(groupLinkMapper).selectActiveByIdsForUpdate(
+                eq(List.of(101L, 102L)), any(DataScope.class));
+        order.verify(groupLinkMapper).assignFolder(
+                eq(List.of(101L, 102L)), eq(10L), any(DataScope.class), anyLong());
     }
 
     @Test
     void assignFolderAllowsUnassignedAndRejectsMissingGroups() {
         GroupLink first = new GroupLink();
         first.setId(101L);
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                eq(List.of(101L, 102L)), any(DataScope.class)))
                 .thenReturn(List.of(first));
 
         assertThatThrownBy(() -> service.assignFolder(List.of(101L, 102L), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("部分群组不存在");
-        verify(folderMapper, never()).selectActiveByIdsForUpdate(any());
-        verify(groupLinkMapper, never()).assignFolder(any(), any(), anyLong());
+        verify(folderMapper, never()).selectActiveByIdsForUpdate(any(), any());
+        verify(groupLinkMapper, never()).assignFolder(any(), any(), any(), anyLong());
     }
 
     @Test
     void assignFolderRejectsGroupsOccupiedByPullTasks() {
         GroupLink group = new GroupLink();
         group.setId(101L);
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                eq(List.of(101L)), any(DataScope.class)))
                 .thenReturn(List.of(group));
         doThrow(new BusinessException(com.armada.shared.exception.ErrorCode.CONFLICT,
                 "群组正在被任务使用"))
@@ -361,17 +374,18 @@ class GroupLinkServiceImplTest {
         assertThatThrownBy(() -> service.assignFolder(List.of(101L), null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("正在被任务使用");
-        verify(groupLinkMapper, never()).assignFolder(any(), any(), anyLong());
+        verify(groupLinkMapper, never()).assignFolder(any(), any(), any(), anyLong());
     }
 
     @Test
     void assignFolderRejectsMissingTargetFolder() {
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(10L))).thenReturn(List.of());
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(10L)), any(DataScope.class))).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.assignFolder(List.of(101L), 10L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("目标群组分组不存在");
-        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any());
+        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any(), any());
     }
 
     @Test
@@ -379,13 +393,14 @@ class GroupLinkServiceImplTest {
         GroupFolder used = new GroupFolder();
         used.setId(99L);
         used.setSystemBuiltin(true);
-        when(folderMapper.selectActiveByIdsForUpdate(List.of(99L)))
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(99L)), any(DataScope.class)))
                 .thenReturn(List.of(used));
 
         assertThatThrownBy(() -> service.assignFolder(List.of(101L), 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("系统分组");
-        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any());
+        verify(groupLinkMapper, never()).selectActiveByIdsForUpdate(any(), any());
     }
 
     @Test
@@ -408,8 +423,9 @@ class GroupLinkServiceImplTest {
         link.setId(10L);
         link.setGroupName("旧群名");
         link.setRemark("旧备注");
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(link);
-        when(groupLinkMapper.updateProfile(eq(10L), eq("运营群A"), eq("重点客户"), anyLong()))
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class))).thenReturn(link);
+        when(groupLinkMapper.updateProfile(
+                eq(10L), any(DataScope.class), eq("运营群A"), eq("重点客户"), anyLong()))
                 .thenReturn(1);
 
         service.updateProfile(10L, new GroupLinkProfileDTO(
@@ -417,7 +433,8 @@ class GroupLinkServiceImplTest {
                 " 重点客户 ",
                 " https://cdn.example.test/group-a.jpg "));
 
-        verify(groupLinkMapper).updateProfile(eq(10L), eq("运营群A"), eq("重点客户"), anyLong());
+        verify(groupLinkMapper).updateProfile(
+                eq(10L), any(DataScope.class), eq("运营群A"), eq("重点客户"), anyLong());
         verify(currentLocalPersistence).applyProfile(any(GroupCurrentLocalProfileWrite.class));
     }
 
@@ -427,8 +444,9 @@ class GroupLinkServiceImplTest {
         link.setId(10L);
         link.setGroupName("旧群名");
         link.setRemark("旧备注");
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(link);
-        when(groupLinkMapper.updateProfile(eq(10L), eq("旧群名"), eq("旧备注"), anyLong()))
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class))).thenReturn(link);
+        when(groupLinkMapper.updateProfile(
+                eq(10L), any(DataScope.class), eq("旧群名"), eq("旧备注"), anyLong()))
                 .thenReturn(1);
 
         service.updateProfile(10L, new GroupLinkProfileDTO(
@@ -436,7 +454,8 @@ class GroupLinkServiceImplTest {
                 null,
                 "https://cdn.example.test/group-a.jpg"));
 
-        verify(groupLinkMapper).updateProfile(eq(10L), eq("旧群名"), eq("旧备注"), anyLong());
+        verify(groupLinkMapper).updateProfile(
+                eq(10L), any(DataScope.class), eq("旧群名"), eq("旧备注"), anyLong());
         verify(currentLocalPersistence).applyProfile(any(GroupCurrentLocalProfileWrite.class));
     }
 
@@ -446,20 +465,20 @@ class GroupLinkServiceImplTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("至少提交一个字段");
 
-        verify(groupLinkMapper, never()).selectActiveById(anyLong());
-        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(groupLinkMapper, never()).selectActiveById(anyLong(), any());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), any(), anyLong());
         verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
     void updateProfile_missingLinkThrowsNotFoundAndSkipsUpdates() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(null);
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class))).thenReturn(null);
 
         assertThatThrownBy(() -> service.updateProfile(10L, new GroupLinkProfileDTO("运营群A", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("群链接不存在或已删除");
 
-        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), any(), anyLong());
         verifyNoInteractions(currentLocalPersistence);
     }
 
@@ -467,8 +486,9 @@ class GroupLinkServiceImplTest {
 
     @Test
     void updateDescription_callsProtocolWithoutLocalProfileUpdate() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", "备注"));
+        when(groupLinkMapper.selectCurrentIdentity(eq(10L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
@@ -477,14 +497,15 @@ class GroupLinkServiceImplTest {
         service.updateDescription(10L, new GroupDescriptionCommandDTO(7L, " 群描述 "));
 
         verify(groupProfilePort).updateDescription(accountRef(), "120363profile@g.us", "群描述");
-        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), any(), anyLong());
         verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
     void updateAnnouncementText_callsProtocolWithoutLocalProfileUpdate() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", "备注"));
+        when(groupLinkMapper.selectCurrentIdentity(eq(10L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
@@ -493,14 +514,15 @@ class GroupLinkServiceImplTest {
         service.updateAnnouncementText(10L, new GroupAnnouncementTextCommandDTO(7L, " 群公告 "));
 
         verify(groupProfilePort).updateAnnouncementText(accountRef(), "120363profile@g.us", "群公告");
-        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), anyLong());
+        verify(groupLinkMapper, never()).updateProfile(anyLong(), any(), any(), any(), anyLong());
         verifyNoInteractions(currentLocalPersistence);
     }
 
     @Test
     void updatePicture_callsProtocolAndPersistsAvatarUrl() {
-        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "群名", "备注"));
-        when(groupLinkMapper.selectCurrentIdentity(10L)).thenReturn(
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class)))
+                .thenReturn(activeLink(10L, "群名", "备注"));
+        when(groupLinkMapper.selectCurrentIdentity(eq(10L), any(DataScope.class))).thenReturn(
                 new GroupCurrentIdentity(10L, "120363profile@g.us", null));
         when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
         when(accountMapper.selectOnlineAccountIdsByIds(List.of(7L), AccountLoginStateCode.ONLINE))
@@ -521,6 +543,24 @@ class GroupLinkServiceImplTest {
             assertThat(row.displayNameObserved()).isFalse();
             assertThat(row.remarkObserved()).isFalse();
         });
+    }
+
+    @Test
+    void administratorCannotUseAnotherUsersAccountForGroupProtocolMutation() {
+        GroupLink group = activeLink(10L, "群名", "备注");
+        group.setOwnerUserId(2L);
+        when(groupLinkMapper.selectActiveById(eq(10L), any(DataScope.class))).thenReturn(group);
+        when(groupLinkMapper.selectCurrentIdentity(eq(10L), any(DataScope.class))).thenReturn(
+                new GroupCurrentIdentity(10L, "120363profile@g.us", null));
+        when(accountMapper.selectActiveById(7L)).thenReturn(account(7L, "acc_7"));
+
+        assertThatThrownBy(() -> service.updateDescription(
+                10L, new GroupDescriptionCommandDTO(7L, "群描述")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("归属不一致");
+
+        verify(accountMapper, never()).selectOnlineAccountIdsByIds(any(), anyInt());
+        verifyNoInteractions(groupProfilePort);
     }
 
     // ---- migrate ----
@@ -554,41 +594,59 @@ class GroupLinkServiceImplTest {
 
     @Test
     void migrate_targetLabelNotFound_throws() {
-        when(labelMapper.selectById(99L)).thenReturn(null);
+        when(labelMapper.selectById(eq(99L), any(DataScope.class))).thenReturn(null);
 
         assertThatThrownBy(() -> service.migrate(List.of(1L, 2L), 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("目标分组不存在");
-        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), anyLong());
+        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), any(), anyLong());
     }
 
     @Test
     void migrate_someLinksInactive_throws() {
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(5L);
-        when(labelMapper.selectById(5L)).thenReturn(label);
+        label.setOwnerUserId(1L);
+        when(labelMapper.selectById(eq(5L), any(DataScope.class))).thenReturn(label);
         List<Long> ids = List.of(1L, 2L, 3L);
-        when(groupLinkMapper.countActiveByIds(ids)).thenReturn(2); // 只有 2 个活跃,期望 3
+        GroupLink first = new GroupLink();
+        first.setId(1L);
+        first.setOwnerUserId(1L);
+        GroupLink second = new GroupLink();
+        second.setId(2L);
+        second.setOwnerUserId(1L);
+        when(groupLinkMapper.selectActiveByIds(eq(ids), any(DataScope.class)))
+                .thenReturn(List.of(first, second));
 
         assertThatThrownBy(() -> service.migrate(ids, 5L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("部分群链接不存在或已删除");
-        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), anyLong());
+        verify(groupLinkMapper, never()).migrateToLabel(any(), any(), any(), anyLong());
     }
 
     @Test
     void migrate_allActiveAndLabelExists_migrates() {
         GroupLinkLabel label = new GroupLinkLabel();
         label.setId(5L);
-        when(labelMapper.selectById(5L)).thenReturn(label);
+        label.setOwnerUserId(1L);
+        when(labelMapper.selectById(eq(5L), any(DataScope.class))).thenReturn(label);
         List<Long> ids = List.of(1L, 2L);
-        when(groupLinkMapper.countActiveByIds(ids)).thenReturn(2);
-        when(groupLinkMapper.migrateToLabel(eq(ids), eq(5L), anyLong())).thenReturn(2);
+        GroupLink first = new GroupLink();
+        first.setId(1L);
+        first.setOwnerUserId(1L);
+        GroupLink second = new GroupLink();
+        second.setId(2L);
+        second.setOwnerUserId(1L);
+        when(groupLinkMapper.selectActiveByIds(eq(ids), any(DataScope.class)))
+                .thenReturn(List.of(first, second));
+        when(groupLinkMapper.migrateToLabel(
+                eq(ids), eq(5L), any(DataScope.class), anyLong())).thenReturn(2);
 
         int result = service.migrate(ids, 5L);
 
         assertThat(result).isEqualTo(2);
-        verify(groupLinkMapper).migrateToLabel(eq(ids), eq(5L), anyLong());
+        verify(groupLinkMapper).migrateToLabel(
+                eq(ids), eq(5L), any(DataScope.class), anyLong());
     }
 
     // ---- batchDelete ----
@@ -608,24 +666,26 @@ class GroupLinkServiceImplTest {
     @Test
     void batchDelete_moreThanOneHundred_softDeletesAll() {
         List<Long> ids = java.util.stream.LongStream.rangeClosed(1, 101).boxed().toList();
-        when(groupLinkMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(101);
+        when(groupLinkMapper.countActiveByIds(eq(ids), any(DataScope.class))).thenReturn(101);
+        when(groupLinkMapper.softDeleteByIds(eq(ids), any(DataScope.class), anyLong())).thenReturn(101);
 
         int result = service.batchDelete(ids);
 
         assertThat(result).isEqualTo(101);
-        verify(groupLinkMapper).softDeleteByIds(eq(ids), anyLong());
-        verify(currentLocalPersistence).applyLegacyDeletion(eq(ids), anyLong());
+        verify(groupLinkMapper).softDeleteByIds(eq(ids), any(DataScope.class), anyLong());
+        verify(currentLocalPersistence, never()).applyLegacyDeletion(any(), anyLong());
     }
 
     @Test
     void batchDelete_valid_softDeletes() {
         List<Long> ids = List.of(1L, 2L, 3L);
-        when(groupLinkMapper.softDeleteByIds(eq(ids), anyLong())).thenReturn(3);
+        when(groupLinkMapper.countActiveByIds(eq(ids), any(DataScope.class))).thenReturn(3);
+        when(groupLinkMapper.softDeleteByIds(eq(ids), any(DataScope.class), anyLong())).thenReturn(3);
 
         int result = service.batchDelete(ids);
 
         assertThat(result).isEqualTo(3);
-        verify(groupLinkMapper).softDeleteByIds(eq(ids), anyLong());
+        verify(groupLinkMapper).softDeleteByIds(eq(ids), any(DataScope.class), anyLong());
     }
 
     // ---- previewBatch ----
@@ -634,13 +694,16 @@ class GroupLinkServiceImplTest {
     void previewBatch_resolvesProtocolAccountPreviewsLinksAndPersistsSuccessfulSnapshots() {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolAccountId("acc_861111");
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
 
         GroupLink link = new GroupLink();
         link.setId(10L);
+        link.setOwnerUserId(1L);
         link.setLinkUrl("https://chat.whatsapp.com/ABC123");
-        when(groupLinkMapper.selectActiveByIds(List.of(10L))).thenReturn(List.of(link));
+        when(groupLinkMapper.selectActiveByIds(eq(List.of(10L)), any(DataScope.class)))
+                .thenReturn(List.of(link));
         when(groupPreviewPort.preview("acc_861111", "https://chat.whatsapp.com/ABC123"))
                 .thenReturn(new GroupPreviewResult(
                         "120363preview@g.us",
@@ -701,16 +764,56 @@ class GroupLinkServiceImplTest {
         assertThat(outcome.persisted()).isNull();
     }
 
+    @Test
+    void previewBatchRejectsHistoricalUnownedGroupBeforeProtocolCall() {
+        Account account = account(7L, "acc_861111");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+        GroupLink unowned = activeLink(10L, "历史群", null);
+        unowned.setOwnerUserId(null);
+        unowned.setLinkUrl("https://chat.whatsapp.com/Unowned");
+        when(groupLinkMapper.selectActiveByIds(eq(List.of(10L)), any(DataScope.class)))
+                .thenReturn(List.of(unowned));
+
+        assertThatThrownBy(() -> service.previewBatch(
+                new GroupLinkPreviewDTO(7L, List.of(10L))))
+                .isInstanceOfSatisfying(BusinessException.class, ex ->
+                        assertThat(ex.getCode()).isEqualTo(
+                                com.armada.shared.exception.ErrorCode.ACCESS_DENIED.code()));
+
+        verifyNoInteractions(groupPreviewPort);
+    }
+
+    @Test
+    void previewBatchRejectsAccountAndGroupOwnedByDifferentUsers() {
+        Account account = account(7L, "acc_861111");
+        when(accountMapper.selectActiveById(7L)).thenReturn(account);
+        GroupLink otherUsersGroup = activeLink(10L, "他人群", null);
+        otherUsersGroup.setOwnerUserId(2L);
+        otherUsersGroup.setLinkUrl("https://chat.whatsapp.com/OtherOwner");
+        when(groupLinkMapper.selectActiveByIds(eq(List.of(10L)), any(DataScope.class)))
+                .thenReturn(List.of(otherUsersGroup));
+
+        assertThatThrownBy(() -> service.previewBatch(
+                new GroupLinkPreviewDTO(7L, List.of(10L))))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("归属不一致");
+
+        verifyNoInteractions(groupPreviewPort);
+    }
+
     private OwnerPreviewOutcome previewOwner(String ownerJid) {
         Account account = new Account();
         account.setId(7L);
+        account.setOwnerUserId(1L);
         account.setProtocolAccountId("acc_owner_identity");
         when(accountMapper.selectActiveById(7L)).thenReturn(account);
 
         GroupLink link = new GroupLink();
         link.setId(10L);
+        link.setOwnerUserId(1L);
         link.setLinkUrl("https://chat.whatsapp.com/OwnerIdentity");
-        when(groupLinkMapper.selectActiveByIds(List.of(10L))).thenReturn(List.of(link));
+        when(groupLinkMapper.selectActiveByIds(eq(List.of(10L)), any(DataScope.class)))
+                .thenReturn(List.of(link));
         when(groupPreviewPort.preview("acc_owner_identity", link.getLinkUrl()))
                 .thenReturn(new GroupPreviewResult(
                         "120363-owner@g.us",
@@ -744,6 +847,7 @@ class GroupLinkServiceImplTest {
     private static GroupLink activeLink(Long id, String groupName, String remark) {
         GroupLink link = new GroupLink();
         link.setId(id);
+        link.setOwnerUserId(1L);
         link.setGroupName(groupName);
         link.setRemark(remark);
         return link;
@@ -758,6 +862,7 @@ class GroupLinkServiceImplTest {
     private static Account account(Long id, String protocolAccountId) {
         Account account = new Account();
         account.setId(id);
+        account.setOwnerUserId(1L);
         account.setProtocolAccountId(protocolAccountId);
         account.setWsPhone("919000000001");
         return account;

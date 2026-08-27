@@ -1,7 +1,7 @@
 package com.armada.account.model.vo;
 
 /**
- * Mapper 聚合投影:平台级账号统计卡,单条聚合 SQL 结果。
+ * Mapper 聚合投影:按当前 DataScope 聚合的账号统计卡结果。
  * 普通类 + getter/setter,供 MyBatis resultType 直接映射(underscore-to-camelCase 自动转换)。
  *
  * <p>列说明:

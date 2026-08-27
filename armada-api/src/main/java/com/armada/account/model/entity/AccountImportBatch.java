@@ -12,6 +12,9 @@ public class AccountImportBatch {
     /** 租户 ID(拦截器注入)。 */
     private Long tenantId;
 
+    /** 数据归属用户 ID；历史批次可为空，仅管理员可见。 */
+    private Long ownerUserId;
+
     /** 导入目标分组(→account_group.id)。 */
     private Long accountGroupId;
 
@@ -79,6 +82,14 @@ public class AccountImportBatch {
 
     public Long getTenantId() {
         return tenantId;
+    }
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
     }
 
     public void setTenantId(Long tenantId) {

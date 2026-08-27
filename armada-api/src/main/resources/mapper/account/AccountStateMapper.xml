@@ -193,6 +193,7 @@
   <select id="selectProxyFailedRecoveryCandidates"
           resultType="com.armada.account.model.AccountProxyFailedRecoveryCandidate">
     SELECT s.tenant_id AS tenantId,
+           a.owner_user_id AS ownerUserId,
            s.account_id AS accountId
     FROM account_state s
     INNER JOIN account a

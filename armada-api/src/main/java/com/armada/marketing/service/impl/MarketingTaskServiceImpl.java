@@ -1,6 +1,8 @@
 package com.armada.marketing.service.impl;
 
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
 import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTaskMapper;
@@ -34,9 +36,13 @@ import com.armada.marketing.service.MarketingTaskService;
 import com.armada.marketing.service.MarketingTemplateService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.response.PageResult;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -82,6 +88,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private final MarketingAccountTreeRealtimeService accountTreeRealtimeService;
     private final MarketingAccountOccupancyService occupancyService;
     private final AccountService accountService;
+    private final AccountGroupService accountGroupService;
 
     /**
      * 注入营销任务 Mapper 与营销模板 Mapper。
@@ -101,13 +108,15 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                                     MarketingTemplateService templateService,
                                     MarketingAccountTreeRealtimeService accountTreeRealtimeService,
                                     MarketingAccountOccupancyService occupancyService,
-                                    AccountService accountService) {
+                                    AccountService accountService,
+                                    AccountGroupService accountGroupService) {
         this.taskMapper = taskMapper;
         this.templateMapper = templateMapper;
         this.templateService = templateService;
         this.accountTreeRealtimeService = accountTreeRealtimeService;
         this.occupancyService = occupancyService;
         this.accountService = accountService;
+        this.accountGroupService = accountGroupService;
     }
 
     /**
@@ -121,20 +130,24 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
      */
     @Override
     public PageResult<MarketingTaskVO> listTasks(MarketingTaskQuery query) {
-        long total = taskMapper.countPage(query);
+        DataScope scope = DataScopeAccess.requireCurrent();
+        MarketingTaskQuery scopedQuery = query == null ? new MarketingTaskQuery() : query;
+        scopedQuery.applyDataScope(scope);
+        long total = taskMapper.countPage(scopedQuery);
         // 与其它列表服务保持一致:total=0 时不再查 page rows,避免一次必然空结果的 SELECT。
         List<MarketingTaskVO> rows;
         if (total == 0) {
             rows = List.of();
         } else {
-            List<MarketingTask> tasks = taskMapper.selectPage(query);
-            Map<Long, MarketingTemplate> templatesById = loadTemplatesById(tasks);
+            List<MarketingTask> tasks = taskMapper.selectPage(scopedQuery);
+            Map<Long, MarketingTemplate> templatesById = loadTemplatesById(tasks, scope);
             rows = tasks.stream()
                     .map(task -> toVO(task, templatesById.get(task.getMarketingTemplateId())))
                     .toList();
         }
-        log.info("营销任务列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
-        return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+        log.info("营销任务列表查询 total={} page={} pageSize={}",
+                total, scopedQuery.getPage(), scopedQuery.getPageSize());
+        return PageResult.of(rows, scopedQuery.getPage(), scopedQuery.getPageSize(), total);
     }
 
     /**
@@ -154,10 +167,27 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         // 事务顺序固定:先校验共享事实,再生成目标快照,最后插主表和明细。
         // 任何一个目标不可用都整单失败,避免页面看到"半个任务"。
         long now = System.currentTimeMillis();
+        DataScope scope = DataScopeAccess.requireCurrent();
         validateRequest(request, now);
+        List<Long> selectedAccountIds = request.selections().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(MarketingSelectionDTO::accountId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        accountService.requireAccessibleAccountsInGroup(selectedAccountIds, request.accountGroupId());
+        AccountGroup accountGroup = accountGroupService.requireExisting(request.accountGroupId());
         MarketingTemplate template = requireTemplateForTaskCreation(request.marketingTemplateId());
+        DataScopeAccess.requireSameOwner(
+                Arrays.asList(accountGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "营销任务分组与模板");
+        DataScopeAccess.requireOwnedByActorForCreate(
+                scope,
+                Arrays.asList(accountGroup.getOwnerUserId(), template.getOwnerUserId()),
+                "营销任务");
         List<MarketingTaskTarget> targets = buildTargets(request, now);
         MarketingTask task = buildTask(request, template, targets, now);
+        task.setOwnerUserId(scope.ownerUserIdForCreate());
         taskMapper.insertTask(task);
         // 主表自增 id 回填后才能写 target.marketing_task_id。
         for (MarketingTaskTarget target : targets) {
@@ -168,7 +198,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
                 occupancyService.lockTaskAccountsOrThrow(task, now);
         log.info("营销任务已创建 tenantId={} taskId={} targets={} lockedAccounts={} status={}",
                 task.getTenantId(), task.getId(), targets.size(), lockedAccounts.size(), task.getStatus());
-        return toVO(taskMapper.selectTaskById(task.getId()), template);
+        return toVO(taskMapper.selectTaskByIdForScope(task.getId(), scope), template);
     }
 
     /**
@@ -210,6 +240,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTaskVO startTask(Long id) {
         MarketingTask task = requireTask(id);
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "营销任务");
         if (!Integer.valueOf(STATUS_PENDING).equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.VALIDATION, "只有未启动的任务可以启动");
         }
@@ -265,6 +296,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public MarketingTaskVO resumeTask(Long id) {
         MarketingTask task = requireTask(id);
+        DataScopeAccess.requireAssignedOwner(task.getOwnerUserId(), "营销任务");
         if (!Integer.valueOf(STATUS_PAUSED).equals(task.getStatus())) {
             throw new BusinessException(ErrorCode.VALIDATION, "只有已暂停的任务可以继续");
         }
@@ -329,10 +361,24 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         if (normalizedIds.isEmpty()) {
             return 0;
         }
-        if (taskMapper.countActiveByIds(normalizedIds) > 0) {
+        DataScope scope = DataScopeAccess.requireCurrent();
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        List<MarketingTask> tasks = taskMapper.selectOrdinaryByTenantAndIdsForUpdate(tenantId, normalizedIds);
+        if (tasks.size() != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "部分营销任务不存在或无权访问");
+        }
+        tasks.forEach(task -> DataScopeAccess.requireCanAccess(scope, task.getOwnerUserId(), "营销任务"));
+        if (tasks.stream().anyMatch(task -> !Integer.valueOf(STATUS_COMPLETED).equals(task.getStatus())
+                && !Integer.valueOf(STATUS_CLOSED).equals(task.getStatus()))) {
             throw new BusinessException(ErrorCode.VALIDATION, "未结束的任务不可删除，请先手动关闭任务");
         }
         int deleted = taskMapper.batchSoftDelete(normalizedIds, System.currentTimeMillis());
+        if (deleted != normalizedIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "营销任务状态已变化，请刷新后重试");
+        }
         log.info("营销任务批量软删 请求={} 实删={}", normalizedIds.size(), deleted);
         return deleted;
     }
@@ -436,7 +482,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     private MarketingTemplate requireTemplateForTaskCreation(Long id) {
         // 模板是素材唯一事实源。行锁一直持有到创建事务提交，和模板删除形成明确的串行顺序。
         // 任务只保存模板 id/name 快照，不复制正文和按钮。
-        MarketingTemplate template = templateMapper.selectByIdForUpdate(id);
+        MarketingTemplate template = templateMapper.selectByIdForUpdate(id, DataScopeAccess.requireCurrent());
         if (template == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板不存在: " + id);
         }
@@ -445,7 +491,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
 
     private void validateTaskTemplateAvailable(MarketingTask task) {
         // selectById 只返回未软删除模板；必须在状态更新 SQL 前校验，保证拒绝启动时任务不变。
-        if (templateMapper.selectById(task.getMarketingTemplateId()) != null) {
+        if (templateMapper.selectByIdForScope(
+                task.getMarketingTemplateId(), DataScopeAccess.requireCurrent()) != null) {
             return;
         }
         log.warn(
@@ -457,7 +504,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
     }
 
     private MarketingTask requireTask(Long id) {
-        MarketingTask task = taskMapper.selectTaskById(id);
+        MarketingTask task = taskMapper.selectTaskByIdForScope(id, DataScopeAccess.requireCurrent());
         if (task == null || (task.getBusinessType() != null
                 && !Integer.valueOf(MarketingBusinessType.ORDINARY.code()).equals(task.getBusinessType()))) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销任务不存在: " + id);
@@ -706,7 +753,7 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         return (int) targets.stream().map(MarketingTaskTarget::getAccountId).distinct().count();
     }
 
-    private Map<Long, MarketingTemplate> loadTemplatesById(List<MarketingTask> tasks) {
+    private Map<Long, MarketingTemplate> loadTemplatesById(List<MarketingTask> tasks, DataScope scope) {
         List<Long> templateIds = tasks.stream()
                 .map(MarketingTask::getMarketingTemplateId)
                 .filter(id -> id != null)
@@ -716,16 +763,17 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
             return Map.of();
         }
         Map<Long, MarketingTemplate> templatesById = new LinkedHashMap<>();
-        for (MarketingTemplate template : templateMapper.selectByIds(templateIds)) {
+        for (MarketingTemplate template : templateMapper.selectByIdsForScope(templateIds, scope)) {
             templatesById.put(template.getId(), template);
         }
         return templatesById;
     }
 
     private MarketingTaskVO toVO(MarketingTask task) {
+        DataScope scope = DataScopeAccess.requireCurrent();
         MarketingTemplate template = task.getMarketingTemplateId() == null
                 ? null
-                : templateMapper.selectById(task.getMarketingTemplateId());
+                : templateMapper.selectByIdForScope(task.getMarketingTemplateId(), scope);
         return toVO(task, template);
     }
 

@@ -1,6 +1,7 @@
 package com.armada.group.service.impl;
 
-import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.entity.Account;
 import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
@@ -16,8 +17,11 @@ import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinSink;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedEvent;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantChangedSink;
 import com.armada.platform.kafka.consumer.group.ProtocolGroupParticipantIdentity;
-import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.security.DataScope;
+import com.armada.shared.security.DataScopeContext;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
@@ -74,7 +78,7 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     /** Android WGP2 实时成员通知来源。 */
     private static final String SOURCE_TYPE_ANDROID = "WGP2_NOTIFICATION";
 
-    private final AccountProtocolLookupService accountLookupService;
+    private final AccountMapper accountMapper;
     private final GroupParticipantObservationService observationService;
     private final ProtocolGroupJoinSink joinSink;
     private final ProtocolGroupDepartureSink departureSink;
@@ -82,13 +86,13 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     private final MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     public ProtocolGroupParticipantChangedSinkAdapter(
-            AccountProtocolLookupService accountLookupService,
+            AccountMapper accountMapper,
             GroupParticipantObservationService observationService,
             ProtocolGroupJoinSink joinSink,
             ProtocolGroupDepartureSink departureSink,
             WhatsappGroupMemberCacheService memberCacheService,
             MarketingNewGroupImmediateSendService marketingNewGroupService) {
-        this.accountLookupService = accountLookupService;
+        this.accountMapper = accountMapper;
         this.observationService = observationService;
         this.joinSink = joinSink;
         this.departureSink = departureSink;
@@ -103,21 +107,29 @@ public class ProtocolGroupParticipantChangedSinkAdapter
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            ProtocolAccountRef current = accountLookupService.findActiveProtocolRef(event.accountId())
-                    .orElse(null);
+            Account current = accountMapper.selectActiveById(event.accountId());
             if (!currentBinding(current, event)) {
                 log.warn(
                         "忽略账号不可见或协议绑定已过期的群成员事件 tenantId={} accountId={} eventId={}",
                         event.tenantId(), event.accountId(), event.eventId());
                 return;
             }
-            switch (event.action()) {
-                case ACTION_ADD -> applyJoins(event, receivedAt);
-                case ACTION_REMOVE -> applyDepartures(event);
-                case ACTION_PROMOTE, ACTION_DEMOTE -> applyRoleObservations(event);
-                case ACTION_MODIFY -> applyIdentityMerges(event);
-                default -> log.debug("协议群成员事件动作尚未接入,跳过 eventId={} action={}",
-                        event.eventId(), event.action());
+            Long ownerUserId = current.getOwnerUserId();
+            if (ownerUserId == null) {
+                throw new BusinessException(
+                        ErrorCode.ACCESS_DENIED,
+                        "历史无归属账号不能消费用户私有群成员事件");
+            }
+            try (DataScopeContext.Scope ignored =
+                         DataScopeContext.open(DataScope.self(ownerUserId))) {
+                switch (event.action()) {
+                    case ACTION_ADD -> applyJoins(event, receivedAt);
+                    case ACTION_REMOVE -> applyDepartures(event);
+                    case ACTION_PROMOTE, ACTION_DEMOTE -> applyRoleObservations(event);
+                    case ACTION_MODIFY -> applyIdentityMerges(event);
+                    default -> log.debug("协议群成员事件动作尚未接入,跳过 eventId={} action={}",
+                            event.eventId(), event.action());
+                }
             }
         } finally {
             if (previousTenant == null) {
@@ -309,11 +321,15 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     }
 
     private static boolean currentBinding(
-            ProtocolAccountRef current,
+            Account current,
             ProtocolGroupParticipantChangedEvent event) {
         return current != null
-                && current.protocolAccountId().equals(event.protocolAccountId())
-                && current.backend().name().equals(event.protocolBackend());
+                && current.getProtocolAccountId() != null
+                && current.getProtocolAccountId().equals(event.protocolAccountId())
+                && current.getWsPhone() != null
+                && !current.getWsPhone().isBlank()
+                && ProtocolBackend.fromProtocolId(current.getProtocolId()).name()
+                        .equals(event.protocolBackend());
     }
 
     private static GroupParticipantObservation observation(

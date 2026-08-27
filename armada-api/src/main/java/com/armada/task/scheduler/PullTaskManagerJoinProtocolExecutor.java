@@ -86,6 +86,7 @@ public class PullTaskManagerJoinProtocolExecutor {
 
     private static boolean requiresInviteRefresh(PullTaskGroupExecution candidate) {
         return candidate != null
+                && candidate.getReasonCode() != null
                 && REFRESHABLE_INVITE_FAILURE_CODES.contains(candidate.getReasonCode());
     }
 

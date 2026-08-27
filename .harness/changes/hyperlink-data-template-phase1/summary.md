@@ -28,22 +28,22 @@
 - 一期只开放单图文、普通按钮和卡片按钮；双图文保留枚举但明确拒绝。
 - 不提前创建任务、点击、策略或分析的空表和假接口。
 
-### 第二版评审修正（2026-08-27）
+### 第三版综合评审修正（2026-08-27）
 
-- `data_package` 补六个池状态计数列。原设计列表页 7 个指标只能对 `data_package_phone`
-  全量 GROUP BY，包内号码可累积到数十万，翻一页最坏扫千万级索引条目。
-- 覆盖导入改硬删旧号码，`data_package_phone` 去掉 `deleted_at` / `is_active`。
-  原软删设计的死行无界增长且没有任何清理方。
-- 单包总号码数设上限 500000（待产品确认），把覆盖导入的事务规模钉死。
-- 删包与覆盖采用不同删除策略：删包是一次性操作，软删包主行 + 后台清理号码；
-  覆盖是重复操作，必须硬删。
-- 图片列名定为 `link_preview_asset_id` / `body_main_asset_id`，不用 `*_file_id`——
-  值在一期仍指向 `marketing_template_file.id`，迁移时只换指向不换列名。
-- `content` 按 `message_type` 逐条写清语义，替代原“正文/副标题/底部小字”一列三义的注释。
-- 补 `POST /api/data-packages/{id}/recount`（仅管理员）与 `tenant:hyperlink_data:recount`。
-- 定义 `GET /api/data-packages/countries` 返回结构。
-- 统一 `version` 命名，删除 `templateVersion` 别名。
-- 点明 `failedCount` 与 `unregisteredCount` 的重叠是对齐竞品的有意口径，不是缺陷。
+- 覆盖导入改为**代际切换**：新号码先写下一代，成功后原子切换 `current_generation`；旧代保留
+  30 天后每批最多 2000 行清理，避免在关键事务中删除几十万行。
+- `data_package` 只保留当前代指针、总数和元数据版本；六个池状态计数迁到一对一
+  `data_package_stat`，避免发送和 ACK 高频更新争抢包主行。
+- 统计校准是内部运维能力，不开放 `/recount` 接口，也不增加普通菜单权限。
+- 单包总量采用可配置安全阈值，默认 500000；它用于防误操作，不再承担覆盖事务正确性。
+- 任务收件人冻结包 ID、代次、导入批次、手机号和国家，不保存会随旧代清理而悬空的
+  `data_package_phone_id`；重试、双图文分片和协议消息 ID 归 `hyperlink_delivery_attempt`。
+- 模板与任务内容统一 `HyperlinkMessageContent` 字段长度和按钮 JSON，任务记录来源模板 ID/版本。
+- 图片列名固定为 `link_preview_asset_id` / `body_main_asset_id`；一期仍指向
+  `marketing_template_file.id`，未来通过兼容 Service 迁移，不能先直接改表名。
+- 国家候选接口只读国家主数据；列表国家仅对当前页、当前代查询 DISTINCT，不做全租户号码 COUNT。
+- 导入审计使用独立短事务记录 `PROCESSING` / `FAILED`，并增加超时处理中恢复机制。
+- `hyperlink-marketing-data-model.md` 已同步为全模块唯一数据模型口径，不再保留“本节失效”的冲突章节。
 
 详细设计：`docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md`。
 
@@ -65,11 +65,11 @@
 - Armada 侧落位属实：`ApiResponse` / `PageResult` 存在于 `shared/response`；
   `sys_menu.component_path` 格式为 `account/index/index`（`V071` 种子数据）；
   权限键格式为 `tenant:<module>:<action>`；
-  `MarketingTemplateFileController` 为类级 `@PreAuthorize("hasAuthority('tenant:marketing_template:view')")`，
-  会挡住只有超链权限的用户，必须改 `hasAnyAuthority`。
+  `MarketingTemplateFileController.upload` 当前只继承类级营销模板查看权限，需要新增方法级
+  `hasAnyAuthority`；`content` 已有方法级权限列表，需要在保留原权限的基础上追加超链权限。
 - `origin/1.0.3-snapshot` 的 `V140__group_canonical_first_classification.sql` 已复核存在。
-- 已解决与 `docs/business/hyperlink-marketing-data-model.md` 的冲突：该文已加效力声明，
-  一期数据包与模板表以本设计为准。
+- 已解决与 `docs/business/hyperlink-marketing-data-model.md` 的冲突：总模型与一期详细设计已统一
+  数据包四表、模板字段、任务快照和素材演进口径。
 
 ## 部署
 

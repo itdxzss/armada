@@ -6,24 +6,16 @@
 - 全局现状依据：`.harness/wiki/数据模型.md`（自动生成）
 - 遵循：`.harness/rules/数据模型规范.md`
 
-> ## ⚠ 效力声明（2026-08-27 修订）
+> ## 效力声明（2026-08-27 修订）
 >
-> 本文是**超链营销全模块的目标数据模型**，用于看清全局与聚合边界。但以下部分**已被一期
-> 详细设计取代，不得据本文实施**：
+> 本文是超链营销的**目标数据模型唯一口径**。一期实施细节、接口、页面和测试以
+> `docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md` 为准，两份文档的
+> `data_package`、`data_package_phone`、`data_package_stat`、`data_package_import` 和
+> `hyperlink_template` 字段定义必须一致。
 >
-> | 本文章节 | 状态 | 以何为准 |
-> |---|---|---|
-> | §3 数据包三张表 | **失效** | `docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md` §6.1~6.3 |
-> | §5.1 `hyperlink_template` | **失效** | 同上 §6.4 |
-> | §6 图片素材（改名 `resource_asset`） | **失效** | 同上 §8.4、§13.3——一期不改名，复用现有文件 ID |
-> | §9 Flyway V140~V145 编排 | **失效** | `origin/1.0.3-snapshot` 已存在 `V140__group_canonical_first_classification.sql`，版本号须在实施前按目标分支实时最高版本重新分配 |
-> | §4 任务族、§7 分析预聚合、§8 账号画像 | 仍有效 | 本文 |
->
-> 一期设计在三处纠正了本文：号码行不应驮任务事实（本文 §3.2 的 `hyperlink_task_id` /
-> `delivered_at` / `click_count` 是错的）；模板**确实**保存 `promotion_link` 与按钮目标 URL
-> （本文 §5.1 末尾据 UI 文案所写的结论是错的，实际 payload 见
-> `hylbuiaxykfrontendsource/readable/assets/templates-BLWMxusB.js:399`）；`marketing_template_file`
-> 直接改名会让滚动发布期间的旧实例失效。
+> §4 任务族、§7 分析预聚合和 §8 账号画像是后续阶段的目标草案，开发前仍需结合当时协议能力复核；
+> §6 通用素材是演进目标，一期不改名 `marketing_template_file`。Flyway 编号永远在实施前按目标分支
+> 最高版本动态分配，本文不冻结具体数字。
 
 ---
 
@@ -34,12 +26,12 @@
    状态机都不同，合表会得到一张一半列恒 NULL 的表。
 2. **账号事实不复制**。`account` / `account_state` 仍是账号身份与在线、封禁、风控事实源；
    超链任务只保存执行时的号码与国家快照。
-3. **号码事实一处存**。号码归属数据包，`data_package_phone` 是唯一事实源；任务侧
-   `hyperlink_task_recipient` 只保存本次任务的执行快照与结果。
+3. **当前号码池与历史投递分开**。`data_package_phone` 只表达当前代号码是否还能被领取；任务侧
+   `hyperlink_task_recipient` 保存包、代次、导入批次、手机号和国家快照，投递尝试保存协议结果。
 4. **按聚合垂直拆分，不做宽表**。超链任务拆成「配置 / 消息内容 / 计数」三张 1:1 表
    （理由见 §4.1）。参照 `marketing_task` 已达 38 列的教训。
-5. **图片素材只有一套表示**。现有 `marketing_template_file` 演进为通用 `resource_asset`，
-   **不新建第二张图片表**（规范一.2 反 `account_group_id`/`tag_id`/`account_tag` 三镜像）。
+5. **图片引用使用稳定 AssetId 语义**。一期 ID 仍指向现有 `marketing_template_file`；未来通过
+   兼容 Service 和双读迁移演进为通用 `resource_asset`，不在一期直接改名，也不复制图片字节。
 6. **不落无采集链路的死列**。账号画像字段（好友数、注册天数、设备类型等）只有在协议层确认
    能采集后才落列，否则本期不做该筛选项（规范一.4）。
 7. **点击流水不存原始 IP**，只存由 IP 派生的国家码，与 promotion 模块既有的隐私保留策略同向。
@@ -50,24 +42,27 @@
 
 | 表 | 聚合归属 | 状态 | 作用 |
 |---|---|---|---|
-| `data_package` | 资源池 | 新建 | 号码包主表，保存包级计数 |
-| `data_package_phone` | 资源池 | 新建 | 号码明细，号码事实源 |
+| `data_package` | 资源池 | 新建 | 号码包主表，保存当前代指针和总数 |
+| `data_package_phone` | 资源池 | 新建 | 按代次保存号码及当前池状态 |
+| `data_package_stat` | 资源池 | 新建 | 包级池状态读模型，避免列表聚合号码表 |
 | `data_package_import` | 资源池 | 新建 | 号码导入批次与解析结果 |
-| `resource_asset` | 公共（文件） | **由 `marketing_template_file` 改名扩列** | 图片素材统一事实源 |
-| `resource_asset_tag` | 公共（文件） | 新建 | 素材标签字典 |
-| `resource_asset_tag_ref` | 公共（文件） | 新建 | 素材 × 标签关联 |
+| `resource_asset` | 公共（文件） | 后续演进 | 通用素材目标；一期不建、不改名 |
+| `resource_asset_tag` | 公共（文件） | 后续演进 | 素材标签字典 |
+| `resource_asset_tag_ref` | 公共（文件） | 后续演进 | 素材 × 标签关联 |
 | `hyperlink_template` | hyperlink | 新建 | 超链消息模板 |
 | `hyperlink_strategy` | hyperlink | 新建 | 超链发送策略预设 |
 | `hyperlink_task` | hyperlink | 新建 | 超链任务配置与生命周期 |
 | `hyperlink_task_content` | hyperlink | 新建 | 任务消息内容快照（1:1） |
 | `hyperlink_task_stat` | hyperlink | 新建 | 任务级计数（1:1，高频回写） |
 | `hyperlink_task_recipient` | hyperlink | 新建 | 执行目标，一行=一个收件人 |
+| `hyperlink_delivery_attempt` | hyperlink | 新建 | 一次协议发送尝试/物理消息分片 |
 | `hyperlink_click` | hyperlink | 新建 | 点击流水 |
 | `hyperlink_task_ban` | hyperlink | 新建 | 任务期间账号封号事实 |
 | `hyperlink_stat_daily` | hyperlink | 新建 | 市场分析日粒度预聚合 |
 | `account_profile` | account | **待全局评审** | 账号画像，承载新增筛选维度（§7） |
 
-新增 13 张 + 改名扩列 1 张 + 待评审 1 张。全部表带 `tenant_id`，**无需登记
+上述为全链路目标清单，不代表一期全部落库。一期只创建四张数据包表和 `hyperlink_template`；
+后续业务表在对应菜单实施时再建。所有业务表都带 `tenant_id`，**无需登记
 `MyBatisConfig.IGNORED_TABLES`**。
 
 ---
@@ -83,15 +78,10 @@
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `package_name` | `VARCHAR(128) NOT NULL` | 数据包名称 |
-| `phone_count` | `INT NOT NULL DEFAULT 0` | 包内号码总数 |
-| `used_num` | `INT NOT NULL DEFAULT 0` | 已被任务领用号码数 |
-| `unused_num` | `INT NOT NULL DEFAULT 0` | 未使用号码数 |
-| `success_num` | `INT NOT NULL DEFAULT 0` | 单钩（发送成功）号码数 |
-| `delivered_num` | `INT NOT NULL DEFAULT 0` | 双钩（已送达）号码数 |
-| `fail_num` | `INT NOT NULL DEFAULT 0` | 发送失败号码数 |
-| `fail_404_num` | `INT NOT NULL DEFAULT 0` | 未开通 WhatsApp 号码数 |
-| `click_uv_num` | `INT NOT NULL DEFAULT 0` | 点击去重号码数 |
 | `remark` | `VARCHAR(255)` | 备注 |
+| `current_generation` | `INT NOT NULL DEFAULT 1` | 当前可见号码代次；覆盖成功后原子递增 |
+| `phone_count` | `INT NOT NULL DEFAULT 0` | 当前代号码总数 |
+| `version` | `INT NOT NULL DEFAULT 1` | 名称/备注乐观锁版本；统计更新不修改它 |
 | `created_by` | `BIGINT` | 创建人 user_id |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 | `deleted_at` | `BIGINT` | 软删时间；NULL=未删 |
@@ -104,8 +94,7 @@
 | `uq_data_package_name` | `tenant_id, package_name, is_active` | 同租户下包名唯一 |
 | `idx_data_package_tenant` | `tenant_id, deleted_at, id` | 列表分页 |
 
-> `unused_num` 与 `phone_count - used_num` 冗余，保留是因为列表页与新建任务弹窗都要直接展示
-> 「未使用 N 条」，不冗余就得每次全表 COUNT。回写与 `used_num` 同事务。
+发送、送达和失败等高频统计不放在主表，统一由 §3.3 `data_package_stat` 提供。
 
 ### 3.2 data_package_phone（号码明细）
 
@@ -116,28 +105,52 @@
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `data_package_id` | `BIGINT NOT NULL` | →`data_package.id` |
+| `generation` | `INT NOT NULL` | 所属代次；查询当前号码必须等于包的 `current_generation` |
+| `source_import_id` | `BIGINT NOT NULL` | 产生该成员的导入批次 |
 | `phone` | `VARCHAR(32) NOT NULL` | 完整国际号码，只含数字 |
 | `country_iso2` | `CHAR(2)` | 导入时由区号经 `country_phone_prefix_mapping` 解析并快照；无法解析为 NULL |
-| `send_status` | `TINYINT NOT NULL DEFAULT 1` | 1=未使用 2=已领用 3=发送成功(单钩) 4=已送达(双钩) 5=发送失败 6=未开通WS |
-| `fail_code` | `VARCHAR(32)` | 失败码，如 `404`；成功为 NULL |
-| `hyperlink_task_id` | `BIGINT` | 最近领用该号码的任务 ID；未领用为 NULL |
-| `used_at` | `BIGINT` | 领用时间(epoch 毫秒) |
-| `delivered_at` | `BIGINT` | 双钩时间(epoch 毫秒) |
-| `click_count` | `INT NOT NULL DEFAULT 0` | 该号码累计点击次数 |
+| `pool_status` | `TINYINT NOT NULL DEFAULT 1` | 1未使用 2已领取 3发送成功 4已送达 5可重试失败 6未注册 |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
 索引：
 
 | 索引 | 字段 | 说明 |
 |---|---|---|
-| `uq_data_package_phone` | `tenant_id, data_package_id, phone` | **包内号码去重**，覆盖/追加导入都靠它 |
-| `idx_data_package_phone_pick` | `tenant_id, data_package_id, send_status, id` | 任务领号扫描 |
-| `idx_data_package_phone_country` | `tenant_id, data_package_id, country_iso2` | 国家分布统计 |
+| `uq_data_package_phone` | `tenant_id, data_package_id, generation, phone` | 同代包内去重；新代允许重新导入同号 |
+| `idx_data_package_phone_pick` | `tenant_id, data_package_id, generation, pool_status, id` | 当前代任务领号扫描 |
+| `idx_data_package_phone_country` | `tenant_id, data_package_id, generation, country_iso2, id` | 当前代国家集合与筛选 |
+| `idx_data_package_phone_import` | `tenant_id, source_import_id, id` | 导入追溯 |
 
 > `country_iso2` 是**有意的反规范化**：导入时算一次，避免号码明细分页与国家分布统计每次
 > join 区号映射表。区号映射表是平台元数据、极少变更，快照漂移风险可接受。
 
-### 3.3 data_package_import（导入批次）
+本表没有软删列。覆盖先写下一代，再原子更新 `data_package.current_generation`。代次 `g` 的退役时间
+取成功切到 `g+1` 的覆盖导入批次 `finished_at`；退役满 30 天后，后台任务每批最多 2000 行硬删。
+历史任务不保存本表主键，因此清理不会破坏历史事实。
+
+### 3.3 data_package_stat（包级池状态读模型）
+
+一行 = 一个数据包当前代的状态计数，主键与包 ID 相同。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `data_package_id` | `BIGINT` | 主键 |
+| `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
+| `generation` | `INT NOT NULL` | 本行统计对应的代次 |
+| `unused_count` | `INT NOT NULL DEFAULT 0` | 未使用数 |
+| `claimed_count` | `INT NOT NULL DEFAULT 0` | 已领取数 |
+| `sent_count` | `INT NOT NULL DEFAULT 0` | 当前停留在单钩的数量 |
+| `delivered_count` | `INT NOT NULL DEFAULT 0` | 当前已送达数量 |
+| `retryable_failed_count` | `INT NOT NULL DEFAULT 0` | 当前可重试失败数量 |
+| `unregistered_count` | `INT NOT NULL DEFAULT 0` | 当前确认未注册数量 |
+| `updated_at` | `BIGINT NOT NULL` | 最近投影时间 |
+| `reconciled_at` | `BIGINT` | 最近内部全量校准时间 |
+
+索引：`uq_data_package_stat`（`tenant_id, data_package_id`）。列表按主键一对一 JOIN，禁止对号码表
+现场 GROUP BY。导入事务同步维护本表；未来领取、发送、ACK 和失败通过可靠事件批量、幂等更新。
+内部 reconciliation 可按当前代重算，但不开放租户 `/recount` API。
+
+### 3.4 data_package_import（导入批次）
 
 一行 = 一次 TXT 上传。
 
@@ -146,27 +159,36 @@
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `data_package_id` | `BIGINT NOT NULL` | →`data_package.id` |
-| `import_mode` | `TINYINT NOT NULL` | 导入模式：1=追加(去重后并入) 2=覆盖(清空原号码) |
-| `source_file_name` | `VARCHAR(255)` | 上传文件原名 |
+| `generation` | `INT` | 本次写入代次；审计刚创建时为空，锁定包后写入目标代次 |
+| `import_mode` | `TINYINT NOT NULL` | 1追加 2覆盖 |
+| `status` | `TINYINT NOT NULL` | 1处理中 2成功 3失败 |
+| `source_file_name` | `VARCHAR(255) NOT NULL` | 上传文件原名，不保存原 TXT |
 | `total_rows` | `INT NOT NULL DEFAULT 0` | 解析总行数 |
-| `valid_rows` | `INT NOT NULL DEFAULT 0` | 有效手机号行数 |
+| `accepted_rows` | `INT NOT NULL DEFAULT 0` | 实际生效手机号行数 |
 | `invalid_rows` | `INT NOT NULL DEFAULT 0` | 格式非法行数 |
-| `duplicated_rows` | `INT NOT NULL DEFAULT 0` | 与包内已有号码重复行数 |
+| `duplicated_rows` | `INT NOT NULL DEFAULT 0` | 文件内或当前代包内重复行数 |
+| `failure_reason` | `VARCHAR(512)` | 脱敏失败摘要 |
 | `created_by` | `BIGINT` | 上传人 user_id |
-| `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
+| `created_at` | `BIGINT NOT NULL` | 开始时间 |
+| `finished_at` | `BIGINT` | 完成时间 |
 
-索引：`idx_data_package_import_pkg`（`tenant_id, data_package_id, created_at`）。
+索引：
+
+- `idx_data_package_import_pkg`（`tenant_id, data_package_id, created_at, id`）：包内导入历史。
+- `idx_data_package_import_generation`（`tenant_id, data_package_id, generation, status, finished_at`）：旧代清理资格。
+- `idx_data_package_import_status`（`tenant_id, status, created_at, id`）：失败和超时处理中恢复。
 
 > `import_mode` 用 TINYINT 而非 hylb 的 `overwrite`/`append` 字符串，遵循规范二「状态/枚举列 TINYINT」。
 
 **已决**（2026-08-27）：
 
-- **单次导入上限 5000 行**。数据包总号码数不设上限，只约束单次上传。超限直接拒收，
-  提示用户拆分文件。
+- **单次导入上限 5000 行**。单包安全阈值由
+  `armada.hyperlink.data-package.max-phones` 配置，默认 500000；它是防误操作阈值，不是数据库约束。
 - **不做国家风险拦截**。因此 `blocked_rows` / `blocked_country_iso2s` 两列**不落**——
   没有写入方的列就是死列（规范一.4）。将来若要做拦截，届时用 Flyway 加列。
-- 覆盖模式（`import_mode=2`）的「清空原号码 + 导入新号码」**必须在同一事务内**完成，
-  不允许清空成功而导入失败留下空包。5000 行的批量插入需在此事务边界内分批执行。
+- 覆盖模式先完整解析并写入下一代，再在同一事务中原子切换包指针和统计；不在关键事务里删除旧代。
+- 审计批次用独立短事务先记 `PROCESSING`。业务成功后记 `SUCCESS`；业务回滚后用独立事务记
+  `FAILED`，超时处理中记录由恢复任务收敛，避免失败审计跟着业务事务一起消失。
 
 ---
 
@@ -198,8 +220,10 @@
 | `task_planned_end_at` | `BIGINT` | 计划结束时间(epoch 毫秒)；仅持续运营模式必填 |
 | `task_interval_minutes` | `INT` | 周期轮次间隔(分钟)；仅周期模式必填，≥1 |
 | `data_package_id` | `BIGINT` | →`data_package.id`；仅保存不发送时可为 NULL |
-| `data_package_name` | `VARCHAR(128)` | 数据包名称快照 |
-| `hyperlink_template_id` | `BIGINT` | 引用的模板 ID；模板只带入内容，不建立强依赖 |
+| `data_package_generation` | `INT` | 启动领取时冻结的包代次；未启动可为 NULL |
+| `data_package_name_snapshot` | `VARCHAR(128)` | 数据包名称快照 |
+| `source_template_id` | `BIGINT` | 内容来源模板 ID；模板只带入内容，不建立运行时强依赖 |
+| `source_template_version` | `INT` | 带入内容时的模板版本 |
 | `hyperlink_strategy_id` | `BIGINT` | 引用的策略 ID；策略只带入配置，不建立强依赖 |
 | `account_filter` | `JSON` | 发送账号筛选条件；NULL 或 `{}` = 不限定（全部有效账号） |
 | `max_use_account` | `INT NOT NULL DEFAULT 0` | 最大使用账号数；0=不限号数 |
@@ -226,9 +250,8 @@
 | `idx_hyperlink_task_due` | `tenant_id, status, task_planned_end_at, id` | 到期结束扫描 |
 | `idx_hyperlink_task_package` | `tenant_id, data_package_id` | 数据包反查引用 |
 
-> **模板/策略是弱引用**：前端语义是"引用模板一键带入内容"，带入后任务自持一份快照
-> （`hyperlink_task_content`）。因此删除模板不影响在跑任务，只需 `task_ref_count` 做删除提示。
-> 这是有意为之，不是遗漏外键。
+> **模板/策略是弱引用**：前端语义是“引用后复制”。任务自持内容和配置快照，模板后续修改不影响任务。
+> 删除保护或引用提示通过 `source_template_id` 实时查询，不在模板表维护引用计数。
 
 ### 4.3 hyperlink_task_content（消息内容快照，1:1）
 
@@ -238,19 +261,20 @@
 |---|---|---|
 | `hyperlink_task_id` | `BIGINT` | 主键，→`hyperlink_task.id` |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
+| `message_schema_version` | `INT NOT NULL DEFAULT 1` | 消息内容契约版本 |
 | `message_type` | `TINYINT NOT NULL` | 1=单图文 2=双图文 3=普通按钮 4=卡片按钮 |
-| `title` | `VARCHAR(255)` | 消息标题 / 按钮气泡上方加粗大字 |
-| `content` | `TEXT` | 正文 / 卡片正文 |
+| `title` | `VARCHAR(512) NOT NULL` | 消息标题 / 按钮气泡上方加粗大字 |
+| `content` | `TEXT` | 单图文正文≤2000；按钮气泡正文≤200 |
 | `link_description` | `VARCHAR(512)` | 链接描述（标题下灰色小字） |
-| `promotion_link` | `VARCHAR(512)` | 推广链接（点击后跳转的原始 URL） |
-| `buttons` | `JSON` | `[{name,display_text,value}]` 最多 3；`name`∈`cta_url`/`cta_copy`/`quick_reply`；仅按钮类消息 |
-| `card_text` | `TEXT` | 底部小字 / 卡片底部文案 |
-| `link_preview_asset_id` | `BIGINT` | 链接预览图 →`resource_asset.id` |
-| `body_main_asset_id` | `BIGINT` | 正文主图 →`resource_asset.id` |
+| `promotion_link` | `VARCHAR(2048)` | 单图文原始推广链接 |
+| `buttons` | `JSON` | 使用一期详细设计 §5.2 的版本化数组；一期恰好一个 `CTA_URL` |
+| `card_text` | `VARCHAR(500)` | 卡片底部小字 |
+| `link_preview_asset_id` | `BIGINT` | 链接预览图稳定素材 ID |
+| `body_main_asset_id` | `BIGINT` | 正文主图 / 卡片 header 图稳定素材 ID |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
-> `cta_call`（电话按钮）**本期不入枚举**：协议层 `card-content.ts` 的 `ButtonCardButtonType`
-> 只有 `link|copy|quick`，落一个发不出去的按钮类型就是死数据。协议层扩展后再加。
+> 任务内容与 `hyperlink_template` 必须复用同一个 `HyperlinkMessageContent` DTO、字段长度和校验器。
+> 一期未开放的按钮类型由后端明确拒绝，不能让模板保存成功、任务启动后才失败。
 
 ### 4.4 hyperlink_task_stat（任务计数，1:1）
 
@@ -276,22 +300,19 @@
 
 ### 4.5 hyperlink_task_recipient（执行目标）
 
-一行 = 本任务向一个手机号的一次投递。对应接口 `/hyperlink-tasks/{id}/recipients`。
+一行 = 本任务的一个收件人及其聚合状态。一次收件人可能有多次重试或多个物理消息，具体发送记录见 §4.6。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `hyperlink_task_id` | `BIGINT NOT NULL` | →`hyperlink_task.id` |
-| `data_package_phone_id` | `BIGINT NOT NULL` | →`data_package_phone.id` |
-| `recipient_phone` | `VARCHAR(32) NOT NULL` | 收件人号码快照 |
-| `recipient_country_iso2` | `CHAR(2)` | 收件人国家快照 |
-| `account_id` | `BIGINT` | 发信账号 →`account.id`；未分配为 NULL |
-| `sender_phone` | `VARCHAR(32)` | 发信账号号码快照 |
-| `sender_country_iso2` | `CHAR(2)` | 发信账号国家快照（由 `ws_phone` 区号解析） |
-| `protocol_id` | `VARCHAR(32)` | 协议标识快照 |
+| `data_package_id` | `BIGINT NOT NULL` | 来源包 ID |
+| `data_package_generation` | `INT NOT NULL` | 领取时的来源包代次 |
+| `source_import_id` | `BIGINT NOT NULL` | 来源导入批次 |
+| `recipient_phone_snapshot` | `VARCHAR(32) NOT NULL` | 收件人号码快照 |
+| `recipient_country_iso2_snapshot` | `CHAR(2)` | 收件人国家快照 |
 | `short_code` | `VARCHAR(16)` | 深度追踪短码；未开启深度追踪为 NULL |
-| `protocol_message_id` | `VARCHAR(128)` | 协议层消息 ID，**ack 事件回关联靠它** |
 | `send_status` | `TINYINT NOT NULL DEFAULT 1` | 1=待发送 2=发送中 3=发送成功(单钩) 4=已送达(双钩) 5=已读 6=发送失败 7=未开通WS 8=已跳过 |
 | `fail_code` | `VARCHAR(32)` | 失败码 |
 | `fail_reason` | `VARCHAR(255)` | 失败原因（落库前按列宽截断） |
@@ -309,19 +330,51 @@
 
 | 索引 | 字段 | 说明 |
 |---|---|---|
-| `uq_hyperlink_recipient` | `tenant_id, hyperlink_task_id, recipient_phone` | 同任务同号码只投一次 |
+| `uq_hyperlink_recipient` | `tenant_id, hyperlink_task_id, recipient_phone_snapshot` | 同任务同号码只生成一条收件人 |
 | `uq_hyperlink_recipient_short_code` | `short_code` | 短码全局唯一；NULL 不参与唯一约束 |
 | `idx_hyperlink_recipient_task` | `tenant_id, hyperlink_task_id, send_status, id` | 明细分页 + 状态筛选 |
-| `idx_hyperlink_recipient_msg` | `protocol_message_id` | **ack 事件回写查找** |
-| `idx_hyperlink_recipient_account` | `tenant_id, hyperlink_task_id, account_id` | 发信账号维度统计 |
-| `idx_hyperlink_recipient_country` | `tenant_id, hyperlink_task_id, sender_country_iso2, recipient_country_iso2` | 国家对聚合 |
+| `idx_hyperlink_recipient_source` | `tenant_id, data_package_id, data_package_generation, id` | 包与代次追溯 |
 | `idx_hyperlink_recipient_click` | `tenant_id, hyperlink_task_id, click_count` | UV 统计与「从来不点」分析 |
 
 > **点击 UV 从这张表算，不从 `hyperlink_click` 算**：`COUNT(*) WHERE click_count > 0`
 > 走索引即可，而 `hyperlink_click` 上的 `COUNT(DISTINCT recipient_id)` 在千万行量级会拖垮分析页。
 > 这是 `click_count` / `first_visit_at` / `last_visit_at` 三个冗余列存在的唯一理由。
 
-### 4.6 hyperlink_click（点击流水）
+`hyperlink_task_recipient` **不保存 `data_package_phone_id`**。旧代号码按保留期清理，持久强引用最终会
+悬空；包 ID、代次、导入批次和手机号/国家快照已足够完成历史展示、审计和分析。
+
+### 4.6 hyperlink_delivery_attempt（投递尝试）
+
+一行 = 对某个收件人的一次协议发送尝试中的一个物理消息分片。双图文和重试都可能产生多行。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `BIGINT` | 主键 |
+| `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
+| `hyperlink_task_id` | `BIGINT NOT NULL` | 任务 ID，便于分区查询 |
+| `recipient_id` | `BIGINT NOT NULL` | →`hyperlink_task_recipient.id` |
+| `attempt_no` | `INT NOT NULL` | 第几次尝试，从 1 起 |
+| `message_part_no` | `INT NOT NULL DEFAULT 1` | 本次尝试的第几个物理消息 |
+| `account_id` | `BIGINT NOT NULL` | 本次实际发信账号 |
+| `sender_phone_snapshot` | `VARCHAR(32)` | 发信号码快照 |
+| `sender_country_iso2_snapshot` | `CHAR(2)` | 发信账号国家快照 |
+| `protocol_id` | `VARCHAR(32) NOT NULL` | 协议标识快照 |
+| `protocol_message_id` | `VARCHAR(128)` | 协议消息 ID，ACK 回关联键 |
+| `status` | `TINYINT NOT NULL` | 待发/发送中/单钩/双钩/已读/失败 |
+| `fail_code` | `VARCHAR(32)` | 本次失败码 |
+| `fail_reason` | `VARCHAR(255)` | 本次失败原因 |
+| `sent_at` / `delivered_at` / `read_at` / `failed_at` | `BIGINT` | 各阶段时间 |
+| `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
+
+索引：
+
+- `UNIQUE(tenant_id, recipient_id, attempt_no, message_part_no)`：重试与分片幂等。
+- `UNIQUE(tenant_id, account_id, protocol_id, protocol_message_id)`：ACK 唯一回关联；NULL 在发送前不参与冲突。
+- `INDEX(tenant_id, hyperlink_task_id, status, id)`：任务投递状态扫描。
+
+recipient 保存最终聚合状态，attempt 保存每次真实发送。不能把多个协议消息 ID 拼进 recipient 的字符串列。
+
+### 4.7 hyperlink_click（点击流水）
 
 一行 = 一次点击。**本模块最大的表**，需配归档策略。
 
@@ -358,7 +411,7 @@
 > 是唯一会随点击量线性膨胀的表，实施时须同步定按 `visit_at` 的归档/分区策略，
 > 不能等到表撑爆再补。
 
-### 4.7 hyperlink_task_ban（封号事实）
+### 4.8 hyperlink_task_ban（封号事实）
 
 一行 = 本任务期间一个账号的一次封号。对应接口 `/hyperlink-tasks/{id}/ban-stats`。
 
@@ -397,9 +450,17 @@
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `template_name` | `VARCHAR(128) NOT NULL` | 模板名称 |
 | `message_type` | `TINYINT NOT NULL` | 1=单图文 2=双图文 3=普通按钮 4=卡片按钮 |
-| `title` / `content` / `link_description` / `promotion_link` / `buttons` / `card_text` / `link_preview_asset_id` / `body_main_asset_id` | 同 `hyperlink_task_content` | 内容字段，语义与列型完全一致 |
-| `task_ref_count` | `INT NOT NULL DEFAULT 0` | 被任务引用次数，用于删除保护提示 |
+| `message_schema_version` | `INT NOT NULL DEFAULT 1` | 消息内容契约版本 |
+| `title` | `VARCHAR(512) NOT NULL` | 消息标题 / 按钮气泡上方加粗大字 |
+| `content` | `TEXT` | 单图文正文≤2000；按钮气泡正文≤200 |
+| `link_description` | `VARCHAR(512)` | 单图文链接描述 |
+| `promotion_link` | `VARCHAR(2048)` | 单图文原始推广链接 |
+| `buttons` | `JSON` | 与 §4.3 相同的版本化按钮数组；一期恰好一个 `CTA_URL` |
+| `card_text` | `VARCHAR(500)` | 卡片底部小字 |
+| `link_preview_asset_id` | `BIGINT` | 链接预览图稳定素材 ID |
+| `body_main_asset_id` | `BIGINT` | 正文主图 / 卡片 header 图稳定素材 ID |
 | `remark` | `VARCHAR(255)` | 备注 |
+| `version` | `INT NOT NULL DEFAULT 1` | 乐观锁和内容来源版本 |
 | `created_by` | `BIGINT` | 创建人 user_id |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 | `deleted_at` | `BIGINT` | 软删时间；NULL=未删 |
@@ -408,19 +469,16 @@
 索引：`uq_hyperlink_template_name`（`tenant_id, template_name, is_active`）、
 `idx_hyperlink_template_tenant`（`tenant_id, deleted_at, id`）。
 
-> ~~模板只保存按钮类型与按钮文字，不保存跳转链接~~ —— **此结论已被推翻（2026-08-27）**。
-> 前端确有"跳转链接在创建任务时配置"的提示文案，但**实际保存逻辑与该提示冲突**：
-> `readable/assets/templates-BLWMxusB.js:399` 显示单图文保存 `promotion_link`、
-> 按钮类保存完整 `buttons`（含目标 URL）。以实际 payload 为准——模板保存完整跳转地址。
+模板与任务内容必须共用同一个 `HyperlinkMessageContent` DTO 和校验器。模板完整保存
+`promotion_link` 与按钮目标 URL；任务选择模板时复制内容并记录 `source_template_id/version`。
+`taskRefCount` 由任务表实时查询，一期任务未上线时 API 明确返回 0，不落冗余列。
 
-#### 5.1.1 ⚠ 与 `marketing_template` 的关系（需全局评审）
+#### 5.1.1 与 `marketing_template` 的关系（已冻结）
 
 这是本设计中**唯一触碰规范一.2「一个事实一处存」的地方**，必须说清。
 
-现有 `marketing_template` 也是"WhatsApp 消息模板"，字段重合约 60%。两张表并存有漂移风险。
-两个方案：
-
-**方案 A（本文采用）：独立 `hyperlink_template`**
+现有 `marketing_template` 也是 WhatsApp 消息模板，字段有重合，但一期采用独立
+`hyperlink_template`：
 
 理由：
 1. 枚举不同构。`marketing_template.link_mode` 是 `1=普通超链 2=按钮超链 3=图文内容`，
@@ -432,20 +490,8 @@
 3. 规范五「跨业务共享表的任何改动走全局评审，禁某业务私自加列」——`marketing_template`
    是群组营销在用的表，超链业务不应私自扩它。
 
-代价：两张模板表，未来两边同时改消息形态时需同步。缓解：二者共用 `resource_asset`
-存图、共用同一份 `buttons` JSON 结构约定。
-
-**方案 B（备选）：归一进 `marketing_template`**
-
-把两套枚举真正合并成一套消息形态：
-`1=纯文本超链 2=按钮(无图) 3=图文(图+文) 4=链接卡片 5=图+链接卡片 6=按钮(带图)`，
-群组营销用 1/2/3，超链用 4/5/6/2，加 `business_type` 判别列 + 4 个内容列。
-
-收益：一个概念一张表，彻底消除漂移。
-代价：改动生产中群组营销的枚举语义，需数据迁移 + 回归；P0 就得动群组营销，风险前置。
-
-**建议**：本期走 A 不阻塞 P0，但把这条登记为**已知的受控冗余**；若评审认为 B 的长期收益
-更大，则 B 必须在 P0 之前独立立项，不能夹在超链需求里做。
+代价是两套业务模板并存。边界控制为：共享稳定素材 ID 语义，但不强行共享一套业务枚举或表；
+若未来要归一，必须作为独立迁移项目完整回归群营销，不能夹在超链一期里做。
 
 ### 5.2 hyperlink_strategy（超链策略）
 
@@ -475,21 +521,18 @@
 
 ---
 
-## 六、公共：图片素材
+## 六、公共：图片素材演进
 
-### 6.1 `marketing_template_file` → `resource_asset`（改名 + 扩列）
+### 6.1 一期复用与未来 `resource_asset`
 
 现状：`marketing_template_file` 只有上传与取字节两个能力（8 列，`content` 为 `MEDIUMBLOB`）。
 超链的「图片素材」页需要列表、命名、标签、引用计数、删除保护、批量上传。
 
-**不新建 `resource_asset` 表指向 `marketing_template_file`**——那会得到两张图片表，
-正是规范一.2 点名的镜像反模式。改为**把现表演进成通用素材表**：
+一期不改表名、不复制图片字节。`link_preview_asset_id` / `body_main_asset_id` 的值直接指向
+`marketing_template_file.id`，通过 `MarketingTemplateFileService` 校验租户、JPEG 格式和 500KB 上限。
 
-```sql
-RENAME TABLE marketing_template_file TO resource_asset;
-```
-
-新增列：
+未来素材菜单上线时，先提供通用 `ResourceAssetService` 兼容读取现有 ID，再按双读、回填、切流步骤
+演进。目标 `resource_asset` 至少增加：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -499,22 +542,18 @@ RENAME TABLE marketing_template_file TO resource_asset;
 | `created_by` | `BIGINT` | 上传人 user_id；存量行为 NULL |
 | `updated_at` | `BIGINT NOT NULL` | epoch 毫秒；存量行取 `created_at` 回填 |
 
-保留列：`id` / `tenant_id` / `original_filename` / `content_type` / `size_bytes` / `content` /
-`created_at` / `deleted_at`。共 14 列。
+保留现有文件的稳定 ID、租户、原文件名、类型、大小、内容、创建和删除时间语义。
 
 索引新增：`idx_resource_asset_name`（`tenant_id, deleted_at, asset_name`）供按名搜索。
 
-**影响面**（改名的代价，需在实施计划里逐条兑现）：
-- `MarketingTemplateFileController` / `MarketingTemplateFileService` / `MarketingTemplateFileMapper`
-  及其 XML 的表名与类名
-- `marketing_template.image_file_id` 的目标表变更（**列名保留不改**，避免波及群组营销的读写路径）
-- 前端 `src/api/marketing-template.ts` 的 `imageFileId` 语义不变，无需改动
+迁移顺序必须是：兼容 Service/API → 存量回填和一致性校验 → 新旧调用方切流 → 确认无旧实例后再决定
+是否改物理表名。不得先执行 `RENAME TABLE`，否则滚动发布中的旧 Mapper 会直接报表不存在。
 
 > **遗留风险（不在本期解决，但登记在案）**：`content` 是存在 MySQL 里的 `MEDIUMBLOB`。
 > 素材库支持批量上传后，主库体积会随素材量线性增长。本期沿用现状（不引入对象存储这个新基础设施），
 > 但一旦素材量级起来，迁对象存储要作为独立技术债项立项。
 
-### 6.2 resource_asset_tag / resource_asset_tag_ref
+### 6.2 `resource_asset_tag` / `resource_asset_tag_ref`（未来）
 
 标签是多对多，必须独立成表，不能塞进 `resource_asset` 的 JSON 列——
 页面有「按标签筛选（任意匹配）」与标签下拉候选，JSON 列做不了索引化的反查。
@@ -687,22 +726,21 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 
 ## 九、Flyway 迁移编排
 
-| 版本 | 文件 | 内容 |
-|---|---|---|
-| V140 | `V140__resource_asset.sql` | `marketing_template_file` 改名扩列 + 两张标签表 + 存量 `asset_name` 回填 |
-| V141 | `V141__data_package.sql` | `data_package` / `data_package_phone` / `data_package_import` |
-| V142 | `V142__hyperlink_template_strategy.sql` | `hyperlink_template` / `hyperlink_strategy` |
-| V143 | `V143__hyperlink_task.sql` | `hyperlink_task` / `_content` / `_stat` / `_recipient` |
-| V144 | `V144__hyperlink_click_ban.sql` | `hyperlink_click` / `hyperlink_task_ban` |
-| V145 | `V145__hyperlink_stat_daily.sql` | `hyperlink_stat_daily` |
-| （待定） | `V1xx__account_profile.sql` | 仅在 §8.2 验证通过后落 |
+| 阶段 | 内容 |
+|---|---|
+| 一期数据包 | `data_package` / `data_package_phone` / `data_package_stat` / `data_package_import` |
+| 一期模板 | `hyperlink_template` |
+| 一期菜单权限 | 超链数据包、超链营销模板和对应 RBAC |
+| 后续任务 | `hyperlink_strategy` / `hyperlink_task` / `_content` / `_stat` / `_recipient` / `_delivery_attempt` |
+| 后续点击分析 | `hyperlink_click` / `hyperlink_task_ban` / `hyperlink_stat_daily` |
+| 后续公共素材 | `resource_asset` 兼容迁移和两张标签表 |
+| 待验证账号画像 | 仅在 §8.2 验证通过后创建 `account_profile` |
 
 约束：
 
-- 版本号跨分支提交前**核对防撞号**（`1.0.3-group` 曾发生 V117 撞号）。
+- 实施前同步目标分支并从全局最高 Flyway 版本继续编号；本文不写死版本号。
 - `ADD COLUMN` 一律用 `information_schema` 守卫保证幂等。
-- V140 是**改名迁移**，须同时提供 `.harness/changes/hyperlink-marketing/db-migrations.sql`
-  与 `rollback.sql`（回滚即 `RENAME TABLE resource_asset TO marketing_template_file` + `DROP COLUMN`）。
+- 公共素材未来迁移必须先上兼容代码，不能把直接改表名作为第一步。
 - schema 落地后重跑 `.harness/wiki/gen_datamodel.py` 刷新 `数据模型.md`，**禁手改**。
 - 所有新列必须带 `COMMENT`（自动文档依赖它）。
 
@@ -715,23 +753,25 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | # | 决策 |
 |---|---|
 | 1 | 接口命名走 `/api/hyperlink-tasks` + camelCase，与现有 Controller 一致 |
-| 2 | 数据包单次导入上限 **5000 行**；总量不限；覆盖模式清空+导入同事务（§3.3） |
-| 3 | **不做**国家风险拦截，`blocked_rows` / `blocked_country_iso2s` 不落列（§3.3） |
-| 4 | 设备类型（主设备/分身）由 `account.protocol_id` 派生，**不落 `wid_type` 列**（§8.1） |
-| 5 | 存活天数由 `now - account.created_at` 派生，不落列 |
-| 6 | **计费相关字段全部不做**：armada 无计费体系（见 10.2 第 3 条） |
+| 2 | 数据包单次导入上限 **5000 行**；单包阈值可配置、默认 500000（§3.4） |
+| 3 | 覆盖导入使用代际切换，不在关键事务内删除旧号码；旧代按保留期分批清理 |
+| 4 | 包级状态统计放在 `data_package_stat`，不放主表、不开放租户 `recount` API |
+| 5 | 任务收件人保存包代次/导入批次/号码/国家快照，不保存 `data_package_phone_id` |
+| 6 | 超链模板独立于群营销模板；一期图片复用 `marketing_template_file`，不改表名 |
+| 7 | **不做**国家风险拦截，`blocked_rows` / `blocked_country_iso2s` 不落列（§3.4） |
+| 8 | 设备类型（主设备/分身）由 `account.protocol_id` 派生，**不落 `wid_type` 列**（§8.1） |
+| 9 | 存活天数由 `now - account.created_at` 派生，不落列 |
+| 10 | **计费相关字段全部不做**：Armada 无计费体系 |
 
 ### 10.2 未决
 
 | # | 问题 | 影响 |
 |---|---|---|
-| 1 | `hyperlink_template` 独立 vs 归一进 `marketing_template`（§5.1.1） | 决定 P0 是否需要动生产中的群组营销 |
-| 2 | `marketing_template_file` 改名的影响面是否接受（§6.1） | 不接受则退化为两张图片表，违反规范一.2 |
-| 3 | 「注册天数」的产品定义（§8.3） | WhatsApp 不暴露注册时间；含义未定则该筛选项不做 |
-| 4 | Android 协议的拉群隐私读取能力 + 两侧 `friend_count` 口径统一（§8.2） | 决定 `account_profile` 落 2 列还是 0 列 |
-| 5 | 账号画像同步触发时机与刷新频率（§8.2） | 主动查协议本身有风控暴露，高频刷新会伤号 |
-| 6 | `hyperlink_click` 的归档/分区策略与保留期 | 不定就是埋雷 |
-| 7 | 深度追踪短链域名是否与买量 `promotion_domain` 隔离 | 共用域名时超链被封会连带买量落地页一起挂 |
+| 1 | 「注册天数」的产品定义（§8.3） | WhatsApp 不暴露注册时间；含义未定则该筛选项不做 |
+| 2 | Android 协议的拉群隐私读取能力 + 两侧 `friend_count` 口径统一（§8.2） | 决定 `account_profile` 落 2 列还是 0 列 |
+| 3 | 账号画像同步触发时机与刷新频率（§8.2） | 主动查协议本身有风控暴露，高频刷新会伤号 |
+| 4 | `hyperlink_click` 的归档/分区策略与保留期 | 不定就是埋雷 |
+| 5 | 深度追踪短链域名是否与买量 `promotion_domain` 隔离 | 共用域名时超链被封会连带买量落地页一起挂 |
 
 > **勘误**：本文与设计文档早先提到的「armada 的 `balances` / `consume-stats` 体系」不存在。
 > 那几个是 hylb 的接口。armada 的 Java 代码与全部 Flyway 迁移中**没有任何 balance / recharge

@@ -1,0 +1,37 @@
+package com.armada.hyperlink.data.service;
+
+import com.armada.hyperlink.data.model.dto.DataPackageCreateDTO;
+import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
+import com.armada.hyperlink.data.model.dto.DataPackageQuery;
+import com.armada.hyperlink.data.model.dto.DataPackageUpdateDTO;
+import com.armada.hyperlink.data.model.vo.DataPackageCountryOptionVO;
+import com.armada.hyperlink.data.model.vo.DataPackageDetailVO;
+import com.armada.hyperlink.data.model.vo.DataPackageListItemVO;
+import com.armada.hyperlink.data.model.vo.DataPackagePhoneItemVO;
+import com.armada.shared.response.PageResult;
+import java.util.List;
+
+/** 超链数据包 CRUD、列表、国家候选和号码分页服务。 */
+public interface DataPackageService {
+
+    /** 查询有效数据包分页或未来任务候选。 */
+    PageResult<DataPackageListItemVO> list(DataPackageQuery query);
+
+    /** 查询当前租户有效数据包详情。 */
+    DataPackageDetailVO detail(Long id);
+
+    /** 创建空数据包和一对一零值统计行。 */
+    DataPackageDetailVO create(DataPackageCreateDTO request, Long createdBy);
+
+    /** 按版本完整更新名称和备注。 */
+    DataPackageDetailVO update(Long id, DataPackageUpdateDTO request);
+
+    /** 软删除数据包，号码由保留期任务后续清理。 */
+    void delete(Long id);
+
+    /** 查询父包当前 generation 的号码明细。 */
+    PageResult<DataPackagePhoneItemVO> phones(Long id, DataPackagePhoneQuery query);
+
+    /** 读取启用国家主数据并追加 UNKNOWN 固定候选。 */
+    List<DataPackageCountryOptionVO> countries();
+}

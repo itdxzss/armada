@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.data.mapper.DataPackageMapper">
+
+  <sql id="EntityColumns">
+    id, tenant_id, package_name, remark, current_generation, phone_count, version,
+    created_by, created_at, updated_at, deleted_at
+  </sql>
+
+  <sql id="SummaryColumns">
+    package.id,
+    package.package_name AS name,
+    package.remark,
+    package.current_generation AS currentGeneration,
+    package.phone_count AS phoneCount,
+    package.version,
+    package.created_at AS createdAt,
+    package.updated_at AS updatedAt,
+    COALESCE(stat.unused_count, 0) AS unusedCount,
+    COALESCE(stat.claimed_count, 0) AS claimedCount,
+    COALESCE(stat.sent_count, 0) AS sentCount,
+    COALESCE(stat.delivered_count, 0) AS deliveredCount,
+    COALESCE(stat.retryable_failed_count, 0) AS retryableFailedCount,
+    COALESCE(stat.unregistered_count, 0) AS unregisteredCount
+  </sql>
+
+  <sql id="PageWhere">
+    WHERE package.deleted_at IS NULL
+    <if test="q.name != null and q.name != ''">
+      AND package.package_name LIKE CONCAT('%', #{q.name}, '%')
+    </if>
+    <if test="q.createdFrom != null">
+      AND package.created_at &gt;= #{q.createdFrom}
+    </if>
+    <if test="q.createdTo != null">
+      AND package.created_at &lt;= #{q.createdTo}
+    </if>
+    <if test="q.forTask">
+      AND COALESCE(stat.unused_count, 0) &gt; 0
+    </if>
+    <if test="q.countryFiltered">
+      AND EXISTS (
+        SELECT 1
+        FROM data_package_phone country_phone
+        WHERE country_phone.data_package_id = package.id
+          AND country_phone.generation = package.current_generation
+          AND (
+            <if test="q.realCountryIso2s != null and !q.realCountryIso2s.isEmpty()">
+              country_phone.country_iso2 IN
+              <foreach collection="q.realCountryIso2s" item="iso2" open="(" separator="," close=")">
+                #{iso2}
+              </foreach>
+            </if>
+            <if test="q.realCountryIso2s != null and !q.realCountryIso2s.isEmpty() and q.includeUnknownCountry">
+              OR
+            </if>
+            <if test="q.includeUnknownCountry">
+              country_phone.country_iso2 IS NULL
+            </if>
+          )
+      )
+    </if>
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO data_package (
+      package_name, remark, current_generation, phone_count, version,
+      created_by, created_at, updated_at
+    ) VALUES (
+      #{packageName}, #{remark}, #{currentGeneration}, #{phoneCount}, #{version},
+      #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectActiveById" resultType="com.armada.hyperlink.data.model.entity.DataPackage">
+    SELECT <include refid="EntityColumns"/>
+    FROM data_package
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <select id="selectActiveForUpdate" resultType="com.armada.hyperlink.data.model.entity.DataPackage">
+    SELECT <include refid="EntityColumns"/>
+    FROM data_package
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM data_package package
+    LEFT JOIN data_package_stat stat
+      ON stat.data_package_id = package.id
+     AND stat.tenant_id = package.tenant_id
+     AND stat.generation = package.current_generation
+    <include refid="PageWhere"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.hyperlink.data.model.vo.DataPackageListRow">
+    SELECT <include refid="SummaryColumns"/>
+    FROM data_package package
+    LEFT JOIN data_package_stat stat
+      ON stat.data_package_id = package.id
+     AND stat.tenant_id = package.tenant_id
+     AND stat.generation = package.current_generation
+    <include refid="PageWhere"/>
+    ORDER BY package.id DESC
+    LIMIT #{q.pageSize} OFFSET #{q.offset}
+  </select>
+
+  <select id="selectSummaryById" resultType="com.armada.hyperlink.data.model.vo.DataPackageListRow">
+    SELECT <include refid="SummaryColumns"/>
+    FROM data_package package
+    LEFT JOIN data_package_stat stat
+      ON stat.data_package_id = package.id
+     AND stat.tenant_id = package.tenant_id
+     AND stat.generation = package.current_generation
+    WHERE package.id = #{id}
+      AND package.deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <select id="selectCurrentCountries" resultType="com.armada.hyperlink.data.model.vo.DataPackageCountryRow">
+    SELECT DISTINCT phone.data_package_id AS dataPackageId,
+           phone.country_iso2 AS countryIso2
+    FROM data_package_phone phone
+    INNER JOIN data_package package
+      ON package.id = phone.data_package_id
+     AND package.tenant_id = phone.tenant_id
+     AND package.current_generation = phone.generation
+     AND package.deleted_at IS NULL
+    WHERE phone.data_package_id IN
+    <foreach collection="packageIds" item="packageId" open="(" separator="," close=")">
+      #{packageId}
+    </foreach>
+    ORDER BY phone.data_package_id ASC,
+             CASE WHEN phone.country_iso2 IS NULL THEN 1 ELSE 0 END ASC,
+             phone.country_iso2 ASC
+  </select>
+
+  <update id="updateMetadata">
+    UPDATE data_package
+    SET package_name = #{name},
+        remark = #{remark},
+        version = version + 1,
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND version = #{version}
+  </update>
+
+  <update id="incrementPhoneCount">
+    UPDATE data_package
+    SET phone_count = phone_count + #{increment},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND current_generation = #{generation}
+  </update>
+
+  <update id="switchGeneration">
+    UPDATE data_package
+    SET current_generation = #{newGeneration},
+        phone_count = #{phoneCount},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND current_generation = #{expectedGeneration}
+  </update>
+
+  <update id="setPhoneCount">
+    UPDATE data_package
+    SET phone_count = #{phoneCount},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+      AND current_generation = #{generation}
+  </update>
+
+  <update id="softDelete">
+    UPDATE data_package
+    SET deleted_at = #{deletedAt},
+        updated_at = #{deletedAt}
+    WHERE id = #{id}
+      AND deleted_at IS NULL
+  </update>
+</mapper>

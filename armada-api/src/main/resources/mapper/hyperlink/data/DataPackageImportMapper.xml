@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.data.mapper.DataPackageImportMapper">
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO data_package_import (
+      data_package_id, generation, import_mode, status, source_file_name,
+      total_rows, accepted_rows, invalid_rows, duplicated_rows, failure_reason,
+      created_by, created_at, finished_at
+    ) VALUES (
+      #{dataPackageId}, #{generation}, #{importMode}, #{status}, #{sourceFileName},
+      #{totalRows}, #{acceptedRows}, #{invalidRows}, #{duplicatedRows}, #{failureReason},
+      #{createdBy}, #{createdAt}, #{finishedAt}
+    )
+  </insert>
+
+  <update id="assignGeneration">
+    UPDATE data_package_import
+    SET generation = #{generation}
+    WHERE id = #{id}
+      AND status = #{processingStatus}
+  </update>
+
+  <update id="markSuccess">
+    UPDATE data_package_import
+    SET status = #{successStatus},
+        total_rows = #{totalRows},
+        accepted_rows = #{acceptedRows},
+        invalid_rows = #{invalidRows},
+        duplicated_rows = #{duplicatedRows},
+        failure_reason = NULL,
+        finished_at = #{finishedAt}
+    WHERE id = #{id}
+      AND status = #{processingStatus}
+  </update>
+
+  <update id="markFailed">
+    UPDATE data_package_import
+    SET status = #{failedStatus},
+        failure_reason = #{failureReason},
+        finished_at = #{finishedAt}
+    WHERE id = #{id}
+      AND status = #{processingStatus}
+  </update>
+
+  <update id="markStaleProcessingFailed">
+    UPDATE data_package_import
+    SET status = #{failedStatus},
+        failure_reason = #{failureReason},
+        finished_at = #{finishedAt}
+    WHERE status = #{processingStatus}
+      AND created_at &lt;= #{createdBefore}
+    ORDER BY id ASC
+    LIMIT #{limit}
+  </update>
+</mapper>

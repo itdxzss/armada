@@ -5,7 +5,25 @@
 - 需求来源：`docs/superpowers/specs/2026-08-27-hyperlink-marketing-replication-design.md`
 - 全局现状依据：`.harness/wiki/数据模型.md`（自动生成）
 - 遵循：`.harness/rules/数据模型规范.md`
-- Flyway 起始版本：**V140**（当前最高 `V139__group_participant_phone_identity_guard.sql`）
+
+> ## ⚠ 效力声明（2026-08-27 修订）
+>
+> 本文是**超链营销全模块的目标数据模型**，用于看清全局与聚合边界。但以下部分**已被一期
+> 详细设计取代，不得据本文实施**：
+>
+> | 本文章节 | 状态 | 以何为准 |
+> |---|---|---|
+> | §3 数据包三张表 | **失效** | `docs/superpowers/specs/2026-08-27-hyperlink-data-template-phase1-design.md` §6.1~6.3 |
+> | §5.1 `hyperlink_template` | **失效** | 同上 §6.4 |
+> | §6 图片素材（改名 `resource_asset`） | **失效** | 同上 §8.4、§13.3——一期不改名，复用现有文件 ID |
+> | §9 Flyway V140~V145 编排 | **失效** | `origin/1.0.3-snapshot` 已存在 `V140__group_canonical_first_classification.sql`，版本号须在实施前按目标分支实时最高版本重新分配 |
+> | §4 任务族、§7 分析预聚合、§8 账号画像 | 仍有效 | 本文 |
+>
+> 一期设计在三处纠正了本文：号码行不应驮任务事实（本文 §3.2 的 `hyperlink_task_id` /
+> `delivered_at` / `click_count` 是错的）；模板**确实**保存 `promotion_link` 与按钮目标 URL
+> （本文 §5.1 末尾据 UI 文案所写的结论是错的，实际 payload 见
+> `hylbuiaxykfrontendsource/readable/assets/templates-BLWMxusB.js:399`）；`marketing_template_file`
+> 直接改名会让滚动发布期间的旧实例失效。
 
 ---
 
@@ -390,8 +408,10 @@
 索引：`uq_hyperlink_template_name`（`tenant_id, template_name, is_active`）、
 `idx_hyperlink_template_tenant`（`tenant_id, deleted_at, id`）。
 
-> 模板**只保存按钮类型与按钮文字，不保存跳转链接**——前端明示"跳转链接在创建任务时配置"。
-> 因此模板的 `buttons[].value` 允许为空，`promotion_link` 也允许为空。
+> ~~模板只保存按钮类型与按钮文字，不保存跳转链接~~ —— **此结论已被推翻（2026-08-27）**。
+> 前端确有"跳转链接在创建任务时配置"的提示文案，但**实际保存逻辑与该提示冲突**：
+> `readable/assets/templates-BLWMxusB.js:399` 显示单图文保存 `promotion_link`、
+> 按钮类保存完整 `buttons`（含目标 URL）。以实际 payload 为准——模板保存完整跳转地址。
 
 #### 5.1.1 ⚠ 与 `marketing_template` 的关系（需全局评审）
 

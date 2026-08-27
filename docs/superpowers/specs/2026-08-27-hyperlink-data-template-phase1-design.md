@@ -4,6 +4,16 @@
 
 > 关键结论：两个菜单可以先开发，但只能视为“创建侧独立、运行与分析侧强关联”的前置资源。对外行为按竞品复刻，内部不能复制竞品把可变资源和任务结果混在一起的缺陷。
 
+> **修订记录（2026-08-27 第二版）**：评审后修正五处，均为数据量上来之后才会暴露、届时改动代价最大的问题。
+>
+> 1. `data_package` 补状态计数列——原设计列表页 7 个指标只能全量 GROUP BY，包内号码可累积到数十万（§6.1、§7.1）。
+> 2. 覆盖导入改**硬删**旧号码，`data_package_phone` 去掉软删列——原设计的软删死行无界增长且无清理方（§4.3、§6.2）。
+> 3. 数据包总号码数设上限，把覆盖导入的最坏代价钉死（§2.3、§4.2）。
+> 4. 图片列名定为 `*_asset_id`——原 `*_file_id` 在迁移到 `resource_asset` 后即名不副实，要再来一次 Flyway（§6.4）。
+> 5. `content` 按 `message_type` 逐条写清语义——原注释“正文/副标题/底部小字”一列三义（§6.4）。
+>
+> 另与 `docs/business/hyperlink-marketing-data-model.md` 的冲突已解决：**一期三张数据包表与模板表以本文为准**，该文对应章节已标注失效。
+
 ## 1. 实施前必须遵守的结论
 
 1. 新业务落在独立的 `com.armada.hyperlink` 域，不扩展现有群组营销 `marketing_template`。
@@ -41,6 +51,7 @@
 | 项目 | 竞品行为 | Armada 一期决定 | 原因 |
 |---|---|---|---|
 | 单次 TXT 行数 | 最多 100000 | 最多 5000 | 沿用当前已确认设计；先保证同步事务稳定 |
+| 单个数据包总号码数 | 无上限 | **上限 500000（待产品确认）** | 覆盖导入要替换整包，无上限则最坏代价无界；见 §4.2 |
 | 国家风险阻断 | 阻断 MY/SG/HK/CN/MO/TW | 不阻断 | Armada 当前没有该产品要求 |
 | 双图文模板 | 枚举存在但入口隐藏且编辑会降级成单图文 | 枚举保留、接口明确拒绝 | 不复制静默数据损坏 |
 | 图片保存 | 前端主要保存 URL/路径 | 保存文件 ID | 保证租户校验和后续素材迁移 |
@@ -90,24 +101,51 @@ flowchart LR
 1. 读取并完整校验 TXT，任何数据库变更前先得到解析结果。
 2. 文件内重复号码只保留一条，其余计入 `duplicatedRows`。
 3. 与当前有效号码重复的记录跳过，不改变原号码的池状态。
-4. 新号码以 `UNUSED` 状态插入。
-5. 更新包的当前号码数并保存导入批次结果。
+4. 校验「包内现有号码数 + 本次新增号码数」不超过包总量上限，超限整体拒绝并提示当前余量。
+5. 新号码以 `UNUSED` 状态插入。
+6. 同事务更新包的 `phone_count` 与 `unused_count`，并保存导入批次结果。
+
+**包总量上限**：单次导入上限 5000 只约束一次操作，追加可以无限次。没有总量上限时，
+覆盖导入需要替换的旧号码数没有上界，事务规模不可预测。因此设包总量上限（建议 500000），
+把最坏代价钉死在一个已知量级上。这比为无界数据量设计换代机制便宜得多。
 
 ### 4.3 覆盖导入
 
 1. 先完整解析新文件，解析失败时原数据包保持不变。
 2. 锁定 `data_package` 主行，串行化同一数据包的导入、删除和改名操作。
 3. 如果未来存在运行中任务正在领取或使用该数据包，返回冲突，不允许覆盖。
-4. 将旧的当前号码软删除，再插入本次去重后的新号码。
+4. **硬删**旧号码（按主键分批，每批 2000），再插入本次去重后的新号码。
 5. 新号码全部从 `UNUSED` 开始，旧任务继续使用自己的收件人快照。
-6. 软删旧号码、插入新号码、更新计数必须处于同一事务。
+6. 删旧号码、插入新号码、重置包计数必须处于同一事务。
+
+**为什么是硬删而不是软删**：
+
+- 覆盖是**可重复发生**的操作。软删后旧行永远留在表里——`UNIQUE(tenant_id, data_package_id, phone, is_active)`
+  这类写法靠 `is_active` 让死行永不冲突，也就永远不会被任何约束逼着清理。覆盖 N 次留 N 份死行，
+  且本设计没有任何清理方，属于无界增长。
+- 旧行没有历史价值。`hyperlink_task_recipient` 已经快照了 `recipient_phone_snapshot` 与
+  `recipient_country_iso2_snapshot`，历史任务不读这些行。`data_package_phone_id` 退化为悬空引用，
+  这是可接受的——它本来就不是数据库外键，只作追溯线索。
+- 硬删后 `data_package_phone` 不再需要 `deleted_at` / `is_active`，唯一键退化成
+  `UNIQUE(tenant_id, data_package_id, phone)`，同时消掉一类"当前有效 vs 已软删"的查询分支。
+
+分批删除是为了控制单条 DELETE 的锁范围与 undo log 体积，但**必须在同一事务内**完成，
+不允许删到一半提交后再插入——那会留下空包。包总量上限（§4.2）保证这个事务的规模有上界。
 
 ### 4.4 删除规则
 
-- 一期删除数据包采用软删除，并同时软删除其当前有效号码。
+- 一期删除数据包采用**软删除，只标记 `data_package.deleted_at`，不动号码行**。
 - 未来存在运行中任务引用时返回 409；已完成任务不会阻止删除，因为任务保存快照。
 - 删除后不能再被新任务选择，历史任务仍展示 `dataPackageNameSnapshot`。
 - 不提供物理删除接口。
+- 号码行由**后台清理任务**在包软删满保留期后按 `data_package_id` 批量硬删。保留期建议 30 天，
+  给误删留回旋余地。
+
+**删除策略为什么与覆盖不同**：删包是**一次性**操作，一个包只会被删一次，不存在无界增长；
+号码行不可达（所有访问都经包主行），留着不影响正确性。覆盖是**重复**操作，必须硬删。
+两处采用不同策略是有意的，不是不一致。
+
+由此 `data_package_phone` 上不需要软删列：覆盖走硬删，删包不动号码行，清理任务也是硬删。
 
 ## 5. 模板业务语义
 
@@ -172,8 +210,10 @@ flowchart LR
 - 复制由服务端完成，只复制业务内容和图片引用，不复制 ID、创建人、时间和未来任务引用。
 - 副本命名依次尝试“原名称 副本”“原名称 副本 2”等，直到租户内唯一。
 - 更新请求携带 `version`，使用乐观锁防止两个运营人员互相覆盖。
-- 每次成功更新令 `templateVersion + 1`。
-- 未来任务保存 `sourceTemplateId + sourceTemplateVersion + 完整内容快照`。
+- 每次成功更新令 `version + 1`。数据库列、DTO 字段、文中表述统一用 `version`，
+  不出现 `templateVersion` 等别名。
+- 未来任务保存 `sourceTemplateId + sourceTemplateVersion + 完整内容快照`，
+  其中 `sourceTemplateVersion` 取自模板的 `version`。
 - 精准复刻竞品时，存在任务引用的模板不允许删除；引用数通过任务表实时查询，不在模板表维护易漂移计数。
 - 一期任务尚未落地，模板删除只做软删除。
 
@@ -189,7 +229,13 @@ flowchart LR
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `package_name` | `VARCHAR(128) NOT NULL` | 数据包名称 |
 | `remark` | `VARCHAR(255)` | 备注 |
-| `phone_count` | `INT NOT NULL DEFAULT 0` | 当前有效号码数 |
+| `phone_count` | `INT NOT NULL DEFAULT 0` | 当前号码总数，等于下列六个计数之和 |
+| `unused_count` | `INT NOT NULL DEFAULT 0` | `pool_status=1` 未使用号码数 |
+| `claimed_count` | `INT NOT NULL DEFAULT 0` | `pool_status=2` 已领取号码数 |
+| `sent_count` | `INT NOT NULL DEFAULT 0` | `pool_status=3` 发送成功(单钩)号码数 |
+| `delivered_count` | `INT NOT NULL DEFAULT 0` | `pool_status=4` 已送达(双钩)号码数 |
+| `retryable_failed_count` | `INT NOT NULL DEFAULT 0` | `pool_status=5` 可重试失败号码数 |
+| `unregistered_count` | `INT NOT NULL DEFAULT 0` | `pool_status=6` 未注册号码数 |
 | `version` | `INT NOT NULL DEFAULT 1` | 并发更新版本 |
 | `created_by` | `BIGINT` | 创建人 |
 | `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
@@ -203,7 +249,34 @@ flowchart LR
 - `INDEX(tenant_id, deleted_at, id)`：列表分页。
 - `INDEX(tenant_id, created_at, id)`：创建时间筛选。
 
-国家不落在包主表。一个 TXT 允许包含多国号码，列表国家集合由当前有效号码的 `country_iso2` 聚合得到。
+**为什么必须落计数列（评审修正）**
+
+§7.1 列表页每行要展示 7 个池状态指标。若不落列，只能对 `data_package_phone` 按
+`pool_status` 现场 GROUP BY：
+
+```
+包内号码可累积到 500000（单次导入上限 5000 只约束一次操作，追加不限次数）
+列表页 20 行 × 每包全量聚合 = 单次翻页最坏扫描千万级索引条目
+```
+
+把聚合下推 SQL 解决不了这个——问题在扫描量，不在分页方式。因此六个计数列是必需的冗余，
+而不是可选优化。
+
+**维护规则（硬约束）**
+
+- 任何改变 `pool_status` 的写操作，**必须在同一事务内**同步更新对应计数列，不允许异步补偿。
+- 计数只做增量更新（`unused_count = unused_count - 1, claimed_count = claimed_count + 1`），
+  不做全量重算，避免与并发写互相覆盖。
+- 更新语句带 `AND unused_count >= n` 之类的下界条件，靠受影响行数兜底，防止计数被扣成负数。
+- 提供一个仅限管理员的重算接口，按 `data_package_phone` 全量重算某个包的六个计数，
+  用于漂移排查。**这是排查工具，不是常规链路**，不得由列表页触发。
+- 一期只有导入会写计数：追加时 `phone_count += n, unused_count += n`；覆盖时全部重置为
+  `phone_count = unused_count = n`，其余四个归零。
+
+国家不落在包主表。一个 TXT 允许包含多国号码，列表国家集合由号码的 `country_iso2` 聚合得到。
+国家集合的基数很小（一个包通常 1～3 个国家），且 `INDEX(tenant_id, data_package_id, country_iso2, id)`
+可走松散索引扫描，不需要落列。**注意这条与上面的计数列不矛盾**：国家是低基数 DISTINCT，
+池状态是高基数 COUNT，两者的聚合代价不是一回事。
 
 ### 6.2 `data_package_phone`
 
@@ -220,14 +293,17 @@ flowchart LR
 | `pool_status` | `TINYINT NOT NULL DEFAULT 1` | 1未使用 2已领取 3发送成功 4已送达 5可重试失败 6未注册 |
 | `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 | `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
-| `deleted_at` | `BIGINT` | 覆盖或删包时软删 |
-| `is_active` | 生成列 | 未删为 1，已删为 NULL |
+
+**本表无软删列（评审修正）**。覆盖导入硬删旧行、删包不动号码行、清理任务硬删，
+三条路径都不需要 `deleted_at`。少一个生成列，少一类"当前有效 vs 已软删"的查询分支，
+也彻底消除软删死行无界增长的可能。理由见 §4.3。
 
 索引：
 
-- `UNIQUE(tenant_id, data_package_id, phone, is_active)`：当前包内去重，允许覆盖后重新导入同号。
+- `UNIQUE(tenant_id, data_package_id, phone)`：包内去重。覆盖走硬删，旧行已不存在，
+  同号可以重新导入，不需要 `is_active` 参与唯一键。
 - `INDEX(tenant_id, data_package_id, pool_status, id)`：未来任务领取和号码明细筛选。
-- `INDEX(tenant_id, data_package_id, country_iso2, id)`：国家统计和筛选。
+- `INDEX(tenant_id, data_package_id, country_iso2, id)`：国家集合聚合与筛选。
 - `INDEX(tenant_id, source_import_id, id)`：导入结果追溯。
 
 `pool_status` 不是发送历史。未来每次投递的完整状态、失败码、协议消息 ID、ACK 和点击都保存在任务收件人/投递尝试表；这里只维护当前号码是否还能被领取的投影。
@@ -269,14 +345,14 @@ flowchart LR
 | `template_name` | `VARCHAR(128) NOT NULL` | 模板名称 |
 | `message_type` | `TINYINT NOT NULL` | 1单图文 2双图文 3普通按钮 4卡片按钮 |
 | `message_schema_version` | `INT NOT NULL DEFAULT 1` | 消息 JSON 契约版本 |
-| `title` | `VARCHAR(512) NOT NULL` | 标题 |
-| `content` | `TEXT` | 正文/副标题/底部小字 |
-| `link_description` | `VARCHAR(512)` | 单图文链接描述 |
-| `promotion_link` | `VARCHAR(2048)` | 单图文原始推广链接 |
-| `buttons` | `JSON` | 版本化按钮数组 |
-| `card_text` | `VARCHAR(500)` | 卡片正文 |
-| `link_preview_file_id` | `BIGINT` | 单图文预览图片文件 ID |
-| `body_main_file_id` | `BIGINT` | 按钮类正文/卡片图片文件 ID |
+| `title` | `VARCHAR(512) NOT NULL` | 标题：单图文=消息标题；按钮类=按钮气泡上方加粗大字 |
+| `content` | `TEXT` | 按 `message_type` 取义：1=链接卡片下方正文(≤2000)；3/4=按钮气泡正文(≤200)；2 保留位 |
+| `link_description` | `VARCHAR(512)` | 链接描述（标题下灰色小字）。仅 `message_type=1` 有值，其余类型存 NULL |
+| `promotion_link` | `VARCHAR(2048)` | 原始推广链接。仅 `message_type=1` 有值；按钮类的跳转地址在 `buttons[].targetValue` |
+| `buttons` | `JSON` | 版本化按钮数组。仅 `message_type` 为 3/4 有值 |
+| `card_text` | `VARCHAR(500)` | 卡片底部小字。仅 `message_type=4` 有值 |
+| `link_preview_asset_id` | `BIGINT` | 链接预览图素材 ID。仅 `message_type=1` 有值 |
+| `body_main_asset_id` | `BIGINT` | 正文主图 / 卡片 header 图素材 ID。`message_type` 为 3/4 时可有值 |
 | `remark` | `VARCHAR(255)` | 备注 |
 | `version` | `INT NOT NULL DEFAULT 1` | 乐观锁和来源版本 |
 | `created_by` | `BIGINT` | 创建人 |
@@ -291,7 +367,20 @@ flowchart LR
 - `INDEX(tenant_id, message_type, deleted_at, id)`：列表筛选。
 - `INDEX(tenant_id, created_at, id)`：创建时间筛选。
 
-一期不在数据库声明跨业务域外键，但 Service 必须按当前租户校验两个文件 ID。原因是现有表由 `marketing` 域管理，跨域引用通过 Service 约束，避免绕过租户边界。
+一期不在数据库声明跨业务域外键，但 Service 必须按当前租户校验两个素材 ID。原因是现有表由 `marketing` 域管理，跨域引用通过 Service 约束，避免绕过租户边界。
+
+**列名为什么是 `*_asset_id` 而不是 `*_file_id`（评审修正）**
+
+一期这两列存的确实是 `marketing_template_file.id`，但 §13.3 已经明确未来要迁到通用
+`resource_asset`。若现在按当前实现命名 `*_file_id`，迁移完成后列名就名不副实，要么长期误导，
+要么再补一次 Flyway 改列名。
+
+因此**现在就按目标语义命名**：列名 `*_asset_id`，值在一期指向 `marketing_template_file.id`，
+迁移时只换指向、不换列名。这与 §8.4「DTO 对外使用 AssetId 语义」保持一致——
+DTO、DB 列、未来目标表三者用同一套词汇，不制造第二套命名。
+
+`message_type` 与各内容列的对应关系已在上表逐列写明，校验矩阵见 §5.3，
+两处必须一致；服务端保存前按 `message_type` 归一化清空不生效列。
 
 ### 6.5 暂不落地但已经冻结的任务快照
 
@@ -367,9 +456,32 @@ GET /api/data-packages?page=1&pageSize=20&name=philippines&createdFrom=178784640
 }
 ```
 
-这些指标从当前号码池状态和未来点击事实聚合。任务和点击尚未上线时，非导入指标为真实的 0，不从前端制造随机或 mock 数据。
+**指标来源**：除 `clickUvCount` 外，全部直接读 `data_package` 的六个计数列（§6.1），
+列表页不对 `data_package_phone` 做任何聚合。任务和点击尚未上线时，非导入指标为真实的 0，
+不从前端制造随机或 mock 数据。
 
-统计口径固定为：`unusedCount = status 1`，`usedCount = status 2～6`，`sentCount = status 3`，`deliveredCount = status 4`，`failedCount = status 5 + 6`，`unregisteredCount = status 6`。号码从发送成功更新为已送达后，不再同时计入单钩数量。
+`clickUvCount` 一期恒为 0 且**不落列**——它的事实源是未来的 `hyperlink_task_recipient`，
+按 `dataPackageId` 汇总（§13.5）。点击功能上线时再决定是否为它增加一个计数列，
+现在落列就是没有写入方的死列。
+
+统计口径（由计数列直接给出或简单相加）：
+
+| 指标 | 口径 |
+|---|---|
+| `totalCount` | `phone_count` |
+| `unusedCount` | `unused_count` |
+| `usedCount` | `phone_count - unused_count` |
+| `sentCount` | `sent_count` |
+| `deliveredCount` | `delivered_count` |
+| `failedCount` | `retryable_failed_count + unregistered_count` |
+| `unregisteredCount` | `unregistered_count` |
+
+> **`failedCount` 与 `unregisteredCount` 有意重叠**：未注册号码同时计入两者。这是对齐竞品
+> 「失败总数 / 未开通 WS」合并列的展示口径，**不是缺陷**。后续维护者不要把它当 bug 改掉。
+>
+> `pool_status` 是互斥单值，号码从发送成功更新为已送达后只计入 `delivered_count`，
+> 不再计入 `sent_count`。因此 `sentCount` 是"停留在单钩"的数量，不是"曾经达到单钩"的累计量；
+> 累计口径要等 `hyperlink_task_recipient` 上线后从任务事实取。
 
 ### 7.2 创建和更新
 
@@ -449,7 +561,28 @@ GET /api/data-packages/101/phones?page=1&pageSize=50&phone=639&poolStatus=UNUSED
 DELETE /api/data-packages/{id}
 GET    /api/data-packages/countries
 GET    /api/data-packages?forTask=true
+POST   /api/data-packages/{id}/recount     仅管理员，重算六个计数列
 ```
+
+`GET /api/data-packages/countries` 返回当前租户所有未删除数据包出现过的国家集合，
+供列表页国家筛选下拉使用：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": [
+    { "countryIso2": "PH", "nameZh": "菲律宾", "packageCount": 3, "phoneCount": 12800 },
+    { "countryIso2": "ID", "nameZh": "印度尼西亚", "packageCount": 1, "phoneCount": 4200 }
+  ]
+}
+```
+
+`nameZh` 由 `country` 主数据 join 得到；`country_iso2` 为 NULL 的号码归入 `countryIso2: null`
+并展示为「未识别」，不静默丢弃。
+
+`POST /api/data-packages/{id}/recount` 是 §6.1 提到的漂移排查工具：按 `data_package_phone`
+全量重算并覆盖六个计数列。**仅限管理员权限，不得由列表页或任何常规链路触发**。
 
 `forTask=true` 是冻结给未来任务选择器的查询语义：只返回未删除、至少有一条 `UNUSED` 号码的数据包，且返回 `unusedCount`。一期可以实现并测试，任务页面无需同时上线。
 
@@ -688,6 +821,7 @@ tenant:hyperlink_data:create
 tenant:hyperlink_data:import
 tenant:hyperlink_data:edit
 tenant:hyperlink_data:delete
+tenant:hyperlink_data:recount
 
 tenant:hyperlink_template:view
 tenant:hyperlink_template:create
@@ -698,8 +832,12 @@ tenant:hyperlink_template:delete
 
 权限要求：
 
-- 后端接口使用 `@PreAuthorize`，前端按钮权限只负责交互展示。
+- 后端接口使用 `@PreAuthorize`，前端按钮权限只负责交互展示。命名沿用现有
+  `tenant:<module>:<action>` 约定（对照 `tenant:marketing_template:view`、`tenant:pull_task:view`）。
+- `tenant:hyperlink_data:recount` 只授予管理员角色，不进普通运营角色的默认权限集。
 - 图片读取至少接受模板查看权限；图片上传至少接受模板创建或编辑权限。
+  注意 `MarketingTemplateFileController` 目前是**类级** `@PreAuthorize("hasAuthority('tenant:marketing_template:view')")`，
+  只有超链模板权限的用户会被直接挡在门外，必须改成 `hasAnyAuthority` 并加入超链模板权限。
 - 数据包导入和删除必须记录操作人、包 ID、模式和计数。
 - 未来手机号导出单独增加 `tenant:hyperlink_data:export`，并接入 OTP 与操作审计，不复用普通查看权限。
 
@@ -762,7 +900,9 @@ sequenceDiagram
 - 实施前先同步目标分支并重新扫描全局最高版本。
 - 使用连续的三个新版本：数据包表、模板表、菜单/RBAC；文档不硬编码具体数字。
 - 所有表和列写完整 `COMMENT`。
-- 生成列用于软删唯一约束，不能使用 `(tenant_id, name, deleted_at)` 直接唯一，因为 MySQL 允许多个 NULL。
+- 生成列 `is_active` 只用于**有软删的表**（`data_package`、`hyperlink_template`）的名称唯一约束，
+  不能使用 `(tenant_id, name, deleted_at)` 直接唯一，因为 MySQL 允许多个 NULL。
+  `data_package_phone` 无软删列，唯一键是普通的 `(tenant_id, data_package_id, phone)`，不需要生成列。
 - 完成后运行 `.harness/wiki/gen_datamodel.py` 更新自动数据模型文档。
 
 ### 14.2 发布顺序
@@ -792,11 +932,23 @@ sequenceDiagram
 - 查询、更新、删除不能访问其他租户数据。
 - TXT BOM、空行、非法行、文件内重复、包内重复。
 - 追加导入只增加新号码且不改变旧号码状态。
-- 覆盖导入成功后只有新号码有效。
-- 覆盖解析失败或批量插入失败时旧号码完整保留。
+- 追加导致总量超过包上限时整体拒绝，且不产生任何写入。
+- 覆盖导入成功后只有新号码存在，旧号码行**已从表中消失**（硬删，不是软删）。
+- 覆盖解析失败或批量插入失败时旧号码完整保留，计数列不变。
+- 覆盖分批删除中途失败时整事务回滚，不留下空包。
 - 同一包并发导入不会相互覆盖。
-- 软删后允许重新使用原包名和原手机号。
+- 包软删后允许重新使用原包名；号码行仍在表中，由清理任务处理。
+- 覆盖后重新导入同一手机号不触发唯一键冲突。
 - `forTask=true` 只返回存在未使用号码的有效包。
+
+计数列（评审新增，六个计数是本期最容易出错的地方）：
+
+- 追加、覆盖后 `phone_count` 等于六个计数之和，且等于表内实际行数。
+- 增量更新在并发下不丢更新：两个事务同时改同一包的计数，最终值正确。
+- 计数下界保护生效：受影响行数为 0 时事务回滚，计数不会被扣成负数。
+- `recount` 接口重算结果与增量维护结果一致。
+- 列表接口的 SQL **不包含对 `data_package_phone` 的聚合**——这条建议用 SQL 断言或
+  Mapper XML 结构测试固化，防止后续被"顺手改回去"。
 
 模板：
 
@@ -845,7 +997,9 @@ sequenceDiagram
 | 3 | 数据包实体、Mapper、分页查询 | 列表和明细 SQL | 2 |
 | 4 | 数据包 CRUD Service/Controller | 创建、编辑、删除、国家查询 | 3 |
 | 5 | TXT 解析器和解析单测 | 规范化、去重、计数 | 2 |
-| 6 | 追加/覆盖事务和 H2 测试 | 导入接口 | 3、5 |
+| 6 | 追加/覆盖事务和 H2 测试 | 导入接口、包上限校验、分批硬删 | 3、5 |
+| 6b | 计数列增量维护与 `recount` | 并发安全的计数更新 + 排查接口 | 6 |
+| 6c | 已删数据包号码清理任务 | 保留期过后按包硬删号码行 | 4 |
 | 7 | 模板 Flyway 与 H2 schema 测试 | 模板表和索引 | 1 |
 | 8 | 消息 DTO、枚举、JSON converter | 统一内容契约 | 7 |
 | 9 | 模板校验器和资源文件校验 | 类型矩阵与租户校验 | 8 |
@@ -862,7 +1016,9 @@ sequenceDiagram
 
 - 两个菜单由后端动态菜单和 RBAC 驱动，不依赖生产 mock。
 - 数据包 CRUD、追加/覆盖导入和号码分页使用真实 MySQL/MyBatis 路径。
-- 覆盖导入具备完整事务回滚证据。
+- 覆盖导入具备完整事务回滚证据，且旧号码为硬删（表内查无此行）。
+- 数据包列表接口的执行计划不含对 `data_package_phone` 的聚合，指标全部来自计数列。
+- 六个计数列在追加、覆盖、并发场景下与实际行数一致。
 - 模板三种消息类型的前后端校验一致，双图文不会被静默转换。
 - 模板保存真实推广链接、按钮目标参数和稳定图片 ID。
 - 所有表、接口和关联查询完成租户隔离测试。
@@ -892,10 +1048,13 @@ sequenceDiagram
 ### 18.3 本方案冻结的产品决定
 
 - 数据包容器可重复使用，任务只消费未使用号码。
-- 一期单次导入最多 5000 行，不做国家风险阻断。
+- 一期单次导入最多 5000 行，单包总号码数上限 500000（待产品确认），不做国家风险阻断。
+- 覆盖导入硬删旧号码；删包只软删包主行，号码行交由清理任务处理。
+- 数据包列表指标由 `data_package` 的六个计数列直接给出，不做即时聚合。
 - 单图文、普通按钮、卡片按钮一期上线；双图文明确延期。
 - 模板保存推广链接和按钮目标 URL。
 - 一期按钮上限为 1，类型只开放 URL 跳转。
-- 引用资源均使用软删除，历史任务依赖快照而不是活动主数据。
+- **可被引用的主数据**（数据包、模板）用软删除，历史任务依赖快照而不是活动主数据；
+  **不被引用的明细行**（号码）在覆盖时硬删，由包总量上限约束事务规模。
 
 只要后续实现遵守“号码快照、内容快照、图片稳定 ID”三条跨期契约，先开发这两个菜单不会把超链任务、素材库、点击追踪和市场分析做死。

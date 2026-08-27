@@ -263,6 +263,7 @@
       ON parent_task.id = execution_row.task_id
      AND parent_task.tenant_id = execution_row.tenant_id
      AND parent_task.deleted_at IS NULL
+     AND parent_task.owner_user_id IS NOT NULL
      AND parent_task.task_type = #{criteria.parent.taskType}
      AND parent_task.mode = #{criteria.parent.taskMode}
     WHERE execution_row.execution_status IN

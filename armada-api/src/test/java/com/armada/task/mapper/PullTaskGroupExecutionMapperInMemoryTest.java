@@ -677,6 +677,27 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
+    void unknownResultScanExcludesHistoricalOwnerlessTask() throws SQLException {
+        insertParent(7L, 100L, "COMPLETED");
+        executeRaw("UPDATE pull_task SET owner_user_id = NULL WHERE id = 100");
+        PullTaskGroupExecution row = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(row);
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("UPDATE pull_task_group_execution SET execution_status = 4 "
+                + "WHERE id = " + row.getId());
+        executeRaw("INSERT INTO pull_task_account_action "
+                + "(tenant_id, task_id, group_execution_id, action_type, "
+                + "actor_group_account_id, target_group_account_id, action_status, "
+                + "command_id, submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, " + row.getId()
+                + ", 2, 11, 22, 5, 'cmd-ownerless', 400, 100, 400)");
+        TenantContext.clear();
+
+        assertThat(mapper.selectUnknownResultCandidates(
+                unknownCriteria("STANDARD", "NORMAL_LINK"))).isEmpty();
+    }
+
+    @Test
     void unknownResultScanIncludesFreshCallBoundToUnavailablePuller()
             throws SQLException {
         insertParent(7L, 100L, "EXECUTING");

@@ -18,6 +18,10 @@
 > §4 任务族、§7 分析预聚合和 §8 账号画像是后续阶段的目标草案，开发前仍需结合当时协议能力复核；
 > §6 通用素材是演进目标，一期不改名 `marketing_template_file`。Flyway 编号永远在实施前按目标分支
 > 最高版本动态分配，本文不冻结具体数字。
+>
+> **2026-08-27 二期校正**：§4 任务族、§5.2 策略、§6 素材、§7 分析已按静态前端事实修订
+> （共 7 处，逐条列在 `2026-08-27-hyperlink-task-strategy-asset-analysis-design.md` §5.2）。
+> 该文档是超链任务 / 策略 / 图片素材 / 市场分析四个模块的实施口径，与本文的字段定义必须一致。
 
 ---
 
@@ -48,9 +52,9 @@
 | `data_package_phone` | 资源池 | 新建 | 按代次保存号码及当前池状态 |
 | `data_package_stat` | 资源池 | 新建 | 包级池状态读模型，避免列表聚合号码表 |
 | `data_package_import` | 资源池 | 新建 | 号码导入批次与解析结果 |
-| `resource_asset` | 公共（文件） | 后续演进 | 通用素材目标；一期不建、不改名 |
-| `resource_asset_tag` | 公共（文件） | 后续演进 | 素材标签字典 |
-| `resource_asset_tag_ref` | 公共（文件） | 后续演进 | 素材 × 标签关联 |
+| `marketing_template_file` | 公共（文件） | 二期加列 | 素材事实源；加 `asset_name`/`width`/`height`/`created_by`/`updated_at`，**不新建第二张素材表、不改名** |
+| `resource_asset_tag` | 公共（文件） | 二期新建 | 素材标签字典 |
+| `resource_asset_tag_ref` | 公共（文件） | 二期新建 | 素材（`file_id`）× 标签关联 |
 | `hyperlink_template` | hyperlink | 新建 | 超链消息模板 |
 | `hyperlink_strategy` | hyperlink | 新建 | 超链发送策略预设 |
 | `hyperlink_task` | hyperlink | 新建 | 超链任务配置与生命周期 |
@@ -216,8 +220,9 @@
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `task_name` | `VARCHAR(128) NOT NULL` | 任务名称 |
-| `task_type` | `TINYINT NOT NULL` | 任务模式：1=即时 2=持续运营 3=周期循环 |
-| `status` | `TINYINT NOT NULL DEFAULT 1` | 1=未开始 2=待发送 3=发送中 4=已暂停 5=已完成 6=已停止 7=仅保存 |
+| `task_type` | `TINYINT NOT NULL` | 任务模式：1=即时 2=预发布(持续运营) 3=周期循环 |
+| `is_enabled` | `TINYINT(1) NOT NULL DEFAULT 0` | 0=已停用（仅保存不发送） 1=启用 |
+| `run_status` | `TINYINT NOT NULL DEFAULT 0` | 0=未开始 1=进行中 2=已完成 3=已暂停 4=已停止 |
 | `start_mode` | `TINYINT NOT NULL DEFAULT 1` | 启动方式：1=立即执行 2=延后执行 |
 | `task_delay_minutes` | `INT NOT NULL DEFAULT 0` | 延后执行分钟数；`start_mode=1` 时恒 0 |
 | `task_planned_end_at` | `BIGINT` | 计划结束时间(epoch 毫秒)；仅持续运营模式必填 |
@@ -233,10 +238,13 @@
 | `concurrent_num` | `INT NOT NULL DEFAULT 1` | 最大执行账号数，须 ≤ `max_use_account`(非0时) |
 | `account_max_send_num` | `INT NOT NULL DEFAULT 0` | 每账号最大发送条数；0=打死/封号为止 |
 | `account_send_concurrency` | `INT NOT NULL DEFAULT 1` | 单账号同时并发量，1~100 |
-| `msg_interval_min_sec` | `INT NOT NULL` | 消息间隔下界(秒) |
-| `msg_interval_max_sec` | `INT NOT NULL` | 消息间隔上界(秒)，须 ≥ 下界 |
-| `is_short_link_enabled` | `TINYINT(1) NOT NULL DEFAULT 0` | 深度追踪：0=发原始链接无点击数据 1=每收件人独立短码 |
+| `msg_interval_min_ms` | `INT NOT NULL` | 消息间隔下界(毫秒)，0~10000 |
+| `msg_interval_max_ms` | `INT NOT NULL` | 消息间隔上界(毫秒)，须 ≥ 下界 |
+| `is_short_link_enabled` | `TINYINT(1) NOT NULL DEFAULT 0` | 深度追踪派生冗余列；事实源是 `hyperlink_task_content.buttons[].useShortLink` |
 | `remark` | `VARCHAR(512)` | 任务备注 |
+| `current_round_no` | `BIGINT NOT NULL DEFAULT 0` | 当前轮次号；周期与预发布模式使用 |
+| `next_round_at` | `BIGINT` | 下一轮计划开始时间(epoch 毫秒) |
+| `last_round_started_at` | `BIGINT` | 最近一轮开始时间(epoch 毫秒) |
 | `started_at` | `BIGINT` | 首次启动时间(epoch 毫秒) |
 | `last_send_at` | `BIGINT` | 最近一次成功发送时间(epoch 毫秒) |
 | `finished_at` | `BIGINT` | 进入终态时间(epoch 毫秒) |
@@ -249,12 +257,18 @@
 | 索引 | 字段 | 说明 |
 |---|---|---|
 | `idx_hyperlink_task_tenant` | `tenant_id, deleted_at, id` | 列表分页 |
-| `idx_hyperlink_task_status_time` | `tenant_id, status, last_send_at` | 状态筛选 + 最后发送排序 |
-| `idx_hyperlink_task_due` | `tenant_id, status, task_planned_end_at, id` | 到期结束扫描 |
+| `idx_hyperlink_task_status_time` | `tenant_id, is_enabled, run_status, last_send_at` | 状态筛选 + 最后发送排序 |
+| `idx_hyperlink_task_due` | `tenant_id, run_status, task_planned_end_at, id` | 到期结束扫描 |
+| `idx_hyperlink_task_round` | `tenant_id, run_status, next_round_at, id` | 轮次到期扫描 |
 | `idx_hyperlink_task_package` | `tenant_id, data_package_id` | 数据包反查引用 |
 
 > **模板/策略是弱引用**：前端语义是“引用后复制”。任务自持内容和配置快照，模板后续修改不影响任务。
 > 删除保护或引用提示通过 `source_template_id` 实时查询，不在模板表维护引用计数。
+
+> **本节已按静态前端事实校正（2026-08-27）**：状态拆成 `is_enabled` + `run_status` 两个正交字段、
+> 消息间隔改毫秒（竞品是 0.1 秒精度）、深度追踪降级为派生列（竞品的开关在按钮上）、
+> 补三个轮次列。竞品提交体里的 `default_sub_task_num` 是前端硬编码常量、无 UI 控件，**不落列**。
+> 完整依据与出处见 `docs/superpowers/specs/2026-08-27-hyperlink-task-strategy-asset-analysis-design.md` §2 与 §5.2。
 
 ### 4.3 hyperlink_task_content（消息内容快照，1:1）
 
@@ -361,6 +375,7 @@
 | `account_id` | `BIGINT NOT NULL` | 本次实际发信账号 |
 | `sender_phone_snapshot` | `VARCHAR(32)` | 发信号码快照 |
 | `sender_country_iso2_snapshot` | `CHAR(2)` | 发信账号国家快照 |
+| `recipient_country_iso2_snapshot` | `CHAR(2)` | 收件人国家快照；小时粒度实时聚合免 join recipient |
 | `protocol_id` | `VARCHAR(32) NOT NULL` | 协议标识快照 |
 | `protocol_message_id` | `VARCHAR(128)` | 协议消息 ID，ACK 回关联键 |
 | `status` | `TINYINT NOT NULL` | 待发/发送中/单钩/双钩/已读/失败 |
@@ -374,6 +389,8 @@
 - `UNIQUE(tenant_id, recipient_id, attempt_no, message_part_no)`：重试与分片幂等。
 - `UNIQUE(tenant_id, account_id, protocol_id, protocol_message_id)`：ACK 唯一回关联；NULL 在发送前不参与冲突。
 - `INDEX(tenant_id, hyperlink_task_id, status, id)`：任务投递状态扫描。
+- `INDEX(tenant_id, sent_at, sender_country_iso2_snapshot, recipient_country_iso2_snapshot)`：市场分析小时粒度实时聚合的唯一支撑，不可省。
+- `INDEX(tenant_id, hyperlink_task_id, account_id, id)`：任务详情「发信账号统计」。
 
 recipient 保存最终聚合状态，attempt 保存每次真实发送。不能把多个协议消息 ID 拼进 recipient 的字符串列。
 
@@ -506,9 +523,9 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `strategy_name` | `VARCHAR(128) NOT NULL` | 策略名称（仅后台展示，便于识别） |
-| `task_type` | `TINYINT NOT NULL` | 1=即时 2=持续运营 3=周期循环 |
-| `task_interval_minutes` | `INT` | 周期轮次间隔(分钟)；仅周期模式有效 |
-| `max_use_account` / `concurrent_num` / `account_max_send_num` / `account_send_concurrency` / `msg_interval_min_sec` / `msg_interval_max_sec` / `account_filter` | 同 `hyperlink_task` | 参数字段，语义与列型完全一致 |
+| `task_type` | `TINYINT NOT NULL` | 1=即时 2=预发布(持续运营) 3=周期循环 |
+| `task_interval_minutes` | `INT NOT NULL DEFAULT 0` | 周期轮次间隔(分钟)；仅周期模式有效，**下限 30**（任务侧下限是 1，两边不同，逐字复刻） |
+| `max_use_account` / `concurrent_num` / `account_max_send_num` / `account_filter` | 同 `hyperlink_task` | 参数字段，语义与列型完全一致 |
 | `is_enabled` | `TINYINT(1) NOT NULL DEFAULT 1` | 0=停用（不出现在新建任务选项中） 1=启用 |
 | `remark` | `VARCHAR(255)` | 备注 |
 | `created_by` | `BIGINT` | 创建人 user_id |
@@ -521,6 +538,11 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 
 > 策略与任务是**弱引用**：引用后参数复制进任务，改策略不影响在跑任务。这与前端
 > "已带入策略「X」"的提示语义一致。
+
+> **`account_send_concurrency` / `msg_interval_min_sec` / `msg_interval_max_sec` 三列已删除**（2026-08-27 校正）：
+> 竞品策略页没有这三个控件，提交体里是硬编码常量（`20` / `0` / `0`）。落列就是没有写入方的死列（规范一.4）。
+> 任务页的提示文案也印证：策略只带入「任务模式 / 账号范围 / 并发 / 限号 / 周期间隔」。
+> 出处 `readable/assets/strategy-D2fnr_pX.js:443-454, 657-671`。
 
 ---
 
@@ -541,13 +563,20 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 |---|---|---|
 | `asset_name` | `VARCHAR(128) NOT NULL` | 素材名称；存量行迁移时取 `original_filename` 回填 |
 | `width` / `height` | `INT` | 图片像素尺寸；解析失败为 NULL |
-| `ref_count` | `INT NOT NULL DEFAULT 0` | 被模板与任务引用总次数，删除保护用 |
 | `created_by` | `BIGINT` | 上传人 user_id；存量行为 NULL |
 | `updated_at` | `BIGINT NOT NULL` | epoch 毫秒；存量行取 `created_at` 回填 |
 
 保留现有文件的稳定 ID、租户、原文件名、类型、大小、内容、创建和删除时间语义。
 
 索引新增：`idx_resource_asset_name`（`tenant_id, deleted_at, asset_name`）供按名搜索。
+
+> **`ref_count` 不落列**（2026-08-27 校正）：引用方是 `hyperlink_template` 与 `hyperlink_task_content`
+> 两张表，实时 `COUNT` 即可。落冗余列必然出现与真实引用不一致的时刻，而删除保护恰恰不能容忍这种不一致。
+>
+> **确认走"加列"而不是"新建第二张素材表"**：`marketing_template_file` 已经是素材的事实源
+> （字节 + 租户 + 原名 + 类型 + 大小）。再建一张只管理名称标签的 `resource_asset`，
+> 就有两行描述同一个素材，正是规范一.2 禁止的分歧。物理表名与 API 资源名 `resource-assets`
+> 不一致是可接受的代价，改名登记为独立技术债。
 
 迁移顺序必须是：兼容 Service/API → 存量回填和一致性校验 → 新旧调用方切流 → 确认无旧实例后再决定
 是否改物理表名。不得先执行 `RENAME TABLE`，否则滚动发布中的旧 Mapper 会直接报表不存在。
@@ -578,12 +607,12 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 |---|---|---|
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
-| `resource_asset_id` | `BIGINT NOT NULL` | →`resource_asset.id` |
+| `file_id` | `BIGINT NOT NULL` | →`marketing_template_file.id`（素材的稳定 ID） |
 | `resource_asset_tag_id` | `BIGINT NOT NULL` | →`resource_asset_tag.id` |
 | `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
-索引：`uq_resource_asset_tag_ref`（`tenant_id, resource_asset_id, resource_asset_tag_id`）、
-`idx_resource_asset_tag_ref_tag`（`tenant_id, resource_asset_tag_id, resource_asset_id`）供按标签反查。
+索引：`uq_resource_asset_tag_ref`（`tenant_id, file_id, resource_asset_tag_id`）、
+`idx_resource_asset_tag_ref_tag`（`tenant_id, resource_asset_tag_id, file_id`）供按标签反查。
 
 ---
 
@@ -601,7 +630,8 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 | `sender_country_iso2` | `CHAR(2) NOT NULL` | 发信国家；未知落 `ZZ` |
 | `recipient_country_iso2` | `CHAR(2) NOT NULL` | 被营销国家；未知落 `ZZ` |
 | `account_type` | `TINYINT NOT NULL` | 账号类型：1=个人 2=商业 |
-| `task_type` | `TINYINT NOT NULL` | 1=即时 2=持续运营 3=周期循环 |
+| `task_type` | `TINYINT NOT NULL` | 1=即时 2=预发布(持续运营) 3=周期循环 |
+| `protocol_backend` | `TINYINT NOT NULL` | 协议链路：1=WEB(分身) 2=ANDROID(主设备)；对应分析页「设备平台」筛选 |
 | `is_short_link_enabled` | `TINYINT(1) NOT NULL` | 是否深度追踪 |
 | `send_total` | `INT NOT NULL DEFAULT 0` | 发送量 |
 | `success_num` | `INT NOT NULL DEFAULT 0` | 单钩量 |
@@ -615,7 +645,7 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 
 | 索引 | 字段 | 说明 |
 |---|---|---|
-| `uq_hyperlink_stat_daily` | `tenant_id, stat_date, sender_country_iso2, recipient_country_iso2, account_type, task_type, is_short_link_enabled` | 幂等回填 |
+| `uq_hyperlink_stat_daily` | `tenant_id, stat_date, sender_country_iso2, recipient_country_iso2, account_type, task_type, protocol_backend, is_short_link_enabled` | 幂等回填 |
 | `idx_hyperlink_stat_daily_range` | `tenant_id, stat_date, id` | 日期范围扫描 |
 
 ### 7.2 为什么只做日粒度
@@ -623,17 +653,20 @@ recipient 保存最终聚合状态，attempt 保存每次真实发送。不能�
 分析页支持按日与按小时两种粒度。若两种粒度都预聚合：
 
 ```
-维度基数 ≈ 发信国家(~50) × 被营销国家(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) ≈ 30000 组合
-日粒度：30000 行/天  × 90 天 ≈ 270 万行   → 可接受
-时粒度：30000 × 24 行/天 × 90 天 ≈ 6480 万行 → 不可接受
+维度基数 ≈ 发信国家(~50) × 被营销国家(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) × 协议(2) ≈ 6 万组合
+日粒度：6 万行/天  × 90 天 ≈ 540 万行（实际国家对高度稀疏，真实量级低两个数量级） → 可接受
+时粒度：6 万 × 24 行/天 × 90 天 ≈ 1.3 亿行 → 不可接受
 ```
 
-因此：**日粒度落预聚合表，小时粒度在 `hyperlink_task_recipient` 上实时聚合**，
-并沿用前端已有的"粒度最多 N 天"限制约束查询窗口。`idx_hyperlink_recipient_country`
-是这条实时聚合路径的支撑索引。
+因此：**日粒度落预聚合表，小时粒度在 `hyperlink_delivery_attempt` 上实时聚合**，
+并沿用前端已有的窗口限制（**按日 ≤ 90 天，按小时 ≤ 7 天**）约束查询范围。
+`idx_hyperlink_attempt_stat` 是这条实时聚合路径的支撑索引。
 
-`used_account_count` / `click_uv_num` / `banned_account_count` 是**去重计数，不可跨行相加**：
-按周/按月查询时必须回源重算，不能对日行求和。这一约束要在 Service 层显式落实。
+`used_account_count` / `click_uv_num` / `banned_account_count` 是**行内去重、跨行相加**的口径。
+校正说明（2026-08-27）：竞品分析页的 KPI 卡就是把各国家对的 `summary` 逐行相加得到的
+（`readable/assets/analysis-DA45fcKJ.js:1148-1205`），**同一账号跨国家对会被重复计数**。
+这是竞品的既有口径，我们照抄——不做全局 `COUNT(DISTINCT)` 回源。
+该口径必须写进列注释与接口注释，防止后人当 bug 修。
 
 ---
 
@@ -734,9 +767,11 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 一期数据包 | `data_package` / `data_package_phone` / `data_package_stat` / `data_package_import` |
 | 一期模板 | `hyperlink_template` |
 | 一期菜单权限 | 超链数据包、超链营销模板和对应 RBAC |
-| 后续任务 | `hyperlink_strategy` / `hyperlink_task` / `_content` / `_stat` / `_recipient` / `_delivery_attempt` |
-| 后续点击分析 | `hyperlink_click` / `hyperlink_task_ban` / `hyperlink_stat_daily` |
-| 后续公共素材 | `resource_asset` 兼容迁移和两张标签表 |
+| 二期策略 | `hyperlink_strategy` |
+| 二期素材 | `marketing_template_file` 加管理列 + `resource_asset_tag` + `resource_asset_tag_ref` |
+| 二期任务 | `hyperlink_task` / `_content` / `_stat` / `_recipient` / `_delivery_attempt` |
+| 二期回流与点击 | `hyperlink_task_ban` / `hyperlink_click` |
+| 二期分析 | `hyperlink_stat_daily` |
 | 待验证账号画像 | 仅在 §8.2 验证通过后创建 `account_profile` |
 
 约束：
@@ -765,6 +800,15 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 8 | 设备类型（主设备/分身）由 `account.protocol_id` 派生，**不落 `wid_type` 列**（§8.1） |
 | 9 | 存活天数由 `now - account.created_at` 派生，不落列 |
 | 10 | **计费相关字段全部不做**：Armada 无计费体系 |
+| 11 | 任务状态拆 `is_enabled` + `run_status` 两个正交字段（§4.2） |
+| 12 | 消息间隔落**毫秒**列，竞品是 0.1 秒精度（§4.2） |
+| 13 | 深度追踪是**按钮级**，任务列只是派生冗余；按钮上限 1 使 recipient 单 `short_code` 成立（§4.2、§4.5） |
+| 14 | **不开放双图文**——竞品新建时也只有单图文/普通按钮/卡片按钮三种（§4.3） |
+| 15 | 策略删掉 `account_send_concurrency` / `msg_interval_*` 三列（§5.2） |
+| 16 | `default_sub_task_num` 不落列：竞品前端硬编码常量、无 UI 控件 |
+| 17 | 素材走 `marketing_template_file` **加列**，不新建第二张素材表；`ref_count` 不落列（§6.1） |
+| 18 | 分析的去重计数照抄竞品「跨行相加」口径，不做全局 `COUNT(DISTINCT)` 回源（§7.2） |
+| 19 | 超链任务**不套用分组级账号占用锁**（占用模型是分组粒度，超链按筛选跨分组圈号） |
 
 ### 10.2 未决
 

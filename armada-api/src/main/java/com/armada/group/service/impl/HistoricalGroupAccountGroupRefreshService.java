@@ -187,6 +187,8 @@ public class HistoricalGroupAccountGroupRefreshService {
                         null,
                         false,
                         null,
+                        null,
+                        null,
                         null))
                 .toList();
     }

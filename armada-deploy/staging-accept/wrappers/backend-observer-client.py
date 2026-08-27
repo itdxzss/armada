@@ -27,6 +27,12 @@ COMMAND_TIMEOUT_SECONDS = 30
 RUN_ID = re.compile(r"^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$")
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SNAPSHOT_GENERATION = re.compile(r"^[0-9a-f]{32}$")
+ALLOWED_PROFILES = (
+    "test1-quick",
+    "test1-soak-1h",
+    "test1-soak-6h",
+    "test1-soak-24h",
+)
 STAGE_PHASES = {
     "observe-start": "start",
     "observe-peak": "peak",
@@ -36,6 +42,7 @@ ALLOWED_CONTAINERS = (
     "armada-backend",
     "armada-nginx",
     "zhuan-native-probe-mysql",
+    "zhuan-coordinator",
 )
 RUN_ROOT = Path("/var/lib/staging-accept/runs")
 PYTHON = Path("/usr/bin/python3")
@@ -159,7 +166,7 @@ def candidate_hash(run_directory: Path) -> str:
             "builds",
         }
         or payload.get("schemaVersion") != 1
-        or payload.get("profile") != "test1-quick"
+        or payload.get("profile") not in ALLOWED_PROFILES
         or payload.get("environment") != "test1"
         or payload.get("safety") != "read-only"
         or not isinstance(builds, dict)

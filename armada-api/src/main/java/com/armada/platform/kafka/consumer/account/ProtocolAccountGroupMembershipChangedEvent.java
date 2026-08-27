@@ -14,6 +14,7 @@ package com.armada.platform.kafka.consumer.account;
  * @param groupJid 发生关系变化的 WhatsApp 群 JID
  * @param action 关系动作，仅允许 {@code add}、{@code remove}、{@code leave}
  * @param selfParticipation 参与者分类，精确关系事件必须为 {@code SELF}
+ * @param sourceEventId WhatsApp 原始 WGP2 stanza ID
  * @param occurredAt 协议层观察到关系变化的事实时间（epoch 毫秒）
  * @param source 事件来源，可空
  * @param workerId 产生事件的协议层 worker ID，可空
@@ -26,6 +27,7 @@ public record ProtocolAccountGroupMembershipChangedEvent(
         String groupJid,
         String action,
         String selfParticipation,
+        String sourceEventId,
         Long occurredAt,
         String source,
         String workerId) {

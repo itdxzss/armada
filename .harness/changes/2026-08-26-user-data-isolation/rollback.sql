@@ -1,18 +1,18 @@
--- V140-V151 开始承接新版本流量后，禁止直接回退到不识别 owner/scope 的旧应用。
+-- V141-V152 开始承接新版本流量后，禁止直接回退到不识别 owner/scope 的旧应用。
 -- 首选方案是在 owner-aware schema 上前向修复，或部署仍兼容 owner 的上一构建。
 -- 只有持续停止所有分组和模板写入、确认没有同租户同名活跃数据，并执行本文件恢复
--- account_group / marketing_template 旧名称索引，以及 V147 的旧 URL/名称/request_id
+-- account_group / marketing_template 旧名称索引，以及 V148 的旧 URL/名称/request_id
 -- 索引后，才允许切回旧应用。
 -- 本脚本不会删除 owner_user_id 或改写归属数据，也不会修改 flyway_schema_history。
--- V142/V143/V144/V145 没有替换唯一键，无额外结构逆操作；其任务 owner 列和查询索引刻意保留，
+-- V143/V144/V145/V146 没有替换唯一键，无额外结构逆操作；其任务 owner 列和查询索引刻意保留，
 -- 以支持审计、前向修复和重新上线。旧应用会继续写 NULL owner，因此不允许恢复旧写流量。
--- V146 新增的头像元数据表也刻意保留；删除它会丢失新头像归属并使普通用户无法访问已上传文件。
--- V147 的 owner 列、生成列和 owner 索引同样保留；本文件只在无冲突时恢复旧唯一键。
--- V148 的新建普群任务 owner 结构也保留；旧幂等键只在无跨 owner 重复时恢复。
--- V149 的历史群 owner/幂等结构刻意保留；恢复旧幂等键前同样必须确认无跨 owner 冲突。
--- V150/V151 的 CAPI owner 与导出 scope 快照刻意保留；历史 NULL 记录不能回填猜测值。
+-- V147 新增的头像元数据表也刻意保留；删除它会丢失新头像归属并使普通用户无法访问已上传文件。
+-- V148 的 owner 列、生成列和 owner 索引同样保留；本文件只在无冲突时恢复旧唯一键。
+-- V149 的新建普群任务 owner 结构也保留；旧幂等键只在无跨 owner 重复时恢复。
+-- V150 的历史群 owner/幂等结构刻意保留；恢复旧幂等键前同样必须确认无跨 owner 冲突。
+-- V151/V152 的 CAPI owner 与导出 scope 快照刻意保留；历史 NULL 记录不能回填猜测值。
 
--- V141：不同 owner 已产生同名活跃模板时，旧应用无法安全解释；先列出并 fail-fast。
+-- V142：不同 owner 已产生同名活跃模板时，旧应用无法安全解释；先列出并 fail-fast。
 SELECT tenant_id,
        template_name,
        COUNT(*) AS active_template_count
@@ -49,7 +49,7 @@ PREPARE marketing_template_legacy_unique_stmt FROM @marketing_template_legacy_un
 EXECUTE marketing_template_legacy_unique_stmt;
 DEALLOCATE PREPARE marketing_template_legacy_unique_stmt;
 
--- V147：owner 级唯一键已允许同租户不同 owner 出现相同 URL/名称/request_id。
+-- V148：owner 级唯一键已允许同租户不同 owner 出现相同 URL/名称/request_id。
 -- 以下查询先输出冲突；任一冲突存在时，守卫会 fail-fast，禁止恢复旧唯一键。
 SELECT 'group_link' AS conflict_table, tenant_id, link_url AS conflict_key, COUNT(*) AS row_count
 FROM group_link
@@ -146,7 +146,7 @@ PREPARE group_batch_task_legacy_unique_stmt FROM @group_batch_task_legacy_unique
 EXECUTE group_batch_task_legacy_unique_stmt;
 DEALLOCATE PREPARE group_batch_task_legacy_unique_stmt;
 
--- V148：不同 owner 可使用相同新建普群幂等键；回退前必须先解决同租户重复。
+-- V149：不同 owner 可使用相同新建普群幂等键；回退前必须先解决同租户重复。
 SELECT tenant_id, idempotency_key, COUNT(*) AS task_count
 FROM normal_group_creation_task
 GROUP BY tenant_id, idempotency_key

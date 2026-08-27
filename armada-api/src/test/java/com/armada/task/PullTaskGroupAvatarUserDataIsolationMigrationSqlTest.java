@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 class PullTaskGroupAvatarUserDataIsolationMigrationSqlTest {
 
     private static final String MIGRATION =
-            "/db/migration/V146__pull_task_group_avatar_user_data_ownership.sql";
+            "/db/migration/V147__pull_task_group_avatar_user_data_ownership.sql";
 
     @Test
-    void v146CreatesIndependentAvatarOwnershipRoot() throws IOException {
+    void v147CreatesIndependentAvatarOwnershipRoot() throws IOException {
         try (var input = getClass().getResourceAsStream(MIGRATION)) {
             assertThat(input).isNotNull();
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8)

@@ -43,8 +43,8 @@
 - 标准拉群新建只接受当前操作者本人账号分组，并由服务端写入 owner；管理员可以管理当前租户已有任务，但不能借 `ALL` 代其他 owner 创建任务。混入不可见任务 ID 的批量删除整批拒绝。
 - 新建普群使用 `normal_group_creation_task.owner_user_id`；幂等键按 owner 唯一，详情/重试先授权任务根，Kafka 回执从任务恢复 owner。管理员不能用他人账号分组或群文件夹代创建。
 - 推广渠道沿用既有非空 `owner_user_id`：新增时忽略前端 owner 并写当前操作者，编辑永不改变 owner；普通用户的列表、详情、编辑、删除和 CAPI 探测均按 SELF 过滤，管理员可管理全租户渠道且审计字段记录管理员本人。
-- 公开落地页和公开配对入口按不可预测渠道码与可信域名执行，不依赖 HTTP DataScope；CAPI Outbox 使用 V150 持久化的 owner 快照恢复 SELF，历史 NULL owner 事件永久终止且不调用 Facebook；正式投递和登录态探测共用 scoped 敏感配置查询，不再保留无 scope Token 查询。
-- 营销异步导出使用 V151 冻结创建时的 SELF/ALL；Worker 恢复范围后重新校验任务 ID，并把 tenant/DataScope 显式传播到并发群查询线程。历史缺少范围快照的作业失败关闭，要求用户重新发起。
+- 公开落地页和公开配对入口按不可预测渠道码与可信域名执行，不依赖 HTTP DataScope；CAPI Outbox 使用 V151 持久化的 owner 快照恢复 SELF，历史 NULL owner 事件永久终止且不调用 Facebook；正式投递和登录态探测共用 scoped 敏感配置查询，不再保留无 scope Token 查询。
+- 营销异步导出使用 V152 冻结创建时的 SELF/ALL；Worker 恢复范围后重新校验任务 ID，并把 tenant/DataScope 显式传播到并发群查询线程。历史缺少范围快照的作业失败关闭，要求用户重新发起。
 - 渠道统计的筛选项、汇总、每日明细、CSV 数据源和人工广告数据写入均先按渠道根 owner 授权；SELF 的账号解绑统计额外约束账号 owner，管理员写入他人渠道时 owner 不变且 `updated_by` 记录管理员本人。
 - 用户批量删除或导出混入不可见任务 ID 时整批拒绝；管理员可管理当前租户全部已有任务，但不能代其他 owner 创建任务。
 - 群实时预览、资料修改、成员管理、metadata 手工刷新、历史群实时读取/刷新、普通建群和群主退群均要求资源已有 owner；操作账号与群链接必须同 owner，管理员的 `ALL` 不允许跨 owner 拼接协议操作。
@@ -57,40 +57,41 @@
 > 推进中记录命令、退出码、测试数和失败/跳过情况。禁止连接真库作为本地完成门禁。
 
 - `mvn -DskipTests test-compile`：1528 个主源文件、667 个测试源文件编译成功。
-- V140/Flyway/SQL 契约和 H2 真 Mapper 用例覆盖 U1、U2、管理员、历史空 owner、跨租户、缺失 scope 和 SYSTEM。
+- V141/Flyway/SQL 契约和 H2 真 Mapper 用例覆盖 U1、U2、管理员、历史空 owner、跨租户、缺失 scope 和 SYSTEM。
 - 账号主链路定向测试覆盖列表/统计、批量上下线、迁组/删除、WS 号码导出、分组 CRUD/拆分/合并、导入及后台自动上线。
 - 手工授权边界审计额外收口了普通营销、建群营销、拉群营销、历史群查询/刷新/成员操作、普通建群和标准拉群对账号/分组的跨域引用。
 - 综合定向回归 356 tests 全部通过（失败 0、错误 0、跳过 0）；导入后台调度 H2 真 XML 用例单独 1 test 通过。
 - 营销模板/图片切片定向回归 67 tests 全部通过（失败 0、错误 0、跳过 0），包含 3 个 H2 真 Mapper XML 用例。
 - 普通营销/拉群营销任务切片定向回归 49 tests 通过；追加 owner、整批拒绝和 H2 真 Mapper 边界后 54 tests 通过，失败 0。
-- 建群营销任务切片非真库回归 42 tests 通过，另有 3 个 H2 真 Mapper XML 用例；V140-V143 与 Flyway 版本/历史/SQL 契约 8 tests 通过。
+- 建群营销任务切片非真库回归 42 tests 通过，另有 3 个 H2 真 Mapper XML 用例；V141-V144 与 Flyway 版本/历史/SQL 契约 8 tests 通过。
 - 严格排除 `DbTestBase`、`@SpringBootTest` 与已知 H2/MySQL 方言不兼容用例后的安全回归 396 tests 通过，失败 0、错误 0、跳过 0。
-- 进群任务 V144 切片非真库回归 52 tests 通过，包含 3 个生产 Mapper XML H2 隔离用例、Service 整批拒绝/根授权/可信 scope、调度/回调状态机及 Flyway 版本契约。
-- 标准拉群任务 V145 定向回归 171 tests 全部通过（失败 0、错误 0、跳过 0），覆盖生产 Mapper XML、SELF/ALL/SYSTEM、历史空 owner、列表/详情/草稿/创建/生命周期/补号/批量删除、控制器权限契约与 Flyway 版本契约。
-- 标准拉群头像 V146 先红后绿，定向回归 34 tests 全部通过（失败 0、错误 0、跳过 0）；其中 2 个 H2 用例加载生产 Mapper XML 与租户插件，覆盖 U1/U2、管理员、缺 scope、SYSTEM、跨租户、历史无元数据文件、并发绑定、删除回收和后台清理。
+- 进群任务 V145 切片非真库回归 52 tests 通过，包含 3 个生产 Mapper XML H2 隔离用例、Service 整批拒绝/根授权/可信 scope、调度/回调状态机及 Flyway 版本契约。
+- 标准拉群任务 V146 定向回归 171 tests 全部通过（失败 0、错误 0、跳过 0），覆盖生产 Mapper XML、SELF/ALL/SYSTEM、历史空 owner、列表/详情/草稿/创建/生命周期/补号/批量删除、控制器权限契约与 Flyway 版本契约。
+- 标准拉群头像 V147 先红后绿，定向回归 34 tests 全部通过（失败 0、错误 0、跳过 0）；其中 2 个 H2 用例加载生产 Mapper XML 与租户插件，覆盖 U1/U2、管理员、缺 scope、SYSTEM、跨租户、历史无元数据文件、并发绑定、删除回收和后台清理。
 - 推广渠道切片先以“伪造 owner 被原样写入”的失败用例确认缺口，再完成管理面隔离；49 tests 全部通过（34 个 Service、12 个 SQL 契约、3 个生产 Mapper XML H2 用例），覆盖 U1/U2、管理员、缺 scope、SYSTEM、跨租户、管理员编辑不转移 owner，以及公开/内部调用不依赖登录态范围。
 - 推广渠道相关非真库完整回归 69 tests 通过；统计直接 JDBC 旁路另以 3 个 H2 用例覆盖 SELF/ALL、缺 scope、SYSTEM、越权写入拒绝和管理员审计。
-- 群域 V147 切片完成列表/详情、分类、文件夹、WS 链接分组、导入/失败导出、迁组、注册、批量任务及健康/元数据事件关联的 owner 收口；定向 Service 回归 101 tests 和生产 Mapper XML H2 边界 11 tests 通过，覆盖 U1/U2、管理员、历史 NULL owner、跨租户、缺 scope、SYSTEM 及直接 IDOR。
-- 新建普群 V148 切片 67 tests 全部通过，包含 17 个生产 Mapper XML H2 用例，覆盖 owner 级幂等、SELF/ALL、历史 NULL owner、跨租户、缺 scope/SYSTEM、详情/重试 IDOR、管理员禁止代创建和 Kafka 任务 owner 恢复。
-- 历史群 V149、CAPI Outbox V150 与营销导出 V151 均新增独立 SQL 契约；Flyway 版本契约通过，迁移不根据 `created_by`、渠道或历史角色猜 owner/scope。
+- 群域 V148 切片完成列表/详情、分类、文件夹、WS 链接分组、导入/失败导出、迁组、注册、批量任务及健康/元数据事件关联的 owner 收口；定向 Service 回归 101 tests 和生产 Mapper XML H2 边界 11 tests 通过，覆盖 U1/U2、管理员、历史 NULL owner、跨租户、缺 scope、SYSTEM 及直接 IDOR。
+- 新建普群 V149 切片 67 tests 全部通过，包含 17 个生产 Mapper XML H2 用例，覆盖 owner 级幂等、SELF/ALL、历史 NULL owner、跨租户、缺 scope/SYSTEM、详情/重试 IDOR、管理员禁止代创建和 Kafka 任务 owner 恢复。
+- 历史群 V150、CAPI Outbox V151 与营销导出 V152 均新增独立 SQL 契约；Flyway 版本契约通过，迁移不根据 `created_by`、渠道或历史角色猜 owner/scope。
 - 协议结果与后台调度继续收口：营销发送结果、历史群发送结果、进群/拉群协议路由、JoinTask 结果/派发、PullTask 未知结果/执行派发均从可信任务根恢复 owner；JoinTask 混合 owner 候选按 owner 拆分 outbox 批次。
 - CAPI/推广渠道定向回归 58 tests、营销异步导出及并发上下文回归 28 tests、SYSTEM 特例移除后的账号导入/新建普群/账号命令回归 90 tests 全部通过。
 - 本轮核心隔离组合回归 203 tests 全部通过（失败 0、错误 0、跳过 0），同时通过 4 份相关生产 Mapper XML 校验和 `git diff --check`。
-- 最终迁移/认证/真实 Mapper 隔离组合回归 109 tests 全部通过（失败 0、错误 0、跳过 0），覆盖 V140-V151、SELF/ALL/SYSTEM、历史空 owner、跨租户与缺失 scope。
+- 最终迁移/认证/真实 Mapper 隔离组合回归 109 tests 全部通过（失败 0、错误 0、跳过 0），覆盖 V141-V152、SELF/ALL/SYSTEM、历史空 owner、跨租户与缺失 scope。
 - 历史空 owner 执行门禁及群协议入口组合回归 167 tests 全部通过（失败 0、错误 0、跳过 0）；覆盖进群、标准拉群、普通营销、拉群营销、新建普群、群实时资料/成员、历史群刷新和群主退群。
 - 最终核心隔离组合回归 309 tests 全部通过（失败 0、错误 0、跳过 0），包含账号生命周期、直接 JDBC、营销异步物料/导出、调度器 owner 恢复和本轮全部执行门禁。
 - 静态收口审计确认生产代码只有 `PullTaskController` 与 `BuyerChannelStatsService` 直接使用 `JdbcTemplate`，两者均有 H2 越权测试；定时任务、Kafka/Outbox 回调要么从持久化聚合恢复 SELF，要么对历史空 owner 失败关闭，canonical 群资料事件仅写租户共享事实。
 - 前端 Phase 5 焦点回归 51 tests 全部通过，`pnpm typecheck` 与 `pnpm build` 通过；全量 Node 回归仅保留既有 5 个未修改测试套件失败，本次无新增失败。记录见前端 worktree 的 `.harness/changes/2026-08-27-user-data-isolation/summary.md`。
 - `mvn -DskipTests test-compile` 成功；`PullTaskMapper.xml` 的 `xmllint --noout`、用户服务未使用无 scope 生命周期查询的源码扫描以及 `git diff --check` 均通过。
-- 扩展执行 786 个 PullTask 相关测试时，修复了本切片引入的 4 个旧测试假设；剩余 2 类基线问题与本分支生产差异无关：1 个测试正则把 `= NULL` 误识别为业务条件，另 8 个 Spring 上下文错误源于测试配置缺少 `GroupFolderService` bean。涉及 V145 的定向回归全部通过。
+- 扩展执行 786 个 PullTask 相关测试时，修复了本切片引入的 4 个旧测试假设；剩余 2 类基线问题与本分支生产差异无关：1 个测试正则把 `= NULL` 误识别为业务条件，另 8 个 Spring 上下文错误源于测试配置缺少 `GroupFolderService` bean。涉及 V146 的定向回归全部通过。
 - 未连接真库、未 SSH、未部署。
 
 ## 部署
 
-- Phase 1 的 V140 会把账号分组名称唯一范围从租户级改为 owner 级，不允许旧、新应用滚动混跑。
-- Phase 2 的 V141 会为营销模板和模板图片增加 owner，并把活跃模板名称唯一范围改为 owner 级；V146 会新增拉群头像 owner 元数据表；V147 会为群运营句柄/文件夹/分组/导入批次/批处理任务增加 owner，并改写 URL、名称和 request_id 唯一键。不允许旧、新应用滚动混跑。
-- Phase 3 的 V142/V143/V144/V145/V148 分别给公共营销、建群营销、进群、标准拉群和新建普群任务根增加 owner；V148 还会把新建普群幂等键改为 owner 级。旧应用产生的 NULL owner 新任务只对管理员可见，因此也不能与新应用混跑。
-- V149 为历史群一次性执行增加 owner 并把幂等键改到 owner 范围；V150 为 CAPI Outbox 增加 owner 快照；V151 为营销导出作业增加创建时 SELF/ALL 快照。V150/V151 之前的历史异步记录不猜权限并失败关闭。
+- 最新 `1.0.3-snapshot` 已占用 V140（canonical 群分类）；用户隔离迁移顺延为 V141-V152。
+- Phase 1 的 V141 会把账号分组名称唯一范围从租户级改为 owner 级，不允许旧、新应用滚动混跑。
+- Phase 2 的 V142 会为营销模板和模板图片增加 owner，并把活跃模板名称唯一范围改为 owner 级；V147 会新增拉群头像 owner 元数据表；V148 会为群运营句柄/文件夹/分组/导入批次/批处理任务增加 owner，并改写 URL、名称和 request_id 唯一键。不允许旧、新应用滚动混跑。
+- Phase 3 的 V143/V144/V145/V146/V149 分别给公共营销、建群营销、进群、标准拉群和新建普群任务根增加 owner；V149 还会把新建普群幂等键改为 owner 级。旧应用产生的 NULL owner 新任务只对管理员可见，因此也不能与新应用混跑。
+- V150 为历史群一次性执行增加 owner 并把幂等键改到 owner 范围；V151 为 CAPI Outbox 增加 owner 快照；V152 为营销导出作业增加创建时 SELF/ALL 快照。V151/V152 之前的历史异步记录不猜权限并失败关闭。
 - 前端发布后建议存量用户重新登录一次，以保存可信 tenant/user ID；未重新登录的旧会话对私有浏览器缓存失败关闭，只影响页面状态恢复，不会放宽服务端数据权限。
 - 上线必须使用维护窗口：停旧版本写流量 → 执行迁移并原子切换 owner-aware 应用 → 健康检查和越权冒烟通过 → 恢复流量。
 - 新版本承接流量后禁止直接降级到不识别 owner 的旧应用；首选前向修复。结构回滚需停止写入，并先通过同名、同 URL 和同 request_id 冲突守卫。
@@ -102,4 +103,4 @@
 - 历史无 owner 数据的管理员分配能力留待共享/转移阶段。
 - 登录时选择租户属于独立认证改造，不与本次数据隔离混做。
 - 当前用户私有业务域的代码隔离已完成：账号/分组/导入、群运营句柄/分组/文件夹/导入/批处理、营销模板与全部任务类型、推广渠道/统计/CAPI、导出、协议回调和恢复链均已收口；IP、canonical 群协议事实、国家等按需求继续租户/平台共享。完成仅指本地代码与定向验证，尚未执行迁移、部署和环境冒烟。
-- `.harness/wiki/数据模型.md` 由真实 `information_schema` 转储自动生成且禁止手改；本地未连接真库，V140-V151 应在获准迁移后重跑 `gen_datamodel.py` 刷新该文档。
+- `.harness/wiki/数据模型.md` 由真实 `information_schema` 转储自动生成且禁止手改；本地未连接真库，V140-V152 应在获准迁移后重跑 `gen_datamodel.py` 刷新该文档。

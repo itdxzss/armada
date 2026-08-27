@@ -18,6 +18,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIde
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantIdentityRow;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPresenceWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
@@ -124,6 +125,47 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
         assertThat(state.getValue().baselineCapturedAt()).isNull();
         assertThat(state.getValue().baselineGroupCount()).isNull();
         assertThat(state.getValue().snapshotComplete()).isFalse();
+    }
+
+    @Test
+    void postCutoffEvidenceWinsBindingClassificationDuringInitialBaseline() {
+        when(mapper.selectContext(ACCOUNT_ID)).thenReturn(new Context(
+                ACCOUNT_ID,
+                501L,
+                "923300000010",
+                "ANDROID",
+                "acc-10",
+                AccountGroupBaselineStateCode.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null));
+        when(mapper.selectExisting(
+                ACCOUNT_ID, "923300000010@s.whatsapp.net", List.of(GROUP_JID)))
+                .thenReturn(List.of());
+        when(mapper.selectGroupIdsWithoutLock(TENANT_ID, List.of(GROUP_JID)))
+                .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
+        when(mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(100L)))
+                .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
+        when(mapper.selectExistingAfterGroupLock(
+                TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", List.of(100L)))
+                .thenReturn(List.of());
+        AccountGroupsReportedEvent.Group group = new AccountGroupsReportedEvent.Group(
+                GROUP_JID, "新群", 10, null, null, false, false, null,
+                null, null, null, null, false, null, null,
+                2_500L, "wgp2-self-add-1");
+
+        persistence.replaceVisibleGroups(
+                ACCOUNT_ID, List.of(group), true, 2_000L, "snapshot-race", List.of());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Write>> rows = ArgumentCaptor.forClass(List.class);
+        verify(mapper).upsertBindings(eq(TENANT_ID), eq(ACCOUNT_ID), rows.capture());
+        assertThat(rows.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.wasInInitialBaseline()).isZero();
+            assertThat(row.firstPostControlObservedAt()).isEqualTo(2_500L);
+        });
     }
 
     @Test

@@ -11,15 +11,15 @@ import org.junit.jupiter.api.Test;
 class UserDataIsolationMigrationSqlTest {
 
     private static final String MIGRATION =
-            "/db/migration/V140__account_user_data_ownership.sql";
+            "/db/migration/V141__account_user_data_ownership.sql";
 
     /**
-     * 验证 V140 只给权限根增加 owner，并保持手机号租户级唯一。
+     * 验证 V141 只给权限根增加 owner，并保持手机号租户级唯一。
      *
      * @throws IOException 迁移资源无法读取时抛出
      */
     @Test
-    void v140AddsOwnerRootsAndScopesAccountGroupNamesPerOwner() throws IOException {
+    void v141AddsOwnerRootsAndScopesAccountGroupNamesPerOwner() throws IOException {
         try (var input = getClass().getResourceAsStream(MIGRATION)) {
             assertThat(input).isNotNull();
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8)

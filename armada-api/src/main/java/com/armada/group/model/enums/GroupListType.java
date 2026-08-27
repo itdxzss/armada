@@ -6,8 +6,5 @@ public enum GroupListType {
     HISTORICAL,
 
     /** 曾在账号上控后新发现加入。 */
-    POST_CONTROL,
-
-    /** 同时满足历史群与上控后群。 */
-    BOTH
+    POST_CONTROL
 }

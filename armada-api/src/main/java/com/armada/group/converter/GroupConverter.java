@@ -2,6 +2,7 @@ package com.armada.group.converter;
 
 import com.armada.group.model.enums.GroupLinkHealthStatus;
 import com.armada.group.model.enums.GroupLinkOrigin;
+import com.armada.group.model.enums.GroupClassification;
 import com.armada.group.model.enums.GroupMembershipState;
 import com.armada.group.model.enums.GroupMetadataSyncStatus;
 import com.armada.group.model.vo.GroupLinkImportDetailVO;
@@ -51,6 +52,7 @@ public interface GroupConverter {
         GroupStatus status = resolveStatus(row);
         GroupLinkOrigin origin = GroupLinkOrigin.fromCode(row.getOrigin());
         GroupMembershipState membershipState = GroupMembershipState.fromCode(row.getMembershipState());
+        GroupClassification classification = groupClassification(row.getGroupClassificationCode());
         return new GroupLinkVO(
                 row.getId(),
                 row.getOwnerUserId(),
@@ -77,8 +79,9 @@ public interface GroupConverter {
                 row.getLastCheckAt(),
                 row.getLastHealthError(),
                 row.getCreatedAt(),
-                Boolean.TRUE.equals(row.getIsHistorical()),
-                Boolean.TRUE.equals(row.getIsPostControl()),
+                classification,
+                classification == GroupClassification.HISTORICAL,
+                classification == GroupClassification.POST_CONTROL,
                 row.getFolderId(),
                 row.getFolderName(),
                 row.getInviteUrl(),
@@ -94,6 +97,12 @@ public interface GroupConverter {
                 metadataStatus(row.getMetadataSyncStatus()),
                 row.getMetadataSyncedAt(),
                 row.getMetadataSyncError());
+    }
+
+    private static GroupClassification groupClassification(Integer code) {
+        return code == null
+                ? GroupClassification.UNCLASSIFIED
+                : GroupClassification.fromCode(code);
     }
 
     /**

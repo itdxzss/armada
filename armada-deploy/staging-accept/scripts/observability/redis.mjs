@@ -14,7 +14,7 @@ const INFO_FIELDS = [
 const REQUIRED_FIELDS = [
   'used_memory', 'used_memory_peak', 'connected_clients', 'blocked_clients',
   'total_net_input_bytes', 'total_net_output_bytes', 'total_commands_processed',
-  'evicted_keys', 'keyspace_hits', 'keyspace_misses'
+  'evicted_keys', 'keyspace_hits', 'keyspace_misses', 'rejected_connections'
 ]
 const CLUSTER_FIELDS = [
   'cluster_state', 'cluster_slots_assigned', 'cluster_slots_ok', 'cluster_slots_pfail',

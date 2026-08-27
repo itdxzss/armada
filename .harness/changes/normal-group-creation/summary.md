@@ -59,8 +59,9 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
 ```
 
 - 定向加人调用由 WhatsApp 返回成功即视为该方向好友准备成功，不查询或遍历完整通讯录。
-- 加好友是尽力而为的可选动作：方向结果为 `FAILED`/`UNKNOWN` 时只写回成员行，不失败整条计划群，
-  也不改变建群成员名单；只有还存在 `PENDING` 方向时才不下发建群命令。
+- 加好友是尽力而为的前置动作：方向结果为 `FAILED`/`UNKNOWN` 时先写回成员行，
+  全部方向落定后仅将与群主双向 `SUCCESS` 的账号放入建群名单。若名单为空，该计划群以
+  `NO_ELIGIBLE_PARTICIPANTS` 终止，不产生 `GROUP_CREATE` Outbox；发布补全器也会拒绝历史空名单命令。
 - 失败明细逐方向保留在 `creator_save_error_*` / `member_save_error_*`；进入建群阶段时在
   `normal_group_creation_item.contact_prepare_failed` 落行级标记；任务详情接口返回
   `contactFailures` 列表。详见 `2026-08-10-normal-group-creation-contact-optional.md`。
@@ -130,7 +131,8 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
    Web payload。
 3. 两套协议只向 `protocol.normal-group.events.v1` 发布统一最终结果。
 4. action 不遗漏，且只使用上述四个通用 action；退群使用 `GROUP_LEAVE`。
-5. 全部联系人方向成功前不建群；建群成功前不设置权限；权限成功前不退群。
+5. 全部联系人方向落定且至少一名参与者双向成功前不建群；建群成功前不设置权限；
+   权限成功前不退群。
 6. 默认权限严格为 `true/false/true/false/0`，其中修改群资料默认关闭。
 7. 错误 commandId、错误账号、错误 backend、迟到 action 都不能推进状态机。
 8. 任一必需命令失败或未知时任务不得汇总为成功。
@@ -227,3 +229,17 @@ Topic 路由只看本次动作实际执行账号冻结的 `protocolBackend`：
   也只确认、提权这些实际入群账号。
 - 任务明细增加未脱敏的创群号，操作时间继续复用计划群 `updatedAt`。
 - 定向后端测试 53 项通过，覆盖 payload 筛选、H2 状态登记、回执状态机与详情出参。
+
+### 2026-08-26 Android AppState 未就绪与空参与者阻断
+
+- Android 联系人结果新增 `APP_STATE_NOT_READY` / `APP_STATE_CONFLICT` 明确原因；
+  不再把本地缺密钥或 WhatsApp 409 统称为已发出但未确认的 `UNKNOWN`。
+- 联系人方向全部落定后，Armada 使用与 payload 相同的双向成功口径计算参与者；
+  零参与者直接将 item 收口为 `FAILED + NO_ELIGIBLE_PARTICIPANTS`，刷新任务汇总，不下发建群。
+- `NormalGroupCreationPayloadHydrator` 增加第二道 fail-closed 校验，历史或异常 Outbox 也无法生成
+  Android/Web 空 `participants` 命令。
+- 本次无数据库结构变更，回滚时回退 Service、Mapper XML 和错误文案即可。
+- 定向 Mapper/状态机/payload 测试共 41 项通过；Mapper XML 已通过 `xmllint`，
+  `mvn -DskipTests package` 构建通过。
+- 全量 `mvn test` 仍受仓库既有外部环境测试阻断：本机没有可连接的 MySQL/Docker，相关
+  DbTest 在 Hikari 重连阶段失败；本次 H2 真 Mapper SQL 和相关业务测试均已独立通过。

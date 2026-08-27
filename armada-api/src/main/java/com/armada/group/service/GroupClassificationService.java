@@ -2,6 +2,7 @@ package com.armada.group.service;
 
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.model.vo.GroupClassificationPlan;
+import com.armada.group.model.vo.GroupPostControlClassificationCandidate;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
 
@@ -40,6 +41,11 @@ public interface GroupClassificationService {
     GroupClassificationPlan stageVisibleGroups(
             Long accountId,
             List<GroupClassificationCandidate> groups,
+            long now);
+
+    /** phase1 固化协议层携带的可靠 self-add 分类证据，不依赖账号 baseline 已提交。 */
+    GroupClassificationPlan stagePostControlEvidence(
+            List<GroupPostControlClassificationCandidate> groups,
             long now);
 
     /**

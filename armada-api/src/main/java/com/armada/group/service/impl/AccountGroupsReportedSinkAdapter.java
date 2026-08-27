@@ -50,9 +50,15 @@ public class AccountGroupsReportedSinkAdapter implements ProtocolAccountGroupsRe
                         group.description(),
                         group.descriptionObserved(),
                         group.joinApprovalMode(),
-                        group.ephemeralDurationSeconds())).toList(),
+                        group.ephemeralDurationSeconds(),
+                        group.postControlObservedAt(),
+                        group.sourceEventId())).toList(),
                 event.eventId(),
                 event.source(),
+                event.commandId(),
+                event.snapshotId(),
+                event.queryStartedAt(),
+                event.snapshotCutoff(),
                 event.snapshotComplete(),
                 event.skippedGroupCount()));
     }

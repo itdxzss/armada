@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 class MarketingTaskUserDataIsolationMigrationSqlTest {
 
     private static final String MIGRATION =
-            "/db/migration/V142__marketing_task_user_data_ownership.sql";
+            "/db/migration/V143__marketing_task_user_data_ownership.sql";
 
     @Test
-    void v142AddsNullableOwnerWithoutGuessingHistoricalOwnership() throws IOException {
+    void v143AddsNullableOwnerWithoutGuessingHistoricalOwnership() throws IOException {
         try (var input = getClass().getResourceAsStream(MIGRATION)) {
             assertThat(input).isNotNull();
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8)

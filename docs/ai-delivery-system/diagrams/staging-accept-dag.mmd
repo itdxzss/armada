@@ -1,0 +1,21 @@
+flowchart TD
+    create["Create run, lock, manifest"] --> version["Version provenance"]
+    create --> resource["Resource preflight"]
+    create --> capability["Capability check"]
+    version --> deep["Existing deep check"]
+    resource --> deep
+    capability --> deep
+    deep --> baseline["Telemetry baseline and collectors"]
+
+    baseline --> ui["UI smoke"]
+    baseline --> webcanary["Web WA canary"]
+    baseline --> androidcanary["Android WA canary"]
+
+    ui --> reconcile["Reconcile and queue drain"]
+    webcanary --> reconcile
+    androidcanary --> reconcile
+
+    reconcile --> post["Post telemetry and traffic delta"]
+    post --> policy["Policy evaluation"]
+    policy --> report["Report and checksums"]
+    report --> cleanup["Release, cooldown or quarantine resources"]

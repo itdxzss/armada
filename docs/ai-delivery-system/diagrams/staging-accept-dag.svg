@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1120" viewBox="0 0 1200 1120" role="img" aria-labelledby="title desc">
+  <title id="title">staging-accept durable stage DAG</title>
+  <desc id="desc">A run is created and verified in parallel for version, resources, and capabilities, then deep checked, baselined, exercised by UI and two protocol canaries, reconciled, evaluated, reported, and cleaned up.</desc>
+  <defs>
+    <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#60758a"/>
+    </marker>
+    <style>
+      .box { fill:#f7f9fc; stroke:#52606d; stroke-width:2; rx:14; }
+      .control { fill:#e8f1ff; }
+      .decision { fill:#fff4d6; }
+      .success { fill:#dff5e8; }
+      .line { fill:none; stroke:#60758a; stroke-width:2.2; marker-end:url(#arrow2); }
+      .label { font:600 18px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; fill:#263645; text-anchor:middle; }
+      .small { font:500 14px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; fill:#52606d; text-anchor:middle; }
+      .section { font:700 15px -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; fill:#728295; letter-spacing:1px; }
+    </style>
+  </defs>
+
+  <text class="section" x="35" y="45">CONTROL</text>
+  <rect class="box control" x="410" y="25" width="380" height="78"/>
+  <text class="label" x="600" y="58">Create run, lock, manifest</text>
+  <text class="small" x="600" y="83">immutable inputs + global deadline</text>
+
+  <text class="section" x="35" y="160">PREFLIGHT — READ ONLY IN PARALLEL</text>
+  <rect class="box" x="90" y="185" width="280" height="78"/>
+  <text class="label" x="230" y="218">Version provenance</text>
+  <text class="small" x="230" y="243">four deployed builds</text>
+  <rect class="box" x="460" y="185" width="280" height="78"/>
+  <text class="label" x="600" y="218">Resource preflight</text>
+  <text class="small" x="600" y="243">aliases, leases, cooldown</text>
+  <rect class="box" x="830" y="185" width="280" height="78"/>
+  <text class="label" x="970" y="218">Capability check</text>
+  <text class="small" x="970" y="243">adapter + collector truth</text>
+
+  <path class="line" d="M600 103 V145 H230 V185"/>
+  <path class="line" d="M600 103 V185"/>
+  <path class="line" d="M600 103 V145 H970 V185"/>
+
+  <rect class="box" x="410" y="330" width="380" height="78"/>
+  <text class="label" x="600" y="363">Existing deep check</text>
+  <text class="small" x="600" y="388">reuse current environment checks</text>
+  <path class="line" d="M230 263 V300 H600 V330"/>
+  <path class="line" d="M600 263 V330"/>
+  <path class="line" d="M970 263 V300 H600 V330"/>
+
+  <text class="section" x="35" y="470">BASELINE AND SCENARIOS</text>
+  <rect class="box control" x="375" y="475" width="450" height="78"/>
+  <text class="label" x="600" y="508">Telemetry baseline + collectors</text>
+  <text class="small" x="600" y="533">Kafka · Redis · compute · traffic health</text>
+  <path class="line" d="M600 408 V475"/>
+
+  <rect class="box" x="90" y="630" width="280" height="78"/>
+  <text class="label" x="230" y="663">UI smoke</text>
+  <text class="small" x="230" y="688">login + page readiness</text>
+  <rect class="box" x="460" y="630" width="280" height="78"/>
+  <text class="label" x="600" y="663">Web WA canary</text>
+  <text class="small" x="600" y="688">leased Web resources</text>
+  <rect class="box" x="830" y="630" width="280" height="78"/>
+  <text class="label" x="970" y="663">Android WA canary</text>
+  <text class="small" x="970" y="688">leased Android resources</text>
+  <path class="line" d="M600 553 V590 H230 V630"/>
+  <path class="line" d="M600 553 V630"/>
+  <path class="line" d="M600 553 V590 H970 V630"/>
+
+  <text class="section" x="35" y="780">RECONCILIATION AND DECISION</text>
+  <rect class="box" x="390" y="775" width="420" height="78"/>
+  <text class="label" x="600" y="808">Reconcile and queue drain</text>
+  <text class="small" x="600" y="833">correlation · Kafka · Redis · final state</text>
+  <path class="line" d="M230 708 V745 H600 V775"/>
+  <path class="line" d="M600 708 V775"/>
+  <path class="line" d="M970 708 V745 H600 V775"/>
+
+  <rect class="box" x="390" y="900" width="420" height="78"/>
+  <text class="label" x="600" y="933">Post telemetry + traffic delta</text>
+  <text class="small" x="600" y="958">complete windows + recovery</text>
+  <path class="line" d="M600 853 V900"/>
+
+  <rect class="box decision" x="80" y="1020" width="280" height="70"/>
+  <text class="label" x="220" y="1062">Policy evaluation</text>
+  <rect class="box success" x="460" y="1020" width="280" height="70"/>
+  <text class="label" x="600" y="1052">Report + checksums</text>
+  <text class="small" x="600" y="1074">PASS / FAIL / BLOCKED</text>
+  <rect class="box" x="840" y="1020" width="280" height="70"/>
+  <text class="label" x="980" y="1052">Release / cooldown /</text>
+  <text class="small" x="980" y="1074">quarantine resources</text>
+  <path class="line" d="M600 978 V995 H220 V1020"/>
+  <path class="line" d="M360 1055 H460"/>
+  <path class="line" d="M740 1055 H840"/>
+</svg>

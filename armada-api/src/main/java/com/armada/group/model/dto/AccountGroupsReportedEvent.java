@@ -12,6 +12,10 @@ import java.util.List;
  * @param groups            协议层返回的账号当前参与群列表
  * @param eventId           协议层事件 ID,仅用于日志
  * @param source            群列表同步来源,仅用于日志
+ * @param commandId         显式同步命令 ID;自发同步可空
+ * @param snapshotId        单次查询尝试的稳定快照 ID
+ * @param queryStartedAt    WhatsApp 查询启动时间(epoch 毫秒)
+ * @param snapshotCutoff    本次快照逻辑截点(epoch 毫秒)
  * @param snapshotComplete  协议层是否确认本次快照完整
  * @param skippedGroupCount 协议层过滤的异常群条目数量
  */
@@ -23,6 +27,10 @@ public record AccountGroupsReportedEvent(
         List<Group> groups,
         String eventId,
         String source,
+        String commandId,
+        String snapshotId,
+        Long queryStartedAt,
+        Long snapshotCutoff,
         Boolean snapshotComplete,
         Integer skippedGroupCount
 ) {
@@ -49,7 +57,8 @@ public record AccountGroupsReportedEvent(
             List<Group> groups,
             String eventId,
             String source) {
-        this(tenantId, accountId, protocolAccountId, reportedAt, groups, eventId, source, null, null);
+        this(tenantId, accountId, protocolAccountId, reportedAt, groups, eventId, source,
+                null, null, null, null, null, null);
     }
 
     /**
@@ -73,6 +82,8 @@ public record AccountGroupsReportedEvent(
      * @param descriptionObserved 本次是否观察到群描述字段
      * @param joinApprovalMode 是否开启入群审批,可空
      * @param ephemeralDurationSeconds 限时消息秒数,0 表示明确关闭;可空表示未观察
+     * @param postControlObservedAt 协议在查询 cut 后观察到可靠 self-add 的时间(epoch 毫秒);可空
+     * @param sourceEventId     与 postControlObservedAt 配对的原始 WhatsApp 事件 ID;可空
      */
     public record Group(
             String groupJid,
@@ -89,7 +100,9 @@ public record AccountGroupsReportedEvent(
             String description,
             boolean descriptionObserved,
             Boolean joinApprovalMode,
-            Integer ephemeralDurationSeconds
+            Integer ephemeralDurationSeconds,
+            Long postControlObservedAt,
+            String sourceEventId
     ) {
 
         /** 兼容尚未上报群创建时间与群设置的调用方。 */
@@ -104,7 +117,7 @@ public record AccountGroupsReportedEvent(
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
                     admin, announceOnly, avatarUrl, null, null, null,
-                    null, false, null, null);
+                    null, false, null, null, null, null);
         }
     }
 }

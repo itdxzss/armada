@@ -1,5 +1,6 @@
 package com.armada.group.service.impl;
 
+import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
@@ -9,6 +10,7 @@ import com.armada.group.model.vo.AccountGroupMembershipSnapshot;
 import com.armada.group.model.vo.AccountGroupCompatibilitySnapshot;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.model.vo.GroupClassificationPlan;
+import com.armada.group.model.vo.GroupPostControlClassificationCandidate;
 import com.armada.group.service.AccountGroupMembershipSnapshotService;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
@@ -21,6 +23,9 @@ import com.armada.shared.security.DataScope;
 import com.armada.shared.security.DataScopeAccess;
 import com.armada.shared.security.DataScopeContext;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -102,20 +107,56 @@ public class AccountGroupMembershipReportPhaseService {
             return CompatibilityPhaseResult.stale();
         }
         try (DataScopeContext.Scope ignored = openAccountScope(lockedContext)) {
+            boolean capturingBaseline = pendingBaseline
+                    && (lockedContext.baselineState() == null
+                    || lockedContext.baselineState() == AccountGroupBaselineStateCode.PENDING);
             AccountGroupCompatibilitySnapshot prepared = snapshotService.prepareVisibleGroups(
                     event.accountId(), event.groups(), snapshotComplete, syncAt,
                     event.eventId(), event.source(), observedBackend);
             List<AccountGroupMembershipSnapshot> groups = prepared.groups();
             GroupClassificationPlan classificationPlan = prepared.classificationPlan();
-            if (pendingBaseline && !groups.isEmpty()) {
+            Map<String, AccountGroupsReportedEvent.Group> reportedByJid = event.groups().stream()
+                    .filter(java.util.Objects::nonNull)
+                    .filter(group -> normalizeJid(group.groupJid()) != null)
+                    .collect(Collectors.toMap(
+                            group -> normalizeJid(group.groupJid()),
+                            Function.identity(),
+                            (left, right) -> left));
+            List<GroupPostControlClassificationCandidate> postControlCandidates = groups.stream()
+                    .filter(group -> reportedByJid.containsKey(normalizeJid(group.groupJid())))
+                    .filter(group -> reportedByJid.get(normalizeJid(group.groupJid()))
+                            .postControlObservedAt() != null)
+                    .map(group -> new GroupPostControlClassificationCandidate(
+                            group.groupLinkId(),
+                            group.groupJid(),
+                            group.groupName(),
+                            reportedByJid.get(normalizeJid(group.groupJid()))
+                                    .postControlObservedAt()))
+                    .toList();
+            if (!postControlCandidates.isEmpty()) {
+                classificationPlan = classificationPlan.merge(
+                        classificationService.stagePostControlEvidence(
+                                postControlCandidates,
+                                Math.max(syncAt, postControlCandidates.stream()
+                                        .mapToLong(GroupPostControlClassificationCandidate::observedAt)
+                                        .max()
+                                        .orElse(syncAt))));
+            }
+            if (capturingBaseline && snapshotComplete && !groups.isEmpty()) {
+                List<GroupClassificationCandidate> historicalCandidates = groups.stream()
+                        .filter(group -> {
+                            AccountGroupsReportedEvent.Group reported = reportedByJid.get(
+                                    normalizeJid(group.groupJid()));
+                            return reported == null || reported.postControlObservedAt() == null;
+                        })
+                        .map(group -> new GroupClassificationCandidate(
+                                group.groupLinkId(), group.groupJid(), group.groupName()))
+                        .toList();
                 classificationPlan = classificationPlan.merge(
                         classificationService.stageHistoricalBaseline(
-                        groups.stream()
-                                .map(group -> new GroupClassificationCandidate(
-                                        group.groupLinkId(), group.groupJid(), group.groupName()))
-                                .toList(),
-                        observedBackend,
-                        syncAt));
+                                historicalCandidates,
+                                observedBackend,
+                                syncAt));
             }
             return CompatibilityPhaseResult.accepted(groups, classificationPlan);
         }
@@ -187,16 +228,29 @@ public class AccountGroupMembershipReportPhaseService {
             long syncAt,
             String eventId,
             AccountGroupCompatibilitySnapshot prepared) {
-        Context context = currentSnapshotMapper.selectContextForUpdate(accountId);
-        if (context == null) {
+        Context lockedContext = currentSnapshotMapper.selectContextForUpdate(accountId);
+        if (lockedContext == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "新群模型快照找不到活跃账号");
         }
-        try (DataScopeContext.Scope ignored = openAccountScope(context)) {
+        try (DataScopeContext.Scope ignored = openAccountScope(lockedContext)) {
             List<AccountGroupMembershipSnapshot> legacyGroups = prepared.groups();
             lockLegacyGroups(legacyGroups);
+            GroupClassificationPlan classificationPlan = prepared.classificationPlan();
+            if (lockedContext.baselineState() == null
+                    || lockedContext.baselineState() == AccountGroupBaselineStateCode.PENDING) {
+                List<GroupClassificationCandidate> historicalCandidates = legacyGroups.stream()
+                        .map(group -> new GroupClassificationCandidate(
+                                group.groupLinkId(), group.groupJid(), group.groupName()))
+                        .toList();
+                classificationPlan = classificationPlan.merge(
+                        classificationService.stageHistoricalBaseline(
+                                historicalCandidates,
+                                ProtocolBackend.fromProtocolId(lockedContext.protocolId()),
+                                syncAt));
+            }
             AccountGroupMembershipChangeSet changes = currentSnapshotPersistence.replaceVisibleGroups(
                     accountId, groups, true, syncAt, eventId, legacyGroups);
-            enqueueClassificationTasks(prepared.classificationPlan(), syncAt);
+            enqueueClassificationTasks(classificationPlan, syncAt);
             return changes;
         }
     }
@@ -246,6 +300,13 @@ public class AccountGroupMembershipReportPhaseService {
         }
         return context.lastCompleteAt() == null
                 || syncAt > context.lastCompleteAt();
+    }
+
+    private static String normalizeJid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     /** 第一阶段接纳结果；空快照与过期事件必须显式区分。 */

@@ -2,13 +2,18 @@ package com.armada.group.service.impl;
 
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
+import com.armada.group.mapper.GroupClassificationMapper;
 import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
-import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.enums.GroupClassification;
+import com.armada.group.model.enums.GroupClassificationSource;
 import com.armada.group.model.enums.GroupMetadataSyncTrigger;
+import com.armada.group.model.vo.CanonicalGroupClassificationRow;
+import com.armada.group.model.vo.CanonicalGroupClassificationWrite;
 import com.armada.group.model.vo.GroupClassificationCandidate;
 import com.armada.group.model.vo.GroupClassificationPlan;
+import com.armada.group.model.vo.GroupPostControlClassificationCandidate;
 import com.armada.group.service.GroupClassificationService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.group.service.GroupMetadataSyncTaskService;
@@ -18,21 +23,26 @@ import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.DataScopeAccess;
+import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-/** 历史群与账号上控后群固化分类实现。 */
+/** 租户内 canonical 群首次唯一分类实现。 */
 @Service
 public class GroupClassificationServiceImpl implements GroupClassificationService {
 
     private final AccountGroupCurrentSnapshotMapper currentSnapshotMapper;
     private final GroupLinkMapper groupLinkMapper;
+    private final GroupClassificationMapper classificationMapper;
     private final GroupLinkRegistryService registryService;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
 
@@ -41,21 +51,25 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
      *
      * @param currentSnapshotMapper 新模型账号 baseline 与绑定数据访问
      * @param groupLinkMapper 群入口数据访问
+     * @param classificationMapper canonical 群首次分类数据访问
      * @param registryService 群组池登记服务
      * @param metadataSyncTaskService 群详情同步任务服务
      */
     public GroupClassificationServiceImpl(
             AccountGroupCurrentSnapshotMapper currentSnapshotMapper,
             GroupLinkMapper groupLinkMapper,
+            GroupClassificationMapper classificationMapper,
             GroupLinkRegistryService registryService,
             GroupMetadataSyncTaskService metadataSyncTaskService) {
         this.currentSnapshotMapper = currentSnapshotMapper;
         this.groupLinkMapper = groupLinkMapper;
+        this.classificationMapper = classificationMapper;
         this.registryService = registryService;
         this.metadataSyncTaskService = metadataSyncTaskService;
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void captureHistoricalBaseline(
             List<GroupClassificationCandidate> groups,
             ProtocolBackend observedBackend,
@@ -64,6 +78,7 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public GroupClassificationPlan stageHistoricalBaseline(
             List<GroupClassificationCandidate> groups,
             ProtocolBackend observedBackend,
@@ -86,100 +101,116 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
         Map<String, Long> resolved = unresolved.isEmpty()
                 ? Map.of()
                 : registryService.registerAccountObservedGroups(unresolved, observedBackend, now);
-        List<Long> historicalIds = candidates.values().stream()
-                .map(group -> group.groupLinkId() == null
-                        ? resolved.get(group.groupJid()) : group.groupLinkId())
-                .filter(java.util.Objects::nonNull)
+        List<ClassificationRequest> requests = candidates.values().stream()
+                .map(group -> new ClassificationRequest(
+                        group.groupLinkId() == null
+                                ? resolved.get(group.groupJid()) : group.groupLinkId(),
+                        group.groupJid(),
+                        GroupClassification.HISTORICAL,
+                        GroupClassificationSource.BASELINE_CAPTURED,
+                        GroupMetadataSyncTrigger.BASELINE_CAPTURED,
+                        now))
                 .toList();
-        return persistClassifications(historicalIds, List.of(), now, enqueueTasks);
+        return persistClassifications(requests, now, enqueueTasks);
     }
 
     private GroupClassificationPlan persistClassifications(
-            List<Long> historicalIds,
-            List<Long> postControlIds,
+            List<ClassificationRequest> incomingRequests,
             long now,
             boolean enqueueTasks) {
-        Map<Long, GroupMetadataSyncTrigger> byGroupLinkId = new TreeMap<>();
-        historicalIds.stream()
-                .filter(java.util.Objects::nonNull)
-                .forEach(id -> byGroupLinkId.putIfAbsent(
-                        id, GroupMetadataSyncTrigger.BASELINE_CAPTURED));
-        postControlIds.stream()
-                .filter(java.util.Objects::nonNull)
-                .forEach(id -> byGroupLinkId.putIfAbsent(
-                        id, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED));
-        if (byGroupLinkId.isEmpty()) {
+        Map<String, ClassificationRequest> requestsByJid = stableRequests(incomingRequests);
+        if (requestsByJid.isEmpty()) {
             return GroupClassificationPlan.empty();
         }
-        Map<Long, GroupLink> activeLinks = groupLinkMapper.selectActiveByIds(
-                        List.copyOf(byGroupLinkId.keySet()),
-                        DataScopeAccess.requireCurrent()).stream()
+        Set<Long> activeIds = activeGroupLinkIds(requestsByJid.values());
+        requestsByJid.entrySet().removeIf(
+                entry -> !activeIds.contains(entry.getValue().groupLinkId()));
+        if (requestsByJid.isEmpty()) {
+            return GroupClassificationPlan.empty();
+        }
+        Long tenantId = requiredTenantId();
+        List<String> groupJids = List.copyOf(requestsByJid.keySet());
+        classificationMapper.ensureCanonicalGroups(tenantId, groupJids, now);
+        Map<String, Integer> actualByJid = classificationMapper.selectByGroupJids(
+                        tenantId, groupJids).stream()
                 .collect(Collectors.toMap(
-                        GroupLink::getId,
-                        Function.identity(),
+                        CanonicalGroupClassificationRow::groupJid,
+                        CanonicalGroupClassificationRow::classificationCode,
                         (left, right) -> left));
-        Map<Long, GroupMetadataSyncTrigger> desired = new TreeMap<>();
-        byGroupLinkId.forEach((groupLinkId, trigger) -> {
-            if (activeLinks.containsKey(groupLinkId)) {
-                desired.put(groupLinkId, trigger);
+        if (actualByJid.size() != requestsByJid.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "canonical 群分类读取结果不完整");
+        }
+        List<CanonicalGroupClassificationWrite> writes = new ArrayList<>();
+        Map<Long, GroupMetadataSyncTrigger> newlyPersisted = new TreeMap<>();
+        for (Map.Entry<String, ClassificationRequest> entry : requestsByJid.entrySet()) {
+            Integer actualCode = actualByJid.get(entry.getKey());
+            if (GroupClassification.fromCode(actualCode) != GroupClassification.UNCLASSIFIED) {
+                continue;
             }
-        });
-        Map<Long, GroupMetadataSyncTrigger> classificationsToPersist =
-                pendingClassifications(byGroupLinkId, activeLinks);
-        if (classificationsToPersist.isEmpty()) {
-            return new GroupClassificationPlan(desired, Map.of());
+            ClassificationRequest request = entry.getValue();
+            writes.add(new CanonicalGroupClassificationWrite(
+                    request.groupJid(),
+                    request.classification().code(),
+                    request.source().code(),
+                    request.classifiedAt()));
+            newlyPersisted.put(request.groupLinkId(), request.trigger());
+            actualByJid.put(request.groupJid(), request.classification().code());
         }
-        Map<Long, GroupLink> lockedLinks = groupLinkMapper.selectActiveByIdsForUpdate(
-                        List.copyOf(classificationsToPersist.keySet()),
-                        DataScopeAccess.requireCurrent()).stream()
-                .collect(Collectors.toMap(
-                        GroupLink::getId,
-                        Function.identity(),
-                        (left, right) -> left));
-        Map<Long, GroupMetadataSyncTrigger> lockedClassifications = pendingClassifications(
-                classificationsToPersist, lockedLinks);
-        if (lockedClassifications.isEmpty()) {
-            return new GroupClassificationPlan(desired, Map.of());
-        }
-        List<Long> historicalToPersist = new ArrayList<>();
-        List<Long> postControlToPersist = new ArrayList<>();
-        lockedClassifications.forEach((groupLinkId, trigger) -> {
-            if (trigger == GroupMetadataSyncTrigger.BASELINE_CAPTURED) {
-                historicalToPersist.add(groupLinkId);
-            } else {
-                postControlToPersist.add(groupLinkId);
+        if (!writes.isEmpty()) {
+            int affected = classificationMapper.classifyFirstBatch(tenantId, writes, now);
+            if (affected != writes.size()) {
+                throw new BusinessException(ErrorCode.CONFLICT, "canonical 群批量首次分类结果非法");
             }
-        });
-        int affected = groupLinkMapper.markClassifications(
-                historicalToPersist, postControlToPersist,
-                DataScopeAccess.requireCurrent(), now);
-        if (affected != lockedClassifications.size()) {
-            throw new BusinessException(ErrorCode.CONFLICT, "群分类批量提升结果不完整");
         }
-        if (enqueueTasks) {
-            metadataSyncTaskService.enqueueClassifications(lockedClassifications, now);
+        Map<Long, GroupMetadataSyncTrigger> desired = actualClassifications(
+                requestsByJid, actualByJid);
+        if (enqueueTasks && !newlyPersisted.isEmpty()) {
+            metadataSyncTaskService.enqueueClassifications(newlyPersisted, now);
         }
-        return new GroupClassificationPlan(desired, lockedClassifications);
+        return new GroupClassificationPlan(desired, newlyPersisted);
     }
 
-    private static Map<Long, GroupMetadataSyncTrigger> pendingClassifications(
-            Map<Long, GroupMetadataSyncTrigger> requested,
-            Map<Long, GroupLink> linksById) {
-        Map<Long, GroupMetadataSyncTrigger> pending = new TreeMap<>();
-        requested.forEach((groupLinkId, trigger) -> {
-            GroupLink link = linksById.get(groupLinkId);
-            if (trigger == GroupMetadataSyncTrigger.BASELINE_CAPTURED) {
-                if (link != null && !Boolean.TRUE.equals(link.getIsHistorical())) {
-                    pending.put(groupLinkId, trigger);
-                }
-            } else if (link != null && !Boolean.TRUE.equals(link.getIsPostControl())) {
-                pending.put(groupLinkId, trigger);
+    private Set<Long> activeGroupLinkIds(Iterable<ClassificationRequest> requests) {
+        List<Long> requestedIds = new ArrayList<>();
+        requests.forEach(request -> {
+            if (request.groupLinkId() != null) {
+                requestedIds.add(request.groupLinkId());
             }
         });
-        return pending;
+        if (requestedIds.isEmpty()) {
+            return Set.of();
+        }
+        // canonical 行可能尚不存在；仅按 group_jid 排序的并发 INSERT 仍会因唯一键间隙锁
+        // 形成环。先按已经存在的兼容句柄 PRIMARY 顺序锁定，同群候选便会在建档前串行化。
+        return groupLinkMapper.selectActiveByIdsForUpdate(requestedIds.stream()
+                        .distinct()
+                        .sorted()
+                        .toList(), DataScopeAccess.requireCurrent()).stream()
+                .map(com.armada.group.model.entity.GroupLink::getId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+    }
+
+    private Map<Long, GroupMetadataSyncTrigger> actualClassifications(
+            Map<String, ClassificationRequest> requestsByJid,
+            Map<String, Integer> actualByJid) {
+        Map<Long, GroupMetadataSyncTrigger> desired = new TreeMap<>();
+        requestsByJid.forEach((groupJid, request) -> desired.put(
+                request.groupLinkId(), triggerFor(actualByJid.get(groupJid))));
+        return desired;
+    }
+
+    private static GroupMetadataSyncTrigger triggerFor(Integer classificationCode) {
+        return switch (GroupClassification.fromCode(classificationCode)) {
+            case HISTORICAL -> GroupMetadataSyncTrigger.BASELINE_CAPTURED;
+            case POST_CONTROL -> GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED;
+            case UNCLASSIFIED -> throw new BusinessException(
+                    ErrorCode.CONFLICT, "canonical 群可靠候选写后仍未分类");
+        };
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void classifyVisibleGroups(
             Long accountId,
             List<GroupClassificationCandidate> groups,
@@ -188,6 +219,7 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public GroupClassificationPlan stageVisibleGroups(
             Long accountId,
             List<GroupClassificationCandidate> groups,
@@ -215,26 +247,62 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
         Map<String, Existing> existingByJid = currentSnapshotMapper.selectExisting(
                         accountId, self.ownerJid(), List.copyOf(candidates.keySet())).stream()
                 .collect(Collectors.toMap(Existing::groupJid, Function.identity(), (left, right) -> left));
-        List<Long> historicalIds = new ArrayList<>();
-        List<Long> postControlIds = new ArrayList<>();
+        List<ClassificationRequest> requests = new ArrayList<>();
         for (GroupClassificationCandidate group : candidates.values()) {
             if (group.groupLinkId() == null) {
                 continue;
             }
             Existing existing = existingByJid.get(group.groupJid());
             if (existing != null && Integer.valueOf(1).equals(existing.wasInInitialBaseline())) {
-                historicalIds.add(group.groupLinkId());
+                requests.add(new ClassificationRequest(
+                        group.groupLinkId(),
+                        group.groupJid(),
+                        GroupClassification.HISTORICAL,
+                        GroupClassificationSource.BASELINE_CAPTURED,
+                        GroupMetadataSyncTrigger.BASELINE_CAPTURED,
+                        context.baselineCapturedAt()));
             } else if ((existing != null
                     && (Integer.valueOf(0).equals(existing.wasInInitialBaseline())
                     || existing.firstPostControlObservedAt() != null))
                     || (existing == null && now > context.baselineCapturedAt())) {
-                postControlIds.add(group.groupLinkId());
+                long classifiedAt = existing != null
+                        && existing.firstPostControlObservedAt() != null
+                        ? existing.firstPostControlObservedAt() : now;
+                requests.add(new ClassificationRequest(
+                        group.groupLinkId(),
+                        group.groupJid(),
+                        GroupClassification.POST_CONTROL,
+                        GroupClassificationSource.POST_CONTROL_DISCOVERED,
+                        GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED,
+                        classifiedAt));
             }
         }
-        return persistClassifications(historicalIds, postControlIds, now, enqueueTasks);
+        return persistClassifications(requests, now, enqueueTasks);
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public GroupClassificationPlan stagePostControlEvidence(
+            List<GroupPostControlClassificationCandidate> groups,
+            long now) {
+        if (groups == null || groups.isEmpty()) {
+            return GroupClassificationPlan.empty();
+        }
+        List<ClassificationRequest> requests = groups.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(group -> new ClassificationRequest(
+                        group.groupLinkId(),
+                        normalizeJid(group.groupJid()),
+                        GroupClassification.POST_CONTROL,
+                        GroupClassificationSource.POST_CONTROL_DISCOVERED,
+                        GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED,
+                        group.observedAt()))
+                .toList();
+        return persistClassifications(requests, now, false);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void classifyMembershipAdded(
             Long accountId,
             GroupClassificationCandidate group,
@@ -256,23 +324,14 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
         if (existing != null && Integer.valueOf(1).equals(existing.wasInInitialBaseline())) {
             return;
         }
-        markAndEnqueuePostControl(group.groupLinkId(), now);
-    }
-
-    private void markAndEnqueueHistorical(Long groupLinkId, long now) {
-        if (groupLinkMapper.markHistorical(
-                groupLinkId, DataScopeAccess.requireCurrent(), now) == 1) {
-            metadataSyncTaskService.enqueue(
-                    groupLinkId, GroupMetadataSyncTrigger.BASELINE_CAPTURED, now);
-        }
-    }
-
-    private void markAndEnqueuePostControl(Long groupLinkId, long now) {
-        if (groupLinkMapper.markPostControl(
-                groupLinkId, DataScopeAccess.requireCurrent(), now) == 1) {
-            metadataSyncTaskService.enqueue(
-                    groupLinkId, GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED, now);
-        }
+        ClassificationRequest request = new ClassificationRequest(
+                group.groupLinkId(),
+                normalizeJid(group.groupJid()),
+                GroupClassification.POST_CONTROL,
+                GroupClassificationSource.POST_CONTROL_DISCOVERED,
+                GroupMetadataSyncTrigger.POST_CONTROL_DISCOVERED,
+                occurredAt);
+        persistClassifications(List.of(request), now, true);
     }
 
     private static boolean capturedBaseline(Context context) {
@@ -301,6 +360,40 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
         return normalized;
     }
 
+    private static Map<String, ClassificationRequest> stableRequests(
+            List<ClassificationRequest> requests) {
+        Map<String, ClassificationRequest> stable = new TreeMap<>();
+        if (requests == null) {
+            return stable;
+        }
+        for (ClassificationRequest request : requests) {
+            if (request == null
+                    || request.groupLinkId() == null
+                    || request.groupJid() == null) {
+                continue;
+            }
+            stable.merge(request.groupJid(), request, GroupClassificationServiceImpl::preferred);
+        }
+        return stable;
+    }
+
+    private static ClassificationRequest preferred(
+            ClassificationRequest left,
+            ClassificationRequest right) {
+        if (left.classification() == GroupClassification.HISTORICAL) {
+            return left;
+        }
+        return right.classification() == GroupClassification.HISTORICAL ? right : left;
+    }
+
+    private static Long requiredTenantId() {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        return tenantId;
+    }
+
     private static String normalizeJid(String value) {
         return blankToNull(value);
     }
@@ -310,5 +403,15 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
             return null;
         }
         return value.trim();
+    }
+
+    /** 单个可靠候选及仍需兼容的群入口句柄。 */
+    private record ClassificationRequest(
+            Long groupLinkId,
+            String groupJid,
+            GroupClassification classification,
+            GroupClassificationSource source,
+            GroupMetadataSyncTrigger trigger,
+            long classifiedAt) {
     }
 }

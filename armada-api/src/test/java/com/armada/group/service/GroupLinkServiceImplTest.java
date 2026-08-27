@@ -35,6 +35,7 @@ import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLinkHealth;
 import com.armada.group.model.entity.GroupLinkLabel;
 import com.armada.group.model.entity.GroupLinkPreview;
+import com.armada.group.model.enums.GroupClassification;
 import com.armada.group.model.vo.GroupLinkPreviewBatchVO;
 import com.armada.group.model.vo.GroupCurrentIdentity;
 import com.armada.group.model.vo.GroupLinkVO;
@@ -240,7 +241,7 @@ class GroupLinkServiceImplTest {
                 1L, 1L, "https://chat.whatsapp.com/abc", "群A", null, null, "links.txt",
                 "UNCHECKED", "未检测", null, null, null, null,
                 3, null, null, null, null, null, null, null, null, null, null, 1000L,
-                false, false, null, null, null, List.of(), false, 0,
+                GroupClassification.UNCLASSIFIED, false, false, null, null, null, List.of(), false, 0,
                 null, null, null, null, null, null, null, null, null);
         when(groupListCurrentMapper.count(TENANT_ID, q)).thenReturn(1L);
         when(groupListCurrentMapper.selectPage(TENANT_ID, q)).thenReturn(List.of(row));

@@ -20,6 +20,7 @@ CONTAINERS = (
     "armada-backend",
     "armada-nginx",
     "zhuan-native-probe-mysql",
+    "zhuan-coordinator",
 )
 
 
@@ -200,6 +201,8 @@ raise SystemExit(0 if status == 'COLLECTED' else 2)
                 "armada-nginx",
                 "--container",
                 "zhuan-native-probe-mysql",
+                "--container",
+                "zhuan-coordinator",
             ],
             json.loads(self.calls.read_text(encoding="utf-8")),
         )
@@ -228,6 +231,27 @@ raise SystemExit(0 if status == 'COLLECTED' else 2)
                 self.assertEqual(phase, arguments[arguments.index("--phase") + 1])
         with self.assertRaises(self.module.ClientError):
             self.module.execute(self.environment("quick-midpoint"), self.config)
+
+    def test_fixed_soak_profiles_are_accepted_but_unknown_profiles_are_blocked(self):
+        manifest = json.loads(self.manifest_content)
+        for profile in ("test1-soak-1h", "test1-soak-6h", "test1-soak-24h"):
+            with self.subTest(profile=profile):
+                manifest["profile"] = profile
+                self.manifest.write_text(
+                    json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                self.manifest.chmod(0o600)
+                self.assertEqual(0, self.module.execute(self.environment(), self.config))
+
+        manifest["profile"] = "test1-soak-arbitrary"
+        self.manifest.write_text(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        self.manifest.chmod(0o600)
+        with self.assertRaises(self.module.ClientError):
+            self.module.execute(self.environment(), self.config)
 
     def test_blocked_collector_evidence_is_saved_and_exit_two_is_preserved(self):
         self.install_fake_collector(status="BLOCKED")

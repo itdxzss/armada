@@ -71,6 +71,7 @@ BACKEND_CONTAINERS = (
     "armada-backend",
     "armada-nginx",
     "zhuan-native-probe-mysql",
+    "zhuan-coordinator",
 )
 WEB_PROCESSES = (
     "armada-protocol-master",

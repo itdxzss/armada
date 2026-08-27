@@ -107,6 +107,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("SUCCESS"),
                 isNull(), isNull(), anyLong())).thenReturn(1);
         when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(eligibleMember()));
         when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
         when(mapper.startGroupCreate(
                 org.mockito.ArgumentMatchers.eq(21L),
@@ -133,6 +134,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("FAILED"),
                 eq("CONTACT_PREPARE_REJECTED"), eq("好友准备被拒绝"), anyLong())).thenReturn(1);
         when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(eligibleMember()));
         when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
         when(mapper.startGroupCreate(eq(21L), eq("cmd-create"), anyLong())).thenReturn(1);
 
@@ -152,6 +154,39 @@ class NormalGroupCreationProtocolResultServiceTest {
     }
 
     @Test
+    void contactPrepare_allSettledWithoutEligibleParticipantFailsBeforeDispatch() {
+        ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
+        MemberWork member = member();
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(mapper.selectMemberWorkForUpdate(1L, 21L, 31L)).thenReturn(member);
+        when(mapper.applyContactResult(
+                eq(31L), eq("MEMBER_SAVE_CREATOR"), eq("cmd-contact-member"), eq("FAILED"),
+                eq("APP_STATE_NOT_READY"), eq("Android AppState 未就绪"), anyLong()))
+                .thenReturn(1);
+        when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(new MemberWork(
+                31L, 383L, "member-android", "ANDROID", "922",
+                "SUCCESS", "FAILED", "cmd-contact-creator", "cmd-contact-member", "PENDING")));
+        when(mapper.selectSecondaryAdminWorks(21L)).thenReturn(List.of());
+        when(mapper.failContactPreparation(
+                eq(21L), eq("FAILED"), eq("NO_ELIGIBLE_PARTICIPANTS"),
+                eq("好友准备完成后没有可靠的建群参与者"), eq("evt-1"), anyLong()))
+                .thenReturn(1);
+
+        service.handleNormalGroupCreationResult(event(
+                "CONTACT_PREPARE", "cmd-contact-member", "FAILED",
+                383L, "member-android", "ANDROID", 31L,
+                "MEMBER_SAVE_CREATOR", null, "APP_STATE_NOT_READY", "Android AppState 未就绪"));
+
+        verify(dispatcher, never()).enqueueCreatorAction(item, "GROUP_CREATE");
+        verify(mapper, never()).startGroupCreate(anyLong(), any(), anyLong());
+        verify(mapper).failContactPreparation(
+                eq(21L), eq("FAILED"), eq("NO_ELIGIBLE_PARTICIPANTS"),
+                eq("好友准备完成后没有可靠的建群参与者"), eq("evt-1"), anyLong());
+        verify(mapper).refreshTaskSummary(eq(9L), anyLong());
+    }
+
+    @Test
     void contactPrepare_unknownOutcomeIsSettledAndNeverBlocksCreate() {
         ItemWork item = item("PREPARING_CONTACTS", null, null, null, null, "KEEP");
         MemberWork member = member();
@@ -162,6 +197,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq("TIMEOUT"), eq("协议动作未成功，原因码：TIMEOUT"), anyLong()))
                 .thenReturn(1);
         when(mapper.countPendingContactDirections(21L)).thenReturn(0);
+        when(mapper.selectMemberWorks(21L)).thenReturn(List.of(eligibleMember()));
         when(dispatcher.enqueueCreatorAction(item, "GROUP_CREATE")).thenReturn("cmd-create");
         when(mapper.startGroupCreate(eq(21L), eq("cmd-create"), anyLong())).thenReturn(1);
 
@@ -620,6 +656,13 @@ class NormalGroupCreationProtocolResultServiceTest {
                 31L, 383L, "member-android", "ANDROID", "922",
                 "PENDING", "PENDING",
                 "cmd-contact-creator", "cmd-contact-member", "PENDING");
+    }
+
+    private static MemberWork eligibleMember() {
+        return new MemberWork(
+                32L, 384L, "eligible-member", "WEB", "933",
+                "SUCCESS", "SUCCESS",
+                "cmd-contact-creator-eligible", "cmd-contact-member-eligible", "PENDING");
     }
 
     private static com.armada.group.normalcreation.model.NormalGroupCreationRecords.SecondaryAdminWork

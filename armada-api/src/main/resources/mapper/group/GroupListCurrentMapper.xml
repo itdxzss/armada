@@ -52,6 +52,7 @@
     <bind name="needsCurrentGroup"
           value="query.folderId != null
               or (query.withoutFolder != null and query.withoutFolder)
+              or query.groupType != null
               or query.availableAdmin != null
               or query.memberCountMin != null or query.memberCountMax != null
               or (query.countryIso2 != null and query.countryIso2 != '')
@@ -145,14 +146,10 @@
       AND handle.folder_id IS NULL
     </if>
     <if test="query.groupTypeHistorical">
-      AND handle.is_historical = 1
+      AND current_group.group_classification = 1
     </if>
     <if test="query.groupTypePostControl">
-      AND handle.is_post_control = 1
-    </if>
-    <if test="query.groupTypeBoth">
-      AND handle.is_historical = 1
-      AND handle.is_post_control = 1
+      AND current_group.group_classification = 2
     </if>
     <if test="query.availableAdmin != null and query.availableAdmin">
       AND EXISTS (
@@ -226,6 +223,8 @@
       AND (
         COALESCE(
           NULLIF(TRIM(handle.group_name), ''),
+          NULLIF(TRIM(current_group.display_name), ''),
+          NULLIF(TRIM(input_invite.display_name), ''),
           current_profile.subject,
           input_invite.preview_subject
         ) LIKE CONCAT('%', #{query.keyword}, '%')
@@ -326,6 +325,8 @@
            handle.link_url AS url,
            COALESCE(
              NULLIF(TRIM(handle.group_name), ''),
+             NULLIF(TRIM(current_group.display_name), ''),
+             NULLIF(TRIM(input_invite.display_name), ''),
              current_profile.subject,
              input_invite.preview_subject
            ) AS groupName,
@@ -354,8 +355,9 @@
              THEN current_profile.last_error_code ELSE input_invite.last_error_code END
              AS lastHealthError,
            handle.created_at AS createdAt,
-           handle.is_historical AS isHistorical,
-           handle.is_post_control AS isPostControl,
+           COALESCE(current_group.group_classification, 0) AS groupClassificationCode,
+           CASE WHEN current_group.group_classification = 1 THEN 1 ELSE 0 END AS isHistorical,
+           CASE WHEN current_group.group_classification = 2 THEN 1 ELSE 0 END AS isPostControl,
            handle.folder_id AS folderId,
            folder.name AS folderName,
            CASE

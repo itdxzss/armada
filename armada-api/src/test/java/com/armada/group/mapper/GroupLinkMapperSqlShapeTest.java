@@ -25,6 +25,7 @@ class GroupLinkMapperSqlShapeTest {
                 .doesNotContain("import_batch_id =");
 
         String executableSql = sourceSql
+                .replace("#{row.ownerUserId}", "501")
                 .replace("#{row.linkUrl}", "'wa://group/120363001@g.us'")
                 .replace("#{row.groupName}", "'观察群'")
                 .replace("#{row.origin}", "5")
@@ -58,6 +59,16 @@ class GroupLinkMapperSqlShapeTest {
                 .contains("current_profile.banned IS NULL OR current_profile.banned = 0")
                 .doesNotContain("group_link_preview")
                 .doesNotContain("group_link_health");
+    }
+
+    @Test
+    void legacyGroupLinkMapperHasNoClassificationWriter() throws IOException {
+        assertThat(mapperXml())
+                .doesNotContain("id=\"markHistorical\"")
+                .doesNotContain("id=\"markPostControl\"")
+                .doesNotContain("id=\"markClassifications\"")
+                .doesNotContain("SET is_historical = 1")
+                .doesNotContain("SET is_post_control = 1");
     }
 
     private String mapperXml() throws IOException {

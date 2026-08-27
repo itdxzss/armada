@@ -323,6 +323,9 @@ def evaluate_redis(
         for key in sorted(nodes["start"]):
             blocked_clients = []
             evicted_keys = []
+            rejected_connections = []
+            used_memory = []
+            maxmemory = []
             for phase in PHASES:
                 node = nodes[phase][key]
                 info = node.get("info")
@@ -333,12 +336,26 @@ def evaluate_redis(
                     evaluation.fail("REDIS_PING_LATENCY_EXCEEDED")
                 blocked = nonnegative_int(info.get("blocked_clients"))
                 evicted = nonnegative_int(info.get("evicted_keys"))
+                rejected = nonnegative_int(info.get("rejected_connections"))
+                memory = nonnegative_int(info.get("used_memory"))
+                memory_limit = nonnegative_int(info.get("maxmemory", 0))
                 blocked_clients.append(blocked)
                 evicted_keys.append(evicted)
+                rejected_connections.append(rejected)
+                used_memory.append(memory)
+                maxmemory.append(memory_limit)
+                if memory_limit and memory > memory_limit:
+                    evaluation.fail("REDIS_MEMORY_LIMIT_EXCEEDED")
             if evicted_keys != sorted(evicted_keys):
                 evaluation.block("REDIS_COUNTER_RESET")
             elif evicted_keys[-1] > evicted_keys[0]:
                 evaluation.fail("REDIS_EVICTIONS_INCREASED")
+            if rejected_connections != sorted(rejected_connections):
+                evaluation.block("REDIS_COUNTER_RESET")
+            elif rejected_connections[-1] > rejected_connections[0]:
+                evaluation.fail("REDIS_REJECTED_CONNECTIONS_INCREASED")
+            if len(set(maxmemory)) != 1:
+                evaluation.block("REDIS_MEMORY_CONFIGURATION_CHANGED")
             metrics.append(
                 {
                     "source": key[0],
@@ -349,6 +366,13 @@ def evaluate_redis(
                     "startEvictedKeys": evicted_keys[0],
                     "peakEvictedKeys": evicted_keys[1],
                     "endEvictedKeys": evicted_keys[2],
+                    "startRejectedConnections": rejected_connections[0],
+                    "peakRejectedConnections": rejected_connections[1],
+                    "endRejectedConnections": rejected_connections[2],
+                    "startUsedMemoryBytes": used_memory[0],
+                    "peakUsedMemoryBytes": used_memory[1],
+                    "endUsedMemoryBytes": used_memory[2],
+                    "maxmemoryBytes": maxmemory[2],
                     "startPingLatencyMs": finite_number(nodes["start"][key].get("pingLatencyMs")),
                     "peakPingLatencyMs": finite_number(nodes["peak"][key].get("pingLatencyMs")),
                     "endPingLatencyMs": finite_number(nodes["end"][key].get("pingLatencyMs")),
@@ -688,6 +712,13 @@ def evaluate_android(
             raise EvidenceError("Android node identities changed")
         if not nodes["start"]:
             raise EvidenceError("Android nodes missing")
+        for phase in PHASES:
+            phase_node_ids = [row.get("nodeId") for row in nodes[phase].values()]
+            if (
+                any(not isinstance(value, str) or not value for value in phase_node_ids)
+                or len(set(phase_node_ids)) != len(phase_node_ids)
+            ):
+                evaluation.block("ANDROID_NODE_ID_SET_INVALID")
         start_time = parse_timestamp(phases["start"].get("observedAt"))
         end_time = parse_timestamp(phases["end"].get("observedAt"))
         if (end_time - start_time).total_seconds() < minimum_window_seconds:
@@ -702,9 +733,17 @@ def evaluate_android(
             ):
                 evaluation.block("ANDROID_RUN_ID_CHANGED")
                 continue
+            node_ids = [row.get("nodeId") for row in rows]
+            if (
+                any(not isinstance(value, str) or not value for value in node_ids)
+                or len(set(node_ids)) != 1
+            ):
+                evaluation.block("ANDROID_NODE_ID_CHANGED")
+                continue
             for row in rows:
                 if (
                     row.get("continuous") is not True
+                    or row.get("stopped") is not False
                     or row.get("eventDetailDisabled") is not False
                     or row.get("persistenceDisabled") is not False
                     or nonnegative_int(row.get("droppedEvents")) > 0

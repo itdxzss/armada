@@ -14,6 +14,10 @@ import java.util.List;
  * @param protocolAccountId 协议账号句柄
  * @param reportedAt        协议层同步时间(epoch 毫秒)
  * @param source            群列表同步来源
+ * @param commandId         显式同步命令 ID;自发同步可空
+ * @param snapshotId        单次查询尝试的稳定快照 ID
+ * @param queryStartedAt    WhatsApp 查询启动时间(epoch 毫秒)
+ * @param snapshotCutoff    本次快照逻辑截点(epoch 毫秒)
  * @param snapshotComplete  协议层是否确认快照完整
  * @param skippedGroupCount 协议层过滤的异常群数量
  * @param workerId          产生事件的协议层 worker ID
@@ -26,6 +30,10 @@ public record ProtocolAccountGroupsReportedEvent(
         String protocolAccountId,
         Long reportedAt,
         String source,
+        String commandId,
+        String snapshotId,
+        Long queryStartedAt,
+        Long snapshotCutoff,
         Boolean snapshotComplete,
         Integer skippedGroupCount,
         String workerId,
@@ -53,6 +61,8 @@ public record ProtocolAccountGroupsReportedEvent(
      * @param descriptionObserved 本次是否观察到群描述字段
      * @param joinApprovalMode  是否开启入群审批,可空
      * @param ephemeralDurationSeconds 限时消息秒数,0 表示明确关闭;可空表示未观察
+     * @param postControlObservedAt 协议在查询 cut 后观察到可靠 self-add 的时间(epoch 毫秒);可空
+     * @param sourceEventId     与 postControlObservedAt 配对的原始 WhatsApp 事件 ID;可空
      */
     public record Group(
             String groupJid,
@@ -69,7 +79,9 @@ public record ProtocolAccountGroupsReportedEvent(
             String description,
             boolean descriptionObserved,
             Boolean joinApprovalMode,
-            Integer ephemeralDurationSeconds
+            Integer ephemeralDurationSeconds,
+            Long postControlObservedAt,
+            String sourceEventId
     ) {
 
         /** 兼容旧协议事件不带 creation 与群设置的构造方式。 */
@@ -84,7 +96,7 @@ public record ProtocolAccountGroupsReportedEvent(
                 String avatarUrl) {
             this(groupJid, subject, memberCount, ownerJid, ownerPhone,
                     admin, announceOnly, avatarUrl, null, null, null,
-                    null, false, null, null);
+                    null, false, null, null, null, null);
         }
     }
 }

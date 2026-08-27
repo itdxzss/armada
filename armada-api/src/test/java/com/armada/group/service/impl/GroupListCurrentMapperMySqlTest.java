@@ -60,6 +60,14 @@ class GroupListCurrentMapperMySqlTest {
         insertFixtures(jdbc);
         GroupCurrentSnapshotMySqlTestSupport.executeV123(dataSource);
         GroupCurrentSnapshotMySqlTestSupport.executeV124(dataSource);
+        jdbc.execute("""
+                ALTER TABLE wa_group
+                  ADD COLUMN group_classification TINYINT NOT NULL DEFAULT 0,
+                  ADD COLUMN group_classified_at BIGINT NULL,
+                  ADD COLUMN group_classification_source TINYINT NULL
+                """);
+        jdbc.update("UPDATE wa_group SET group_classification = 1, "
+                + "group_classified_at = 120, group_classification_source = 3 WHERE id = 501");
 
         SqlSessionTemplate session = buildSqlSessionTemplate(dataSource);
         groupLinkMapper = session.getMapper(GroupLinkMapper.class);
@@ -89,11 +97,17 @@ class GroupListCurrentMapperMySqlTest {
                 .satisfies(row -> {
                     assertThat(row.getCreatorCountryIso2()).isEqualTo("PK");
                     assertThat(row.getCreatorContinentCode()).isEqualTo("ASIA");
+                    assertThat(row.getGroupClassificationCode()).isEqualTo(1);
+                    assertThat(row.getIsHistorical()).isTrue();
+                    assertThat(row.getIsPostControl()).isFalse();
                 });
         assertThat(rows).filteredOn(row -> row.getId().equals(202L)).singleElement()
                 .satisfies(row -> {
                     assertThat(row.getCreatorCountryIso2()).isEqualTo("US");
                     assertThat(row.getCreatorContinentCode()).isEqualTo("EUROPE");
+                    assertThat(row.getGroupClassificationCode()).isZero();
+                    assertThat(row.getIsHistorical()).isFalse();
+                    assertThat(row.getIsPostControl()).isFalse();
                 });
 
         assertValidPage(pageQuery(1, 1));
@@ -102,7 +116,7 @@ class GroupListCurrentMapperMySqlTest {
         GroupLinkQuery filtered = pageQuery(1, 10);
         filtered.setLabelId(11L);
         filtered.setFolderId(12L);
-        filtered.setGroupType(GroupListType.BOTH);
+        filtered.setGroupType(GroupListType.HISTORICAL);
         filtered.setAvailableAdmin(true);
         filtered.setMemberCountMin(6);
         filtered.setMemberCountMax(6);
@@ -440,6 +454,7 @@ class GroupListCurrentMapperMySqlTest {
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL, status TINYINT, trigger_source TINYINT,
                   next_run_at BIGINT, rerun_requested TINYINT DEFAULT 0,
+                  completed_scope_mask TINYINT NOT NULL DEFAULT 0,
                   last_success_at BIGINT, last_error_code VARCHAR(64),
                   last_error_message VARCHAR(512), updated_at BIGINT
                 ) ENGINE=InnoDB

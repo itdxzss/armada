@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 class HistoricalGroupPullUserDataIsolationMigrationSqlTest {
 
     private static final String MIGRATION =
-            "/db/migration/V149__historical_group_pull_user_data_ownership.sql";
+            "/db/migration/V150__historical_group_pull_user_data_ownership.sql";
 
     @Test
-    void v149AddsOwnerWithoutGuessingHistoryAndMovesIdempotencyIntoOwnerScope()
+    void v150AddsOwnerWithoutGuessingHistoryAndMovesIdempotencyIntoOwnerScope()
             throws IOException {
         try (var input = getClass().getResourceAsStream(MIGRATION)) {
             assertThat(input).isNotNull();

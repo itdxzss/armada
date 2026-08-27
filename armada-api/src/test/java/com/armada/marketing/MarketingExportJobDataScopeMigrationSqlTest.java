@@ -11,10 +11,10 @@ import org.junit.jupiter.api.Test;
 class MarketingExportJobDataScopeMigrationSqlTest {
 
     private static final String MIGRATION =
-            "/db/migration/V151__marketing_export_job_data_scope.sql";
+            "/db/migration/V152__marketing_export_job_data_scope.sql";
 
     @Test
-    void v151AddsNullableScopeSnapshotWithoutGuessingHistoricalRoles() throws IOException {
+    void v152AddsNullableScopeSnapshotWithoutGuessingHistoricalRoles() throws IOException {
         try (var input = getClass().getResourceAsStream(MIGRATION)) {
             assertThat(input).isNotNull();
             String sql = new String(input.readAllBytes(), StandardCharsets.UTF_8)

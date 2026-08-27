@@ -17,10 +17,12 @@ total_commands_processed:300
 evicted_keys:0
 keyspace_hits:90
 keyspace_misses:10
+rejected_connections:0
 redis_version:7.2.5
 secret_token:must-not-appear
 `)
   assert.equal(info.used_memory, 100)
+  assert.equal(info.rejected_connections, 0)
   assert.equal('redis_version' in info, false)
   assert.equal('secret_token' in info, false)
 })

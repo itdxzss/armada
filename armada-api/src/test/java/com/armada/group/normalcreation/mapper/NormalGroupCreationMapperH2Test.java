@@ -240,7 +240,7 @@ class NormalGroupCreationMapperH2Test {
     }
 
     @Test
-    void failedOrUnknownContactDirectionsNoLongerBlockGroupCreate() throws SQLException {
+    void contactPreparationCanFailBeforeCreateWhenNoEligibleParticipantsRemain() throws SQLException {
         insertItem(10L, "PREPARING_CONTACTS", "SENT", "RUNNING", null, 1, 0, 0);
         execute("""
                 INSERT INTO normal_group_creation_item_member (
@@ -267,9 +267,12 @@ class NormalGroupCreationMapperH2Test {
                 "ACCOUNT_NOT_ONLINE", "成员账号当前不在线", 210L)).isEqualTo(1);
 
         assertThat(mapper.countPendingContactDirections(10L)).isZero();
-        assertThat(mapper.startGroupCreate(10L, "cmd-create", 220L)).isEqualTo(1);
-        assertThat(value(10L, "current_step")).isEqualTo("CREATING_GROUP");
-        assertThat(value(10L, "create_command_id")).isEqualTo("cmd-create");
+        assertThat(mapper.failContactPreparation(
+                10L, "FAILED", "NO_ELIGIBLE_PARTICIPANTS",
+                "好友准备完成后没有可靠的建群参与者", "evt-contact", 220L)).isEqualTo(1);
+        assertThat(value(10L, "status")).isEqualTo("FAILED");
+        assertThat(value(10L, "dispatch_stage")).isEqualTo("NONE");
+        assertThat(value(10L, "create_command_id")).isNull();
         assertThat(value(10L, "contact_prepare_failed")).isEqualTo("1");
     }
 

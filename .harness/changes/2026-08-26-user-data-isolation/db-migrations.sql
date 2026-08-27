@@ -1,17 +1,17 @@
 -- 正式迁移文件：
---   armada-api/src/main/resources/db/migration/V140__account_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V141__marketing_template_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V142__marketing_task_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V143__group_creation_marketing_task_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V144__join_task_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V145__pull_task_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V146__pull_task_group_avatar_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V147__group_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V148__normal_group_creation_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V149__historical_group_pull_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V150__promotion_capi_outbox_user_data_ownership.sql
---   armada-api/src/main/resources/db/migration/V151__marketing_export_job_data_scope.sql
--- 本文件保留 V140 的完整审计副本；V141-V151 以同目录正式 Flyway 文件为完整审计源。
+--   armada-api/src/main/resources/db/migration/V141__account_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V142__marketing_template_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V143__marketing_task_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V144__group_creation_marketing_task_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V145__join_task_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V146__pull_task_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V147__pull_task_group_avatar_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V148__group_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V149__normal_group_creation_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V150__historical_group_pull_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V151__promotion_capi_outbox_user_data_ownership.sql
+--   armada-api/src/main/resources/db/migration/V152__marketing_export_job_data_scope.sql
+-- 本文件保留账号 ownership 迁移的完整审计副本；其余迁移以同目录正式 Flyway 文件为完整审计源。
 -- 共享数据库结构变更仍只允许由 Flyway 执行。
 
 -- 第一阶段账号域用户归属：只给独立权限根增加 owner，不根据 created_by 猜测历史归属。
@@ -221,55 +221,55 @@ PREPARE account_group_drop_legacy_unique_stmt
 EXECUTE account_group_drop_legacy_unique_stmt;
 DEALLOCATE PREPARE account_group_drop_legacy_unique_stmt;
 
--- V141 审计摘要：
+-- V142 审计摘要：
 -- 1. marketing_template / marketing_template_file 增加 nullable owner_user_id，历史数据不回填。
 -- 2. 两表增加 (tenant_id, owner_user_id, deleted_at, id) 查询索引。
 -- 3. marketing_template 增加 active_name_key / unowned_name_key 生成列。
 -- 4. 新建 uq_marketing_template_owner_name 与 uq_marketing_template_unowned_name，
 --    校验索引列序和 UNIQUE 属性后才删除旧 uq_tenant_name。
--- 5. 完整、可执行 SQL 仅位于 V141 Flyway 文件；禁止人工拼接本摘要执行。
+-- 5. 完整、可执行 SQL 仅位于 V142 Flyway 文件；禁止人工拼接本摘要执行。
 
--- V142 审计摘要：
+-- V143 审计摘要：
 -- 1. marketing_task 增加 nullable owner_user_id，历史数据不回填。
 -- 2. 增加 (tenant_id, owner_user_id, business_type, deleted_at, id) 查询索引。
 -- 3. 普通营销与拉群营销共用此聚合根；target、attempt 和导出事实通过父任务继承。
 
--- V143 审计摘要：
+-- V144 审计摘要：
 -- 1. group_creation_marketing_task 增加 nullable owner_user_id，历史数据不回填。
 -- 2. 增加 (tenant_id, owner_user_id, deleted_at, id) 查询索引。
 -- 3. group_creation_marketing_item 通过 task_id 继承归属，不重复保存 owner。
--- 4. 完整、可执行 SQL 仅位于 V142/V143 Flyway 文件；禁止人工拼接本摘要执行。
+-- 4. 完整、可执行 SQL 仅位于 V143/V144 Flyway 文件；禁止人工拼接本摘要执行。
 
--- V144 审计摘要：
+-- V145 审计摘要：
 -- 1. join_task 增加 nullable owner_user_id，历史数据不回填。
 -- 2. 增加 (tenant_id, owner_user_id, deleted_at, id) 查询索引。
 -- 3. join_task_result 通过 join_task_id 继承归属，不重复保存 owner。
--- 4. 完整、可执行 SQL 仅位于 V144 Flyway 文件；禁止人工拼接本摘要执行。
-
--- V145 审计摘要：
--- 1. pull_task 增加 nullable owner_user_id，历史数据不回填。
--- 2. 增加 (tenant_id, owner_user_id, deleted_at, id) 查询索引。
--- 3. 草稿、设置、执行行、账号行、动作和结果均通过 task_id 继承归属，不重复保存 owner。
 -- 4. 完整、可执行 SQL 仅位于 V145 Flyway 文件；禁止人工拼接本摘要执行。
 
 -- V146 审计摘要：
+-- 1. pull_task 增加 nullable owner_user_id，历史数据不回填。
+-- 2. 增加 (tenant_id, owner_user_id, deleted_at, id) 查询索引。
+-- 3. 草稿、设置、执行行、账号行、动作和结果均通过 task_id 继承归属，不重复保存 owner。
+-- 4. 完整、可执行 SQL 仅位于 V146 Flyway 文件；禁止人工拼接本摘要执行。
+
+-- V147 审计摘要：
 -- 1. 新建 pull_task_group_avatar_file，保存本地随机文件 key 的可信 owner 元数据。
 -- 2. owner_user_id 对新元数据强制 NOT NULL；历史磁盘文件不猜测、不回填。
 -- 3. 文件 key 保持租户内唯一，并增加 (tenant_id, owner_user_id, id) 查询索引。
--- 4. 二进制仍在原租户目录，不复制进数据库；完整 SQL 仅位于 V146 Flyway 文件。
+-- 4. 二进制仍在原租户目录，不复制进数据库；完整 SQL 仅位于 V147 Flyway 文件。
 
--- V147 审计摘要：
+-- V148 审计摘要：
 -- 1. group_link / group_folder / group_link_label / group_link_import_batch /
 --    group_batch_task 增加 nullable owner_user_id，历史数据不回填。
 -- 2. group_link 是用户运营句柄；wa_group / wa_group_invite 继续保持租户级 canonical 协议事实。
 -- 3. URL、文件夹名、WS 链接分组名和批处理 request_id 改为 owner 内唯一；
 --    NULL owner 通过生成列仍保持租户内唯一。
 -- 4. 新唯一键会校验列序和 UNIQUE 属性，通过后才删除旧租户级唯一键。
--- 5. 完整、可执行 SQL 仅位于 V147 Flyway 文件；禁止人工拼接本摘要执行。
+-- 5. 完整、可执行 SQL 仅位于 V148 Flyway 文件；禁止人工拼接本摘要执行。
 
--- V148 审计摘要：
+-- V149 审计摘要：
 -- 1. normal_group_creation_task 增加 nullable owner_user_id，历史数据不回填。
 -- 2. 任务项、普通成员和次管理员冻结快照通过 task_id 继承 owner。
 -- 3. 幂等键改为 owner 内唯一；NULL owner 通过 unowned_idempotency_key 仍租户内唯一。
 -- 4. 新唯一键会校验列序和 UNIQUE 属性，通过后才删除旧租户级唯一键。
--- 5. 完整、可执行 SQL 仅位于 V148 Flyway 文件；禁止人工拼接本摘要执行。
+-- 5. 完整、可执行 SQL 仅位于 V149 Flyway 文件；禁止人工拼接本摘要执行。

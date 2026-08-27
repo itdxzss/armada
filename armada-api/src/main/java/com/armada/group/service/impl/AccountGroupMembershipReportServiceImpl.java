@@ -58,7 +58,8 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
-            long syncAt = event.reportedAt();
+            long syncAt = event.snapshotCutoff() == null
+                    ? event.reportedAt() : event.snapshotCutoff();
             Context baselineRow = currentSnapshotMapper.selectContext(event.accountId());
             if (baselineRow == null) {
                 log.warn("账号群列表事件找不到活跃账号 tenantId={} accountId={} protocolAccountId={} eventId={}",
@@ -72,7 +73,7 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
             }
             boolean pendingBaseline = baselineState(baselineRow) == BASELINE_PENDING;
             ProtocolBackend observedBackend = ProtocolBackend.fromProtocolId(baselineRow.protocolId());
-            boolean snapshotComplete = completeSnapshot(event, baselineRow);
+            boolean snapshotComplete = completeSnapshot(event);
             if (staleSnapshot(syncAt, baselineRow.lastCompleteAt())) {
                 log.info("账号群列表事件已被较新完整水位淘汰 eventId={} accountId={} syncAt={} "
                                 + "lastCompleteAt={}",
@@ -89,10 +90,11 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
             AccountGroupMembershipChangeSet changes = phaseService.applyCurrentSnapshot(
                     event, snapshotComplete, syncAt, legacyGroups,
                     preparation.classificationPlan(), pendingBaseline);
-            log.info("账号群列表事件已回写 eventId={} source={} reportedAt={} tenantId={} accountId={} "
+            log.info("账号群列表事件已回写 eventId={} snapshotId={} source={} reportedAt={} tenantId={} accountId={} "
                             + "protocolAccountId={} currentGroups={} addedGroups={} snapshotComplete={} "
                             + "skippedGroupCount={} addedGroupJidSample={} currentGroupJidSample={}",
-                    event.eventId(), event.source(), event.reportedAt(), event.tenantId(), event.accountId(),
+                    event.eventId(), event.snapshotId(), event.source(), event.reportedAt(),
+                    event.tenantId(), event.accountId(),
                     event.protocolAccountId(), changes.currentGroups().size(), changes.addedGroups().size(),
                     snapshotComplete, zero(event.skippedGroupCount()),
                     jidSample(changes.addedGroups().stream().map(group -> group.groupJid()).toList()),
@@ -130,16 +132,15 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         return lastCompleteAt != null && syncAt <= lastCompleteAt;
     }
 
-    private static boolean completeSnapshot(AccountGroupsReportedEvent event,
-                                            Context baselineRow) {
-        boolean explicitlyComplete = Boolean.TRUE.equals(event.snapshotComplete())
-                && zero(event.skippedGroupCount()) == 0;
-        if (event.snapshotComplete() == null
-                && zero(event.skippedGroupCount()) == 0
-                && ProtocolBackend.fromProtocolId(baselineRow.protocolId()) == ProtocolBackend.WEB) {
-            return true;
-        }
-        return explicitlyComplete;
+    private static boolean completeSnapshot(AccountGroupsReportedEvent event) {
+        return Boolean.TRUE.equals(event.snapshotComplete())
+                && event.skippedGroupCount() != null
+                && event.skippedGroupCount() == 0
+                && blankToNull(event.eventId()) != null
+                && blankToNull(event.snapshotId()) != null
+                && event.queryStartedAt() != null
+                && event.snapshotCutoff() != null
+                && event.queryStartedAt().equals(event.snapshotCutoff());
     }
 
     private static int zero(Integer value) {
@@ -182,6 +183,32 @@ public class AccountGroupMembershipReportServiceImpl implements AccountGroupMemb
         }
         if (event.groups() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号群列表事件缺少 groups");
+        }
+        if (event.queryStartedAt() != null && event.snapshotCutoff() != null
+                && !event.queryStartedAt().equals(event.snapshotCutoff())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群列表事件查询边界不一致");
+        }
+        if (event.skippedGroupCount() != null && event.skippedGroupCount() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号群列表事件 skippedGroupCount 非法");
+        }
+        for (AccountGroupsReportedEvent.Group group : event.groups()) {
+            if (group == null) {
+                continue;
+            }
+            Long observedAt = group.postControlObservedAt();
+            String sourceEventId = blankToNull(group.sourceEventId());
+            if ((observedAt == null) != (sourceEventId == null)) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION, "账号群列表事件上控后证据字段不完整");
+            }
+            if (observedAt != null
+                    && (observedAt <= 0L
+                    || event.queryStartedAt() == null
+                    || event.snapshotCutoff() == null
+                    || observedAt < event.snapshotCutoff())) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION, "账号群列表事件上控后证据缺少或早于查询边界");
+            }
         }
     }
 

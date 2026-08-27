@@ -19,6 +19,7 @@ EXPECTED_CONTAINERS = (
     "armada-backend",
     "armada-nginx",
     "zhuan-native-probe-mysql",
+    "zhuan-coordinator",
 )
 
 
@@ -40,28 +41,32 @@ set -eu
 printf '%s\\n' "$1" >> "${0}.calls"
 case "$1" in
   stats)
-    [ "$#" -eq 7 ]
+    [ "$#" -eq 8 ]
     [ "$2" = "--no-stream" ]
     [ "$3" = "--format" ]
     [ "$4" = "{{json .}}" ]
     [ "$5" = "armada-backend" ]
     [ "$6" = "armada-nginx" ]
     [ "$7" = "zhuan-native-probe-mysql" ]
+    [ "$8" = "zhuan-coordinator" ]
     printf '%s\\n' \
       '{"Name":"zhuan-native-probe-mysql","CPUPerc":"3.00%","MemUsage":"700MiB / 768MiB","MemPerc":"91.15%","NetIO":"1GB / 2GB"}' \
       '{"Name":"armada-backend","CPUPerc":"12.50%","MemUsage":"512MiB / 2GiB","MemPerc":"25.00%","NetIO":"3GB / 4GB"}' \
-      '{"Name":"armada-nginx","CPUPerc":"0.30%","MemUsage":"32MiB / 2GiB","MemPerc":"1.56%","NetIO":"5GB / 6GB"}'
+      '{"Name":"armada-nginx","CPUPerc":"0.30%","MemUsage":"32MiB / 2GiB","MemPerc":"1.56%","NetIO":"5GB / 6GB"}' \
+      '{"Name":"zhuan-coordinator","CPUPerc":"0.40%","MemUsage":"40MiB / 2GiB","MemPerc":"1.95%","NetIO":"7GB / 8GB"}'
     ;;
   inspect)
-    [ "$#" -eq 6 ]
+    [ "$#" -eq 7 ]
     [ "$2" = "--format" ]
     [ "$4" = "armada-backend" ]
     [ "$5" = "armada-nginx" ]
     [ "$6" = "zhuan-native-probe-mysql" ]
+    [ "$7" = "zhuan-coordinator" ]
     printf '%s\\n' \
       '{"name":"/armada-nginx","restartCount":0,"oomKilled":false,"status":"running","startedAt":"2026-08-25T00:00:00Z"}' \
       '{"name":"/zhuan-native-probe-mysql","restartCount":1,"oomKilled":false,"status":"running","startedAt":"2026-08-25T00:00:00Z"}' \
-      '{"name":"/armada-backend","restartCount":2,"oomKilled":false,"status":"running","startedAt":"2026-08-25T00:00:00Z"}'
+      '{"name":"/armada-backend","restartCount":2,"oomKilled":false,"status":"running","startedAt":"2026-08-25T00:00:00Z"}' \
+      '{"name":"/zhuan-coordinator","restartCount":0,"oomKilled":false,"status":"running","startedAt":"2026-08-25T00:00:00Z"}'
     ;;
   *) exit 90 ;;
 esac
@@ -143,7 +148,7 @@ esac
             result = json.loads(completed.stdout)
             self.assertEqual("COLLECTED", result["status"])
             self.assertEqual(
-                list(EXPECTED_CONTAINERS),
+                sorted(EXPECTED_CONTAINERS),
                 [row["name"] for row in result["raw"]["containers"]],
             )
 

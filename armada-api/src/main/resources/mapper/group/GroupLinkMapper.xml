@@ -259,67 +259,6 @@
       </choose>
   </update>
 
-  <update id="markHistorical">
-    UPDATE group_link
-    SET is_historical = 1,
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE id = #{groupLinkId}
-      AND deleted_at IS NULL
-      <include refid="directScopeFilter"/>
-      AND is_historical = 0
-  </update>
-
-  <update id="markPostControl">
-    UPDATE group_link
-    SET is_post_control = 1,
-        updated_at = GREATEST(updated_at, #{updatedAt})
-    WHERE id = #{groupLinkId}
-      AND deleted_at IS NULL
-      <include refid="directScopeFilter"/>
-      AND is_post_control = 0
-  </update>
-
-  <!-- 完整快照分类按群入口主键升序一次提升，避免逐群 update 与交叉锁序。 -->
-  <update id="markClassifications">
-    UPDATE group_link FORCE INDEX (PRIMARY)
-    <set>
-      <if test="historicalIds != null and historicalIds.size() &gt; 0">
-        is_historical = CASE WHEN id IN
-        <foreach collection="historicalIds" item="id" open="(" separator="," close=")">
-          #{id}
-        </foreach>
-        THEN 1 ELSE is_historical END,
-      </if>
-      <if test="postControlIds != null and postControlIds.size() &gt; 0">
-        is_post_control = CASE WHEN id IN
-        <foreach collection="postControlIds" item="id" open="(" separator="," close=")">
-          #{id}
-        </foreach>
-        THEN 1 ELSE is_post_control END,
-      </if>
-      updated_at = GREATEST(updated_at, #{updatedAt})
-    </set>
-    WHERE deleted_at IS NULL
-      <include refid="directScopeFilter"/>
-    <trim prefix="AND (" suffix=")" suffixOverrides="OR">
-      <if test="historicalIds != null and historicalIds.size() &gt; 0">
-        (is_historical = 0 AND id IN
-        <foreach collection="historicalIds" item="id" open="(" separator="," close=")">
-          #{id}
-        </foreach>
-        ) OR
-      </if>
-      <if test="postControlIds != null and postControlIds.size() &gt; 0">
-        (is_post_control = 0 AND id IN
-        <foreach collection="postControlIds" item="id" open="(" separator="," close=")">
-          #{id}
-        </foreach>
-        ) OR
-      </if>
-    </trim>
-    ORDER BY id ASC
-  </update>
-
   <select id="selectActiveById" resultType="com.armada.group.model.entity.GroupLink">
     SELECT *
     FROM group_link

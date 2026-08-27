@@ -6,6 +6,7 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.group.service.GroupExecutableAccountStates;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.enums.GroupListType;
+import com.armada.shared.security.DataScope;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -103,7 +104,8 @@ class GroupListCurrentMapperSqlShapeTest {
         GroupLinkQuery query = new GroupLinkQuery();
         query.setLabelId(11L);
         query.setFolderId(12L);
-        query.setGroupType(GroupListType.BOTH);
+        query.applyDataScope(DataScope.self(501L));
+        query.setGroupType(GroupListType.POST_CONTROL);
         query.setAvailableAdmin(false);
         query.setMemberCountMin(51);
         query.setMemberCountMax(500);
@@ -127,10 +129,12 @@ class GroupListCurrentMapperSqlShapeTest {
         for (String sql : java.util.List.of(countSql, pageSql)) {
             assertThat(sql)
                     .contains("handle.tenant_id = ?")
+                    .contains("handle.owner_user_id = ?")
                     .contains("handle.label_id = ?")
-                    .contains("COALESCE(current_group.folder_id, handle.folder_id) = ?")
-                    .contains("handle.is_historical = 1")
-                    .contains("handle.is_post_control = 1")
+                    .contains("handle.folder_id = ?")
+                    .contains("current_group.group_classification = 2")
+                    .doesNotContain("handle.is_historical = 1")
+                    .doesNotContain("handle.is_post_control = 1")
                     .contains("NOT EXISTS (")
                     .contains("current_profile.checked_member_count")
                     .contains("current_profile.member_count")
@@ -163,8 +167,24 @@ class GroupListCurrentMapperSqlShapeTest {
                 .contains("available_admin_count")
                 .doesNotContain("page_preview.group_jid");
 
+        GroupLinkQuery historicalQuery = new GroupLinkQuery();
+        historicalQuery.setGroupType(GroupListType.HISTORICAL);
+        historicalQuery.applyDataScope(DataScope.self(501L));
+        historicalQuery.setPage(1);
+        historicalQuery.setPageSize(20);
+        String historicalSql = boundSql(configuration, "count", Map.of(
+                "tenantId", 7L,
+                "query", historicalQuery));
+        assertThat(historicalSql)
+                .contains("current_group.group_classification = 1")
+                .doesNotContain("handle.is_historical", "handle.is_post_control");
+
+        assertThat(GroupListType.values())
+                .containsExactly(GroupListType.HISTORICAL, GroupListType.POST_CONTROL);
+
         GroupLinkQuery nonAsciiQuery = new GroupLinkQuery();
         nonAsciiQuery.setKeyword("五段号续批-909-2-20260806-095529");
+        nonAsciiQuery.applyDataScope(DataScope.self(501L));
         nonAsciiQuery.setPage(1);
         nonAsciiQuery.setPageSize(20);
         Map<String, Object> nonAsciiParameters = Map.of(

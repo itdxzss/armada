@@ -224,7 +224,8 @@ class AccountGroupMembershipReportTransactionBoundaryTest {
                 7L, 10L, "acc-10", reportedAt,
                 List.of(new AccountGroupsReportedEvent.Group(
                         "120363001@g.us", "群一", 20, null, null, true, false, null)),
-                eventId, "test", snapshotComplete, skippedGroupCount);
+                eventId, "test", null, null, null, null,
+                snapshotComplete, skippedGroupCount);
     }
 
     private static Context context() {

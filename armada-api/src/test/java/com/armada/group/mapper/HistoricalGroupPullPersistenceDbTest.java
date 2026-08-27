@@ -31,7 +31,7 @@ class HistoricalGroupPullPersistenceDbTest extends DbTestBase {
     private JdbcTemplate jdbc;
 
     @Test
-    void v149KeepsExecutionSchemaAndMovesIdempotencyIntoOwnerScope() {
+    void v150KeepsExecutionSchemaAndMovesIdempotencyIntoOwnerScope() {
         assertThat(columnNames("historical_group_pull_execution")).containsExactly(
                 "id", "tenant_id", "owner_user_id", "created_by", "idempotency_key",
                 "unowned_idempotency_key", "operation_account_id", "source_account_group_id",

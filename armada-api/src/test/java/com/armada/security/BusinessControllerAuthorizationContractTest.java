@@ -41,6 +41,11 @@ class BusinessControllerAuthorizationContractTest {
     private static final String TEMPLATE_SHARED_READ = "hasAnyAuthority('tenant:marketing_template:view', "
             + "'tenant:historical_group:view', 'tenant:marketing_task:view', "
             + "'tenant:group_pull_marketing:view', 'tenant:group_creation_marketing:view')";
+    private static final String TEMPLATE_FILE_SHARED_READ = "hasAnyAuthority('tenant:marketing_template:view', "
+            + "'tenant:historical_group:view', 'tenant:marketing_task:view', "
+            + "'tenant:group_pull_marketing:view', 'tenant:group_creation_marketing:view', "
+            + "'tenant:hyperlink_template:view', 'tenant:hyperlink_template:create', "
+            + "'tenant:hyperlink_template:edit')";
 
     @Test
     void protectsEachBusinessControllerWithItsOwningMenuPermission() {
@@ -83,7 +88,7 @@ class BusinessControllerAuthorizationContractTest {
         assertMethodPermission(GroupLinkLabelController.class, "list",
                 "hasAnyAuthority('tenant:group_link_import:view', 'tenant:pull_task:view')");
         assertMethodPermission(MarketingTemplateController.class, "list", TEMPLATE_SHARED_READ);
-        assertMethodPermission(MarketingTemplateFileController.class, "content", TEMPLATE_SHARED_READ);
+        assertMethodPermission(MarketingTemplateFileController.class, "content", TEMPLATE_FILE_SHARED_READ);
         assertMethodPermission(IpProxyController.class, "checkProxy",
                 "hasAnyAuthority('tenant:resource:ips:list', 'tenant:resource:ip-stats:list')");
         assertMethodPermission(PromotionTemplateController.class, "page",

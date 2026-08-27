@@ -8,11 +8,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** 超链模板 V142 迁移脚本的结构契约测试。 */
+/** 超链模板 V154 迁移脚本的结构契约测试。 */
 class HyperlinkTemplateMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V142__hyperlink_template.sql");
+            "src/main/resources/db/migration/V154__hyperlink_template.sql");
 
     @Test
     void migrationCreatesOnlyHyperlinkTemplateWithFrozenColumnsAndIndexes() throws IOException {

@@ -63,6 +63,42 @@ class FlywayAppliedMigrationCompatibilityTest {
         assertAppliedMigration(
                 "V101__normal_group_creation.sql",
                 419_410_967);
+        assertAppliedMigration(
+                "V141__account_user_data_ownership.sql",
+                -1_459_798_918);
+        assertAppliedMigration(
+                "V142__marketing_template_user_data_ownership.sql",
+                2_000_065_654);
+        assertAppliedMigration(
+                "V143__marketing_task_user_data_ownership.sql",
+                2_102_297_802);
+        assertAppliedMigration(
+                "V144__group_creation_marketing_task_user_data_ownership.sql",
+                -495_904_787);
+        assertAppliedMigration(
+                "V145__join_task_user_data_ownership.sql",
+                -1_206_226_512);
+        assertAppliedMigration(
+                "V146__pull_task_user_data_ownership.sql",
+                233_407_823);
+        assertAppliedMigration(
+                "V147__pull_task_group_avatar_user_data_ownership.sql",
+                1_345_200_728);
+        assertAppliedMigration(
+                "V148__group_user_data_ownership.sql",
+                -931_534_151);
+        assertAppliedMigration(
+                "V149__normal_group_creation_user_data_ownership.sql",
+                548_113_055);
+        assertAppliedMigration(
+                "V150__historical_group_pull_user_data_ownership.sql",
+                1_785_959_301);
+        assertAppliedMigration(
+                "V151__promotion_capi_outbox_user_data_ownership.sql",
+                -1_137_908_149);
+        assertAppliedMigration(
+                "V152__marketing_export_job_data_scope.sql",
+                -67_117_491);
     }
 
     private static void assertAppliedMigration(String fileName, int expectedChecksum)

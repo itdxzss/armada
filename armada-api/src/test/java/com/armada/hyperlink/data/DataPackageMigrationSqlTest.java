@@ -6,11 +6,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** V141 数据包四表、关键约束与索引的 Flyway 结构合同测试。 */
+/** V153 数据包四表、关键约束与索引的 Flyway 结构合同测试。 */
 class DataPackageMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V141__hyperlink_data_package.sql");
+            "src/main/resources/db/migration/V153__hyperlink_data_package.sql");
 
     @Test
     void migrationDefinesOnlyTheFourOwnedTablesWithGenerationAndReadModelConstraints()

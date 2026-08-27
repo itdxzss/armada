@@ -7,11 +7,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** 超链营销 V143 菜单、路由和按钮权限的 Flyway 结构合同测试。 */
+/** 超链营销 V155 菜单、路由和按钮权限的 Flyway 结构合同测试。 */
 class HyperlinkMenuMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V143__hyperlink_marketing_menu_rbac.sql");
+            "src/main/resources/db/migration/V155__hyperlink_marketing_menu_rbac.sql");
 
     @Test
     void migrationSeedsDirectoryPagesAndAllPhaseOnePermissionsWithoutAutoGrantingRoles()

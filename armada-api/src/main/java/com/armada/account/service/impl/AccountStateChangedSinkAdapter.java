@@ -2,6 +2,7 @@ package com.armada.account.service.impl;
 
 import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
 import com.armada.account.service.AccountStateChangedEvent;
+import com.armada.account.contact.service.AccountContactOnlineHook;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedSink;
@@ -31,6 +32,7 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
     private final ProxyFailedRecoveryCoordinator recoveryCoordinator;
     private final GroupMetadataSyncTaskService metadataSyncTaskService;
     private final Executor inviteRecoveryExecutor;
+    private final AccountContactOnlineHook contactOnlineHook;
 
     /**
      * 创建账号状态变更 adapter。
@@ -39,16 +41,19 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
      * @param recoveryCoordinator 状态提交后的代理失败恢复编排器
      * @param metadataSyncTaskService 群详情同步任务服务
      * @param inviteRecoveryExecutor 群邀请码恢复后台执行器
+     * @param contactOnlineHook 上线后通讯录同步钩子
      */
     public AccountStateChangedSinkAdapter(AccountStateEventService service,
                                           ProxyFailedRecoveryCoordinator recoveryCoordinator,
                                           GroupMetadataSyncTaskService metadataSyncTaskService,
                                           @Qualifier("accountStateInviteRecoveryExecutor")
-                                          Executor inviteRecoveryExecutor) {
+                                          Executor inviteRecoveryExecutor,
+                                          AccountContactOnlineHook contactOnlineHook) {
         this.service = service;
         this.recoveryCoordinator = recoveryCoordinator;
         this.metadataSyncTaskService = metadataSyncTaskService;
         this.inviteRecoveryExecutor = inviteRecoveryExecutor;
+        this.contactOnlineHook = contactOnlineHook;
     }
 
     /**
@@ -75,6 +80,7 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
         }
         if (applied && "ONLINE".equalsIgnoreCase(event.to())) {
             submitDeferredInviteResume(event);
+            contactOnlineHook.onAccountOnline(event.tenantId(), event.accountId());
         }
     }
 

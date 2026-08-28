@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.recovery.ProxyFailedRecoveryCoordinator;
 import com.armada.account.service.AccountStateChangedEvent;
+import com.armada.account.contact.service.AccountContactOnlineHook;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountStateChangedEvent;
 import com.armada.group.service.GroupMetadataSyncTaskService;
@@ -43,6 +44,9 @@ class AccountStateChangedSinkAdapterTest {
 
     @Mock
     private Executor inviteRecoveryExecutor;
+
+    @Mock
+    private AccountContactOnlineHook contactOnlineHook;
 
     @InjectMocks
     private AccountStateChangedSinkAdapter adapter;
@@ -123,6 +127,20 @@ class AccountStateChangedSinkAdapterTest {
         taskCaptor.getValue().run();
 
         verify(metadataSyncTaskService).resumeDeferredInviteCodeForAccount(100L, 1782626401000L);
+        // 上线同时要触发通讯录同步；该钩子内部自己吞异常，不会反向阻塞状态主链
+        verify(contactOnlineHook).onAccountOnline(1L, 100L);
+    }
+
+    @Test
+    void handleStateChanged_nonOnlineTransitionDoesNotTriggerContactSync() {
+        ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
+                "evt-offline", 1L, 100L, "acc_861800000001", "ONLINE", "OFFLINE",
+                1782626401000L, null, null, "batch_offline", "oa_offline_1", 7L, "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(true);
+
+        adapter.handleStateChanged(platformEvent);
+
+        verifyNoInteractions(contactOnlineHook);
     }
 
     @Test

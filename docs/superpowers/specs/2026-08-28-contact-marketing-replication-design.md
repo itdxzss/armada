@@ -3,8 +3,13 @@
 - 日期：2026-08-28
 - 状态：**设计草案，待评审**
 - 范围：`通讯录营销` 一级菜单及其下两个页面（`通讯录超链任务`、`通讯录剧本任务`）
-- 基准分支：`armada` `1.0.3-snapshot` @ `e1f5d195`（Flyway 已到 `V156`，本期从 `V157` 起编号）
-- 工作分支：`feat/contact-marketing`
+- 基线（2026-08-28 三仓均已与 origin 齐平）：
+  | 仓库 | 分支 | commit |
+  |---|---|---|
+  | `armada` | `1.0.3-snapshot` | `e1f5d195`（Flyway 已到 `V156`，本期从 `V157` 起编号） |
+  | `armada-protocol` | `1.0.3-snapshot` | `60f40d9` |
+  | `whatsapp-server` | `1.0.3-snapshot` | `f1faa36` |
+- 工作分支：`armada` 已开 `feat/contact-marketing`；两个协议仓的分支等 P0 开工时再开，避免打断当前签出
 - 复刻来源：`hylbuiaxykfrontendsource/readable/assets/`（仅构建产物，无 sourcemap、无后端源码）
 - 上游文档：
   - 总设计 `docs/superpowers/specs/2026-08-27-hyperlink-marketing-replication-design.md`
@@ -621,4 +626,4 @@ contact/
 | 2 | 真机验证 V2：双向好友标记可得性 | `contact_mutual_num`、筛选控件 |
 | 3 | 真机验证：私聊群发的风控表现（间隔下限是否够用） | P1 默认参数取值 |
 | 4 | 与超链任务期协调 `MessageTarget` 改动的落地顺序 | P1 |
-| 5 | 两个协议仓当前无法 fetch（本机无 git credential helper、未装 `gh`） | P0 开工前需解决 |
+| 5 | ~~两个协议仓无法 fetch~~ 已解决：2026-08-28 由用户手动拉取，两仓均与 origin 齐平 | — |

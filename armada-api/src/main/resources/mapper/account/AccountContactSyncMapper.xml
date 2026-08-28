@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.contact.mapper.AccountContactSyncMapper">
+
+  <resultMap id="syncMap" type="com.armada.account.contact.model.entity.AccountContactSync">
+    <id property="id" column="id"/>
+    <result property="tenantId" column="tenant_id"/>
+    <result property="accountId" column="account_id"/>
+    <result property="lastSyncedAt" column="last_synced_at"/>
+    <result property="lastSyncSource" column="last_sync_source"/>
+    <result property="contactNum" column="contact_num"/>
+    <result property="namedNum" column="named_num"/>
+    <result property="mutualNum" column="mutual_num"/>
+    <result property="syncStatus" column="sync_status"/>
+    <result property="failReason" column="fail_reason"/>
+    <result property="createdAt" column="created_at"/>
+    <result property="updatedAt" column="updated_at"/>
+  </resultMap>
+
+  <select id="selectByAccountId" resultMap="syncMap">
+    SELECT id, tenant_id, account_id, last_synced_at, last_sync_source,
+           contact_num, named_num, mutual_num, sync_status, fail_reason,
+           created_at, updated_at
+      FROM account_contact_sync
+     WHERE account_id = #{accountId}
+     LIMIT 1
+  </select>
+
+  <insert id="upsert">
+    INSERT INTO account_contact_sync (
+      tenant_id, account_id, last_synced_at, last_sync_source,
+      contact_num, named_num, mutual_num, sync_status, fail_reason,
+      created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{accountId}, #{lastSyncedAt}, #{lastSyncSource},
+      #{contactNum}, #{namedNum}, #{mutualNum}, #{syncStatus}, #{failReason},
+      #{createdAt}, #{updatedAt}
+    )
+    ON DUPLICATE KEY UPDATE
+      last_synced_at = VALUES(last_synced_at),
+      last_sync_source = VALUES(last_sync_source),
+      contact_num = VALUES(contact_num),
+      named_num = VALUES(named_num),
+      mutual_num = VALUES(mutual_num),
+      sync_status = VALUES(sync_status),
+      fail_reason = VALUES(fail_reason),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+</mapper>

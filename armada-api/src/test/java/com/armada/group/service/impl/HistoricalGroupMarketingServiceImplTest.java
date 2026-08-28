@@ -121,7 +121,7 @@ class HistoricalGroupMarketingServiceImplTest {
                 .containsExactly(11L, 13L);
         org.assertj.core.api.Assertions.assertThat(flattened)
                 .allSatisfy(command -> {
-                    org.assertj.core.api.Assertions.assertThat(command.target().groupJid())
+                    org.assertj.core.api.Assertions.assertThat(command.target().jid())
                             .isEqualTo("120363target@g.us");
                     org.assertj.core.api.Assertions.assertThat(command.correlation().source())
                             .isEqualTo("historical_group_pull");

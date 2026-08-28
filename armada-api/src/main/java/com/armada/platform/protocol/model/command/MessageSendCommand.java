@@ -31,9 +31,12 @@ public record MessageSendCommand(
     /**
      * 消息发送目标。
      *
-     * @param groupJid WhatsApp 群 JID
+     * <p>语义中立：群营销填群 JID（{@code @g.us}），私聊营销填用户 JID
+     * （{@code <phone>@s.whatsapp.net}）。协议后端按 JID 后缀自行分支，不再假定目标一定是群。</p>
+     *
+     * @param jid WhatsApp 目标 JID
      */
-    public record MessageTarget(String groupJid) {
+    public record MessageTarget(String jid) {
     }
 
     /**

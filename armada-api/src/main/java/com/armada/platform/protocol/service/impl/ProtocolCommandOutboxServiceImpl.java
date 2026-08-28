@@ -1911,7 +1911,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || outboxCommand.command().correlation() == null
                 || isBlank(outboxCommand.command().commandId())
                 || isBlank(outboxCommand.command().account().protocolAccountId())
-                || isBlank(outboxCommand.command().target().groupJid())
+                || isBlank(outboxCommand.command().target().jid())
                 || outboxCommand.backend() == null
                 || outboxCommand.backend() != outboxCommand.command().account().backend()
                 || isBlank(outboxCommand.kafkaTopic())

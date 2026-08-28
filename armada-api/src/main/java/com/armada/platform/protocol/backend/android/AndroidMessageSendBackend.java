@@ -226,7 +226,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
                 command.account().wsPhone(),
-                command.target().groupJid(),
+                command.target().jid(),
                 command.payload().type().name(),
                 content.text(),
                 media(correlation.tenantId(), content.image(), mediaRegistry),

@@ -130,7 +130,7 @@ class GroupCreationMarketingWorkerTest {
             assertThat(command.correlation().marketing()).isNull();
             assertThat(command.correlation().groupCreation().taskId()).isEqualTo(22L);
             assertThat(command.correlation().groupCreation().itemId()).isEqualTo(11L);
-            assertThat(command.target().groupJid()).isEqualTo("120363created@g.us");
+            assertThat(command.target().jid()).isEqualTo("120363created@g.us");
             assertThat(command.payload().content().text()).isEqualTo("hello");
             assertThat(command.payload().mentionAll()).isTrue();
             assertThat(command.sendIntervalMs()).isEqualTo(500);

@@ -272,7 +272,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         verify(messagePort).enqueue(commandCaptor.capture());
         assertThat(commandCaptor.getValue()).hasSize(1);
         MessageSendCommand command = commandCaptor.getValue().get(0);
-        assertThat(command.target().groupJid()).isEqualTo("120363a@g.us");
+        assertThat(command.target().jid()).isEqualTo("120363a@g.us");
         assertThat(command.payload().content().text()).isEqualTo("到期时任务当前模板消息");
         assertThat(command.correlation().marketing().attemptId()).isEqualTo(9_001L);
         verify(templateMapper).selectById(88L);

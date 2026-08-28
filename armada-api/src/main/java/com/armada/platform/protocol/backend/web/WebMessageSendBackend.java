@@ -64,7 +64,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 marketing == null ? null : marketing.roundNo(),
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
-                command.target().groupJid(),
+                command.target().jid(),
                 command.payload().type().name(),
                 content.text(),
                 media(content.image()),

@@ -514,7 +514,7 @@ class MarketingRoundWorkerTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<MessageSendCommand>> commandsCaptor = ArgumentCaptor.forClass(List.class);
         verify(outbox).enqueue(commandsCaptor.capture());
-        assertThat(commandsCaptor.getValue()).extracting(command -> command.target().groupJid())
+        assertThat(commandsCaptor.getValue()).extracting(command -> command.target().jid())
                 .containsExactly("12036308101@g.us", "12036308102@g.us");
         assertThat(commandsCaptor.getValue()).extracting(MessageSendCommand::sendIntervalMs)
                 .containsOnly(500);

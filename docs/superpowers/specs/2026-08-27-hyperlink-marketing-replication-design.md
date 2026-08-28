@@ -1,9 +1,27 @@
 # 超链营销模块复刻设计（hylb → armada 控端）
 
 - 日期：2026-08-27
-- 状态：**设计草案，待评审**（尚未进入实施计划）
+- 状态：**历史初稿，仅保留早期全景取证，不得直接实施超链任务**
 - 来源系统：`hylb.uiaxyk.com`（极量乌云 CRMS），存档于 `hylbuiaxykfrontendsource/`
 - 目标系统：`armada`（后端）+ `wheel-saas-pure-web`（控端前端）+ `armada-protocol`（协议层）
+
+> **失效声明（2026-08-28）**
+>
+> 本文形成于超链任务逐块复核之前，其中任务表结构、通用多按钮、短码归属、计费删除、账号筛选和
+> Android 能力判断均含已被推翻的早期结论。**超链任务禁止按本文 §4.3、§6、§7、§9 开发。**
+> 唯一实施入口是：
+>
+> 1. `2026-08-27-hyperlink-task-competitor-parity-detailed-design.md`：任务页面、接口与业务行为；
+> 2. `2026-08-27-hyperlink-task-strategy-asset-analysis-design.md`：四菜单总览与跨菜单契约；
+> 3. `2026-08-28-hyperlink-task-shared-contract.md` v1.1：六份任务方案共用的 HTTP、DTO、枚举、指标、权限和错误合同；
+> 4. `docs/business/hyperlink-marketing-data-model.md` §4/§8：最终按工作负载拆分的 10 张任务表与共享账号画像。
+>
+> 2026-08-28 对这 10 张表逐表复核后，表数仍为 10；新增的最终约束包括 runtime 当前运行段、round worker
+> 租约、计费待操作恢复字段、claim 在 OWNED 后释放代次操作锁、停止未提交 recipient 记
+> `TASK_STOPPED` 失败，以及 account_stat 不重复保存 account_usage 已有的账号展示快照。以上仍只以三份
+> 当前设计文档为准，不回写下方历史草案结构。
+>
+> 保留本文旧正文仅用于追溯“为什么发生纠偏”，旧结论没有实施效力。
 
 ---
 
@@ -249,19 +267,13 @@ hyperlink_task_recipient        手机号维度目标（对应 /recipients）
   recipient_country_iso2, account_id, sender_phone, sender_country_iso2,
   protocol_id, send_status, fail_code, fail_reason,
   short_code, success_at, delivered_at, failed_at,
-  click_count, first_visit_at, last_visit_at
+  click_count, first_visit_at, last_visit_at,
+  first_visit_ip/user_agent/browser/os/device/language/country
   UNIQUE(tenant_id, hyperlink_task_id, recipient_phone)
   UNIQUE(short_code)                              -- 深度追踪时才生成
 
-hyperlink_click                 点击流水（对应 /clicks、visit-trend、深度归因）
-  hyperlink_task_id, recipient_id(可空), recipient_phone,
-  recipient_country_iso2, short_code,
-  user_agent, browser, os, device, language, ip_country_iso2,
-  visit_at, visit_count_order
-  KEY(tenant_id, hyperlink_task_id, visit_at)
-
-hyperlink_task_ban              封号记录（对应 /ban-stats）
-  hyperlink_task_id, account_id, ban_reason_code, ban_reason, banned_at
+# 已废弃：原拟建 hyperlink_task_ban；最终将首次封号/失效字段并入 hyperlink_task_account_usage，
+# /ban-stats 按任务账号用量表分组。
 ```
 
 ### 4.4 分析聚合
@@ -379,12 +391,12 @@ body `{accountId, phones[]}`，内部 `sock.onWhatsApp(...phones)` 一次查一�
 
 - 任务开启 `use_short_link` 时，**为每个收件人生成独立 `short_code`**（复用 `ChannelCodeGenerator`，8 位无歧义字符集），落 `hyperlink_task_recipient.short_code`。
 - 发送时把 `promotion_link` 替换为 `http://{domain}/hl/{shortCode}`。
-- 公网接口记录 `hyperlink_click`（UA 解析出 browser/os/device、`Accept-Language` 取 language），再 302 跳原始链接。
+- 公网接口锁定 recipient，累计次数并在首访时保存 IP/UA/browser/os/device/language/country，同事务原子更新
+  runtime 的任务 UV/PV，再 302 跳原始链接；趋势页按 recipient 首访时间直接聚合。
 - `click_uv_num` = 去重 `recipient_id` 计数；`visit_count` = 该收件人点击次数。
 - 未开启深度追踪的任务，直接发原始 `promotion_link`，无点击数据（与 hylb 行为一致）。
 
-**容量提醒**：数据包可达数十万号码，每号一个短码 + 点击流水，`hyperlink_click` 是本模块最大的表，
-需要按 `hyperlink_task_id` + 时间做索引与归档策略。
+竞品没有逐次点击历史入口，因此不保存每一次访问；首触敏感环境保留 90 天，累计次数与首末时间长期保留。
 
 ### 6.5 账号筛选补齐
 
@@ -486,7 +498,7 @@ P0 三页彼此独立、无协议层依赖，是最稳的起手。
 | 4 | **「注册天数」的产品定义** | WhatsApp 不暴露注册时间；含义未定则该筛选项不做 |
 | 5 | **账号画像同步策略**——触发时机与刷新频率 | 主动查协议本身有风控暴露，高频刷新伤号 |
 | 6 | **点击追踪域名隔离**（见 9.4） | 共用域名时超链被封会连带买量落地页一起挂 |
-| 7 | **`hyperlink_click` 归档/分区策略与保留期** | 本模块唯一线性膨胀的表，不定就是埋雷 |
+| ~~7~~ | ~~逐次点击流水的归档/分区策略~~ | **已决：不建逐次点击表；recipient 首触敏感环境保留 90 天** |
 
 ### 9.3 勘误
 
@@ -500,7 +512,7 @@ armada 无计费体系**。因此超链任务页的「当前余额 / 超链单�
 ### 9.4 点击追踪域名隔离（问题 9.2-6 的展开）
 
 深度追踪要把 `promotion_link` 替换为 `http://{域名}/hl/{短码}`，用户点击后先落
-`hyperlink_click` 再 302 跳转。这个域名必须是公网可达的自有域名。
+recipient 点击累计/首触归因并原子更新 runtime 点击计数，再 302 跳转。这个域名必须是公网可达的自有域名。
 
 armada 已有 `promotion_domain` 表管理买量落地页域名池。问题是超链短链复用这批域名还是单开。
 

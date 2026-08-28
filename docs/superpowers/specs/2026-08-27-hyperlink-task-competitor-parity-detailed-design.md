@@ -1,11 +1,12 @@
 # 超链任务竞品对齐详细设计
 
 - 日期：2026-08-27
-- 状态：设计冻结候选，待产品/技术评审
+- 状态：设计已冻结（2026-08-28 按查询/运行效率二次收口）
 - 本轮菜单：超链营销 → 超链任务
 - 竞品事实源：`hylbuiaxykfrontendsource/readable/assets/`
 - 取证账：`docs/superpowers/reviews/2026-08-27-hylb-hyperlink-task-reverse-evidence.md`
 - 上位设计：`docs/superpowers/specs/2026-08-27-hyperlink-task-strategy-asset-analysis-design.md`
+- 公共合同：`docs/superpowers/specs/2026-08-28-hyperlink-task-shared-contract.md` v1.1；HTTP、JSON、API 枚举、指标、权限和跨方案边界以该合同为准
 
 ## 0. 结论与边界
 
@@ -21,7 +22,13 @@
 4. 深度归因把 UV 行数标成「点击总数」；Armada 同时给出点击 UV 与访问次数 PV，避免混淆。
 5. 名称搜索时把 `page_size` 临时改为 200 是竞品前端实现细节；Armada 保持服务端模糊查询和用户选定分页大小，页面能力等价。
 
-本轮不包含四个菜单的代码实施，不定义竞品未暴露的运营规则为既定事实。特别是即时、预发布、周期三种模式的页面语义已经确认，但领号、轮次去重和余额结算的最终边界仍需用竞品真实 API 样例或产品规则做最后验收。
+本轮不包含四个菜单的代码实施。竞品构建产物无法证明数据库表数，也没有暴露领号、周期去重和账务
+内部算法；这些不写成“竞品事实”。为避免开发期继续悬空，Armada 实现规则已经在
+`docs/business/hyperlink-marketing-data-model.md` §4 冻结：首次启用通过 recipient_claim 分批冻结 recipient，
+尚未开始的编辑只能按 claim owner 分批释放并重建快照；同一任务内一个收信号码最多发送一次，recipient
+就是唯一发送事实，round 只负责按周期选择账号并分配剩余收信人。协议超时查询或重放同一 `command_id`，
+任务按整份冻结受众一次预约余额，不为轮次重复计费。
+以后即使拿到竞品真实 API 样例，也只做兼容性验证，不再让未证实的竞品内部实现反向破坏已冻结的数据边界。
 
 ## 1. 本次纠正的关键误判
 
@@ -73,6 +80,9 @@
 | `instant` | 1 | 即时群发 | 按计划快速发完整个数据包，速度最快 |
 | `rolling` | 2 | 预发布 | 到计划结束时间或数据包发完即结束，先到为准；期间符合筛选条件的新账号自动加入 |
 | `cycle` | 3 | 周期循环 | 按间隔重复跑同一任务，用于比较不同时段封控；用户手动停止 |
+
+上表最后一行是竞品页面文案，不足以证明同一收信人会被重复发送。Armada 的冻结执行口径是：每个周期重新
+选择发信账号并继续分配尚未发送的 recipient；数据包内 recipient 全部进入终态后自动完成，用户可在此前手动停止。
 
 ### 3.3 双状态
 
@@ -136,7 +146,8 @@
 5. 点击 UV。
 6. 点击率。
 
-点击率只统计已有点击聚合数据的任务，分母用这些任务的成功发送数；卡片 tooltip 明示口径。
+点击率只统计当前页 `shortLinkEnabled=true` 的任务，分子汇总这些任务的点击 UV，分母汇总这些任务的
+成功发送数；卡片 tooltip 明示口径。
 
 ### 4.3 表格列
 
@@ -150,7 +161,7 @@
 6. 状态：停用优先，否则运行状态。
 7. 账号统计：已用账号、封号账号、账号平均发送数。
 8. 发送进度：单钩、失败、总量、未注册数量、进度条。
-9. 双钩：数量、双钩率、预计落地率。
+9. 双钩：数量、双钩率、预计落地率；竞品公式固定为 `min(99%, 双钩率 + 20 个百分点)`。
 10. 点击：UV、点击率；点击率可点开访问趋势。
 11. 实际并发。
 12. 执行时长。
@@ -194,7 +205,7 @@
 | 字段 | 消息类型 | 必填 | 规则 |
 |---|---|---:|---|
 | 链接预览图 | 单/双图文 | 否 | 从素材库选；JPG/JPEG ≤500KB，建议 16:9 |
-| 标题 | 全部 | 是 | 最多 1024 字；普通按钮用多行输入，其他类型单行 |
+| 标题 | 全部 | 是 | 最多 1024 字；普通按钮用多行输入，其他类型单行；任务实施时同步扩容现有模板列和校验器 |
 | 链接描述 | 单/双图文 | 是 | 链接预览描述 |
 | 推广链接 | 单/双图文 | 是 | 最多 2048 字 |
 | 正文图片 | 双图文/普通按钮/卡片按钮 | 否 | 从素材库选；JPG/JPEG ≤500KB |
@@ -263,7 +274,7 @@ accountSendConcurrency 服务端固定默认 20，允许配置范围 1..100，�
 - 卡片按钮额外提交卡片正文。
 - 非延后启动将 `delayMinutes` 置 0。
 - 非预发布清空计划结束；非周期清空执行间隔。
-- 图片使用素材稳定 ID；若兼容竞品 multipart 上传，Controller 只做适配，领域层仍解析成素材 ID/内容快照。
+- 图片使用素材稳定 ID；素材先由素材接口上传，任务保存只提交素材 ID，不提供 multipart 兼容入口。
 - `accountSendConcurrency=20`、`defaultSubTaskNum=50` 由服务端默认，禁止客户端任意覆盖。
 
 ## 6. 账号筛选抽屉
@@ -284,28 +295,31 @@ accountSendConcurrency 服务端固定默认 20，允许配置范围 1..100，�
 |---|---|---|---|
 | 业务组 | 账号业务组 | 名称/标签多选 | 账号组关系；保留公共组、超链组 code |
 | 地域 | 大洲 | 多选 | 国家元数据 |
-| 地域 | 国家包含 | 多选 | `account.country` |
-| 地域 | 国家排除 | 多选 | `account.country` |
+| 地域 | 国家包含 | 多选 | `account.ws_phone` 区号映射到国家 |
+| 地域 | 国家排除 | 多选 | `account.ws_phone` 区号映射到国家 |
 | 基础 | 手机号 | 模糊 | `account.ws_phone` |
-| 基础 | 导入编号 | 精确 | 导入批次稳定编号；现有表不足时新增 `import_no` |
+| 基础 | 导入批次号 | 精确 | 直接使用 `account_import_batch.id` 作为稳定导入编号，经 `account_import_detail.batch_id` 圈号；不新增第二个 `import_no` |
 | 状态 | 在线状态 | 全部/在线/离线 | `account_state.login_state` |
 | 状态 | 轮号状态 | 未轮号/轮号中/成功/失败 | 新增账号营销画像字段 |
-| 属性 | 账号性质 | 个人/商业 | `account.account_type` |
-| 属性 | 导入方式 | 六段参数/全参数 | `account_credential.cred_format` / 导入批次 |
-| 属性 | 账号类型 | 分身号 `web5`/主号 `native6` | 由协议注册表显式映射，禁止前端猜 `protocolId` |
-| 属性 | 设备平台 | 多选 | 协议后端/设备 OS 规范化值 |
-| 来源 | 号码来源 | 买流量/自己登录/买入/转入/群扫码 | 扩展营销来源码，不能只用现有三值硬凑 |
+| 属性 | 账号类型 | 个人/商业 | `account.account_type` |
+| 属性 | 导入方式 | 六段参数/全参数 | `account_credential.cred_format` |
+| 属性 | 类型 | 分身设备 `web5`/主设备 `native6` | 由 `account.protocol_id` 映射 `ProtocolBackend`，禁止前端猜 `protocolId` |
+| 属性 | 设备类型 | 单选：安卓个人、安卓商业（主/分身）、苹果个人、苹果商业（主/分身） | 由 `account.device_os + account.account_type + ProtocolBackend` 组合成竞品六值 `platform`，不另落列 |
+| 来源 | 账号性质 | 买量/自登/买入/转入/群扫码 | `account_profile.marketing_source` 五类运营来源，不能拿现有三值硬凑 |
 | 能力 | 允许拉群 | 全部/允许/不允许 | 新增账号营销画像字段 |
 | 画像 | 好友数 | 最小/最大 | 新增账号营销画像字段；协议侧定期同步 |
 | 画像 | 留存天数 | 最小/最大，允许小数 | 从入库/运营起始时间计算或保存快照，口径统一为天 |
 | 画像 | 注册天数 | 最小/最大；90/180/365/730/1095 快捷值或正整数 | 新增注册时间/注册天数快照 |
-| 路由 | 协议 | 多选 | `account.protocol_id` |
+| 路由 | 协议 | 单选 | `account.protocol_id` |
 | 路由 | 渠道 | 多选 | `promotion_channel_id` / 渠道关系 |
 | 时间 | 创建时间 | 日期时间范围；今天/近7天/近30天 | `account.created_at` |
 
 固定条件不显示为可编辑控件：账号状态正常、未导出、未被陌生人禁言。任务不锁「允许拉群」。
 
-按既有数据模型扩展一对一 `account_profile`，承载 `rotation_status`、`is_group_invite_allowed`、`friend_count`、`registered_at`、`marketing_source`、`synced_at`。共享 `account` 表不因单一营销业务无限加列；筛选服务联表并对画像更新时间做可观测性提示。
+按既有数据模型新增一对一 `account_profile`，承载 `rotationStatus`、`groupInviteAllowed`、`friendCount`、
+`registeredAt` 和五类 `marketingSource`。每个异步画像字段有自己的 `*SyncedAt/*UpdatedAt`，不用一个
+`syncedAt` 掩盖字段间的新鲜度差异。账号上线后仅对空值或超过 24 小时的画像异步刷新；试算和圈号不在
+请求内主动探测协议。共享 `account` 表不因单一营销业务无限加列。
 
 账号筛选 JSON 使用白名单 DTO，未知键拒绝或忽略并记录告警。创建、复制、编辑、详情、策略引用全过程必须无损往返；端到端测试覆盖每个字段。
 
@@ -341,7 +355,7 @@ accountSendConcurrency 服务端固定默认 20，允许配置范围 1..100，�
 5. 数据包名称和剩余号码数。
 6. 当前筛选匹配的可用账号数。
 7. 推广链接；按钮消息同时显示按钮链接和深度追踪状态。
-8. 启用后数据包、内容和计费快照不可逆的提示。
+8. 启用会建立数据包、内容和计费快照；尚未开始时编辑会整笔释放并重建，进入运行后不可变的提示。
 9. 返回修改、确认创建；创建成功后刷新任务列表和当前余额。
 
 ### 8.1 计费契约
@@ -351,16 +365,37 @@ Armada 当前没有现成钱包/冻结体系，因此这不是可删 UI，而是
 ```java
 interface HyperlinkBillingGateway {
     TaskPricingContext getPricingContext(long tenantId);
-    TaskQuote quote(long tenantId, long dataPackageId, TaskMode mode);
-    BillingReservation reserve(long tenantId, long taskId, String quoteToken);
-    void settle(long taskId, long billableRecipientCount);
-    void releaseRemainder(long taskId, String reason);
+    TaskQuote quote(long tenantId, TaskBillingBasis basis);
+    BillingReservation reserveTask(long tenantId, long taskId, String quoteToken);
+    BillingReservation queryTaskReservation(long tenantId, long taskId);
+    BillingReservation adjustTask(long taskId, String quoteToken, int reservationVersion);
+    void settleTask(long taskId, long billableRecipientCount);
+    void releaseTaskRemainder(long taskId, String reason);
 }
 ```
 
-报价返回 `priceCode`、普通/超级模式、单价、号码数、预计冻结、可用余额、`quoteToken`、过期时间。纯新建启用任务在同一业务事务边界校验报价 token 并建立冻结预约；余额不足返回明确错误，不创建半成品任务。复制和编辑按竞品不再弹最后核对，但服务端仍必须重新报价：复制创建新预约，编辑未开始任务原子调整原预约，余额不足则整笔失败。完成时按可计费号码结算，停止/失败释放剩余冻结；所有操作以 `taskId` 幂等。
+`TaskBillingBasis` 由服务端根据任务模式、运行模式和按国家冻结的 recipient 数量构造，前端不能提交金额。
+`hyperlink_billing_reservation` 与任务 1:1，保存整份冻结受众的报价、预计冻结、外部预约单号和本地状态；
+同一行另用 `pendingOperation`、`operationIdempotencyKey`、`nextRetryAt` 明确当前待恢复的是冻结、调整、
+结算还是释放，不能只靠含义不明确的 `PROCESSING` 状态猜操作类型；
+周期后续轮次只是继续分配尚未发送的 recipient，不重新报价或冻结。真实钱包余额和逐笔账务仍留在外部提供方。
 
-若钱包由外部系统提供，Gateway 用防腐层接入；若 Armada 自建，至少需要钱包余额、冻结流水和任务预约三类持久化及乐观锁。本菜单验收不接受恒定 0 元或伪造余额的占位实现。
+报价返回 `priceCode`、普通/超级模式、单价、号码数、预计冻结、可用余额、`quoteToken`、过期时间。
+纯新建启用任务先用短事务锁定数据包代次、写不可见任务头和 recipient_claim，再按固定批次领取 phone、
+写 recipient 并提交游标；禁止在一个事务中锁 50 万号码。实际领取数与 quote 一致后写 `PROCESSING` 预约，
+同时持久化 `pendingOperation=RESERVE`、幂等键和恢复时间，再以 `taskId` 调 Gateway 幂等冻结；成功后创建首轮
+round、切为 `RESERVED` 并清空待操作字段后入队；明确失败则按 claim owner
+分批释放 CLAIMED，删除尚无 `command_id` 的 recipient 和未完成任务头。进程在外部冻结成功后宕机时，恢复任务用同一任务键
+查询/重放 Gateway，再完成本地提交或补偿释放，禁止把远程调用伪装成 MySQL 原子事务。余额不足返回明确
+错误，列表不暴露处理中半成品。复制和编辑按竞品不再弹最后核对，但服务端仍必须重新报价：复制创建新预约，
+编辑未开始任务原子调整原预约，余额不足则整笔失败。完成时按可计费号码结算，停止/失败释放剩余冻结；
+预约创建以 `taskId` 幂等；调整、结算、释放以外部预约号 + 本地 reservation version 生成操作幂等键，且每次
+外部调用都必须先保存对应待操作字段，最终本地状态提交后再清空。
+
+若钱包由外部系统提供，Gateway 用防腐层接入，钱包余额和逐笔流水仍由提供方持有；Armada 只落
+`hyperlink_billing_reservation` 每任务一行，保存任务报价、冻结/结算/释放状态，不复制第二套总账。周期任务
+零可用账号轮次只记录 skipped，不新增资金预约；任务初次预约余额不足则准备失败，不进入派发。本菜单验收
+不接受恒定 0 元或伪造余额的占位实现。
 
 ## 9. 任务详情抽屉
 
@@ -372,7 +407,12 @@ interface HyperlinkBillingGateway {
 
 列：收信号码/国家、发信账号手机号/ID/国家、发送状态/失败原因。状态优先级：有双钩时间显示双钩，有单钩时间显示单钩，有失败时间显示失败，否则显示 pending/sending/sent/delivered/read/success/failed，并展示对应时间和失败原因。
 
-响应同时带 `successCount`、`deliveredCount`、`failedCount`、`unregisteredCount`、`usedAccountCount`、`bannedAccountCount`、`avgSendPerAccount`，供顶部摘要复用。
+停止任务时，尚未提交协议且没有 `commandId` 的待发 recipient 不设“跳过”状态，统一保存为
+`sendStatus=FAILED`、`failCode=TASK_STOPPED`、`failReason=任务已停止` 并记录失败时间；这样明细、失败总数和
+未分配账号桶与竞品“失败 / 原因：任务已停止”的展示一致。
+
+详情抽屉顶部摘要统一读取 `GET /api/hyperlink-tasks/{id}/summary`；收信人分页只返回 `PageResult`，不再在
+每个 Tab 响应里复制一套统计字段。摘要 DTO、字段名和公式以公共合同 §4.4/§5 为准。
 
 ### 9.2 发信账号维度统计
 
@@ -380,13 +420,31 @@ interface HyperlinkBillingGateway {
 
 列：发信账号手机号/ID/未分配标识、国家、个人/商业、留存天数（1 位小数）、成功数、双钩数、失败数、最后发送时间。
 
+无发送时间范围时从 `hyperlink_task_account_stat` 按指标索引直接排序分页，再 LEFT JOIN
+`hyperlink_task_account_usage` 取得号码、国家、类型和入库时间这组唯一展示快照；有范围时按 recipient 的任务×
+`submitted_at` 索引精确聚合，同样 JOIN account_usage 取展示快照。当前单任务最多 50 万 recipient，不为
+只优化完整小时另建投影；大范围导出走异步任务。本 Tab 按 recipient 冻结的实际发信账号计数，一个 recipient
+不跨账号重试，因此账号行合计应与任务头对应指标一致。任务停止前尚未分配账号的终态失败统一进入
+account_stat 的 `account_id=NULL` 汇总桶，页面显示“未分配”。
+
+本 Tab 的任务域表固定为两张：`hyperlink_task_recipient` 是唯一发送事实，`hyperlink_task_account_stat`
+是无时间范围累计查询投影；不再增加账号小时表。
+
 ### 9.3 深度归因
 
 筛选：收信号码、发信号码、排序；默认访问次数降序。按钮：查询、重置、导出。
 
 列：收信号码、发信号码、访问次数、国家、设备、操作系统、浏览器、语言、IP、首次访问、最后访问；IP tooltip/详情附带 user-agent。顶部同时显示点击 UV、访问 PV 和点击率，避免竞品标签歧义。
 
-为满足竞品功能，点击事件必须保存 IP 与 user-agent。实施时增加 `tenant:hyperlink_task:attribution_sensitive` 权限、导出审计、租户隔离和可配置保留期；页面和导出是否脱敏由权限决定，不能在采集层直接丢字段。
+竞品前端只能证明“一位收件人一行”，不能证明多次访问时单值字段取首访还是末访。Armada 冻结为首触口径：
+发信号码取 recipient 冻结的 `sender_phone_snapshot`，国家/设备/系统/浏览器/语言/IP/UA 取该收件人的第一条
+访问；访问次数和最后访问时间继续累计全部点击。同一任务内该号码只有一个短码和一个实际发信账号。上述
+首触环境、累计次数与首末时间都直接保存在 recipient，不建逐次点击流水。
+
+为满足竞品功能，recipient 必须保存首次 IP 与 user-agent。实施时增加
+`tenant:hyperlink_task:attribution_sensitive` 权限、导出审计和租户隔离；首触敏感环境保留 90 天，页面和
+导出是否脱敏由权限决定。超过 90 天后仍展示 UV/PV、首次/最近时间和发信账号，但 IP、UA、浏览器、
+系统、设备和访问国家显示“首触环境已过保留期”，不得伪造为空字符串或继续承诺可导出。
 
 ### 9.4 访问趋势
 
@@ -394,7 +452,13 @@ interface HyperlinkBillingGateway {
 
 摘要：UV 总数、点击率、任务开始时间、首次访问时间、峰值时间/新增 UV、PV 总数、人均 PV。图表序列：新增 UV、累计点击率，辅助展示 PV；另有趋势洞察和访问峰值列表。表格列：桶开始、桶结束、新增 UV、累计 UV、累计点击率、PV。
 
-时间范围以首次访问时间为基准；尚无访问时展示空态。列表页点击率可直接打开该 Tab。
+时间范围以第一个 UV 的首次访问时间为起点，向后取所选 12~72 小时，不是从当前时刻向前滚动；尚无访问时
+展示空态。竞品 tooltip 还明确规定桶内 PV “按首次访问所在时间段近似归集”：同一收件人的后续访问仍累加
+到其首访桶，不按后续点击的真实时间迁移。列表页点击率可直接打开该 Tab。
+后端直接读取 `hyperlink_task_recipient`：以任务第一个 UV 为窗口起点，按 `first_visit_at` 分成 30 分钟、
+1 小时或 2 小时桶，`COUNT(*)` 得到新增 UV，`SUM(click_count)` 得到竞品近似口径的辅助 PV；应用层补空桶、
+计算累计 UV 和点击率。查询命中 task+first_visit_at 索引，只扫描已访问 recipient；当前业务单任务发送量
+不超过 10 万，因此不额外维护 30 分钟聚合表。
 
 ### 9.5 封号原因分布
 
@@ -411,13 +475,14 @@ Armada 延续 `/api`、camelCase、`ApiResponse<T>` / `PageResult<T>`；下列�
 ```text
 GET  /api/hyperlink-tasks
 GET  /api/hyperlink-tasks/{id}
-POST /api/hyperlink-tasks                         multipart/JSON 适配
+POST /api/hyperlink-tasks                         application/json
 PUT  /api/hyperlink-tasks/{id}
-POST /api/hyperlink-tasks/{id}/action             body: { action: START|PAUSE|RESUME|STOP }
+GET  /api/hyperlink-tasks/{id}/provision-status
+POST /api/hyperlink-tasks/{id}/action             body: { action, version, quoteToken }
 GET  /api/hyperlink-tasks/export
 
 GET  /api/hyperlink-tasks/create-context          模式、价码、余额、协议数
-POST /api/hyperlink-tasks/quote                    数据包人数、预计冻结、quoteToken
+POST /api/hyperlink-tasks/quote                    CREATE/START 报价、数据包人数、预计冻结、quoteToken
 POST /api/hyperlink-tasks/account-match-count      完整账号筛选试算
 ```
 
@@ -426,22 +491,27 @@ POST /api/hyperlink-tasks/account-match-count      完整账号筛选试算
 ### 10.2 任务详情和导出
 
 ```text
+GET /api/hyperlink-tasks/{id}/summary
 GET /api/hyperlink-tasks/{id}/recipients
-GET /api/hyperlink-tasks/{id}/recipients/export
+POST /api/hyperlink-tasks/{id}/recipients/export
 
 GET /api/hyperlink-tasks/{id}/account-stats
-GET /api/hyperlink-tasks/{id}/account-stats/export
+POST /api/hyperlink-tasks/{id}/account-stats/export
 
 GET /api/hyperlink-tasks/{id}/clicks
-GET /api/hyperlink-tasks/{id}/click-attribution/export
+POST /api/hyperlink-tasks/{id}/click-attribution/export
 
 GET /api/hyperlink-tasks/{id}/visit-trend
-GET /api/hyperlink-tasks/{id}/visit-trend/export
+POST /api/hyperlink-tasks/{id}/visit-trend/export
 
 GET /api/hyperlink-tasks/{id}/ban-stats
+
+GET /api/hyperlink-task-exports/{jobId}
+GET /api/hyperlink-task-exports/{jobId}/download
 ```
 
-详情导出沿用当前 Tab 筛选和排序，异步生成阈值由通用导出框架控制。所有查询先校验任务属于当前租户。
+四类详情导出沿用当前 Tab 筛选和排序并统一创建异步作业；状态、快照时间、下载与过期规则见公共合同 §2.3。
+所有查询先校验任务属于当前租户。
 
 ### 10.3 依赖选项
 
@@ -460,13 +530,13 @@ GET /api/protocols/summary
 
 ## 11. 核心请求与响应契约
 
-`HyperlinkTaskSaveDTO` 至少包含：
+`HyperlinkTaskSaveRequest` 的完整公共字段以公共合同 §4.1 为准，核心字段包括：
 
 ```text
-taskName, messageType,
+version, sourceTaskId, taskName, messageType,
 messageContent {
   linkPreviewAssetId, title, linkDescription, promotionLink,
-  bodyAssetId, content, cardText,
+  bodyMainAssetId, content, cardText,
   buttons[{ type=CTA_URL, displayText, url, useShortLink }]
 },
 taskMode, plannedEndAt, cycleIntervalMinutes,
@@ -474,29 +544,36 @@ accountFilter, messageIntervalMinSeconds, messageIntervalMaxSeconds,
 maxExecutingAccounts, maxUseAccounts, maxSendPerAccount,
 startMode, delayMinutes,
 dataPackageId, enabled,
-quoteToken  // 纯新建且启用时必填；复制/编辑由服务端重新报价
+quoteToken  // 纯新建且启用时必填；sourceTaskId 标识复制，复制/编辑由服务端重新报价
 ```
 
-`HyperlinkTaskListItemVO` 除基础字段外，要直接返回列表所需聚合，避免前端 N+1：数据包名称/人数、目标国家、账号筛选摘要、单钩/双钩/失败/未注册/总数、点击 UV/PV/率、已用/封号账号、平均发送、实际并发、执行时长、计划结束、周期间隔、创建时间和 `metricsUpdatedAt`。
+`HyperlinkTaskListItemVO` 除基础字段外，要直接返回列表所需聚合，避免前端 N+1：数据包名称/人数、目标国家、账号筛选摘要、单钩/双钩/失败/未注册/总数、点击 UV/PV/率、已用/封号账号、平均发送、实际并发、执行时长、计划结束、周期间隔、创建时间和 `metricsUpdatedAt`。执行时长由 runtime 的累计秒数与当前运行段起点计算；`metricsUpdatedAt` 只表示发送指标投影新鲜度，点击原子更新不得刷新它。
 
-数字字段用整数或 `BigDecimal`，不返回格式化字符串；时间统一 ISO-8601，前端按租户/浏览器时区显示。
+数字字段用整数或 `BigDecimal`，不返回格式化字符串；时间统一 epoch 毫秒，前端按系统时区显示。
 
 ## 12. 数据与服务边界
 
 ### 12.1 主要事实表
 
-| 事实 | 建议承载 | 必要约束 |
+| 事实 | 最终承载 | 必要约束 |
 |---|---|---|
-| 任务配置和状态 | `hyperlink_task` | tenant + id；双状态、调度时间、版本号 |
-| 消息快照 | `hyperlink_task_content` 或任务 JSON | 消息类型和 CTA URL 校验；素材稳定 ID |
+| 任务配置 | `hyperlink_task` | tenant + id；数据包代次/国家、筛选和来源快照；人数取 runtime.`recipient_total` |
+| 双状态和列表计数 | `hyperlink_task_runtime` | task 1:1；累计运行秒数+当前运行段起点；provision 1/3 不进租户列表/调度，ACK 不争抢配置行，分钟级投影 |
+| 消息快照 | `hyperlink_task_content` | task 1:1；标题 1024、CTA URL 校验、素材稳定 ID 反查索引；与 task 的短链派生开关同事务保存 |
 | 账号筛选快照 | `hyperlink_task.account_filter` JSON | 白名单版本号 `filterSchemaVersion` |
-| 受众快照 | `hyperlink_task_recipient` | 任务+数据包代次+号码唯一；保存国家/导入批次快照 |
-| 发送尝试 | `hyperlink_delivery_attempt` | recipient+attemptNo 唯一；协议消息 ID、回执、失败原因 |
-| 任务账号聚合 | 查询聚合或 `hyperlink_task_account_stat` | task+account 唯一，支持排序筛选 |
-| 短链映射 | `hyperlink_task_recipient.short_code` | shortCode 唯一；任务固定单按钮，所以每个 recipient 至多一个短码 |
-| 访问事件 | `hyperlink_click_visit` | 租户、任务、recipient、时间索引；含 IP/UA/设备解析 |
-| 计费预约 | 外部账务或 `hyperlink_billing_reservation` | task 唯一；报价快照、冻结/结算/释放幂等 |
-| 账号营销画像 | `account_profile` | account 唯一；画像值及同步时间 |
+| 唯一收信人发送事实 | `hyperlink_task_recipient` | task+号码唯一；受众/实际账号/唯一 command/结果/短码和点击投影同一行 |
+| 轮次执行 | `hyperlink_task_round` | task+roundNo 唯一；业务 due 时间与 worker 租约分离，支撑选号、剩余 recipient 分配和崩溃接管 |
+| 任务账号执行用量 | `hyperlink_task_account_usage` | task+account 唯一；同步占成功槽/在途并发、跨轮成功上限及首次封号/失效事实 |
+| 轮次账号分配 | `hyperlink_task_round_account` | round+account 唯一；固化每轮选号集合与稳定顺序 |
+| 受众领取作业 | `hyperlink_task_recipient_claim` | task 1:1；代次操作互斥只覆盖准备/领取/释放/恢复，OWNED 后靠号码 owner 隔离归属 |
+| 任务账号累计投影 | `hyperlink_task_account_stat` | task+account桶唯一（含未分配桶）；只存指标，展示快照 JOIN account_usage，可从事实重建 |
+| 计费预约 | `hyperlink_billing_reservation` | task 1:1；待操作类型、幂等键和重试时间使冻结、调整、结算、释放可独立恢复 |
+| 账号营销画像 | `account_profile` | account 唯一；各画像字段独立同步时间 |
+
+任务域按工作负载固定为上述 10 张表，另依赖 1 张 account 共享表。表数不是目标：recipient_claim 解决
+50 万号码的批量冻结/释放，round、account_usage、round_account 解决选号上限、调度恢复与同步限额，账号累计
+投影解决默认排序分页。访问趋势按 recipient 首访索引直接聚合。recipient 已经完整表达“一位收信人一次发送”，因此不再建 recipient_round、attempt、
+独立短链或封号表。目标国家使用 task JSON 数组快照承接多国家数据包。
 
 ### 12.2 服务拆分
 
@@ -504,15 +581,24 @@ quoteToken  // 纯新建且启用时必填；复制/编辑由服务端重新报�
 HyperlinkTaskApplicationService   创建/编辑/复制/查看/Action 编排
 HyperlinkTaskValidator            模式、状态、内容、并发、时间和数据包校验
 HyperlinkAccountSelector          完整筛选、试算、每轮选号
-HyperlinkTaskScheduler            延后启动、预发布截止、周期轮询
+HyperlinkTaskScheduler            round due scan、延后启动、预发布截止、周期轮询
 HyperlinkRecipientClaimService    按数据包当前代幂等领取号码
-HyperlinkDeliveryService          账号分配、协议发送、重试、回执
+HyperlinkAccountConcurrencyGuard  task account_usage 条件占槽 + Redis 跨任务 TTL 信号量
+HyperlinkDeliveryService          账号分配、唯一命令发送、同 command 恢复、回执
 HyperlinkShortLinkService         短码替换与访问归因
 HyperlinkTaskQueryService         列表及五个详情读模型
+HyperlinkTaskProjectionService    分钟级 runtime/round、账号累计投影与低频校准
 HyperlinkBillingGateway           报价、冻结、结算、释放
 ```
 
-即时/预发布/周期的内部轮次规则必须单独做状态机测试：同一号码不得因调度重入重复建 recipient；暂停不释放终态数据；继续不重置成功进度；停止释放未消费冻结；周期每轮账号上限和号码重用规则需在实现前用真实竞品数据或产品规则确认。
+即时/预发布/周期的内部轮次规则必须单独做状态机测试：同一号码不得因调度重入重复建 recipient；
+暂停不释放终态数据且冻结执行时长；继续不重置成功进度并从新的运行段续算；停止把未提交 recipient 记为
+`TASK_STOPPED` 失败并释放未消费冻结；预发布只吸收新合格发信账号，不吸收
+数据包后续导入号码；周期每轮只创建 round、固化 round_account 并分配任务内尚未分轮的 recipient，不重复
+生成号码或追加计费。周期本轮账号为 0 时只记 skipped round，尚有待发号码时下轮按间隔继续试算。每账号
+任务内成功上限由 account_usage 跨轮同步占槽，不能拿分钟级 account_stat 做派发判断。发送/失败等业务指标
+按 `recipientId` 计数；发送中恢复必须查询或重放 recipient 已有 `commandId`，不创建第二个业务命令；点击短码
+属于 recipient，乱序 ACK 只能单调推进该行状态。
 
 ## 13. 前端组件拆分
 
@@ -566,7 +652,8 @@ tenant:hyperlink_task:attribution_sensitive
 
 ### 15.3 超链市场分析
 
-直接消费任务、recipient、attempt、账号快照、点击事件和日/小时聚合。任务详情的访问趋势组件和指标口径与市场分析共用 query service，避免同名指标两套算法。
+直接消费任务、recipient 和账号快照，落 90 天日聚合 + 8 天小时聚合；页面不实时扫描 recipient。
+任务详情的访问趋势组件和指标口径与市场分析共用 query service，避免同名指标两套算法。
 
 ### 15.4 已有数据包和模板
 
@@ -574,10 +661,11 @@ tenant:hyperlink_task:attribution_sensitive
 
 ## 16. 实施顺序
 
-1. 冻结账号筛选 schema、账号营销画像数据采集、协议平台映射。
-2. 冻结计费 Gateway、报价/冻结/结算规则。
-3. 完成任务表、recipient/attempt、状态机和读取 API。
-4. 完成私聊发送、CTA URL、短链访问事件和回执聚合。
+1. 实现已冻结的账号筛选 schema、`account_profile` 分字段同步和协议平台映射。
+2. 接入真实计费 Gateway，落任务 1:1 预约表和报价/冻结/结算/释放幂等。
+3. 扩容模板标题到 1024，先落 task/content/runtime/round/account_usage/round_account/recipient_claim/
+   recipient/billing 核心执行链及 data_package_phone claim owner。
+4. 完成私聊发送、CTA URL、短链访问事件、账号累计查询投影及幂等回执聚合。
 5. 完成列表、任务抽屉、账号筛选、素材选择、最后核对。
 6. 完成五个详情 Tab、全部导出和敏感数据审计。
 7. 用竞品逐屏对照验收，再推进策略、素材和市场分析独立菜单。
@@ -597,6 +685,16 @@ tenant:hyperlink_task:attribution_sensitive
 - [ ] 五个详情 Tab 的筛选、列、指标、排序、分页和导出完整。
 - [ ] 列表、收信人、账号、归因、趋势五类导出完整。
 - [ ] 手动刷新和「数据约每分钟同步」提示存在，不增加前端自动刷新。
+- [ ] 10 张任务表职责与索引按工作负载落地；账号累计投影可从 recipient 事实重建，访问趋势直接聚合 recipient，短链和逐次点击不另造表。
+- [ ] 50 万号码按批领取/释放可断点恢复；创建途中宕机不留无 owner 的 CLAIMED 行，也不暴露半包任务。
+- [ ] claim 进入 OWNED 后释放代次操作锁，第二个任务可领取同代剩余号码；释放/失败恢复仍按号码 owner 精确隔离。
+- [ ] 50 万 recipient 跨 3 个调度轮分配压测下，调度不全扫 recipient，账号默认查询命中累计投影、时间范围查询命中任务×时间索引；按当前业务不超过 10 万的任务验证 72 小时趋势命中首访索引并满足详情页延迟目标。
+- [ ] 同任务同号码最多发送一次；周期轮只分配剩余 recipient，短码准确绑定唯一 recipient，余额按任务一次冻结。
+- [ ] round worker 崩溃后只在租约过期时接管；round_account 重放不突破每轮选号上限；account_usage 并发占槽后，跨轮成功数不突破每账号任务上限。
+- [ ] 停止任务把未提交 recipient 聚合为 `TASK_STOPPED` 失败；明细、runtime、未分配账号桶及已分轮行对应的
+  round 口径一致，未分轮行不虚构 round 指标。
+- [ ] ACK 不逐条争抢 runtime 热行；投影延迟符合“约每分钟同步”，重放与校准不重复计数；点击更新不污染发送指标同步时间。
+- [ ] 冻结、调整、结算、释放四种外部计费调用在远端成功、本地提交前宕机后，均能按持久化操作类型和同一幂等键恢复。
 - [ ] 计费、账号画像、私聊协议、短链归因任何一个硬依赖未完成时，不宣称菜单已完整复刻。
 
 ## 18. 竞品证据定位

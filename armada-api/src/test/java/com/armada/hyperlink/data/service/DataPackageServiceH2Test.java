@@ -335,17 +335,19 @@ class DataPackageServiceH2Test {
         DataPackageExportFile txt = service.exportClickRecords(
                 List.of(first.id(), second.id(), first.id()),
                 DataPackageClickExportFormat.TXT);
-        assertThat(txt.filename()).contains("点击记录_批量2包").endsWith(".txt");
+        assertThat(txt.filename())
+                .matches("数据包点击记录_批量2包_[0-9]{8}_[0-9]{6}\\.txt");
         assertThat(txt.contentType()).isEqualTo("text/plain;charset=UTF-8");
         assertThat(txt.exportedCount()).isZero();
         assertThat(txt.bytes()).isEmpty();
 
         DataPackageExportFile csv = service.exportClickRecords(
                 List.of(first.id(), second.id()), DataPackageClickExportFormat.CSV);
-        assertThat(csv.filename()).contains("点击记录_批量2包").endsWith(".csv");
+        assertThat(csv.filename())
+                .matches("数据包点击记录_批量2包_[0-9]{8}_[0-9]{6}\\.csv");
         assertThat(csv.contentType()).isEqualTo("text/csv;charset=UTF-8");
         assertThat(new String(csv.bytes(), StandardCharsets.UTF_8))
-                .isEqualTo("\uFEFF收件人手机号,数据包ID,数据包名称,点击时间,目标链接\r\n");
+                .isEqualTo("\uFEFF数据包名称,首次访问时间,操作系统,浏览器,ip,收件人手机\n");
 
         TenantContext.set(8L);
         assertThatThrownBy(() -> service.exportClickRecords(

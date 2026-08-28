@@ -28,6 +28,8 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -54,6 +56,10 @@ public class DataPackageServiceImpl implements DataPackageService {
     private static final Pattern PHONE_FILTER_PATTERN = Pattern.compile("^[0-9]+$");
     private static final String TXT_CONTENT_TYPE = "text/plain;charset=UTF-8";
     private static final String CSV_CONTENT_TYPE = "text/csv;charset=UTF-8";
+    private static final String CLICK_EXPORT_CSV_HEADER =
+            "\uFEFF数据包名称,首次访问时间,操作系统,浏览器,ip,收件人手机\n";
+    private static final DateTimeFormatter CLICK_EXPORT_FILENAME_TIME =
+            DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
     private static final int MAX_BATCH_EXPORT_PACKAGES = 100;
     private static final long MAX_EXPORT_PHONES = 500_000L;
 
@@ -264,10 +270,9 @@ public class DataPackageServiceImpl implements DataPackageService {
             }
         }
         String baseName = "数据包点击记录_批量" + normalizedIds.size() + "包_"
-                + System.currentTimeMillis();
+                + CLICK_EXPORT_FILENAME_TIME.format(LocalDateTime.now());
         if (normalizedFormat == DataPackageClickExportFormat.CSV) {
-            byte[] bytes = ("\uFEFF收件人手机号,数据包ID,数据包名称,点击时间,目标链接\r\n")
-                    .getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = CLICK_EXPORT_CSV_HEADER.getBytes(StandardCharsets.UTF_8);
             return new DataPackageExportFile(
                     baseName + ".csv", CSV_CONTENT_TYPE, bytes, 0);
         }

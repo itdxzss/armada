@@ -17,8 +17,17 @@
 - 协议层缺的能力全部补齐，不做能力降级；Web 按 Baileys 接，Android 照搬 Web 语义（spec §1-8）。
 - 所有新增 Java 类、public 方法必须有中文 Javadoc；TypeScript 导出函数必须有中文 JSDoc；Go 导出函数必须有中文注释。三个仓库现有代码都是这个规矩。
 - 联系人号码统一为**不带加号的纯数字**；联系人 JID 统一为 `<phone>@s.whatsapp.net`。归一化只在协议 adapter 层做一次，armada 业务层不再重复处理。
+- **跑测试的命令不能凭直觉**，两处实测踩过坑：
+  - `armada-protocol` 必须用 `node --experimental-vm-modules ./node_modules/.bin/jest`（即 `npm run test:unit`）。
+    裸 `npx jest` 会因为无法加载 `baileys`（`type: module`）而让 28 个 suite 假失败。
+  - `armada` 根目录**没有聚合 pom**，`mvn -pl armada-api` 会报 Could not find the selected project；
+    必须 `cd armada-api` 再跑。全量 `mvn -o test` 超过 120 秒，注意超时设置。
+- `armada-protocol` 有 1 个既有失败 suite `src/worker/baileys-participating-groups.test.ts`
+  （2 failed / 1 passed），与本计划无关，不要修它，也不要当成自己改坏了。
+- Java record 组件不能叫 `notify`（与 `Object.notify()` 冲突，编译期报 illegal record component name）。
+  Web 联系人响应的 `notify` 字段用 `@JsonProperty("notify") String notifyName` 承接。
 - 本计划**不含**任何数据库迁移。`account_contact` 落库属于 P2，不要在这里建表。
-- Task 6 修改的 `MessageSendCommand.MessageTarget` 是跨业务共享 record，超链任务期也要用同一处改动（spec §9.1）。改完必须全量跑 `mvn -q -pl armada-api test`，不能只跑新增测试。
+- Task 6 修改的 `MessageSendCommand.MessageTarget` 是跨业务共享 record，超链任务期也要用同一处改动（spec §9.1）。改完必须全量跑 `cd armada-api && mvn -o test`，不能只跑新增测试。
 
 ---
 
@@ -122,7 +131,7 @@ describe('AccountContactStore', () => {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/worker/contact-store.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/worker/contact-store.test.ts
 ```
 
 Expected: FAIL，`Cannot find module './contact-store.js'`
@@ -234,7 +243,7 @@ function assignIfPresent(
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/worker/contact-store.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/worker/contact-store.test.ts
 ```
 
 Expected: PASS，5 个用例全绿
@@ -343,7 +352,7 @@ describe('attachContactStore', () => {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/worker/contact-store-bridge.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/worker/contact-store-bridge.test.ts
 ```
 
 Expected: FAIL，`Cannot find module './contact-store-bridge.js'`
@@ -402,7 +411,7 @@ function unwrapContacts(payload: unknown): unknown[] {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/worker/contact-store-bridge.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/worker/contact-store-bridge.test.ts
 ```
 
 Expected: PASS，4 个用例全绿
@@ -470,7 +479,7 @@ import { attachContactStore } from './contact-store-bridge.js'
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/worker
+node --experimental-vm-modules ./node_modules/.bin/jest src/worker
 ```
 
 Expected: PASS，包括既有的 `account-caches.test.ts`、`account-cache-lifecycle.test.ts`
@@ -552,7 +561,7 @@ describe('GET /v1/accounts/:accountId/contacts', () => {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/routes/contacts-list.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/routes/contacts-list.test.ts
 ```
 
 Expected: FAIL，404（路由未注册）
@@ -573,7 +582,7 @@ Expected: FAIL，404（路由未注册）
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/routes/contacts-list.test.ts src/routes/contacts-save-app-state-key.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/routes/contacts-list.test.ts src/routes/contacts-save-app-state-key.test.ts
 ```
 
 Expected: PASS，新旧用例都绿
@@ -949,8 +958,8 @@ class RoutingContactListPortTest {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test -Dtest=RoutingContactListPortTest
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test -Dtest=RoutingContactListPortTest
 ```
 
 Expected: FAIL，编译错误 `cannot find symbol: class ContactListBackend`
@@ -1115,8 +1124,8 @@ public final class RoutingContactListPort implements ContactListPort {
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test -Dtest=RoutingContactListPortTest
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test -Dtest=RoutingContactListPortTest
 ```
 
 Expected: PASS，两个用例全绿
@@ -1423,8 +1432,8 @@ import com.armada.platform.protocol.routing.RoutingContactListPort;
 - [ ] **Step 9: 全量编译 + 测试**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test
 ```
 
 Expected: BUILD SUCCESS，无既有用例回归
@@ -1486,8 +1495,8 @@ class MessageTargetTest {
 - [ ] **Step 2: 跑测试确认失败**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test -Dtest=MessageTargetTest
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test -Dtest=MessageTargetTest
 ```
 
 Expected: FAIL，`cannot find symbol: method jid()`
@@ -1534,8 +1543,8 @@ Expected: FAIL，`cannot find symbol: method jid()`
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test -Dtest=MessageTargetTest
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test -Dtest=MessageTargetTest
 ```
 
 Expected: PASS
@@ -1543,8 +1552,8 @@ Expected: PASS
 - [ ] **Step 5: 全量回归（这一步不能省）**
 
 ```bash
-cd /home/yanwenchao/ideaProject/armada
-mvn -q -pl armada-api test
+cd /home/yanwenchao/ideaProject/armada/armada-api
+mvn -o test
 ```
 
 Expected: BUILD SUCCESS。`MessageTarget` 是跨业务共享 record，营销、建群营销、历史群营销三条链路都用它，只跑新增测试不算数。
@@ -1603,7 +1612,7 @@ describe('isPeerJid', () => {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/commands/message-send-peer.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/commands/message-send-peer.test.ts
 ```
 
 Expected: FAIL，`isPeerJid is not a function`
@@ -1694,7 +1703,7 @@ export function isPeerJid(jid: string): boolean {
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada-protocol/protocol-layer
-npx jest src/commands/message-send-peer.test.ts src/commands/worker-consumer.test.ts
+node --experimental-vm-modules ./node_modules/.bin/jest src/commands/message-send-peer.test.ts src/commands/worker-consumer.test.ts
 ```
 
 Expected: PASS，新增用例与既有 `worker-consumer.test.ts` 全绿
@@ -1858,3 +1867,59 @@ git commit -m "feat(message): allow peer chat sends on android backend"
 
 验证结论写进 `docs/superpowers/reviews/2026-08-28-contact-protocol-verification.md`，
 并回填到 spec 的 §5.1 与 §11。
+
+---
+
+## 执行记录（2026-08-28 实际落地）
+
+八个任务全部完成，全部走 TDD 红-绿-提交。commit：
+
+| # | 仓库 | commit |
+|---|---|---|
+| 1 | armada-protocol | `92e1d84` |
+| 2 | armada-protocol | `bd5a3f5` |
+| 3 | armada-protocol | `21f697d` |
+| 4 | whatsapp-server | `1da633a` |
+| 5 | armada | `d4c0f0b` + `55dd0406` |
+| 6 | armada | `dc172f2b` |
+| 7 | armada-protocol | `36ead18` |
+| 8 | whatsapp-server | `ac5e583` |
+
+### 相对本计划的四处实质性偏离（都是计划的疏漏，已按实际实现记录）
+
+1. **`disposeCaches` 早返回**（Task 2）。该方法开头有 `if (!caches) return`，按计划把联系人投影
+   清理写在方法末尾，缓存已被清过的账号会漏清投影、一直挂到进程重启。实际实现挪到了早返回**之前**。
+
+2. **`invalidMessageResultBase` 也必须加 `contact_task` 分支**（Task 7）。计划只提了
+   `messageSendPayload`。少这一处的话，P3 下发字段不全的命令时 armada 收不到任何失败回执，
+   对应 recipient 会永远卡在 `SENDING`。已补，并有用例覆盖失败回执带回三个关联字段。
+
+3. **Android 私聊早返回要放在账号封禁判定之后**（Task 8）。计划说放在
+   `resolveFailedMessageResult` 最前面。那样被封号账号发私聊失败会被报成「跳过预检」而不是
+   「账号已封」，丢掉真实原因。实际放在 `AccountBanned` 判定之后。
+   新增原因码 `PRECHECK_SKIPPED_BY_PEER_TARGET`（`message_sendability.go`）。
+
+4. **`PullTaskManagerJoinResultServiceImplTest:90` 的 `.target().groupJid()` 不能改**（Task 6）。
+   那是 PullTask 执行态 transition 的 target（有 `executionStatus()` / `stage()` / `nextRunAt()`），
+   与 `MessageSendCommand.MessageTarget` 同名不同类。只改了 4 个 marketing/group 测试文件。
+
+### 回归对数
+
+| 范围 | 基线 | 改动后 |
+|---|---|---|
+| armada 全量 | 3435 tests / 7F / 461E | 3437 tests（+2 新增）/ 7F / 461E |
+| armada 非 DB 失败子集（11 类，对照 worktree `e1f5d195`） | 67 tests / 7F / 32E | 67 tests / 7F / 32E |
+| armada-protocol `src/worker` + `src/routes` | 1 既有失败 suite | 同左，新增用例全绿 |
+| whatsapp-server `internal/armada` | 全绿 | 全绿 |
+| whatsapp-server `pkg/noise` | 既有失败 | 既有失败（与本期无关） |
+
+**armada 那 461 个 error 全部是 `*DbTest` 因 `Unknown database 'armada'`（SQL 1049）秒挂**，
+本地缺 `armada-api/.env`（gitignore）里的库凭据。
+
+### ⚠️ 本机未能验证的部分
+
+**Task 5 的三个 Spring bean（`webContactListBackend` / `androidContactListBackend` /
+`contactListPort`）没有经过容器装配验证。** 本地 Spring 上下文因缺库根本起不来，
+所有 `@SpringBootTest` 都在 `flywayInitializer` 阶段失败。纯逻辑层
+（`RoutingContactListPort` 的分流与重复注册拒绝）有测试且绿。
+**部署到有库的环境后必须跑一次全量，确认容器能正常装配。**

@@ -15,6 +15,7 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
     private static final String MEMBERS_URI_PREFIX = "/ws/v1/groups/members/";
     private static final String GROUPS_URI_PREFIX = "/ws/v1/groups/list/";
     private static final String CONTACTS_ADD_URI_PREFIX = "/ws/v1/contacts/add/";
+    private static final String CONTACTS_LIST_URI_PREFIX = "/ws/v1/contacts/list/";
     private static final String GROUP_CREATE_URI_PREFIX = "/ws/v1/groups/create/";
     private static final String GROUP_ANNOUNCEMENT_URI_PREFIX =
             "/ws/v1/groups/settings/sendmessage/";
@@ -117,6 +118,20 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         return httpExecutor.postTyped(
                 CONTACTS_ADD_URI_PREFIX + requireDigits(wsPhone),
                 new ContactsRequest(requireTexts(numbers, "numbers")),
+                AndroidResponseEnvelope.class);
+    }
+
+    /**
+     * 读取 Zhuan 原生已落库的通讯录。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @return Android 原生响应包
+     */
+    @Override
+    public AndroidResponseEnvelope listContacts(String wsPhone) {
+        return httpExecutor.postTyped(
+                CONTACTS_LIST_URI_PREFIX + requireDigits(wsPhone),
+                null,
                 AndroidResponseEnvelope.class);
     }
 

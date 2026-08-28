@@ -13,6 +13,7 @@ import com.armada.platform.protocol.backend.android.AndroidGroupOperationErrorMa
 import com.armada.platform.protocol.backend.android.AndroidNativeClient;
 import com.armada.platform.protocol.backend.android.AndroidNativeAccountParticipatingGroupAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeContactAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeContactListAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupCreateAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupJoinAdapter;
 import com.armada.platform.protocol.backend.android.AndroidNativeGroupParticipantAdapter;
@@ -26,6 +27,7 @@ import com.armada.platform.protocol.backend.android.AndroidResponseDecoder;
 import com.armada.platform.protocol.backend.android.AndroidMessageSendBackend;
 import com.armada.platform.protocol.backend.android.HttpAndroidNativeClient;
 import com.armada.platform.protocol.backend.web.WebAccountRuntimeStatusAdapter;
+import com.armada.platform.protocol.backend.web.WebContactListAdapter;
 import com.armada.platform.protocol.backend.web.WebMessageSendBackend;
 import com.armada.platform.protocol.backend.web.WebNativeGroupJoinAdapter;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
@@ -49,6 +51,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.AccountLifecyclePort;
 import com.armada.platform.protocol.port.AccountParticipatingGroupPort;
 import com.armada.platform.protocol.port.AccountRuntimeStatusPort;
+import com.armada.platform.protocol.port.ContactListPort;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
@@ -65,6 +68,7 @@ import com.armada.platform.protocol.port.MessageSendPort;
 import com.armada.platform.protocol.routing.AccountRuntimeStatusBackend;
 import com.armada.platform.protocol.routing.AccountParticipatingGroupBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
+import com.armada.platform.protocol.routing.ContactListBackend;
 import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
 import com.armada.platform.protocol.routing.GroupCreateBackend;
 import com.armada.platform.protocol.routing.GroupJoinBackend;
@@ -77,6 +81,7 @@ import com.armada.platform.protocol.routing.GroupMemberListBackend;
 import com.armada.platform.protocol.routing.MessageSendBackend;
 import com.armada.platform.protocol.routing.RoutingAccountRuntimeStatusPort;
 import com.armada.platform.protocol.routing.RoutingAccountParticipatingGroupPort;
+import com.armada.platform.protocol.routing.RoutingContactListPort;
 import com.armada.platform.protocol.routing.RoutingContactPort;
 import com.armada.platform.protocol.routing.RoutingFixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.routing.RoutingGroupCreatePort;
@@ -560,6 +565,44 @@ public class ProtocolConfiguration {
     @Bean
     public ContactPort contactPort(List<ContactBackend> backends) {
         return new RoutingContactPort(backends);
+    }
+
+    /**
+     * 注册 Web/Baileys 通讯录读取后端。
+     *
+     * @param registry 按协议后端保存的 HTTP 执行器注册表
+     * @return Web/Baileys 通讯录读取后端
+     */
+    @Bean
+    public ContactListBackend webContactListBackend(ProtocolHttpExecutorRegistry registry) {
+        return new WebContactListAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册 Android Zhuan 原生通讯录读取后端。
+     *
+     * @param client Android 原生 HTTP client
+     * @param decoder Android 原生响应 decoder
+     * @param errorMapper Android 群操作错误 mapper
+     * @return Android Zhuan 通讯录读取后端
+     */
+    @Bean
+    public ContactListBackend androidContactListBackend(
+            AndroidNativeClient client,
+            AndroidResponseDecoder decoder,
+            AndroidGroupOperationErrorMapper errorMapper) {
+        return new AndroidNativeContactListAdapter(client, decoder, errorMapper);
+    }
+
+    /**
+     * 注册统一通讯录读取端口，由路由实现根据账号协议后端选择具体 backend。
+     *
+     * @param backends Spring 收集的所有通讯录读取 backend
+     * @return 后端感知的统一通讯录读取端口
+     */
+    @Bean
+    public ContactListPort contactListPort(List<ContactListBackend> backends) {
+        return new RoutingContactListPort(backends);
     }
 
     /**

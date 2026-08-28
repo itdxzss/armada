@@ -7,9 +7,10 @@
   | 仓库 | 分支 | commit |
   |---|---|---|
   | `armada` | `1.0.3-snapshot` | `e1f5d195`（Flyway 已到 `V156`，本期从 `V157` 起编号） |
+  | `wheel-saas-pure-web` | `1.0.3-snapshot` | `a9f039e` |
   | `armada-protocol` | `1.0.3-snapshot` | `60f40d9` |
   | `whatsapp-server` | `1.0.3-snapshot` | `f1faa36` |
-- 工作分支：`armada` 已开 `feat/contact-marketing`；两个协议仓的分支等 P0 开工时再开，避免打断当前签出
+- 工作分支：四个仓库均已从上述基线开出 `feat/contact-marketing`
 - 复刻来源：`hylbuiaxykfrontendsource/readable/assets/`（仅构建产物，无 sourcemap、无后端源码）
 - 上游文档：
   - 总设计 `docs/superpowers/specs/2026-08-27-hyperlink-marketing-replication-design.md`

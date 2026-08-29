@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** task/content/runtime 一次联表分页；禁止触碰 recipient 与其他统计表。 */
@@ -44,6 +45,7 @@ public class HyperlinkTaskListQueryServiceImpl implements HyperlinkTaskListQuery
     private final HyperlinkTaskListConverter converter;
     private final LongSupplier nowSupplier;
 
+    @Autowired
     public HyperlinkTaskListQueryServiceImpl(
             HyperlinkTaskMapper mapper, HyperlinkTaskListConverter converter) {
         this(mapper, converter, System::currentTimeMillis);

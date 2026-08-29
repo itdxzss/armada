@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -50,6 +51,7 @@ public class HyperlinkAccountDispatchGuard {
     private final StringRedisTemplate redis;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkAccountDispatchGuard(
             @Qualifier("groupCreateIdempotencyRedisTemplate") StringRedisTemplate redis) {
         this(redis, Clock.systemUTC());

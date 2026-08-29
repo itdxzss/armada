@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 按可领取快照和钱包价码生成服务端报价。 */
@@ -30,6 +31,7 @@ public class HyperlinkTaskQuoteService {
     private final HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkTaskQuoteService(DataPackageRecipientClaimService dataPackageService,
             HyperlinkTaskMapper taskMapper,
             HyperlinkWalletPort walletPort,

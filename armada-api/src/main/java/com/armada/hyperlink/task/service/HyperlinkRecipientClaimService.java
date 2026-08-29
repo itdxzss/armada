@@ -11,6 +11,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ public class HyperlinkRecipientClaimService {
     private final DataPackageRecipientClaimService dataPackageService;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkRecipientClaimService(HyperlinkTaskRecipientClaimMapper claimMapper,
             HyperlinkTaskRecipientMapper recipientMapper,
             DataPackageRecipientClaimService dataPackageService) {

@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 外部钱包调用与本地预约状态之间的可恢复 Saga。 */
@@ -30,6 +31,7 @@ public class HyperlinkBillingSagaService {
     private final HyperlinkTaskAuditPort auditPort;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkBillingSagaService(HyperlinkBillingReservationMapper billingMapper,
             HyperlinkTaskMapper taskMapper, HyperlinkBillingConsumptionService consumptionService,
             HyperlinkWalletPort walletPort, HyperlinkTaskAuditPort auditPort) {

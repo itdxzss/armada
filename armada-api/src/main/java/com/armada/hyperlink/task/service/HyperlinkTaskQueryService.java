@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** H2 新建上下文、账号试算和任务详情只读合同。 */
@@ -61,6 +62,7 @@ public class HyperlinkTaskQueryService {
     private final HyperlinkAccountFilterNormalizer accountFilterNormalizer;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkTaskQueryService(HyperlinkTaskMapper taskMapper,
             DataPackageService dataPackageService,
             HyperlinkWalletPort walletPort,

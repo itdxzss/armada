@@ -6,6 +6,7 @@ import com.armada.platform.protocol.port.MessageCommandRecoveryPort;
 import java.time.Clock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,6 +25,7 @@ public class HyperlinkUnknownResultRecoveryService {
     private final HyperlinkAccountDispatchGuard dispatchGuard;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkUnknownResultRecoveryService(HyperlinkTaskRecipientMapper recipientMapper,
             MessageCommandRecoveryPort recoveryPort,
             HyperlinkAccountDispatchGuard dispatchGuard) {

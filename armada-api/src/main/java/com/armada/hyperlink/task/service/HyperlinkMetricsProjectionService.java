@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ public class HyperlinkMetricsProjectionService {
     private final HyperlinkTaskAccountStatMapper accountStatMapper;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkMetricsProjectionService(HyperlinkTaskRecipientMapper recipientMapper,
             HyperlinkTaskRuntimeMapper runtimeMapper, HyperlinkTaskRoundMapper roundMapper,
             HyperlinkTaskAccountStatMapper accountStatMapper) {

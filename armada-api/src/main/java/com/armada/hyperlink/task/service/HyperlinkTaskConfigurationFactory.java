@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 将任务 Save wire 规范化为模板与任务共享的内容模型和冻结配置。 */
@@ -35,6 +36,7 @@ public class HyperlinkTaskConfigurationFactory {
     private final HyperlinkAccountFilterNormalizer accountFilterNormalizer;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkTaskConfigurationFactory(HyperlinkMessageContentValidator contentValidator,
             ObjectMapper objectMapper, HyperlinkAccountFilterNormalizer accountFilterNormalizer) {
         this(contentValidator, objectMapper, accountFilterNormalizer, Clock.systemUTC());

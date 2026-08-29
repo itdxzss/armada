@@ -4,6 +4,7 @@ import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRuntimeMapper;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 任务自然完成时先收口既有计费 Saga，再原子写 COMPLETED。 */
@@ -15,6 +16,7 @@ public class HyperlinkTaskCompletionService {
     private final HyperlinkBillingSagaService billingSagaService;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkTaskCompletionService(HyperlinkTaskRecipientMapper recipientMapper,
             HyperlinkTaskAccountUsageMapper usageMapper, HyperlinkTaskRuntimeMapper runtimeMapper,
             HyperlinkBillingSagaService billingSagaService) {

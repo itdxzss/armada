@@ -6,6 +6,7 @@ import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.entity.ContactFriendTask;
 import com.armada.contact.task.model.enums.ContactTaskRunStatus;
 import com.armada.contact.task.service.ContactAccountFilterNormalizer;
+import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.impl.ContactTaskServiceImpl;
 import com.armada.shared.exception.BusinessException;
@@ -35,17 +36,20 @@ class ContactTaskServiceImplTest {
 
     private ContactFriendTaskMapper taskMapper;
     private ContactFriendTaskAccountMapper accountMapper;
+    private ContactTaskExpansionService expansionService;
     private ContactTaskServiceImpl service;
 
     @BeforeEach
     void setUp() {
         taskMapper = mock(ContactFriendTaskMapper.class);
         accountMapper = mock(ContactFriendTaskAccountMapper.class);
+        expansionService = mock(ContactTaskExpansionService.class);
         service = new ContactTaskServiceImpl(
                 taskMapper,
                 accountMapper,
                 new ContactTaskFormValidator(),
                 new ContactAccountFilterNormalizer(new ObjectMapper()),
+                expansionService,
                 () -> TENANT,
                 () -> NOW);
     }
@@ -238,5 +242,48 @@ class ContactTaskServiceImplTest {
         // 非白名单列必须被抹成 null，交给 XML 兜底按 id 排序
         service.accountData(9L, "1=1", "; DROP", 1, 20);
         verify(accountMapper).selectPage(9L, null, "desc", 0, 20);
+    }
+
+    @Test
+    void expandsWhenCreatedAlreadyEnabled() {
+        when(taskMapper.insert(any())).thenAnswer(invocation -> {
+            invocation.getArgument(0, ContactFriendTask.class).setId(42L);
+            return 1;
+        });
+
+        service.create(form("now", 0, 1), USER);
+
+        ArgumentCaptor<ContactFriendTask> captor = ArgumentCaptor.forClass(ContactFriendTask.class);
+        verify(expansionService).expand(captor.capture());
+        assertThat(captor.getValue().getId()).isEqualTo(42L);
+    }
+
+    @Test
+    void doesNotExpandWhenCreatedAsDraft() {
+        service.create(form("now", 0, 0), USER);
+
+        verify(expansionService, never()).expand(any());
+    }
+
+    @Test
+    void expandsWhenDraftIsSwitchedOn() {
+        ContactFriendTask existing = task(ContactTaskRunStatus.NOT_STARTED.code());
+        existing.setIsEnabled(0);
+        when(taskMapper.selectById(9L)).thenReturn(existing);
+
+        service.update(9L, form("now", 0, 1));
+
+        verify(expansionService).expand(existing);
+    }
+
+    @Test
+    void doesNotReExpandAlreadyEnabledTask() {
+        ContactFriendTask existing = task(ContactTaskRunStatus.NOT_STARTED.code());
+        existing.setIsEnabled(1);
+        when(taskMapper.selectById(9L)).thenReturn(existing);
+
+        service.update(9L, form("now", 0, 1));
+
+        verify(expansionService, never()).expand(any());
     }
 }

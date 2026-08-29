@@ -12,6 +12,7 @@ import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
 import com.armada.contact.task.model.vo.ContactTaskDetailVO;
 import com.armada.contact.task.model.vo.ContactTaskListItemVO;
 import com.armada.contact.task.service.ContactAccountFilterNormalizer;
+import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.ContactTaskService;
 import com.armada.contact.task.service.ContactTaskStateMachine;
@@ -53,6 +54,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     private final ContactFriendTaskAccountMapper accountMapper;
     private final ContactTaskFormValidator validator;
     private final ContactAccountFilterNormalizer filterNormalizer;
+    private final ContactTaskExpansionService expansionService;
     private final Supplier<Long> tenantSupplier;
     private final LongSupplier clock;
 
@@ -63,6 +65,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
      * @param accountMapper 任务账号读模型数据访问
      * @param validator 表单校验器
      * @param filterNormalizer 账号筛选归一化器
+     * @param expansionService 启用时的圈号与收件人展开服务
      * @param tenantSupplier 当前租户提供者
      * @param clock 当前时间提供者（epoch 毫秒）
      */
@@ -71,12 +74,14 @@ public class ContactTaskServiceImpl implements ContactTaskService {
             ContactFriendTaskAccountMapper accountMapper,
             ContactTaskFormValidator validator,
             ContactAccountFilterNormalizer filterNormalizer,
+            ContactTaskExpansionService expansionService,
             Supplier<Long> tenantSupplier,
             LongSupplier clock) {
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
         this.validator = validator;
         this.filterNormalizer = filterNormalizer;
+        this.expansionService = expansionService;
         this.tenantSupplier = tenantSupplier;
         this.clock = clock;
     }
@@ -111,6 +116,10 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         row.setCreatedBy(createdBy);
         row.setCreatedAt(now);
         taskMapper.insert(row);
+        // 启用态创建：先落库拿到 id，再圈号展开；草稿不展开
+        if (isEnabled(row)) {
+            expansionService.expand(row);
+        }
         return toDetail(row);
     }
 
@@ -128,8 +137,14 @@ public class ContactTaskServiceImpl implements ContactTaskService {
             throw new BusinessException(ErrorCode.VALIDATION, "消息类型创建后不可修改");
         }
         long now = clock.getAsLong();
+        // applyForm 会覆盖 isEnabled，旧值必须在覆盖前取
+        boolean wasEnabled = isEnabled(existing);
         applyForm(existing, normalized, filterNormalizer.normalize(normalized.accountFilterJson()), now);
         taskMapper.updateForm(existing);
+        // 只有草稿被打开时才展开；已启用任务重复保存不再圈一遍号
+        if (!wasEnabled && isEnabled(existing)) {
+            expansionService.expand(existing);
+        }
         return toDetail(existing);
     }
 
@@ -253,6 +268,11 @@ public class ContactTaskServiceImpl implements ContactTaskService {
                 zeroIfNull(row.getNeedSendNum()),
                 zeroIfNull(row.getSentNum()),
                 zeroIfNull(row.getFailNum()));
+    }
+
+    /** 只有 is_enabled=1 才算启用；null 与 0 都是草稿。 */
+    private static boolean isEnabled(ContactFriendTask row) {
+        return row.getIsEnabled() != null && row.getIsEnabled() == 1;
     }
 
     private static Integer zeroIfNull(Integer value) {

@@ -18,9 +18,10 @@ x-protocol-common-env: &protocol-common-env
   KAFKA_TOPIC_ACCOUNT_STATE: ${KAFKA_TOPIC_ACCOUNT_STATE:-protocol.account.state.events.v1}
   KAFKA_TOPIC_ACCOUNT_GROUP_SYNC: ${KAFKA_TOPIC_ACCOUNT_GROUP_SYNC:-protocol.account.group-sync.events.v1}
   KAFKA_TOPIC_ACCOUNT_CONTACT_SYNC: ${KAFKA_TOPIC_ACCOUNT_CONTACT_SYNC:-protocol.account.contact-sync.events.v1}
-  # 周期强制全量快照的间隔；R2（频繁 resync 是否触发风控）实测之前置 0 关掉周期推送，
-  # 只保留账号上线时的那一次。
-  CONTACT_SNAPSHOT_INTERVAL_MS: ${CONTACT_SNAPSHOT_INTERVAL_MS:-0}
+  # 周期强制全量快照的间隔。必须小于 armada 的 armada.account-contact.snapshot-ttl-hours（默认 24h）：
+  # 快照一旦过期，任务启用时会把该账号整个跳过（收件人 0），且页面上看不出异常。
+  # 置 0 是关闭周期推送，只保留账号上线那一次——号在线超过 TTL 后就必然被跳过，不要在可用环境里这么配。
+  CONTACT_SNAPSHOT_INTERVAL_MS: ${CONTACT_SNAPSHOT_INTERVAL_MS:-43200000}
   KAFKA_TOPIC_OWNER: ${KAFKA_TOPIC_OWNER:-protocol.owner.events.v1}
   KAFKA_TOPIC_MESSAGE: ${KAFKA_TOPIC_MESSAGE:-protocol.message.events.v1}
   KAFKA_TOPIC_GROUP: ${KAFKA_TOPIC_GROUP:-protocol.group.events.v1}

@@ -91,4 +91,13 @@ class AccountContactMapperXmlTest {
                 .contains("is_named = 1")
                 .contains("LIMIT #{limit}");
     }
+
+    @Test
+    void exactSyncedAtCountBacksTheCompletenessCheck() throws IOException {
+        // 收齐判据靠精确匹配 synced_at 计数，不能写成 >=，否则会把上一轮的行也算进来
+        String sql = xml("AccountContactMapper.xml");
+
+        assertThat(sql).contains("id=\"countBySyncedAt\"");
+        assertThat(sql).contains("synced_at = #{syncedAt}");
+    }
 }

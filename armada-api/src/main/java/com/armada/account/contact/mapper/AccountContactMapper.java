@@ -28,6 +28,18 @@ public interface AccountContactMapper {
     int deleteStale(@Param("accountId") Long accountId, @Param("syncedAt") long syncedAt);
 
     /**
+     * 统计本账号在指定快照时间下已落库的联系人数。
+     *
+     * <p>分片可能乱序到达，因此用「本快照已落库条数 == totalCount」作为收齐判据，
+     * 而不是「收到最后一片」。</p>
+     *
+     * @param accountId 账号 ID
+     * @param syncedAt 快照时间（epoch 毫秒）
+     * @return 该快照下已落库条数
+     */
+    int countBySyncedAt(@Param("accountId") Long accountId, @Param("syncedAt") long syncedAt);
+
+    /**
      * 统计本账号通讯录里有名字的联系人数。
      *
      * @param accountId 账号 ID

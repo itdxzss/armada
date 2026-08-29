@@ -34,6 +34,13 @@
        AND synced_at &lt; #{syncedAt}
   </delete>
 
+  <select id="countBySyncedAt" resultType="int">
+    SELECT COUNT(*)
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND synced_at = #{syncedAt}
+  </select>
+
   <select id="countNamed" resultType="int">
     SELECT COUNT(*)
       FROM account_contact

@@ -60,6 +60,13 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <select id="selectOptions" resultType="com.armada.account.model.vo.AccountGroupOptionVO">
+    SELECT id, name
+    FROM account_group
+    WHERE deleted_at IS NULL
+    ORDER BY name ASC, id ASC
+  </select>
+
   <!--
     账号分页完成后按当前页去重任务 ID 一次补齐派生标签所需状态，避免逐账号查询。
     拉群扩展使用 tenant_id 双键关联，防止异常数据跨租户串联。

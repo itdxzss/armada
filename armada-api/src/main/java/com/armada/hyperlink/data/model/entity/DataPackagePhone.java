@@ -19,6 +19,10 @@ public class DataPackagePhone {
     private String countryIso2;
     /** 当前互斥池状态码。 */
     private Integer poolStatus;
+    /** 当前领取该号码的超链任务；释放后为空。 */
+    private Long claimedByHyperlinkTaskId;
+    /** 最近一次任务领取时间（epoch 毫秒）。 */
+    private Long claimedAt;
     /** 创建时间（epoch 毫秒）。 */
     private Long createdAt;
     /** 更新时间（epoch 毫秒）。 */
@@ -40,6 +44,10 @@ public class DataPackagePhone {
     public void setCountryIso2(String countryIso2) { this.countryIso2 = countryIso2; }
     public Integer getPoolStatus() { return poolStatus; }
     public void setPoolStatus(Integer poolStatus) { this.poolStatus = poolStatus; }
+    public Long getClaimedByHyperlinkTaskId() { return claimedByHyperlinkTaskId; }
+    public void setClaimedByHyperlinkTaskId(Long value) { this.claimedByHyperlinkTaskId = value; }
+    public Long getClaimedAt() { return claimedAt; }
+    public void setClaimedAt(Long value) { this.claimedAt = value; }
     public Long getCreatedAt() { return createdAt; }
     public void setCreatedAt(Long createdAt) { this.createdAt = createdAt; }
     public Long getUpdatedAt() { return updatedAt; }

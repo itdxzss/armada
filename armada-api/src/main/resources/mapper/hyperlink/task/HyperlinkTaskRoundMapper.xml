@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskRoundMapper">
+    <select id="selectDispatchCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT r.tenant_id, r.hyperlink_task_id AS task_id
+        FROM hyperlink_task_round r
+        INNER JOIN hyperlink_task_runtime s ON s.hyperlink_task_id=r.hyperlink_task_id
+          AND s.tenant_id=r.tenant_id
+        WHERE s.is_enabled=1 AND s.run_status=1 AND s.provision_status=2
+          AND r.round_status IN (3,4) AND r.next_dispatch_at&lt;=#{now}
+        ORDER BY r.next_dispatch_at, r.id LIMIT #{limit}
+    </select>
+    <select id="selectStartCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT r.tenant_id, r.hyperlink_task_id AS task_id
+        FROM hyperlink_task_round r
+        INNER JOIN hyperlink_task_runtime s ON s.hyperlink_task_id=r.hyperlink_task_id
+          AND s.tenant_id=r.tenant_id
+        WHERE s.is_enabled=1 AND s.run_status=0 AND s.provision_status=2
+          AND r.round_status IN (3,10) AND r.scheduled_at&lt;=#{now}
+        ORDER BY r.scheduled_at, r.id LIMIT #{limit}
+    </select>
+    <select id="selectLifecycleCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT r.tenant_id, r.hyperlink_task_id AS task_id
+        FROM hyperlink_task_round r
+        INNER JOIN hyperlink_task_runtime s ON s.hyperlink_task_id=r.hyperlink_task_id
+          AND s.tenant_id=r.tenant_id
+        WHERE s.is_enabled=1 AND s.provision_status=2 AND s.run_status IN (0,1)
+          AND r.round_status IN (1,3,4,5,10)
+          AND (r.round_status NOT IN (1,10) OR r.next_dispatch_at&lt;=#{now})
+          AND (r.round_status&lt;&gt;1 OR r.scheduled_at&lt;=#{now})
+          AND (s.run_status=1 OR r.scheduled_at&lt;=#{now})
+        ORDER BY r.updated_at, r.id LIMIT #{limit}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hyperlink_task_round
+        (hyperlink_task_id, round_no, round_status, scheduled_at, next_dispatch_at,
+         assigned_recipient_count, selected_account_count, actual_concurrency, version, created_at, updated_at)
+        VALUES (#{hyperlinkTaskId}, #{roundNo}, #{roundStatus}, #{scheduledAt}, #{nextDispatchAt},
+         #{assignedRecipientCount}, #{selectedAccountCount}, #{actualConcurrency}, #{version},
+         #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="selectActive" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRound">
+        SELECT * FROM hyperlink_task_round WHERE hyperlink_task_id=#{taskId}
+          AND round_status IN (1,2,3,4,5,7,10) ORDER BY round_no DESC LIMIT 1
+    </select>
+    <select id="selectActiveForUpdate"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRound">
+        SELECT * FROM hyperlink_task_round
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+          AND round_status IN (1,2,3,4,5,7,10)
+        ORDER BY round_no DESC LIMIT 1 FOR UPDATE
+    </select>
+    <select id="lockMetricsProjectionRounds" resultType="long">
+        SELECT id FROM hyperlink_task_round
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId} AND id IN
+        <foreach collection="roundIds" item="id" open="(" separator="," close=")">
+          #{id}
+        </foreach>
+        ORDER BY id FOR UPDATE
+    </select>
+    <update id="rescheduleUnconsumedFirstRound">
+        UPDATE hyperlink_task_round SET scheduled_at=#{scheduledAt}, next_dispatch_at=#{scheduledAt},
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND round_no=1 AND round_status IN (3,10)
+          AND started_at IS NULL AND send_total=0
+    </update>
+    <update id="scheduleNow">
+        UPDATE hyperlink_task_round SET scheduled_at=#{now}, next_dispatch_at=#{now},
+          round_status=CASE WHEN round_status IN (7,10) THEN 3 ELSE round_status END,
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND round_status IN (1,3,7,10)
+    </update>
+    <update id="markSelected">
+        UPDATE hyperlink_task_round SET selected_account_count=#{selectedCount},
+          actual_concurrency=#{actualConcurrency}, round_status=#{roundStatus},
+          version=version+1, updated_at=#{now} WHERE id=#{id} AND round_status=2
+    </update>
+    <update id="rebuildProjection">
+        UPDATE hyperlink_task_round r SET
+          assigned_recipient_count=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id),
+          send_total=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.submitted_at IS NOT NULL),
+          success_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.send_status BETWEEN 3 AND 5),
+          delivered_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.send_status BETWEEN 4 AND 5),
+          read_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.send_status=5),
+          fail_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.send_status IN (6,7)),
+          fail_404_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id AND x.send_status=7),
+          last_send_at=(SELECT MAX(x.submitted_at) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_round_id=r.id),
+          updated_at=#{now}
+        WHERE r.hyperlink_task_id=#{taskId}
+    </update>
+    <update id="incrementProjection">
+        UPDATE hyperlink_task_round SET
+          assigned_recipient_count=assigned_recipient_count+#{delta.assignedRecipientDelta},
+          send_total=send_total+#{delta.sendDelta},
+          success_num=success_num+#{delta.successDelta},
+          delivered_num=delivered_num+#{delta.deliveredDelta},
+          read_num=read_num+#{delta.readDelta},
+          fail_num=fail_num+#{delta.failedDelta},
+          fail_404_num=fail_404_num+#{delta.fail404Delta},
+          last_send_at=CASE
+            WHEN #{delta.lastSendAt} IS NULL THEN last_send_at
+            WHEN last_send_at IS NULL THEN #{delta.lastSendAt}
+            ELSE GREATEST(last_send_at,#{delta.lastSendAt}) END,
+          updated_at=#{now}
+        WHERE tenant_id=#{delta.tenantId} AND id=#{delta.roundId}
+          AND hyperlink_task_id=#{delta.taskId}
+    </update>
+    <update id="cancelUnconsumed">
+        UPDATE hyperlink_task_round SET round_status=8, finished_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND round_status IN (1,2,3,4,5,7,10)
+    </update>
+    <delete id="deleteUnconsumed">
+        DELETE FROM hyperlink_task_round WHERE hyperlink_task_id=#{taskId}
+          AND round_status=8 AND send_total=0
+    </delete>
+    <update id="markStarted">
+        UPDATE hyperlink_task_round SET started_at=COALESCE(started_at,#{now}),
+          next_dispatch_at=#{now}, version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND round_status IN (3,10) AND started_at IS NULL
+          AND scheduled_at&lt;=#{now}
+    </update>
+    <update id="beginSelection">
+        UPDATE hyperlink_task_round SET round_status=2, version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND round_status=#{expectedStatus}
+    </update>
+    <update id="updateSelection">
+        UPDATE hyperlink_task_round SET selected_account_count=#{selectedCount},
+          actual_concurrency=#{actualConcurrency}, round_status=#{roundStatus},
+          next_dispatch_at=#{nextDispatchAt}, version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND round_status=2
+    </update>
+    <update id="markDispatching">
+        UPDATE hyperlink_task_round SET round_status=4,
+          started_at=COALESCE(started_at,#{now}), last_send_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND round_status IN (3,4)
+    </update>
+    <update id="markWaitingResult">
+        UPDATE hyperlink_task_round SET round_status=5, dispatch_completed_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND round_status IN (3,4)
+    </update>
+    <update id="markCompleted">
+        UPDATE hyperlink_task_round r SET round_status=6,
+          dispatch_completed_at=COALESCE(dispatch_completed_at,#{now}), finished_at=#{now},
+          actual_concurrency=0, version=version+1, updated_at=#{now}
+        WHERE r.id=#{id} AND r.round_status IN (3,4,5,10)
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_recipient x
+            WHERE x.hyperlink_task_round_id=#{id} AND x.send_status=2)
+    </update>
+    <update id="pauseActive">
+        UPDATE hyperlink_task_round SET round_status=7, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND round_status IN (3,4,5)
+    </update>
+    <update id="resumePaused">
+        UPDATE hyperlink_task_round SET round_status=3, next_dispatch_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND round_status=7
+    </update>
+</mapper>

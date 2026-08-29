@@ -496,4 +496,12 @@
     LIMIT #{offset}, #{pageSize}
   </select>
 
+  <select id="selectOptions"
+          resultType="com.armada.promotion.channel.model.vo.PromotionChannelOptionVO">
+    SELECT id, channel_name AS name
+    FROM promotion_channel
+    WHERE deleted_at IS NULL AND status = 1
+    ORDER BY channel_name ASC, id ASC
+  </select>
+
 </mapper>

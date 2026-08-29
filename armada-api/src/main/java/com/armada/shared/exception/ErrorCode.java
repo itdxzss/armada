@@ -14,6 +14,30 @@ public enum ErrorCode {
     /** 资源冲突(如名称重复)。 */
     CONFLICT(40901, "资源冲突"),
 
+    /** 超链任务状态、版本或动作前置条件冲突。 */
+    HYPERLINK_TASK_STATE_CONFLICT(40910, "超链任务状态已变化"),
+
+    /** 超链任务报价过期或冻结人数已经变化。 */
+    HYPERLINK_QUOTE_STALE(40911, "超链任务报价已失效"),
+
+    /** 超链任务可用余额不足。 */
+    HYPERLINK_BALANCE_INSUFFICIENT(40912, "超链任务可用余额不足"),
+
+    /** 超链任务没有可用发信账号。 */
+    HYPERLINK_ACCOUNT_UNAVAILABLE(42210, "没有符合条件的超链发信账号"),
+
+    /** 超链任务请求并发超过协议容量。 */
+    HYPERLINK_PROTOCOL_CAPACITY_INSUFFICIENT(42211, "协议容量不足"),
+
+    /** 超链计费提供方不可用或结果需要恢复。 */
+    HYPERLINK_BILLING_UNAVAILABLE(50310, "超链计费服务暂不可用"),
+
+    /** 跨任务账号发送并发保护不可用。 */
+    HYPERLINK_DISPATCH_GUARD_UNAVAILABLE(50311, "超链发送保护暂不可用"),
+
+    /** 超链任务审计落点未配置或不可写。 */
+    HYPERLINK_AUDIT_UNAVAILABLE(50312, "超链任务审计服务暂不可用"),
+
     /** 当前执行线程缺少服务端认证建立的租户上下文。 */
     TENANT_MISSING(40101, "缺少租户上下文，请重新登录"),
 

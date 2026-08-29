@@ -2,6 +2,320 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountMapper">
 
+  <!--
+    超链发信账号候选：账号域拥有 account/account_state/account_credential/import_detail 查询。
+    Mapper 关闭租户插件，所有租户级表均显式同 tenant_id 连接；号码国家按最长国际区号匹配。
+  -->
+  <sql id="hyperlinkCandidateDerivedTable">
+    (
+      SELECT a.id AS accountId,
+             a.ws_phone AS wsPhone,
+             a.account_type AS accountType,
+             a.created_at AS createdAt,
+             a.account_group_id AS accountGroupId,
+             a.promotion_channel_id AS channelId,
+             a.device_os AS deviceOs,
+             a.protocol_id AS protocolId,
+             a.protocol_account_id AS protocolAccountId,
+             a.priority AS priority,
+             s.login_state AS loginState,
+             c.cred_format AS credentialFormat,
+             p.rotation_status AS rotationStatus,
+             p.is_group_invite_allowed AS groupInviteAllowed,
+             p.marketing_source AS marketingSource,
+             p.friend_count AS friendCount,
+             p.registered_at AS registeredAt,
+             <include refid="protocolBackendCase"/> AS protocolBackend,
+             (
+               SELECT prefix.countryIso2
+               FROM (
+                 SELECT mapping.normalized_prefix AS phonePrefix,
+                        mapping.country_iso2 AS countryIso2,
+                        0 AS sourcePriority
+                 FROM country_phone_prefix_mapping mapping
+                 UNION ALL
+                 SELECT REGEXP_REPLACE(
+                          CASE WHEN LOCATE('/', country.phone_prefix) &gt; 0
+                            THEN SUBSTRING(country.phone_prefix, 1,
+                              LOCATE('/', country.phone_prefix) - 1)
+                            ELSE country.phone_prefix
+                          END, '[^0-9]', '') AS phonePrefix,
+                        country.iso2 AS countryIso2,
+                        1 AS sourcePriority
+                 FROM country
+                 WHERE country.deleted_at IS NULL AND country.is_enabled = 1
+                 UNION ALL
+                 SELECT CONCAT(
+                          REGEXP_REPLACE(
+                            SUBSTRING(country.phone_prefix, 1,
+                              LOCATE('-', country.phone_prefix) - 1), '[^0-9]', ''),
+                          REGEXP_REPLACE(
+                            CASE WHEN LOCATE('/', SUBSTRING(country.phone_prefix,
+                              LOCATE('/', country.phone_prefix) + 1)) &gt; 0
+                              THEN SUBSTRING(
+                                SUBSTRING(country.phone_prefix,
+                                  LOCATE('/', country.phone_prefix) + 1),
+                                1,
+                                LOCATE('/', SUBSTRING(country.phone_prefix,
+                                  LOCATE('/', country.phone_prefix) + 1)) - 1)
+                              ELSE SUBSTRING(country.phone_prefix,
+                                LOCATE('/', country.phone_prefix) + 1)
+                            END, '[^0-9]', '')
+                        ) AS phonePrefix,
+                        country.iso2 AS countryIso2,
+                        1 AS sourcePriority
+                 FROM country
+                 WHERE country.deleted_at IS NULL AND country.is_enabled = 1
+                   AND country.phone_prefix LIKE '%/%'
+                 UNION ALL
+                 SELECT CONCAT(
+                          REGEXP_REPLACE(
+                            SUBSTRING(country.phone_prefix, 1,
+                              LOCATE('-', country.phone_prefix) - 1), '[^0-9]', ''),
+                          REGEXP_REPLACE(
+                            SUBSTRING(
+                              SUBSTRING(country.phone_prefix,
+                                LOCATE('/', country.phone_prefix) + 1),
+                              LOCATE('/', SUBSTRING(country.phone_prefix,
+                                LOCATE('/', country.phone_prefix) + 1)) + 1),
+                            '[^0-9]', '')
+                        ) AS phonePrefix,
+                        country.iso2 AS countryIso2,
+                        1 AS sourcePriority
+                 FROM country
+                 WHERE country.deleted_at IS NULL AND country.is_enabled = 1
+                   AND country.phone_prefix LIKE '%/%/%'
+               ) prefix
+               WHERE REPLACE(REPLACE(TRIM(a.ws_phone), '+', ''), ' ', '')
+                     LIKE CONCAT(prefix.phonePrefix, '%')
+               ORDER BY CHAR_LENGTH(prefix.phonePrefix) DESC, prefix.sourcePriority ASC
+               LIMIT 1
+             ) AS countryIso2
+      FROM account a
+      INNER JOIN account_state s
+        ON s.tenant_id = a.tenant_id AND s.account_id = a.id
+      LEFT JOIN account_credential c
+        ON c.tenant_id = a.tenant_id AND c.account_id = a.id AND c.deleted_at IS NULL
+      LEFT JOIN account_profile p
+        ON p.tenant_id = a.tenant_id AND p.account_id = a.id
+      WHERE a.tenant_id = #{tenantId}
+        AND s.tenant_id = #{tenantId}
+        AND (c.tenant_id = #{tenantId} OR c.tenant_id IS NULL)
+        AND (p.tenant_id = #{tenantId} OR p.tenant_id IS NULL)
+        AND a.deleted_at IS NULL
+        AND s.account_state = 2
+        AND s.mute_status IS NULL
+        AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
+        AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
+        AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
+    ) candidate
+  </sql>
+
+  <!-- select/count 共用完整候选条件，防止页面试算与实际选号口径漂移。 -->
+  <sql id="hyperlinkCandidateFilters">
+    <if test="query.countryIso2s != null and !query.countryIso2s.isEmpty()">
+      AND candidate.countryIso2 IN
+      <foreach collection="query.countryIso2s" item="iso2" open="(" separator="," close=")">
+        #{iso2}
+      </foreach>
+    </if>
+    <if test="query.excludeCountryIso2s != null and !query.excludeCountryIso2s.isEmpty()">
+      AND (candidate.countryIso2 IS NULL OR candidate.countryIso2 NOT IN
+      <foreach collection="query.excludeCountryIso2s" item="iso2" open="(" separator="," close=")">
+        #{iso2}
+      </foreach>)
+    </if>
+    <if test="query.continent != null">
+      AND EXISTS (
+        SELECT 1 FROM country continent_country
+        WHERE continent_country.iso2 = candidate.countryIso2
+          AND continent_country.deleted_at IS NULL
+          AND continent_country.is_enabled = 1
+          AND continent_country.continent_code = #{query.continent}
+      )
+    </if>
+    <if test="query.groupIds != null and !query.groupIds.isEmpty()">
+      AND candidate.accountGroupId IN
+      <foreach collection="query.groupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </if>
+    <if test="query.channelIds != null and !query.channelIds.isEmpty()">
+      AND candidate.channelId IN
+      <foreach collection="query.channelIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </if>
+    <if test="query.protocolId != null">
+      AND UPPER(TRIM(candidate.protocolId)) = #{query.protocolId}
+    </if>
+    <if test="query.onlineStatus == 'ONLINE'">
+      AND candidate.loginState = 1
+    </if>
+    <if test="query.onlineStatus == 'OFFLINE'">
+      AND candidate.loginState = 2
+    </if>
+    <if test="query.rotationStatus != null">
+      AND candidate.rotationStatus = #{query.rotationStatus}
+    </if>
+    <if test="query.accountType != null">
+      AND candidate.accountType = #{query.accountType}
+    </if>
+    <if test="query.widType == 'native6'">
+      AND candidate.protocolBackend = 'ANDROID'
+    </if>
+    <if test="query.widType == 'web5'">
+      AND candidate.protocolBackend = 'WEB'
+    </if>
+    <if test="query.platform == 'ANDROID_PERSONAL'">
+      AND candidate.deviceOs = 1 AND candidate.accountType = 1
+    </if>
+    <if test="query.platform == 'ANDROID_BUSINESS_PRIMARY'">
+      AND candidate.deviceOs = 1 AND candidate.accountType = 2
+      AND candidate.protocolBackend = 'ANDROID'
+    </if>
+    <if test="query.platform == 'ANDROID_BUSINESS_COMPANION'">
+      AND candidate.deviceOs = 1 AND candidate.accountType = 2
+      AND candidate.protocolBackend = 'WEB'
+    </if>
+    <if test="query.platform == 'IOS_PERSONAL'">
+      AND candidate.deviceOs = 2 AND candidate.accountType = 1
+    </if>
+    <if test="query.platform == 'IOS_BUSINESS_PRIMARY'">
+      AND candidate.deviceOs = 2 AND candidate.accountType = 2
+      AND candidate.protocolBackend = 'ANDROID'
+    </if>
+    <if test="query.platform == 'IOS_BUSINESS_COMPANION'">
+      AND candidate.deviceOs = 2 AND candidate.accountType = 2
+      AND candidate.protocolBackend = 'WEB'
+    </if>
+    <if test="query.importMode == 'six_segment'">
+      AND candidate.credentialFormat = 1
+    </if>
+    <if test="query.importMode == 'full_param'">
+      AND candidate.credentialFormat = 3
+    </if>
+    <if test="query.groupInviteAllowed != null">
+      AND candidate.groupInviteAllowed = #{query.groupInviteAllowed}
+    </if>
+    <if test="query.phone != null">
+      AND candidate.wsPhone LIKE CONCAT('%', #{query.phone}, '%')
+    </if>
+    <if test="query.importBatchId != null">
+      AND EXISTS (
+        SELECT 1 FROM account_import_detail import_detail
+        WHERE import_detail.tenant_id = #{tenantId}
+          AND import_detail.account_id = candidate.accountId
+          AND import_detail.batch_id = #{query.importBatchId}
+      )
+    </if>
+    <if test="query.source != null">
+      AND candidate.marketingSource = #{query.source}
+    </if>
+    <if test="query.friendCountMin != null">
+      AND candidate.friendCount &gt;= #{query.friendCountMin}
+    </if>
+    <if test="query.friendCountMax != null">
+      AND candidate.friendCount &lt;= #{query.friendCountMax}
+    </if>
+    <if test="query.retentionDaysMin != null">
+      AND (#{query.observedAt} - candidate.createdAt) / 86400000.0 &gt;= #{query.retentionDaysMin}
+    </if>
+    <if test="query.retentionDaysMax != null">
+      AND (#{query.observedAt} - candidate.createdAt) / 86400000.0 &lt;= #{query.retentionDaysMax}
+    </if>
+    <if test="query.registerDaysMin != null or query.registerDaysMax != null">
+      AND candidate.registeredAt IS NOT NULL
+      AND candidate.registeredAt &lt;= #{query.observedAt}
+    </if>
+    <if test="query.registerDaysMin != null">
+      AND FLOOR((#{query.observedAt} - candidate.registeredAt) / 86400000.0)
+          &gt;= #{query.registerDaysMin}
+    </if>
+    <if test="query.registerDaysMax != null">
+      AND FLOOR((#{query.observedAt} - candidate.registeredAt) / 86400000.0)
+          &lt;= #{query.registerDaysMax}
+    </if>
+    <if test="query.createdAtFrom != null">
+      AND candidate.createdAt &gt;= #{query.createdAtFrom}
+    </if>
+    <if test="query.createdAtTo != null">
+      AND candidate.createdAt &lt; #{query.createdAtTo}
+    </if>
+    AND candidate.protocolBackend IN
+    <foreach collection="query.privateCapableBackends" item="backend"
+             open="(" separator="," close=")">#{backend}</foreach>
+  </sql>
+
+  <select id="selectHyperlinkCandidates"
+          resultType="com.armada.account.model.vo.AccountHyperlinkCandidateVO">
+    SELECT candidate.accountId,
+           candidate.priority,
+           candidate.wsPhone,
+           candidate.countryIso2,
+           candidate.accountType,
+           candidate.createdAt,
+           candidate.protocolId,
+           candidate.protocolAccountId,
+           candidate.protocolBackend
+    FROM <include refid="hyperlinkCandidateDerivedTable"/>
+    WHERE 1 = 1
+    <include refid="hyperlinkCandidateFilters"/>
+    <if test="afterPriority != null and afterAccountId != null">
+      AND (candidate.priority &lt; #{afterPriority}
+        OR (candidate.priority = #{afterPriority} AND candidate.accountId &gt; #{afterAccountId}))
+    </if>
+    ORDER BY candidate.priority DESC, candidate.accountId ASC
+    LIMIT #{limit}
+  </select>
+
+  <select id="countHyperlinkCandidates" resultType="int">
+    SELECT COUNT(*)
+    FROM <include refid="hyperlinkCandidateDerivedTable"/>
+    WHERE 1 = 1
+    <include refid="hyperlinkCandidateFilters"/>
+  </select>
+
+  <select id="countHyperlinkProtocols" resultType="int">
+    SELECT COUNT(DISTINCT CASE
+      WHEN a.protocol_address IS NULL OR TRIM(a.protocol_address) = ''
+        THEN CONCAT(<include refid="protocolBackendCase"/>, ':DEFAULT')
+      ELSE CONCAT(<include refid="protocolBackendCase"/>, ':', TRIM(a.protocol_address))
+    END)
+    FROM account a
+    LEFT JOIN account_credential c
+      ON c.tenant_id = a.tenant_id AND c.account_id = a.id AND c.deleted_at IS NULL
+    WHERE a.tenant_id = #{tenantId}
+      AND a.deleted_at IS NULL
+      AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND <include refid="protocolBackendCase"/> IN
+      <foreach collection="privateCapableBackends" item="backend"
+               open="(" separator="," close=")">#{backend}</foreach>
+  </select>
+
+  <select id="selectHyperlinkProtocolIds" resultType="string">
+    SELECT DISTINCT UPPER(TRIM(a.protocol_id)) AS protocolId
+    FROM account a
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id AND s.account_id = a.id
+    LEFT JOIN account_credential c
+      ON c.tenant_id = a.tenant_id AND c.account_id = a.id AND c.deleted_at IS NULL
+    WHERE a.tenant_id = #{tenantId}
+      AND s.tenant_id = #{tenantId}
+      AND a.deleted_at IS NULL
+      AND s.account_state = 2
+      AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND <include refid="protocolBackendCase"/> IN
+      <foreach collection="privateCapableBackends" item="backend"
+               open="(" separator="," close=")">#{backend}</foreach>
+    ORDER BY protocolId ASC
+  </select>
+
+  <!-- 同账号跨任务派发容量的数据库串行点；必须处于派发事务内。 -->
+  <select id="lockActiveForHyperlinkDispatch" resultType="long">
+    SELECT id FROM account
+    WHERE tenant_id = #{tenantId}
+      AND id = #{accountId}
+      AND deleted_at IS NULL
+    LIMIT 1 FOR UPDATE
+  </select>
+
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account (

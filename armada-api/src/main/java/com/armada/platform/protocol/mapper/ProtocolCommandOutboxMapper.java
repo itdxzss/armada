@@ -15,6 +15,17 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface ProtocolCommandOutboxMapper {
+    int REGULAR_RETENTION_CLASS = 0;
+    int HYPERLINK_RETENTION_CLASS = 1;
+
+    /** 按显式租户和原 commandId 重排已投递消息命令，不插入第二行。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int replayMessageCommand(@Param("tenantId") long tenantId,
+            @Param("commandId") String commandId,
+            @Param("messageCommandType") String messageCommandType,
+            @Param("replayableStatuses") List<Integer> replayableStatuses,
+            @Param("pendingStatus") int pendingStatus,
+            @Param("now") long now);
 
     /**
      * 批量插入待发送命令。
@@ -27,35 +38,30 @@ public interface ProtocolCommandOutboxMapper {
      */
     int batchInsertPending(@Param("rows") List<ProtocolCommandOutbox> rows);
 
-    /**
-     * 按保留期硬删已发送命令,单批有上限,调用方据返回值判断是否继续下一批。
-     *
-     * <p>删除条件只看创建时间,不记录清理进度,因此停机或漏跑不会积压无法回收的行:
-     * 下一次运行仍会选中全部超期行。已发送行落地后不再被任何链路读取——结果回调按
-     * {@code command_id} 查的是业务表而非 outbox;死信与已取消量小且有诊断价值,不在清理范围。</p>
-     *
-     * @param createdBefore 保留期起点,创建时间早于该值的行可删(epoch 毫秒)
-     * @param limit         单批最大删除行数
-     * @return 实际删除行数
-     */
+    /** 单批删除普通 SENT 命令，明确排除需要独立保留期的超链 recipient。 */
     @InterceptorIgnore(tenantLine = "true")
-    default int deleteSentBefore(long createdBefore, int limit) {
-        return deleteSentBeforeInternal(
-                ProtocolCommandOutboxStatus.SENT.code(), createdBefore, limit);
+    default int deleteRegularSentBefore(long createdBefore, int limit) {
+        return deleteRegularSentBeforeInternal(
+                ProtocolCommandOutboxStatus.SENT.code(), REGULAR_RETENTION_CLASS, createdBefore, limit);
     }
 
-    /**
-     * 已发送命令清理的底层入口;业务状态由 Java 参数传入,不写死在 XML。
-     *
-     * @param sentStatus    已发送状态码
-     * @param createdBefore 保留期起点(epoch 毫秒)
-     * @param limit         单批最大删除行数
-     * @return 实际删除行数
-     */
+    /** 单批删除超过独立保留期的超链 recipient SENT 命令。 */
     @InterceptorIgnore(tenantLine = "true")
-    int deleteSentBeforeInternal(@Param("sentStatus") int sentStatus,
-                                 @Param("createdBefore") long createdBefore,
-                                 @Param("limit") int limit);
+    default int deleteHyperlinkSentBefore(long createdBefore, int limit) {
+        return deleteHyperlinkSentBeforeInternal(
+                ProtocolCommandOutboxStatus.SENT.code(), HYPERLINK_RETENTION_CLASS,
+                createdBefore, limit);
+    }
+
+    @InterceptorIgnore(tenantLine = "true")
+    int deleteRegularSentBeforeInternal(@Param("sentStatus") int sentStatus,
+            @Param("retentionClass") int retentionClass,
+            @Param("createdBefore") long createdBefore, @Param("limit") int limit);
+
+    @InterceptorIgnore(tenantLine = "true")
+    int deleteHyperlinkSentBeforeInternal(@Param("sentStatus") int sentStatus,
+            @Param("retentionClass") int retentionClass,
+            @Param("createdBefore") long createdBefore, @Param("limit") int limit);
 
     /**
      * 按状态和可重试时间扫描可发送命令。

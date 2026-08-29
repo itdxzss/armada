@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskRuntimeMapper">
+    <resultMap id="RuntimeMap" type="com.armada.hyperlink.task.model.entity.HyperlinkTaskRuntime"
+            autoMapping="false">
+        <id column="hyperlink_task_id" property="hyperlinkTaskId"/>
+        <result column="tenant_id" property="tenantId"/>
+        <result column="is_enabled" property="enabled"/>
+        <result column="run_status" property="runStatus"/>
+        <result column="provision_status" property="provisionStatus"/>
+        <result column="current_round_id" property="currentRoundId"/>
+        <result column="current_round_no" property="currentRoundNo"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="last_send_at" property="lastSendAt"/>
+        <result column="finished_at" property="finishedAt"/>
+        <result column="first_visit_at" property="firstVisitAt"/>
+        <result column="last_visit_at" property="lastVisitAt"/>
+        <result column="recipient_total" property="recipientTotal"/>
+        <result column="send_total" property="sendTotal"/>
+        <result column="success_num" property="successNum"/>
+        <result column="delivered_num" property="deliveredNum"/>
+        <result column="read_num" property="readNum"/>
+        <result column="fail_num" property="failNum"/>
+        <result column="fail_404_num" property="fail404Num"/>
+        <result column="invalid_account_count" property="invalidAccountCount"/>
+        <result column="click_uv_num" property="clickUvNum"/>
+        <result column="click_total" property="clickTotal"/>
+        <result column="used_account_count" property="usedAccountCount"/>
+        <result column="actual_concurrency" property="actualConcurrency"/>
+        <result column="execution_duration_sec" property="executionDurationSec"/>
+        <result column="active_since_at" property="activeSinceAt"/>
+        <result column="metrics_updated_at" property="metricsUpdatedAt"/>
+        <result column="failure_code" property="failureCode"/>
+        <result column="failure_reason" property="failureReason"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    <update id="incrementVisitFacts">
+        UPDATE hyperlink_task_runtime SET
+          first_visit_at=CASE WHEN #{firstVisit} THEN #{now} ELSE first_visit_at END,
+          last_visit_at=#{now},
+          click_uv_num=click_uv_num+CASE WHEN #{firstVisit} THEN 1 ELSE 0 END,
+          click_total=click_total+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId}
+    </update>
+    <insert id="insert">
+        INSERT INTO hyperlink_task_runtime
+        (hyperlink_task_id, is_enabled, run_status, provision_status, created_at, updated_at)
+        VALUES (#{hyperlinkTaskId}, #{enabled}, #{runStatus}, #{provisionStatus}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="selectByTaskId" resultMap="RuntimeMap">
+        SELECT * FROM hyperlink_task_runtime WHERE hyperlink_task_id=#{taskId}
+    </select>
+    <select id="selectByTaskIdForShare"
+            resultMap="RuntimeMap">
+        SELECT * FROM hyperlink_task_runtime
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId} FOR SHARE
+    </select>
+    <select id="selectByTaskIdForUpdate"
+            resultMap="RuntimeMap">
+        SELECT * FROM hyperlink_task_runtime
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId} FOR UPDATE
+    </select>
+    <update id="transition">
+        UPDATE hyperlink_task_runtime SET is_enabled=#{enabled}, run_status=#{runStatus},
+          execution_duration_sec=execution_duration_sec+CASE
+            WHEN run_status=1 AND #{runStatus} IN (2,3,4) AND active_since_at IS NOT NULL
+              THEN GREATEST(0,FLOOR((#{now}-active_since_at)/1000)) ELSE 0 END,
+          provision_status=#{provisionStatus},
+          started_at=CASE WHEN #{runStatus}=1 AND started_at IS NULL THEN #{now} ELSE started_at END,
+          active_since_at=CASE WHEN #{runStatus}=1 THEN #{now} WHEN #{runStatus} IN (3,4) THEN NULL ELSE active_since_at END,
+          finished_at=CASE WHEN #{runStatus} IN (2,4) THEN #{now} ELSE finished_at END, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=#{expectedEnabled} AND run_status=#{expectedRunStatus}
+    </update>
+    <update id="markProvisionFailed">
+        UPDATE hyperlink_task_runtime SET provision_status=3, failure_code=#{failureCode},
+          failure_reason=#{failureReason}, updated_at=#{now} WHERE hyperlink_task_id=#{taskId}
+    </update>
+    <update id="resumeProvisioning">
+        UPDATE hyperlink_task_runtime SET provision_status=1,
+          failure_code=NULL, failure_reason=NULL, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=1 AND run_status=0
+          AND provision_status=3
+    </update>
+    <update id="markReady">
+        UPDATE hyperlink_task_runtime SET provision_status=2, recipient_total=#{recipientTotal},
+          current_round_id=#{roundId}, current_round_no=1, failure_code=NULL, failure_reason=NULL,
+          updated_at=#{now} WHERE hyperlink_task_id=#{taskId} AND provision_status=1
+    </update>
+    <update id="rebuildProjection">
+        UPDATE hyperlink_task_runtime r SET
+          recipient_total=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId}),
+          send_total=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.submitted_at IS NOT NULL),
+          success_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.send_status BETWEEN 3 AND 5),
+          delivered_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.send_status BETWEEN 4 AND 5),
+          read_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.send_status=5),
+          fail_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.send_status IN (6,7)),
+          fail_404_num=(SELECT COUNT(*) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.send_status=7),
+          invalid_account_count=(SELECT COUNT(*) FROM hyperlink_task_account_usage u
+            WHERE u.hyperlink_task_id=#{taskId} AND u.invalid_at IS NOT NULL),
+          used_account_count=(SELECT COUNT(DISTINCT x.account_id) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId} AND x.account_id IS NOT NULL),
+          last_send_at=(SELECT MAX(x.submitted_at) FROM hyperlink_task_recipient x WHERE x.hyperlink_task_id=#{taskId}),
+          actual_concurrency=COALESCE((SELECT x.actual_concurrency FROM hyperlink_task_round x
+            WHERE x.hyperlink_task_id=#{taskId} ORDER BY x.round_no DESC LIMIT 1),0),
+          metrics_updated_at=#{now}, updated_at=#{now}
+        WHERE r.hyperlink_task_id=#{taskId}
+    </update>
+    <update id="incrementProjection">
+        UPDATE hyperlink_task_runtime SET
+          send_total=send_total+#{delta.sendDelta},
+          success_num=success_num+#{delta.successDelta},
+          delivered_num=delivered_num+#{delta.deliveredDelta},
+          read_num=read_num+#{delta.readDelta},
+          fail_num=fail_num+#{delta.failedDelta},
+          fail_404_num=fail_404_num+#{delta.fail404Delta},
+          invalid_account_count=(SELECT COUNT(*) FROM hyperlink_task_account_usage u
+            WHERE u.tenant_id=#{delta.tenantId} AND u.hyperlink_task_id=#{delta.taskId}
+              AND u.invalid_at IS NOT NULL),
+          used_account_count=(SELECT COUNT(*) FROM hyperlink_task_account_stat s
+            WHERE s.tenant_id=#{delta.tenantId} AND s.hyperlink_task_id=#{delta.taskId}
+              AND s.account_id IS NOT NULL),
+          last_send_at=CASE
+            WHEN #{delta.lastSendAt} IS NULL THEN last_send_at
+            WHEN last_send_at IS NULL THEN #{delta.lastSendAt}
+            ELSE GREATEST(last_send_at,#{delta.lastSendAt}) END,
+          metrics_updated_at=#{now}, updated_at=#{now}
+        WHERE tenant_id=#{delta.tenantId} AND hyperlink_task_id=#{delta.taskId}
+    </update>
+    <update id="beginRebuild">
+        UPDATE hyperlink_task_runtime SET is_enabled=#{targetEnabled}, run_status=0,
+          provision_status=1, current_round_id=NULL, current_round_no=0,
+          failure_code=NULL, failure_reason=NULL, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND run_status=0 AND provision_status IN (2,3)
+    </update>
+    <update id="finishCleanupAsDraft">
+        UPDATE hyperlink_task_runtime SET is_enabled=0, provision_status=0,
+          current_round_id=NULL, current_round_no=0, recipient_total=0,
+          failure_code=NULL, failure_reason=NULL, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=0 AND run_status=0 AND provision_status=1
+    </update>
+    <update id="startRound">
+        UPDATE hyperlink_task_runtime SET run_status=1,
+          current_round_id=#{roundId}, current_round_no=#{roundNo},
+          actual_concurrency=#{actualConcurrency},
+          started_at=COALESCE(started_at,#{now}), active_since_at=#{now}, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=1 AND run_status=0 AND provision_status=2
+    </update>
+    <update id="updateCurrentRound">
+        UPDATE hyperlink_task_runtime SET current_round_id=#{roundId}, current_round_no=#{roundNo},
+          actual_concurrency=#{actualConcurrency}, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=1 AND run_status IN (0,1,3)
+          AND provision_status=2
+    </update>
+    <update id="markCompletedIfIdle">
+        UPDATE hyperlink_task_runtime r SET run_status=2, finished_at=#{now},
+          execution_duration_sec=execution_duration_sec+CASE
+            WHEN active_since_at IS NOT NULL THEN GREATEST(0,FLOOR((#{now}-active_since_at)/1000)) ELSE 0 END,
+          active_since_at=NULL, actual_concurrency=0, updated_at=#{now}
+        WHERE r.hyperlink_task_id=#{taskId} AND r.is_enabled=1 AND r.run_status=1
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_recipient x
+            WHERE x.hyperlink_task_id=#{taskId} AND x.send_status IN (1,2))
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_account_usage u
+            WHERE u.hyperlink_task_id=#{taskId} AND u.in_flight_count&gt;0)
+    </update>
+    <update id="stopAtDeadline">
+        UPDATE hyperlink_task_runtime SET run_status=4, finished_at=#{now},
+          execution_duration_sec=execution_duration_sec+CASE
+            WHEN run_status=1 AND active_since_at IS NOT NULL
+              THEN GREATEST(0,FLOOR((#{now}-active_since_at)/1000)) ELSE 0 END,
+          active_since_at=NULL, actual_concurrency=0, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND is_enabled=1 AND provision_status=2
+          AND run_status IN (0,1,3)
+    </update>
+    <select id="selectCompletionCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT r.tenant_id, r.hyperlink_task_id AS task_id
+        FROM hyperlink_task_runtime r
+        WHERE r.is_enabled=1 AND r.run_status=1 AND r.provision_status=2
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_round x
+            WHERE x.tenant_id=r.tenant_id AND x.hyperlink_task_id=r.hyperlink_task_id
+              AND x.round_status IN (1,2,3,4,5,7))
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_recipient x
+            WHERE x.tenant_id=r.tenant_id AND x.hyperlink_task_id=r.hyperlink_task_id
+              AND x.send_status IN (1,2))
+        ORDER BY r.updated_at, r.hyperlink_task_id LIMIT #{limit}
+    </select>
+</mapper>

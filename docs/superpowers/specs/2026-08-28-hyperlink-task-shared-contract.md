@@ -1,6 +1,6 @@
 # 超链任务公共契约
 
-> **冻结版本：v1.1，2026-08-28。** 本文是后续六份超链任务方案共同遵守的跨方案合同。
+> **冻结版本：v1.3，2026-08-29。** 本文是后续六份超链任务方案共同遵守的跨方案合同。
 > 它只冻结 HTTP、共享 DTO、枚举、指标、权限、错误和职责边界，不复制数据库字段全集，也不展开单个页面的
 > 组件、SQL、事务和测试实现。
 
@@ -55,7 +55,7 @@
 
 ```mermaid
 flowchart LR
-    C[公共契约 v1.1] --> H1[H1 列表]
+    C[公共契约 v1.3] --> H1[H1 列表]
     C --> H2[H2 表单/查看/复制]
     C --> H3[H3 发布/生命周期]
     H3 --> H1
@@ -164,7 +164,7 @@ interface HyperlinkTaskExportJob {
 | 类型 | API 值 | 数据库存储 | 说明 |
 |---|---|---:|---|
 | `HyperlinkMessageType` | `1` | 1 | 单图文；新建可选 |
-|  | `2` | 2 | 双图文；只读兼容，新建拒绝 |
+|  | `2` | 2 | 双图文；新建拒绝，历史任务编辑时锁定类型但内容可编辑 |
 |  | `3` | 3 | 普通按钮；新建默认 |
 |  | `4` | 4 | 卡片按钮；新建可选 |
 | `HyperlinkTaskMode` | `instant` | 1 | 即时群发 |
@@ -301,6 +301,11 @@ interface HyperlinkButton {
 ```typescript
 type HyperlinkPricingMode = "NORMAL" | "SUPER";
 
+interface HyperlinkFilterOption {
+  value: string | number;
+  label: string;
+}
+
 interface HyperlinkTaskCreateContext {
   pricingMode: HyperlinkPricingMode;
   priceCode: string;
@@ -313,6 +318,11 @@ interface HyperlinkTaskCreateContext {
   maxConcurrentNum: number;               // protocolCount * 15
   accountSendConcurrency: 20;
   defaultSubTaskNum: 50;
+  defaultAccountGroupIds: number[];        // 当前租户 public + hyperlink 系统业务组稳定 ID
+  groupOptions: HyperlinkFilterOption[];
+  countryOptions: HyperlinkFilterOption[];
+  channelOptions: HyperlinkFilterOption[];
+  protocolOptions: HyperlinkFilterOption[];
 }
 
 type HyperlinkTaskQuoteRequest =
@@ -357,12 +367,19 @@ interface HyperlinkTaskQuote {
 }
 ```
 
+四类筛选候选都由 `create-context` 在超链任务权限下通过对应业务域 Service 读取当前租户真实数据；不要求用户额外
+拥有账号分组或渠道菜单权限。协议候选取活跃账号的真实 `protocolId`，去重并稳定排序；没有独立显示名事实时
+`label=value`，不得虚构名称。
+
 `quoteToken` 由服务端签发并绑定租户、当前用户、数据包及代次、任务模式、运行价码、分国家人数、金额和失效时间；
 客户端不能提交单价、人数、余额或预计金额。金额后端统一用 `BigDecimal` 计算和序列化，前端只展示服务端值，
 不得用 JavaScript 浮点结果参与冻结。7 秒是确认按钮的交互倒计时，不是报价有效期；是否过期只看 `expiresAt`。
 
 `referenceUnitPrice` 仅用于新建页顶部展示。最终冻结一律使用 `HyperlinkTaskQuote`；多国家差异价时必须展示
 `pricingBreakdown` 和 `estimatedAmount`，不能拿参考单价乘总人数覆盖服务端结果。
+
+所有纯新建任务提交前都展示 7 秒“最后核对”，包括 `enabled=false` 的“仅保存（不发送）”。启用新建先获取
+服务端 Quote，再进入核对；仅保存新建不报价，但仍进入同一核对弹框。编辑、复制和查看不重复展示该弹框。
 
 START 报价完全读取未开始任务里已经保存的配置；客户端不得借 `purpose=START` 覆盖数据包、任务模式或并发。
 仅保存任务没有数据包时不能 START，必须先编辑补全配置。复制和未开始编辑不展示竞品没有的第二次 7 秒弹框，
@@ -412,6 +429,11 @@ interface HyperlinkAccountFilter {
 
 后端固定附加账号有效、未导出、未被陌生人禁言三个条件，不作为 JSON 可编辑字段。`groupInviteAllowed` 仍由
 用户筛选。API 使用稳定字段 `importBatchId`，不暴露竞品不稳定的 `importNo` 命名。
+
+新建和账号筛选弹框的“清空条件”默认选中系统业务分组 `public + hyperlink`；用户主动移除这两个分组后，
+`groupIds=[]` 才表示不限业务分组。默认值必须由 `create-context.defaultAccountGroupIds` 返回稳定数据库 ID，前端
+不得写死 ID 或按显示名称猜测。Armada 当前 `account_group` 只有单一 `system_builtin` 默认组且没有稳定业务代码，
+因此业务分组代码与系统组迁移是 H2 上线前置；完成前不得把空数组静默当作竞品默认范围。
 
 ```typescript
 interface HyperlinkAccountMatchCount {
@@ -523,7 +545,7 @@ interface HyperlinkTaskSummary extends HyperlinkTaskMetrics {
 |---|---|---|---|---|
 | GET | `/api/hyperlink-tasks` | Query → `PageResult<HyperlinkTaskListItem>` | `view` | H1 |
 | GET | `/api/hyperlink-tasks/export` | 同列表筛选/排序 → CSV | `export` | H1 |
-| GET | `/api/hyperlink-tasks/create-context` | — → `HyperlinkTaskCreateContext` | `create` | H2 |
+| GET | `/api/hyperlink-tasks/create-context` | — → `HyperlinkTaskCreateContext` | `create`、`edit` 或 `view` | H2 |
 | POST | `/api/hyperlink-tasks/account-match-count` | `HyperlinkAccountFilter` → `HyperlinkAccountMatchCount` | `create` 或 `edit` | H2 |
 | GET | `/api/hyperlink-tasks/{id}` | — → `HyperlinkTaskDetail` | `view` | H2 |
 | POST | `/api/hyperlink-tasks/quote` | `HyperlinkTaskQuoteRequest` → `HyperlinkTaskQuote` | `create` 或 `action` | H3 |

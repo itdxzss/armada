@@ -4,6 +4,7 @@ import com.armada.account.model.dto.AccountGroupQuery;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.vo.AccountGroupVoRow;
+import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -34,6 +35,9 @@ public interface AccountGroupMapper {
      * @return 当前页分组 VoRow 列表(含 accountCount 聚合字段)
      */
     List<AccountGroupVoRow> selectPage(AccountGroupQuery query);
+
+    /** 当前租户活跃分组下拉，按名称和 ID 稳定排序。 */
+    List<AccountGroupOptionVO> selectOptions();
 
     /**
      * 批量读取当前页占用任务的主状态及拉群资源状态。

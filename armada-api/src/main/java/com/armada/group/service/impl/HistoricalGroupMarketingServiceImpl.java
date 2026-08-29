@@ -235,7 +235,8 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
             String commandId) {
         return new MessageSendCommand(
                 account,
-                new MessageSendCommand.MessageTarget(execution.getGroupJid()),
+                new MessageSendCommand.MessageTarget(
+                        execution.getGroupJid(), MessageSendCommand.TargetKind.GROUP),
                 new MessageSendCommand.MessagePayload(
                         messageType(message.messageType()),
                         new MessageSendCommand.MessageContent(
@@ -249,7 +250,8 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
                         SOURCE_HISTORICAL_GROUP_PULL,
                         null,
                         null,
-                        new MessageSendCommand.HistoricalGroupCorrelation(execution.getId(), member.getId())),
+                        new MessageSendCommand.HistoricalGroupCorrelation(execution.getId(), member.getId()),
+                        null),
                 commandId,
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);

@@ -4,6 +4,7 @@ import com.armada.hyperlink.data.model.dto.DataPackagePhoneQuery;
 import com.armada.hyperlink.data.model.entity.DataPackagePhone;
 import com.armada.hyperlink.data.model.vo.DataPackagePhoneCleanupRow;
 import com.armada.hyperlink.data.model.vo.DataPackageStatusCountRow;
+import com.armada.hyperlink.data.model.vo.DataPackageClaimCountryCount;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -12,6 +13,35 @@ import org.apache.ibatis.annotations.Param;
 /** 数据包号码成员的批量写入、当前代分页与保留期清理。 */
 @Mapper
 public interface DataPackagePhoneMapper {
+    long selectClaimUpperPhoneId(@Param("dataPackageId") long dataPackageId,
+                                 @Param("generation") int generation);
+    int countClaimable(@Param("dataPackageId") long dataPackageId,
+                       @Param("generation") int generation, @Param("upperId") long upperId);
+    List<DataPackageClaimCountryCount> selectClaimableCountryCounts(
+            @Param("dataPackageId") long dataPackageId, @Param("generation") int generation,
+            @Param("upperId") long upperId);
+    @InterceptorIgnore(tenantLine = "true")
+    List<DataPackagePhone> lockNextClaimable(@Param("tenantId") long tenantId,
+            @Param("dataPackageId") long dataPackageId,
+            @Param("generation") int generation, @Param("cursor") long cursor,
+            @Param("upperId") long upperId, @Param("limit") int limit);
+    int claimByIds(@Param("ids") List<Long> ids, @Param("taskId") long taskId,
+                   @Param("now") long now);
+    int releaseByPhones(@Param("phones") List<String> phones, @Param("taskId") long taskId,
+            @Param("dataPackageId") long dataPackageId, @Param("generation") int generation,
+            @Param("now") long now);
+    @InterceptorIgnore(tenantLine = "true")
+    List<DataPackagePhone> lockOwnedBatch(@Param("tenantId") long tenantId,
+            @Param("taskId") long taskId,
+            @Param("dataPackageId") long dataPackageId, @Param("generation") int generation,
+            @Param("limit") int limit);
+    int releaseByIds(@Param("ids") List<Long> ids, @Param("taskId") long taskId,
+                     @Param("now") long now);
+    DataPackagePhone selectOwnedPhoneForUpdate(@Param("taskId") long taskId,
+            @Param("dataPackageId") long dataPackageId, @Param("generation") int generation,
+            @Param("phone") String phone);
+    int advanceOwnedStatus(@Param("id") long id, @Param("fromStatus") int fromStatus,
+            @Param("toStatus") int toStatus, @Param("now") long now);
 
     /** 批量插入同一导入批次产生的号码成员。 */
     int batchInsert(@Param("rows") List<DataPackagePhone> rows);

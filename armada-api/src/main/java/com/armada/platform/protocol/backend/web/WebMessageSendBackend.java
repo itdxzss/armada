@@ -55,6 +55,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
+        MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
         MessageSendCommand.MessageContent content = command.payload().content();
         WebMessagePayload payload = new WebMessagePayload(
                 correlation.tenantId(),
@@ -64,7 +65,10 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 marketing == null ? null : marketing.roundNo(),
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
-                command.target().groupJid(),
+                command.target().jid(),
+                command.target().kind().name(),
+                command.target().kind() == MessageSendCommand.TargetKind.GROUP
+                        ? command.target().jid() : null,
                 command.payload().type().name(),
                 content.text(),
                 media(content.image()),
@@ -75,7 +79,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 groupCreation == null ? null : groupCreation.taskId(),
                 groupCreation == null ? null : groupCreation.itemId(),
                 historicalGroup == null ? null : historicalGroup.executionId(),
-                historicalGroup == null ? null : historicalGroup.memberId());
+                historicalGroup == null ? null : historicalGroup.memberId(),
+                hyperlink == null ? null : hyperlink.taskId(),
+                hyperlink == null ? null : hyperlink.recipientId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.WEB,
@@ -123,6 +129,8 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             Long roundNo,
             Long accountId,
             String protocolAccountId,
+            String jid,
+            String targetKind,
             String groupJid,
             String messageType,
             String text,
@@ -134,7 +142,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             Long groupCreationTaskId,
             Long groupCreationItemId,
             Long historicalExecutionId,
-            Long historicalMemberId
+            Long historicalMemberId,
+            Long hyperlinkTaskId,
+            Long hyperlinkRecipientId
     ) {
     }
 

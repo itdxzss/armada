@@ -124,6 +124,25 @@ class AccountGroupMapperH2Test {
         assertThat(row.getExecutableOnlineCount()).isEqualTo(2L);
     }
 
+    @Test
+    void optionsAreActiveTenantScopedAndStablySorted() throws SQLException {
+        execute("INSERT INTO account_group VALUES "
+                + "(11,7,'A组',NULL,NULL,NULL,NULL,0,100,100,NULL)");
+        execute("INSERT INTO account_group VALUES "
+                + "(12,7,'已删除',NULL,NULL,NULL,NULL,0,100,100,200)");
+        execute("INSERT INTO account_group VALUES "
+                + "(13,8,'其他租户',NULL,NULL,NULL,NULL,0,100,100,NULL)");
+
+        assertThat(mapper.selectOptions())
+                .extracting(option -> option.id() + ":" + option.name())
+                .containsExactly("11:A组", "10:次管理员组");
+
+        TenantContext.set(8L);
+        assertThat(mapper.selectOptions())
+                .extracting(option -> option.id() + ":" + option.name())
+                .containsExactly("13:其他租户");
+    }
+
     private void insertAccount(
             long id,
             String wsPhone,

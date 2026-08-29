@@ -15,3 +15,7 @@
 `YYYY-MM-DD-<kebab-主题>.md`，例：`2026-06-16-pull-task-detail-stats.md`。
 
 > 注：`docs/_tasks/` 是更早的零散计划区；新任务统一用本目录的模板，逐步收口。
+
+## 近期超链任务记录
+
+- [2026-08-29 H6 深度归因与访问分析](./2026-08-29-hyperlink-task-h6-attribution.md)

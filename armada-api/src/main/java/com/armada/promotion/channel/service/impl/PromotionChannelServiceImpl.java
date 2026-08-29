@@ -19,6 +19,7 @@ import com.armada.promotion.channel.model.vo.FacebookStandardEventVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
+import com.armada.promotion.channel.model.vo.PromotionChannelOptionVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
@@ -243,6 +244,11 @@ public class PromotionChannelServiceImpl implements PromotionChannelService {
                         countries.get(row.getPreselectedCountry())))
                 .toList();
         return PageResult.of(items, query.getPage(), query.getPageSize(), total);
+    }
+
+    @Override
+    public List<PromotionChannelOptionVO> options() {
+        return List.copyOf(mapper.selectOptions());
     }
 
     /** {@inheritDoc} */

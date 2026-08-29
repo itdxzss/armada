@@ -254,15 +254,38 @@ Service 用 Mockito。累计新增约 130 个用例，全部不依赖数据库�
     的相关子查询能否执行
   - `claimDueRound` / `claimForSend` 两道条件更新在真并发下的抢占行为
   - 圈号 SQL 里 `UNIX_TIMESTAMP() * 1000` 与 `created_at`（epoch 毫秒）的比较是否符合预期
-- **B 线新增、必须在有库/有 Kafka 环境验的几条**：
-  - `V161` 迁移能否跑通 Flyway（只改列注释，但仍是一次 `ALTER TABLE`）
-  - 新 topic `protocol.account.contact-sync.events.v1` 是否已在环境里建好，
+- **B 线：以下几条已被 `AccountContactSnapshotSinkH2Test` 覆盖，不必再等真库**（16 个用例，
+  H2 `MODE=MySQL` + 真实 Mapper XML + 真实租户拦截器）：
+  - `ON DUPLICATE KEY UPDATE` 的真实幂等性（同一片重投不产生重复行、不清空本批）
+  - `deleteStale` 让删除真的收敛（号主删掉的联系人消失、空快照清空残留）
+  - 分片**乱序到达**仍能收敛（末片先到不触发删除，补齐后才删）
+  - 丢片时保留陈数据并记 `SYNCING`；协议判定不完整时记 `PARTIAL` 且不删
+  - `countBySyncedAt` 是精确匹配而非 `>=`；`countNamedBySyncedAt` 只数有名字的
+  - 回写的是整份快照的计数而不是最后一片
+  - `synced_at` / `last_synced_at` 落的是协议 cutoff 而不是本地时钟
+  - 租户拦截器在 Kafka 线程上把 `tenant_id` 写进三张表，且不碰别的租户的行
+  - 下游 `selectNamedByAccount` 的目标集口径与 `LIMIT` 下推
+
+- **B 线仍然只能在有库/有 Kafka 环境验的**：
+  - `V161` 迁移能否跑通 Flyway（H2 吃不下本仓的 MySQL DDL，见下）
+  - 新 topic `protocol.account.contact-sync.events.v1` 是否已建好，
     `ProtocolAccountContactEventConsumer` 能否被 `@Profile("kafka")` 正确装配
-  - `countBySyncedAt` / `countNamedBySyncedAt` 在真实数据量下的执行计划
-    （`account_contact` 上 `(account_id, synced_at)` 有没有可用索引，没有会全表扫）
-  - 「收齐即替换」在真实分片乱序到达下的行为：末片先到时不该触发删除
-  - `AccountContactSnapshotSink` 的 `TenantContext.set(event.tenantId())` 能否让
-    MyBatis-Plus 租户拦截器在 Kafka 线程上正确生效
+  - 真实数据量下的执行计划（`account_contact` 的 `idx_account_contact_sweep`
+    能否让 `countBySyncedAt` 走索引）
+  - 真并发下的抢占行为
+
+> **为什么不能把 `*DbTest` 整体改成 H2**（实测过，别再试）：把 162 个迁移文件灌进
+> H2 `MODE=MySQL`，只有 29 个能完整跑通，1402 条语句失败 / 169 条成功。
+> 卡点是结构性的：`SET @x := ...` + `PREPARE stmt FROM @sql`（34 个文件用它做幂等加列）、
+> 列级 `CHARACTER SET ... COLLATE`（44 个文件）、
+> `GENERATED ALWAYS AS (IF(...)) VIRTUAL`、`ON UPDATE CURRENT_TIMESTAMP`、
+> `ENGINE=InnoDB ... COMMENT=`。要让 H2 吃下去就得改生产 DDL。
+> 而且 70 个 `DbTestBase` 子类里有 50 个注释里明说自己是为验证 MySQL 专有语义而存在的，
+> 典型如 `PullTaskNormalLinkCollationDbTest`——它钉的就是「H2 默认大小写敏感，
+> 这个缺陷在内存测试里静默通过」。改成 H2 等于把它从能抓 bug 变成永远绿。
+>
+> **正确做法是仓库既有的两层**：能在内存里验的写 `*H2Test`（自建 H2 数据源 + 手写该测试
+> 用到的那几张表 DDL），只有真 MySQL 能验的留 `*DbTest`，用 `armada-api/dbtest.sh` 跑。
 - **`.harness/wiki/gen_datamodel.py` 本次没有重跑**：它读 `/tmp/wheel_*.tsv`（information_schema
   真库转储），本机无库拿不到输入。部署到有库环境后必须补跑，把 V160 三列同步进数据模型文档
 

@@ -93,6 +93,7 @@ public class MarketingMessageCommandFactory {
                         new MessageSendCommand.MarketingCorrelation(
                                 task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
                         null,
+                        null,
                         null),
                 attempt.getCommandId(),
                 accountGroupSendIntervalMs(task),

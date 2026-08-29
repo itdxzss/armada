@@ -519,6 +519,7 @@ public class GroupCreationMarketingWorker {
                         SOURCE_GROUP_CREATION_MARKETING,
                         null,
                         new MessageSendCommand.GroupCreationCorrelation(taskId, item.getId()),
+                        null,
                         null),
                 commandId,
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,

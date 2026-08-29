@@ -98,6 +98,7 @@ class RoutingMessageSendPortTest {
                         "marketing_task",
                         new MessageSendCommand.MarketingCorrelation(2L, 3L, 4L, 1L),
                         null,
+                        null,
                         null),
                 commandId,
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,

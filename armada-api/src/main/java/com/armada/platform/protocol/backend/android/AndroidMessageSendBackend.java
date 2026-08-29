@@ -220,6 +220,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
+        MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
         MessageSendCommand.MessageContent content = command.payload().content();
         AndroidMessagePayload payload = new AndroidMessagePayload(
                 correlation.tenantId(),
@@ -238,11 +239,17 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 marketing == null ? null : marketing.taskId(),
                 marketing == null ? null : marketing.targetId(),
                 marketing == null ? null : marketing.attemptId(),
-                marketing == null ? null : marketing.roundNo(),
+                // 轮次号是普通营销和通讯录营销共用的 wire 字段，两种来源都要能填上
+                marketing != null
+                        ? marketing.roundNo()
+                        : contactTask == null ? null : contactTask.roundNo(),
                 groupCreation == null ? null : groupCreation.taskId(),
                 groupCreation == null ? null : groupCreation.itemId(),
                 historicalGroup == null ? null : historicalGroup.executionId(),
-                historicalGroup == null ? null : historicalGroup.memberId());
+                historicalGroup == null ? null : historicalGroup.memberId(),
+                contactTask == null ? null : contactTask.taskId(),
+                contactTask == null ? null : contactTask.taskAccountId(),
+                contactTask == null ? null : contactTask.recipientId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -321,7 +328,10 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long groupCreationTaskId,
             Long groupCreationItemId,
             Long historicalExecutionId,
-            Long historicalMemberId
+            Long historicalMemberId,
+            Long contactTaskId,
+            Long taskAccountId,
+            Long recipientId
     ) {
     }
 

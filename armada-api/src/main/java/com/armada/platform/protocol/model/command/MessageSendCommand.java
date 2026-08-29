@@ -124,13 +124,15 @@ public record MessageSendCommand(
      * @param marketing 普通营销关联
      * @param groupCreation 建群营销关联
      * @param historicalGroup 历史群拉人营销关联
+     * @param contactTask 通讯录营销关联
      */
     public record MessageCorrelation(
             Long tenantId,
             String source,
             MarketingCorrelation marketing,
             GroupCreationCorrelation groupCreation,
-            HistoricalGroupCorrelation historicalGroup
+            HistoricalGroupCorrelation historicalGroup,
+            ContactTaskCorrelation contactTask
     ) {
     }
 
@@ -161,5 +163,25 @@ public record MessageSendCommand(
      * @param memberId 本次发送账号对应的执行成员 ID
      */
     public record HistoricalGroupCorrelation(Long executionId, Long memberId) {
+    }
+
+    /**
+     * 通讯录营销任务关联信息。
+     *
+     * <p>四个字段是协议层的硬契约：{@code source='contact_task'} 时缺任一，
+     * 协议层判 {@code invalid message send payload} 直接丢弃。wire 名分别是
+     * {@code contactTaskId} / {@code taskAccountId} / {@code recipientId} / {@code roundNo}。</p>
+     *
+     * @param taskId 通讯录营销任务 ID
+     * @param taskAccountId 任务账号行 ID
+     * @param recipientId 收件人明细 ID
+     * @param roundNo 轮次号
+     */
+    public record ContactTaskCorrelation(
+            Long taskId,
+            Long taskAccountId,
+            Long recipientId,
+            Long roundNo
+    ) {
     }
 }

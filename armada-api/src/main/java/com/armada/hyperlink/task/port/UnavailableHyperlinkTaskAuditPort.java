@@ -2,12 +2,8 @@ package com.armada.hyperlink.task.port;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.stereotype.Component;
 
 /** 仓库尚无通用审计落点时失败关闭，不以日志或新建临时表冒充审计。 */
-@Component
-@ConditionalOnMissingBean(HyperlinkTaskAuditPort.class)
 public class UnavailableHyperlinkTaskAuditPort implements HyperlinkTaskAuditPort {
     @Override
     public void requireAvailable() {

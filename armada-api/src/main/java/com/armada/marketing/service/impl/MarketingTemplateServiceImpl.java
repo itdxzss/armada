@@ -11,6 +11,7 @@ import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTemplateService;
+import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -45,15 +46,29 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private final MarketingTaskMapper taskMapper;
     private final MarketingTemplateConverter converter;
     private final MarketingAccountOccupancyService occupancyService;
+    /** 模板写入前锁定并复核关联素材。 */
+    private final MarketingTemplateFileService fileService;
 
-    public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper,
-                                        MarketingTaskMapper taskMapper,
-                                        MarketingTemplateConverter converter,
-                                        MarketingAccountOccupancyService occupancyService) {
+    /**
+     * 创建营销模板业务服务。
+     *
+     * @param mapper 营销模板数据访问
+     * @param taskMapper 营销任务引用数据访问
+     * @param converter 营销模板 DTO、实体与响应转换器
+     * @param occupancyService 营销账号占用管理服务
+     * @param fileService 素材行锁与字节校验服务
+     */
+    public MarketingTemplateServiceImpl(
+            MarketingTemplateMapper mapper,
+            MarketingTaskMapper taskMapper,
+            MarketingTemplateConverter converter,
+            MarketingAccountOccupancyService occupancyService,
+            MarketingTemplateFileService fileService) {
         this.mapper = mapper;
         this.taskMapper = taskMapper;
         this.converter = converter;
         this.occupancyService = occupancyService;
+        this.fileService = fileService;
     }
 
     /**
@@ -84,6 +99,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         LinkMode mode = validate(dto, null);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
+        lockImage(entity.getImageFileId());
         long now = System.currentTimeMillis();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
@@ -107,6 +123,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         LinkMode mode = validate(dto, id);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
+        lockImage(entity.getImageFileId());
         entity.setId(id);
         entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
@@ -142,6 +159,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setPromotionLink(origin.getPromotionLink());
         copy.setMentionAll(origin.getMentionAll());
         normalizeByMode(copy, LinkMode.fromCode(copy.getLinkMode()));
+        lockImage(copy.getImageFileId());
         copy.setRemark(origin.getRemark());
         long now = System.currentTimeMillis();
         copy.setCreatedAt(now);
@@ -224,6 +242,12 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private static void normalizeByMode(MarketingTemplate entity, LinkMode mode) {
         if (mode == LinkMode.BUTTON) {
             entity.setPromotionLink(null);
+        }
+    }
+
+    private void lockImage(Long imageFileId) {
+        if (imageFileId != null) {
+            fileService.lockAndValidateBindableAssets(List.of(imageFileId));
         }
     }
 

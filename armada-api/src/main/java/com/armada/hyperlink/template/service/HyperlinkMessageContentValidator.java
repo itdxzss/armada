@@ -141,7 +141,7 @@ public class HyperlinkMessageContentValidator {
     private void validateAsset(Long assetId) {
         MarketingTemplateFileContent file;
         try {
-            file = fileService.content(assetId);
+            file = fileService.lockContentForBinding(assetId);
         } catch (BusinessException exception) {
             if (exception.getCode() == ErrorCode.NOT_FOUND.code()) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "图片不存在或已删除");

@@ -13,10 +13,12 @@ import com.armada.hyperlink.template.model.vo.HyperlinkTemplateListItemVO;
 import com.armada.hyperlink.template.model.vo.HyperlinkTemplateOptionVO;
 import com.armada.hyperlink.template.service.HyperlinkMessageContentValidator;
 import com.armada.hyperlink.template.service.HyperlinkTemplateService;
+import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import java.util.List;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -46,14 +48,26 @@ public class HyperlinkTemplateServiceImpl implements HyperlinkTemplateService {
     private final HyperlinkTemplateConverter converter;
     /** 共享消息内容校验器。 */
     private final HyperlinkMessageContentValidator contentValidator;
+    /** 复制模板时锁定并复核沿用的素材。 */
+    private final MarketingTemplateFileService fileService;
 
+    /**
+     * 创建超链模板业务服务。
+     *
+     * @param mapper 超链模板数据访问
+     * @param converter 超链模板 DTO、实体与响应转换器
+     * @param contentValidator 消息内容归一化与素材绑定校验器
+     * @param fileService 素材行锁与字节校验服务
+     */
     public HyperlinkTemplateServiceImpl(
             HyperlinkTemplateMapper mapper,
             HyperlinkTemplateConverter converter,
-            HyperlinkMessageContentValidator contentValidator) {
+            HyperlinkMessageContentValidator contentValidator,
+            MarketingTemplateFileService fileService) {
         this.mapper = mapper;
         this.converter = converter;
         this.contentValidator = contentValidator;
+        this.fileService = fileService;
     }
 
     /** {@inheritDoc} */
@@ -150,6 +164,12 @@ public class HyperlinkTemplateServiceImpl implements HyperlinkTemplateService {
     @Transactional(rollbackFor = Exception.class)
     public HyperlinkTemplateDetailVO copy(Long id, long createdBy) {
         HyperlinkTemplate origin = requireExisting(id);
+        List<Long> assetIds = Stream.of(origin.getLinkPreviewAssetId(), origin.getBodyMainAssetId())
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (!assetIds.isEmpty()) {
+            fileService.lockAndValidateBindableAssets(assetIds);
+        }
         HyperlinkTemplate copy = converter.copyBusiness(origin);
         copy.setTemplateName(nextCopyName(origin.getTemplateName()));
         copy.setVersion(1);

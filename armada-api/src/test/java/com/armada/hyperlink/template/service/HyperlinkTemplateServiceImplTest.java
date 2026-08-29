@@ -37,9 +37,9 @@ class HyperlinkTemplateServiceImplTest {
     void setUp() {
         mapper = new FakeHyperlinkTemplateMapper();
         HyperlinkTemplateConverter converter = Mappers.getMapper(HyperlinkTemplateConverter.class);
-        HyperlinkMessageContentValidator validator =
-                new HyperlinkMessageContentValidator(new NoAssetFileService());
-        service = new HyperlinkTemplateServiceImpl(mapper, converter, validator);
+        MarketingTemplateFileService fileService = new NoAssetFileService();
+        HyperlinkMessageContentValidator validator = new HyperlinkMessageContentValidator(fileService);
+        service = new HyperlinkTemplateServiceImpl(mapper, converter, validator, fileService);
     }
 
     @Test
@@ -242,6 +242,16 @@ class HyperlinkTemplateServiceImplTest {
 
         @Override
         public MarketingTemplateFileContent content(Long id) {
+            throw new UnsupportedOperationException("测试请求不绑定图片");
+        }
+
+        @Override
+        public MarketingTemplateFileContent lockContentForBinding(Long id) {
+            throw new UnsupportedOperationException("测试请求不绑定图片");
+        }
+
+        @Override
+        public void lockAndValidateBindableAssets(java.util.Collection<Long> ids) {
             throw new UnsupportedOperationException("测试请求不绑定图片");
         }
     }

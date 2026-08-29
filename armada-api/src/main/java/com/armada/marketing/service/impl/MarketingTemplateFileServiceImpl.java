@@ -1,5 +1,6 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.marketing.asset.service.ResourceAssetImageValidator;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import com.armada.marketing.model.vo.MarketingTemplateFileContent;
@@ -7,8 +8,13 @@ import com.armada.marketing.model.vo.MarketingTemplateFileVO;
 import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -18,12 +24,19 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileService {
 
+    /** 营销模板图片文件数据访问。 */
     private final MarketingTemplateFileMapper mapper;
 
+    /**
+     * 创建营销模板图片服务。
+     *
+     * @param mapper 营销模板图片文件数据访问
+     */
     public MarketingTemplateFileServiceImpl(MarketingTemplateFileMapper mapper) {
         this.mapper = mapper;
     }
 
+    /** {@inheritDoc} */
     @Override
     public MarketingTemplateFileVO uploadImage(MultipartFile file) {
         // 先做轻量校验，再读取二进制内容，避免无效文件进入后续持久化流程。
@@ -36,12 +49,16 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         row.setContentType(file.getContentType());
         row.setSizeBytes((long) bytes.length);
         row.setContent(bytes);
-        row.setCreatedAt(System.currentTimeMillis());
+        row.setAssetName(truncate(originalFilename(file), 128));
+        long now = System.currentTimeMillis();
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
         // tenant_id 由 MyBatis 租户拦截器从 TenantContext 自动注入。
         mapper.insert(row);
         return toVO(row);
     }
 
+    /** {@inheritDoc} */
     @Override
     public MarketingTemplateFileContent content(Long id) {
         // selectById 同样受租户拦截器约束，避免跨租户读取图片二进制。
@@ -50,6 +67,39 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
             throw new BusinessException(ErrorCode.NOT_FOUND, "营销模板图片不存在: " + id);
         }
         return new MarketingTemplateFileContent(row.getContentType(), row.getContent());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public MarketingTemplateFileContent lockContentForBinding(Long id) {
+        MarketingTemplateFile row = lockExisting(id);
+        return new MarketingTemplateFileContent(row.getContentType(), row.getContent());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockAndValidateBindableAssets(Collection<Long> ids) {
+        List<Long> normalizedIds = ids == null
+                ? List.of()
+                : ids.stream().filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        for (Long id : normalizedIds) {
+            MarketingTemplateFile row = lockExisting(id);
+            ResourceAssetImageValidator.validateBindable(row.getContentType(), row.getContent());
+        }
+    }
+
+    private MarketingTemplateFile lockExisting(Long id) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        MarketingTemplateFile row = mapper.selectByIdForUpdate(tenantId, id);
+        if (row == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "图片不存在或已删除");
+        }
+        return row;
     }
 
     private void validateImage(MultipartFile file) {
@@ -92,5 +142,9 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
 
     private String contentUrl(Long id) {
         return "/api/marketing-template-files/" + id + "/content";
+    }
+
+    private static String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 }

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.asset.mapper.ResourceAssetTagMapper">
+
+    <insert id="insertIgnore" parameterType="com.armada.marketing.asset.model.entity.ResourceAssetTag"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO resource_asset_tag (tag_name, created_at)
+        VALUES (#{tagName}, #{createdAt})
+    </insert>
+
+    <select id="selectByNames" resultType="com.armada.marketing.asset.model.entity.ResourceAssetTag">
+        SELECT id, tenant_id, tag_name, created_at
+        FROM resource_asset_tag
+        WHERE tag_name IN
+        <foreach collection="names" item="name" open="(" separator="," close=")">#{name}</foreach>
+        ORDER BY id ASC
+    </select>
+
+    <delete id="deleteRefsByFileId">
+        DELETE FROM resource_asset_tag_ref WHERE file_id = #{fileId}
+    </delete>
+
+    <insert id="insertRefIgnore">
+        INSERT IGNORE INTO resource_asset_tag_ref (file_id, resource_asset_tag_id, created_at)
+        VALUES (#{fileId}, #{tagId}, #{createdAt})
+    </insert>
+
+    <select id="selectRelationsByFileIds"
+            resultType="com.armada.marketing.asset.model.vo.ResourceAssetTagRelationVO">
+        SELECT tag_ref.file_id AS fileId, tag.tag_name AS tagName
+        FROM resource_asset_tag_ref tag_ref
+        INNER JOIN resource_asset_tag tag ON tag.id = tag_ref.resource_asset_tag_id
+        WHERE tag_ref.file_id IN
+        <foreach collection="fileIds" item="fileId" open="(" separator="," close=")">#{fileId}</foreach>
+        ORDER BY tag_ref.file_id ASC, tag_ref.id ASC
+    </select>
+
+    <select id="selectActiveTagNames" resultType="string">
+        SELECT DISTINCT tag.tag_name
+        FROM resource_asset_tag tag
+        INNER JOIN resource_asset_tag_ref tag_ref ON tag_ref.resource_asset_tag_id = tag.id
+        INNER JOIN marketing_template_file file ON file.id = tag_ref.file_id AND file.deleted_at IS NULL
+        ORDER BY tag.tag_name ASC
+    </select>
+</mapper>

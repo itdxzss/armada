@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskMapper">
+
+  <sql id="taskColumns">
+    id, tenant_id, name, message_type, title, description, promotion_link, content,
+    preview_image_file_id, account_filter, msg_interval_min_sec, msg_interval_max_sec,
+    concurrency, max_sends_per_account, retry_max, start_mode, task_delay_minutes,
+    task_start_at, is_enabled, run_status, next_round_at, total_send_num,
+    success_message_num, used_account_count, invalid_account_num, avg_send_per_account,
+    created_by, created_at, updated_at, deleted_at
+  </sql>
+
+  <sql id="listConditions">
+    AND deleted_at IS NULL
+    <if test="query.name != null and query.name != ''">
+      AND name LIKE CONCAT('%', #{query.name}, '%')
+    </if>
+    <if test="query.runStatus != null">
+      AND run_status = #{query.runStatus}
+    </if>
+    <if test="query.createdAtStart != null">
+      AND created_at &gt;= #{query.createdAtStart}
+    </if>
+    <if test="query.createdAtEnd != null">
+      AND created_at &lt;= #{query.createdAtEnd}
+    </if>
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO contact_friend_task (
+      tenant_id, name, message_type, title, description, promotion_link, content,
+      preview_image_file_id, account_filter, msg_interval_min_sec, msg_interval_max_sec,
+      concurrency, max_sends_per_account, retry_max, start_mode, task_delay_minutes,
+      task_start_at, is_enabled, run_status, created_by, created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{name}, #{messageType}, #{title}, #{description}, #{promotionLink}, #{content},
+      #{previewImageFileId}, #{accountFilter}, #{msgIntervalMinSec}, #{msgIntervalMaxSec},
+      #{concurrency}, #{maxSendsPerAccount}, #{retryMax}, #{startMode}, #{taskDelayMinutes},
+      #{taskStartAt}, #{isEnabled}, #{runStatus}, #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.contact.task.model.entity.ContactFriendTask">
+    SELECT <include refid="taskColumns"/>
+      FROM contact_friend_task
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </select>
+
+  <select id="selectPage" resultType="com.armada.contact.task.model.entity.ContactFriendTask">
+    SELECT <include refid="taskColumns"/>
+      FROM contact_friend_task
+     WHERE 1 = 1
+     <include refid="listConditions"/>
+     ORDER BY created_at DESC, id DESC
+     LIMIT #{query.offset}, #{query.pageSizeOrDefault}
+  </select>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+      FROM contact_friend_task
+     WHERE 1 = 1
+     <include refid="listConditions"/>
+  </select>
+
+  <update id="updateForm">
+    UPDATE contact_friend_task
+       SET name = #{name},
+           title = #{title},
+           description = #{description},
+           promotion_link = #{promotionLink},
+           content = #{content},
+           preview_image_file_id = #{previewImageFileId},
+           account_filter = #{accountFilter},
+           msg_interval_min_sec = #{msgIntervalMinSec},
+           msg_interval_max_sec = #{msgIntervalMaxSec},
+           concurrency = #{concurrency},
+           max_sends_per_account = #{maxSendsPerAccount},
+           retry_max = #{retryMax},
+           start_mode = #{startMode},
+           task_delay_minutes = #{taskDelayMinutes},
+           task_start_at = #{taskStartAt},
+           is_enabled = #{isEnabled},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <!-- 条件更新：run_status 必须仍等于期望值，否则本次动作作废。 -->
+  <update id="updateRunStatus">
+    UPDATE contact_friend_task
+       SET run_status = #{nextRunStatus},
+           next_round_at = #{nextRoundAt},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND run_status = #{expectedRunStatus}
+  </update>
+
+</mapper>

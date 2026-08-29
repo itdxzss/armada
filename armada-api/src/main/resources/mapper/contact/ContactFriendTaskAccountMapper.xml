@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskAccountMapper">
+
+  <select id="selectPage"
+          resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
+    SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
+           account_status_snapshot, need_send_num, sent_num, fail_num, state,
+           contact_synced_at, created_at, updated_at
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId}
+     ORDER BY
+    <choose>
+      <when test="sortBy == 'needSendNum'">need_send_num</when>
+      <when test="sortBy == 'sentNum'">sent_num</when>
+      <when test="sortBy == 'failNum'">fail_num</when>
+      <otherwise>id</otherwise>
+    </choose>
+    <choose>
+      <when test="sortOrder == 'asc'">ASC</when>
+      <otherwise>DESC</otherwise>
+    </choose>
+    , id ASC
+     LIMIT #{offset}, #{limit}
+  </select>
+
+  <select id="countByTaskId" resultType="long">
+    SELECT COUNT(*)
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId}
+  </select>
+
+</mapper>

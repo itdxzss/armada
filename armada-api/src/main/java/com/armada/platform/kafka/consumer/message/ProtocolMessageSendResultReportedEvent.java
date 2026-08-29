@@ -54,6 +54,42 @@ public record ProtocolMessageSendResultReportedEvent(
         String groupStatusReason,
         Long groupStatusCheckedAt,
         Long historicalExecutionId,
-        Long historicalMemberId
+        Long historicalMemberId,
+        String jid,
+        String targetKind,
+        Long hyperlinkTaskId,
+        Long hyperlinkRecipientId,
+        String outcome,
+        Boolean terminal
 ) {
+    /** 已扩展通用 target/correlation、但尚无 outcome 的事件构造兼容。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId, String jid, String targetKind,
+            Long hyperlinkTaskId, Long hyperlinkRecipientId) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId, null, null);
+    }
+
+    /** 存量群营销事件构造兼容；通用 target 与 hyperlink 关联默认为空。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                groupJid, "GROUP", null, null, null, null);
+    }
 }

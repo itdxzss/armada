@@ -1,0 +1,37 @@
+package com.armada.hyperlink.task.model.vo;
+
+/** 任务、内容和运行态一次 JOIN 得到的详情原始投影。 */
+public record HyperlinkTaskDetailRow(
+        Long id,
+        String taskName,
+        Integer taskType,
+        Integer startMode,
+        Integer taskDelayMinutes,
+        Long taskPlannedEndAt,
+        Integer taskIntervalMinutes,
+        Long dataPackageId,
+        String dataPackageNameSnapshot,
+        String accountFilter,
+        Integer maxUseAccount,
+        Integer concurrentNum,
+        Integer accountMaxSendNum,
+        Integer msgIntervalMinMs,
+        Integer msgIntervalMaxMs,
+        Boolean shortLinkEnabled,
+        Integer version,
+        Long createdAt,
+        Long updatedAt,
+        Integer messageSchemaVersion,
+        Integer messageType,
+        String title,
+        String content,
+        String linkDescription,
+        String promotionLink,
+        String buttons,
+        String cardText,
+        Long linkPreviewAssetId,
+        Long bodyMainAssetId,
+        Boolean enabled,
+        Integer runStatus,
+        Integer provisionStatus) {
+}

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper">
+    <select id="selectBanReasonStats"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkBanReasonRow">
+        SELECT COALESCE(NULLIF(TRIM(invalid_reason),''),
+          NULLIF(TRIM(invalid_code),''),'未知原因') AS reason,
+          COUNT(*) AS account_count
+        FROM hyperlink_task_account_usage
+        WHERE hyperlink_task_id=#{taskId} AND invalid_at IS NOT NULL
+        GROUP BY COALESCE(NULLIF(TRIM(invalid_reason),''),
+          NULLIF(TRIM(invalid_code),''),'未知原因')
+        ORDER BY account_count DESC, reason ASC
+    </select>
+    <insert id="insertIgnore" useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO hyperlink_task_account_usage
+        (hyperlink_task_id, account_id, account_phone_snapshot, sender_country_iso2_snapshot,
+         account_type_snapshot, account_created_at_snapshot, protocol_id_snapshot,
+         protocol_account_id_snapshot, protocol_backend, success_limit, usage_status,
+         last_selected_round_no, next_send_at, version, created_at, updated_at)
+        VALUES (#{hyperlinkTaskId}, #{accountId}, #{accountPhoneSnapshot}, #{senderCountryIso2Snapshot},
+         #{accountTypeSnapshot}, #{accountCreatedAtSnapshot}, #{protocolIdSnapshot},
+         #{protocolAccountIdSnapshot}, #{protocolBackend}, #{successLimit}, #{usageStatus},
+         #{lastSelectedRoundNo}, #{nextSendAt}, #{version}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="selectAvailable" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage">
+        SELECT u.* FROM hyperlink_task_account_usage u
+        INNER JOIN hyperlink_task_round_account a ON a.task_account_usage_id=u.id
+          AND a.hyperlink_task_round_id=#{roundId} AND a.assignment_status=1
+        WHERE u.hyperlink_task_id=#{taskId}
+          AND u.usage_status=1 AND u.next_send_at&lt;=#{now} AND u.in_flight_count&lt;#{maxInFlight}
+          AND (u.success_limit=0 OR u.successful_send_count+u.reserved_success_slot_count&lt;u.success_limit)
+        ORDER BY u.next_send_at, a.selection_no, u.id LIMIT #{limit}
+    </select>
+    <select id="selectByTaskAndAccount"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage">
+        SELECT * FROM hyperlink_task_account_usage
+        WHERE hyperlink_task_id=#{taskId} AND account_id=#{accountId}
+    </select>
+    <select id="selectByTaskAndAccountForUpdate"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage">
+        SELECT * FROM hyperlink_task_account_usage
+        WHERE hyperlink_task_id=#{taskId} AND account_id=#{accountId} FOR UPDATE
+    </select>
+    <update id="reserveSlot">
+        UPDATE hyperlink_task_account_usage SET reserved_success_slot_count=reserved_success_slot_count+1,
+          in_flight_count=in_flight_count+1,
+          first_used_at=COALESCE(first_used_at,#{now}), last_used_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND version=#{expectedVersion} AND usage_status=1
+          AND in_flight_count&lt;#{maxInFlight}
+          AND (success_limit=0 OR successful_send_count+reserved_success_slot_count&lt;success_limit)
+    </update>
+    <update id="scheduleNextSend">
+        UPDATE hyperlink_task_account_usage SET next_send_at=#{nextSendAt}, updated_at=#{now}
+        WHERE id=#{id}
+    </update>
+    <update id="completeSlot">
+        UPDATE hyperlink_task_account_usage SET reserved_success_slot_count=GREATEST(0,reserved_success_slot_count-1),
+          in_flight_count=GREATEST(0,in_flight_count-1),
+          successful_send_count=successful_send_count+CASE WHEN #{successful} THEN 1 ELSE 0 END,
+          usage_status=CASE WHEN success_limit&gt;0 AND successful_send_count+CASE WHEN #{successful} THEN 1 ELSE 0 END&gt;=success_limit THEN 2 ELSE usage_status END,
+          version=version+1, updated_at=#{now} WHERE id=#{id}
+    </update>
+    <delete id="deleteUnusedByTask">
+        DELETE FROM hyperlink_task_account_usage WHERE hyperlink_task_id=#{taskId}
+          AND successful_send_count=0 AND in_flight_count=0
+    </delete>
+    <update id="markInvalid">
+        UPDATE hyperlink_task_account_usage SET usage_status=#{usageStatus},
+          invalid_code=COALESCE(invalid_code,#{invalidCode}),
+          invalid_reason=COALESCE(invalid_reason,#{invalidReason}),
+          invalid_at=COALESCE(invalid_at,#{now}), version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND usage_status IN (1,2) AND invalid_at IS NULL
+    </update>
+    <select id="countInFlight" resultType="int">
+        SELECT COALESCE(SUM(in_flight_count),0) FROM hyperlink_task_account_usage
+        WHERE hyperlink_task_id=#{taskId}
+    </select>
+    <update id="markSelectedRound">
+        UPDATE hyperlink_task_account_usage SET last_selected_round_no=#{roundNo},
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND usage_status=1
+          AND (success_limit=0 OR successful_send_count+reserved_success_slot_count&lt;success_limit)
+    </update>
+</mapper>

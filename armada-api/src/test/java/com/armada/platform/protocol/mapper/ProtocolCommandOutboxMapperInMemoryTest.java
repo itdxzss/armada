@@ -81,7 +81,7 @@ class ProtocolCommandOutboxMapperInMemoryTest {
         insertRow("cmd-pending-old", ProtocolCommandOutboxStatus.PENDING.code(), 100L);
 
         // 只清已发送且超过保留期的行；死信与已取消量小且有诊断价值，必须保留。
-        assertThat(mapper.deleteSentBefore(500L, 10)).isEqualTo(1);
+        assertThat(mapper.deleteRegularSentBefore(500L, 10)).isEqualTo(1);
         assertThat(remainingCommandIds())
                 .containsExactlyInAnyOrder(
                         "cmd-sent-fresh", "cmd-dead-old", "cmd-canceled-old", "cmd-pending-old");
@@ -94,9 +94,47 @@ class ProtocolCommandOutboxMapperInMemoryTest {
         insertRow("cmd-sent-3", ProtocolCommandOutboxStatus.SENT.code(), 102L);
 
         // 单批有上限，调用方据此判断是否还要继续删下一批。
-        assertThat(mapper.deleteSentBefore(500L, 2)).isEqualTo(2);
-        assertThat(mapper.deleteSentBefore(500L, 2)).isEqualTo(1);
-        assertThat(mapper.deleteSentBefore(500L, 2)).isZero();
+        assertThat(mapper.deleteRegularSentBefore(500L, 2)).isEqualTo(2);
+        assertThat(mapper.deleteRegularSentBefore(500L, 2)).isEqualTo(1);
+        assertThat(mapper.deleteRegularSentBefore(500L, 2)).isZero();
+    }
+
+    @Test
+    void hyperlinkSentRowsKeepThirtyDaysAndRemainReplayableOnTheOriginalRow()
+            throws SQLException {
+        long day = 24L * 60 * 60 * 1_000;
+        long now = 40L * day;
+        insertRow("cmd-normal-day8", ProtocolCommandOutboxStatus.SENT.code(),
+                now - 8L * day);
+        insertHyperlinkRow("cmd-hyperlink-day8", now - 8L * day);
+        insertHyperlinkRow("cmd-hyperlink-day29", now - 29L * day);
+        insertHyperlinkRow("cmd-hyperlink-day30-boundary", now - 30L * day);
+        insertHyperlinkRow("cmd-hyperlink-expired", now - 30L * day - 1);
+
+        assertThat(value("SELECT retention_class FROM protocol_command_outbox "
+                + "WHERE command_id='cmd-normal-day8'"))
+                .isEqualTo(Integer.toString(ProtocolCommandOutboxMapper.REGULAR_RETENTION_CLASS));
+        assertThat(value("SELECT retention_class FROM protocol_command_outbox "
+                + "WHERE command_id='cmd-hyperlink-day29'"))
+                .isEqualTo(Integer.toString(ProtocolCommandOutboxMapper.HYPERLINK_RETENTION_CLASS));
+        assertThat(mapper.deleteRegularSentBefore(now - 7L * day, 10)).isEqualTo(1);
+        assertThat(mapper.deleteHyperlinkSentBefore(now - 30L * day, 10)).isEqualTo(1);
+        assertThat(remainingCommandIds()).containsExactlyInAnyOrder(
+                "cmd-hyperlink-day8", "cmd-hyperlink-day29",
+                "cmd-hyperlink-day30-boundary");
+
+        String originalId = value("SELECT id FROM protocol_command_outbox "
+                + "WHERE command_id='cmd-hyperlink-day29'");
+        assertThat(mapper.replayMessageCommand(7L, "cmd-hyperlink-day29",
+                "message.send.requested",
+                List.of(ProtocolCommandOutboxStatus.SENT.code()),
+                ProtocolCommandOutboxStatus.PENDING.code(), now)).isEqualTo(1);
+        assertThat(value("SELECT id FROM protocol_command_outbox "
+                + "WHERE command_id='cmd-hyperlink-day29'"))
+                .isEqualTo(originalId);
+        assertThat(value("SELECT status FROM protocol_command_outbox "
+                + "WHERE command_id='cmd-hyperlink-day29'"))
+                .isEqualTo(Integer.toString(ProtocolCommandOutboxStatus.PENDING.code()));
     }
 
     private void insertRow(String commandId, int status, long createdAt) throws SQLException {
@@ -105,6 +143,26 @@ class ProtocolCommandOutboxMapperInMemoryTest {
         mapper.batchInsertPending(List.of(row));
         execute("UPDATE protocol_command_outbox SET status = " + status
                 + ", created_at = " + createdAt + " WHERE command_id = '" + commandId + "'");
+    }
+
+    private void insertHyperlinkRow(String commandId, long createdAt) throws SQLException {
+        ProtocolCommandOutbox row = pendingRow();
+        row.setCommandId(commandId);
+        row.setCommandType("message.send.requested");
+        row.setAggregateType("HYPERLINK_TASK_RECIPIENT");
+        mapper.batchInsertPending(List.of(row));
+        execute("UPDATE protocol_command_outbox SET status = "
+                + ProtocolCommandOutboxStatus.SENT.code() + ", created_at = " + createdAt
+                + " WHERE command_id = '" + commandId + "'");
+    }
+
+    private String value(String sql) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement();
+             java.sql.ResultSet result = statement.executeQuery(sql)) {
+            assertThat(result.next()).isTrue();
+            return result.getString(1);
+        }
     }
 
     private List<String> remainingCommandIds() throws SQLException {
@@ -150,6 +208,8 @@ class ProtocolCommandOutboxMapperInMemoryTest {
                     batch_id VARCHAR(64),
                     command_type VARCHAR(64) NOT NULL,
                     aggregate_type VARCHAR(32) NOT NULL,
+                    retention_class TINYINT GENERATED ALWAYS AS
+                      (CASE WHEN aggregate_type='HYPERLINK_TASK_RECIPIENT' THEN 1 ELSE 0 END),
                     aggregate_id BIGINT NOT NULL,
                     kafka_topic VARCHAR(128) NOT NULL,
                     kafka_key VARCHAR(128) NOT NULL,
@@ -169,6 +229,8 @@ class ProtocolCommandOutboxMapperInMemoryTest {
                     deleted_at BIGINT
                 )
                 """);
+        execute("CREATE INDEX idx_protocol_outbox_retention_class ON protocol_command_outbox "
+                + "(status, retention_class, created_at, id)");
     }
 
     private void execute(String sql) throws SQLException {

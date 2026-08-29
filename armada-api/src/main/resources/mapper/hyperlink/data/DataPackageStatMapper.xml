@@ -2,6 +2,12 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.hyperlink.data.mapper.DataPackageStatMapper">
 
+  <select id="selectForUpdate" resultType="com.armada.hyperlink.data.model.entity.DataPackageStat">
+    SELECT * FROM data_package_stat
+    WHERE data_package_id = #{dataPackageId} AND generation = #{generation}
+    FOR UPDATE
+  </select>
+
   <insert id="insertInitial">
     INSERT INTO data_package_stat (
       data_package_id, generation, unused_count, claimed_count, sent_count,
@@ -45,6 +51,49 @@
     WHERE data_package_id = #{dataPackageId}
       AND generation = #{generation}
       AND retryable_failed_count &gt;= #{affected}
+  </update>
+
+  <update id="moveUnusedToClaimed">
+    UPDATE data_package_stat
+    SET unused_count = unused_count - #{affected},
+        claimed_count = claimed_count + #{affected},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND unused_count &gt;= #{affected}
+  </update>
+
+  <update id="moveClaimedToUnused">
+    UPDATE data_package_stat
+    SET unused_count = unused_count + #{affected},
+        claimed_count = claimed_count - #{affected},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND claimed_count &gt;= #{affected}
+  </update>
+
+  <update id="moveDeliveryStatus">
+    UPDATE data_package_stat SET
+      claimed_count=claimed_count-CASE WHEN #{fromStatus}=#{claimedStatus} THEN 1 ELSE 0 END
+        +CASE WHEN #{toStatus}=#{claimedStatus} THEN 1 ELSE 0 END,
+      sent_count=sent_count-CASE WHEN #{fromStatus}=#{sentStatus} THEN 1 ELSE 0 END
+        +CASE WHEN #{toStatus}=#{sentStatus} THEN 1 ELSE 0 END,
+      delivered_count=delivered_count-CASE WHEN #{fromStatus}=#{deliveredStatus} THEN 1 ELSE 0 END
+        +CASE WHEN #{toStatus}=#{deliveredStatus} THEN 1 ELSE 0 END,
+      retryable_failed_count=retryable_failed_count
+        -CASE WHEN #{fromStatus}=#{retryableFailedStatus} THEN 1 ELSE 0 END
+        +CASE WHEN #{toStatus}=#{retryableFailedStatus} THEN 1 ELSE 0 END,
+      unregistered_count=unregistered_count
+        -CASE WHEN #{fromStatus}=#{unregisteredStatus} THEN 1 ELSE 0 END
+        +CASE WHEN #{toStatus}=#{unregisteredStatus} THEN 1 ELSE 0 END,
+      updated_at=#{updatedAt}
+    WHERE data_package_id=#{dataPackageId} AND generation=#{generation}
+      AND claimed_count&gt;=CASE WHEN #{fromStatus}=#{claimedStatus} THEN 1 ELSE 0 END
+      AND sent_count&gt;=CASE WHEN #{fromStatus}=#{sentStatus} THEN 1 ELSE 0 END
+      AND delivered_count&gt;=CASE WHEN #{fromStatus}=#{deliveredStatus} THEN 1 ELSE 0 END
+      AND retryable_failed_count&gt;=CASE WHEN #{fromStatus}=#{retryableFailedStatus} THEN 1 ELSE 0 END
+      AND unregistered_count&gt;=CASE WHEN #{fromStatus}=#{unregisteredStatus} THEN 1 ELSE 0 END
   </update>
 
   <update id="replaceCounts">

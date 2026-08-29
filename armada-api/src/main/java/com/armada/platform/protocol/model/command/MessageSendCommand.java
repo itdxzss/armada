@@ -31,9 +31,27 @@ public record MessageSendCommand(
     /**
      * 消息发送目标。
      *
-     * @param groupJid WhatsApp 群 JID
+     * @param jid WhatsApp 群或私聊 JID
+     * @param kind 目标类型
      */
-    public record MessageTarget(String groupJid) {
+    public record MessageTarget(String jid, TargetKind kind) {
+        /** Java 调用兼容：存量单参数构造均为群目标。 */
+        public MessageTarget(String groupJid) {
+            this(groupJid, TargetKind.GROUP);
+        }
+
+        /** Java 读取兼容：存量群营销断言仍可读取 groupJid。 */
+        public String groupJid() {
+            return kind == TargetKind.GROUP ? jid : null;
+        }
+    }
+
+    /** 通用消息目标类型。 */
+    public enum TargetKind {
+        /** 群聊目标，继续透传兼容 groupJid。 */
+        GROUP,
+        /** 私聊目标。 */
+        PRIVATE
     }
 
     /**
@@ -121,14 +139,21 @@ public record MessageSendCommand(
      * @param marketing 普通营销关联
      * @param groupCreation 建群营销关联
      * @param historicalGroup 历史群拉人营销关联
+     * @param hyperlink 超链任务唯一 recipient 关联
      */
     public record MessageCorrelation(
             Long tenantId,
             String source,
             MarketingCorrelation marketing,
             GroupCreationCorrelation groupCreation,
-            HistoricalGroupCorrelation historicalGroup
+            HistoricalGroupCorrelation historicalGroup,
+            HyperlinkCorrelation hyperlink
     ) {
+        /** 存量群营销 Java 构造兼容，hyperlink 默认为空。 */
+        public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
+                GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup) {
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null);
+        }
     }
 
     /**
@@ -158,5 +183,9 @@ public record MessageSendCommand(
      * @param memberId 本次发送账号对应的执行成员 ID
      */
     public record HistoricalGroupCorrelation(Long executionId, Long memberId) {
+    }
+
+    /** 超链任务唯一发送事实关联，不包含 attempt。 */
+    public record HyperlinkCorrelation(Long taskId, Long recipientId) {
     }
 }

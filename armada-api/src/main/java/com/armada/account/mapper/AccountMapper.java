@@ -1,6 +1,7 @@
 package com.armada.account.mapper;
 
 import com.armada.account.model.dto.AccountBatchTargetQuery;
+import com.armada.account.model.dto.AccountHyperlinkCandidateQuery;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
@@ -9,6 +10,7 @@ import com.armada.account.model.vo.AccountBatchPreviewRow;
 import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.model.vo.AccountGroupBaselineStateRow;
 import com.armada.account.model.vo.AccountGroupSyncCandidate;
+import com.armada.account.model.vo.AccountHyperlinkCandidateVO;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountListVoRow;
 import com.armada.account.model.vo.AccountStatsVoRow;
@@ -23,6 +25,60 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface AccountMapper {
+
+    /**
+     * 按超链任务冻结筛选查询当前租户候选账号。
+     *
+     * <p>该 SQL 需要同时解析号码国家和协议后端，显式携带 tenant_id 并绕过租户 SQL 改写；
+     * 调用方只能经 {@code AccountHyperlinkCandidateService} 进入。</p>
+     *
+     * @param tenantId 当前租户 ID
+     * @param query 已归一化筛选条件
+     * @param afterPriority 上一页末行的账号优先级；首页为空
+     * @param afterAccountId 上一页末行的账号 ID；首页为空
+     * @param limit 最大返回数
+     * @return 最小候选快照
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountHyperlinkCandidateVO> selectHyperlinkCandidates(
+            @Param("tenantId") long tenantId,
+            @Param("query") AccountHyperlinkCandidateQuery query,
+            @Param("afterPriority") Integer afterPriority,
+            @Param("afterAccountId") Long afterAccountId,
+            @Param("limit") int limit);
+
+    /** 与候选 select 共用 SQL 条件片段，直接在数据库统计匹配账号数。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int countHyperlinkCandidates(
+            @Param("tenantId") long tenantId,
+            @Param("query") AccountHyperlinkCandidateQuery query);
+
+    /** 按协议地址统计当前租户已配置且具备 PRIVATE 能力的协议节点。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int countHyperlinkProtocols(
+            @Param("tenantId") long tenantId,
+            @Param("privateCapableBackends") List<String> privateCapableBackends);
+
+    /** 当前租户正常账号真实协议 ID 去重选项，排除空值并稳定排序。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<String> selectHyperlinkProtocolIds(
+            @Param("tenantId") long tenantId,
+            @Param("privateCapableBackends") List<String> privateCapableBackends);
+
+    /**
+     * 锁定超链派发使用的账号身份行，串行化同一账号的跨任务容量判断。
+     *
+     * <p>调用方只能经 {@code AccountHyperlinkCandidateService} 进入；
+     * SQL 显式校验租户和软删状态。</p>
+     *
+     * @param tenantId 当前租户 ID
+     * @param accountId 账号 ID
+     * @return 被锁定的账号 ID；不存在或已软删时为 null
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    Long lockActiveForHyperlinkDispatch(
+            @Param("tenantId") long tenantId,
+            @Param("accountId") long accountId);
 
     /**
      * 插入新账号(id/tenant_id 由库/拦截器注入;时间由调用方显式传入)。

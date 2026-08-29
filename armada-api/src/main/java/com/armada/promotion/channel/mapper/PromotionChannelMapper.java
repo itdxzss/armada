@@ -10,6 +10,7 @@ import com.armada.promotion.channel.model.vo.PromotionChannelProbeConfigRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeRow;
 import com.armada.promotion.channel.model.vo.PromotionChannelVoRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelOptionVO;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -142,4 +143,7 @@ public interface PromotionChannelMapper {
 
     /** 在 MySQL 中完成筛选、稳定排序和分页，不读取 Token 密文。 */
     List<PromotionChannelVoRow> selectPage(PromotionChannelQuery query);
+
+    /** 当前租户启用渠道下拉，按名称和 ID 稳定排序。 */
+    List<PromotionChannelOptionVO> selectOptions();
 }

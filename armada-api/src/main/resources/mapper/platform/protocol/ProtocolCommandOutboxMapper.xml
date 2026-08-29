@@ -2,6 +2,18 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper">
 
+  <update id="replayMessageCommand">
+    UPDATE protocol_command_outbox
+    SET status=#{pendingStatus}, next_retry_at=#{now}, locked_by=NULL, locked_at=NULL,
+        last_error='HYPERLINK_RESULT_RECONCILIATION', updated_at=#{now}
+    WHERE tenant_id=#{tenantId} AND command_id=#{commandId}
+      AND command_type=#{messageCommandType} AND deleted_at IS NULL
+      AND status IN
+    <foreach collection="replayableStatuses" item="status" open="(" separator="," close=")">
+      #{status}
+    </foreach>
+  </update>
+
   <!-- 列;map-underscore-to-camel-case 自动映射到实体驼峰字段。 -->
   <sql id="Columns">
     id, tenant_id, command_id, batch_id, command_type, aggregate_type, aggregate_id,
@@ -39,11 +51,19 @@
     LIMIT #{limit}
   </select>
 
-  <!-- 保留期清理:只删已发送行,按创建时间硬删,单批受 limit 约束。
-       删除条件不依赖清理进度,漏跑或停机后下一次运行仍会选中全部超期行。 -->
-  <delete id="deleteSentBeforeInternal">
+  <!-- 普通与超链分路径清理，避免单条 OR 反复扫描仍在 30 天保留期内的超链行。 -->
+  <delete id="deleteRegularSentBeforeInternal">
     DELETE FROM protocol_command_outbox
     WHERE status = #{sentStatus}
+      AND retention_class=#{retentionClass}
+      AND created_at &lt; #{createdBefore}
+    LIMIT #{limit}
+  </delete>
+
+  <delete id="deleteHyperlinkSentBeforeInternal">
+    DELETE FROM protocol_command_outbox
+    WHERE status = #{sentStatus}
+      AND retention_class=#{retentionClass}
       AND created_at &lt; #{createdBefore}
     LIMIT #{limit}
   </delete>

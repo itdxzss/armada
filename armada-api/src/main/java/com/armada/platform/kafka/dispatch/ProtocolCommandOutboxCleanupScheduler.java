@@ -31,6 +31,7 @@ public class ProtocolCommandOutboxCleanupScheduler {
 
     private final ProtocolCommandOutboxMapper mapper;
     private final long retentionMillis;
+    private final long hyperlinkRetentionMillis;
     private final int batchSize;
 
     /**
@@ -38,14 +39,19 @@ public class ProtocolCommandOutboxCleanupScheduler {
      *
      * @param mapper        outbox mapper
      * @param retentionDays 已发送行保留天数
+     * @param hyperlinkRetentionDays 超链消息命令已发送行保留天数
      * @param batchSize     单批删除行数上限
      */
     public ProtocolCommandOutboxCleanupScheduler(
             ProtocolCommandOutboxMapper mapper,
             @Value("${armada.protocol.command-cleanup.retention-days:7}") int retentionDays,
+            @Value("${armada.protocol.command-cleanup.hyperlink-retention-days:30}")
+                    int hyperlinkRetentionDays,
             @Value("${armada.protocol.command-cleanup.batch-size:10000}") int batchSize) {
         this.mapper = mapper;
         this.retentionMillis = Duration.ofDays(Math.max(1, retentionDays)).toMillis();
+        this.hyperlinkRetentionMillis = Duration.ofDays(Math.max(
+                Math.max(30, hyperlinkRetentionDays), Math.max(1, retentionDays))).toMillis();
         this.batchSize = Math.max(1, batchSize);
     }
 
@@ -56,12 +62,17 @@ public class ProtocolCommandOutboxCleanupScheduler {
      */
     @Scheduled(fixedDelayString = "${armada.protocol.command-cleanup.fixed-delay-ms:3600000}")
     public void purgeExpiredSentCommands() {
-        long createdBefore = System.currentTimeMillis() - retentionMillis;
         long startedAt = System.currentTimeMillis();
+        long createdBefore = startedAt - retentionMillis;
+        long hyperlinkCreatedBefore = startedAt - hyperlinkRetentionMillis;
         long deleted = 0L;
         int batch;
         do {
-            batch = mapper.deleteSentBefore(createdBefore, batchSize);
+            batch = mapper.deleteRegularSentBefore(createdBefore, batchSize);
+            deleted += batch;
+        } while (batch == batchSize);
+        do {
+            batch = mapper.deleteHyperlinkSentBefore(hyperlinkCreatedBefore, batchSize);
             deleted += batch;
         } while (batch == batchSize);
         if (deleted > 0) {

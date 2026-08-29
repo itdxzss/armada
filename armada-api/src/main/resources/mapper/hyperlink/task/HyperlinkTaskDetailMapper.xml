@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskDetailMapper">
+
+    <resultMap id="SummaryMap" type="com.armada.hyperlink.task.model.vo.HyperlinkTaskSummaryRow">
+        <id property="id" column="id"/>
+        <result property="taskName" column="task_name"/>
+        <result property="recipientTotal" column="recipient_total"/>
+        <result property="sendTotal" column="send_total"/>
+        <result property="successNum" column="success_num"/>
+        <result property="deliveredNum" column="delivered_num"/>
+        <result property="readNum" column="read_num"/>
+        <result property="failedNum" column="failed_num"/>
+        <result property="unregisteredNum" column="unregistered_num"/>
+        <result property="usedAccountCount" column="used_account_count"/>
+        <result property="invalidAccountCount" column="invalid_account_count"/>
+        <result property="clickUvNum" column="click_uv_num"/>
+        <result property="clickTotal" column="click_total"/>
+        <result property="actualConcurrency" column="actual_concurrency"/>
+        <result property="executionDurationSec" column="execution_duration_sec"/>
+        <result property="runStatus" column="run_status"/>
+        <result property="activeSinceAt" column="active_since_at"/>
+        <result property="metricsUpdatedAt" column="metrics_updated_at"/>
+        <result property="firstVisitAt" column="first_visit_at"/>
+        <result property="lastVisitAt" column="last_visit_at"/>
+    </resultMap>
+
+    <resultMap id="RecipientMap" type="com.armada.hyperlink.task.model.vo.HyperlinkRecipientRow">
+        <id property="id" column="id"/>
+        <result property="recipientPhone" column="recipient_phone"/>
+        <result property="recipientCountryIso2" column="recipient_country_iso2"/>
+        <result property="accountId" column="account_id"/>
+        <result property="senderPhone" column="sender_phone"/>
+        <result property="senderCountryIso2" column="sender_country_iso2"/>
+        <result property="statusCode" column="status_code"/>
+        <result property="failCode" column="fail_code"/>
+        <result property="failReason" column="fail_reason"/>
+        <result property="statusAt" column="status_at"/>
+    </resultMap>
+
+    <sql id="RecipientColumns">
+        x.id,
+        x.recipient_phone_snapshot AS recipient_phone,
+        x.recipient_country_iso2_snapshot AS recipient_country_iso2,
+        x.account_id,
+        x.sender_phone_snapshot AS sender_phone,
+        x.sender_country_iso2_snapshot AS sender_country_iso2,
+        x.send_status AS status_code,
+        x.fail_code,
+        x.fail_reason,
+        CASE x.send_status
+            WHEN 3 THEN x.sent_at
+            WHEN 4 THEN x.delivered_at
+            WHEN 5 THEN x.read_at
+            WHEN 6 THEN x.failed_at
+            WHEN 7 THEN x.failed_at
+            ELSE NULL
+        END AS status_at
+    </sql>
+
+    <sql id="RecipientFilters">
+        x.hyperlink_task_id = #{taskId}
+        <if test="phoneLike != null">
+            AND x.recipient_phone_snapshot LIKE #{phoneLike} ESCAPE '!'
+        </if>
+        <if test="recipientCountryIso2 != null and recipientCountryIso2 != 'UNKNOWN'">
+            AND x.recipient_country_iso2_snapshot = #{recipientCountryIso2}
+        </if>
+        <if test="recipientCountryIso2 == 'UNKNOWN'">
+            AND x.recipient_country_iso2_snapshot IS NULL
+        </if>
+        <if test="senderCountryIso2 != null and senderCountryIso2 != 'UNKNOWN'">
+            AND x.sender_country_iso2_snapshot = #{senderCountryIso2}
+        </if>
+        <if test="senderCountryIso2 == 'UNKNOWN'">
+            AND x.sender_country_iso2_snapshot IS NULL
+        </if>
+        <if test="failReason != null">
+            AND x.fail_reason = #{failReason}
+        </if>
+    </sql>
+
+    <sql id="RecipientExportFilters">
+        x.hyperlink_task_id = #{query.taskId}
+        <if test="query.phoneLike != null">
+            AND x.recipient_phone_snapshot LIKE #{query.phoneLike} ESCAPE '!'
+        </if>
+        <if test="query.recipientCountryIso2 != null and query.recipientCountryIso2 != 'UNKNOWN'">
+            AND x.recipient_country_iso2_snapshot = #{query.recipientCountryIso2}
+        </if>
+        <if test="query.recipientCountryIso2 == 'UNKNOWN'">
+            AND x.recipient_country_iso2_snapshot IS NULL
+        </if>
+        <if test="query.senderCountryIso2 != null and query.senderCountryIso2 != 'UNKNOWN'">
+            AND x.sender_country_iso2_snapshot = #{query.senderCountryIso2}
+        </if>
+        <if test="query.senderCountryIso2 == 'UNKNOWN'">
+            AND x.sender_country_iso2_snapshot IS NULL
+        </if>
+        <if test="query.failReason != null">
+            AND x.fail_reason = #{query.failReason}
+        </if>
+    </sql>
+
+    <select id="selectSummary" resultMap="SummaryMap">
+        SELECT t.id,
+               t.task_name,
+               r.recipient_total,
+               r.send_total,
+               r.success_num,
+               r.delivered_num,
+               r.read_num,
+               r.fail_num AS failed_num,
+               r.fail_404_num AS unregistered_num,
+               r.used_account_count,
+               r.invalid_account_count,
+               r.click_uv_num,
+               r.click_total,
+               r.actual_concurrency,
+               r.execution_duration_sec,
+               r.run_status,
+               r.active_since_at,
+               r.metrics_updated_at,
+               r.first_visit_at,
+               r.last_visit_at
+        FROM hyperlink_task t
+        JOIN hyperlink_task_runtime r
+          ON r.tenant_id = t.tenant_id AND r.hyperlink_task_id = t.id
+        WHERE t.id = #{taskId}
+    </select>
+
+    <select id="countRecipients" resultType="long">
+        SELECT COUNT(*)
+        FROM hyperlink_task_recipient x
+        WHERE <include refid="RecipientFilters"/>
+    </select>
+
+    <select id="selectRecipients" resultMap="RecipientMap">
+        SELECT <include refid="RecipientColumns"/>
+        FROM hyperlink_task_recipient x
+        WHERE <include refid="RecipientFilters"/>
+        ORDER BY x.id
+        <choose>
+            <when test="sortOrder == 'desc'">DESC</when>
+            <otherwise>ASC</otherwise>
+        </choose>
+        LIMIT #{pageSize} OFFSET #{offset}
+    </select>
+
+    <select id="selectRecipientExportBatch" resultMap="RecipientMap">
+        SELECT <include refid="RecipientColumns"/>
+        FROM hyperlink_task_recipient x
+        WHERE <include refid="RecipientExportFilters"/>
+          AND x.created_at &lt;= #{snapshotAt}
+        <if test="cursorId != null and query.sortOrder == 'asc'">
+          AND x.id &gt; #{cursorId}
+        </if>
+        <if test="cursorId != null and query.sortOrder == 'desc'">
+          AND x.id &lt; #{cursorId}
+        </if>
+        ORDER BY x.id
+        <choose>
+            <when test="query.sortOrder == 'desc'">DESC</when>
+            <otherwise>ASC</otherwise>
+        </choose>
+        LIMIT #{limit}
+    </select>
+</mapper>

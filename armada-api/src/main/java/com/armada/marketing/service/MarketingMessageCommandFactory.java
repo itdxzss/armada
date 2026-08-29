@@ -85,13 +85,15 @@ public class MarketingMessageCommandFactory {
         MarketingTaskTarget target = resolved.target();
         return new MessageSendCommand(
                 accountRef(target),
-                new MessageSendCommand.MessageTarget(resolved.groupJid()),
+                new MessageSendCommand.MessageTarget(
+                        resolved.groupJid(), MessageSendCommand.TargetKind.GROUP),
                 payload(message),
                 new MessageSendCommand.MessageCorrelation(
                         task.getTenantId(),
                         source(task),
                         new MessageSendCommand.MarketingCorrelation(
                                 task.getId(), target.getId(), attempt.getId(), attempt.getRoundNo()),
+                        null,
                         null,
                         null),
                 attempt.getCommandId(),

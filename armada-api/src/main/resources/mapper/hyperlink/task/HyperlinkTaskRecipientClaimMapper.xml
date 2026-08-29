@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientClaimMapper">
+    <select id="selectProvisionCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT c.tenant_id, c.hyperlink_task_id AS task_id
+        FROM hyperlink_task_recipient_claim c
+        INNER JOIN hyperlink_task_runtime r ON r.hyperlink_task_id=c.hyperlink_task_id
+          AND r.tenant_id=c.tenant_id
+        LEFT JOIN hyperlink_billing_reservation b ON b.hyperlink_task_id=c.hyperlink_task_id
+          AND b.tenant_id=c.tenant_id
+        WHERE r.provision_status=1 AND c.claim_status IN (1,2,3)
+          AND (c.lease_expires_at IS NULL OR c.lease_expires_at&lt;UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000.0)
+          AND (COALESCE(b.pending_operation,0)=0
+            OR COALESCE(b.next_retry_at,0)&lt;=UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000.0)
+        ORDER BY c.updated_at, c.id LIMIT #{limit}
+    </select>
+    <select id="selectCleanupCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate">
+        SELECT c.tenant_id, c.hyperlink_task_id AS task_id
+        FROM hyperlink_task_recipient_claim c
+        INNER JOIN hyperlink_task_runtime r ON r.hyperlink_task_id=c.hyperlink_task_id
+          AND r.tenant_id=c.tenant_id
+        LEFT JOIN hyperlink_billing_reservation b ON b.hyperlink_task_id=c.hyperlink_task_id
+          AND b.tenant_id=c.tenant_id
+        WHERE ((c.claim_status=4 AND
+          ((r.run_status=0 AND r.provision_status=1) OR r.run_status IN (2,4)))
+          OR (c.claim_status=5 AND
+          ((r.provision_status=1 AND r.run_status=0)
+            OR (r.run_status IN (2,4) AND b.reservation_status&lt;&gt;5
+              AND (b.pending_operation IN (3,4)
+                OR (b.pending_operation=0 AND b.reservation_status IN (3,4)))))))
+          AND (COALESCE(b.pending_operation,0)=0
+            OR COALESCE(b.next_retry_at,0)&lt;=UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))*1000.0)
+        ORDER BY c.updated_at, c.id LIMIT #{limit}
+    </select>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hyperlink_task_recipient_claim
+        (hyperlink_task_id, data_package_id, data_package_generation, claim_upper_phone_id,
+         scan_cursor_phone_id, quoted_phone_count, claimed_phone_count, claim_status,
+         version, started_at, created_at, updated_at)
+        VALUES (#{hyperlinkTaskId}, #{dataPackageId}, #{dataPackageGeneration}, #{claimUpperPhoneId},
+         #{scanCursorPhoneId}, #{quotedPhoneCount}, 0, #{claimStatus}, 1,
+         #{startedAt}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="selectByTaskId" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipientClaim">
+        SELECT * FROM hyperlink_task_recipient_claim
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+        ORDER BY id DESC LIMIT 1 FOR UPDATE
+    </select>
+    <select id="selectSnapshotByTaskId"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipientClaim">
+        SELECT * FROM hyperlink_task_recipient_claim
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+        ORDER BY id DESC LIMIT 1
+    </select>
+    <update id="advance">
+        UPDATE hyperlink_task_recipient_claim SET scan_cursor_phone_id=#{cursor},
+          claimed_phone_count=claimed_phone_count+#{claimedDelta},
+          claim_status=CASE WHEN #{completed} THEN 3 ELSE 2 END,
+          finished_at=CASE WHEN #{completed} THEN #{now} ELSE NULL END,
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND version=#{expectedVersion} AND claim_status IN (1,2)
+    </update>
+    <update id="markReleasing">
+        UPDATE hyperlink_task_recipient_claim SET claim_status=4, lease_owner=NULL,
+          lease_expires_at=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND claim_status IN (1,2,3,6)
+    </update>
+    <update id="markReleased">
+        UPDATE hyperlink_task_recipient_claim SET claim_status=5, finished_at=#{now},
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND claim_status=4
+    </update>
+    <update id="resetForClaim">
+        UPDATE hyperlink_task_recipient_claim SET data_package_id=#{entity.dataPackageId},
+          data_package_generation=#{entity.dataPackageGeneration},
+          claim_upper_phone_id=#{entity.claimUpperPhoneId}, scan_cursor_phone_id=0,
+          quoted_phone_count=#{entity.quotedPhoneCount}, claimed_phone_count=0,
+          claim_status=1, lease_owner=NULL, lease_expires_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1,
+          started_at=#{entity.startedAt}, finished_at=NULL, updated_at=#{entity.updatedAt}
+        WHERE hyperlink_task_id=#{entity.hyperlinkTaskId} AND claim_status IN (5,7)
+          AND version=#{expectedVersion}
+    </update>
+</mapper>

@@ -3,6 +3,7 @@ package com.armada.account.service;
 import com.armada.account.model.dto.AccountGroupDTO;
 import com.armada.account.model.dto.AccountGroupQuery;
 import com.armada.account.model.entity.AccountGroup;
+import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.model.vo.AccountGroupVO;
 import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
 import com.armada.shared.response.PageResult;
@@ -74,6 +75,9 @@ public interface AccountGroupService {
      * @return 系统内置分组实体
      */
     AccountGroup ensureSystemGroup();
+
+    /** 当前租户活跃账号分组选项；只读，不触发默认分组懒创建。 */
+    List<AccountGroupOptionVO> options();
 
     /**
      * 断言分组存在并返回分组实体;不存在则抛 NOT_FOUND 业务异常。

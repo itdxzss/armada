@@ -220,13 +220,17 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
+        MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
         MessageSendCommand.MessageContent content = command.payload().content();
         AndroidMessagePayload payload = new AndroidMessagePayload(
                 correlation.tenantId(),
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
                 command.account().wsPhone(),
-                command.target().groupJid(),
+                command.target().jid(),
+                command.target().kind().name(),
+                command.target().kind() == MessageSendCommand.TargetKind.GROUP
+                        ? command.target().jid() : null,
                 command.payload().type().name(),
                 content.text(),
                 media(correlation.tenantId(), content.image(), mediaRegistry),
@@ -242,7 +246,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 groupCreation == null ? null : groupCreation.taskId(),
                 groupCreation == null ? null : groupCreation.itemId(),
                 historicalGroup == null ? null : historicalGroup.executionId(),
-                historicalGroup == null ? null : historicalGroup.memberId());
+                historicalGroup == null ? null : historicalGroup.memberId(),
+                hyperlink == null ? null : hyperlink.taskId(),
+                hyperlink == null ? null : hyperlink.recipientId());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -305,6 +311,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long accountId,
             String protocolAccountId,
             String wsPhone,
+            String jid,
+            String targetKind,
             String groupJid,
             String messageType,
             String text,
@@ -321,7 +329,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long groupCreationTaskId,
             Long groupCreationItemId,
             Long historicalExecutionId,
-            Long historicalMemberId
+            Long historicalMemberId,
+            Long hyperlinkTaskId,
+            Long hyperlinkRecipientId
     ) {
     }
 

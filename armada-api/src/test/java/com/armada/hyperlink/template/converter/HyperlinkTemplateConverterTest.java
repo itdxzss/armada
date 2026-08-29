@@ -41,7 +41,7 @@ class HyperlinkTemplateConverterTest {
         assertThat(entity.getButtons()).contains("CTA_URL", "displayText", "targetValue", "useShortLink", "sort");
         assertThat(converter.toDetail(entity).buttons()).containsExactly(button);
         assertThat(converter.toDetail(entity).bodyMainAssetUrl())
-                .isEqualTo("/api/marketing-template-files/123/content");
+                .isEqualTo("/api/resource-assets/123/content");
         assertThat(converter.toDetail(entity).linkPreviewAssetUrl()).isNull();
         assertThat(converter.toDetail(entity).taskRefCount()).isZero();
     }

@@ -10,21 +10,158 @@
         <result column="content_type" property="contentType"/>
         <result column="size_bytes" property="sizeBytes"/>
         <result column="content" property="content"/>
+        <result column="asset_name" property="assetName"/>
+        <result column="width" property="width"/>
+        <result column="height" property="height"/>
+        <result column="created_by" property="createdBy"/>
         <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
         <result column="deleted_at" property="deletedAt"/>
     </resultMap>
+
+    <sql id="AllColumns">
+        id, tenant_id, original_filename, content_type, size_bytes, content,
+        asset_name, width, height, created_by, created_at, updated_at, deleted_at
+    </sql>
+
+    <sql id="MetadataColumns">
+        id, tenant_id, original_filename, content_type, size_bytes,
+        asset_name, width, height, created_by, created_at, updated_at, deleted_at
+    </sql>
+
+    <sql id="AssetFilterWhere">
+        <where>
+            file.deleted_at IS NULL
+            <if test="q.assetName != null and q.assetName != ''">
+                AND COALESCE(NULLIF(file.asset_name, ''), file.original_filename) LIKE CONCAT('%', #{q.assetName}, '%')
+            </if>
+            <if test="q.selectableOnly != null and q.selectableOnly">
+                AND LOWER(file.content_type) = 'image/jpeg'
+                AND file.size_bytes &lt;= 512000
+            </if>
+            <if test="q.tags != null and !q.tags.isEmpty()">
+                AND EXISTS (
+                    SELECT 1
+                    FROM resource_asset_tag_ref tag_ref
+                    INNER JOIN resource_asset_tag tag ON tag.id = tag_ref.resource_asset_tag_id
+                    WHERE tag_ref.file_id = file.id
+                      AND tag.tag_name IN
+                    <foreach collection="q.tags" item="tagName" open="(" separator="," close=")">
+                        #{tagName}
+                    </foreach>
+                )
+            </if>
+        </where>
+    </sql>
 
     <insert id="insert" parameterType="com.armada.marketing.model.entity.MarketingTemplateFile"
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_template_file
-            (original_filename, content_type, size_bytes, content, created_at)
+            (original_filename, content_type, size_bytes, content,
+             asset_name, width, height, created_by, created_at, updated_at)
         VALUES
-            (#{originalFilename}, #{contentType}, #{sizeBytes}, #{content}, #{createdAt})
+            (#{originalFilename}, #{contentType}, #{sizeBytes}, #{content},
+             #{assetName}, #{width}, #{height}, #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="selectById" resultMap="MarketingTemplateFileResultMap">
-        SELECT id, tenant_id, original_filename, content_type, size_bytes, content, created_at, deleted_at
+        SELECT <include refid="AllColumns"/>
         FROM marketing_template_file
         WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectAssetPage" resultMap="MarketingTemplateFileResultMap">
+        SELECT <include refid="MetadataColumns"/>
+        FROM marketing_template_file file
+        <include refid="AssetFilterWhere"/>
+        ORDER BY file.created_at DESC, file.id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="countAssetPage" resultType="long">
+        SELECT COUNT(DISTINCT file.id)
+        FROM marketing_template_file file
+        <include refid="AssetFilterWhere"/>
+    </select>
+
+    <select id="selectAssetMetadataById" resultMap="MarketingTemplateFileResultMap">
+        SELECT <include refid="MetadataColumns"/>
+        FROM marketing_template_file
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <select id="selectByIdForUpdate" resultMap="MarketingTemplateFileResultMap">
+        SELECT <include refid="AllColumns"/>
+        FROM marketing_template_file
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <select id="selectIdByIdForUpdate" resultType="long">
+        SELECT id
+        FROM marketing_template_file
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <update id="updateAssetMetadata">
+        UPDATE marketing_template_file
+        SET asset_name = #{assetName}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+    <update id="softDeleteAsset">
+        UPDATE marketing_template_file
+        SET deleted_at = #{deletedAt}, updated_at = #{deletedAt}
+        WHERE id = #{id} AND deleted_at IS NULL
+    </update>
+
+    <select id="selectReferenceCounts"
+            resultType="com.armada.marketing.asset.model.vo.ResourceAssetReferenceCountVO">
+        SELECT asset_id AS assetId, COUNT(*) AS referenceCount
+        FROM (
+            SELECT asset_id, source_type, source_id
+            FROM (
+                SELECT image_file_id AS asset_id, 'marketing_template' AS source_type, id AS source_id
+                FROM marketing_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND image_file_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                UNION ALL
+                SELECT link_preview_asset_id, 'hyperlink_template', id
+                FROM hyperlink_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND link_preview_asset_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                UNION ALL
+                SELECT body_main_asset_id, 'hyperlink_template', id
+                FROM hyperlink_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND body_main_asset_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            ) raw_references
+            GROUP BY asset_id, source_type, source_id
+        ) distinct_references
+        GROUP BY asset_id
+    </select>
+
+    <select id="countReferences" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+            SELECT source_type, source_id
+            FROM (
+                SELECT 'marketing_template' AS source_type, id AS source_id
+                FROM marketing_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND image_file_id = #{id}
+                UNION ALL
+                SELECT 'hyperlink_template', id
+                FROM hyperlink_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND link_preview_asset_id = #{id}
+                UNION ALL
+                SELECT 'hyperlink_template', id
+                FROM hyperlink_template
+                WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND body_main_asset_id = #{id}
+            ) raw_references
+            GROUP BY source_type, source_id
+        ) distinct_references
     </select>
 </mapper>

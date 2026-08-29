@@ -55,6 +55,9 @@ class MarketingTemplateServiceImplTest {
     @Mock
     private MarketingAccountOccupancyService occupancyService;
 
+    @Mock
+    private MarketingTemplateFileService fileService;
+
     @InjectMocks
     private MarketingTemplateServiceImpl service;
 
@@ -330,5 +333,20 @@ class MarketingTemplateServiceImplTest {
         ArgumentCaptor<MarketingTemplate> inserted = ArgumentCaptor.forClass(MarketingTemplate.class);
         verify(mapper).insert(inserted.capture());
         assertThat(inserted.getValue().getMentionAll()).isTrue();
+    }
+
+    @Test
+    void clone_withImageLocksAssetBeforeInsertingCopy() {
+        MarketingTemplate origin = new MarketingTemplate();
+        origin.setTemplateName("图片模板");
+        origin.setLinkMode(LinkMode.IMAGE_TEXT.code());
+        origin.setImageFileId(88L);
+        when(mapper.selectById(8L)).thenReturn(origin);
+
+        service.clone(8L);
+
+        InOrder ordered = inOrder(fileService, mapper);
+        ordered.verify(fileService).lockAndValidateBindableAssets(List.of(88L));
+        ordered.verify(mapper).insert(any(MarketingTemplate.class));
     }
 }

@@ -22,8 +22,9 @@
 5. **绑定和删除必须锁同一张素材行**，只查引用次数再删除不能解决并发竞态。
 6. **不改 Web/Android 协议接口**。Armada 在发送边界把 AssetId 解成图片字节，协议层永远不认识
    `marketing_template_file.id`。
-7. **迁移号不得直接照抄本文**。截至分析时主分支最大为 V156，超链任务工作树已使用 V157；
-   实施前必须重新按 `sort -V` 检查全仓迁移号。若 V157 已合入，本功能从 V158 起分配。
+7. **迁移号不得直接照抄本文**。最终合并时目标分支最大为 V156，原计划使用 V157 的
+   超链任务工作树尚未合入；本功能先合并并分配 V157，后续任务迁移必须重新按 `sort -V`
+   选择下一个可用版本。
 
 ## 1. 目标、范围与交付结果
 
@@ -90,7 +91,7 @@ rg -n "resource-assets|批量上传图片|从素材库选择|确认删除该素�
 | E-008 | `HyperlinkMessageContentValidator` | 超链模板绑定时才严格检查 JPEG、500KB 和可解码性 |
 | E-009 | `V001__marketing_template.sql` | 旧 `marketing_template.image_file_id` 仍引用同一文件表 |
 | E-010 | `V154__hyperlink_template.sql` | 超链模板已有两列稳定素材 ID，但缺少素材反查索引 |
-| E-011 | 超链任务 V157 工作树 | `hyperlink_task_content` 已有两列素材 ID 和反查索引，并复用超链内容校验器 |
+| E-011 | 超链任务独立工作树（未合入） | `hyperlink_task_content` 已有两列素材 ID 和反查索引，并复用超链内容校验器 |
 | E-012 | `wheel-saas-pure-web` 模板页面 | 当前抽屉先暂存 `File`，保存模板时才调用旧上传接口；回显通过鉴权 Blob + Object URL |
 | E-013 | Armada Web/Android backend 与两协议代码 | Web 接收 Base64；Android 接收 tenant+SHA assetRef；两者的输入均由 Armada 图片字节生成 |
 
@@ -347,7 +348,7 @@ flowchart LR
 |---|---|---|
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
-| `tag_name` | `VARCHAR(64) NOT NULL` | trim 后标签名 |
+| `tag_name` | `VARCHAR(64) COLLATE utf8mb4_bin NOT NULL` | trim 后标签名；按大小写敏感精确值唯一 |
 | `created_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
 索引：
@@ -370,8 +371,23 @@ flowchart LR
 - `idx_resource_asset_tag_ref_tag (tenant_id, resource_asset_tag_id, file_id)`。
 - `idx_resource_asset_tag_ref_file (tenant_id, file_id, id)`，供素材详情、编辑和删除清理。
 
-标签规则：trim、去空、按规范化后的精确值去重。编辑素材时在同一事务中 upsert 标签字典并整体替换关系。
-标签字典行不因无人引用立即删除；`/tags` 只查询仍被活动素材使用的标签，因此废弃标签会自然从候选项消失。
+竞品前端的标签归一化函数只做 `String(value).trim()`、去空和 JavaScript `Set` 精确去重，
+`Promo` 与 `promo` 会保留为两个值；上传和编辑使用的可创建多选控件没有配置标签数量上限。
+证据为 `resource-CF5a-p8A.js:58-63`、`resource-asset-upload-modal-Cns3ms7s.js:427-439` 和
+`library-C1_C9S_k.js:515-529`。这能证明竞品前端是大小写敏感且未设显式上限，不能证明竞品后端也允许无限标签。
+
+Armada 在不影响正常竞品交互的前提下增加以下服务端安全边界：
+
+- 上传、编辑以及列表标签筛选均在 trim、去空、精确去重后最多接受 **20** 个标签；超过时返回
+  `ErrorCode.VALIDATION`，消息 `每个素材最多设置 20 个标签`。前端在第 21 个标签加入前给出同文案提示。
+- 单个标签 trim 后长度为 1～64 字符；multipart `tags` 必须是 JSON 字符串数组，数组内出现非字符串值时
+  直接返回参数校验错误，不复制竞品用 `String(value)` 强制转换脏值的宽松行为。
+- 保留用户输入的大小写和内部空格，只去除首尾空白。`tag_name` 使用 `utf8mb4_bin`，唯一索引与 Java
+  精确去重语义一致，因此 `Promo` 与 `promo` 是两个不同标签；筛选也按精确值匹配。
+- 20 个上限在去重后计算，重复标签不会消耗额度。卡片仍只直接展示前 3 个标签和 `+N`，不改变竞品视觉。
+
+编辑素材时在同一事务中 upsert 标签字典并整体替换关系。标签字典行不因无人引用立即删除；`/tags`
+只查询仍被活动素材使用的标签，因此废弃标签会自然从候选项消失。
 
 ### 5.3 引用索引与引用次数
 
@@ -381,7 +397,7 @@ flowchart LR
 - `hyperlink_template (tenant_id, link_preview_asset_id, deleted_at, id)`。
 - `hyperlink_template (tenant_id, body_main_asset_id, deleted_at, id)`。
 
-`hyperlink_task_content` 在 V157 中已有：
+`hyperlink_task_content` 在未合入的超链任务工作树中已有：
 
 - `(tenant_id, link_preview_asset_id, hyperlink_task_id)`。
 - `(tenant_id, body_main_asset_id, hyperlink_task_id)`。
@@ -415,7 +431,7 @@ GET /api/resource-assets?page=1&pageSize=24&assetName=promo&tags=活动&tags=英
 | `page` | 否 | 默认 1，最小 1 |
 | `pageSize` | 否 | 管理页默认 24，选择器默认 12；只接受 12/24/48/96 |
 | `assetName` | 否 | trim 后模糊匹配 |
-| `tags` | 否 | 重复 query 参数；任意标签命中 |
+| `tags` | 否 | 重复 query 参数；trim、去空、精确去重后最多 20 个；任意标签命中，大小写敏感 |
 | `selectableOnly` | 否 | 选择器传 true，只返回 JPEG 且不超过 500KB 的历史兼容候选 |
 
 前端不能依赖全局 `qs` 默认的 `tags[0]` 形式，本 API 要显式序列化为重复参数。
@@ -441,9 +457,13 @@ GET /api/resource-assets?page=1&pageSize=24&assetName=promo&tags=活动&tags=英
   ],
   "page": 1,
   "pageSize": 24,
-  "total": 57
+  "total": 57,
+  "totalPages": 3
 }
 ```
+
+分页响应必须直接使用 `com.armada.shared.response.PageResult<T>`，因此 `totalPages` 是固定合同字段，
+由 `PageResult.of` 根据 `total` 和 `pageSize` 推导；后端和前端均不得自造缺少该字段的分页 DTO。
 
 查询顺序固定为：
 
@@ -490,7 +510,8 @@ Content-Type: multipart/form-data
 multipart 字段：
 
 - `file`：单个文件，必填。
-- `tags`：JSON 字符串数组，可省略，例如 `["活动","英语"]`。
+- `tags`：JSON 字符串数组，可省略，例如 `["活动","英语"]`；元素必须为字符串，按统一标签规则归一化后
+  最多 20 个。
 
 后端必须重新校验：
 
@@ -522,8 +543,8 @@ Content-Type: application/json
 }
 ```
 
-规则：当前租户、未删除；名称 trim 后必填且最多 128 字；标签 trim、去空、去重。更新名称、标签关系和
-`updated_at` 必须同事务提交。
+规则：当前租户、未删除；名称 trim 后必填且最多 128 字；标签按统一规则 trim、去空、大小写敏感精确去重，
+去重后最多 20 个。更新名称、标签关系和 `updated_at` 必须同事务提交。
 
 ### 6.6 删除素材
 
@@ -562,8 +583,31 @@ GET /api/resource-assets/{id}/content
 必须接入的写方：
 
 - `HyperlinkTemplateService` 创建、编辑、复制。
-- 超链任务创建、未开始编辑；V157 当前通过 `HyperlinkMessageContentValidator` 读取图片，需要改为锁定校验。
-- 旧 `MarketingTemplateService` 创建、编辑中非空 `imageFileId` 的绑定。
+- 超链任务创建、未开始编辑；未合入工作树当前通过 `HyperlinkMessageContentValidator`
+  读取图片，需要改为锁定校验。
+- 旧 `MarketingTemplateService` 创建、编辑、**复制**中非空 `imageFileId` 的绑定。当前 `clone()` 会直接复制
+  原模板的 `imageFileId`，若不接入同一素材锁，可能与删除事务并发产生悬空引用。
+
+按主键的单表锁行 Mapper 必须保留 Armada 全局租户拦截器，禁止通过 Mapper 参数绕过全局租户保护：
+
+```java
+MarketingTemplateFile selectByIdForUpdate(@Param("id") Long id);
+```
+
+```sql
+SELECT id, tenant_id, original_filename, content_type, size_bytes, content,
+       asset_name, width, height, created_by, created_at, updated_at, deleted_at
+FROM marketing_template_file
+WHERE id = #{id}
+  AND deleted_at IS NULL
+FOR UPDATE
+```
+
+- `tenant_id` 由全局租户拦截器从非空 `TenantContext` 注入，不得接收客户端传值。
+- 调用方先对 AssetId 去重并升序，再逐个调用上述主键锁；模板和任务当前最多两个素材位，逐行锁不会形成
+  批量 N+1 查询问题。
+- 主键查询不加多余 `LIMIT 1`，避免 MyBatis-Plus/JSqlParser 重排 `LIMIT ... FOR UPDATE`。
+- 锁定结果为空时统一返回 `图片不存在或已删除`；拿到锁后再校验实际字节，随后在同一事务中写引用。
 
 删除事务遵循：
 
@@ -796,16 +840,19 @@ Android：
 - SQL/Mapper 测试证明列表查询不选择 `content`。
 - 标签批量读取和引用聚合无 N+1。
 - 上传测试覆盖空文件、伪扩展名、错误 MIME、超 500KB、错误 magic、不可解码 JPEG、合法 JPEG 和宽高。
-- 编辑测试覆盖名称 trim、空名、128 字边界、标签去重和事务回滚。
-- 删除测试覆盖旧营销模板、超链模板两个字段、超链任务两个字段和软删引用。
+- 编辑测试覆盖名称 trim、空名、128 字边界、标签精确去重、大小写、20/21 个边界、非字符串标签和事务回滚。
+- 删除测试覆盖旧营销模板、旧营销模板复制、超链模板两个字段、超链任务两个字段和软删引用。
 - 并发测试覆盖“绑定先获得锁”和“删除先获得锁”两种顺序。
+- 锁行 Mapper 测试验证全局租户改写、软删条件和 `FOR UPDATE`，且锁查询不得标注
+  `@InterceptorIgnore(tenantLine = "true")`。
 - 租户隔离测试覆盖列表、内容、编辑、删除和标签。
 - 权限测试覆盖独立素材权限与模板/任务嵌入权限。
 
 ### 13.2 前端
 
 - API 测试锁定 multipart 字段、重复 tags query、Blob responseType 和超时。
-- 文件校验测试覆盖扩展名、MIME、大小、magic 和 100 张上限。
+- 文件校验测试覆盖扩展名、MIME、大小、magic 和 100 张上限；标签测试覆盖 trim、精确去重、
+  `Promo`/`promo` 共存以及 20/21 个边界。
 - 串行测试证明第二个请求在第一个完成后才发起，禁止 `Promise.all` 回归。
 - 部分失败测试证明成功项不重传、失败项可重试。
 - Object URL 测试验证替换、翻页、关闭和卸载时 revoke。

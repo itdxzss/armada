@@ -51,6 +51,7 @@ class HyperlinkMessageContentValidatorTest {
         assertThat(normalized.cardText()).isNull();
         assertThat(normalized.linkPreviewAssetId()).isEqualTo(11L);
         assertThat(normalized.bodyMainAssetId()).isNull();
+        assertThat(fileService.lockCalls).isEqualTo(1);
     }
 
     @Test
@@ -166,6 +167,7 @@ class HyperlinkMessageContentValidatorTest {
     private static final class FakeMarketingTemplateFileService implements MarketingTemplateFileService {
 
         private final Map<Long, MarketingTemplateFileContent> files = new HashMap<>();
+        private int lockCalls;
 
         void put(Long id, MarketingTemplateFileContent content) {
             files.put(id, content);
@@ -185,6 +187,17 @@ class HyperlinkMessageContentValidatorTest {
                         "营销模板图片不存在");
             }
             return content;
+        }
+
+        @Override
+        public MarketingTemplateFileContent lockContentForBinding(Long id) {
+            lockCalls += 1;
+            return content(id);
+        }
+
+        @Override
+        public void lockAndValidateBindableAssets(java.util.Collection<Long> ids) {
+            throw new UnsupportedOperationException("测试不执行批量素材绑定");
         }
     }
 }

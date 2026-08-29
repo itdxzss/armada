@@ -23,27 +23,7 @@ import java.util.Random;
 @EnableConfigurationProperties(ContactTaskSchedulerProperties.class)
 public class ContactTaskSchedulerConfiguration {
 
-    /**
-     * 通讯录调度专用时钟。与营销调度分开命名，避免 bean 名冲突。
-     *
-     * @return UTC 系统时钟
-     */
-    @Bean
-    @Profile("kafka")
-    public Clock contactTaskClock() {
-        return Clock.systemUTC();
-    }
 
-    /**
-     * 发送间隔随机源。集中成 bean，测试里可换成固定种子。
-     *
-     * @return 随机源
-     */
-    @Bean
-    @Profile("kafka")
-    public Random contactTaskSendIntervalRandom() {
-        return new Random();
-    }
 
     /**
      * 装配轮次执行器，并把排干收尾接到生命周期推进器。
@@ -55,8 +35,6 @@ public class ContactTaskSchedulerConfiguration {
      * @param commandFactory 消息命令组装器
      * @param messageSendPort 协议 outbox 端口
      * @param properties 调度参数
-     * @param contactTaskClock 系统时钟
-     * @param contactTaskSendIntervalRandom 发送间隔随机源
      * @param lifecycleWorker 生命周期推进器
      * @return 轮次执行器
      */
@@ -70,8 +48,6 @@ public class ContactTaskSchedulerConfiguration {
             ContactTaskMessageCommandFactory commandFactory,
             MessageSendPort messageSendPort,
             ContactTaskSchedulerProperties properties,
-            Clock contactTaskClock,
-            Random contactTaskSendIntervalRandom,
             ContactTaskLifecycleWorker lifecycleWorker) {
         return new ContactTaskRoundWorker(
                 taskMapper,
@@ -81,8 +57,8 @@ public class ContactTaskSchedulerConfiguration {
                 commandFactory,
                 messageSendPort,
                 properties,
-                contactTaskClock,
-                contactTaskSendIntervalRandom,
+                Clock.systemUTC(),
+                new Random(),
                 lifecycleWorker::completeDrainedTask);
     }
 }

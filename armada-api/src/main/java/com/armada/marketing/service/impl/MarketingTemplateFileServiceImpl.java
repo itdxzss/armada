@@ -19,7 +19,11 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 营销模板图片文件服务实现。
+ * 营销模板图片文件与共享素材内容服务实现。
+ *
+ * <p>保留营销模板既有图片上传和鉴权内容读取能力，同时为营销模板、超链模板绑定共享素材
+ * 提供事务内行锁与图片字节校验。普通读取由 MyBatis 租户拦截器隔离；绑定锁要求调用方
+ * 已开启事务，避免素材删除与模板绑定并发产生悬空引用。</p>
  */
 @Service
 public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileService {
@@ -36,7 +40,16 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         this.mapper = mapper;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 上传并保存当前租户的营销模板图片。
+     *
+     * <p>先校验文件和读取实际字节，再将文件名、MIME、字节长度及内容一起持久化；响应只返回
+     * 展示元数据和鉴权内容地址，不直接返回图片二进制。</p>
+     *
+     * @param file 待上传图片
+     * @return 已保存图片的展示信息与鉴权内容地址
+     * @throws BusinessException 文件为空、MIME 不是图片或读取失败时抛出
+     */
     @Override
     public MarketingTemplateFileVO uploadImage(MultipartFile file) {
         // 先做轻量校验，再读取二进制内容，避免无效文件进入后续持久化流程。
@@ -58,7 +71,15 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         return toVO(row);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 读取当前租户营销模板图片或共享素材的原始内容。
+     *
+     * <p>主键查询受租户拦截器约束，禁止跨租户读取图片 BLOB。</p>
+     *
+     * @param id 图片文件 ID
+     * @return 图片 MIME 与原始字节
+     * @throws BusinessException 图片不存在或不属于当前租户时抛出
+     */
     @Override
     public MarketingTemplateFileContent content(Long id) {
         // selectById 同样受租户拦截器约束，避免跨租户读取图片二进制。
@@ -69,7 +90,16 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         return new MarketingTemplateFileContent(row.getContentType(), row.getContent());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 在调用方事务内锁定并读取待绑定素材内容。
+     *
+     * <p>行锁与后续模板写入处于同一事务，用于阻止并发删除在绑定提交前移除素材。</p>
+     *
+     * @param id 当前租户素材 ID
+     * @return 已锁定素材的 MIME 与原始字节
+     * @throws BusinessException 租户上下文缺失，或素材不存在、已删除时抛出
+     * @throws org.springframework.transaction.IllegalTransactionStateException 调用方未开启事务时抛出
+     */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public MarketingTemplateFileContent lockContentForBinding(Long id) {
@@ -77,7 +107,16 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         return new MarketingTemplateFileContent(row.getContentType(), row.getContent());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 在调用方事务内按 ID 升序锁定并校验全部待绑定素材。
+     *
+     * <p>输入会过滤空值、去重并排序，以固定锁顺序降低死锁风险；每个素材必须存在且能按允许的
+     * 图片类型解码。空集合不访问数据库。</p>
+     *
+     * @param ids 待绑定素材 ID 集合
+     * @throws BusinessException 租户上下文缺失，素材不存在、已删除或图片内容不可绑定时抛出
+     * @throws org.springframework.transaction.IllegalTransactionStateException 调用方未开启事务时抛出
+     */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public void lockAndValidateBindableAssets(Collection<Long> ids) {

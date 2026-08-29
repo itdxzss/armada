@@ -34,7 +34,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 图片素材库业务实现；列表不读取图片 BLOB，上传校验完成后才进入写事务。 */
+/**
+ * 当前租户共享图片素材库业务实现。
+ *
+ * <p>负责素材分页、详情、标签候选、上传、编辑、引用保护删除和鉴权内容读取。
+ * 列表查询只读取元数据，并按当前页批量补充标签与引用数，禁止加载图片 BLOB 或形成 N+1 查询。</p>
+ *
+ * <p>普通查询由 MyBatis 租户拦截器隔离；上传会先在事务外完成文件读取与 JPEG 解码校验，
+ * 再委托 {@link ResourceAssetWriteService} 以短事务写入文件和标签关系。</p>
+ */
 @Service
 public class ResourceAssetServiceImpl implements ResourceAssetService {
 
@@ -79,7 +87,16 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         this.converter = converter;
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 按名称、标签和绑定条件分页查询当前租户的图片素材。
+     *
+     * <p>分页与筛选全部由 SQL 下推；总数为零时不查询列表。当前页素材按批次补充标签关系和
+     * 模板引用数，响应中不包含图片二进制。</p>
+     *
+     * @param query 素材筛选和分页参数
+     * @return 当前页素材元数据、标签、引用统计及总数
+     * @throws BusinessException 查询参数为空、分页档位非法、名称或标签不符合规则，或租户上下文缺失时抛出
+     */
     @Override
     public PageResult<ResourceAssetVO> list(ResourceAssetQuery query) {
         normalizeQuery(query);
@@ -89,20 +106,43 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         return PageResult.of(list, query.getPage(), query.getPageSize(), total);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 查询当前租户单个未删除素材的完整管理信息。
+     *
+     * <p>返回素材元数据、标签和引用统计，不返回图片二进制；图片内容需通过鉴权内容接口按需读取。</p>
+     *
+     * @param id 素材 ID
+     * @return 素材元数据、标签和引用统计
+     * @throws BusinessException 素材 ID 非法、素材不存在或已删除，或租户上下文缺失时抛出
+     */
     @Override
     public ResourceAssetVO detail(Long id) {
         MarketingTemplateFile row = requireMetadata(id);
         return assemble(List.of(row)).get(0);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 查询当前租户活动素材仍在使用的标签候选。
+     *
+     * @return 按标签名稳定排序的标签列表
+     */
     @Override
     public ResourceAssetTagsVO tags() {
         return new ResourceAssetTagsVO(tagMapper.selectActiveTagNames());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 校验并上传单张 JPEG，同时保存租户共享标签关系。
+     *
+     * <p>先校验声明大小并读取字节，再验证文件名、MIME、真实 JPEG 内容和尺寸；所有校验通过后
+     * 才进入短事务写入，避免无效文件占用数据库事务和 BLOB 存储。</p>
+     *
+     * @param file 待上传的 JPEG 文件
+     * @param tagsJson 可选标签 JSON 字符串数组
+     * @param createdBy 可信认证身份中的上传人用户 ID
+     * @return 已创建素材的完整管理信息
+     * @throws BusinessException 文件为空、大小或格式非法、标签格式不合法，或租户上下文缺失时抛出
+     */
     @Override
     public ResourceAssetVO upload(MultipartFile file, String tagsJson, long createdBy) {
         if (file == null || file.isEmpty()) {
@@ -132,7 +172,16 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         return detail(row.getId());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 更新当前租户素材名称和标签关系。
+     *
+     * <p>名称与标签先完成归一化校验，再由写服务在同一事务内更新素材元数据和标签关系。</p>
+     *
+     * @param id 素材 ID
+     * @param request 完整的素材名称和标签
+     * @return 更新后的素材管理信息
+     * @throws BusinessException 请求、名称或标签不合法，素材不存在或已删除时抛出
+     */
     @Override
     public ResourceAssetVO update(Long id, ResourceAssetUpdateDTO request) {
         if (request == null) {
@@ -144,13 +193,28 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         return detail(id);
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 在没有有效模板引用时软删除当前租户素材。
+     *
+     * <p>写服务会锁定素材并在同一事务内复核引用数，防止模板绑定与删除并发产生悬空引用。</p>
+     *
+     * @param id 素材 ID
+     * @throws BusinessException 素材不存在、已删除或仍被模板引用时抛出
+     */
     @Override
     public void delete(Long id) {
         writeService.delete(id, System.currentTimeMillis());
     }
 
-    /** {@inheritDoc} */
+    /**
+     * 读取当前租户素材的 MIME 与原始图片字节。
+     *
+     * <p>复用营销模板图片服务的租户隔离内容读取能力，不在素材列表和详情响应中内联 BLOB。</p>
+     *
+     * @param id 素材 ID
+     * @return 图片 MIME 与原始字节
+     * @throws BusinessException 素材不存在或已删除时抛出
+     */
     @Override
     public MarketingTemplateFileContent content(Long id) {
         return fileService.content(id);

@@ -41,4 +41,17 @@
        AND is_named = 1
   </select>
 
+  <!-- 发送目标集口径是「通讯录里有名字」（设计 §2.8 的 name_num），不是双向好友 -->
+  <select id="selectNamedByAccount"
+          resultType="com.armada.account.contact.model.entity.AccountContact">
+    SELECT id, tenant_id, account_id, contact_phone, contact_jid,
+           full_name, first_name, push_name, business_name,
+           is_named, is_mutual, synced_at, created_at, updated_at
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND is_named = 1
+     ORDER BY id
+     LIMIT #{limit}
+  </select>
+
 </mapper>

@@ -80,4 +80,15 @@ class AccountContactMapperXmlTest {
                 .contains("contact_named_num = #{namedNum}")
                 .contains("contact_mutual_num = #{mutualNum}");
     }
+
+    @Test
+    void namedContactQueryIsBoundedAndFiltersByNamedFlag() throws IOException {
+        // 发送目标集口径是「通讯录里有名字」（设计 §2.8），不是双向好友
+        String sql = xml("AccountContactMapper.xml");
+
+        assertThat(sql)
+                .contains("id=\"selectNamedByAccount\"")
+                .contains("is_named = 1")
+                .contains("LIMIT #{limit}");
+    }
 }

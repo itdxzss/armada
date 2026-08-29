@@ -6,7 +6,7 @@
     id, tenant_id, name, message_type, title, description, promotion_link, content,
     preview_image_file_id, account_filter, msg_interval_min_sec, msg_interval_max_sec,
     concurrency, max_sends_per_account, retry_max, start_mode, task_delay_minutes,
-    task_start_at, is_enabled, run_status, next_round_at, total_send_num,
+    task_start_at, is_enabled, run_status, next_round_at, current_round_no, total_send_num,
     success_message_num, used_account_count, invalid_account_num, avg_send_per_account,
     created_by, created_at, updated_at, deleted_at
   </sql>
@@ -96,6 +96,98 @@
      WHERE id = #{id}
        AND deleted_at IS NULL
        AND run_status = #{expectedRunStatus}
+  </update>
+
+  <select id="selectDueRunningTasks"
+          resultType="com.armada.contact.task.model.entity.ContactFriendTask">
+    SELECT <include refid="taskColumns"/>
+      FROM contact_friend_task
+     WHERE deleted_at IS NULL
+       AND run_status = 1
+       AND next_round_at IS NOT NULL
+       AND next_round_at &lt;= #{now}
+     ORDER BY next_round_at
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectDueScheduledTasks"
+          resultType="com.armada.contact.task.model.entity.ContactFriendTask">
+    SELECT <include refid="taskColumns"/>
+      FROM contact_friend_task
+     WHERE deleted_at IS NULL
+       AND is_enabled = 1
+       AND run_status = 0
+       AND task_start_at IS NOT NULL
+       AND task_start_at &lt;= #{now}
+     ORDER BY task_start_at
+     LIMIT #{limit}
+  </select>
+
+  <update id="startDueScheduledTask">
+    UPDATE contact_friend_task
+       SET run_status = 1,
+           next_round_at = #{startedAt},
+           updated_at = #{startedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND is_enabled = 1
+       AND run_status = 0
+  </update>
+
+  <!-- 并发闸门：只有一个线程能把到期任务推进到下一轮 -->
+  <update id="claimDueRound">
+    UPDATE contact_friend_task
+       SET current_round_no = current_round_no + 1,
+           next_round_at = #{nextRoundAt},
+           updated_at = #{now}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND run_status = 1
+       AND next_round_at IS NOT NULL
+       AND next_round_at &lt;= #{now}
+  </update>
+
+  <update id="postponeDueRound">
+    UPDATE contact_friend_task
+       SET next_round_at = #{nextRoundAt},
+           updated_at = #{now}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND run_status = 1
+  </update>
+
+  <update id="applyExpansionTotals">
+    UPDATE contact_friend_task
+       SET total_send_num = #{totalSendNum},
+           used_account_count = #{usedAccountCount},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <update id="incrementSuccessMessageNum">
+    UPDATE contact_friend_task
+       SET success_message_num = success_message_num + #{delta},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <!-- 号均发量与无效账号数都从账号读模型推导，不接受调用方传值，避免口径分裂 -->
+  <update id="completeDrainedTask">
+    UPDATE contact_friend_task t
+       SET t.run_status = 2,
+           t.next_round_at = NULL,
+           t.invalid_account_num = (
+             SELECT COUNT(*) FROM contact_friend_task_account a
+              WHERE a.task_id = t.id AND a.state = 'FAILED'
+           ),
+           t.avg_send_per_account = COALESCE(
+             ROUND(t.success_message_num / NULLIF(t.used_account_count, 0), 2), 0),
+           t.updated_at = #{finishedAt}
+     WHERE t.id = #{id}
+       AND t.deleted_at IS NULL
+       AND t.run_status = 1
   </update>
 
 </mapper>

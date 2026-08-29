@@ -34,4 +34,17 @@ public interface AccountContactMapper {
      * @return 有名字的联系人数
      */
     int countNamed(@Param("accountId") Long accountId);
+
+    /**
+     * 取本账号通讯录里有名字的联系人，用作通讯录营销的发送目标集。
+     *
+     * <p>口径是「通讯录里有名字」（设计 §2.8 的 {@code name_num}），
+     * 不是「双向好友」——后者两套协议都还拿不到。</p>
+     *
+     * @param accountId 账号 ID
+     * @param limit 条数上限
+     * @return 联系人快照，按 id 升序
+     */
+    List<AccountContact> selectNamedByAccount(@Param("accountId") Long accountId,
+                                              @Param("limit") int limit);
 }

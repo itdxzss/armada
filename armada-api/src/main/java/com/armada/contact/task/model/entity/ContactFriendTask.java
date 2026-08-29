@@ -45,6 +45,9 @@ public class ContactFriendTask {
     private Integer isEnabled;
     /** 运行状态：0 未开始 1 进行中 2 已完成 3 已暂停 4 已停止。 */
     private Integer runStatus;
+    /** 已抢占的最新轮次号。 */
+    private Long currentRoundNo;
+
     /** 下一轮调度时间（epoch 毫秒）。 */
     private Long nextRoundAt;
     /** 计划发送总条数。 */
@@ -304,5 +307,13 @@ public class ContactFriendTask {
 
     public void setDeletedAt(Long deletedAt) {
         this.deletedAt = deletedAt;
+    }
+
+    public Long getCurrentRoundNo() {
+        return currentRoundNo;
+    }
+
+    public void setCurrentRoundNo(Long currentRoundNo) {
+        this.currentRoundNo = currentRoundNo;
     }
 }

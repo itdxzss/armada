@@ -33,4 +33,64 @@ public interface ContactFriendTaskAccountMapper {
      * @return 总数
      */
     long countByTaskId(@Param("taskId") Long taskId);
+
+    /**
+     * 插入任务账号行并回填主键。展开收件人需要这个 ID。
+     *
+     * @param row 账号行
+     * @return 受影响行数
+     */
+    int insert(ContactFriendTaskAccount row);
+
+    /**
+     * 按主键读取任务账号行。
+     *
+     * @param id 账号行 ID
+     * @return 账号行，不存在时为 null
+     */
+    ContactFriendTaskAccount selectById(@Param("id") Long id);
+
+    /**
+     * 累加该账号成功条数。
+     *
+     * @param id 账号行 ID
+     * @param updatedAt 更新时间（epoch 毫秒）
+     * @return 受影响行数
+     */
+    int incrementSentNum(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+
+    /**
+     * 累加该账号失败条数。
+     *
+     * @param id 账号行 ID
+     * @param updatedAt 更新时间（epoch 毫秒）
+     * @return 受影响行数
+     */
+    int incrementFailNum(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+
+    /**
+     * 把账号行推进到执行中。仅 PENDING 行会被更新。
+     *
+     * @param id 账号行 ID
+     * @param updatedAt 更新时间（epoch 毫秒）
+     * @return 受影响行数
+     */
+    int markRunning(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+
+    /**
+     * 把已排干的账号行收敛为终态：发成功过至少一条为 DONE，一条都没成功为 FAILED。
+     *
+     * @param taskId 任务 ID
+     * @param updatedAt 更新时间（epoch 毫秒）
+     * @return 受影响行数
+     */
+    int settleDrainedAccounts(@Param("taskId") Long taskId, @Param("updatedAt") long updatedAt);
+
+    /**
+     * 统计任务下收敛为 FAILED 的账号数，即 invalid_account_num 的口径。
+     *
+     * @param taskId 任务 ID
+     * @return 失败账号数
+     */
+    long countFailedAccounts(@Param("taskId") Long taskId);
 }

@@ -104,4 +104,68 @@ class ContactTaskMapperXmlTest {
         // 幂等键 (task_id, task_account_id, contact_phone) 冲突时忽略，重复展开不产生重复收件人
         assertThat(xml("ContactFriendTaskRecipientMapper.xml")).contains("INSERT IGNORE");
     }
+
+    @Test
+    void dueTaskScanIsBoundedAndSkipsSoftDeleted() throws IOException {
+        String sql = xml("ContactFriendTaskMapper.xml");
+
+        assertThat(sql).contains("id=\"selectDueRunningTasks\"");
+        assertThat(sql).contains("id=\"selectDueScheduledTasks\"");
+        assertThat(sql).contains("LIMIT #{limit}");
+        assertThat(sql).contains("deleted_at IS NULL");
+    }
+
+    @Test
+    void roundClaimIsTheConcurrencyGate() throws IOException {
+        // claimDueRound 是并发闸门：只有一个线程能把到期任务推进到下一轮
+        String sql = xml("ContactFriendTaskMapper.xml");
+
+        assertThat(sql).contains("id=\"claimDueRound\"");
+        assertThat(sql).contains("current_round_no = current_round_no + 1");
+        assertThat(sql).contains("next_round_at &lt;= #{now}");
+    }
+
+    @Test
+    void scheduledStartOnlyPromotesEnabledNotStartedTasks() throws IOException {
+        String sql = xml("ContactFriendTaskMapper.xml");
+
+        assertThat(sql).contains("id=\"startDueScheduledTask\"");
+        assertThat(sql).contains("is_enabled = 1");
+    }
+
+    @Test
+    void taskColumnsExposeCurrentRoundNo() throws IOException {
+        // 轮次号要被 worker 读到才能算下一轮，漏在列清单外会永远读成 null
+        assertThat(xml("ContactFriendTaskMapper.xml")).contains("current_round_no");
+    }
+
+    @Test
+    void completionDerivesAveragesFromAccountRows() throws IOException {
+        // 号均发量与封号数都从账号读模型推导，不靠调用方传值，避免口径分裂
+        String sql = xml("ContactFriendTaskMapper.xml");
+
+        assertThat(sql).contains("id=\"completeDrainedTask\"");
+        assertThat(sql).contains("avg_send_per_account");
+        assertThat(sql).contains("invalid_account_num");
+        assertThat(sql).contains("NULLIF(");
+    }
+
+    @Test
+    void accountInsertBackfillsGeneratedKey() throws IOException {
+        // 展开收件人需要 task_account.id，插入必须回填主键
+        String sql = xml("ContactFriendTaskAccountMapper.xml");
+
+        assertThat(sql).contains("useGeneratedKeys=\"true\"");
+        assertThat(sql).contains("keyProperty=\"id\"");
+    }
+
+    @Test
+    void drainedAccountSettlementDistinguishesDoneFromFailed() throws IOException {
+        // 一条都没发成功的账号收敛为 FAILED，用作 invalid_account_num 的口径
+        String sql = xml("ContactFriendTaskAccountMapper.xml");
+
+        assertThat(sql).contains("id=\"settleDrainedAccounts\"");
+        assertThat(sql).contains("'FAILED'");
+        assertThat(sql).contains("'DONE'");
+    }
 }

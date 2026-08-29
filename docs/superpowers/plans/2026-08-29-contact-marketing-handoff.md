@@ -1,13 +1,18 @@
 # 通讯录营销 交接状态
 
-- 更新时间：2026-08-29（P3b 发送引擎落地后回填）
+- 更新时间：2026-08-29（P3b 发送引擎落地 + 通讯录快照推送 S1 落地后回填）
 - 用途：**上下文清空后的唯一权威入口**。接手时先读本文，再读引用的设计与计划文档。
+- 本文覆盖**两条工作线**：
+  - **A 线 通讯录营销**（§0–§9）—— 四块做完三块，只剩前端
+  - **B 线 通讯录快照推送**（§10）—— 采集链路重做，S1 已完成，S2–S4 未做
 
 ---
 
 ## 0. 一句话现状
 
-**四块里做完四块的后三块半：协议层、通讯录采集、任务 CRUD、发送引擎全部落地并零回归；只剩前端一行代码没写。**
+**A 线（通讯录营销）：协议层、通讯录采集、任务 CRUD、发送引擎全部落地并零回归；只剩前端一行代码没写。**
+
+**B 线（通讯录快照推送）：查出采集链路本身是漏的，已出 spec 与计划，S1 投影修复已落地，S2–S4 未开始。详见 §10。**
 
 现在的实际效果：数据库有表、6 个接口能调、账号上线会自动同步通讯录、菜单和权限节点就位，
 **任务启用后会真的圈号、展开收件人、按轮次把私聊消息投给协议层，并把三级回执写回计数直到任务自动完成。**
@@ -23,8 +28,8 @@
 
 | 仓库 | 路径 | 基线 commit | 领先 |
 |---|---|---|---|
-| `armada` | `/home/yanwenchao/ideaProject/armada` | `e1f5d195` | 35 |
-| `armada-protocol` | `/home/yanwenchao/ideaProject/armada-protocol` | `60f40d9` | 5 |
+| `armada` | `/home/yanwenchao/ideaProject/armada` | `e1f5d195` | 39 |
+| `armada-protocol` | `/home/yanwenchao/ideaProject/armada-protocol` | `60f40d9` | 8 |
 | `whatsapp-server` | `/home/yanwenchao/ideaProject/whatsapp-server-feature-android-zhuan` | `f1faa36` | 3 |
 | `wheel-saas-pure-web` | `/home/yanwenchao/ideaProject/wheel-saas-pure-web` | `a9f039e` | **0（未动）** |
 
@@ -41,6 +46,8 @@
 | `docs/superpowers/plans/2026-08-28-contact-marketing-p2-contact-sync.md` | P2 通讯录采集计划 |
 | `docs/superpowers/plans/2026-08-28-contact-marketing-p3a-task-crud.md` | P3a 任务 CRUD 计划 |
 | `docs/superpowers/plans/2026-08-29-contact-marketing-p3b-send-engine.md` | P3b 发送引擎计划（15 任务 / 105 步，含三处对设计的有意偏离） |
+| `docs/superpowers/specs/2026-08-29-contact-snapshot-push-design.md` | **B 线总设计**。快照推送方案，含四个必须真机验证的点 |
+| `docs/superpowers/plans/2026-08-29-contact-snapshot-push.md` | B 线实施计划（14 任务 / 88 步） |
 | `docs/superpowers/plans/2026-08-29-contact-marketing-handoff.md` | 本文 |
 
 竞品事实源：`/home/yanwenchao/hylbuiaxykfrontendsource/readable/assets/`
@@ -319,14 +326,134 @@ echo -n "Errors: ";   grep -h "^Tests run:" *.txt | sed 's/.*Errors: \([0-9]*\).
 
 ---
 
-## 9. 建议的下一步
+## 9. A 线建议的下一步
 
-1. **写 P4 前端计划并落地**——现在唯一的功能缺口，做完整条链路就能在界面上跑通
-2. **部署到有库环境跑一次全量**，补齐 §6.1 列出的验证项，重点是发送闭环：
-   建一个启用态任务 → 看 `contact_friend_task_recipient` 是否展开 →
-   看 outbox 是否产生 `source=contact_task` 的命令 → 看回执是否把三级计数写回 →
-   看任务是否自动进入「已完成」
+1. **写 P4 前端计划并落地** —— A 线唯一的功能缺口
+2. **部署到有库环境跑一次全量**，补齐 §6.1 的验证项，重点是发送闭环
 3. 补跑 `.harness/wiki/gen_datamodel.py`
 4. 安排 V1/V2/V3 真机验证（§8）
 
-顺序不是硬约束；2 可以先于 1 做，能更早暴露 SQL 层面的问题。
+---
+
+## 10. B 线：通讯录快照推送
+
+### 10.1 为什么有这条线
+
+排查「通讯录到底怎么获取」时，发现**采集链路本身是坏的**，不是优化问题而是正确性问题。
+四条都验到代码级，不是推断：
+
+| # | 问题 | 证据 |
+|---|---|---|
+| 1 | 订阅了一个**不存在的事件** | `contacts.set` 在 Baileys `7.0.0-rc11` 的 `Types/Events.d.ts` 里没有 |
+| 2 | **批量联系人整个漏采** | 批量走 `messaging-history.set` 的 `contacts` 字段，我们没订阅 |
+| 3 | **LID 联系人被静默丢弃** | v7 `lidContactAction` 的 `id` 是 `@lid`，而 `normalizeContactJid` 只认 `@s.whatsapp.net`；号码其实在 `phoneNumber` 字段 |
+| 4 | **增量事件表达不了删除** | `chat-utils.js:206` 的 `onMutation({syncAction, index})` 没传 `operation`，SET/REMOVE 只喂给 LTHash；事件类型里也没有 `contacts.delete` |
+
+另外**时间是假的**：`last_synced_at` 记的是「armada 什么时候拉的」，不是「数据有多新」。
+协议层回的 `syncedAt` 是 `Date.now()`（`routes/contacts.ts:20`），armada 解析了但**从未使用**。
+
+**第 4 条决定了架构**：光靠增量事件，数据只增不减，号主删掉的联系人会永久留着照发。
+
+### 10.2 方案：强制全量快照 + 推模式
+
+删除只能靠全量快照收敛。关键机制已验证：
+
+```js
+// Socket/chats.js:454
+return_snapshot: (shouldForceSnapshot || !state.version).toString()
+```
+
+**清掉 `critical_unblock_low` 的 app-state 版本号 → 服务端回全量快照 → 每个联系人重放一次
+`contacts.upsert`**。不需要重登。
+
+安卓侧同样可行：`iq.go:1452` 的 `version == 0` 即 `return_snapshot=true`，且已为
+`critical_unblock_low` 特判 `order=0`。
+
+**原本担心的「重放会误触其它业务」经查不成立**：该 collection 只装 contact 类 action
+（`chat-utils.js:506` 的出站映射只有 `contact` 写进去），且协议层只有 `contact-store-bridge`
+一处订阅联系人事件。
+
+改造后：协议层按 TTL 周期强制 resync 并推 `account.contacts_reported`，armada 整批替换落库，
+`synced_at` 第一次是真实时间。**armada 不再拉取**，任务启用时直接读快照。
+
+### 10.3 已定的关键决策（**别推翻**）
+
+| 决策 | 理由 |
+|---|---|
+| **只推全量快照，不转发增量事件** | 强制快照本来就把新增/改名/删除一次全带上；再维护一套增量只买到"早几小时"，代价是多一套写入路径加乱序去重 |
+| **只自动推，无命令通道** | armada 不能主动要快照。任务启用时快照缺失或过期就跳过该号 |
+| **`deleteStale` 由"收齐"触发，不由"最后一片"触发** | Kafka 不保证分片顺序。末片先到时按"末片触发"会永远不再有触发点，陈数据永久滞留 |
+| **丢片时宁可留脏数据也不删** | `已落库条数 < totalCount` 一律跳过删除 |
+| **独立 topic** `protocol.account.contact-sync.events.v1` | 快照是大消息，照 group-sync 的既定做法隔离，消费端 `max.poll.records=1` |
+
+### 10.4 进度
+
+**S1 投影修复：已完成**（armada-protocol，3 commits）
+
+| commit | 内容 |
+|---|---|
+| `f5d1ac7` | `normalizeContactJid` 支持 LID，签名加第二个回退号码参数 |
+| `f8cec8d` | `upsertMany` 消费 v7 payload 形状（`phoneNumber` / `pnJid`） |
+| `003f44c` | bridge 增订 `messaging-history.set`，去掉不存在的 `contacts.set` |
+
+**S2 / S3 / S4：未开始。** 计划已写全，14 个任务 88 步，每步都有可直接落盘的测试与实现代码：
+`docs/superpowers/plans/2026-08-29-contact-snapshot-push.md`
+
+| 期 | 任务 | 仓库 |
+|---|---|---|
+| S2 | Task 4-7：事件契约、分片、强制 resync、接进 AccountManager 与周期调度 | armada-protocol |
+| S3 | Task 8-13：V161 迁移、事件消费器、快照落库、任务启用改读快照、退役拉取路径 | armada |
+| S4 | Task 14：安卓强制快照与推送 | whatsapp-server |
+
+S1 → S2 → S3 严格依赖；S4 只依赖 S3 的事件契约，可与 S2 并行。
+
+### 10.5 B 线会删掉 A 线的一批代码
+
+Task 13 专门做退役，**这是计划内的，不是破坏**：
+
+- `AccountContactSyncService#syncNow` / `#syncIfStale`
+- `AccountContactSyncServiceImpl`
+- `AccountContactOnlineHook` 与 `AccountStateChangedSinkAdapter:83` 的调用
+- `ContactListPort` + `WebContactListAdapter` + `AndroidNativeContactListAdapter`
+- `AccountContactSnapshot.syncedAt`（死字段）
+
+**保留**协议层的两个联系人 HTTP 接口，排查用。
+
+**改 `AccountStateChangedSinkAdapter` 构造签名前先 `grep -rn "@InjectMocks" src/test/java/com/armada/account`**
+—— P2 就是漏了这一步挂了 3 个既有测试。
+
+### 10.6 B 线的真机验证项（spec §11）
+
+| # | 项 | 卡不卡上线 |
+|---|---|---|
+| R1 | 服务端是否真的对 `critical_unblock_low` 返回全量、返回量多大 | **卡**，决定方案可行性 |
+| R2 | 频繁强制 resync 是否触发风控 | **卡**，决定 TTL 下限；24h 是保守猜测无实测 |
+| R3 | 事件静默 500ms 的判据在真实网络下够不够 | 不卡，太短只会标记快照不完整，不会误删 |
+| R4 | LID 联系人真机占比 | 不卡，衡量本次修复挽回了多少号 |
+
+### 10.7 B 线新踩的坑
+
+1. **既有测试会钉住你要改的行为**。改 Go 侧 `@g.us` 校验时打挂了
+   `TestParseMessageCommandRejectsUnsafeInvalidValues` —— 它钉着「群营销命令带私聊目标必须拒绝」。
+   正确解法是按 `source` 收口（只对 `contact_task` 放行私聊），不是一刀切放开。
+   同理 B 线 Task 3 会打挂 bridge 的两个既有用例，那是预期内的行为变更，改测试标题而不是绕开。
+
+2. **`resyncAppState` 的事件是延迟 flush 的**。它被 `ev.createBufferedFunction` 包着
+   （`event-buffer.js:141`），事件在 resolve **之后约 100ms** 才 flush，
+   await 完立刻读 store 会读到空的。必须等静默。
+
+3. **强制 resync 必须写进一份干净 store**。往现有投影里 merge 的话，被删的联系人还在里面，
+   推出去的"快照"照样表达不了删除 —— 这是整个方案的命门。
+
+---
+
+## 11. 建议的下一步（合并两条线）
+
+1. **B 线 S2 → S3**：把推送链路打通，这是正确性问题，优先级高于 A 线前端
+2. **B 线 S4**：安卓侧，可与 S2 并行
+3. **A 线 P4 前端**
+4. **部署到有库环境**，把 A 线 §6.1 与 B 线的迁移、topic、消费器装配一起验
+5. **安排真机验证**：A 线 V1–V3（§8）与 B 线 R1–R4（§10.6）
+
+> **V1 已被 B 线部分回答**：原来担心的"Baileys 冷启动可能只拿到增量"，查代码后确认是
+> "确实漏了批量来源、还漏了一类号"，S1 已修。剩下的真机部分是量级确认。

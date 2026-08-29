@@ -16,6 +16,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +35,7 @@ public class HyperlinkRoundLifecycleService {
     private final HyperlinkCleanupStartService cleanupStartService;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkRoundLifecycleService(HyperlinkTaskMapper taskMapper,
             HyperlinkTaskRuntimeMapper runtimeMapper, HyperlinkTaskRoundMapper roundMapper,
             HyperlinkTaskRoundAccountMapper roundAccountMapper,

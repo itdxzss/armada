@@ -7,10 +7,12 @@
     强制注入（设计 §2.7）：无论筛选条件写了什么，都只圈「正常且未导出」的账号。
     account_state=2 本身已排除 4，这里仍显式排除，防止将来枚举扩展时口径漂移。
 
-    channelIds 与 groupIds 都下推到 account_group_id：竞品把渠道和分组当两个维度，
-    armada 只有一个归一分组列，这是已知的口径收敛。
-    groupInviteAllowed / continent / platform / widType 在 armada 没有落列，故意没有条件，
-    与 AccountFilterCriteria 的能力边界说明一致。
+    friendCount 打在 account_state.contact_named_num（通讯录里有名字的联系人数）：
+    这是唯一有真值的口径。contact_mutual_num（双向好友）两套协议都不暴露，恒为 0，
+    拿它做筛选条件等于任何下界都命中 0 个号。
+
+    continent / widType / retentionDays / loggedIn 区间在 armada 没有对应列，
+    故意没有条件，与 AccountFilterCriteria 的能力边界说明一致。
   -->
   <!-- 圈号与试算共用同一套条件：拆成两份 WHERE 迟早漂移，界面显示的命中数就会骗人。 -->
   <sql id="selectionWhere">
@@ -35,7 +37,7 @@
         </foreach>
       </if>
       <if test="criteria.channelIds != null and criteria.channelIds.size() > 0">
-        AND a.account_group_id IN
+        AND a.promotion_channel_id IN
         <foreach collection="criteria.channelIds" item="channelId" open="(" separator="," close=")">
           #{channelId}
         </foreach>
@@ -54,10 +56,25 @@
         )
       </if>
       <if test="criteria.friendCountMin != null">
-        AND s.contact_mutual_num &gt;= #{criteria.friendCountMin}
+        AND s.contact_named_num &gt;= #{criteria.friendCountMin}
       </if>
       <if test="criteria.friendCountMax != null">
-        AND s.contact_mutual_num &lt;= #{criteria.friendCountMax}
+        AND s.contact_named_num &lt;= #{criteria.friendCountMax}
+      </if>
+      <if test="criteria.onlineStatus != null">
+        AND s.login_state = #{criteria.onlineStatus}
+      </if>
+      <if test="criteria.deviceOs != null">
+        AND a.device_os = #{criteria.deviceOs}
+      </if>
+      <if test="criteria.errorCode != null">
+        AND s.block_error_code = #{criteria.errorCode}
+      </if>
+      <if test="criteria.createdAtFrom != null">
+        AND a.created_at &gt;= #{criteria.createdAtFrom}
+      </if>
+      <if test="criteria.createdAtTo != null">
+        AND a.created_at &lt;= #{criteria.createdAtTo}
       </if>
       <if test="criteria.registerDaysMin != null">
         AND a.created_at &lt;= (UNIX_TIMESTAMP() * 1000 - #{criteria.registerDaysMin} * 86400000)

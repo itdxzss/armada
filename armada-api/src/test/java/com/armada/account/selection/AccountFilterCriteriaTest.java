@@ -38,7 +38,7 @@ class AccountFilterCriteriaTest {
     @Test
     void parsesIdArraysAndScalarFields() {
         String json = "{\"groupIds\":[7,9],\"channelIds\":[3],\"protocolId\":\"web\","
-                + "\"accountType\":1,\"phone\":\"8613\",\"groupInviteAllowed\":true}";
+                + "\"accountType\":1,\"phone\":\"8613\"}";
 
         AccountFilterCriteria criteria = AccountFilterCriteria.parse(json, mapper);
 
@@ -47,7 +47,20 @@ class AccountFilterCriteriaTest {
         assertThat(criteria.protocolId()).isEqualTo("web");
         assertThat(criteria.accountType()).isEqualTo(1);
         assertThat(criteria.phone()).isEqualTo("8613");
-        assertThat(criteria.groupInviteAllowed()).isTrue();
+    }
+
+    @Test
+    void parsesTheFiltersBackedByRealColumns() {
+        String json = "{\"onlineStatus\":1,\"deviceOs\":2,\"errorCode\":\"403\","
+                + "\"createdAtFrom\":1700000000000,\"createdAtTo\":1800000000000}";
+
+        AccountFilterCriteria criteria = AccountFilterCriteria.parse(json, mapper);
+
+        assertThat(criteria.onlineStatus()).isEqualTo(1);
+        assertThat(criteria.deviceOs()).isEqualTo(2);
+        assertThat(criteria.errorCode()).isEqualTo("403");
+        assertThat(criteria.createdAtFrom()).isEqualTo(1_700_000_000_000L);
+        assertThat(criteria.createdAtTo()).isEqualTo(1_800_000_000_000L);
     }
 
     @Test

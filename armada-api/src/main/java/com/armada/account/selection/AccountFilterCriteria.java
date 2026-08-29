@@ -24,11 +24,15 @@ import java.util.List;
  * @param protocolId 接入协议标识；null 表示不限
  * @param accountType 账号类型 1 个人 2 商业；null 表示不限
  * @param phone 号码前缀；null 表示不限
- * @param friendCountMin 双向好友数下界；null 表示不限
- * @param friendCountMax 双向好友数上界；null 表示不限
+ * @param friendCountMin 通讯录好友数下界；打在 account_state.contact_named_num
+ * @param friendCountMax 通讯录好友数上界；打在 account_state.contact_named_num
  * @param registerDaysMin 注册天数下界；null 表示不限
  * @param registerDaysMax 注册天数上界；null 表示不限
- * @param groupInviteAllowed 是否允许被拉群；null 表示不限
+ * @param onlineStatus 在线状态 1 在线 2 离线；null 表示不限
+ * @param deviceOs 机型 1 安卓 2 苹果；null 表示不限
+ * @param errorCode 封号错误码前缀匹配；null 表示不限
+ * @param createdAtFrom 创建时间下界（epoch 毫秒）；null 表示不限
+ * @param createdAtTo 创建时间上界（epoch 毫秒）；null 表示不限
  */
 public record AccountFilterCriteria(
         List<String> countryIso2s,
@@ -42,13 +46,17 @@ public record AccountFilterCriteria(
         Long friendCountMax,
         Long registerDaysMin,
         Long registerDaysMax,
-        Boolean groupInviteAllowed
+        Integer onlineStatus,
+        Integer deviceOs,
+        String errorCode,
+        Long createdAtFrom,
+        Long createdAtTo
 ) {
 
     /** 全部条件为空的「不限定」实例。 */
     public static final AccountFilterCriteria UNRESTRICTED = new AccountFilterCriteria(
             List.of(), List.of(), List.of(), List.of(),
-            null, null, null, null, null, null, null, null);
+            null, null, null, null, null, null, null, null, null, null, null, null);
 
     /** 组件全部经过防御性拷贝，实例不可变。 */
     public AccountFilterCriteria {
@@ -91,7 +99,11 @@ public record AccountFilterCriteria(
                 longValue(root, "friendCountMax"),
                 longValue(root, "registerDaysMin"),
                 longValue(root, "registerDaysMax"),
-                bool(root, "groupInviteAllowed"));
+                integer(root, "onlineStatus"),
+                integer(root, "deviceOs"),
+                text(root, "errorCode"),
+                longValue(root, "createdAtFrom"),
+                longValue(root, "createdAtTo"));
     }
 
     /**
@@ -113,7 +125,11 @@ public record AccountFilterCriteria(
                 && friendCountMax == null
                 && registerDaysMin == null
                 && registerDaysMax == null
-                && groupInviteAllowed == null;
+                && onlineStatus == null
+                && deviceOs == null
+                && errorCode == null
+                && createdAtFrom == null
+                && createdAtTo == null;
     }
 
     private static List<String> textList(JsonNode root, String key) {
@@ -159,8 +175,4 @@ public record AccountFilterCriteria(
         return node != null && node.canConvertToLong() ? node.asLong() : null;
     }
 
-    private static Boolean bool(JsonNode root, String key) {
-        JsonNode node = root.get(key);
-        return node != null && node.isBoolean() ? node.asBoolean() : null;
-    }
 }

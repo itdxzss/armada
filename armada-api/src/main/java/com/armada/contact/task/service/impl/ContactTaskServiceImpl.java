@@ -251,7 +251,8 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     private static ContactTaskListItemVO toListItem(ContactFriendTask row) {
         return new ContactTaskListItemVO(
                 row.getId(), row.getName(), row.getMessageType(), row.getTitle(),
-                row.getPromotionLink(), row.getAccountFilter(), row.getIsEnabled(),
+                row.getContent(), row.getPromotionLink(), row.getAccountFilter(),
+                row.getIsEnabled(),
                 row.getRunStatus(), row.getTotalSendNum(), row.getSuccessMessageNum(),
                 row.getUsedAccountCount(), row.getInvalidAccountNum(),
                 row.getAvgSendPerAccount(), row.getTaskStartAt(), row.getCreatedAt());

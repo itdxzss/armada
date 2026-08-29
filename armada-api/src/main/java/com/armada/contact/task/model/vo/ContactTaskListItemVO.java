@@ -8,7 +8,8 @@ import java.math.BigDecimal;
  * @param id 任务 ID
  * @param name 任务名称
  * @param messageType 消息类型：0 链接消息 / 1 图文消息
- * @param title 消息标题
+ * @param title 消息标题；图文消息为空
+ * @param content 正文或图文文案，列表用作内容预览
  * @param promotionLink 推广链接
  * @param accountFilter 账号筛选条件 JSON
  * @param isEnabled 任务开关
@@ -26,6 +27,7 @@ public record ContactTaskListItemVO(
         String name,
         Integer messageType,
         String title,
+        String content,
         String promotionLink,
         String accountFilter,
         Integer isEnabled,

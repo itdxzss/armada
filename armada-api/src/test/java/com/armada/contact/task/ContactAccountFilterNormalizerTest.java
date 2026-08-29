@@ -71,12 +71,13 @@ class ContactAccountFilterNormalizerTest {
     @Test
     void emptyArraysAndBlankStringsAreDropped() throws Exception {
         String out = normalizer.normalize(
-                "{\"group_ids\":[],\"phone\":\"  \",\"online_status\":\"online\"}");
+                "{\"group_ids\":[],\"phone\":\"  \",\"online_status\":1}");
 
         JsonNode node = parse(out);
         assertThat(node.has("groupIds")).isFalse();
         assertThat(node.has("phone")).isFalse();
-        assertThat(node.get("onlineStatus").asText()).isEqualTo("online");
+        // 在线状态是枚举整数（1在线 2离线），落库要能直接下推到 login_state
+        assertThat(node.get("onlineStatus").asInt()).isEqualTo(1);
     }
 
     @Test
@@ -87,9 +88,34 @@ class ContactAccountFilterNormalizerTest {
     }
 
     @Test
-    void booleanFilterIsPreserved() throws Exception {
-        String out = normalizer.normalize("{\"group_invite_allowed\":false}");
+    void keepsOnlyTheKeysTheSelectionSqlActuallyApplies() throws Exception {
+        // 放行一个 SQL 不用的键，它会安静落库却对结果毫无影响，界面上就是「筛了但没筛」
+        String out = normalizer.normalize(
+                "{\"group_invite_allowed\":false,\"continent\":\"AS\","
+                        + "\"wid_type\":\"1\",\"retention_days_min\":3,"
+                        + "\"logged_in_from\":1700000000000,\"error_desc\":\"x\"}");
 
-        assertThat(parse(out).get("groupInviteAllowed").asBoolean()).isFalse();
+        JsonNode node = parse(out);
+        for (String dead : new String[] {
+                "groupInviteAllowed", "continent", "widType",
+                "retentionDaysMin", "loggedInFrom", "errorDesc"}) {
+            assertThat(node.has(dead)).as(dead).isFalse();
+        }
+    }
+
+    @Test
+    void keepsTheFiltersBackedByRealColumns() throws Exception {
+        String out = normalizer.normalize(
+                "{\"online_status\":2,\"device_os\":1,\"error_code\":\"403\","
+                        + "\"created_at_from\":1700000000000,\"created_at_to\":1800000000000,"
+                        + "\"friend_count_min\":10}");
+
+        JsonNode node = parse(out);
+        assertThat(node.get("onlineStatus").asInt()).isEqualTo(2);
+        assertThat(node.get("deviceOs").asInt()).isEqualTo(1);
+        assertThat(node.get("errorCode").asText()).isEqualTo("403");
+        assertThat(node.get("createdAtFrom").asLong()).isEqualTo(1_700_000_000_000L);
+        assertThat(node.get("createdAtTo").asLong()).isEqualTo(1_800_000_000_000L);
+        assertThat(node.get("friendCountMin").asLong()).isEqualTo(10L);
     }
 }

@@ -36,20 +36,25 @@ public class ContactAccountFilterNormalizer {
     /** 正整数 ID 数组字段。 */
     private static final List<String> ID_ARRAY_KEYS = List.of("group_ids", "channel_ids");
 
-    /** 直接透传的字符串字段。 */
+    /**
+     * 直接透传的字符串字段。
+     *
+     * <p><b>白名单只放行圈号 SQL 真的会用的键。</b>放行一个 SQL 不用的键，
+     * 它会安静地落进 account_filter 却对结果毫无影响，界面上就变成「筛了但没筛」。
+     * 加键之前先确认 {@code AccountFilterSelectionMapper.xml} 里有对应的 WHERE 条件。</p>
+     */
     private static final List<String> TEXT_KEYS = List.of(
-            "continent", "online_status", "account_type", "platform", "wid_type",
-            "phone", "error_code", "error_desc", "protocol_id",
-            "created_at_from", "created_at_to", "logged_in_from", "logged_in_to");
+            "phone", "error_code", "protocol_id");
+
+    /** 整数枚举字段。 */
+    private static final List<String> INT_KEYS = List.of(
+            "account_type", "online_status", "device_os");
 
     /** 必须为正数才保留的范围字段。 */
     private static final List<String> POSITIVE_NUMBER_KEYS = List.of(
             "friend_count_min", "friend_count_max",
-            "retention_days_min", "retention_days_max",
-            "register_days_min", "register_days_max");
-
-    /** 布尔字段。 */
-    private static final List<String> BOOLEAN_KEYS = List.of("group_invite_allowed");
+            "register_days_min", "register_days_max",
+            "created_at_from", "created_at_to");
 
     private final ObjectMapper objectMapper;
 
@@ -118,10 +123,10 @@ public class ContactAccountFilterNormalizer {
                 target.put(camel(key), value.asLong());
             }
         }
-        for (String key : BOOLEAN_KEYS) {
+        for (String key : INT_KEYS) {
             JsonNode value = source.get(key);
-            if (value != null && value.isBoolean()) {
-                target.put(camel(key), value.asBoolean());
+            if (value != null && value.canConvertToInt()) {
+                target.put(camel(key), value.asInt());
             }
         }
         return target.toString();

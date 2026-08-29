@@ -76,4 +76,25 @@
     LIMIT #{limit}
   </select>
 
+  <!-- 圈号是启用那一刻的快照，轮次执行前必须复查：期间被封或导出的号不能再发 -->
+  <select id="selectSendableByIds"
+          resultType="com.armada.account.selection.model.SelectedAccount">
+    SELECT a.id                  AS accountId,
+           a.ws_phone            AS wsPhone,
+           a.protocol_id         AS protocolId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account a
+    INNER JOIN account_state s
+            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND a.protocol_account_id &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.account_state &lt;&gt; #{exportedAccountState}
+      AND a.id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+  </select>
+
 </mapper>

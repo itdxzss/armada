@@ -542,6 +542,27 @@ action=stop    run_status 1|3 → 4  终态，不可恢复
 回执流程：`ProtocolMessageEventConsumer` 增 contact 分支，按 correlation 回写三级计数
 （recipient → task_account → task）。失败且 `attempt_count < retry_max` 时置回 `PENDING` 重排。
 
+#### 7.3.1 实现偏离（P3b 落地后回填，2026-08-29）
+
+落地时对本节做了三处有意偏离，**不是遗漏，改回去会破坏既有约束**：
+
+| # | 本节写的 | 实际做的 | 理由 |
+|---|---|---|---|
+| 1 | 圈号服务叫 `HyperlinkAccountSelector`，落超链包 | 叫 `AccountFilterSelector`，落 `com.armada.account.selection` | 本节自己写了「与超链任务共用」。共用能力放进被共用方（账号域），超链期直接注入，不用反向依赖某个消费方的包 |
+| 2 | `invalid_account_num` = 发送期间被封禁的账号数 | = 一条都没发成功的账号数（`contact_friend_task_account.state='FAILED'`） | armada 没有「发送期间封禁」的判定源，协议失败码也没有稳定的封号语义分类。先用可确定口径落地，真封号分类等 §11 的 V3 真机验证后再补 |
+| 3 | 未提 | 新增 `V160` 补 `contact_friend_task.current_round_no`、`contact_friend_task_recipient.round_no` / `command_id` | `roundNo` 是 §5.1 协议 payload 的必填四字段之一，§6.2 建表时漏了；`command_id` 用于跨层排查 |
+
+另有两条能力边界，前端设计时必须知道：
+
+- **筛选键只有一部分真的下推到了 SQL**。`continent` / `onlineStatus` / `platform` / `widType` /
+  `errorCode` / `errorDesc` / `retentionDays*` / `createdAt*` / `loggedIn*` / `groupInviteAllowed`
+  在 armada 没有对应列，`AccountFilterCriteria` **解析后直接丢弃**。宁可少筛也不让调用方误以为筛了；
+  补列后在该类加组件、在 `AccountFilterSelectionMapper.xml` 加条件即可。
+- **`channelIds` 与 `groupIds` 都下推到 `account_group_id`**。竞品把渠道和分组当两个维度，
+  armada 只有一个归一分组列，这是已知的口径收敛。
+
+---
+
 ### 7.4 `account_filter` 归一化
 
 **入库前按白名单归一化**（既有结论 #6）：未知键丢弃、国家码大写、ID 去重、数值下界裁剪、空值剔除。

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountProfileMapper">
+
+  <insert id="upsertFriendCount">
+    INSERT INTO account_profile (
+      tenant_id, account_id, friend_count, friend_count_synced_at, created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{friendCount}, #{factAt}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      friend_count = CASE
+        WHEN VALUES(friend_count_synced_at) &gt; COALESCE(friend_count_synced_at, -1)
+          THEN VALUES(friend_count)
+        ELSE friend_count
+      END,
+      friend_count_synced_at = GREATEST(
+        COALESCE(friend_count_synced_at, -1), VALUES(friend_count_synced_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="upsertGroupInviteAllowed">
+    INSERT INTO account_profile (
+      tenant_id, account_id, is_group_invite_allowed, group_invite_synced_at,
+      created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{allowed}, #{factAt}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      is_group_invite_allowed = CASE
+        WHEN VALUES(group_invite_synced_at) &gt; COALESCE(group_invite_synced_at, -1)
+          THEN VALUES(is_group_invite_allowed)
+        ELSE is_group_invite_allowed
+      END,
+      group_invite_synced_at = GREATEST(
+        COALESCE(group_invite_synced_at, -1), VALUES(group_invite_synced_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="upsertRotationStatus">
+    INSERT INTO account_profile (
+      tenant_id, account_id, rotation_status, rotation_updated_at, created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{status}, #{factAt}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      rotation_status = CASE
+        WHEN VALUES(rotation_updated_at) &gt; COALESCE(rotation_updated_at, -1)
+          THEN VALUES(rotation_status)
+        ELSE rotation_status
+      END,
+      rotation_updated_at = GREATEST(
+        COALESCE(rotation_updated_at, -1), VALUES(rotation_updated_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="initializeRegistration">
+    INSERT INTO account_profile (
+      tenant_id, account_id, registered_at, registered_at_source, created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{registeredAt}, #{source}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      registered_at_source = CASE
+        WHEN registered_at IS NULL THEN VALUES(registered_at_source)
+        ELSE registered_at_source
+      END,
+      registered_at = COALESCE(registered_at, VALUES(registered_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <insert id="upsertMarketingSource">
+    INSERT INTO account_profile (
+      tenant_id, account_id, marketing_source, marketing_source_updated_at,
+      created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{source}, #{factAt}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      marketing_source = CASE
+        WHEN VALUES(marketing_source_updated_at) &gt; COALESCE(marketing_source_updated_at, -1)
+          THEN VALUES(marketing_source)
+        ELSE marketing_source
+      END,
+      marketing_source_updated_at = GREATEST(
+        COALESCE(marketing_source_updated_at, -1), VALUES(marketing_source_updated_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
+  <select id="selectByTenantAndAccountId"
+          resultType="com.armada.account.model.entity.AccountProfile">
+    SELECT id,
+           tenant_id,
+           account_id,
+           friend_count,
+           friend_count_synced_at,
+           is_group_invite_allowed AS groupInviteAllowed,
+           group_invite_synced_at,
+           rotation_status,
+           rotation_updated_at,
+           registered_at,
+           registered_at_source,
+           marketing_source,
+           marketing_source_updated_at,
+           created_at,
+           updated_at
+    FROM account_profile
+    WHERE tenant_id = #{tenantId}
+      AND account_id = #{accountId}
+    LIMIT 1
+  </select>
+
+</mapper>

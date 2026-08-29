@@ -184,6 +184,7 @@ armada:
     command-cleanup:
       enabled: ${PROTOCOL_COMMAND_CLEANUP_ENABLED:true}
       retention-days: ${PROTOCOL_COMMAND_CLEANUP_RETENTION_DAYS:7}
+      hyperlink-retention-days: ${PROTOCOL_COMMAND_CLEANUP_HYPERLINK_RETENTION_DAYS:30}
       # 单轮持续按批删除直到当轮删干净，避免历史积压只能靠轮次慢慢消化。
       batch-size: ${PROTOCOL_COMMAND_CLEANUP_BATCH_SIZE:10000}
       fixed-delay-ms: ${PROTOCOL_COMMAND_CLEANUP_FIXED_DELAY_MS:3600000}

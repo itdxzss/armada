@@ -1,0 +1,3 @@
+-- 评审索引；实际结构执行入口为 Flyway V159__account_profile.sql。
+-- 本变更不做历史数据回填：未知画像必须保留 NULL，禁止伪造默认值。
+-- V159 新建 account_profile，并幂等增加 account.idx_account_hyperlink_platform。

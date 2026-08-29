@@ -150,13 +150,42 @@ class WebMessageSendBackendTest {
     }
 
     @Test
+    void encodesFrozenHyperlinkPrivateWireContract() {
+        WebMessageSendBackend backend = new WebMessageSendBackend(
+                outboxService, new ProtocolMasterCommandProperties());
+        MessageSendCommand command = hyperlinkCommand();
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
+                        null, List.of(command.commandId()), 1));
+
+        backend.enqueue(List.of(command));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        Map<String, Object> payload = objectMapper.convertValue(
+                captor.getValue().get(0).payload(), new TypeReference<>() { });
+        assertThat(payload)
+                .containsEntry("source", "hyperlink_task")
+                .containsEntry("jid", "8613800000000@s.whatsapp.net")
+                .containsEntry("targetKind", "PRIVATE")
+                .containsEntry("hyperlinkTaskId", 11L)
+                .containsEntry("hyperlinkRecipientId", 13L)
+                .containsEntry("messageType", "LINK_CARD")
+                .containsEntry("text", "正文")
+                .doesNotContainKeys("recipientId", "groupJid", "messageContent", "schemaVersion");
+    }
+
+    @Test
     void encodesContactTaskCorrelationFields() {
         // 协议层判 contact_task 时四字段缺一即丢弃，字段名必须逐字一致
         WebMessageSendBackend backend = new WebMessageSendBackend(
                 outboxService, new ProtocolMasterCommandProperties());
         MessageSendCommand command = new MessageSendCommand(
                 account(),
-                new MessageSendCommand.MessageTarget("8613900000001@s.whatsapp.net"),
+                new MessageSendCommand.MessageTarget(
+                        "8613900000001@s.whatsapp.net",
+                        MessageSendCommand.TargetKind.PRIVATE),
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("hi", null, null, null),
@@ -167,7 +196,8 @@ class WebMessageSendBackendTest {
                         null,
                         null,
                         null,
-                        new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L)),
+                        new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
+                        null),
                 "cmd_contact_web",
                 800,
                 0L);
@@ -189,7 +219,9 @@ class WebMessageSendBackendTest {
                 .containsEntry("taskAccountId", 88L)
                 .containsEntry("recipientId", 99L)
                 .containsEntry("roundNo", 5L)
-                .containsEntry("groupJid", "8613900000001@s.whatsapp.net")
+                .containsEntry("jid", "8613900000001@s.whatsapp.net")
+                .containsEntry("targetKind", "PRIVATE")
+                .doesNotContainKey("groupJid")
                 .doesNotContainKeys("marketingTaskId", "attemptId", "targetId");
     }
 
@@ -217,6 +249,23 @@ class WebMessageSendBackendTest {
                 "cmd_web",
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 2_500L);
+    }
+
+    private static MessageSendCommand hyperlinkCommand() {
+        return new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget(
+                        "8613800000000@s.whatsapp.net", MessageSendCommand.TargetKind.PRIVATE),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.LINK_CARD,
+                        new MessageSendCommand.MessageContent("正文", null,
+                                new MessageSendCommand.MessageLinkCard(
+                                        "https://example.com", "标题", "描述", null), null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(7L, "hyperlink_task",
+                        null, null, null,
+                        new MessageSendCommand.HyperlinkCorrelation(11L, 13L)),
+                "hl:7:11:13", 500, 0L);
     }
 
     private static ProtocolAccountRef account() {

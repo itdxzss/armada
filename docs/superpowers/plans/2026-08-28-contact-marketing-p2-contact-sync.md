@@ -38,7 +38,7 @@
 ### Task 1: `V157` 迁移与 SQL 契约测试
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V157__account_contact_sync.sql`
+- Create: `armada-api/src/main/resources/db/migration/V162__account_contact_sync.sql`
 - Test: `armada-api/src/test/java/com/armada/account/contact/AccountContactMigrationSqlTest.java`
 
 **Interfaces:**
@@ -66,7 +66,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccountContactMigrationSqlTest {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V157__account_contact_sync.sql");
+            Path.of("src/main/resources/db/migration/V162__account_contact_sync.sql");
 
     private static String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);
@@ -132,11 +132,11 @@ cd /home/yanwenchao/ideaProject/armada/armada-api
 mvn -o test -Dtest=AccountContactMigrationSqlTest
 ```
 
-Expected: FAIL，`NoSuchFileException` 指向 `V157__account_contact_sync.sql`
+Expected: FAIL，`NoSuchFileException` 指向 `V162__account_contact_sync.sql`
 
 - [ ] **Step 3: 写迁移**
 
-创建 `armada-api/src/main/resources/db/migration/V157__account_contact_sync.sql`：
+创建 `armada-api/src/main/resources/db/migration/V162__account_contact_sync.sql`：
 
 ```sql
 -- 账号通讯录快照与同步状态。
@@ -221,14 +221,14 @@ Expected: PASS，5 个用例全绿
 ls /home/yanwenchao/ideaProject/armada/armada-api/src/main/resources/db/migration | sort -V | tail -3
 ```
 
-Expected: 最后三个是 `V155__...`、`V156__...`、`V157__account_contact_sync.sql`。
+Expected: 最后三个是 `V155__...`、`V156__...`、`V162__account_contact_sync.sql`。
 若 `V157` 已被别人占用，改成当前最大号 +1，并同步改测试里的路径常量。
 
 - [ ] **Step 6: 提交**
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada
-git add armada-api/src/main/resources/db/migration/V157__account_contact_sync.sql
+git add armada-api/src/main/resources/db/migration/V162__account_contact_sync.sql
 git add armada-api/src/test/java/com/armada/account/contact/AccountContactMigrationSqlTest.java
 git commit -m "feat(contact): add account contact snapshot schema"
 ```

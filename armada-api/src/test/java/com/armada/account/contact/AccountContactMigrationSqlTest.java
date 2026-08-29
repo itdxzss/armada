@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AccountContactMigrationSqlTest {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V157__account_contact_sync.sql");
+            Path.of("src/main/resources/db/migration/V162__account_contact_sync.sql");
 
     private static String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);

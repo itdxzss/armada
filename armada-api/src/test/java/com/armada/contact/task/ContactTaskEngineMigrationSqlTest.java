@@ -14,7 +14,7 @@ class ContactTaskEngineMigrationSqlTest {
 
     private static String sql() throws IOException {
         return Files.readString(
-                Path.of("src/main/resources/db/migration/V160__contact_task_engine.sql"),
+                Path.of("src/main/resources/db/migration/V165__contact_task_engine.sql"),
                 StandardCharsets.UTF_8);
     }
 

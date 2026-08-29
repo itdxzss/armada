@@ -10,9 +10,11 @@ import com.armada.promotion.channel.model.vo.PromotionChannelDetailVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelCapiDeliveryResult;
 import com.armada.promotion.channel.model.vo.PromotionChannelProbeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelPairingContextRow;
+import com.armada.promotion.channel.model.vo.PromotionChannelOptionVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelRuntimeVO;
 import com.armada.promotion.channel.model.vo.PromotionChannelVO;
 import com.armada.shared.response.PageResult;
+import java.util.List;
 
 /** 渠道管理业务接口。 */
 public interface PromotionChannelService {
@@ -22,7 +24,7 @@ public interface PromotionChannelService {
      *
      * @return 顺序稳定的 18 个目录项
      */
-    java.util.List<FacebookStandardEventVO> facebookStandardEvents();
+    List<FacebookStandardEventVO> facebookStandardEvents();
 
     /**
      * 使用当前租户、当前渠道的有效 Facebook 配置投递正式业务事件。
@@ -47,6 +49,9 @@ public interface PromotionChannelService {
      * @return 渠道分页结果
      */
     PageResult<PromotionChannelVO> page(PromotionChannelQuery query);
+
+    /** 当前租户启用推广渠道下拉。 */
+    List<PromotionChannelOptionVO> options();
 
     /**
      * 查询当前租户内有效渠道的编辑回显数据。

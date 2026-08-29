@@ -1260,7 +1260,7 @@ git commit -m "feat(contacts): publish contact snapshots on sync and schedule"
 ## Task 8: V161 迁移（`sync_status` 取值扩充）
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V161__account_contact_partial_status.sql`
+- Create: `armada-api/src/main/resources/db/migration/V166__account_contact_partial_status.sql`
 - Test: `armada-api/src/test/java/com/armada/account/contact/AccountContactPartialStatusMigrationSqlTest.java`
 
 **Interfaces:**
@@ -1285,7 +1285,7 @@ class AccountContactPartialStatusMigrationSqlTest {
 
     private static String sql() throws IOException {
         return Files.readString(
-                Path.of("src/main/resources/db/migration/V161__account_contact_partial_status.sql"),
+                Path.of("src/main/resources/db/migration/V166__account_contact_partial_status.sql"),
                 StandardCharsets.UTF_8);
     }
 
@@ -1353,7 +1353,7 @@ Expected: PASS（3 tests）
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada
-git add armada-api/src/main/resources/db/migration/V161__account_contact_partial_status.sql
+git add armada-api/src/main/resources/db/migration/V166__account_contact_partial_status.sql
 git add armada-api/src/main/java/com/armada/account/contact/model/entity/AccountContactSync.java
 git add armada-api/src/test/java/com/armada/account/contact/AccountContactPartialStatusMigrationSqlTest.java
 git commit -m "feat(contact): add partial sync status"

@@ -284,9 +284,9 @@
    `task + account` 合并增量，再分别更新 runtime/round 与累计账号投影，最后
    回写 `metrics_projected_status`。同一批 1000 条 ACK 不等于逐条更新任务热行。
 3. 每次短链访问必须在同一事务内锁 recipient，更新累计次数/首末访问/首触环境快照；随后对 runtime 做列级
-   原子增量：首次访问令 `click_uv_num + 1`，每次访问令 `click_total + 1`，并维护任务首末访问时间。竞品没有
-   逐次点击流水，访问趋势按 recipient.`first_visit_at` 分桶、`COUNT(*)` 计算新增 UV、`SUM(click_count)` 计算
-   辅助 PV；当前单任务不超过 10 万，无需为低频趋势页再维护一张桶投影表。
+   原子增量：首次访问令 `click_uv_num + 1`，每次访问令 `click_total + 1`，并维护任务首末访问时间。当前没有
+   逐次点击流水，访问趋势按 recipient.`first_visit_at` 分桶、`COUNT(*)` 计算新增 UV；PV 只从 runtime 返回真实
+   累计总量，分桶明确不可用，不把累计 `click_count` 伪装进首访桶。当前单任务不超过 10 万，无需维护桶投影表。
 4. 账号首次从有效变为封号/失效时，条件更新 task_account_usage 的 `invalid_*` 字段并原子增加
    runtime.`invalid_account_count`；`/ban-stats` 直接按该任务的 usage 行分组，不扫描 recipient。
 5. reconciliation 是限速修复作业，不参与页面请求；只校准指定任务/时间段，禁止高峰期全租户扫表。
@@ -295,7 +295,8 @@ runtime 是共享读模型但不允许整行覆盖：生命周期服务只写状
 账号首次实际派发时增加 `used_account_count`，公网点击入口只原子更新点击指标，usage 首次失效时只增加
 `invalid_account_count`。所有写方使用列级原子 UPDATE；否则两个投影器并发时会把对方的新值覆盖。
 
-高并发事务统一锁顺序，实施不得各 Service 自由发挥：发送/ACK 为 `task_account_usage → recipient`，
+高并发事务统一锁顺序，实施不得各 Service 自由发挥：派发为
+`runtime → round → task_account_usage → account → recipient`，ACK 为 `task_account_usage → recipient`，
 轮次收敛为 `round → runtime`，点击为 `recipient → runtime`，领号批次为
 `recipient_claim → data_package_stat → data_package_phone → recipient`。先无锁读 ID 再按此顺序条件锁，状态不符
 就重试；宁可短重试，也不要用相反锁序制造批量死锁。
@@ -465,6 +466,7 @@ recipient 和内容不可变。
 - `uq_hyperlink_recipient_ack(tenant_id, account_id, protocol_id, protocol_message_id)`：ACK 幂等；NULL 不冲突。
 - `uq_hyperlink_recipient_short_code(short_code)`：公网入口精确反查；NULL 不冲突。
 - `idx_hyperlink_recipient_task(tenant_id, hyperlink_task_id, send_status, id)`：明细分页和任务指标校准。
+- `idx_hyperlink_recipient_account_sending(tenant_id, account_id, send_status, id)`：同账号跨任务发送中容量硬门禁。
 - `idx_hyperlink_recipient_unassigned(tenant_id, hyperlink_task_id, send_status, hyperlink_task_round_id, id)`：按任务领取尚未分轮的待发收信人。
 - `idx_hyperlink_recipient_pick(tenant_id, hyperlink_task_round_id, send_status, next_dispatch_at, id)`：本轮派发/恢复。
 - `idx_hyperlink_recipient_source(tenant_id, data_package_id, data_package_generation, id)`：来源追溯。
@@ -631,9 +633,11 @@ successful，明确失败释放 reserved，在途 command 结束时减少 in-fli
 runtime.`invalid_account_count`；重复事件只补全原因，不重复计数。`/ban-stats` 按本表的 `invalid_code/reason`
 分组。独立 `hyperlink_task_ban` 会重复 task/account/号码/国家且仍然只允许一行，故不建。
 
-这张表只解决**本任务内**的限额和并发。多个任务共用同一账号的总在途安全阈值仍由账号级分布式信号量
-控制，holder 使用 recipient.`command_id`、带 TTL 并可由协议命令状态校准；不能用单 JVM 内存计数冒充全局限制。
-Armada 已有 Redis 基础设施；信号量不可用或续租失败时发送链路必须 fail closed、延后重试，不能无保护放行。
+这张表只解决**本任务内**的限额和并发。多个任务共用同一账号时，派发事务先锁全局 `account` 行，再按
+`account_id + send_status=2` 当前读锁取最多 20 条 recipient；达到 20 即延后，因此 Redis holder 过期或丢失也
+不能突破硬上限。账号级 Redis 信号量继续提供分布式 holder 与续租校准，holder 使用稳定的
+recipient.`command_id` 并带 TTL；不能用单 JVM 内存计数冒充全局限制。Redis 不可用或续租失败时发送链路仍须
+fail closed、延后重试，不能无保护放行；TTL 只是运维续租窗口，不是容量正确性的安全边界。
 
 ### 4.9 hyperlink_task_round_account（轮次×发信账号分配）
 
@@ -764,14 +768,13 @@ round.`selected_account_count`；唯一键和稳定 `selection_no` 使重放只�
 ### 4.12 访问趋势查询口径
 
 访问趋势不建独立表。时间窗口按竞品从任务第一个 UV 起向后 12~72 小时，而非“当前时刻向前滚动”；30 分钟、
-1 小时和 2 小时粒度都直接按 recipient.`first_visit_at` 分桶：`COUNT(*)` 是新增 UV，`SUM(click_count)` 是
-竞品标注为“按首次访问所在时间段近似归集”的辅助 PV。累计 UV 在应用层按桶做前缀和，累计点击率再除
+1 小时和 2 小时粒度都直接按 recipient.`first_visit_at` 分桶：`COUNT(*)` 是新增 UV。竞品旧实现将
+`SUM(click_count)` 近似归入首访桶，但该值不能代表 PV 的实际发生时段，本模型禁止使用。累计 UV 在应用层按桶做前缀和，累计点击率再除
 runtime.`success_num`；空桶由应用层补零。
 
 ```sql
 SELECT FLOOR((first_visit_at - :window_start_at) / :bucket_size_ms) AS bucket_no,
-       COUNT(*) AS new_uv,
-       SUM(click_count) AS pv
+       COUNT(*) AS new_uv
 FROM hyperlink_task_recipient
 WHERE tenant_id = :tenant_id
   AND hyperlink_task_id = :task_id

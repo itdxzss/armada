@@ -14,7 +14,7 @@ class AccountContactPartialStatusMigrationSqlTest {
 
     private static String sql() throws IOException {
         return Files.readString(
-                Path.of("src/main/resources/db/migration/V161__account_contact_partial_status.sql"),
+                Path.of("src/main/resources/db/migration/V166__account_contact_partial_status.sql"),
                 StandardCharsets.UTF_8);
     }
 

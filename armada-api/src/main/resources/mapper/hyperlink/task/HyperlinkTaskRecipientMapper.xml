@@ -1,0 +1,379 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper">
+    <sql id="AccountStatTimeSourceFilters">
+        r.hyperlink_task_id = #{criteria.taskId}
+        AND r.submitted_at &gt;= #{criteria.startAt}
+        AND r.submitted_at &lt; #{criteria.endAt}
+        <if test="criteria.snapshotAt != null">
+          AND r.submitted_at &lt;= #{criteria.snapshotAt}
+        </if>
+        <if test="criteria.senderCountryIso2 != null">
+          <choose>
+            <when test="criteria.unknownCountry">
+              AND r.sender_country_iso2_snapshot IS NULL
+            </when>
+            <otherwise>
+              AND r.sender_country_iso2_snapshot = #{criteria.senderCountryIso2}
+            </otherwise>
+          </choose>
+        </if>
+    </sql>
+
+    <sql id="AccountStatGroupedFilters">
+        1 = 1
+        <if test="criteria.successRateMin != null">
+          AND COALESCE((grouped.success_num * 100.0) / NULLIF(grouped.send_total, 0), 0)
+              &gt;= #{criteria.successRateMin}
+        </if>
+        <if test="criteria.successRateMax != null">
+          AND COALESCE((grouped.success_num * 100.0) / NULLIF(grouped.send_total, 0), 0)
+              &lt;= #{criteria.successRateMax}
+        </if>
+    </sql>
+
+    <sql id="AccountStatGroupedOrder">
+        ORDER BY
+        <choose>
+          <when test="criteria.sortField == 'deliveredNum'">delivered_num</when>
+          <when test="criteria.sortField == 'failedNum'">failed_num</when>
+          <otherwise>success_num</otherwise>
+        </choose>
+        <choose>
+          <when test="criteria.sortOrder == 'asc'">ASC</when>
+          <otherwise>DESC</otherwise>
+        </choose>, account_bucket_key ASC
+    </sql>
+
+    <sql id="AccountStatGroupedSource">
+        SELECT COALESCE(r.account_id, 0) AS account_bucket_key,
+               r.account_id,
+               COUNT(*) AS send_total,
+               SUM(CASE WHEN r.send_status IN (3, 4, 5) THEN 1 ELSE 0 END) AS success_num,
+               SUM(CASE WHEN r.send_status IN (4, 5) THEN 1 ELSE 0 END) AS delivered_num,
+               SUM(CASE WHEN r.send_status IN (6, 7) THEN 1 ELSE 0 END) AS failed_num,
+               MAX(r.submitted_at) AS last_send_at
+        FROM hyperlink_task_recipient r
+        WHERE <include refid="AccountStatTimeSourceFilters"/>
+        GROUP BY r.account_id
+    </sql>
+
+    <select id="countAccountStats" resultType="long">
+        SELECT COUNT(*)
+        FROM (
+          <include refid="AccountStatGroupedSource"/>
+        ) grouped
+        WHERE <include refid="AccountStatGroupedFilters"/>
+    </select>
+
+    <select id="selectAccountStats"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkAccountStatRow">
+        SELECT page.account_bucket_key AS bucketKey,
+               page.account_id AS accountId,
+               usage.account_phone_snapshot AS senderPhone,
+               usage.sender_country_iso2_snapshot AS senderCountryIso2,
+               usage.account_type_snapshot AS accountTypeCode,
+               usage.account_created_at_snapshot AS accountCreatedAt,
+               page.send_total AS sendTotal,
+               page.success_num AS successNum,
+               page.delivered_num AS deliveredNum,
+               page.failed_num AS failedNum,
+               page.last_send_at AS lastSendAt
+        FROM (
+          SELECT grouped.*
+          FROM (
+            <include refid="AccountStatGroupedSource"/>
+          ) grouped
+          WHERE <include refid="AccountStatGroupedFilters"/>
+          <include refid="AccountStatGroupedOrder"/>
+          LIMIT #{criteria.pageSize} OFFSET #{criteria.offset}
+        ) page
+        LEFT JOIN hyperlink_task_account_usage usage
+          ON usage.hyperlink_task_id = #{criteria.taskId}
+         AND usage.account_id = page.account_id
+        <include refid="AccountStatGroupedOrder"/>
+    </select>
+
+    <select id="selectByShortCodeForUpdate"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient
+        WHERE short_code=#{shortCode}
+        FOR UPDATE
+    </select>
+    <update id="recordPublicVisit">
+        UPDATE hyperlink_task_recipient SET
+          click_count=click_count+1,
+          first_visit_at=CASE WHEN #{firstVisit} THEN #{now} ELSE first_visit_at END,
+          last_visit_at=#{now},
+          first_visit_ip_address=CASE WHEN #{firstVisit} THEN #{ipAddress} ELSE first_visit_ip_address END,
+          first_visit_user_agent=CASE WHEN #{firstVisit} THEN #{userAgent} ELSE first_visit_user_agent END,
+          first_visit_browser=CASE WHEN #{firstVisit} THEN #{browser} ELSE first_visit_browser END,
+          first_visit_os=CASE WHEN #{firstVisit} THEN #{os} ELSE first_visit_os END,
+          first_visit_device=CASE WHEN #{firstVisit} THEN #{device} ELSE first_visit_device END,
+          first_visit_language=CASE WHEN #{firstVisit} THEN #{language} ELSE first_visit_language END,
+          first_visit_country_iso2=CASE WHEN #{firstVisit} THEN #{countryIso2} ELSE first_visit_country_iso2 END,
+          updated_at=#{now}
+        WHERE id=#{id}
+    </update>
+    <sql id="ClickedFilters">
+        hyperlink_task_id=#{taskId} AND click_count&gt;0
+        <if test="recipientPhone != null and recipientPhone != ''">
+          AND LOCATE(#{recipientPhone}, recipient_phone_snapshot)&gt;0
+        </if>
+        <if test="senderPhone != null and senderPhone != ''">
+          AND LOCATE(#{senderPhone}, COALESCE(sender_phone_snapshot,''))&gt;0
+        </if>
+    </sql>
+    <select id="countClicked" resultType="long">
+        SELECT COUNT(*) FROM hyperlink_task_recipient WHERE <include refid="ClickedFilters"/>
+    </select>
+    <select id="selectClickedPage"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, recipient_phone_snapshot, sender_phone_snapshot, click_count,
+          first_visit_country_iso2, first_visit_device, first_visit_os, first_visit_browser,
+          first_visit_language, first_visit_ip_address, first_visit_user_agent,
+          first_visit_at, last_visit_at, attribution_purged_at
+        FROM hyperlink_task_recipient WHERE <include refid="ClickedFilters"/>
+        ORDER BY click_count
+        <choose><when test="sortOrder == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>,
+          first_visit_at ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="selectClickedExportBatch"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, recipient_phone_snapshot, sender_phone_snapshot, click_count,
+          first_visit_country_iso2, first_visit_device, first_visit_os, first_visit_browser,
+          first_visit_language, first_visit_ip_address, first_visit_user_agent,
+          first_visit_at, last_visit_at, attribution_purged_at
+        FROM hyperlink_task_recipient WHERE <include refid="ClickedFilters"/>
+          AND first_visit_at&lt;=#{snapshotAt}
+        ORDER BY click_count
+        <choose><when test="sortOrder == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>,
+          first_visit_at ASC, id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    <select id="selectFirstVisitAt" resultType="long">
+        SELECT MIN(first_visit_at) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND first_visit_at IS NOT NULL
+    </select>
+    <select id="selectVisitUvBuckets"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkVisitBucketRow">
+        SELECT visit.bucket_no, COUNT(*) AS new_uv
+        FROM (
+          SELECT FLOOR((first_visit_at-#{anchorAt})/#{bucketMs}) AS bucket_no
+          FROM hyperlink_task_recipient
+          WHERE hyperlink_task_id=#{taskId} AND first_visit_at&gt;=#{anchorAt}
+            AND first_visit_at&lt;#{endAt}
+        ) visit
+        GROUP BY visit.bucket_no
+        ORDER BY bucket_no
+    </select>
+    <select id="selectAttributionRetentionCandidates"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, tenant_id, first_visit_at FROM hyperlink_task_recipient
+        WHERE first_visit_at&lt;#{cutoffAt} AND attribution_purged_at IS NULL
+        ORDER BY first_visit_at, id LIMIT #{limit}
+    </select>
+    <update id="purgeAttribution">
+        UPDATE hyperlink_task_recipient SET first_visit_ip_address=NULL,
+          first_visit_user_agent=NULL, first_visit_browser=NULL, first_visit_os=NULL,
+          first_visit_device=NULL, first_visit_language=NULL, first_visit_country_iso2=NULL,
+          attribution_purged_at=#{purgedAt}, updated_at=#{purgedAt}
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND first_visit_at&lt;#{cutoffAt}
+          AND attribution_purged_at IS NULL
+    </update>
+    <select id="selectMetricsProjectionCandidates"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, tenant_id, hyperlink_task_id, hyperlink_task_round_id
+        FROM hyperlink_task_recipient
+        WHERE needs_metrics_projection=1
+        ORDER BY tenant_id, hyperlink_task_id, updated_at, id
+        LIMIT #{limit}
+    </select>
+    <select id="lockMetricsProjectionBatch"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, tenant_id, hyperlink_task_id, hyperlink_task_round_id, account_id,
+          send_status, metrics_projected_status, submitted_at, metrics_projected_at
+        FROM hyperlink_task_recipient
+        WHERE needs_metrics_projection=1 AND id IN
+        <foreach collection="recipientIds" item="id" open="(" separator="," close=")">
+          #{id}
+        </foreach>
+        ORDER BY tenant_id, hyperlink_task_id, updated_at, id
+        FOR UPDATE SKIP LOCKED
+    </select>
+    <insert id="insertIgnoreBatch">
+        INSERT IGNORE INTO hyperlink_task_recipient
+        (hyperlink_task_id, data_package_id, data_package_generation, source_import_id,
+         recipient_phone_snapshot, recipient_country_iso2_snapshot, send_status,
+         next_dispatch_at, metrics_projected_status, click_count, created_at, updated_at)
+        VALUES
+        <foreach collection="rows" item="row" separator=",">
+          (#{row.hyperlinkTaskId}, #{row.dataPackageId}, #{row.dataPackageGeneration},
+           #{row.sourceImportId}, #{row.recipientPhoneSnapshot}, #{row.recipientCountryIso2Snapshot},
+           1, 0, 1, 0, #{row.createdAt}, #{row.updatedAt})
+        </foreach>
+    </insert>
+    <select id="countByTaskId" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient WHERE hyperlink_task_id=#{taskId}
+    </select>
+    <select id="countCommanded" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND command_id IS NOT NULL
+    </select>
+    <select id="countSendingByTaskId" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND command_id IS NOT NULL AND send_status=2
+    </select>
+    <select id="countSendingByRoundId" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_round_id=#{roundId} AND send_status=2
+    </select>
+    <select id="lockSendingIdsByAccount" resultType="long">
+        SELECT id FROM hyperlink_task_recipient
+        WHERE tenant_id=#{tenantId} AND account_id=#{accountId} AND send_status=2
+        ORDER BY id LIMIT #{limit} FOR UPDATE
+    </select>
+    <select id="countPendingUnassigned" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND send_status=1 AND hyperlink_task_round_id IS NULL
+    </select>
+    <select id="countUnsettledByTaskId" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND send_status IN (1,2)
+    </select>
+    <select id="selectCountryCounts"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkRecipientCountryCount">
+        SELECT recipient_country_iso2_snapshot AS country_iso2,
+          COUNT(*) AS recipient_count
+        FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId}
+        GROUP BY recipient_country_iso2_snapshot
+        ORDER BY recipient_country_iso2_snapshot
+    </select>
+    <select id="selectSentCountryCounts"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkRecipientCountryCount">
+        SELECT recipient_country_iso2_snapshot AS country_iso2,
+          COUNT(*) AS recipient_count
+        FROM hyperlink_task_recipient
+        WHERE hyperlink_task_id=#{taskId} AND sent_at IS NOT NULL
+        GROUP BY recipient_country_iso2_snapshot
+        ORDER BY recipient_country_iso2_snapshot
+    </select>
+    <select id="lockUnsubmittedForStop"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT id, hyperlink_task_id, data_package_id, data_package_generation,
+          recipient_phone_snapshot, send_status, command_id
+        FROM hyperlink_task_recipient
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+          AND data_package_id=#{dataPackageId}
+          AND data_package_generation=#{generation} AND command_id IS NULL AND send_status=1
+        ORDER BY id LIMIT #{limit} FOR UPDATE SKIP LOCKED
+    </select>
+    <delete id="deleteUnsubmitted">
+        DELETE FROM hyperlink_task_recipient WHERE hyperlink_task_id=#{taskId}
+          AND command_id IS NULL ORDER BY id LIMIT #{limit}
+    </delete>
+    <select id="selectByCommandId" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient WHERE command_id=#{commandId}
+    </select>
+    <select id="selectByProtocolMessage" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient
+        WHERE account_id=#{accountId} AND protocol_id=#{protocolId} AND protocol_message_id=#{messageId}
+    </select>
+    <select id="selectByIdentityForUpdate"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+          AND id=#{recipientId} AND command_id=#{commandId} FOR UPDATE
+    </select>
+    <select id="lockPending" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
+          AND send_status=1 AND command_id IS NULL
+          AND hyperlink_task_round_id IS NULL AND next_dispatch_at&lt;=#{now}
+        ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
+    </select>
+    <update id="assignCommand">
+        UPDATE hyperlink_task_recipient SET hyperlink_task_round_id=#{hyperlinkTaskRoundId}, round_no=#{roundNo},
+          account_id=#{accountId}, sender_phone_snapshot=#{senderPhoneSnapshot},
+          sender_country_iso2_snapshot=#{senderCountryIso2Snapshot},
+          sender_account_type_snapshot=#{senderAccountTypeSnapshot},
+          protocol_id=#{protocolId}, protocol_backend=#{protocolBackend}, command_id=#{commandId},
+          short_code=#{shortCode},
+          send_status=2, next_dispatch_at=#{nextDispatchAt}, updated_at=#{updatedAt}
+        WHERE id=#{id} AND send_status=1 AND command_id IS NULL AND hyperlink_task_round_id IS NULL
+    </update>
+    <update id="markSubmitted">
+        UPDATE hyperlink_task_recipient SET submitted_at=COALESCE(submitted_at,#{submittedAt}),
+          metrics_projected_status=CASE WHEN metrics_projected_status=2 THEN 1
+            ELSE metrics_projected_status END,
+          next_dispatch_at=#{nextReconciliationAt}, updated_at=#{submittedAt}
+        WHERE command_id=#{commandId} AND send_status=2
+    </update>
+    <update id="applyResult">
+        UPDATE hyperlink_task_recipient SET
+          send_status=#{sendStatus}, protocol_message_id=COALESCE(protocol_message_id, #{protocolMessageId}),
+          submitted_at=CASE WHEN #{sendStatus}=3 THEN COALESCE(submitted_at, #{updatedAt}) ELSE submitted_at END,
+          sent_at=CASE WHEN #{sendStatus}=3 THEN COALESCE(sent_at, #{updatedAt}) ELSE sent_at END,
+          failed_at=CASE WHEN #{sendStatus} IN (6,7) THEN COALESCE(failed_at, #{updatedAt}) ELSE failed_at END,
+          fail_code=CASE WHEN #{sendStatus} IN (6,7) THEN #{failCode} ELSE fail_code END,
+          fail_reason=CASE WHEN #{sendStatus} IN (6,7) THEN #{failReason} ELSE fail_reason END,
+          updated_at=#{updatedAt}
+        WHERE command_id=#{commandId} AND send_status=2
+    </update>
+    <update id="advanceAck">
+        UPDATE hyperlink_task_recipient SET send_status=#{entity.sendStatus},
+          protocol_message_id=COALESCE(protocol_message_id, #{entity.protocolMessageId}),
+          submitted_at=CASE WHEN #{entity.sendStatus} BETWEEN 3 AND 5 THEN COALESCE(submitted_at, #{entity.updatedAt}) ELSE submitted_at END,
+          sent_at=CASE WHEN #{entity.sendStatus} BETWEEN 3 AND 5 THEN COALESCE(sent_at, #{entity.updatedAt}) ELSE sent_at END,
+          delivered_at=CASE WHEN #{entity.sendStatus} BETWEEN 4 AND 5 THEN COALESCE(delivered_at, #{entity.updatedAt}) ELSE delivered_at END,
+          read_at=CASE WHEN #{entity.sendStatus}=5 THEN COALESCE(read_at, #{entity.updatedAt}) ELSE read_at END,
+          failed_at=CASE WHEN #{entity.sendStatus} IN (6,7) THEN COALESCE(failed_at, #{entity.updatedAt}) ELSE failed_at END,
+          fail_code=CASE WHEN #{entity.sendStatus} IN (6,7) THEN #{entity.failCode} ELSE fail_code END,
+          fail_reason=CASE WHEN #{entity.sendStatus} IN (6,7) THEN #{entity.failReason} ELSE fail_reason END,
+          updated_at=#{entity.updatedAt}
+        WHERE id=#{entity.id} AND send_status=#{fromStatus}
+    </update>
+    <update id="scheduleReconciliation">
+        UPDATE hyperlink_task_recipient SET next_dispatch_at=#{nextDispatchAt}, updated_at=#{now}
+        WHERE command_id=#{commandId} AND send_status=2
+    </update>
+    <update id="stopUnsubmittedByIds">
+        UPDATE hyperlink_task_recipient SET send_status=6, fail_code='TASK_STOPPED',
+          fail_reason='任务已停止', failed_at=#{now}, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND command_id IS NULL AND send_status=1
+          AND id IN
+          <foreach collection="recipientIds" item="id" open="(" separator="," close=")">
+            #{id}
+          </foreach>
+    </update>
+    <update id="markProjected">
+        UPDATE hyperlink_task_recipient SET metrics_projected_status=send_status,
+          metrics_projected_at=#{now}, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND metrics_projected_status&lt;&gt;send_status
+    </update>
+    <update id="markProjectionBatch">
+        UPDATE hyperlink_task_recipient SET metrics_projected_status=send_status,
+          metrics_projected_at=#{now}, updated_at=#{now}
+        WHERE needs_metrics_projection=1 AND id IN
+        <foreach collection="recipientIds" item="id" open="(" separator="," close=")">
+          #{id}
+        </foreach>
+    </update>
+    <update id="failUnassignedBatch">
+        UPDATE hyperlink_task_recipient SET send_status=6, fail_code=#{failCode},
+          fail_reason=#{failReason}, failed_at=#{now}, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND send_status=1
+          AND command_id IS NULL AND hyperlink_task_round_id IS NULL
+        ORDER BY id LIMIT #{limit}
+    </update>
+    <select id="selectReconciliationCandidates"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkReconciliationCandidate">
+        SELECT tenant_id, hyperlink_task_id AS task_id, id AS recipient_id,
+          account_id, command_id, protocol_backend, submitted_at
+        FROM hyperlink_task_recipient
+        WHERE send_status=2 AND command_id IS NOT NULL AND next_dispatch_at&lt;=#{now}
+        ORDER BY next_dispatch_at, id LIMIT #{limit}
+    </select>
+</mapper>

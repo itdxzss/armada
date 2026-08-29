@@ -53,6 +53,7 @@ public class MenuManagementServiceImpl implements MenuManagementService {
             "material/marketing-template/index",
             "hyperlink/data/index",
             "hyperlink/templates/index",
+            "hyperlink/library/index",
             "resource/ip/index",
             "resource/ip-stats/index",
             "buyer/template/index",

@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskAccountStatMapper">
+    <insert id="replaceFromRecipient">
+        INSERT INTO hyperlink_task_account_stat
+          (hyperlink_task_id, account_id, send_total, success_num, delivered_num, read_num,
+           failed_num, fail_404_num, first_send_at, last_send_at, created_at, updated_at, reconciled_at)
+        SELECT #{taskId}, account_id,
+          SUM(CASE WHEN submitted_at IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN send_status BETWEEN 3 AND 5 THEN 1 ELSE 0 END),
+          SUM(CASE WHEN send_status BETWEEN 4 AND 5 THEN 1 ELSE 0 END),
+          SUM(CASE WHEN send_status=5 THEN 1 ELSE 0 END),
+          SUM(CASE WHEN send_status IN (6,7) THEN 1 ELSE 0 END),
+          SUM(CASE WHEN send_status=7 THEN 1 ELSE 0 END),
+          MIN(submitted_at), MAX(submitted_at), #{now}, #{now}, #{now}
+        FROM hyperlink_task_recipient WHERE hyperlink_task_id=#{taskId} GROUP BY account_id
+        ON DUPLICATE KEY UPDATE send_total=VALUES(send_total), success_num=VALUES(success_num),
+          delivered_num=VALUES(delivered_num), read_num=VALUES(read_num), failed_num=VALUES(failed_num),
+          fail_404_num=VALUES(fail_404_num), first_send_at=VALUES(first_send_at),
+          last_send_at=VALUES(last_send_at), updated_at=VALUES(updated_at), reconciled_at=VALUES(reconciled_at)
+    </insert>
+    <insert id="incrementProjection">
+        INSERT INTO hyperlink_task_account_stat
+          (tenant_id, hyperlink_task_id, account_id, send_total, success_num, delivered_num,
+           read_num, failed_num, fail_404_num, first_send_at, last_send_at, created_at, updated_at)
+        VALUES
+        <foreach collection="deltas" item="delta" separator=",">
+          (#{delta.tenantId}, #{delta.taskId}, #{delta.accountId}, #{delta.sendDelta},
+           #{delta.successDelta}, #{delta.deliveredDelta}, #{delta.readDelta},
+           #{delta.failedDelta}, #{delta.fail404Delta}, #{delta.firstSendAt},
+           #{delta.lastSendAt}, #{now}, #{now})
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+          send_total=send_total+VALUES(send_total),
+          success_num=success_num+VALUES(success_num),
+          delivered_num=delivered_num+VALUES(delivered_num),
+          read_num=read_num+VALUES(read_num),
+          failed_num=failed_num+VALUES(failed_num),
+          fail_404_num=fail_404_num+VALUES(fail_404_num),
+          first_send_at=CASE
+            WHEN VALUES(first_send_at) IS NULL THEN first_send_at
+            WHEN first_send_at IS NULL THEN VALUES(first_send_at)
+            ELSE LEAST(first_send_at,VALUES(first_send_at)) END,
+          last_send_at=CASE
+            WHEN VALUES(last_send_at) IS NULL THEN last_send_at
+            WHEN last_send_at IS NULL THEN VALUES(last_send_at)
+            ELSE GREATEST(last_send_at,VALUES(last_send_at)) END,
+          updated_at=VALUES(updated_at)
+    </insert>
+
+    <sql id="AccountStatFilters">
+        s.hyperlink_task_id = #{criteria.taskId}
+        <if test="criteria.snapshotAt != null">
+          AND s.updated_at &lt;= #{criteria.snapshotAt}
+        </if>
+        <if test="criteria.senderCountryIso2 != null">
+          <choose>
+            <when test="criteria.unknownCountry">
+              AND (
+                s.account_id IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM hyperlink_task_account_usage country_usage
+                  WHERE country_usage.hyperlink_task_id = s.hyperlink_task_id
+                    AND country_usage.account_id = s.account_id
+                    AND country_usage.sender_country_iso2_snapshot IS NULL
+                )
+              )
+            </when>
+            <otherwise>
+              AND EXISTS (
+                SELECT 1
+                FROM hyperlink_task_account_usage country_usage
+                WHERE country_usage.hyperlink_task_id = s.hyperlink_task_id
+                  AND country_usage.account_id = s.account_id
+                  AND country_usage.sender_country_iso2_snapshot = #{criteria.senderCountryIso2}
+              )
+            </otherwise>
+          </choose>
+        </if>
+        <if test="criteria.successRateMin != null">
+          AND COALESCE((s.success_num * 100.0) / NULLIF(s.send_total, 0), 0)
+              &gt;= #{criteria.successRateMin}
+        </if>
+        <if test="criteria.successRateMax != null">
+          AND COALESCE((s.success_num * 100.0) / NULLIF(s.send_total, 0), 0)
+              &lt;= #{criteria.successRateMax}
+        </if>
+    </sql>
+
+    <sql id="AccountStatOrder">
+        ORDER BY
+        <choose>
+          <when test="criteria.sortField == 'deliveredNum'">delivered_num</when>
+          <when test="criteria.sortField == 'failedNum'">failed_num</when>
+          <otherwise>success_num</otherwise>
+        </choose>
+        <choose>
+          <when test="criteria.sortOrder == 'asc'">ASC</when>
+          <otherwise>DESC</otherwise>
+        </choose>, account_bucket_key ASC
+    </sql>
+
+    <select id="countAccountStats" resultType="long">
+        SELECT COUNT(*)
+        FROM hyperlink_task_account_stat s
+        WHERE <include refid="AccountStatFilters"/>
+    </select>
+
+    <select id="selectAccountStats"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkAccountStatRow">
+        SELECT page.account_bucket_key AS bucketKey,
+               page.account_id AS accountId,
+               usage.account_phone_snapshot AS senderPhone,
+               usage.sender_country_iso2_snapshot AS senderCountryIso2,
+               usage.account_type_snapshot AS accountTypeCode,
+               usage.account_created_at_snapshot AS accountCreatedAt,
+               page.send_total AS sendTotal,
+               page.success_num AS successNum,
+               page.delivered_num AS deliveredNum,
+               page.failed_num AS failedNum,
+               page.last_send_at AS lastSendAt
+        FROM (
+          SELECT s.account_bucket_key, s.account_id, s.send_total, s.success_num,
+                 s.delivered_num, s.failed_num, s.last_send_at
+          FROM hyperlink_task_account_stat s
+          WHERE <include refid="AccountStatFilters"/>
+          <include refid="AccountStatOrder"/>
+          LIMIT #{criteria.pageSize} OFFSET #{criteria.offset}
+        ) page
+        LEFT JOIN hyperlink_task_account_usage usage
+          ON usage.hyperlink_task_id = #{criteria.taskId}
+         AND usage.account_id = page.account_id
+        <include refid="AccountStatOrder"/>
+    </select>
+
+    <select id="selectByTaskId" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountStat">
+        SELECT * FROM hyperlink_task_account_stat WHERE hyperlink_task_id=#{taskId} ORDER BY account_bucket_key
+    </select>
+    <delete id="deleteByTask">
+        DELETE FROM hyperlink_task_account_stat WHERE hyperlink_task_id=#{taskId}
+    </delete>
+</mapper>

@@ -371,7 +371,7 @@ mutation 里过滤出 `ContactEntry{JID, LID, FirstName, FullName}`，
 
 ## 6. 数据模型
 
-### 6.1 `V157__account_contact_sync.sql`
+### 6.1 `V162__account_contact_sync.sql`
 
 ```
 account_contact                          账号通讯录快照
@@ -408,7 +408,7 @@ account_contact_sync                     每账号一行的同步状态
 **同步是整批替换语义**：一次成功同步内，先按 `(tenant_id, account_id)` 批量 upsert 本批号码，
 再删除 `synced_at < 本批 synced_at` 的残留行。失败时**不动任何已有数据**，只写 `sync_status=FAILED`。
 
-### 6.2 `V158__contact_friend_task.sql`
+### 6.2 `V163__contact_friend_task.sql`
 
 ```
 contact_friend_task                      任务主表
@@ -463,7 +463,7 @@ contact_friend_task_recipient            任务 × 账号 × 联系人
 recipient 存**快照**不外键 `account_contact`——沿用超链一期 §6.6 的既有结论：
 通讯录会变，任务事实不能跟着漂。
 
-### 6.3 `V159__contact_marketing_menu_rbac.sql`
+### 6.3 `V164__contact_marketing_menu_rbac.sql`
 
 照抄 `V155` 写法：目录节点 `ContactMarketing`（`/contact`，`sort_no` 排在 `HyperlinkMarketing` 之后），
 两个页面节点 `ContactHyperlinkTask`（`/contact/hyperlink`）与 `ContactScriptTask`（`/contact/script`）。

@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskExportMapper">
+
+    <resultMap id="JobMap" type="com.armada.hyperlink.task.model.entity.HyperlinkTaskExportJob">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="dataScopeMode" column="data_scope_mode"/>
+        <result property="exportType" column="export_mode"/>
+        <result property="taskIdsJson" column="task_ids_json"/>
+        <result property="countryIso2sJson" column="country_iso2s_json"/>
+        <result property="requestPayloadJson" column="request_payload_json"/>
+        <result property="requestHash" column="request_hash"/>
+        <result property="status" column="status"/>
+        <result property="snapshotAt" column="snapshot_at"/>
+        <result property="leaseUntil" column="lease_until"/>
+        <result property="claimToken" column="claim_token"/>
+        <result property="attemptCount" column="attempt_count"/>
+        <result property="storageKey" column="storage_key"/>
+        <result property="fileName" column="file_name"/>
+        <result property="contentType" column="content_type"/>
+        <result property="fileSize" column="file_size"/>
+        <result property="rowCount" column="detail_row_count"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="finishedAt" column="finished_at"/>
+        <result property="expiresAt" column="expires_at"/>
+    </resultMap>
+
+    <sql id="JobColumns">
+        id, tenant_id, created_by, data_scope_mode, export_mode, task_ids_json,
+        country_iso2s_json, request_payload_json, request_hash, status, snapshot_at,
+        lease_until, claim_token, attempt_count, storage_key, file_name, content_type,
+        file_size, detail_row_count, error_message, created_at, updated_at, finished_at,
+        expires_at
+    </sql>
+
+    <insert id="insertJob" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task_export_job
+            (tenant_id, created_by, data_scope_mode, export_mode, task_ids_json,
+             country_iso2s_json, request_payload_json, request_hash, status, snapshot_at,
+             attempt_count, summary_row_count, detail_row_count, created_at, updated_at)
+        VALUES
+            (#{tenantId}, #{createdBy}, #{dataScopeMode}, #{exportType}, #{taskIdsJson},
+             #{countryIso2sJson}, #{requestPayloadJson}, #{requestHash}, #{status},
+             #{snapshotAt}, #{attemptCount}, 0, #{rowCount}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="selectJobByIdForUser" resultMap="JobMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE id = #{id}
+          AND created_by = #{createdBy}
+          AND export_mode IN ('RECIPIENTS', 'ACCOUNT_STATS', 'ATTRIBUTION', 'VISIT_TREND')
+    </select>
+
+    <select id="selectActiveJob" resultMap="JobMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE tenant_id = #{tenantId}
+          AND created_by = #{createdBy}
+          AND request_hash = #{requestHash}
+          AND export_mode = 'RECIPIENTS'
+          AND status IN ('PENDING', 'PROCESSING')
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectProcessableRecipientJobs" resultMap="JobMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE export_mode = 'RECIPIENTS'
+          AND attempt_count &lt; 3
+          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="markExhaustedRecipientJobs">
+        UPDATE marketing_task_export_job
+        SET status = 'FAILED', error_message = #{errorMessage}, lease_until = NULL,
+            claim_token = NULL, finished_at = #{now}, updated_at = #{now}
+        WHERE export_mode = 'RECIPIENTS' AND status = 'PROCESSING'
+          AND lease_until &lt; #{now} AND attempt_count &gt;= 3
+    </update>
+
+    <update id="claimRecipientJob">
+        UPDATE marketing_task_export_job
+        SET status = 'PROCESSING', lease_until = #{leaseUntil}, claim_token = #{claimToken},
+            attempt_count = attempt_count + 1, error_message = NULL, updated_at = #{now}
+        WHERE tenant_id = #{tenantId} AND id = #{id} AND export_mode = 'RECIPIENTS'
+          AND attempt_count &lt; 3
+          AND (status = 'PENDING' OR (status = 'PROCESSING' AND lease_until &lt; #{now}))
+    </update>
+
+    <update id="renewRecipientJobLease">
+        UPDATE marketing_task_export_job
+        SET lease_until = #{leaseUntil}, updated_at = #{now}
+        WHERE tenant_id = #{tenantId} AND id = #{id} AND export_mode = 'RECIPIENTS'
+          AND status = 'PROCESSING' AND claim_token = #{claimToken}
+    </update>
+
+    <update id="markRecipientJobSuccess">
+        UPDATE marketing_task_export_job
+        SET status = 'SUCCESS', storage_key = #{storageKey}, file_name = #{fileName},
+            content_type = #{contentType}, file_size = #{fileSize},
+            summary_row_count = 0, detail_row_count = #{rowCount}, error_message = NULL,
+            lease_until = NULL, claim_token = NULL, finished_at = #{finishedAt},
+            expires_at = #{expiresAt}, updated_at = #{finishedAt}
+        WHERE tenant_id = #{tenantId} AND id = #{id} AND export_mode = 'RECIPIENTS'
+          AND status = 'PROCESSING' AND claim_token = #{claimToken}
+    </update>
+
+    <update id="markRecipientJobFailed">
+        UPDATE marketing_task_export_job
+        SET status = 'FAILED', error_message = #{errorMessage}, lease_until = NULL,
+            claim_token = NULL, finished_at = #{finishedAt}, updated_at = #{finishedAt}
+        WHERE tenant_id = #{tenantId} AND id = #{id} AND export_mode = 'RECIPIENTS'
+          AND status = 'PROCESSING' AND claim_token = #{claimToken}
+    </update>
+
+    <select id="selectExpiredRecipientFiles" resultMap="JobMap">
+        SELECT <include refid="JobColumns"/>
+        FROM marketing_task_export_job
+        WHERE export_mode = 'RECIPIENTS' AND status = 'SUCCESS'
+          AND expires_at &lt;= #{now} AND storage_key IS NOT NULL
+        ORDER BY expires_at ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="clearExpiredRecipientStorage">
+        UPDATE marketing_task_export_job
+        SET storage_key = NULL, content_type = NULL, file_size = NULL, updated_at = #{now}
+        WHERE tenant_id = #{tenantId} AND id = #{id} AND export_mode = 'RECIPIENTS'
+          AND status = 'SUCCESS' AND storage_key = #{storageKey} AND expires_at &lt;= #{now}
+    </update>
+</mapper>

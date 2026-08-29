@@ -11,6 +11,7 @@ import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.entity.MarketingTemplate;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
 import com.armada.marketing.service.MarketingTemplateService;
+import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
@@ -33,6 +34,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class MarketingTemplateServiceImpl implements MarketingTemplateService {
 
+    /** 营销模板业务日志，不记录图片字节或认证信息。 */
     private static final Logger log = LoggerFactory.getLogger(MarketingTemplateServiceImpl.class);
 
     /** 消息按钮上限。 */
@@ -41,26 +43,51 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     /** 复制模板的名称后缀。 */
     private static final String CLONE_SUFFIX = "副本";
 
+    /** 营销模板分页、持久化和锁行数据访问。 */
     private final MarketingTemplateMapper mapper;
+
+    /** 营销任务引用检查与异常终止数据访问。 */
     private final MarketingTaskMapper taskMapper;
+
+    /** 营销模板 DTO、实体和响应转换器。 */
     private final MarketingTemplateConverter converter;
+
+    /** 营销任务异常终止后的账号占用释放服务。 */
     private final MarketingAccountOccupancyService occupancyService;
 
-    public MarketingTemplateServiceImpl(MarketingTemplateMapper mapper,
-                                        MarketingTaskMapper taskMapper,
-                                        MarketingTemplateConverter converter,
-                                        MarketingAccountOccupancyService occupancyService) {
+    /** 模板写入前锁定并复核关联素材。 */
+    private final MarketingTemplateFileService fileService;
+
+    /**
+     * 创建营销模板业务服务。
+     *
+     * @param mapper 营销模板数据访问
+     * @param taskMapper 营销任务引用数据访问
+     * @param converter 营销模板 DTO、实体与响应转换器
+     * @param occupancyService 营销账号占用管理服务
+     * @param fileService 素材行锁与字节校验服务
+     */
+    public MarketingTemplateServiceImpl(
+            MarketingTemplateMapper mapper,
+            MarketingTaskMapper taskMapper,
+            MarketingTemplateConverter converter,
+            MarketingAccountOccupancyService occupancyService,
+            MarketingTemplateFileService fileService) {
         this.mapper = mapper;
         this.taskMapper = taskMapper;
         this.converter = converter;
         this.occupancyService = occupancyService;
+        this.fileService = fileService;
     }
 
     /**
-     * {@inheritDoc}
+     * 分页查询当前租户的营销模板。
      *
-     * <p>实现要点:先取总数再决定是否查列表——总数为 0 时直接返回空页,省掉一次必然空结果的
-     * 列表查询;分页与筛选全部由 Mapper 的 SQL 下推,不在内存里裁剪。</p>
+     * <p>支持 ID、模板名称、文本类型和消息类型组合筛选。先查询总数，总数为零时直接返回空页；
+     * 分页与筛选全部由 Mapper SQL 下推，不在内存中裁剪。</p>
+     *
+     * @param query 营销模板筛选和分页参数
+     * @return 当前页营销模板及总数
      */
     @Override
     public PageResult<MarketingTemplateVO> list(MarketingTemplateQuery query) {
@@ -73,10 +100,14 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * {@inheritDoc}
+     * 创建供营销任务引用的营销模板。
      *
-     * <p>实现要点:校验通过后由应用层写入 epoch 毫秒审计时间,再按主键回查一次来构建出参。
-     * 全程 {@code @Transactional}:按钮 JSON 序列化或名称唯一键冲突时整体回滚。</p>
+     * <p>校验模板名称、内容、消息类型、推广链接和按钮规则后，按消息模式清理不生效字段；
+     * 若绑定图片，则在同一事务内锁定并校验素材。按钮序列化、素材校验或持久化失败时整体回滚。</p>
+     *
+     * @param dto 营销模板配置
+     * @return 创建后的营销模板
+     * @throws BusinessException 参数不合法、名称已存在或绑定素材不可用时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -84,6 +115,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         LinkMode mode = validate(dto, null);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
+        lockImage(entity.getImageFileId());
         long now = System.currentTimeMillis();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
@@ -94,11 +126,15 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * {@inheritDoc}
+     * 更新当前租户指定营销模板。
      *
-     * <p>实现要点:先确认模板存在再校验;{@code id} 来自路径参数而非请求体,DTO 转换不携带它,
-     * 须显式 {@code setId} 后 UPDATE 的 WHERE 才能命中目标行。更新后回查一次,
-     * 让出参带上应用层写入的 {@code updated_at}。</p>
+     * <p>先确认模板存在，再按创建规则校验并锁定待绑定素材。模板 ID 来自路径参数，转换后显式
+     * 写回实体；更新完成后按主键回查，保证响应包含最新审计时间。</p>
+     *
+     * @param id 营销模板 ID
+     * @param dto 新的营销模板配置
+     * @return 更新后的营销模板
+     * @throws BusinessException 模板不存在、参数不合法、名称冲突或绑定素材不可用时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -107,6 +143,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         LinkMode mode = validate(dto, id);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
+        lockImage(entity.getImageFileId());
         entity.setId(id);
         entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
@@ -115,12 +152,14 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * {@inheritDoc}
+     * 复制当前租户指定营销模板。
      *
-     * <p>实现要点:刻意逐字段复制业务列(不走 converter、也不整体拷贝实体),只搬模板配置;
-     * {@code id}/{@code tenant_id}/创建人一律不带——这些由 INSERT 和租户拦截器在新行上生成。
-     * 名称追加「{@value #CLONE_SUFFIX}」后缀并先查重,
-     * 避免对同一模板连续复制产生同名冲突。</p>
+     * <p>只逐字段复制模板业务配置，不复制 ID、租户和审计归属；名称追加
+     * 「{@value #CLONE_SUFFIX}」并先查重。复制模板绑定图片时，在写入前锁定并校验同一素材。</p>
+     *
+     * @param id 源营销模板 ID
+     * @return 复制生成的新营销模板
+     * @throws BusinessException 源模板不存在、副本名称冲突或绑定素材不可用时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -142,6 +181,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setPromotionLink(origin.getPromotionLink());
         copy.setMentionAll(origin.getMentionAll());
         normalizeByMode(copy, LinkMode.fromCode(copy.getLinkMode()));
+        lockImage(copy.getImageFileId());
         copy.setRemark(origin.getRemark());
         long now = System.currentTimeMillis();
         copy.setCreatedAt(now);
@@ -152,10 +192,14 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * {@inheritDoc}
+     * 批量软删除当前租户的营销模板。
      *
-     * <p>实现要点：同一事务内先按固定顺序锁定未删除模板，再把仍占用账号的关联任务按异常终止
-     * 置为已完成并释放账号，最后软删除模板；已有终态任务保留历史状态。空列表直接返回、不触库。</p>
+     * <p>同一事务内先按固定顺序锁定未删除模板；存在活动拉群营销任务时拒绝删除，否则将仍占用
+     * 账号的关联任务按异常终止置为已完成、释放账号并软删除模板。已有终态任务保留历史状态；
+     * 空列表直接返回且不访问数据库。</p>
+     *
+     * @param ids 待删除营销模板 ID 列表
+     * @throws BusinessException 租户上下文缺失，或模板仍被活动拉群营销任务引用时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -224,6 +268,12 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     private static void normalizeByMode(MarketingTemplate entity, LinkMode mode) {
         if (mode == LinkMode.BUTTON) {
             entity.setPromotionLink(null);
+        }
+    }
+
+    private void lockImage(Long imageFileId) {
+        if (imageFileId != null) {
+            fileService.lockAndValidateBindableAssets(List.of(imageFileId));
         }
     }
 

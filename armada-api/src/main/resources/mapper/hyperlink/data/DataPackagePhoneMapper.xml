@@ -2,9 +2,69 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.hyperlink.data.mapper.DataPackagePhoneMapper">
 
+  <select id="selectClaimUpperPhoneId" resultType="long">
+    SELECT COALESCE(MAX(id),0) FROM data_package_phone
+    WHERE data_package_id=#{dataPackageId} AND generation=#{generation}
+  </select>
+  <select id="countClaimable" resultType="int">
+    SELECT COUNT(*) FROM data_package_phone
+    WHERE data_package_id=#{dataPackageId} AND generation=#{generation} AND id&lt;=#{upperId}
+      AND pool_status=1 AND claimed_by_hyperlink_task_id IS NULL
+  </select>
+  <select id="selectClaimableCountryCounts"
+          resultType="com.armada.hyperlink.data.model.vo.DataPackageClaimCountryCount">
+    SELECT country_iso2, COUNT(*) AS recipient_count FROM data_package_phone
+    WHERE data_package_id=#{dataPackageId} AND generation=#{generation} AND id&lt;=#{upperId}
+      AND pool_status=1 AND claimed_by_hyperlink_task_id IS NULL
+    GROUP BY country_iso2 ORDER BY country_iso2
+  </select>
+  <select id="lockNextClaimable" resultType="com.armada.hyperlink.data.model.entity.DataPackagePhone">
+    SELECT <include refid="Columns"/> FROM data_package_phone
+    WHERE tenant_id=#{tenantId} AND data_package_id=#{dataPackageId} AND generation=#{generation}
+      AND id&gt;#{cursor} AND id&lt;=#{upperId} AND pool_status=1
+      AND claimed_by_hyperlink_task_id IS NULL
+    ORDER BY id LIMIT #{limit} FOR UPDATE SKIP LOCKED
+  </select>
+  <update id="claimByIds">
+    UPDATE data_package_phone SET pool_status=2, claimed_by_hyperlink_task_id=#{taskId},
+      claimed_at=#{now}, updated_at=#{now}
+    WHERE id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+      AND pool_status=1 AND claimed_by_hyperlink_task_id IS NULL
+  </update>
+  <update id="releaseByPhones">
+    UPDATE data_package_phone SET pool_status=1, claimed_by_hyperlink_task_id=NULL,
+      claimed_at=NULL, updated_at=#{now}
+    WHERE data_package_id=#{dataPackageId} AND generation=#{generation}
+      AND claimed_by_hyperlink_task_id=#{taskId} AND pool_status=2
+      AND phone IN <foreach collection="phones" item="phone" open="(" separator="," close=")">#{phone}</foreach>
+  </update>
+  <select id="lockOwnedBatch" resultType="com.armada.hyperlink.data.model.entity.DataPackagePhone">
+    SELECT <include refid="Columns"/> FROM data_package_phone
+    WHERE tenant_id=#{tenantId} AND data_package_id=#{dataPackageId} AND generation=#{generation}
+      AND claimed_by_hyperlink_task_id=#{taskId} AND pool_status=2
+    ORDER BY id LIMIT #{limit} FOR UPDATE SKIP LOCKED
+  </select>
+  <update id="releaseByIds">
+    UPDATE data_package_phone SET pool_status=1, claimed_by_hyperlink_task_id=NULL,
+      claimed_at=NULL, updated_at=#{now}
+    WHERE claimed_by_hyperlink_task_id=#{taskId} AND pool_status=2
+      AND id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+  <select id="selectOwnedPhoneForUpdate"
+          resultType="com.armada.hyperlink.data.model.entity.DataPackagePhone">
+    SELECT <include refid="Columns"/> FROM data_package_phone
+    WHERE claimed_by_hyperlink_task_id=#{taskId} AND data_package_id=#{dataPackageId}
+      AND generation=#{generation} AND phone=#{phone}
+    FOR UPDATE
+  </select>
+  <update id="advanceOwnedStatus">
+    UPDATE data_package_phone SET pool_status=#{toStatus}, updated_at=#{now}
+    WHERE id=#{id} AND pool_status=#{fromStatus}
+  </update>
+
   <sql id="Columns">
     id, tenant_id, data_package_id, generation, source_import_id, phone,
-    country_iso2, pool_status, created_at, updated_at
+    country_iso2, pool_status, claimed_by_hyperlink_task_id, claimed_at, created_at, updated_at
   </sql>
 
   <insert id="batchInsert">

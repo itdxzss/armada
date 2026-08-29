@@ -14,6 +14,7 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
@@ -30,17 +31,29 @@ public class ProtocolMessageEventConsumer {
     private static final Logger log = LoggerFactory.getLogger(ProtocolMessageEventConsumer.class);
 
     public static final String EVENT_MESSAGE_SEND_RESULT_REPORTED = "message.send_result_reported";
+    public static final String EVENT_MESSAGE_ACK = "message.ack";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
     private static final String SOURCE_CONTACT_TASK = "contact_task";
+    private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
 
     private final ObjectMapper objectMapper;
     private final List<ProtocolMessageSendResultReportedSink> sinks;
+    private final List<ProtocolMessageAckSink> ackSinks;
 
+    @Autowired
     public ProtocolMessageEventConsumer(ObjectMapper objectMapper,
-                                        List<ProtocolMessageSendResultReportedSink> sinks) {
+                                        List<ProtocolMessageSendResultReportedSink> sinks,
+                                        List<ProtocolMessageAckSink> ackSinks) {
         this.objectMapper = objectMapper;
         this.sinks = List.copyOf(sinks);
+        this.ackSinks = List.copyOf(ackSinks);
+    }
+
+    /** 非 Spring 单测的存量构造兼容。 */
+    public ProtocolMessageEventConsumer(ObjectMapper objectMapper,
+            List<ProtocolMessageSendResultReportedSink> sinks) {
+        this(objectMapper, sinks, List.of());
     }
 
     /**
@@ -65,6 +78,11 @@ public class ProtocolMessageEventConsumer {
     private void handleEnvelope(JsonNode envelope) {
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
+        if (EVENT_MESSAGE_ACK.equals(eventType)) {
+            ProtocolMessageAckEvent event = toAckEvent(envelope, dataNode(envelope));
+            selectAckSink(event).handleAck(event);
+            return;
+        }
         if (!EVENT_MESSAGE_SEND_RESULT_REPORTED.equals(eventType)) {
             log.warn("协议消息事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
@@ -93,6 +111,17 @@ public class ProtocolMessageEventConsumer {
         return supported.get(0);
     }
 
+    private ProtocolMessageAckSink selectAckSink(ProtocolMessageAckEvent event) {
+        List<ProtocolMessageAckSink> supported = ackSinks.stream()
+                .filter(sink -> sink.supports(event)).toList();
+        if (supported.size() != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "协议消息 ACK 必须匹配唯一处理器: source=" + event.source()
+                            + ", matches=" + supported.size());
+        }
+        return supported.get(0);
+    }
+
     /** Kafka value 必须是协议事件 JSON envelope;非法 JSON 交给 Spring Kafka 重试/DLT。 */
     private JsonNode readEnvelope(String rawMessage) {
         if (rawMessage == null || rawMessage.isBlank()) {
@@ -110,27 +139,31 @@ public class ProtocolMessageEventConsumer {
         String source = text(data, "source");
         boolean groupCreationMarketing = SOURCE_GROUP_CREATION_MARKETING.equals(source);
         boolean historicalGroupPull = SOURCE_HISTORICAL_GROUP_PULL.equals(source);
-        // 通讯录任务用自己的四字段关联，普通营销的三字段在这条链路上本来就没有
+        boolean hyperlinkTask = SOURCE_HYPERLINK_TASK.equals(source);
+        // 通讯录任务同样没有普通营销三字段关联，按上游既有口径追加一个来源
         boolean contactTask = SOURCE_CONTACT_TASK.equals(source);
-        boolean withoutMarketingCorrelation =
-                groupCreationMarketing || historicalGroupPull || contactTask;
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
-                withoutMarketingCorrelation
+                groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
-                withoutMarketingCorrelation
+                groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
-                withoutMarketingCorrelation
+                groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
-                withoutMarketingCorrelation
+                groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
-                requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
+                hyperlinkTask || contactTask ? null
+                        : requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
                 text(data, "commandId"),
                 requiredBoolean(data, "success", "协议消息发送结果事件缺少 data.success"),
                 text(data, "messageId"),
@@ -164,7 +197,62 @@ public class ProtocolMessageEventConsumer {
                         : longValue(data, "taskAccountId"),
                 contactTask
                         ? requiredLong(data, "recipientId", "协议消息发送结果事件缺少 data.recipientId")
-                        : longValue(data, "recipientId"));
+                        : longValue(data, "recipientId"),
+                firstText(data, "jid", "groupJid"),
+                text(data, "targetKind"),
+                hyperlinkTask
+                        ? requiredLong(data, "hyperlinkTaskId",
+                                "超链发送结果缺少 data.hyperlinkTaskId")
+                        : longValue(data, "hyperlinkTaskId"),
+                hyperlinkTask
+                        ? requiredLong(data, "hyperlinkRecipientId",
+                                "超链发送结果缺少 data.hyperlinkRecipientId")
+                        : longValue(data, "hyperlinkRecipientId"),
+                text(data, "outcome"), booleanValue(data, "terminal"));
+    }
+
+    private static ProtocolMessageAckEvent toAckEvent(JsonNode envelope, JsonNode data) {
+        String source = requiredText(data, "source", "协议消息 ACK 缺少 data.source");
+        String ackStatus = text(data, "ackStatus");
+        if (ackStatus == null) {
+            ackStatus = legacyAckStatus(text(data, "status"));
+        } else {
+            ackStatus = ackStatus.toUpperCase(java.util.Locale.ROOT);
+        }
+        if (!List.of("SUCCESS", "DELIVERED", "READ", "FAILED").contains(ackStatus)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议消息 ACK 状态非法");
+        }
+        boolean hyperlink = SOURCE_HYPERLINK_TASK.equals(source);
+        return new ProtocolMessageAckEvent(
+                text(envelope, "eventId"),
+                requiredLong(data, "tenantId", "协议消息 ACK 缺少 data.tenantId"),
+                source,
+                hyperlink ? requiredLong(data, "hyperlinkTaskId", "超链 ACK 缺少 data.hyperlinkTaskId")
+                        : longValue(data, "hyperlinkTaskId"),
+                hyperlink ? requiredLong(data, "hyperlinkRecipientId",
+                                "超链 ACK 缺少 data.hyperlinkRecipientId")
+                        : longValue(data, "hyperlinkRecipientId"),
+                text(data, "commandId"),
+                longValue(data, "accountId"),
+                text(data, "protocolId"),
+                requiredText(data, "protocolAccountId", "协议消息 ACK 缺少 data.protocolAccountId"),
+                firstText(data, "jid", "groupJid"), text(data, "targetKind"),
+                requiredText(data, "messageId", "协议消息 ACK 缺少 data.messageId"),
+                ackStatus, booleanValue(data, "success"), text(data, "reasonCode"),
+                text(data, "reasonMessage"), timestamp(envelope, data), text(envelope, "workerId"));
+    }
+
+    private static String legacyAckStatus(String status) {
+        if (status == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议消息 ACK 缺少 ackStatus/status");
+        }
+        return switch (status.toLowerCase(java.util.Locale.ROOT)) {
+            case "server", "success" -> "SUCCESS";
+            case "delivery", "delivered" -> "DELIVERED";
+            case "read", "played" -> "READ";
+            case "error", "revoked", "failed" -> "FAILED";
+            default -> throw new BusinessException(ErrorCode.VALIDATION, "协议消息 ACK status 非法");
+        };
     }
 
     /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */
@@ -232,6 +320,12 @@ public class ProtocolMessageEventConsumer {
         throw new BusinessException(ErrorCode.VALIDATION, "协议消息事件字段不是布尔值: " + fieldName);
     }
 
+    private static Boolean booleanValue(JsonNode node, String fieldName) {
+        JsonNode value = node.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) { return null; }
+        return requiredBoolean(node, fieldName, "协议消息事件字段不是布尔值: " + fieldName);
+    }
+
     private static String requiredText(JsonNode node, String fieldName, String errorMessage) {
         String value = text(node, fieldName);
         if (value == null || value.isBlank()) {
@@ -246,5 +340,10 @@ public class ProtocolMessageEventConsumer {
             return null;
         }
         return value.asText();
+    }
+
+    private static String firstText(JsonNode node, String first, String fallback) {
+        String value = text(node, first);
+        return value == null ? text(node, fallback) : value;
     }
 }

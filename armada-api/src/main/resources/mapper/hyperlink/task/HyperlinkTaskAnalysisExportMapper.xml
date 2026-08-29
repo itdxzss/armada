@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskAnalysisExportMapper">
+    <resultMap id="JobMap" type="com.armada.marketing.export.model.entity.MarketingTaskExportJob">
+        <id property="id" column="id"/><result property="tenantId" column="tenant_id"/>
+        <result property="createdBy" column="created_by"/><result property="exportMode" column="export_mode"/>
+        <result property="taskIdsJson" column="task_ids_json"/><result property="countryIso2sJson" column="country_iso2s_json"/>
+        <result property="requestHash" column="request_hash"/><result property="status" column="status"/>
+        <result property="snapshotAt" column="snapshot_at"/><result property="leaseUntil" column="lease_until"/>
+        <result property="claimToken" column="claim_token"/><result property="attemptCount" column="attempt_count"/>
+        <result property="storageKey" column="storage_key"/><result property="fileName" column="file_name"/>
+        <result property="contentType" column="content_type"/><result property="fileSize" column="file_size"/>
+        <result property="summaryRowCount" column="summary_row_count"/><result property="detailRowCount" column="detail_row_count"/>
+        <result property="errorMessage" column="error_message"/><result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/><result property="finishedAt" column="finished_at"/>
+        <result property="expiresAt" column="expires_at"/>
+    </resultMap>
+    <sql id="Columns">id,tenant_id,created_by,export_mode,task_ids_json,country_iso2s_json,
+      request_hash,status,snapshot_at,lease_until,claim_token,attempt_count,storage_key,file_name,
+      content_type,file_size,summary_row_count,detail_row_count,error_message,created_at,updated_at,
+      finished_at,expires_at</sql>
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO marketing_task_export_job
+          (created_by,export_mode,task_ids_json,country_iso2s_json,request_hash,status,
+           snapshot_at,attempt_count,summary_row_count,detail_row_count,created_at,updated_at)
+        VALUES (#{createdBy},#{exportMode},#{taskIdsJson},#{countryIso2sJson},#{requestHash},
+          'PENDING',#{snapshotAt},0,0,0,#{createdAt},#{updatedAt})
+    </insert>
+    <select id="selectActive" resultMap="JobMap">
+        SELECT <include refid="Columns"/> FROM marketing_task_export_job
+        WHERE created_by=#{createdBy} AND request_hash=#{requestHash}
+          AND export_mode IN ('ATTRIBUTION','VISIT_TREND')
+          AND status IN ('PENDING','PROCESSING') ORDER BY id DESC LIMIT 1
+    </select>
+    <select id="selectCandidates" resultMap="JobMap">
+        SELECT <include refid="Columns"/> FROM marketing_task_export_job
+        WHERE export_mode IN ('ATTRIBUTION','VISIT_TREND') AND attempt_count&lt;3
+          AND (status='PENDING' OR (status='PROCESSING' AND lease_until&lt;#{now}))
+        ORDER BY id LIMIT #{limit}
+    </select>
+    <update id="markExhausted">
+        UPDATE marketing_task_export_job SET status='FAILED',error_message=#{errorMessage},
+          lease_until=NULL,claim_token=NULL,finished_at=#{now},updated_at=#{now}
+        WHERE export_mode IN ('ATTRIBUTION','VISIT_TREND') AND status='PROCESSING'
+          AND lease_until&lt;#{now} AND attempt_count&gt;=3
+    </update>
+    <update id="claim">
+        UPDATE marketing_task_export_job SET status='PROCESSING',claim_token=#{claimToken},
+          lease_until=#{leaseUntil},attempt_count=attempt_count+1,error_message=NULL,updated_at=#{now}
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND export_mode IN ('ATTRIBUTION','VISIT_TREND')
+          AND attempt_count&lt;3 AND (status='PENDING' OR (status='PROCESSING' AND lease_until&lt;#{now}))
+    </update>
+    <update id="markSuccess">
+        UPDATE marketing_task_export_job SET status='SUCCESS',storage_key=#{storageKey},
+          file_name=#{fileName},content_type='text/csv;charset=UTF-8',file_size=#{fileSize},
+          detail_row_count=#{rowCount},lease_until=NULL,claim_token=NULL,error_message=NULL,
+          finished_at=#{finishedAt},expires_at=#{expiresAt},updated_at=#{finishedAt}
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND status='PROCESSING' AND claim_token=#{claimToken}
+    </update>
+    <update id="markFailed">
+        UPDATE marketing_task_export_job SET status='FAILED',error_message=#{errorMessage},
+          lease_until=NULL,claim_token=NULL,finished_at=#{finishedAt},updated_at=#{finishedAt}
+        WHERE tenant_id=#{tenantId} AND id=#{id} AND status='PROCESSING' AND claim_token=#{claimToken}
+    </update>
+</mapper>

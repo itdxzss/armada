@@ -36,7 +36,7 @@
 ### Task 1: `V158` 三张表与 SQL 契约测试
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V158__contact_friend_task.sql`
+- Create: `armada-api/src/main/resources/db/migration/V163__contact_friend_task.sql`
 - Test: `armada-api/src/test/java/com/armada/contact/task/ContactTaskMigrationSqlTest.java`
 
 **Interfaces:**
@@ -64,7 +64,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ContactTaskMigrationSqlTest {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V158__contact_friend_task.sql");
+            Path.of("src/main/resources/db/migration/V163__contact_friend_task.sql");
 
     private static String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);
@@ -143,11 +143,11 @@ cd /home/yanwenchao/ideaProject/armada/armada-api
 mvn -o test -Dtest=ContactTaskMigrationSqlTest
 ```
 
-Expected: FAIL，`NoSuchFileException` 指向 `V158__contact_friend_task.sql`
+Expected: FAIL，`NoSuchFileException` 指向 `V163__contact_friend_task.sql`
 
 - [ ] **Step 3: 写迁移**
 
-创建 `armada-api/src/main/resources/db/migration/V158__contact_friend_task.sql`：
+创建 `armada-api/src/main/resources/db/migration/V163__contact_friend_task.sql`：
 
 ```sql
 -- 通讯录营销任务。一个任务 = 一组账号筛选条件 + 一条 WhatsApp 消息，
@@ -253,13 +253,13 @@ Expected: PASS，6 个用例全绿
 ls /home/yanwenchao/ideaProject/armada/armada-api/src/main/resources/db/migration | sort -V | tail -3
 ```
 
-Expected: `V156`、`V157__account_contact_sync.sql`、`V158__contact_friend_task.sql`
+Expected: `V156`、`V162__account_contact_sync.sql`、`V163__contact_friend_task.sql`
 
 - [ ] **Step 6: 提交**
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada
-git add armada-api/src/main/resources/db/migration/V158__contact_friend_task.sql
+git add armada-api/src/main/resources/db/migration/V163__contact_friend_task.sql
 git add armada-api/src/test/java/com/armada/contact/task/ContactTaskMigrationSqlTest.java
 git commit -m "feat(contact): add contact marketing task schema"
 ```
@@ -2193,7 +2193,7 @@ git commit -m "feat(contact): add contact task crud and lifecycle api"
 ### Task 6: `V159` 菜单与权限
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V159__contact_marketing_menu_rbac.sql`
+- Create: `armada-api/src/main/resources/db/migration/V164__contact_marketing_menu_rbac.sql`
 - Test: `armada-api/src/test/java/com/armada/contact/task/ContactMenuRbacMigrationSqlTest.java`
 
 **Interfaces:**
@@ -2229,7 +2229,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ContactMenuRbacMigrationSqlTest {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V159__contact_marketing_menu_rbac.sql");
+            Path.of("src/main/resources/db/migration/V164__contact_marketing_menu_rbac.sql");
 
     private static String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);
@@ -2291,7 +2291,7 @@ Expected: FAIL，`NoSuchFileException`
 
 - [ ] **Step 4: 写迁移**
 
-照 Step 1 读到的 `V155` 结构写 `V159__contact_marketing_menu_rbac.sql`：
+照 Step 1 读到的 `V155` 结构写 `V164__contact_marketing_menu_rbac.sql`：
 目录 `ContactMarketing`（`/contact`，图标 `ep:phone`，`sort_no` 取 56，排在超链营销 55 之后），
 两个页面节点 `ContactHyperlinkTask`（`/contact/hyperlink`，组件 `contact/hyperlink/index`，
 权限 `tenant:contact_task:view`，`sort_no` 10）与 `ContactScriptTask`（`/contact/script`，
@@ -2313,7 +2313,7 @@ Expected: PASS，5 个用例全绿
 cd /home/yanwenchao/ideaProject/armada/armada-api
 mvn -o test
 cd /home/yanwenchao/ideaProject/armada
-git add armada-api/src/main/resources/db/migration/V159__contact_marketing_menu_rbac.sql
+git add armada-api/src/main/resources/db/migration/V164__contact_marketing_menu_rbac.sql
 git add armada-api/src/test/java/com/armada/contact/task/ContactMenuRbacMigrationSqlTest.java
 git commit -m "feat(contact): add contact marketing menu and permissions"
 ```

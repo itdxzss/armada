@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkBillingReservationMapper">
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hyperlink_billing_reservation
+        (hyperlink_task_id, billing_provider, quote_id, quote_expires_at, price_code, pricing_mode,
+         currency_code, unit_price, pricing_breakdown, quoted_recipient_count, quoted_amount,
+         reservation_status, pending_operation, operation_idempotency_key, version, created_at, updated_at)
+        VALUES (#{hyperlinkTaskId}, #{billingProvider}, #{quoteId}, #{quoteExpiresAt}, #{priceCode},
+         #{pricingMode}, #{currencyCode}, #{unitPrice}, #{pricingBreakdown}, #{quotedRecipientCount},
+         #{quotedAmount}, #{reservationStatus}, #{pendingOperation}, #{operationIdempotencyKey},
+         #{version}, #{createdAt}, #{updatedAt})
+    </insert>
+    <select id="selectByTaskId" resultType="com.armada.hyperlink.task.model.entity.HyperlinkBillingReservation">
+        SELECT * FROM hyperlink_billing_reservation WHERE hyperlink_task_id=#{taskId}
+    </select>
+    <update id="markReserved">
+        UPDATE hyperlink_billing_reservation SET reservation_status=2, pending_operation=0,
+          reserved_amount=quoted_amount, external_reservation_no=#{externalNo}, reserved_at=#{reservedAt},
+          operation_idempotency_key=NULL, next_retry_at=NULL, failure_code=NULL, failure_reason=NULL,
+          version=version+1, updated_at=#{reservedAt}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status IN (1,6) AND pending_operation=1
+          AND operation_idempotency_key=#{operationKey}
+    </update>
+    <update id="markAdjusted">
+        UPDATE hyperlink_billing_reservation SET reservation_status=2, pending_operation=0,
+          reserved_amount=#{reservedAmount}, operation_idempotency_key=NULL, next_retry_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status IN (1,2,3,4,6)
+          AND pending_operation=2 AND operation_idempotency_key=#{operationKey}
+    </update>
+    <update id="markFailed">
+        UPDATE hyperlink_billing_reservation SET reservation_status=6, failure_code=#{failureCode},
+          failure_reason=#{failureReason}, next_retry_at=#{nextRetryAt}, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND pending_operation&lt;&gt;0
+    </update>
+    <update id="markPendingSettlement">
+        UPDATE hyperlink_billing_reservation SET pending_operation=3,
+          operation_idempotency_key=#{operationKey}, next_retry_at=0,
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status IN (2,3,4)
+          AND pending_operation=0 AND external_reservation_no IS NOT NULL
+    </update>
+    <update id="markSettled">
+        UPDATE hyperlink_billing_reservation SET
+          reservation_status=CASE WHEN #{settledAmount} &gt;= reserved_amount THEN 4 ELSE 3 END,
+          pending_operation=0, settled_amount=#{settledAmount},
+          settled_send_count=#{settledSendCount}, settled_at=#{now},
+          operation_idempotency_key=NULL, next_retry_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status IN (2,3,4,6)
+          AND pending_operation=3 AND operation_idempotency_key=#{operationKey}
+    </update>
+    <update id="markPendingRelease">
+        UPDATE hyperlink_billing_reservation SET pending_operation=4,
+          operation_idempotency_key=#{operationKey}, next_retry_at=0,
+          version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status IN (2,3,4)
+          AND pending_operation=0 AND external_reservation_no IS NOT NULL
+    </update>
+    <update id="markReleased">
+        UPDATE hyperlink_billing_reservation SET reservation_status=5, pending_operation=0,
+          released_amount=#{releasedAmount}, released_at=#{now},
+          operation_idempotency_key=NULL, next_retry_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND pending_operation=4
+          AND operation_idempotency_key=#{operationKey}
+    </update>
+    <update id="abandonUnstarted">
+        UPDATE hyperlink_billing_reservation SET reservation_status=5, pending_operation=0,
+          released_amount=0, released_at=#{now}, operation_idempotency_key=NULL, next_retry_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND pending_operation=1
+          AND external_reservation_no IS NULL AND reserved_amount=0
+    </update>
+    <update id="abandonFailedStaleUncalled">
+        UPDATE hyperlink_billing_reservation SET reservation_status=5, pending_operation=0,
+          released_amount=0, released_at=#{now}, operation_idempotency_key=NULL, next_retry_at=NULL,
+          failure_code=NULL, failure_reason=NULL, version=version+1, updated_at=#{now}
+        WHERE hyperlink_task_id=#{taskId} AND reservation_status=6 AND pending_operation=1
+          AND failure_code=#{failureCode} AND external_reservation_no IS NULL
+          AND reserved_amount=0 AND settled_amount=0 AND released_amount=0
+          AND settled_send_count=0 AND reserved_at IS NULL
+          AND settled_at IS NULL AND released_at IS NULL
+    </update>
+    <update id="resetForReserve">
+        UPDATE hyperlink_billing_reservation SET billing_provider=#{entity.billingProvider},
+          quote_id=#{entity.quoteId}, quote_expires_at=#{entity.quoteExpiresAt},
+          price_code=#{entity.priceCode}, pricing_mode=#{entity.pricingMode},
+          currency_code=#{entity.currencyCode}, unit_price=#{entity.unitPrice},
+          pricing_breakdown=#{entity.pricingBreakdown},
+          quoted_recipient_count=#{entity.quotedRecipientCount}, quoted_amount=#{entity.quotedAmount},
+          reserved_amount=0, settled_amount=0, released_amount=0, settled_send_count=0,
+          reservation_status=1, pending_operation=1,
+          operation_idempotency_key=#{entity.operationIdempotencyKey}, next_retry_at=0,
+          external_reservation_no=NULL, failure_code=NULL, failure_reason=NULL,
+          reserved_at=NULL, settled_at=NULL, released_at=NULL,
+          version=version+1, updated_at=#{entity.updatedAt}
+        WHERE hyperlink_task_id=#{entity.hyperlinkTaskId} AND reservation_status=5
+          AND version=#{expectedVersion}
+    </update>
+    <update id="resetForAdjustment">
+        UPDATE hyperlink_billing_reservation SET billing_provider=#{entity.billingProvider},
+          quote_id=#{entity.quoteId}, quote_expires_at=#{entity.quoteExpiresAt},
+          price_code=#{entity.priceCode}, pricing_mode=#{entity.pricingMode},
+          currency_code=#{entity.currencyCode}, unit_price=#{entity.unitPrice},
+          pricing_breakdown=#{entity.pricingBreakdown},
+          quoted_recipient_count=#{entity.quotedRecipientCount}, quoted_amount=#{entity.quotedAmount},
+          reservation_status=1, pending_operation=2,
+          operation_idempotency_key=#{entity.operationIdempotencyKey}, next_retry_at=0,
+          failure_code=NULL, failure_reason=NULL, settled_at=NULL, released_at=NULL,
+          version=version+1, updated_at=#{entity.updatedAt}
+        WHERE hyperlink_task_id=#{entity.hyperlinkTaskId} AND reservation_status IN (2,3,4)
+          AND pending_operation=0 AND external_reservation_no IS NOT NULL
+          AND settled_amount=0 AND settled_send_count=0 AND version=#{expectedVersion}
+    </update>
+    <update id="resetFailedUnstartedForReserve">
+        UPDATE hyperlink_billing_reservation SET billing_provider=#{entity.billingProvider},
+          quote_id=#{entity.quoteId}, quote_expires_at=#{entity.quoteExpiresAt},
+          price_code=#{entity.priceCode}, pricing_mode=#{entity.pricingMode},
+          currency_code=#{entity.currencyCode}, unit_price=#{entity.unitPrice},
+          pricing_breakdown=#{entity.pricingBreakdown},
+          quoted_recipient_count=#{entity.quotedRecipientCount}, quoted_amount=#{entity.quotedAmount},
+          reservation_status=1, pending_operation=1,
+          operation_idempotency_key=#{entity.operationIdempotencyKey}, next_retry_at=0,
+          failure_code=NULL, failure_reason=NULL, reserved_at=NULL,
+          version=version+1, updated_at=#{entity.updatedAt}
+        WHERE hyperlink_task_id=#{entity.hyperlinkTaskId} AND reservation_status=6
+          AND pending_operation=1 AND external_reservation_no IS NULL
+          AND reserved_amount=0 AND settled_amount=0 AND settled_send_count=0
+          AND version=#{expectedVersion}
+    </update>
+</mapper>

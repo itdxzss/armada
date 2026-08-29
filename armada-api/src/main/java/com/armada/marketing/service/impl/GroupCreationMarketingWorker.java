@@ -505,7 +505,7 @@ public class GroupCreationMarketingWorker {
                         ProtocolBackend.fromProtocolId(account.getProtocolId()),
                         account.getProtocolAccountId(),
                         account.getAccountPhone()),
-                new MessageSendCommand.MessageTarget(groupJid),
+                new MessageSendCommand.MessageTarget(groupJid, MessageSendCommand.TargetKind.GROUP),
                 new MessageSendCommand.MessagePayload(
                         MessageType.valueOf(message.messageType()),
                         new MessageSendCommand.MessageContent(

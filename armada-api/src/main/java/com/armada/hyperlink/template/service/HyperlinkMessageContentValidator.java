@@ -22,7 +22,7 @@ public class HyperlinkMessageContentValidator {
     /** 一期消息结构版本。 */
     private static final int SCHEMA_VERSION = 1;
     /** 标题最大字符数。 */
-    private static final int TITLE_MAX_LENGTH = 512;
+    private static final int TITLE_MAX_LENGTH = 1024;
     /** 单图文正文最大字符数。 */
     private static final int SINGLE_CONTENT_MAX_LENGTH = 2000;
     /** 按钮消息正文最大字符数。 */
@@ -34,7 +34,7 @@ public class HyperlinkMessageContentValidator {
     /** 卡片底部文字最大字符数。 */
     private static final int CARD_TEXT_MAX_LENGTH = 500;
     /** 按钮展示文字最大字符数。 */
-    private static final int BUTTON_TEXT_MAX_LENGTH = 20;
+    private static final int BUTTON_TEXT_MAX_LENGTH = 30;
     /** 一期唯一按钮排序值。 */
     private static final int BUTTON_SORT = 1;
     /** 一期超链模板图片最大字节数。 */
@@ -59,6 +59,16 @@ public class HyperlinkMessageContentValidator {
      * @throws BusinessException 字段、按钮、URL 或图片不符合一期合同时抛出
      */
     public HyperlinkMessageContent validateAndNormalize(HyperlinkMessageContent input) {
+        return validateAndNormalize(input, false);
+    }
+
+    /**
+     * 校验消息字段矩阵，并允许已有任务在消息类型锁定为历史双图文时修改内容。
+     *
+     * <p>该兼容开关只供任务编辑路径使用；新建和模板继续调用单参数入口拒绝类型 2。</p>
+     */
+    public HyperlinkMessageContent validateAndNormalize(
+            HyperlinkMessageContent input, boolean historicalDoubleImageAllowed) {
         if (input == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "消息内容不能为空");
         }
@@ -66,17 +76,38 @@ public class HyperlinkMessageContentValidator {
             throw new BusinessException(ErrorCode.VALIDATION, "schemaVersion 一期只支持 1");
         }
         HyperlinkMessageType type = HyperlinkMessageType.fromCode(input.messageType());
-        if (type == HyperlinkMessageType.DOUBLE_IMAGE_TEXT) {
+        if (type == HyperlinkMessageType.DOUBLE_IMAGE_TEXT && !historicalDoubleImageAllowed) {
             throw new BusinessException(ErrorCode.VALIDATION, "一期暂不支持双图文");
         }
 
-        String title = required(input.title(), "标题不能为空", TITLE_MAX_LENGTH, "标题最长 512 字符");
+        String title = required(input.title(), "标题不能为空", TITLE_MAX_LENGTH, "标题最长 1024 字符");
         return switch (type) {
             case SINGLE_LINK_PREVIEW -> normalizeSingle(input, title);
             case NORMAL_BUTTON -> normalizeButton(input, title, false);
             case CARD_BUTTON -> normalizeButton(input, title, true);
-            case DOUBLE_IMAGE_TEXT -> throw new IllegalStateException("双图文已在前置校验拒绝");
+            case DOUBLE_IMAGE_TEXT -> normalizeHistoricalDoubleImage(input, title);
         };
+    }
+
+    private HyperlinkMessageContent normalizeHistoricalDoubleImage(
+            HyperlinkMessageContent input, String title) {
+        String content = required(input.content(), "双图文正文不能为空",
+                SINGLE_CONTENT_MAX_LENGTH, "双图文正文最长 2000 字符");
+        String description = required(input.linkDescription(), "链接描述不能为空",
+                LINK_DESCRIPTION_MAX_LENGTH, "链接描述最长 512 字符");
+        String promotionLink = required(input.promotionLink(), "推广链接不能为空",
+                URL_MAX_LENGTH, "推广链接最长 2048 字符");
+        requireHttpUrl(promotionLink, "推广链接必须是合法的绝对 http/https URL");
+        if (input.linkPreviewAssetId() != null) {
+            validateAsset(input.linkPreviewAssetId());
+        }
+        if (input.bodyMainAssetId() != null) {
+            validateAsset(input.bodyMainAssetId());
+        }
+        return new HyperlinkMessageContent(
+                SCHEMA_VERSION, HyperlinkMessageType.DOUBLE_IMAGE_TEXT.code(), title, content,
+                description, promotionLink, List.of(), null,
+                input.linkPreviewAssetId(), input.bodyMainAssetId());
     }
 
     private HyperlinkMessageContent normalizeSingle(HyperlinkMessageContent input, String title) {
@@ -124,7 +155,7 @@ public class HyperlinkMessageContentValidator {
             throw new BusinessException(ErrorCode.VALIDATION, "一期按钮类型只支持 CTA_URL");
         }
         String displayText = required(
-                button.displayText(), "按钮文字不能为空", BUTTON_TEXT_MAX_LENGTH, "按钮文字最长 20 字符");
+                button.displayText(), "按钮文字不能为空", BUTTON_TEXT_MAX_LENGTH, "按钮文字最长 30 字符");
         String targetValue = required(
                 button.targetValue(), "按钮目标 URL 不能为空", URL_MAX_LENGTH, "按钮目标 URL 最长 2048 字符");
         requireHttpUrl(targetValue, "按钮目标必须是合法的绝对 http/https URL");
@@ -141,7 +172,7 @@ public class HyperlinkMessageContentValidator {
     private void validateAsset(Long assetId) {
         MarketingTemplateFileContent file;
         try {
-            file = fileService.content(assetId);
+            file = fileService.lockContentForBinding(assetId);
         } catch (BusinessException exception) {
             if (exception.getCode() == ErrorCode.NOT_FOUND.code()) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "图片不存在或已删除");

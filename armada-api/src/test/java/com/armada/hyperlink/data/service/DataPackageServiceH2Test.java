@@ -560,6 +560,8 @@ class DataPackageServiceH2Test {
                   phone VARCHAR(32) NOT NULL,
                   country_iso2 CHAR(2),
                   pool_status TINYINT NOT NULL DEFAULT 1,
+                  claimed_by_hyperlink_task_id BIGINT,
+                  claimed_at BIGINT,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
                   UNIQUE (tenant_id, data_package_id, generation, phone)

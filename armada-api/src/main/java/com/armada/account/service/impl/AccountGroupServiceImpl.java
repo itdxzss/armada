@@ -8,6 +8,7 @@ import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.enums.AccountMarketingOccupancyType;
 import com.armada.account.model.vo.AccountGroupVO;
 import com.armada.account.model.vo.AccountGroupMarketingOccupancyVO;
+import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.model.vo.AccountMarketingOccupancyTaskRow;
 import com.armada.account.service.AccountGroupService;
 import com.armada.shared.exception.BusinessException;
@@ -89,6 +90,11 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                 : converter.toGroupVOList(mapper.selectPage(query));
         log.info("账号分组列表查询 total={} page={} pageSize={}", total, query.getPage(), query.getPageSize());
         return PageResult.of(rows, query.getPage(), query.getPageSize(), total);
+    }
+
+    @Override
+    public List<AccountGroupOptionVO> options() {
+        return List.copyOf(mapper.selectOptions());
     }
 
     /**

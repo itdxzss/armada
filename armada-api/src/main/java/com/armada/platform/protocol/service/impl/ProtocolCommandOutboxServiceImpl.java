@@ -29,6 +29,7 @@ import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.port.MessageCommandRecoveryPort;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -59,7 +60,8 @@ import org.springframework.transaction.annotation.Transactional;
  * Kafka 发送不包在本事务内。</p>
  */
 @Service
-public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxService {
+public class ProtocolCommandOutboxServiceImpl
+        implements ProtocolCommandOutboxService, MessageCommandRecoveryPort {
 
     private static final Logger log = LoggerFactory.getLogger(ProtocolCommandOutboxServiceImpl.class);
 
@@ -148,12 +150,16 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
     /** 历史群拉人营销成员聚合类型。 */
     public static final String AGGREGATE_TYPE_HISTORICAL_GROUP_PULL_MEMBER = "HISTORICAL_GROUP_PULL_MEMBER";
 
+    /** 超链任务唯一 recipient 聚合类型。 */
+    public static final String AGGREGATE_TYPE_HYPERLINK_TASK_RECIPIENT = "HYPERLINK_TASK_RECIPIENT";
+
     private static final int MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH = 1_000;
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
+    private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
@@ -189,6 +195,19 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         this.masterCommandProperties = masterCommandProperties;
         this.androidCommandProperties = androidCommandProperties;
         this.normalGroupCreationKafkaProperties = normalGroupCreationKafkaProperties;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean replay(long tenantId, String commandId, long now) {
+        if (tenantId <= 0 || commandId == null || commandId.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "消息恢复缺少租户或 commandId");
+        }
+        return mapper.replayMessageCommand(tenantId, commandId,
+                COMMAND_TYPE_MESSAGE_SEND_REQUESTED,
+                List.of(ProtocolCommandOutboxStatus.SENT.code(),
+                        ProtocolCommandOutboxStatus.DEAD.code()),
+                ProtocolCommandOutboxStatus.PENDING.code(), now) == 1;
     }
 
     /**
@@ -1239,6 +1258,9 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         } else if (command.correlation().historicalGroup() != null) {
             row.setAggregateType(AGGREGATE_TYPE_HISTORICAL_GROUP_PULL_MEMBER);
             row.setAggregateId(command.correlation().historicalGroup().memberId());
+        } else if (command.correlation().hyperlink() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_HYPERLINK_TASK_RECIPIENT);
+            row.setAggregateId(command.correlation().hyperlink().recipientId());
         } else {
             row.setAggregateType(AGGREGATE_TYPE_MARKETING_SEND_ATTEMPT);
             row.setAggregateId(command.correlation().marketing().attemptId());
@@ -1912,6 +1934,7 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
                 || isBlank(outboxCommand.command().commandId())
                 || isBlank(outboxCommand.command().account().protocolAccountId())
                 || isBlank(outboxCommand.command().target().jid())
+                || outboxCommand.command().target().kind() == null
                 || outboxCommand.backend() == null
                 || outboxCommand.backend() != outboxCommand.command().account().backend()
                 || isBlank(outboxCommand.kafkaTopic())
@@ -1928,7 +1951,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             if (correlation.groupCreation().taskId() == null
                     || correlation.groupCreation().itemId() == null
                     || correlation.marketing() != null
-                    || correlation.historicalGroup() != null) {
+                    || correlation.historicalGroup() != null
+                    || correlation.hyperlink() != null
+                    || outboxCommand.command().target().kind()
+                        != MessageSendCommand.TargetKind.GROUP) {
                 throw new BusinessException(ErrorCode.VALIDATION, "建群营销消息发送命令缺少执行项字段");
             }
             return;
@@ -1937,7 +1963,10 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
             if (!SOURCE_HISTORICAL_GROUP_PULL.equals(correlation.source())
                     || correlation.historicalGroup().executionId() == null
                     || correlation.historicalGroup().memberId() == null
-                    || correlation.marketing() != null) {
+                    || correlation.marketing() != null
+                    || correlation.hyperlink() != null
+                    || outboxCommand.command().target().kind()
+                        != MessageSendCommand.TargetKind.GROUP) {
                 throw new BusinessException(ErrorCode.VALIDATION, "历史群营销消息发送命令缺少执行成员字段");
             }
             return;
@@ -1945,11 +1974,30 @@ public class ProtocolCommandOutboxServiceImpl implements ProtocolCommandOutboxSe
         if (SOURCE_HISTORICAL_GROUP_PULL.equals(correlation.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "历史群营销消息发送命令缺少执行成员字段");
         }
+        if (correlation.hyperlink() != null) {
+            if (!SOURCE_HYPERLINK_TASK.equals(correlation.source())
+                    || correlation.hyperlink().taskId() == null
+                    || correlation.hyperlink().recipientId() == null
+                    || correlation.marketing() != null
+                    || correlation.groupCreation() != null
+                    || correlation.historicalGroup() != null
+                    || outboxCommand.command().target().kind()
+                        != MessageSendCommand.TargetKind.PRIVATE) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "超链任务消息命令缺少唯一 recipient 关联");
+            }
+            return;
+        }
+        if (SOURCE_HYPERLINK_TASK.equals(correlation.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "超链任务消息命令缺少唯一 recipient 关联");
+        }
         if (correlation.marketing() == null
                 || correlation.marketing().taskId() == null
                 || correlation.marketing().targetId() == null
                 || correlation.marketing().attemptId() == null
-                || correlation.marketing().roundNo() == null) {
+                || correlation.marketing().roundNo() == null
+                || correlation.groupCreation() != null
+                || correlation.historicalGroup() != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少营销回写字段");
         }
     }

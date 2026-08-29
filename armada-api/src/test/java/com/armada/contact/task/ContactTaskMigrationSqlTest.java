@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ContactTaskMigrationSqlTest {
 
     private static final Path MIGRATION =
-            Path.of("src/main/resources/db/migration/V158__contact_friend_task.sql");
+            Path.of("src/main/resources/db/migration/V163__contact_friend_task.sql");
 
     private static String sql() throws IOException {
         return Files.readString(MIGRATION, StandardCharsets.UTF_8);

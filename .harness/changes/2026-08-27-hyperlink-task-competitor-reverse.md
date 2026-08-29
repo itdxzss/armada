@@ -89,6 +89,9 @@
 - 完整证据与置信等级见反推证据文档；页面/服务契约见任务详细设计。
 - 数据模型按列表、详情、调度、回流、计费恢复逐路径复核扫描上界；实施验收须用 50 万 recipient 跨 3 个调度轮
   数据做 `EXPLAIN ANALYZE` 和并发压测。
+- H3 runtime 并发门禁必须在具备 Docker 的 CI 执行：
+  `cd armada-api && mvn -P hyperlink-mysql-it -Dtest=HyperlinkRuntimeConcurrencyMySqlTest test`。
+  普通测试未启用该 profile 时显式跳过真 MySQL 类；启用后 Docker 不可用必须令构建失败，且成功报告必须为 0 skip。
 
 产出：
 

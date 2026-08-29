@@ -51,6 +51,7 @@ class HyperlinkMessageContentValidatorTest {
         assertThat(normalized.cardText()).isNull();
         assertThat(normalized.linkPreviewAssetId()).isEqualTo(11L);
         assertThat(normalized.bodyMainAssetId()).isNull();
+        assertThat(fileService.lockCalls).isEqualTo(1);
     }
 
     @Test
@@ -111,6 +112,20 @@ class HyperlinkMessageContentValidatorTest {
     }
 
     @Test
+    void templateAndTaskSharedTitleLimitIsWidenedLosslesslyTo1024() {
+        String accepted = "标".repeat(1024);
+        HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, accepted, null, null, null, List.of(button()), null, null, null));
+        assertThat(normalized.title()).hasSize(1024);
+
+        assertThatThrownBy(() -> validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, "标".repeat(1025), null, null, null,
+                List.of(button()), null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("1024");
+    }
+
+    @Test
     void nonJpegImageIsRejectedEvenWhenStoredMimeClaimsJpeg() {
         fileService.put(11L, new MarketingTemplateFileContent("image/jpeg", new byte[] {1, 2, 3}));
         HyperlinkMessageContent input = new HyperlinkMessageContent(
@@ -166,6 +181,7 @@ class HyperlinkMessageContentValidatorTest {
     private static final class FakeMarketingTemplateFileService implements MarketingTemplateFileService {
 
         private final Map<Long, MarketingTemplateFileContent> files = new HashMap<>();
+        private int lockCalls;
 
         void put(Long id, MarketingTemplateFileContent content) {
             files.put(id, content);
@@ -185,6 +201,17 @@ class HyperlinkMessageContentValidatorTest {
                         "营销模板图片不存在");
             }
             return content;
+        }
+
+        @Override
+        public MarketingTemplateFileContent lockContentForBinding(Long id) {
+            lockCalls += 1;
+            return content(id);
+        }
+
+        @Override
+        public void lockAndValidateBindableAssets(java.util.Collection<Long> ids) {
+            throw new UnsupportedOperationException("测试不执行批量素材绑定");
         }
     }
 }

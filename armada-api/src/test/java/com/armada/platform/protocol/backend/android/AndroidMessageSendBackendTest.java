@@ -165,12 +165,39 @@ class AndroidMessageSendBackendTest {
     }
 
     @Test
+    void encodesFrozenHyperlinkPrivateWireContract() {
+        MessageSendCommand command = hyperlinkCommand();
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        null, List.of(command.commandId()), 1));
+
+        backend.enqueue(List.of(command));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        Map<String, Object> payload = objectMapper.convertValue(
+                captor.getValue().get(0).payload(), new TypeReference<>() { });
+        assertThat(payload)
+                .containsEntry("source", "hyperlink_task")
+                .containsEntry("jid", "8613800000000@s.whatsapp.net")
+                .containsEntry("targetKind", "PRIVATE")
+                .containsEntry("hyperlinkTaskId", 11L)
+                .containsEntry("hyperlinkRecipientId", 13L)
+                .containsEntry("messageType", "LINK_CARD")
+                .containsEntry("text", "正文")
+                .doesNotContainKeys("recipientId", "groupJid", "messageContent", "schemaVersion");
+    }
+
+    @Test
     void encodesContactTaskCorrelationFields() {
         // 协议层判 contact_task 时四字段缺一即丢弃，字段名必须逐字一致；
         // wsPhone 是 Android 独有字段，加 correlation 不能把它丢掉
         MessageSendCommand command = new MessageSendCommand(
                 account(),
-                new MessageSendCommand.MessageTarget("8613900000001@s.whatsapp.net"),
+                new MessageSendCommand.MessageTarget(
+                        "8613900000001@s.whatsapp.net",
+                        MessageSendCommand.TargetKind.PRIVATE),
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("hi", null, null, null),
@@ -181,7 +208,8 @@ class AndroidMessageSendBackendTest {
                         null,
                         null,
                         null,
-                        new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L)),
+                        new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
+                        null),
                 "cmd_contact_android",
                 800,
                 0L);
@@ -203,7 +231,9 @@ class AndroidMessageSendBackendTest {
                 .containsEntry("taskAccountId", 88L)
                 .containsEntry("recipientId", 99L)
                 .containsEntry("roundNo", 5L)
-                .containsEntry("groupJid", "8613900000001@s.whatsapp.net")
+                .containsEntry("jid", "8613900000001@s.whatsapp.net")
+                .containsEntry("targetKind", "PRIVATE")
+                .doesNotContainKey("groupJid")
                 .containsEntry("wsPhone", "919000000001");
     }
 
@@ -319,6 +349,23 @@ class AndroidMessageSendBackendTest {
                 commandId,
                 750,
                 2_500L);
+    }
+
+    private static MessageSendCommand hyperlinkCommand() {
+        return new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget(
+                        "8613800000000@s.whatsapp.net", MessageSendCommand.TargetKind.PRIVATE),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.LINK_CARD,
+                        new MessageSendCommand.MessageContent("正文", null,
+                                new MessageSendCommand.MessageLinkCard(
+                                        "https://example.com", "标题", "描述", null), null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(7L, "hyperlink_task",
+                        null, null, null,
+                        new MessageSendCommand.HyperlinkCorrelation(11L, 13L)),
+                "hl:7:11:13", 500, 0L);
     }
 
     private static MessageSendCommand imageCommand(String commandId, byte[] source) {

@@ -112,6 +112,6 @@ public interface HyperlinkTemplateConverter {
 
     /** 稳定素材 ID 转现有图片内容接口；空 ID 对应空 URL。 */
     default String assetUrl(Long assetId) {
-        return assetId == null ? null : "/api/marketing-template-files/" + assetId + "/content";
+        return assetId == null ? null : "/api/resource-assets/" + assetId + "/content";
     }
 }

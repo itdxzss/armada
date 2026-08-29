@@ -83,8 +83,8 @@
   `FlywayException: Found more than one migration with version 157` → 应用起不来。
 
 - **额外碰撞面**：在建分支 `feat/contact-marketing` 已占用
-  `V157__account_contact_sync` / `V158__contact_friend_task` / `V159__contact_marketing_menu_rbac` /
-  `V160__contact_task_engine` / `V161__account_contact_partial_status`，
+  `V162__account_contact_sync` / `V163__contact_friend_task` / `V164__contact_marketing_menu_rbac` /
+  `V165__contact_task_engine` / `V166__account_contact_partial_status`，
   与本分支 `V157/V158/V159/V160` **四号全撞**。
 
 - **建议修复方向**：本分支整体上移到未被占用的号段（如 V170~V173），

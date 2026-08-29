@@ -93,7 +93,7 @@ echo -n "Errors: ";   grep -h "^Tests run:" *.txt | sed 's/.*Errors: \([0-9]*\).
 
 | 文件 | 职责 |
 |---|---|
-| `resources/db/migration/V160__contact_task_engine.sql` | 补 `current_round_no` / `round_no` / `command_id` 三列 |
+| `resources/db/migration/V165__contact_task_engine.sql` | 补 `current_round_no` / `round_no` / `command_id` 三列 |
 | `contact/task/model/entity/ContactFriendTaskRecipient.java` | 收件人实体（V158 已建表，P3a 刻意没建实体） |
 | `contact/task/mapper/ContactFriendTaskRecipientMapper.java` + `resources/mapper/contact/ContactFriendTaskRecipientMapper.xml` | 收件人批量插入、抢批、条件回写 |
 | `account/selection/AccountFilterCriteria.java` | 归一化 JSON → 强类型圈号条件 |
@@ -139,7 +139,7 @@ echo -n "Errors: ";   grep -h "^Tests run:" *.txt | sed 's/.*Errors: \([0-9]*\).
 ## Task 1: V160 迁移补三列
 
 **Files:**
-- Create: `armada-api/src/main/resources/db/migration/V160__contact_task_engine.sql`
+- Create: `armada-api/src/main/resources/db/migration/V165__contact_task_engine.sql`
 - Test: `armada-api/src/test/java/com/armada/contact/task/ContactTaskEngineMigrationSqlTest.java`
 
 **Interfaces:**
@@ -167,7 +167,7 @@ class ContactTaskEngineMigrationSqlTest {
 
     private static String sql() throws IOException {
         return Files.readString(
-                Path.of("src/main/resources/db/migration/V160__contact_task_engine.sql"),
+                Path.of("src/main/resources/db/migration/V165__contact_task_engine.sql"),
                 StandardCharsets.UTF_8);
     }
 
@@ -213,11 +213,11 @@ class ContactTaskEngineMigrationSqlTest {
 
 Run: `cd /home/yanwenchao/ideaProject/armada/armada-api && mvn -o test -Dtest=ContactTaskEngineMigrationSqlTest -DfailIfNoTests=false`
 
-Expected: FAIL，4 个用例全部 `NoSuchFileException: src/main/resources/db/migration/V160__contact_task_engine.sql`
+Expected: FAIL，4 个用例全部 `NoSuchFileException: src/main/resources/db/migration/V165__contact_task_engine.sql`
 
 - [ ] **Step 3: 写迁移脚本**
 
-`armada-api/src/main/resources/db/migration/V160__contact_task_engine.sql`：
+`armada-api/src/main/resources/db/migration/V165__contact_task_engine.sql`：
 
 ```sql
 -- 通讯录营销发送引擎补列。
@@ -263,7 +263,7 @@ Expected: PASS（Tests run: 4, Failures: 0, Errors: 0）
 
 ```bash
 cd /home/yanwenchao/ideaProject/armada
-git add armada-api/src/main/resources/db/migration/V160__contact_task_engine.sql
+git add armada-api/src/main/resources/db/migration/V165__contact_task_engine.sql
 git add armada-api/src/test/java/com/armada/contact/task/ContactTaskEngineMigrationSqlTest.java
 git commit -m "feat(contact): add send engine columns migration"
 ```

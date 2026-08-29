@@ -1,7 +1,7 @@
 # 超链任务深度归因、访问趋势与封号原因详细设计（H6）
 
 > 日期：2026-08-28
-> 状态：待实施
+> 状态：H6 已实施（2026-08-29）
 > 上游合同：[超链任务公共契约](./2026-08-28-hyperlink-task-shared-contract.md)
 > 详情外壳：[详情与收信人流水统计设计](./2026-08-28-hyperlink-task-recipient-stats-design.md)
 > 数据模型：[超链营销数据模型](../../business/hyperlink-marketing-data-model.md) §4.5、§4.8、§4.12
@@ -15,12 +15,13 @@
 | 公网短链、访问次数、首/末访问、首触环境 | `hyperlink_task_recipient` + `hyperlink_task_content` |
 | 任务 UV/PV 快速摘要 | `hyperlink_task_runtime` |
 | 深度归因列表/筛选/排序/导出 | `hyperlink_task_recipient` |
-| 访问趋势 12～72 小时分桶 | 直接聚合 `hyperlink_task_recipient.first_visit_at/click_count` |
+| 访问趋势 12～72 小时分桶 | 直接聚合 `hyperlink_task_recipient.first_visit_at`；PV 仅取 runtime 真实总量 |
 | 封号原因分布 | `hyperlink_task_account_usage.invalid_*` |
 
 明确不建 `hyperlink_click`、`hyperlink_task_click_bucket_30m`、`hyperlink_task_ban`。一位 recipient 的第一访问环境
-存一次，之后每次访问只增加 clickCount 和 lastVisitAt；趋势中的辅助 PV 按竞品说明全部归入该 recipient 的首次访问
-时间桶。任务当前上限 10 万，配合现有索引可以直接查询。
+存一次，之后每次访问只增加 clickCount 和 lastVisitAt。当前模型没有逐次访问时间流水，不能恢复后续 PV 的真实
+半小时时段；趋势桶 PV 返回 null 并声明 `UNAVAILABLE_CUMULATIVE_ONLY`，不得把累计 clickCount 塞进首访桶。
+任务当前上限 10 万，配合现有索引可以直接查询。
 
 ## 1. 竞品证据总表
 
@@ -48,7 +49,7 @@
 | E-H6-13 | 图表含新增 UV、累计点击率、PV（辅助），PV 默认隐藏 | ECharts 三 series、双 Y 轴 |
 | E-H6-14 | 右侧趋势解读和底部新增 UV 最高的三个时段 | 后端返回 insights/topPeaks |
 | E-H6-15 | 数据表五列并带口径 tooltip | 时间段、新增 UV、累计 UV、累计点击率、PV |
-| E-H6-16 | PV 标注“按首次访问所在时间段近似归集” | 同一 recipient 全部 clickCount 归首访桶 |
+| E-H6-16 | 竞品把 PV 近似归入首访桶 | Armada 明示分桶不可用，不伪装为真实访问时序 |
 
 ### 1.3 封号原因
 
@@ -214,6 +215,7 @@ range 必须能被 granularity 整除。改变范围或粒度立即刷新；按�
 interface HyperlinkVisitTrend {
   range: VisitRange;
   granularity: VisitGranularity;
+  pvBucketMode: "UNAVAILABLE_CUMULATIVE_ONLY";
   summary: {
     uvTotal: number;
     clickRate: number;
@@ -230,7 +232,7 @@ interface HyperlinkVisitTrend {
     newUv: number;
     cumulativeUv: number;
     cumulativeClickRate: number;
-    pv: number;
+    pv: number | null;
   }>;
   insights: Array<{
     eventType: "TASK_START" | "FIRST_VISIT" | "SURGE_START" | "PEAK";
@@ -254,8 +256,7 @@ interface HyperlinkVisitTrend {
 
 ```sql
 SELECT FLOOR((first_visit_at - :anchorAt) / :bucketMs) AS bucket_no,
-       COUNT(*) AS new_uv,
-       SUM(click_count) AS pv
+       COUNT(*) AS new_uv
 FROM hyperlink_task_recipient
 WHERE tenant_id = :tenantId
   AND hyperlink_task_id = :taskId
@@ -270,12 +271,13 @@ GROUP BY bucket_no;
 cumulativeUv[i]        = sum(newUv[0..i])
 cumulativeClickRate[i] = cumulativeUv[i] / task.successNum
 uvTotal                = cumulativeUv[last]
-pvTotal                = sum(pv[*])
+pvTotal                = taskRuntime.clickTotal
 pvPerUv                 = pvTotal / uvTotal
 ```
 
-每个 recipient 的 `clickCount` 全部累计到它的首访桶。这正是竞品“PV（辅助）：按首次访问所在时间段近似归集”的
-口径；它不是每次点击真实发生时间的半小时统计，所以不需要 click 事件表或 30 分钟落地表。
+竞品旧实现把 recipient 的累计 `clickCount` 全部归到首访桶，但这不能代表 PV 实际发生时段。本版本禁止该近似：
+`pvTotal` 继续取 runtime 真实累计值，series 的 `pv` 固定为 null，并用 `pvBucketMode` 说明只能提供累计总量。
+未来若要逐时 PV，必须先有合规的逐次访问事实设计；本 H6 不建点击流水表或 30 分钟落地表。
 
 任务没有 UV 时：firstVisitAt/peakBucketTime=null，其余计数和比率为 0，series/insights/topPeaks 返回空数组；页面六卡
 仍正常显示，不造一个从任务开始时间起的假访问窗口。
@@ -319,8 +321,8 @@ API 时间仍是 epoch，前端使用公共“系统时区”格式化器，不�
 - 标题“访问量走势”，副标题“北京时间 · 每 30 分钟/1 小时/2 小时统计”。
 - 新增 UV：左轴柱状，蓝色；SURGE_START 桶橙色并标“明显增高”。
 - 累计点击率：右轴绿色平滑线，默认显示。
-- PV（辅助）：左轴灰色柱状，legend 中默认隐藏但可点击显示。
-- tooltip 展示桶起止、新增 UV、累计点击率、PV；surge 桶追加“趋势：明显增高”。
+- PV（辅助）：legend 默认隐藏；当前 `pvBucketMode` 下数据为空，页面明确提示缺少逐次访问事实。
+- tooltip 展示桶起止、新增 UV、累计点击率、PV（不可用时显示 `—`）；surge 桶追加“趋势：明显增高”。
 - 右侧“趋势解读”按时间列事件，无事件显示“当前时段暂无趋势事件”。
 - 图下“新增 UV 最高的 {N} 个时间段”，最多三项；空时显示“暂无高峰时段”。
 
@@ -332,14 +334,14 @@ API 时间仍是 epoch，前端使用公共“系统时区”格式化器，不�
 | 新增 UV | 首次访问落在本时间段的独立访客数 |
 | 累计 UV | 截至本桶结束的累计独立访客数 |
 | 累计点击率 | 累计 UV ÷ 任务单钩数，0 分母为 0% |
-| PV（辅助） | 访问次数按首次访问桶近似归集，仅供参考 |
+| PV（辅助） | 无逐次访问事实时显示 `—`，不按首访桶近似 |
 
 数据表不分页，最大 144 行（72h/30m）；small、bordered、最小宽度 840。
 
 ## 7. 访问趋势导出
 
 `POST /api/hyperlink-tasks/{id}/visit-trend/export` 请求当前 range/granularity，返回公共异步导出作业。CSV 五列与数据表
-一致，另在文件首部不插说明行，保证标准 CSV；口径说明放固定列名“PV（辅助，按首访桶归集）”。文件名
+一致，另在文件首部不插说明行，保证标准 CSV；口径说明放固定列名“PV（无逐次事实，分桶不可用）”。文件名
 `hyperlink-visit-trend-{taskId}-{yyyyMMddHHmmss}.csv`。
 
 任务趋势导出不弹竞品仅用于数据包敏感导出的 Google OTP；但仍校验 export 权限并写审计。
@@ -469,7 +471,7 @@ src/views/hyperlink/task/components/
 
 - 首访 22:04:01 时第一桶严格从 22:04:01 开始；左闭右开边界不重不漏。
 - 5 范围 × 3 粒度全部返回正确桶数；空桶补零。
-- 多次访问全部 PV 归 recipient 首访桶，uv/pv/cumulative/rate 公式准确。
+- 新增 UV 按 firstVisitAt 准确分桶；累计 PV 只用于真实总量，分桶返回 null 且不归入首访桶。
 - 无 UV、0 success、并列高峰、少于 3 个非零桶、surge 连续命中逐一验证。
 - 图/表共用响应，PV 默认隐藏，导出与表数据逐行一致。
 - 10 万 recipient、72h/30m 查询 P95≤800ms；执行计划命中 visit_trend 索引。
@@ -488,7 +490,7 @@ src/views/hyperlink/task/components/
 - [ ] 11 列、IP+UA tooltip、访问次数排序、分页完整。
 - [ ] 访问趋势 5 个范围、3 个粒度、图/表切换、导出、刷新完整。
 - [ ] 趋势六张卡、三条 series、趋势解读、Top 3、五列表格完整。
-- [ ] PV 明确按首访桶近似归集，不伪装成真实点击事件时序。
+- [ ] PV 只报告 runtime 真实总量；没有逐次事实时分桶为 null，不伪装点击事件时序。
 - [ ] 封号总数、原因原文/解释、百分比、彩条、账号数和空态完整。
 - [ ] 四条竞品中文原因映射保留，未知原因不吞掉。
 - [ ] 不建 hyperlink_click、30m bucket 或 task_ban 后，任何竞品可见能力都没有被删除。

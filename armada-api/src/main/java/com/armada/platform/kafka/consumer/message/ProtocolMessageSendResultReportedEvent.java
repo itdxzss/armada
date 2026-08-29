@@ -33,6 +33,12 @@ package com.armada.platform.kafka.consumer.message;
  * @param contactTaskId 通讯录营销任务 ID;source=contact_task 时使用
  * @param taskAccountId 通讯录任务账号行 ID;source=contact_task 时使用
  * @param recipientId 通讯录任务收件人 ID;source=contact_task 时使用
+ * @param jid             通用目标 JID;群目标与 groupJid 同值
+ * @param targetKind      目标类型 GROUP/PRIVATE
+ * @param hyperlinkTaskId 超链任务 ID;source=hyperlink_task 时使用
+ * @param hyperlinkRecipientId 超链任务收件人 ID;source=hyperlink_task 时使用
+ * @param outcome         协议层判定结果
+ * @param terminal        是否终态
  */
 public record ProtocolMessageSendResultReportedEvent(
         String eventId,
@@ -60,6 +66,76 @@ public record ProtocolMessageSendResultReportedEvent(
         Long historicalMemberId,
         Long contactTaskId,
         Long taskAccountId,
-        Long recipientId
+        Long recipientId,
+        String jid,
+        String targetKind,
+        Long hyperlinkTaskId,
+        Long hyperlinkRecipientId,
+        String outcome,
+        Boolean terminal
 ) {
+    /** 上游 29 参构造兼容：不触碰上游既有调用点，通讯录三字段默认为空。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId, String jid, String targetKind,
+            Long hyperlinkTaskId, Long hyperlinkRecipientId, String outcome, Boolean terminal) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
+                outcome, terminal);
+    }
+
+    /** 通讯录营销事件构造兼容：超链与 outcome 字段默认为空。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId, Long contactTaskId, Long taskAccountId, Long recipientId) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                contactTaskId, taskAccountId, recipientId, groupJid,
+                groupJid == null ? null : "GROUP", null, null, null, null);
+    }
+
+    /** 已扩展通用 target/correlation、但尚无 outcome 的事件构造兼容。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId, String jid, String targetKind,
+            Long hyperlinkTaskId, Long hyperlinkRecipientId) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
+                null, null);
+    }
+
+    /** 存量群营销事件构造兼容；通用 target 与 hyperlink 关联默认为空。 */
+    public ProtocolMessageSendResultReportedEvent(
+            String eventId, Long tenantId, Long marketingTaskId, Long targetId, Long attemptId,
+            Long roundNo, String protocolAccountId, String groupJid, String commandId,
+            boolean success, String messageId, String reasonCode, String reasonMessage,
+            Long timestamp, String workerId, Long groupCreationTaskId, Long groupCreationItemId,
+            String source, String groupStatus, String groupStatusReason, Long groupStatusCheckedAt,
+            Long historicalExecutionId, Long historicalMemberId) {
+        this(eventId, tenantId, marketingTaskId, targetId, attemptId, roundNo, protocolAccountId,
+                groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
+                workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
+                groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
+                null, null, null, groupJid, "GROUP", null, null, null, null);
+    }
 }

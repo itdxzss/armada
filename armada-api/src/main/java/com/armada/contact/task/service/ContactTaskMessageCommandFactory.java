@@ -105,7 +105,9 @@ public class ContactTaskMessageCommandFactory {
                         ProtocolBackend.fromProtocolId(protocolFacts.protocolId()),
                         protocolFacts.protocolAccountId(),
                         protocolFacts.wsPhone()),
-                new MessageSendCommand.MessageTarget(recipient.getContactJid()),
+                // 必须显式 PRIVATE：上游保留了单参兼容构造，缺这个参数会被当成群目标
+                new MessageSendCommand.MessageTarget(
+                        recipient.getContactJid(), MessageSendCommand.TargetKind.PRIVATE),
                 payload(content),
                 new MessageSendCommand.MessageCorrelation(
                         task.getTenantId(),
@@ -114,7 +116,8 @@ public class ContactTaskMessageCommandFactory {
                         null,
                         null,
                         new MessageSendCommand.ContactTaskCorrelation(
-                                task.getId(), accountRow.getId(), recipient.getId(), roundNo)),
+                                task.getId(), accountRow.getId(), recipient.getId(), roundNo),
+                        null),
                 recipient.getCommandId() == null ? newCommandId() : recipient.getCommandId(),
                 ContactSendIntervalPicker.pickMs(
                         task.getMsgIntervalMinSec(), task.getMsgIntervalMaxSec(), random),

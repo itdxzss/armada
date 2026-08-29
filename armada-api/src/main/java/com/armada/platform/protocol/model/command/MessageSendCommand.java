@@ -31,12 +31,27 @@ public record MessageSendCommand(
     /**
      * 消息发送目标。
      *
-     * <p>语义中立：群营销填群 JID（{@code @g.us}），私聊营销填用户 JID
-     * （{@code <phone>@s.whatsapp.net}）。协议后端按 JID 后缀自行分支，不再假定目标一定是群。</p>
-     *
-     * @param jid WhatsApp 目标 JID
+     * @param jid WhatsApp 群或私聊 JID
+     * @param kind 目标类型
      */
-    public record MessageTarget(String jid) {
+    public record MessageTarget(String jid, TargetKind kind) {
+        /** Java 调用兼容：存量单参数构造均为群目标。 */
+        public MessageTarget(String groupJid) {
+            this(groupJid, TargetKind.GROUP);
+        }
+
+        /** Java 读取兼容：存量群营销断言仍可读取 groupJid。 */
+        public String groupJid() {
+            return kind == TargetKind.GROUP ? jid : null;
+        }
+    }
+
+    /** 通用消息目标类型。 */
+    public enum TargetKind {
+        /** 群聊目标，继续透传兼容 groupJid。 */
+        GROUP,
+        /** 私聊目标。 */
+        PRIVATE
     }
 
     /**
@@ -125,6 +140,7 @@ public record MessageSendCommand(
      * @param groupCreation 建群营销关联
      * @param historicalGroup 历史群拉人营销关联
      * @param contactTask 通讯录营销关联
+     * @param hyperlink 超链任务唯一 recipient 关联
      */
     public record MessageCorrelation(
             Long tenantId,
@@ -132,8 +148,21 @@ public record MessageSendCommand(
             MarketingCorrelation marketing,
             GroupCreationCorrelation groupCreation,
             HistoricalGroupCorrelation historicalGroup,
-            ContactTaskCorrelation contactTask
+            ContactTaskCorrelation contactTask,
+            HyperlinkCorrelation hyperlink
     ) {
+        /** 上游 6 参构造兼容：不触碰上游既有调用点，contactTask 默认为空。 */
+        public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
+                GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
+                HyperlinkCorrelation hyperlink) {
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, hyperlink);
+        }
+
+        /** 存量群营销 Java 构造兼容，contactTask 与 hyperlink 默认为空。 */
+        public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
+                GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup) {
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null);
+        }
     }
 
     /**
@@ -183,5 +212,9 @@ public record MessageSendCommand(
             Long recipientId,
             Long roundNo
     ) {
+    }
+
+    /** 超链任务唯一发送事实关联，不包含 attempt。 */
+    public record HyperlinkCorrelation(Long taskId, Long recipientId) {
     }
 }

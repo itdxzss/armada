@@ -82,7 +82,7 @@
 
 ### P2 通讯录采集（armada，6 commits）—— **拉取部分已退役**
 
-`V157__account_contact_sync.sql`：`account_contact`、`account_contact_sync` 两张表，
+`V162__account_contact_sync.sql`：`account_contact`、`account_contact_sync` 两张表，
 `account_state` 加 `contact_named_num` / `contact_mutual_num` 两列。
 
 - `AccountContactNormalizer` 归一化与计数 —— **保留**，快照落库仍走它
@@ -93,9 +93,9 @@
 
 ### P3a 任务 CRUD（armada，6 commits）
 
-`V158__contact_friend_task.sql`：`contact_friend_task`、`contact_friend_task_account`、
+`V163__contact_friend_task.sql`：`contact_friend_task`、`contact_friend_task_account`、
 `contact_friend_task_recipient` 三张表。
-`V159__contact_marketing_menu_rbac.sql`：菜单目录 + 两个页面 + 三个按钮权限节点。
+`V164__contact_marketing_menu_rbac.sql`：菜单目录 + 两个页面 + 三个按钮权限节点。
 
 - `ContactTaskStateMachine` 状态机（已停止/已完成为终态）
 - `ContactTaskFormValidator` 表单校验
@@ -119,7 +119,7 @@ GET    /api/contact-tasks/{id}/data    tenant:contact_task:view
 
 ### P3b 发送引擎（3 仓，14 commits）
 
-`V160__contact_task_engine.sql`：`contact_friend_task.current_round_no`、
+`V165__contact_task_engine.sql`：`contact_friend_task.current_round_no`、
 `contact_friend_task_recipient.round_no` / `command_id` 三列。
 
 | 仓库 | commit | 内容 |

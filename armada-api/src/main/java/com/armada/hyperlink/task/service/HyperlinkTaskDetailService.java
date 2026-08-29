@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 详情抽屉公共摘要和 H4 收信人流水查询。 */
@@ -29,6 +30,7 @@ public class HyperlinkTaskDetailService {
     private final HyperlinkTaskDetailMapper detailMapper;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkTaskDetailService(
             HyperlinkTaskMapper taskMapper,
             HyperlinkTaskDetailMapper detailMapper) {

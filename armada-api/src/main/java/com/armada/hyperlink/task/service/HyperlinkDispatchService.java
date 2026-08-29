@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +60,7 @@ public class HyperlinkDispatchService {
     private final HyperlinkAccountDispatchGuard dispatchGuard;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkDispatchService(HyperlinkTaskMapper taskMapper,
             HyperlinkTaskContentMapper contentMapper, HyperlinkTaskRuntimeMapper runtimeMapper,
             HyperlinkTaskRoundMapper roundMapper, HyperlinkTaskAccountUsageMapper usageMapper,

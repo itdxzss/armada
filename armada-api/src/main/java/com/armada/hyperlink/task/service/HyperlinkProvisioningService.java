@@ -3,6 +3,7 @@ package com.armada.hyperlink.task.service;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRuntimeMapper;
 import com.armada.shared.exception.BusinessException;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /** 分批 claim、任务级预约与首轮事务的可恢复编排。 */
@@ -14,6 +15,7 @@ public class HyperlinkProvisioningService {
     private final HyperlinkTaskRuntimeMapper runtimeMapper;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkProvisioningService(HyperlinkRecipientClaimService claimService,
             HyperlinkBillingSagaService billingSagaService,
             HyperlinkFirstRoundService firstRoundService,

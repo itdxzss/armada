@@ -13,6 +13,7 @@ import com.armada.hyperlink.task.model.enums.HyperlinkTaskRoundStatus;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,6 +28,7 @@ public class HyperlinkFirstRoundService {
     private final HyperlinkRoundAccountSelectionService accountSelectionService;
     private final Clock clock;
 
+    @Autowired
     public HyperlinkFirstRoundService(HyperlinkTaskMapper taskMapper,
             HyperlinkTaskRuntimeMapper runtimeMapper, HyperlinkTaskRecipientMapper recipientMapper,
             HyperlinkBillingReservationMapper billingMapper, HyperlinkTaskRoundMapper roundMapper,

@@ -5,12 +5,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.math.BigDecimal;
 import java.util.List;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.stereotype.Component;
 
 /** 未接钱包适配器时 fail-closed，绝不以本地假余额启用任务。 */
-@Component
-@ConditionalOnMissingBean(HyperlinkWalletPort.class)
 public class UnavailableHyperlinkWalletPort implements HyperlinkWalletPort {
     @Override
     public PricingSnapshot quote(long tenantId, int maxExecutingAccounts,

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /** 三模式 round 推进、零账号等待和 plannedEnd 收口。 */
 class HyperlinkRoundLifecycleServiceTest {
@@ -67,6 +68,25 @@ class HyperlinkRoundLifecycleServiceTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+    }
+
+    @Test
+    void springContextUsesTheProductionConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(HyperlinkTaskMapper.class, () -> tasks);
+            context.registerBean(HyperlinkTaskRuntimeMapper.class, () -> runtimes);
+            context.registerBean(HyperlinkTaskRoundMapper.class, () -> rounds);
+            context.registerBean(HyperlinkTaskRoundAccountMapper.class, () -> roundAccounts);
+            context.registerBean(HyperlinkTaskRecipientMapper.class, () -> recipients);
+            context.registerBean(HyperlinkTaskAccountUsageMapper.class, () -> usages);
+            context.registerBean(HyperlinkRoundAccountSelectionService.class, () -> selection);
+            context.registerBean(HyperlinkCleanupStartService.class, () -> cleanup);
+            context.register(HyperlinkRoundLifecycleService.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(HyperlinkRoundLifecycleService.class)).isNotNull();
+        }
     }
 
     @Test

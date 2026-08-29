@@ -56,7 +56,7 @@ class ContactTaskExpansionServiceTest {
 
     private ContactTaskExpansionService service() {
         return new ContactTaskExpansionService(
-                selector, syncMapper, new AccountContactProperties(null, 24),
+                selector, syncMapper, new AccountContactProperties(24),
                 contactMapper, taskMapper, accountMapper,
                 recipientMapper, () -> 1_000L, () -> 5L);
     }

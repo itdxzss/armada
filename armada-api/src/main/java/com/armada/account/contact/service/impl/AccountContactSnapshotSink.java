@@ -120,7 +120,7 @@ public class AccountContactSnapshotSink implements AccountContactsReportedSink {
                     contact.pushName(),
                     contact.businessName()));
         }
-        return new AccountContactSnapshot(contacts, event.snapshotCutoff());
+        return new AccountContactSnapshot(contacts);
     }
 
     /** 空批次不得调 upsertBatch：foreach 会生成空 VALUES 导致语法错。 */

@@ -5,10 +5,12 @@ import java.util.List;
 /**
  * 一次账号通讯录读取的协议事实。
  *
+ * <p>快照时间不在本类里：它由协议事件的 snapshotCutoff 直接带到落库层，
+ * 归一化器不需要也不应该看到它。</p>
+ *
  * @param contacts 联系人列表，协议层已做号码归一
- * @param syncedAt 协议层给出的快照时间（epoch 毫秒），可能为空
  */
-public record AccountContactSnapshot(List<Contact> contacts, Long syncedAt) {
+public record AccountContactSnapshot(List<Contact> contacts) {
 
     /**
      * 单个联系人。

@@ -53,14 +53,6 @@ public interface AndroidNativeClient {
     AndroidResponseEnvelope saveContacts(String wsPhone, List<String> numbers);
 
     /**
-     * 读取 Android 账号已同步落库的通讯录。
-     *
-     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
-     * @return Android 原生响应包
-     */
-    AndroidResponseEnvelope listContacts(String wsPhone);
-
-    /**
      * 使用 Android 原生接口创建群组。
      *
      * @param wsPhone 不带加号的纯数字 WhatsApp 手机号

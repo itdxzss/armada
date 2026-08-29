@@ -45,12 +45,10 @@ class ContactSnapshotFreshnessTest {
 
     @Test
     void propertiesFallBackToSaneDefaults() {
-        AccountContactProperties unset = new AccountContactProperties(null, null);
-        assertThat(unset.syncOnOnlineOrDefault()).isTrue();
+        AccountContactProperties unset = new AccountContactProperties(null);
         assertThat(unset.snapshotTtlHoursOrDefault()).isEqualTo(24);
 
-        AccountContactProperties set = new AccountContactProperties(false, 6);
-        assertThat(set.syncOnOnlineOrDefault()).isFalse();
+        AccountContactProperties set = new AccountContactProperties(6);
         assertThat(set.snapshotTtlHoursOrDefault()).isEqualTo(6);
     }
 }

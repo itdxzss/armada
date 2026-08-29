@@ -5,6 +5,7 @@ import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.service.AccountContactNormalizer;
 import com.armada.account.contact.service.AccountContactOnlineHook;
 import com.armada.account.contact.service.AccountContactSyncService;
+import com.armada.account.contact.service.impl.AccountContactSnapshotSink;
 import com.armada.account.contact.service.impl.AccountContactSyncServiceImpl;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.service.AccountProtocolLookupService;
@@ -87,6 +88,26 @@ public class AccountContactConfiguration {
                         .orElseThrow(() -> new BusinessException(
                                 ErrorCode.NOT_FOUND, "账号无可用协议引用: " + accountId)),
                 TenantContext::get,
+                System::currentTimeMillis);
+    }
+
+    /**
+     * 装配协议通讯录快照落库处理器。
+     *
+     * @param contactMapper 联系人快照数据访问
+     * @param syncMapper 同步状态数据访问
+     * @param accountStateMapper 账号状态数据访问
+     * @param normalizer 协议快照归一化器
+     * @return 快照落库处理器
+     */
+    @Bean
+    public AccountContactSnapshotSink accountContactSnapshotSink(
+            AccountContactMapper contactMapper,
+            AccountContactSyncMapper syncMapper,
+            AccountStateMapper accountStateMapper,
+            AccountContactNormalizer normalizer) {
+        return new AccountContactSnapshotSink(
+                contactMapper, syncMapper, accountStateMapper, normalizer,
                 System::currentTimeMillis);
     }
 

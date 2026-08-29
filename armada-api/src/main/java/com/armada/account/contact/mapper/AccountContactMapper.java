@@ -40,6 +40,18 @@ public interface AccountContactMapper {
     int countBySyncedAt(@Param("accountId") Long accountId, @Param("syncedAt") long syncedAt);
 
     /**
+     * 统计本账号在指定快照时间下已落库、且通讯录里有名字的联系人数。
+     *
+     * <p>收齐后要回写的是<b>整份快照</b>的好友数，用最后一片的归一化计数会写成个位数，
+     * 因此必须查库。</p>
+     *
+     * @param accountId 账号 ID
+     * @param syncedAt 快照时间（epoch 毫秒）
+     * @return 该快照下有名字的联系人数
+     */
+    int countNamedBySyncedAt(@Param("accountId") Long accountId, @Param("syncedAt") long syncedAt);
+
+    /**
      * 统计本账号通讯录里有名字的联系人数。
      *
      * @param accountId 账号 ID

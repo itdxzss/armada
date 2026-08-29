@@ -41,6 +41,14 @@
        AND synced_at = #{syncedAt}
   </select>
 
+  <select id="countNamedBySyncedAt" resultType="int">
+    SELECT COUNT(*)
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND synced_at = #{syncedAt}
+       AND is_named = 1
+  </select>
+
   <select id="countNamed" resultType="int">
     SELECT COUNT(*)
       FROM account_contact

@@ -100,4 +100,13 @@ class AccountContactMapperXmlTest {
         assertThat(sql).contains("id=\"countBySyncedAt\"");
         assertThat(sql).contains("synced_at = #{syncedAt}");
     }
+
+    @Test
+    void namedCountIsScopedToTheSnapshotBeingSettled() throws IOException {
+        // 收齐后回写的是整份快照的好友数，不能用最后一片的归一化计数
+        String sql = xml("AccountContactMapper.xml");
+
+        assertThat(sql).contains("id=\"countNamedBySyncedAt\"");
+        assertThat(sql).contains("is_named = 1");
+    }
 }

@@ -1,9 +1,8 @@
 -- 超链图片素材库前向执行入口。
 -- 正式部署由 Flyway 自动执行；手工审阅或隔离测试时仅在仓库根目录启动 mysql 客户端使用。
--- 执行前必须确认目标数据库、完成备份、V157 已合入并应用，且 V158 未发生版本冲突。
--- 当前代码树缺少 V157，本入口现阶段仅供审阅，禁止直接部署到共享环境。
+-- 执行前必须确认目标数据库、完成备份，并确认 V157 未在目标环境被其他迁移占用。
 
-SOURCE armada-api/src/main/resources/db/migration/V158__hyperlink_image_asset_library.sql;
+SOURCE armada-api/src/main/resources/db/migration/V157__hyperlink_image_asset_library.sql;
 
 -- 只读验收：预期标签表、素材元数据列、引用索引和每个启用租户的四个菜单节点存在。
 SELECT table_name

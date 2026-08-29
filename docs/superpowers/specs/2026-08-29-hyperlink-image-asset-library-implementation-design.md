@@ -22,8 +22,9 @@
 5. **绑定和删除必须锁同一张素材行**，只查引用次数再删除不能解决并发竞态。
 6. **不改 Web/Android 协议接口**。Armada 在发送边界把 AssetId 解成图片字节，协议层永远不认识
    `marketing_template_file.id`。
-7. **迁移号不得直接照抄本文**。截至分析时主分支最大为 V156，超链任务工作树已使用 V157；
-   实施前必须重新按 `sort -V` 检查全仓迁移号。若 V157 已合入，本功能从 V158 起分配。
+7. **迁移号不得直接照抄本文**。最终合并时目标分支最大为 V156，原计划使用 V157 的
+   超链任务工作树尚未合入；本功能先合并并分配 V157，后续任务迁移必须重新按 `sort -V`
+   选择下一个可用版本。
 
 ## 1. 目标、范围与交付结果
 
@@ -90,7 +91,7 @@ rg -n "resource-assets|批量上传图片|从素材库选择|确认删除该素�
 | E-008 | `HyperlinkMessageContentValidator` | 超链模板绑定时才严格检查 JPEG、500KB 和可解码性 |
 | E-009 | `V001__marketing_template.sql` | 旧 `marketing_template.image_file_id` 仍引用同一文件表 |
 | E-010 | `V154__hyperlink_template.sql` | 超链模板已有两列稳定素材 ID，但缺少素材反查索引 |
-| E-011 | 超链任务 V157 工作树 | `hyperlink_task_content` 已有两列素材 ID 和反查索引，并复用超链内容校验器 |
+| E-011 | 超链任务独立工作树（未合入） | `hyperlink_task_content` 已有两列素材 ID 和反查索引，并复用超链内容校验器 |
 | E-012 | `wheel-saas-pure-web` 模板页面 | 当前抽屉先暂存 `File`，保存模板时才调用旧上传接口；回显通过鉴权 Blob + Object URL |
 | E-013 | Armada Web/Android backend 与两协议代码 | Web 接收 Base64；Android 接收 tenant+SHA assetRef；两者的输入均由 Armada 图片字节生成 |
 
@@ -396,7 +397,7 @@ Armada 在不影响正常竞品交互的前提下增加以下服务端安全边�
 - `hyperlink_template (tenant_id, link_preview_asset_id, deleted_at, id)`。
 - `hyperlink_template (tenant_id, body_main_asset_id, deleted_at, id)`。
 
-`hyperlink_task_content` 在 V157 中已有：
+`hyperlink_task_content` 在未合入的超链任务工作树中已有：
 
 - `(tenant_id, link_preview_asset_id, hyperlink_task_id)`。
 - `(tenant_id, body_main_asset_id, hyperlink_task_id)`。
@@ -582,30 +583,27 @@ GET /api/resource-assets/{id}/content
 必须接入的写方：
 
 - `HyperlinkTemplateService` 创建、编辑、复制。
-- 超链任务创建、未开始编辑；V157 当前通过 `HyperlinkMessageContentValidator` 读取图片，需要改为锁定校验。
+- 超链任务创建、未开始编辑；未合入工作树当前通过 `HyperlinkMessageContentValidator`
+  读取图片，需要改为锁定校验。
 - 旧 `MarketingTemplateService` 创建、编辑、**复制**中非空 `imageFileId` 的绑定。当前 `clone()` 会直接复制
   原模板的 `imageFileId`，若不接入同一素材锁，可能与删除事务并发产生悬空引用。
 
-锁行 Mapper 必须沿用 Armada 已有的显式租户模式，禁止依赖租户插件自动改写 `FOR UPDATE`：
+按主键的单表锁行 Mapper 必须保留 Armada 全局租户拦截器，禁止通过 Mapper 参数绕过全局租户保护：
 
 ```java
-@InterceptorIgnore(tenantLine = "true")
-MarketingTemplateFile selectByIdForUpdate(
-        @Param("tenantId") Long tenantId,
-        @Param("id") Long id);
+MarketingTemplateFile selectByIdForUpdate(@Param("id") Long id);
 ```
 
 ```sql
 SELECT id, tenant_id, original_filename, content_type, size_bytes, content,
        asset_name, width, height, created_by, created_at, updated_at, deleted_at
 FROM marketing_template_file
-WHERE tenant_id = #{tenantId}
-  AND id = #{id}
+WHERE id = #{id}
   AND deleted_at IS NULL
 FOR UPDATE
 ```
 
-- `tenantId` 必须取自非空 `TenantContext`，不得接收客户端传值。
+- `tenant_id` 由全局租户拦截器从非空 `TenantContext` 注入，不得接收客户端传值。
 - 调用方先对 AssetId 去重并升序，再逐个调用上述主键锁；模板和任务当前最多两个素材位，逐行锁不会形成
   批量 N+1 查询问题。
 - 主键查询不加多余 `LIMIT 1`，避免 MyBatis-Plus/JSqlParser 重排 `LIMIT ... FOR UPDATE`。
@@ -845,7 +843,8 @@ Android：
 - 编辑测试覆盖名称 trim、空名、128 字边界、标签精确去重、大小写、20/21 个边界、非字符串标签和事务回滚。
 - 删除测试覆盖旧营销模板、旧营销模板复制、超链模板两个字段、超链任务两个字段和软删引用。
 - 并发测试覆盖“绑定先获得锁”和“删除先获得锁”两种顺序。
-- 锁行 Mapper 测试验证显式 `tenant_id`、`@InterceptorIgnore`、软删条件和 `FOR UPDATE`，不得依赖租户插件改写。
+- 锁行 Mapper 测试验证全局租户改写、软删条件和 `FOR UPDATE`，且锁查询不得标注
+  `@InterceptorIgnore(tenantLine = "true")`。
 - 租户隔离测试覆盖列表、内容、编辑、删除和标签。
 - 权限测试覆盖独立素材权限与模板/任务嵌入权限。
 

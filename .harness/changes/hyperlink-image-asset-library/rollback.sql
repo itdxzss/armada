@@ -1,6 +1,6 @@
 -- 破坏性回滚脚本：会删除素材标签、菜单权限和素材管理元数据。
 -- 仅允许在旧版前后端已恢复、素材元数据已备份、所有引用均已确认后执行。
--- Flyway 已登记 V158 的环境还必须按部署规范处理 schema history，不能只执行本文件。
+-- Flyway 已登记 V157 的环境还必须按部署规范处理 schema history，不能只执行本文件。
 
 DELETE role_menu
 FROM sys_role_menu role_menu

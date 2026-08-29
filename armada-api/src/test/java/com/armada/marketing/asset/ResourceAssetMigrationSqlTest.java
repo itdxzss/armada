@@ -7,11 +7,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** 图片素材库 V158 表结构、索引和菜单权限合同测试。 */
+/** 图片素材库 V157 表结构、索引和菜单权限合同测试。 */
 class ResourceAssetMigrationSqlTest {
 
     private static final Path MIGRATION = Path.of(
-            "src/main/resources/db/migration/V158__hyperlink_image_asset_library.sql");
+            "src/main/resources/db/migration/V157__hyperlink_image_asset_library.sql");
 
     @Test
     void migrationAddsMetadataTagsReferenceIndexesAndRbac() throws Exception {

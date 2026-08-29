@@ -213,6 +213,8 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         row.setDescription(form.description());
         row.setPromotionLink(form.promotionLink());
         row.setContent(form.content());
+        // 传 null 即清空配图：编辑时用户删掉图不能保留旧图。
+        row.setPreviewImageFileId(form.previewImageFileId());
         row.setMsgIntervalMinSec(form.msgIntervalMinSec());
         row.setMsgIntervalMaxSec(form.msgIntervalMaxSec());
         row.setConcurrency(form.concurrency());

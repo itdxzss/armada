@@ -11,6 +11,7 @@ import java.math.BigDecimal;
  * @param description 链接描述，仅链接消息必填，最长 2048
  * @param promotionLink 推广链接，仅链接消息必填，最长 2048
  * @param content 正文内容或图文文案，必填，最长 2000
+ * @param previewImageFileId 预览图或配图文件 ID；先传 /api/marketing-template-files 拿到，null 表示不带图
  * @param msgIntervalMinSec 单号发送最小间隔秒，带一位小数
  * @param msgIntervalMaxSec 单号发送最大间隔秒，带一位小数
  * @param concurrency 最大执行账号数，1~200
@@ -28,6 +29,7 @@ public record ContactTaskFormDTO(
         String description,
         String promotionLink,
         String content,
+        Long previewImageFileId,
         BigDecimal msgIntervalMinSec,
         BigDecimal msgIntervalMaxSec,
         Integer concurrency,

@@ -55,8 +55,13 @@ class ContactTaskServiceImplTest {
     }
 
     private static ContactTaskFormDTO form(String startMode, int delay, int enabled) {
+        return form(startMode, delay, enabled, null);
+    }
+
+    private static ContactTaskFormDTO form(
+            String startMode, int delay, int enabled, Long previewImageFileId) {
         return new ContactTaskFormDTO(
-                "任务A", 1, null, null, null, "文案",
+                "任务A", 1, null, null, null, "文案", previewImageFileId,
                 new BigDecimal("0.5"), new BigDecimal("1.0"),
                 10, 50, 3, startMode, delay, enabled, "{\"country_iso2s\":[\"cn\"]}");
     }
@@ -128,7 +133,7 @@ class ContactTaskServiceImplTest {
         when(taskMapper.selectById(9L)).thenReturn(task(ContactTaskRunStatus.NOT_STARTED.code()));
 
         ContactTaskFormDTO changed = new ContactTaskFormDTO(
-                "任务A", 0, "标题", "描述", "https://a.com", "文案",
+                "任务A", 0, "标题", "描述", "https://a.com", "文案", null,
                 new BigDecimal("0.5"), new BigDecimal("1.0"),
                 10, 50, 3, "now", 0, 0, "{}");
 
@@ -286,4 +291,27 @@ class ContactTaskServiceImplTest {
 
         verify(expansionService, never()).expand(any());
     }
+    @Test
+    void createPersistsPreviewImageFileId() {
+        // 发送引擎已经会读这个字段发图，表单传不进来的话图文消息只能发纯文字
+        service.create(form("now", 0, 0, 77L), USER);
+
+        ArgumentCaptor<ContactFriendTask> saved = ArgumentCaptor.forClass(ContactFriendTask.class);
+        verify(taskMapper).insert(saved.capture());
+        assertThat(saved.getValue().getPreviewImageFileId()).isEqualTo(77L);
+    }
+
+    @Test
+    void updateClearsPreviewImageWhenFormOmitsIt() {
+        // 编辑时用户删掉了配图：null 必须真的写进去，不能保留旧图
+        when(taskMapper.selectById(9L)).thenReturn(task(
+                ContactTaskRunStatus.NOT_STARTED.code()));
+
+        service.update(9L, form("now", 0, 0, null));
+
+        ArgumentCaptor<ContactFriendTask> saved = ArgumentCaptor.forClass(ContactFriendTask.class);
+        verify(taskMapper).updateForm(saved.capture());
+        assertThat(saved.getValue().getPreviewImageFileId()).isNull();
+    }
+
 }

@@ -17,14 +17,14 @@ class ContactTaskFormValidatorTest {
     private static ContactTaskFormDTO linkForm() {
         return new ContactTaskFormDTO(
                 "春节福利-好友群发", 0, "限时领取红包", "一句话补充", "https://example.com/promo",
-                "老朋友专享福利", new BigDecimal("0.5"), new BigDecimal("1.0"),
+                "老朋友专享福利", null, new BigDecimal("0.5"), new BigDecimal("1.0"),
                 10, 50, 3, "now", 0, 1, "{}");
     }
 
     private static ContactTaskFormDTO imageForm() {
         return new ContactTaskFormDTO(
                 "图文任务", 1, null, null, null, "配图文案",
-                new BigDecimal("0.5"), new BigDecimal("1.0"),
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"),
                 10, 50, 3, "now", 0, 1, "{}");
     }
 
@@ -46,19 +46,19 @@ class ContactTaskFormValidatorTest {
     void linkMessageRequiresTitleDescriptionAndLink() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 0, null, "d", "https://a.com", "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("消息标题");
 
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 0, "t", null, "https://a.com", "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("链接描述");
 
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 0, "t", "d", "  ", "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("推广链接");
     }
@@ -67,13 +67,13 @@ class ContactTaskFormValidatorTest {
     void nameAndContentAreAlwaysRequired() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "  ", 0, "t", "d", "https://a.com", "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("任务名称");
 
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "  ",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("内容");
     }
@@ -82,7 +82,7 @@ class ContactTaskFormValidatorTest {
     void messageTypeMustBeZeroOrOne() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 3, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("消息类型");
     }
@@ -91,7 +91,7 @@ class ContactTaskFormValidatorTest {
     void intervalIsRoundedToOneDecimalAndMaxIsLiftedToMin() {
         ContactTaskFormDTO normalized = validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("1.26"), new BigDecimal("0.4"),
+                null, new BigDecimal("1.26"), new BigDecimal("0.4"),
                 10, 50, 3, "now", 0, 1, "{}"));
 
         // 竞品：Math.round(x*10)/10，且 max 被抬到不小于 min
@@ -103,7 +103,7 @@ class ContactTaskFormValidatorTest {
     void intervalBelowFloorIsRejected() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.0"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.0"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("发送间隔");
     }
@@ -112,24 +112,24 @@ class ContactTaskFormValidatorTest {
     void numericBoundsFollowCompetitorControls() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 0, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 0, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("最大执行账号数");
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 201, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 201, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("最大执行账号数");
 
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, -1, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, -1, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("每号最大发送数");
 
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 11, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 11, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("重试次数");
     }
@@ -139,14 +139,14 @@ class ContactTaskFormValidatorTest {
         // 启用 + 延后 + 延迟为 0 → 拒绝
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "scheduled", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "scheduled", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("延迟");
 
         // 未启用时同样的表单允许保存
         assertThat(validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "scheduled", 0, 0, "{}"))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "scheduled", 0, 0, "{}"))
                 .taskDelayMinutes()).isZero();
     }
 
@@ -154,7 +154,7 @@ class ContactTaskFormValidatorTest {
     void immediateModeForcesDelayToZero() {
         ContactTaskFormDTO normalized = validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 30, 1, "{}"));
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 30, 1, "{}"));
 
         assertThat(normalized.taskDelayMinutes()).isZero();
     }
@@ -163,7 +163,7 @@ class ContactTaskFormValidatorTest {
     void unknownStartModeIsRejected() {
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "cron", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "cron", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("启动方式");
     }
@@ -173,14 +173,14 @@ class ContactTaskFormValidatorTest {
         String tooLongName = "n".repeat(129);
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 tooLongName, 1, null, null, null, "c",
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("任务名称");
 
         String tooLongContent = "c".repeat(2001);
         assertThatThrownBy(() -> validator.validate(new ContactTaskFormDTO(
                 "x", 1, null, null, null, tooLongContent,
-                new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
+                null, new BigDecimal("0.5"), new BigDecimal("1.0"), 10, 50, 3, "now", 0, 1, "{}")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("内容");
     }

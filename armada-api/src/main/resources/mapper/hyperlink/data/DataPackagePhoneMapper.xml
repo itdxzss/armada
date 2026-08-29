@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.data.mapper.DataPackagePhoneMapper">
+
+  <sql id="Columns">
+    id, tenant_id, data_package_id, generation, source_import_id, phone,
+    country_iso2, pool_status, created_at, updated_at
+  </sql>
+
+  <insert id="batchInsert">
+    INSERT INTO data_package_phone (
+      data_package_id, generation, source_import_id, phone, country_iso2,
+      pool_status, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (
+        #{row.dataPackageId}, #{row.generation}, #{row.sourceImportId}, #{row.phone},
+        #{row.countryIso2}, #{row.poolStatus}, #{row.createdAt}, #{row.updatedAt}
+      )
+    </foreach>
+  </insert>
+
+  <select id="selectExistingPhones" resultType="string">
+    SELECT phone
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND phone IN
+    <foreach collection="phones" item="phone" open="(" separator="," close=")">
+      #{phone}
+    </foreach>
+  </select>
+
+  <sql id="PhoneWhere">
+    WHERE data_package_id = #{q.dataPackageId}
+      AND generation = #{q.generation}
+    <if test="q.phone != null and q.phone != ''">
+      AND phone LIKE CONCAT('%', #{q.phone}, '%')
+    </if>
+    <if test="q.poolStatusCode != null">
+      AND pool_status = #{q.poolStatusCode}
+    </if>
+    <if test="q.countryIso2 != null and q.countryIso2 == 'UNKNOWN'">
+      AND country_iso2 IS NULL
+    </if>
+    <if test="q.countryIso2 != null and q.countryIso2 != '' and q.countryIso2 != 'UNKNOWN'">
+      AND country_iso2 = #{q.countryIso2}
+    </if>
+  </sql>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+    FROM data_package_phone
+    <include refid="PhoneWhere"/>
+  </select>
+
+  <select id="selectPage" resultType="com.armada.hyperlink.data.model.entity.DataPackagePhone">
+    SELECT <include refid="Columns"/>
+    FROM data_package_phone
+    <include refid="PhoneWhere"/>
+    ORDER BY id ASC
+    LIMIT #{q.pageSize} OFFSET #{q.offset}
+  </select>
+
+  <update id="resetPoolStatus">
+    UPDATE data_package_phone
+    SET pool_status = #{toStatus},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND pool_status = #{fromStatus}
+  </update>
+
+  <select id="selectPhonesForExport" resultType="string">
+    SELECT phone
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+    <if test="poolStatusCodes != null and !poolStatusCodes.isEmpty()">
+      AND pool_status IN
+      <foreach collection="poolStatusCodes" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+    </if>
+    ORDER BY id ASC
+  </select>
+
+  <select id="countPhonesForExport" resultType="long">
+    SELECT COUNT(*)
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+    <if test="poolStatusCodes != null and !poolStatusCodes.isEmpty()">
+      AND pool_status IN
+      <foreach collection="poolStatusCodes" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+    </if>
+  </select>
+
+  <select id="selectStatusCounts" resultType="com.armada.hyperlink.data.model.vo.DataPackageStatusCountRow">
+    SELECT pool_status AS poolStatus, COUNT(*) AS rowCount
+    FROM data_package_phone
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+    GROUP BY pool_status
+  </select>
+
+  <select id="selectCleanupCandidates"
+          resultType="com.armada.hyperlink.data.model.vo.DataPackagePhoneCleanupRow">
+    SELECT phone.tenant_id AS tenantId, phone.id
+    FROM data_package_phone phone
+    INNER JOIN data_package package
+      ON package.id = phone.data_package_id
+     AND package.tenant_id = phone.tenant_id
+    WHERE (
+      package.deleted_at IS NOT NULL
+      AND package.deleted_at &lt;= #{deletedBefore}
+    ) OR (
+      phone.generation &lt; package.current_generation
+      AND EXISTS (
+        SELECT 1
+        FROM data_package_import switched
+        WHERE switched.tenant_id = phone.tenant_id
+          AND switched.data_package_id = phone.data_package_id
+          AND switched.generation = phone.generation + 1
+          AND switched.import_mode = #{overwriteMode}
+          AND switched.status = #{successStatus}
+          AND switched.finished_at IS NOT NULL
+          AND switched.finished_at &lt;= #{retiredBefore}
+      )
+    )
+    ORDER BY phone.id ASC
+    LIMIT #{limit}
+  </select>
+
+  <delete id="deleteCleanupCandidates">
+    DELETE FROM data_package_phone
+    WHERE
+    <foreach collection="rows" item="row" separator=" OR ">
+      (tenant_id = #{row.tenantId} AND id = #{row.id})
+    </foreach>
+  </delete>
+</mapper>

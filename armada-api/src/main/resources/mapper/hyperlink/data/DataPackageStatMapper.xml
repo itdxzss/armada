@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.data.mapper.DataPackageStatMapper">
+
+  <insert id="insertInitial">
+    INSERT INTO data_package_stat (
+      data_package_id, generation, unused_count, claimed_count, sent_count,
+      delivered_count, retryable_failed_count, unregistered_count,
+      updated_at, reconciled_at
+    ) VALUES (
+      #{dataPackageId}, #{generation}, #{unusedCount}, #{claimedCount}, #{sentCount},
+      #{deliveredCount}, #{retryableFailedCount}, #{unregisteredCount},
+      #{updatedAt}, #{reconciledAt}
+    )
+  </insert>
+
+  <update id="incrementUnused">
+    UPDATE data_package_stat
+    SET unused_count = unused_count + #{increment},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+  </update>
+
+  <update id="resetGeneration">
+    UPDATE data_package_stat
+    SET generation = #{newGeneration},
+        unused_count = #{unusedCount},
+        claimed_count = 0,
+        sent_count = 0,
+        delivered_count = 0,
+        retryable_failed_count = 0,
+        unregistered_count = 0,
+        updated_at = #{updatedAt},
+        reconciled_at = NULL
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{expectedGeneration}
+  </update>
+
+  <update id="moveRetryableFailedToUnused">
+    UPDATE data_package_stat
+    SET unused_count = unused_count + #{affected},
+        retryable_failed_count = retryable_failed_count - #{affected},
+        updated_at = #{updatedAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+      AND retryable_failed_count &gt;= #{affected}
+  </update>
+
+  <update id="replaceCounts">
+    UPDATE data_package_stat
+    SET unused_count = #{unusedCount},
+        claimed_count = #{claimedCount},
+        sent_count = #{sentCount},
+        delivered_count = #{deliveredCount},
+        retryable_failed_count = #{retryableFailedCount},
+        unregistered_count = #{unregisteredCount},
+        updated_at = #{updatedAt},
+        reconciled_at = #{reconciledAt}
+    WHERE data_package_id = #{dataPackageId}
+      AND generation = #{generation}
+  </update>
+</mapper>

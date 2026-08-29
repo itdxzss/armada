@@ -93,6 +93,7 @@ public class MysqlModeMapperInMemoryTest {
 
     private static final long CURRENT_TENANT_ID = 7L;
     private static final DataScope ADMIN_SCOPE = DataScope.all(1L);
+    private static final int LARGE_FOLDER_ASSIGNMENT_COUNT = 335;
 
     @Autowired
     private DataSource dataSource;
@@ -508,6 +509,28 @@ public class MysqlModeMapperInMemoryTest {
                 "SELECT folder_id FROM group_link WHERE id = 202", Long.class)).isNull();
         assertThat(InterceptorIgnoreHelper.willIgnoreTenantLine(
                 GroupLinkMapper.class.getName() + ".selectByTenantAndIdsForUpdate")).isTrue();
+    }
+
+    @Test
+    void groupFolderAssignmentAcceptsMoreThanOneHundredIds() throws SQLException {
+        String groupRows = LongStream.rangeClosed(1, LARGE_FOLDER_ASSIGNMENT_COUNT)
+                .mapToObj(id -> "(%d, 7, 'wa://group/assign-%d', 5, 2, 1, 1)".formatted(id, id))
+                .collect(Collectors.joining(","));
+        executeSql(
+                "INSERT INTO group_folder (id, tenant_id, name, created_at, updated_at) "
+                        + "VALUES (101, 7, '批量分组', 1, 1)",
+                """
+                INSERT INTO group_link
+                    (id, tenant_id, link_url, origin, membership_state, created_at, updated_at)
+                VALUES
+                """ + groupRows);
+        List<Long> ids = LongStream.rangeClosed(1, LARGE_FOLDER_ASSIGNMENT_COUNT).boxed().toList();
+
+        int updated = groupLinkMapper.assignFolder(ids, 101L, ADMIN_SCOPE, 200L);
+
+        assertThat(updated).isEqualTo(ids.size());
+        assertThat(queryLong("SELECT COUNT(*) FROM group_link WHERE folder_id = 101"))
+                .isEqualTo(ids.size());
     }
 
     @Test

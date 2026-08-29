@@ -32,6 +32,8 @@ public class MarketingTemplateFileController {
 
     /** 上传图片,返回可保存到模板的文件 ID 与预览 URL。 */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', "
+            + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit')")
     public ApiResponse<MarketingTemplateFileVO> upload(@RequestParam("file") MultipartFile file) {
         return ApiResponse.ok(service.uploadImage(file));
     }
@@ -40,7 +42,8 @@ public class MarketingTemplateFileController {
     @GetMapping("/{id}/content")
     @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', 'tenant:historical_group:view', "
             + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
-            + "'tenant:group_creation_marketing:view')")
+            + "'tenant:group_creation_marketing:view', 'tenant:hyperlink_template:view', "
+            + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit')")
     public ResponseEntity<byte[]> content(@PathVariable Long id) {
         MarketingTemplateFileContent file = service.content(id);
         return ResponseEntity.ok()

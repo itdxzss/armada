@@ -59,6 +59,7 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class GroupLinkServiceImplTest {
 
     private static final Long TENANT_ID = 7L;
+    private static final int LARGE_FOLDER_ASSIGNMENT_COUNT = 335;
 
     @Mock
     private GroupLinkMapper groupLinkMapper;
@@ -344,6 +346,32 @@ class GroupLinkServiceImplTest {
                 eq(List.of(101L, 102L)), any(DataScope.class));
         order.verify(groupLinkMapper).assignFolder(
                 eq(List.of(101L, 102L)), eq(10L), any(DataScope.class), anyLong());
+    }
+
+    @Test
+    void assignFolderAcceptsMoreThanOneHundredGroups() {
+        List<Long> ids = LongStream.rangeClosed(1, LARGE_FOLDER_ASSIGNMENT_COUNT).boxed().toList();
+        List<GroupLink> groups = ids.stream().map(id -> {
+            GroupLink group = new GroupLink();
+            group.setId(id);
+            return group;
+        }).toList();
+        GroupFolder folder = new GroupFolder();
+        folder.setId(10L);
+        when(folderMapper.selectActiveByIdsForUpdate(
+                eq(List.of(10L)), any(DataScope.class))).thenReturn(List.of(folder));
+        when(groupLinkMapper.selectActiveByIdsForUpdate(
+                eq(ids), any(DataScope.class))).thenReturn(groups);
+        when(groupLinkMapper.assignFolder(
+                eq(ids), eq(10L), any(DataScope.class), anyLong())).thenReturn(ids.size());
+
+        int updated = service.assignFolder(ids, 10L);
+
+        assertThat(updated).isEqualTo(ids.size());
+        verify(taskGroupOccupancyService).requireUnoccupied(ids);
+        verify(groupLinkMapper).assignFolder(
+                eq(ids), eq(10L), any(DataScope.class), anyLong());
+        verify(currentLocalPersistence).applyGroupFolder(eq(ids), eq(10L), anyLong());
     }
 
     @Test

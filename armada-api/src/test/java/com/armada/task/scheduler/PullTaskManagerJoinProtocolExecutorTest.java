@@ -69,6 +69,25 @@ class PullTaskManagerJoinProtocolExecutorTest {
         verify(joinPort, never()).join(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void freshJoinWithNullReasonCodeJoinsDirectlyWithoutThrowing() {
+        PullTaskGroupExecution candidate = freshCandidate();
+        PullTaskManagerJoinWork work = work(ProtocolBackend.WEB);
+        when(joinPort.join(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new GroupJoinResult(
+                        "120363group@g.us", GroupJoinOutcome.JOINED));
+
+        PullTaskManagerJoinOutcome outcome = executor.join(candidate, work);
+
+        assertThat(outcome).isEqualTo(
+                PullTaskManagerJoinOutcome.confirmed("120363group@g.us"));
+        verify(inviteLinkService, never()).refreshCurrentInviteCode(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        verify(joinPort).join(org.mockito.ArgumentMatchers.any());
+    }
+
     private static PullTaskGroupExecution revokedCandidate() {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setGroupLinkId(51L);
@@ -76,6 +95,14 @@ class PullTaskManagerJoinProtocolExecutorTest {
         row.setInviteCode("OldInviteCode");
         row.setGroupJid("120363group@g.us");
         row.setReasonCode("INVITE_REVOKED");
+        return row;
+    }
+
+    private static PullTaskGroupExecution freshCandidate() {
+        PullTaskGroupExecution row = new PullTaskGroupExecution();
+        row.setGroupLinkId(51L);
+        row.setNormalizedLink("chat.whatsapp.com/OldInviteCode");
+        row.setInviteCode("OldInviteCode");
         return row;
     }
 

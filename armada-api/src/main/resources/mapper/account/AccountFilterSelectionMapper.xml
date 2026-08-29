@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.selection.mapper.AccountFilterSelectionMapper">
+
+  <!--
+    强制注入（设计 §2.7）：无论筛选条件写了什么，都只圈「正常且未导出」的账号。
+    account_state=2 本身已排除 4，这里仍显式排除，防止将来枚举扩展时口径漂移。
+
+    channelIds 与 groupIds 都下推到 account_group_id：竞品把渠道和分组当两个维度，
+    armada 只有一个归一分组列，这是已知的口径收敛。
+    groupInviteAllowed / continent / platform / widType 在 armada 没有落列，故意没有条件，
+    与 AccountFilterCriteria 的能力边界说明一致。
+  -->
+  <select id="selectAccounts"
+          resultType="com.armada.account.selection.model.SelectedAccount">
+    SELECT a.id                  AS accountId,
+           a.ws_phone            AS wsPhone,
+           a.protocol_id         AS protocolId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account a
+    INNER JOIN account_state s
+            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND a.protocol_account_id &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.account_state &lt;&gt; #{exportedAccountState}
+      <if test="criteria.accountType != null">
+        AND a.account_type = #{criteria.accountType}
+      </if>
+      <if test="criteria.protocolId != null">
+        AND a.protocol_id = #{criteria.protocolId}
+      </if>
+      <if test="criteria.phone != null">
+        AND a.ws_phone LIKE CONCAT(#{criteria.phone}, '%')
+      </if>
+      <if test="criteria.groupIds != null and criteria.groupIds.size() > 0">
+        AND a.account_group_id IN
+        <foreach collection="criteria.groupIds" item="groupId" open="(" separator="," close=")">
+          #{groupId}
+        </foreach>
+      </if>
+      <if test="criteria.channelIds != null and criteria.channelIds.size() > 0">
+        AND a.account_group_id IN
+        <foreach collection="criteria.channelIds" item="channelId" open="(" separator="," close=")">
+          #{channelId}
+        </foreach>
+      </if>
+      <if test="criteria.countryIso2s != null and criteria.countryIso2s.size() > 0">
+        AND s.proxy_country IN
+        <foreach collection="criteria.countryIso2s" item="iso2" open="(" separator="," close=")">
+          #{iso2}
+        </foreach>
+      </if>
+      <if test="criteria.excludeCountryIso2s != null and criteria.excludeCountryIso2s.size() > 0">
+        AND (s.proxy_country IS NULL OR s.proxy_country NOT IN
+        <foreach collection="criteria.excludeCountryIso2s" item="iso2" open="(" separator="," close=")">
+          #{iso2}
+        </foreach>
+        )
+      </if>
+      <if test="criteria.friendCountMin != null">
+        AND s.contact_mutual_num &gt;= #{criteria.friendCountMin}
+      </if>
+      <if test="criteria.friendCountMax != null">
+        AND s.contact_mutual_num &lt;= #{criteria.friendCountMax}
+      </if>
+      <if test="criteria.registerDaysMin != null">
+        AND a.created_at &lt;= (UNIX_TIMESTAMP() * 1000 - #{criteria.registerDaysMin} * 86400000)
+      </if>
+      <if test="criteria.registerDaysMax != null">
+        AND a.created_at &gt;= (UNIX_TIMESTAMP() * 1000 - #{criteria.registerDaysMax} * 86400000)
+      </if>
+    ORDER BY a.priority DESC, a.id
+    LIMIT #{limit}
+  </select>
+
+</mapper>

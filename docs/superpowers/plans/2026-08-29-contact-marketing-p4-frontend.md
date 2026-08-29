@@ -81,65 +81,55 @@ node --test src/router/contact-route.test.ts       # 路由契约（Node 内置 
 
 ---
 
-## 视觉规格（**照竞品复刻**，出处 `hyperlink-BYpivFya.css`）
+## 视觉：**用我们自己的风格，但元素一个不能少**
 
-我们是 Element Plus，竞品是 NaiveUI —— **复刻的是配色、几何与层次，不是组件**。
-竞品那套 `--me-*` 变量系统可以原样搬过来，它本身与组件库无关。
+样式一律走 `wheel-saas-pure-web` 既有约定：Element Plus 组件 + `<style scoped>` +
+`--el-*` 变量，对齐 `src/views/hyperlink/templates/index.vue` 的页面骨架
+（`page` 外壳 16px padding、`intro-card` / `search-card` / 列表卡分段、`:deep(.el-card__body)` 调 padding）。
 
-### 配色
+**不复刻竞品的配色与 NaiveUI 观感。** 要复刻的是**功能性 UI 元素的完整度**——
+竞品页面上有的东西我们必须都有。清单如下，逐条对照验收：
 
-| 用途 | 值 |
-|---|---|
-| WhatsApp 绿渐变（标题图标、序号徽章、状态图标） | `linear-gradient(135deg, #25d366, #128c7e)` |
-| 主强调色 | `#18a058` |
-| 错误态 | `#d03050` |
-| 卡片底/边/分隔 | `--me-card-bg` `--me-card-border` `--me-card-divider` |
-| 三级文字 | `--me-text-1: #000000d9` / `--me-text-2: #0000008c` / `--me-text-3: #00000059` |
-| 填充 | `--me-fill-soft: #0000000a` / `--me-fill-embedded: #00000004` |
-| 虚线 | `--me-dashed: #d9d9d9` |
+### 列表页元素
 
-暗色模式整套覆盖（`#ffffff0a` / `#ffffff1f` / `#ffffffeb` / `#fff9` / `#ffffff61` …）。
+| # | 元素 | 说明 |
+|---|---|---|
+| 1 | 消息类型 / 内容列 | 链接消息显示「标题 + 推广链接」；图文消息显示「图文消息 + 文案预览」 |
+| 2 | 状态标签 | `isEnabled=0` 一律「已停用」，否则按 `runStatus` 五态，颜色区分 |
+| 3 | **进度条** | `successMessageNum / totalSendNum`，**带成功率进度条**（`el-progress`） |
+| 4 | 账号统计 | 使用号数 `usedAccountCount`、封号数 `invalidAccountNum`、号均发量 `avgSendPerAccount` |
+| 5 | 账号范围 | 国家标签（含排除项，**带国旗**）+ 文本标签；**超 3 个折叠成 `+N`** |
+| 6 | 计划开始时间 | `taskStartAt` |
+| 7 | 行操作 | 按 `runStatus` 分支；**「账号数据」按钮任何状态都有**；没有删除 |
+| 8 | 搜索区 | 任务名模糊 + 状态下拉（五态）+ 创建时间区间 |
+| 9 | 分页 | 可选 `10/20/50/100/200` |
+| 10 | 导出 CSV | 前端本页数据，12 列 |
 
-### 关键块
+### 任务抽屉元素
 
-- **`.form-section`** 卡片：1px 边 + 12px 圆角 + `overflow:hidden`；
-  hover 边框转 `#18a05873`、加 `0 2px 12px -6px #18a05840` 阴影
-- **`.section-header`**：底色 `linear-gradient(#18a05814, #18a05800)`；
-  左侧 26×26 渐变绿序号徽章（8px 圆角、13px/700）；右侧标题 14px/600 + 描述 12px
-- **`.account-range`**：1.5px 绿虚线 + `#18a0580d` 底 + 12px 圆角；
-  右侧胶囊计数（999px 圆角，数字 14px/700）；**命中 0 时整块转红**
-  （底 `#d030500f`、边 `#d030508c`、计数 `#d0305029`）
-- **`.interval-stats`**：`grid-template-columns: 1fr auto 1fr`，两张 `#18a0580f` 卡 + 中间 `~`；
-  输入数字 **22px/700 绿色**，单位 13px/600
-- **`.status-toggle`**：两张大卡二选一；选中绿态 `#18a0581a` + `#18a058` 边 + 绿阴影，
-  选中灰态用 `--me-text-2` 边；左侧 40×40 渐变图标，右侧 22px 单选圆点
-- **`.upload-area`**：2px 虚线、`min-height:168px`、图标 40px，hover 转绿
-- **`.file-chip`**：绿实心卡；demo 态 `repeating-linear-gradient(135deg,…)` 斜条纹 + 虚线边
-- **`.preview-pane`**：**360px 定宽 + `position:sticky; top:0`**，绿到透明渐变底
-- **`.drawer-title-icon`**：36×36 渐变绿 + `0 4px 10px -4px #25d36699` 阴影
+| # | 元素 | 说明 |
+|---|---|---|
+| 11 | 四段式分区 | `1 基础信息` / `2 消息内容` / `3 发送策略` / `4 发布`，每段带序号 + 标题 + 描述 |
+| 12 | **账号范围实时试算** | 选完筛选条件后显示命中账号数；**命中 0 且启用时标红并阻止提交** |
+| 13 | 间隔四档预设 | 最快 / 平台推荐 / 稳健 / 防风控，点选即填入区间 |
+| 14 | 间隔双输入 + 滑杆 | 带一位小数，min 下限 0.1、max 上限 60，滑杆 0.1~30 |
+| 15 | 间隔说明文案 | 「同一个号给两个好友发消息之间至少等几秒，实际在区间内随机」 |
+| 16 | 启用/停用二选一 | 两张卡片式单选，不是一个裸 switch |
+| 17 | 图片上传区 | 虚线拖拽区 → 选中后转文件卡片；`.jpg/.jpeg`、≤500KB、建议 16:9 |
+| 18 | **WhatsApp 实时预览** | 左侧气泡预览，随表单实时变化 |
+| 19 | 只读态 | 查看时整块禁用 |
+| 20 | 编辑态锁消息类型 | 后端 `update` 就是这么校验的 |
 
-### 响应式
+### 账号数据抽屉元素
 
-| 断点 | 行为 |
-|---|---|
-| `≤1100px` | 预览栏转 `static` 且宽度 100% |
-| `≤720px` | `.status-toggle` 与 `.interval-stats` 塌成单列，`~` 分隔符隐藏 |
+| # | 元素 | 说明 |
+|---|---|---|
+| 21 | 六列 | 账号 ID、手机号（**带有效/无效 tag**）、计划发送、已发送、失败、**进度** |
+| 22 | **进度条** | 每行一个进度条 |
+| 23 | 服务端排序 | 计划发送 / 已发送 / 失败三列可排序（`sortBy` + `sortOrder`） |
+| 24 | 分页 | `10/20/50/100/200` |
 
-### 只读态
-
-`.form-pane.is-readonly` 整块 `cursor:not-allowed`，且 `* { cursor: not-allowed !important }`。
-
----
-
-## Task 0: 共享视觉 token
-
-**Files:**
-- Create: `src/views/contact/hyperlink/styles/tokens.css`
-
-把上表的 `--me-*` 变量与暗色覆盖落成一个文件，各组件 `@import` 后在 scoped 样式里用。
-**不要每个组件各写一份**，否则暗色模式迟早对不齐。
-
-- [ ] 落盘并提交
+**不复刻**：单价 badge（armada 无计费）。**开放**：新建按钮（竞品灰度关闭）。
 
 ---
 

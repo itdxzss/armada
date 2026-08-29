@@ -174,7 +174,13 @@ businessName  string?
 
 ### 4.3 Topic 与消费
 
-复用账号事件 topic `protocol.account.state.events.v1`，由 `ProtocolAccountEventConsumer` 分发到新的 sink。安卓侧 Go 已在推 `account.state_changed` / `account.group_membership_changed`，加这个事件是现成范式。
+**独立 topic**：`protocol.account.contact-sync.events.v1`，协议层 `subjects.ts` 新增 topic kind `accountContactSync`。
+
+不复用账号状态 topic 的原因：快照是大消息。仓库既有做法就是把大消息事件隔离 —— `account.groups_reported` 走独立的 `protocol.account.group-sync.events.v1`，且消费端带 `max.poll.records=1`（`ProtocolAccountEventConsumer:159`）；`NormalGroupCreationKafkaProperties` 的注释也写了"各使用独立 topic，避免与其它协议业务共享消费容量"。联系人快照同理。
+
+armada 侧新建 `ProtocolAccountContactEventConsumer`，同样 `max.poll.records=1`，分发给 `AccountContactsReportedSink`。
+
+安卓侧 Go 已在推 `account.state_changed` / `account.group_membership_changed`，加这个事件是现成范式。
 
 ---
 

@@ -1,10 +1,10 @@
 package com.armada.contact.task;
 
 import com.armada.account.contact.mapper.AccountContactMapper;
-import com.armada.account.contact.model.AccountContactSyncResult;
-import com.armada.account.contact.model.ContactSyncSource;
 import com.armada.account.contact.model.entity.AccountContact;
-import com.armada.account.contact.service.AccountContactSyncService;
+import com.armada.account.contact.config.AccountContactProperties;
+import com.armada.account.contact.mapper.AccountContactSyncMapper;
+import com.armada.account.contact.model.entity.AccountContactSync;
 import com.armada.account.selection.AccountFilterSelector;
 import com.armada.account.selection.model.SelectedAccount;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
@@ -44,7 +44,7 @@ class ContactTaskExpansionServiceTest {
     @Mock
     private AccountFilterSelector selector;
     @Mock
-    private AccountContactSyncService syncService;
+    private AccountContactSyncMapper syncMapper;
     @Mock
     private AccountContactMapper contactMapper;
     @Mock
@@ -56,7 +56,8 @@ class ContactTaskExpansionServiceTest {
 
     private ContactTaskExpansionService service() {
         return new ContactTaskExpansionService(
-                selector, syncService, contactMapper, taskMapper, accountMapper,
+                selector, syncMapper, new AccountContactProperties(null, 24),
+                contactMapper, taskMapper, accountMapper,
                 recipientMapper, () -> 1_000L, () -> 5L);
     }
 
@@ -78,8 +79,16 @@ class ContactTaskExpansionServiceTest {
         return row;
     }
 
-    private static AccountContactSyncResult fresh(int namedNum) {
-        return new AccountContactSyncResult(false, true, namedNum, namedNum, 0, 900L, null);
+    private static AccountContactSync snapshot(Long lastSyncedAt, String status) {
+        AccountContactSync row = new AccountContactSync();
+        row.setAccountId(11L);
+        row.setLastSyncedAt(lastSyncedAt);
+        row.setSyncStatus(status);
+        return row;
+    }
+
+    private static AccountContactSync fresh() {
+        return snapshot(900L, AccountContactSync.STATUS_SUCCESS);
     }
 
     private void givenGeneratedAccountIds(Long... ids) {
@@ -113,7 +122,7 @@ class ContactTaskExpansionServiceTest {
     void expandsNamedContactsIntoRecipients() {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(11L, ContactSyncSource.TASK_START)).thenReturn(fresh(2));
+        when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
                 .thenReturn(List.of(contact("8613900000001"), contact("8613900000002")));
         givenGeneratedAccountIds(101L);
@@ -139,7 +148,7 @@ class ContactTaskExpansionServiceTest {
     void appliesPerAccountSendCap() {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(anyLong(), any())).thenReturn(fresh(100));
+        when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), eq(3)))
                 .thenReturn(List.of(contact("1"), contact("2"), contact("3")));
         givenGeneratedAccountIds(101L);
@@ -151,17 +160,15 @@ class ContactTaskExpansionServiceTest {
     }
 
     @Test
-    void skipsAccountWithoutAnyUsableSnapshot() {
+    void skipsAccountWithoutAnySnapshot() {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(anyLong(), any()))
-                .thenReturn(new AccountContactSyncResult(true, false, 0, 0, 0, null, "protocol down"));
+        when(syncMapper.selectByAccountId(11L)).thenReturn(null);
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
 
         assertThat(result.recipientCount()).isZero();
         verify(recipientMapper, never()).insertBatch(any());
-
         ArgumentCaptor<ContactFriendTaskAccount> captor =
                 ArgumentCaptor.forClass(ContactFriendTaskAccount.class);
         verify(accountMapper).insert(captor.capture());
@@ -171,13 +178,27 @@ class ContactTaskExpansionServiceTest {
     }
 
     @Test
-    void usesStaleSnapshotWhenRefreshFailsButHistoryExists() {
-        // 拉取失败但有历史快照时仍能发，不能因为一次协议抖动就把整个账号跳过
+    void skipsAccountWhoseSnapshotIsStale() {
+        // 宁可少发，也不拿三天前的通讯录发
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(anyLong(), any()))
-                .thenReturn(new AccountContactSyncResult(true, false, 0, 0, 0, 800L, "protocol down"));
-        when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
+        when(syncMapper.selectByAccountId(11L)).thenReturn(
+                snapshot(1_000L - 100L * 3_600_000L, AccountContactSync.STATUS_SUCCESS));
+
+        ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
+
+        assertThat(result.recipientCount()).isZero();
+        verify(contactMapper, never()).selectNamedByAccount(anyLong(), anyInt());
+    }
+
+    @Test
+    void usesPartialSnapshot() {
+        // PARTIAL 的数据是全的，只是可能多几条已删的，可以用
+        when(selector.select(any(), anyInt())).thenReturn(
+                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+        when(syncMapper.selectByAccountId(11L)).thenReturn(
+                snapshot(900L, AccountContactSync.STATUS_PARTIAL));
+        when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
         givenGeneratedAccountIds(101L);
 
@@ -187,10 +208,44 @@ class ContactTaskExpansionServiceTest {
     }
 
     @Test
+    void neverTriggersASynchronousPull() {
+        // 拉取路径已退役，展开时绝不能再有任何同步拉取
+        when(selector.select(any(), anyInt())).thenReturn(
+                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+        when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
+        when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
+                .thenReturn(List.of(contact("8613900000001")));
+        givenGeneratedAccountIds(101L);
+
+        service().expand(task(10, 0));
+
+        // syncMapper 只读不写
+        verify(syncMapper, never()).upsert(any());
+    }
+
+    @Test
+    void stampsSnapshotTimeOnTheTaskAccountRow() {
+        // 任务账号行记的是「用的哪一份快照」，必须是协议给的快照时间
+        when(selector.select(any(), anyInt())).thenReturn(
+                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+        when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
+        when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
+                .thenReturn(List.of(contact("8613900000001")));
+        givenGeneratedAccountIds(101L);
+
+        service().expand(task(10, 0));
+
+        ArgumentCaptor<ContactFriendTaskAccount> captor =
+                ArgumentCaptor.forClass(ContactFriendTaskAccount.class);
+        verify(accountMapper).insert(captor.capture());
+        assertThat(captor.getValue().getContactSyncedAt()).isEqualTo(900L);
+    }
+
+    @Test
     void skipsAccountWithZeroNamedContacts() {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(anyLong(), any())).thenReturn(fresh(0));
+        when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(List.of());
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
@@ -204,7 +259,7 @@ class ContactTaskExpansionServiceTest {
         // 空批次 foreach 会生成空 VALUES 语法错
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
-        when(syncService.syncIfStale(anyLong(), any())).thenReturn(fresh(0));
+        when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(null);
 
         service().expand(task(10, 0));
@@ -217,7 +272,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(List.of(
                 new SelectedAccount(11L, "p1", "web", "acc_1"),
                 new SelectedAccount(12L, "p2", "web", "acc_2")));
-        when(syncService.syncIfStale(anyLong(), any())).thenReturn(fresh(1));
+        when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), anyInt())).thenReturn(List.of(contact("1")));
         when(contactMapper.selectNamedByAccount(eq(12L), anyInt()))
                 .thenReturn(List.of(contact("2"), contact("3")));

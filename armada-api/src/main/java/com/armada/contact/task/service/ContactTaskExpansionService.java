@@ -1,10 +1,11 @@
 package com.armada.contact.task.service;
 
+import com.armada.account.contact.config.AccountContactProperties;
 import com.armada.account.contact.mapper.AccountContactMapper;
-import com.armada.account.contact.model.AccountContactSyncResult;
-import com.armada.account.contact.model.ContactSyncSource;
+import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.model.entity.AccountContact;
-import com.armada.account.contact.service.AccountContactSyncService;
+import com.armada.account.contact.model.entity.AccountContactSync;
+import com.armada.account.contact.service.ContactSnapshotFreshness;
 import com.armada.account.selection.AccountFilterSelector;
 import com.armada.account.selection.model.SelectedAccount;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
@@ -51,7 +52,8 @@ public class ContactTaskExpansionService {
     private static final String ACCOUNT_STATUS_INVALID = "invalid";
 
     private final AccountFilterSelector selector;
-    private final AccountContactSyncService syncService;
+    private final AccountContactSyncMapper syncMapper;
+    private final AccountContactProperties properties;
     private final AccountContactMapper contactMapper;
     private final ContactFriendTaskMapper taskMapper;
     private final ContactFriendTaskAccountMapper accountMapper;
@@ -63,7 +65,8 @@ public class ContactTaskExpansionService {
      * 创建展开服务。
      *
      * @param selector 账号圈选服务
-     * @param syncService 通讯录采集服务
+     * @param syncMapper 通讯录同步状态数据访问
+     * @param properties 通讯录采集配置，提供快照有效期
      * @param contactMapper 通讯录快照数据访问
      * @param taskMapper 任务主表数据访问
      * @param accountMapper 任务账号读模型数据访问
@@ -72,7 +75,8 @@ public class ContactTaskExpansionService {
      * @param tenantSupplier 当前租户提供者
      */
     public ContactTaskExpansionService(AccountFilterSelector selector,
-                                       AccountContactSyncService syncService,
+                                       AccountContactSyncMapper syncMapper,
+                                       AccountContactProperties properties,
                                        AccountContactMapper contactMapper,
                                        ContactFriendTaskMapper taskMapper,
                                        ContactFriendTaskAccountMapper accountMapper,
@@ -80,7 +84,8 @@ public class ContactTaskExpansionService {
                                        LongSupplier clock,
                                        Supplier<Long> tenantSupplier) {
         this.selector = selector;
-        this.syncService = syncService;
+        this.syncMapper = syncMapper;
+        this.properties = properties;
         this.contactMapper = contactMapper;
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
@@ -124,15 +129,19 @@ public class ContactTaskExpansionService {
 
     /** 展开单个账号，返回该账号实际展开的收件人条数；跳过时返回 0。 */
     private int expandOneAccount(ContactFriendTask task, SelectedAccount account, long now) {
-        AccountContactSyncResult sync =
-                syncService.syncIfStale(account.accountId(), ContactSyncSource.TASK_START);
-        if (!sync.succeeded() && sync.syncedAt() == null) {
-            // 从来没成功同步过，没有任何可用快照，只能跳过；
-            // 拉取失败但有历史快照时继续用旧快照，不因一次协议抖动废掉整个账号
-            insertAccountRow(task, account, 0, null,
+        // 通讯录由协议层周期推送，armada 不再主动拉；这里只读当前快照的新鲜度。
+        AccountContactSync sync = syncMapper.selectByAccountId(account.accountId());
+        Long lastSyncedAt = sync == null ? null : sync.getLastSyncedAt();
+        if (ContactSnapshotFreshness.isStale(
+                lastSyncedAt, now, properties.snapshotTtlHoursOrDefault())) {
+            // 快照缺失或过期：宁可少发，也不拿陈数据发。
+            // 号下次上线协议会自动推，下一个任务就能用。isStale(null, ..) 已返回 true，
+            // 因此缺失与过期是同一条分支。
+            insertAccountRow(task, account, 0, lastSyncedAt,
                     ContactFriendTaskAccount.STATE_SKIPPED, now);
-            log.warn("通讯录任务跳过无快照账号 taskId={} accountId={} reason={}",
-                    task.getId(), account.accountId(), sync.failReason());
+            log.info("通讯录任务跳过快照不可用账号 taskId={} accountId={} lastSyncedAt={} status={}",
+                    task.getId(), account.accountId(), lastSyncedAt,
+                    sync == null ? "NONE" : sync.getSyncStatus());
             return 0;
         }
         int cap = task.getMaxSendsPerAccount() == null || task.getMaxSendsPerAccount() <= 0
@@ -141,12 +150,12 @@ public class ContactTaskExpansionService {
         List<AccountContact> contacts =
                 contactMapper.selectNamedByAccount(account.accountId(), cap);
         if (contacts == null || contacts.isEmpty()) {
-            insertAccountRow(task, account, 0, sync.syncedAt(),
+            insertAccountRow(task, account, 0, lastSyncedAt,
                     ContactFriendTaskAccount.STATE_SKIPPED, now);
             return 0;
         }
         ContactFriendTaskAccount accountRow = insertAccountRow(
-                task, account, contacts.size(), sync.syncedAt(),
+                task, account, contacts.size(), lastSyncedAt,
                 ContactFriendTaskAccount.STATE_PENDING, now);
         insertRecipients(task, accountRow.getId(), contacts, now);
         return contacts.size();

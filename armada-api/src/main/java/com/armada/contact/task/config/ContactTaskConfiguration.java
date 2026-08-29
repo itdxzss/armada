@@ -1,7 +1,8 @@
 package com.armada.contact.task.config;
 
 import com.armada.account.contact.mapper.AccountContactMapper;
-import com.armada.account.contact.service.AccountContactSyncService;
+import com.armada.account.contact.config.AccountContactProperties;
+import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.selection.AccountFilterSelector;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
@@ -55,7 +56,8 @@ public class ContactTaskConfiguration {
      * <p>实现类的构造参数含 Supplier，Spring 无法自动装配，因此在这里显式构造。</p>
      *
      * @param selector 账号圈选服务
-     * @param syncService 通讯录采集服务
+     * @param syncMapper 通讯录同步状态数据访问
+     * @param properties 通讯录采集配置
      * @param contactMapper 通讯录快照数据访问
      * @param taskMapper 任务主表数据访问
      * @param accountMapper 任务账号读模型数据访问
@@ -65,14 +67,16 @@ public class ContactTaskConfiguration {
     @Bean
     public ContactTaskExpansionService contactTaskExpansionService(
             AccountFilterSelector selector,
-            AccountContactSyncService syncService,
+            AccountContactSyncMapper syncMapper,
+            AccountContactProperties properties,
             AccountContactMapper contactMapper,
             ContactFriendTaskMapper taskMapper,
             ContactFriendTaskAccountMapper accountMapper,
             ContactFriendTaskRecipientMapper recipientMapper) {
         return new ContactTaskExpansionService(
                 selector,
-                syncService,
+                syncMapper,
+                properties,
                 contactMapper,
                 taskMapper,
                 accountMapper,

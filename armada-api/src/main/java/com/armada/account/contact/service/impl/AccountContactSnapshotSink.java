@@ -6,7 +6,7 @@ import com.armada.account.contact.model.NormalizedContacts;
 import com.armada.account.contact.model.entity.AccountContact;
 import com.armada.account.contact.model.entity.AccountContactSync;
 import com.armada.account.contact.service.AccountContactNormalizer;
-import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.service.AccountProfileService;
 import com.armada.platform.kafka.consumer.contact.AccountContactsReportedEvent;
 import com.armada.platform.kafka.consumer.contact.AccountContactsReportedSink;
 import com.armada.platform.protocol.model.result.AccountContactSnapshot;
@@ -45,26 +45,26 @@ public class AccountContactSnapshotSink implements AccountContactsReportedSink {
 
     private final AccountContactMapper contactMapper;
     private final AccountContactSyncMapper syncMapper;
-    private final AccountStateMapper accountStateMapper;
+    private final AccountProfileService accountProfileService;
     private final AccountContactNormalizer normalizer;
     private final LongSupplier clock;
 
     /**
      * @param contactMapper 联系人快照数据访问
      * @param syncMapper 同步状态数据访问
-     * @param accountStateMapper 账号状态数据访问，用于回写计数
+     * @param accountProfileService 账号画像服务，通讯录计数的唯一写入口
      * @param normalizer 协议快照归一化器
      * @param clock 当前时间提供者（epoch 毫秒），只用于行的 created_at/updated_at
      */
     public AccountContactSnapshotSink(
             AccountContactMapper contactMapper,
             AccountContactSyncMapper syncMapper,
-            AccountStateMapper accountStateMapper,
+            AccountProfileService accountProfileService,
             AccountContactNormalizer normalizer,
             LongSupplier clock) {
         this.contactMapper = contactMapper;
         this.syncMapper = syncMapper;
-        this.accountStateMapper = accountStateMapper;
+        this.accountProfileService = accountProfileService;
         this.normalizer = normalizer;
         this.clock = clock;
     }
@@ -97,8 +97,9 @@ public class AccountContactSnapshotSink implements AccountContactsReportedSink {
                 return;
             }
             int removed = contactMapper.deleteStale(event.accountId(), syncedAt);
-            accountStateMapper.updateContactCounts(
-                    event.accountId(), namedNum, MUTUAL_NUM, clock.getAsLong());
+            // 计数落 account_profile：那张表是账号可筛选事实的统一落位，各事实独立水位。
+            // 水位用协议 cutoff 而不是本地时钟，乱序快照才不会把旧数覆盖上去。
+            accountProfileService.updateContactNamedNum(event.accountId(), namedNum, syncedAt);
             saveSyncState(event, landed, namedNum, AccountContactSync.STATUS_SUCCESS, null);
             log.info("通讯录快照落库完成 tenantId={} accountId={} snapshotId={} contactNum={} "
                             + "namedNum={} removedStale={}",

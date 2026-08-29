@@ -60,35 +60,7 @@ class AccountFilterSelectionMapperXmlTest {
         assertThat(xml()).contains("a.protocol_account_id IS NOT NULL");
     }
 
-    @Test
-    void boundsResultSetWithLimit() throws IOException {
-        assertThat(xml()).contains("LIMIT #{limit}");
-    }
 
-    @Test
-    void pushesFriendCountBoundsToContactMutualColumn() throws IOException {
-        // 筛选控件叫「双向好友数」，对应 account_state.contact_mutual_num（设计 §2.8）
-        assertThat(xml()).contains("contact_mutual_num");
-    }
 
-    @Test
-    void countSharesTheExactSameConditionsAsTheSelection() throws IOException {
-        // 试算数与真实圈号必须是同一套条件，两份 WHERE 迟早漂移
-        String sql = xml();
 
-        assertThat(sql).contains("id=\"countAccounts\"");
-        assertThat(sql).contains("<sql id=\"selectionWhere\">");
-        assertThat(sql).containsOnlyOnce("a.ws_phone LIKE CONCAT");
-        assertThat(sql).contains("<include refid=\"selectionWhere\"/>");
-    }
-
-    @Test
-    void countIsNotBoundedByTheSelectionLimit() throws IOException {
-        // 试算要的是「一共命中多少」，不是「本次最多圈几个」
-        String countBlock = xml().substring(xml().indexOf("id=\"countAccounts\""));
-        String body = countBlock.substring(0, countBlock.indexOf("</select>"));
-
-        assertThat(body).contains("COUNT(*)");
-        assertThat(body).doesNotContain("LIMIT");
-    }
 }

@@ -5,8 +5,8 @@ import com.armada.account.contact.model.entity.AccountContact;
 import com.armada.account.contact.config.AccountContactProperties;
 import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.model.entity.AccountContactSync;
-import com.armada.account.selection.AccountFilterSelector;
-import com.armada.account.selection.model.SelectedAccount;
+import com.armada.account.model.vo.AccountHyperlinkCandidateVO;
+import com.armada.contact.task.service.ContactAccountSelector;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
@@ -42,7 +42,7 @@ import static org.mockito.Mockito.when;
 class ContactTaskExpansionServiceTest {
 
     @Mock
-    private AccountFilterSelector selector;
+    private ContactAccountSelector selector;
     @Mock
     private AccountContactSyncMapper syncMapper;
     @Mock
@@ -121,7 +121,7 @@ class ContactTaskExpansionServiceTest {
     @Test
     void expandsNamedContactsIntoRecipients() {
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
                 .thenReturn(List.of(contact("8613900000001"), contact("8613900000002")));
@@ -147,7 +147,7 @@ class ContactTaskExpansionServiceTest {
     @Test
     void appliesPerAccountSendCap() {
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), eq(3)))
                 .thenReturn(List.of(contact("1"), contact("2"), contact("3")));
@@ -162,7 +162,7 @@ class ContactTaskExpansionServiceTest {
     @Test
     void skipsAccountWithoutAnySnapshot() {
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(null);
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
@@ -181,7 +181,7 @@ class ContactTaskExpansionServiceTest {
     void skipsAccountWhoseSnapshotIsStale() {
         // 宁可少发，也不拿三天前的通讯录发
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(
                 snapshot(1_000L - 100L * 3_600_000L, AccountContactSync.STATUS_SUCCESS));
 
@@ -195,7 +195,7 @@ class ContactTaskExpansionServiceTest {
     void usesPartialSnapshot() {
         // PARTIAL 的数据是全的，只是可能多几条已删的，可以用
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(
                 snapshot(900L, AccountContactSync.STATUS_PARTIAL));
         when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
@@ -211,7 +211,7 @@ class ContactTaskExpansionServiceTest {
     void neverTriggersASynchronousPull() {
         // 拉取路径已退役，展开时绝不能再有任何同步拉取
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
@@ -227,7 +227,7 @@ class ContactTaskExpansionServiceTest {
     void stampsSnapshotTimeOnTheTaskAccountRow() {
         // 任务账号行记的是「用的哪一份快照」，必须是协议给的快照时间
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
@@ -244,7 +244,7 @@ class ContactTaskExpansionServiceTest {
     @Test
     void skipsAccountWithZeroNamedContacts() {
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(List.of());
 
@@ -258,7 +258,7 @@ class ContactTaskExpansionServiceTest {
     void neverCallsBatchInsertWithEmptyList() {
         // 空批次 foreach 会生成空 VALUES 语法错
         when(selector.select(any(), anyInt())).thenReturn(
-                List.of(new SelectedAccount(11L, "8613800000000", "web", "acc_1")));
+                List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(null);
 
@@ -270,8 +270,8 @@ class ContactTaskExpansionServiceTest {
     @Test
     void writesTaskTotalsAfterExpansion() {
         when(selector.select(any(), anyInt())).thenReturn(List.of(
-                new SelectedAccount(11L, "p1", "web", "acc_1"),
-                new SelectedAccount(12L, "p2", "web", "acc_2")));
+                candidate(11L, "p1", "web", "acc_1"),
+                candidate(12L, "p2", "web", "acc_2")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
         when(contactMapper.selectNamedByAccount(eq(11L), anyInt())).thenReturn(List.of(contact("1")));
         when(contactMapper.selectNamedByAccount(eq(12L), anyInt()))
@@ -281,5 +281,12 @@ class ContactTaskExpansionServiceTest {
         service().expand(task(10, 0));
 
         verify(taskMapper).applyExpansionTotals(eq(1L), eq(3), eq(2), anyLong());
+    }
+
+    /** 上游候选 VO 字段多，测试只关心圈号真正用到的四项。 */
+    private static AccountHyperlinkCandidateVO candidate(
+            long accountId, String wsPhone, String protocolId, String protocolAccountId) {
+        return new AccountHyperlinkCandidateVO(
+                accountId, 0, wsPhone, "CN", 1, 0L, protocolId, protocolAccountId, "WEB");
     }
 }

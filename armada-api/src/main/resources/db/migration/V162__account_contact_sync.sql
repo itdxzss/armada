@@ -43,23 +43,33 @@ CREATE TABLE IF NOT EXISTS account_contact_sync (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
   COMMENT='账号通讯录同步状态';
 
--- account_state 两列冗余计数只服务账号筛选的 SQL 下推（好友数 >= / <=）。
--- 写入点唯一：AccountContactSyncService 同步成功时与 account_contact_sync 一并更新。
--- 任何其他地方不得直写这两列，否则筛选口径会分裂。
+-- 通讯录计数落在上游 V159 建的 account_profile 上：那张表就是「账号营销筛选画像」，
+-- 每个事实带自己的水位、NULL 表示未采集。这里按同样的约定补一列，不动 friend_count
+-- 的双向好友语义（两套协议都不暴露互加关系，那一列至今没有采集源）。
+-- 写入点唯一：AccountProfileService#updateContactNamedNum，由通讯录快照落库时调用。
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.columns
      WHERE table_schema = DATABASE()
-       AND table_name = 'account_state'
+       AND table_name = 'account_profile'
        AND column_name = 'contact_named_num') = 0,
-    'ALTER TABLE account_state ADD COLUMN contact_named_num INT NOT NULL DEFAULT 0 COMMENT ''通讯录有名字联系人数;仅供筛选下推,由通讯录同步服务唯一写入''',
+    'ALTER TABLE account_profile ADD COLUMN contact_named_num INT DEFAULT NULL COMMENT ''通讯录中有名字的联系人数;NULL=未采集'' AFTER friend_count_synced_at',
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 SET @sql = IF(
     (SELECT COUNT(*) FROM information_schema.columns
      WHERE table_schema = DATABASE()
-       AND table_name = 'account_state'
-       AND column_name = 'contact_mutual_num') = 0,
-    'ALTER TABLE account_state ADD COLUMN contact_mutual_num INT NOT NULL DEFAULT 0 COMMENT ''双向好友数;仅供筛选下推,协议暂不暴露该标记时恒为0''',
+       AND table_name = 'account_profile'
+       AND column_name = 'contact_named_synced_at') = 0,
+    'ALTER TABLE account_profile ADD COLUMN contact_named_synced_at BIGINT DEFAULT NULL COMMENT ''通讯录计数最近同步时间(epoch毫秒)'' AFTER contact_named_num',
+    'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @sql = IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND table_name = 'account_profile'
+       AND index_name = 'idx_account_profile_contact_named') = 0,
+    'ALTER TABLE account_profile ADD KEY idx_account_profile_contact_named (tenant_id, contact_named_num, account_id)',
     'SELECT 1');
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;

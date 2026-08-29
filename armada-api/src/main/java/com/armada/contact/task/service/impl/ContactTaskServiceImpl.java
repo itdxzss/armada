@@ -1,6 +1,5 @@
 package com.armada.contact.task.service.impl;
 
-import com.armada.account.selection.AccountFilterSelector;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
@@ -12,7 +11,7 @@ import com.armada.contact.task.model.enums.ContactTaskRunStatus;
 import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
 import com.armada.contact.task.model.vo.ContactTaskDetailVO;
 import com.armada.contact.task.model.vo.ContactTaskListItemVO;
-import com.armada.contact.task.service.ContactAccountFilterNormalizer;
+import com.armada.contact.task.service.ContactAccountSelector;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.ContactTaskService;
@@ -54,9 +53,8 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     private final ContactFriendTaskMapper taskMapper;
     private final ContactFriendTaskAccountMapper accountMapper;
     private final ContactTaskFormValidator validator;
-    private final ContactAccountFilterNormalizer filterNormalizer;
     private final ContactTaskExpansionService expansionService;
-    private final AccountFilterSelector accountFilterSelector;
+    private final ContactAccountSelector accountSelector;
     private final Supplier<Long> tenantSupplier;
     private final LongSupplier clock;
 
@@ -66,7 +64,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
      * @param taskMapper 任务主表数据访问
      * @param accountMapper 任务账号读模型数据访问
      * @param validator 表单校验器
-     * @param filterNormalizer 账号筛选归一化器
+     * @param accountSelector 账号圈选与筛选归一化，与超链任务共用
      * @param expansionService 启用时的圈号与收件人展开服务
      * @param tenantSupplier 当前租户提供者
      * @param clock 当前时间提供者（epoch 毫秒）
@@ -75,17 +73,15 @@ public class ContactTaskServiceImpl implements ContactTaskService {
             ContactFriendTaskMapper taskMapper,
             ContactFriendTaskAccountMapper accountMapper,
             ContactTaskFormValidator validator,
-            ContactAccountFilterNormalizer filterNormalizer,
             ContactTaskExpansionService expansionService,
-            AccountFilterSelector accountFilterSelector,
+            ContactAccountSelector accountSelector,
             Supplier<Long> tenantSupplier,
             LongSupplier clock) {
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
         this.validator = validator;
-        this.filterNormalizer = filterNormalizer;
         this.expansionService = expansionService;
-        this.accountFilterSelector = accountFilterSelector;
+        this.accountSelector = accountSelector;
         this.tenantSupplier = tenantSupplier;
         this.clock = clock;
     }
@@ -93,7 +89,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     @Override
     public int previewAccountCount(String accountFilterJson) {
         // 走同一个归一化器再交给同一个圈号服务计数：任何一处走岔，界面显示的命中数就会骗人。
-        return accountFilterSelector.count(filterNormalizer.normalize(accountFilterJson));
+        return accountSelector.count(accountFilterJson);
     }
 
     @Override
@@ -119,7 +115,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         ContactTaskFormDTO normalized = validator.validate(form);
         long now = clock.getAsLong();
         ContactFriendTask row = new ContactFriendTask();
-        applyForm(row, normalized, filterNormalizer.normalize(normalized.accountFilterJson()), now);
+        applyForm(row, normalized, accountSelector.normalizeToJson(normalized.accountFilterJson()), now);
         row.setTenantId(tenantSupplier.get());
         row.setMessageType(normalized.messageType());
         row.setRunStatus(ContactTaskRunStatus.NOT_STARTED.code());
@@ -149,7 +145,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         long now = clock.getAsLong();
         // applyForm 会覆盖 isEnabled，旧值必须在覆盖前取
         boolean wasEnabled = isEnabled(existing);
-        applyForm(existing, normalized, filterNormalizer.normalize(normalized.accountFilterJson()), now);
+        applyForm(existing, normalized, accountSelector.normalizeToJson(normalized.accountFilterJson()), now);
         taskMapper.updateForm(existing);
         // 只有草稿被打开时才展开；已启用任务重复保存不再圈一遍号
         if (!wasEnabled && isEnabled(existing)) {

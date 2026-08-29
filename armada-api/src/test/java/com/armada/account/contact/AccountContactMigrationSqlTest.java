@@ -48,15 +48,18 @@ class AccountContactMigrationSqlTest {
     }
 
     @Test
-    void addsTwoIdempotentGuardedColumnsToAccountState() throws IOException {
+    void extendsAccountProfileInsteadOfAccountState() throws IOException {
         String sql = sql();
 
+        // 计数落在上游的 account_profile（账号可筛选事实的统一落位），按它自己的约定
+        // 带独立水位、NULL 表示未采集；绝不能写 0，0 和「不知道」在筛选里是两回事
         assertThat(sql)
-                .contains("table_name = 'account_state'")
+                .contains("table_name = 'account_profile'")
                 .contains("column_name = 'contact_named_num'")
-                .contains("column_name = 'contact_mutual_num'")
-                .contains("ADD COLUMN contact_named_num INT NOT NULL DEFAULT 0")
-                .contains("ADD COLUMN contact_mutual_num INT NOT NULL DEFAULT 0");
+                .contains("column_name = 'contact_named_synced_at'")
+                .contains("ADD COLUMN contact_named_num INT DEFAULT NULL")
+                .contains("ADD COLUMN contact_named_synced_at BIGINT DEFAULT NULL")
+                .doesNotContain("account_state");
     }
 
     @Test

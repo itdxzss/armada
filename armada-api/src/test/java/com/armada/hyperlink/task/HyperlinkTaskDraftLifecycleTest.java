@@ -108,9 +108,12 @@ class HyperlinkTaskDraftLifecycleTest {
                 new HyperlinkTaskMessageContentDTO(null, "标题", null, null, null, "正文", null,
                         List.of(new HyperlinkTaskButtonDTO("CTA_URL", "查看",
                                 "https://example.com", false))),
-                "instant", null, 0, new HyperlinkAccountFilterDTO(1, List.of(), List.of(),
-                null, List.of(), List.of(), null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null, null, null),
+                "instant", null, 0, new HyperlinkAccountFilterDTO(
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null),
                 BigDecimal.valueOf(0.5), BigDecimal.valueOf(0.7), 31, 31, 0,
                 "now", 0, null, false, null);
     }

@@ -4,7 +4,7 @@ import com.armada.account.contact.mapper.AccountContactMapper;
 import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.service.AccountContactNormalizer;
 import com.armada.account.contact.service.impl.AccountContactSnapshotSink;
-import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.service.AccountProfileService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,10 +27,10 @@ public class AccountContactConfiguration {
     public AccountContactSnapshotSink accountContactSnapshotSink(
             AccountContactMapper contactMapper,
             AccountContactSyncMapper syncMapper,
-            AccountStateMapper accountStateMapper,
+            AccountProfileService accountProfileService,
             AccountContactNormalizer normalizer) {
         return new AccountContactSnapshotSink(
-                contactMapper, syncMapper, accountStateMapper, normalizer,
+                contactMapper, syncMapper, accountProfileService, normalizer,
                 System::currentTimeMillis);
     }
 }

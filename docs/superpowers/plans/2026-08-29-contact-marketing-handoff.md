@@ -634,3 +634,97 @@ Task 13 的退役已经做完，**这是计划内的，不是破坏**。删掉�
 > **V1 已被 B 线回答**：原来担心的「Baileys 冷启动可能只拿到增量」，查代码后确认是
 > 「确实漏了批量来源、还漏了一类号」，S1 已修；且现在走的是强制全量快照，不再依赖冷启动
 > 事件的完整性。剩下的真机部分只是量级确认。
+
+---
+
+## 12. 与 1.0.3-snapshot 同步（2026-08-29 晚）
+
+上游把**超链任务整条线**并进了 `1.0.3-snapshot`，它和通讯录营销共用协议发送链路，
+四个仓全部做了一次同步。**总原则：上游写好的复用，用不了的在上游基础上扩展，
+不影响它既有的逻辑；能抽公共的抽公共。**
+
+### 12.1 Flyway 整段重号
+
+| 版本 | 1.0.3-snapshot | 我们（后移后） |
+|---|---|---|
+| V157 | `hyperlink_image_asset_library` | → V162 `account_contact_sync` |
+| V158 | `hyperlink_task_lifecycle` | → V163 `contact_friend_task` |
+| V159 | `account_profile` | → V164 `contact_marketing_menu_rbac` |
+| V160 | `hyperlink_task_list_menu_rbac` | → V165 `contact_task_engine` |
+| V161 | `hyperlink_export_job_payload` | → V166 `account_contact_partial_status` |
+
+不是撞一个，是五个整段重号。迁移文件、5 个 SQL 契约测试、6 份文档的引用已全部同步。
+
+### 12.2 私聊发送改用上游的 wire 契约
+
+我们原来的做法是 `MessageTarget(String jid)` 中立化 + 协议层 `isPeerJid(payload.groupJid)` 嗅探；
+上游落的是**显式契约**：`MessageTarget(jid, TargetKind)`，wire 上带 `jid` + `targetKind: 'PRIVATE'`，
+Go 侧还抽了 `normalizeMessageTarget` / `validateMessageTarget` / `validateMessageCorrelation`。
+上游的更硬，**整段改用上游的**，通讯录只作为一个新来源分支挂上去。
+
+**三处必须记住的坑：**
+
+1. **上游保留了单参兼容构造 `MessageTarget(String groupJid)`，默认 `TargetKind.GROUP`。**
+   通讯录发送点如果不显式传 `PRIVATE`，**编译通过、运行时被协议层当群消息拒掉**。
+2. **通讯录三个关联字段必须按 source 条件展开**，否则会混进 `hyperlink_task` 的回执，
+   打挂上游 `rejects legacy recipientId` 与 `frozen wire contract` 两条测试。
+3. Go 侧已退役我们自己的 `isMessageTargetJID` 与 `isPeerTarget`，别再加回来。
+
+### 12.3 圈号统一到上游的候选服务
+
+`com.armada.account.selection.AccountFilterSelector` **已退役**，通讯录改用
+`com.armada.account.service.AccountHyperlinkCandidateService`（上游实现，在 account 域，
+两个菜单共用一份 WHERE）。新增薄封装 `com.armada.contact.task.service.ContactAccountSelector`
+负责解析筛选 JSON、补 `filterSchemaVersion`、拼查询。
+
+`AccountFilterSelectionMapper` 只剩 `selectSendableByIds`（发送前的协议事实复查，上游没有等价物）。
+
+**白捡到的筛选项**（上游全都真下推 SQL，原来我们没有）：大洲、存活天数、允许拉群、
+轮换状态、导入方式、类型（六段/全参）、导入批次号、运营来源、设备类型。
+
+**两个新的部署前置：**
+
+- `armada.hyperlink.private-capable-backends` **不配就圈不到任何号**（默认空集）。
+  通讯录任务与超链任务共用这个开关——「这个协议后端能不能发私聊」是同一个物理事实。
+  上线要配成 `WEB,ANDROID`。
+- 上游圈号的基线 WHERE 强制 `s.mute_status IS NULL`，**通讯录任务因此也排除了禁言号**。
+  竞品在通讯录任务里不注入 `stranger_muted`，这是一处**有意接受的差异**：
+  被禁言的号本来就无法主动发起会话。
+
+### 12.4 通讯录计数改落 account_profile
+
+上游 V159 建的 `account_profile` 是「账号营销筛选画像」——账号可筛选事实的统一落位，
+每个事实带独立水位、NULL 表示未采集。我们原来加在 `account_state` 的两列已退役，改为：
+
+```sql
+account_profile.contact_named_num        INT DEFAULT NULL  -- 通讯录中有名字的联系人数
+account_profile.contact_named_synced_at  BIGINT DEFAULT NULL
+```
+
+- 写入点唯一：`AccountProfileService#updateContactNamedNum`，由快照落库时调用，
+  水位取**协议 cutoff** 而不是本地时钟，乱序快照不会把旧数覆盖上去。
+- **不再写 0**：`account_profile` 的约定是 NULL=未采集。0 和「不知道」在筛选里是两回事，
+  写 0 会让 `>= 1` 把所有未采集的号排除掉。
+- `friend_count`（双向好友）**语义没动**，它至今没有采集源，前端继续不渲染那个控件。
+- 顺带发现：`AccountProfileService` 在上游主干里**一个调用方都没有**，五个事实全是 NULL，
+  也就是说上游超链任务的这些筛选今天同样命中 0 行。我们这条快照链路是全仓第一个真正的写入方。
+
+### 12.5 前端
+
+`wheel-saas-pure-web` 的通讯录筛选表单直接复用 `HyperlinkAccountFilter` 契约，
+不再自建 snake_case 形状；不再注入 `account_status` / `is_exported`（基线 WHERE 已强制）；
+封号错误码控件删除（基线只圈正常号，按封号码筛没有意义）。
+
+### 12.6 回归
+
+| 仓库 | 结果 |
+|---|---|
+| `armada` | 见 §12.7；上游自带 2 个失败已用干净 worktree 对照确认 |
+| `armada-protocol` | 110 suite / 1282 用例，失败仍只有既有的两个 baileys suite |
+| `whatsapp-server` | `internal` 全绿，只剩既有的 `pkg/noise` |
+| `wheel-saas-pure-web` | 仍是既有 5 个失败，未新增 |
+
+> **对照基线不能只看我们自己的旧数字。** 上游合进来会带自己的失败：
+> `HyperlinkQuoteStaleRecoveryH2Test`（`expected 40910 but was 40401`）与
+> `HyperlinkShortLinkMutationGuardTest`（`getConcurrentNum()` 为 null 的 NPE）
+> 在干净的 `origin/1.0.3-snapshot` 上就是红的，报错一字不差，**不是我们打挂的**。

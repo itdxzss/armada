@@ -6,7 +6,7 @@ import com.armada.account.contact.model.entity.AccountContact;
 import com.armada.account.contact.model.entity.AccountContactSync;
 import com.armada.account.contact.service.AccountContactNormalizer;
 import com.armada.account.contact.service.impl.AccountContactSnapshotSink;
-import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.service.AccountProfileService;
 import com.armada.platform.kafka.consumer.contact.AccountContactsReportedEvent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,11 +40,11 @@ class AccountContactSnapshotSinkTest {
     @Mock
     private AccountContactSyncMapper syncMapper;
     @Mock
-    private AccountStateMapper accountStateMapper;
+    private AccountProfileService accountProfileService;
 
     private AccountContactSnapshotSink sink() {
         return new AccountContactSnapshotSink(
-                contactMapper, syncMapper, accountStateMapper,
+                contactMapper, syncMapper, accountProfileService,
                 new AccountContactNormalizer(), () -> 2_000L);
     }
 
@@ -138,8 +138,8 @@ class AccountContactSnapshotSinkTest {
 
         sink().handle(chunk(0, 5, true, 1));
 
-        verify(accountStateMapper, never())
-                .updateContactCounts(anyLong(), anyInt(), anyInt(), anyLong());
+        verify(accountProfileService, never())
+                .updateContactNamedNum(anyLong(), anyInt(), anyLong());
     }
 
     @Test
@@ -149,7 +149,7 @@ class AccountContactSnapshotSinkTest {
 
         sink().handle(chunk(1, 2, true, 2));
 
-        verify(accountStateMapper).updateContactCounts(eq(11L), eq(2), eq(0), anyLong());
+        verify(accountProfileService).updateContactNamedNum(eq(11L), eq(2), eq(CUTOFF));
     }
 
     @Test
@@ -160,7 +160,7 @@ class AccountContactSnapshotSinkTest {
 
         sink().handle(chunk(1, 1200, true, 2));
 
-        verify(accountStateMapper).updateContactCounts(eq(11L), eq(900), eq(0), anyLong());
+        verify(accountProfileService).updateContactNamedNum(eq(11L), eq(900), eq(CUTOFF));
         AccountContactSync state = capturedSyncState();
         assertThat(state.getContactNum()).isEqualTo(1200);
         assertThat(state.getNamedNum()).isEqualTo(900);

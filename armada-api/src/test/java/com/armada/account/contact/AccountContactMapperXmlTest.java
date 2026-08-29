@@ -71,15 +71,6 @@ class AccountContactMapperXmlTest {
                 .contains("synced_at &lt; #{syncedAt}");
     }
 
-    @Test
-    void accountStateContactCountUpdateExists() throws IOException {
-        String sql = xml("AccountStateMapper.xml");
-
-        assertThat(sql)
-                .contains("id=\"updateContactCounts\"")
-                .contains("contact_named_num = #{namedNum}")
-                .contains("contact_mutual_num = #{mutualNum}");
-    }
 
     @Test
     void namedContactQueryIsBoundedAndFiltersByNamedFlag() throws IOException {

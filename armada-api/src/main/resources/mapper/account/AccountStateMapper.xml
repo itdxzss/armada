@@ -207,12 +207,5 @@
     LIMIT #{limit}
   </select>
 
-  <update id="updateContactCounts">
-    UPDATE account_state
-       SET contact_named_num = #{namedNum},
-           contact_mutual_num = #{mutualNum},
-           updated_at = #{updatedAt}
-     WHERE account_id = #{accountId}
-  </update>
 
 </mapper>

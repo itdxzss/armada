@@ -6,8 +6,7 @@ import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.model.entity.AccountContact;
 import com.armada.account.contact.model.entity.AccountContactSync;
 import com.armada.account.contact.service.ContactSnapshotFreshness;
-import com.armada.account.selection.AccountFilterSelector;
-import com.armada.account.selection.model.SelectedAccount;
+import com.armada.account.model.vo.AccountHyperlinkCandidateVO;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
@@ -51,7 +50,7 @@ public class ContactTaskExpansionService {
     /** 账号状态快照：本任务里这个号发不了。 */
     private static final String ACCOUNT_STATUS_INVALID = "invalid";
 
-    private final AccountFilterSelector selector;
+    private final ContactAccountSelector selector;
     private final AccountContactSyncMapper syncMapper;
     private final AccountContactProperties properties;
     private final AccountContactMapper contactMapper;
@@ -74,7 +73,7 @@ public class ContactTaskExpansionService {
      * @param clock 当前时间提供者（epoch 毫秒）
      * @param tenantSupplier 当前租户提供者
      */
-    public ContactTaskExpansionService(AccountFilterSelector selector,
+    public ContactTaskExpansionService(ContactAccountSelector selector,
                                        AccountContactSyncMapper syncMapper,
                                        AccountContactProperties properties,
                                        AccountContactMapper contactMapper,
@@ -106,7 +105,7 @@ public class ContactTaskExpansionService {
         int accountLimit = task.getConcurrency() == null || task.getConcurrency() < 1
                 ? 1
                 : task.getConcurrency();
-        List<SelectedAccount> accounts = selector.select(task.getAccountFilter(), accountLimit);
+        List<AccountHyperlinkCandidateVO> accounts = selector.select(task.getAccountFilter(), accountLimit);
         if (accounts.isEmpty()) {
             throw new BusinessException(
                     ErrorCode.VALIDATION, "账号范围内没有可用账号，无法启用任务");
@@ -114,7 +113,7 @@ public class ContactTaskExpansionService {
         long now = clock.getAsLong();
         int usedAccountCount = 0;
         int totalSendNum = 0;
-        for (SelectedAccount account : accounts) {
+        for (AccountHyperlinkCandidateVO account : accounts) {
             int expanded = expandOneAccount(task, account, now);
             if (expanded > 0) {
                 usedAccountCount++;
@@ -128,7 +127,9 @@ public class ContactTaskExpansionService {
     }
 
     /** 展开单个账号，返回该账号实际展开的收件人条数；跳过时返回 0。 */
-    private int expandOneAccount(ContactFriendTask task, SelectedAccount account, long now) {
+    private int expandOneAccount(ContactFriendTask task,
+                                 AccountHyperlinkCandidateVO account,
+                                 long now) {
         // 通讯录由协议层周期推送，armada 不再主动拉；这里只读当前快照的新鲜度。
         AccountContactSync sync = syncMapper.selectByAccountId(account.accountId());
         Long lastSyncedAt = sync == null ? null : sync.getLastSyncedAt();
@@ -162,7 +163,7 @@ public class ContactTaskExpansionService {
     }
 
     private ContactFriendTaskAccount insertAccountRow(ContactFriendTask task,
-                                                      SelectedAccount account,
+                                                      AccountHyperlinkCandidateVO account,
                                                       int needSendNum,
                                                       Long contactSyncedAt,
                                                       String state,

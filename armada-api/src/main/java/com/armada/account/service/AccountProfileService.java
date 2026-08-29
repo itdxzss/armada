@@ -13,6 +13,18 @@ public interface AccountProfileService {
     void updateFriendCount(long accountId, int friendCount, long syncedAt);
 
     /**
+     * 回写通讯录中有名字的联系人数。
+     *
+     * <p>与 {@code friendCount} 是两个口径：那个是双向好友（两套协议都不暴露互加关系，至今无采集源），
+     * 这个是账号通讯录里有名字的联系人数，由通讯录全量快照落库时唯一写入。</p>
+     *
+     * @param accountId 账号 ID
+     * @param contactNamedNum 通讯录中有名字的联系人数
+     * @param syncedAt 快照采集时间（epoch 毫秒），取协议 cutoff 而不是本地时钟
+     */
+    void updateContactNamedNum(long accountId, int contactNamedNum, long syncedAt);
+
+    /**
      * 写入是否允许被拉群的隐私事实。
      *
      * @param accountId 当前租户账号 ID

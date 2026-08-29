@@ -5,8 +5,7 @@ import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.entity.ContactFriendTask;
 import com.armada.contact.task.model.enums.ContactTaskRunStatus;
-import com.armada.contact.task.service.ContactAccountFilterNormalizer;
-import com.armada.account.selection.AccountFilterSelector;
+import com.armada.contact.task.service.ContactAccountSelector;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.impl.ContactTaskServiceImpl;
@@ -40,19 +39,18 @@ class ContactTaskServiceImplTest {
     private ContactFriendTaskAccountMapper accountMapper;
     private ContactTaskExpansionService expansionService;
     private ContactTaskServiceImpl service;
-    private AccountFilterSelector selector;
+    private ContactAccountSelector selector;
 
     @BeforeEach
     void setUp() {
         taskMapper = mock(ContactFriendTaskMapper.class);
         accountMapper = mock(ContactFriendTaskAccountMapper.class);
         expansionService = mock(ContactTaskExpansionService.class);
-        selector = mock(AccountFilterSelector.class);
+        selector = mock(ContactAccountSelector.class);
         service = new ContactTaskServiceImpl(
                 taskMapper,
                 accountMapper,
                 new ContactTaskFormValidator(),
-                new ContactAccountFilterNormalizer(new ObjectMapper()),
                 expansionService,
                 selector,
                 () -> TENANT,
@@ -82,6 +80,9 @@ class ContactTaskServiceImplTest {
 
     @Test
     void createPersistsNormalizedFilterAndTenantAndCreator() {
+        when(selector.normalizeToJson(anyString()))
+                .thenReturn("{\"filterSchemaVersion\":1,\"countryIso2s\":[\"CN\"]}");
+
         service.create(form("now", 0, 0), USER);
 
         ArgumentCaptor<ContactFriendTask> saved = ArgumentCaptor.forClass(ContactFriendTask.class);
@@ -320,26 +321,26 @@ class ContactTaskServiceImplTest {
     }
 
     @Test
-    void previewNormalizesTheFilterBeforeCounting() {
-        // 试算必须走和启用时一样的归一化，否则界面数字和真正圈到的号对不上
-        when(selector.count(anyString())).thenReturn(42);
+    void previewDelegatesToTheSharedSelector() {
+        // 归一化与圈号是同一个服务的事，试算只负责把原始条件透传过去，
+        // 这样界面数字和真正圈到的号走的就是同一份 WHERE
+        when(selector.count(any())).thenReturn(42);
 
-        assertThat(service.previewAccountCount("{\"country_iso2s\":[\"cn\"]}")).isEqualTo(42);
+        assertThat(service.previewAccountCount("{\"countryIso2s\":[\"CN\"]}")).isEqualTo(42);
 
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
         verify(selector).count(captor.capture());
-        assertThat(captor.getValue()).contains("countryIso2s").contains("CN");
+        assertThat(captor.getValue()).isEqualTo("{\"countryIso2s\":[\"CN\"]}");
     }
 
     @Test
     void previewTreatsAnEmptyFilterAsUnrestricted() {
-        when(selector.count(anyString())).thenReturn(7);
+        when(selector.count(any())).thenReturn(7);
 
         assertThat(service.previewAccountCount(null)).isEqualTo(7);
 
-        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(selector).count(captor.capture());
-        assertThat(captor.getValue()).isEqualTo("{}");
+        // 空条件的语义是「未限制」，由圈选服务补 schema 版本，这里不该自作主张
+        verify(selector).count(null);
     }
 
 }

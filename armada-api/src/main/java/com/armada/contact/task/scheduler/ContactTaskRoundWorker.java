@@ -1,6 +1,5 @@
 package com.armada.contact.task.scheduler;
 
-import com.armada.account.selection.AccountFilterSelector;
 import com.armada.account.selection.mapper.AccountFilterSelectionMapper;
 import com.armada.account.selection.model.SelectedAccount;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
@@ -254,8 +253,8 @@ public class ContactTaskRoundWorker {
         }
         List<SelectedAccount> rows = selectionMapper.selectSendableByIds(
                 armadaAccountIds,
-                AccountFilterSelector.ACCOUNT_STATE_NORMAL,
-                AccountFilterSelector.ACCOUNT_STATE_EXPORTED);
+                AccountFilterSelectionMapper.ACCOUNT_STATE_NORMAL,
+                AccountFilterSelectionMapper.ACCOUNT_STATE_EXPORTED);
         Map<Long, SelectedAccount> facts = new HashMap<>();
         if (rows != null) {
             for (SelectedAccount row : rows) {

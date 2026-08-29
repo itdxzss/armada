@@ -84,7 +84,8 @@ public class HyperlinkAccountCandidateSelector {
                 filter.rotationStatus(), filter.accountType(), filter.platform(), filter.widType(),
                 filter.importMode(), filter.groupInviteAllowed(), filter.phone(),
                 filter.importBatchId(), filter.source(), filter.friendCountMin(),
-                filter.friendCountMax(), filter.retentionDaysMin(), filter.retentionDaysMax(),
+                filter.friendCountMax(), filter.contactNamedNumMin(), filter.contactNamedNumMax(),
+                filter.retentionDaysMin(), filter.retentionDaysMax(),
                 filter.registerDaysMin(), filter.registerDaysMax(),
                 filter.createdAtFrom(), filter.createdAtTo(),
                 capableBackends, observedAt);

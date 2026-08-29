@@ -235,19 +235,6 @@ public interface AccountStateMapper {
      */
     int updateLifecycleState(AccountState row);
 
-    /**
-     * 回写账号通讯录计数。仅供通讯录同步服务调用，其他地方不得直写这两列。
-     *
-     * @param accountId 账号 ID
-     * @param namedNum 通讯录有名字联系人数
-     * @param mutualNum 双向好友数
-     * @param updatedAt 更新时间（epoch 毫秒）
-     * @return 受影响行数
-     */
-    int updateContactCounts(@Param("accountId") Long accountId,
-                            @Param("namedNum") int namedNum,
-                            @Param("mutualNum") int mutualNum,
-                            @Param("updatedAt") long updatedAt);
 
     /**
      * 批量更新账号最近一次上线分配的代理展示快照。

@@ -3,11 +3,10 @@ package com.armada.contact.task.config;
 import com.armada.account.contact.mapper.AccountContactMapper;
 import com.armada.account.contact.config.AccountContactProperties;
 import com.armada.account.contact.mapper.AccountContactSyncMapper;
-import com.armada.account.selection.AccountFilterSelector;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
-import com.armada.contact.task.service.ContactAccountFilterNormalizer;
+import com.armada.contact.task.service.ContactAccountSelector;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.ContactTaskSendResultSink;
@@ -29,7 +28,7 @@ public class ContactTaskConfiguration {
      * @param taskMapper 任务主表数据访问
      * @param accountMapper 任务账号读模型数据访问
      * @param validator 表单校验器
-     * @param filterNormalizer 账号筛选归一化器
+     * @param accountSelector 账号圈选，与超链任务共用同一份 WHERE
      * @param expansionService 启用时的圈号与收件人展开服务
      * @param accountFilterSelector 账号圈选服务，用于账号范围试算
      * @return 通讯录营销任务服务
@@ -39,16 +38,14 @@ public class ContactTaskConfiguration {
             ContactFriendTaskMapper taskMapper,
             ContactFriendTaskAccountMapper accountMapper,
             ContactTaskFormValidator validator,
-            ContactAccountFilterNormalizer filterNormalizer,
             ContactTaskExpansionService expansionService,
-            AccountFilterSelector accountFilterSelector) {
+            ContactAccountSelector accountSelector) {
         return new ContactTaskServiceImpl(
                 taskMapper,
                 accountMapper,
                 validator,
-                filterNormalizer,
                 expansionService,
-                accountFilterSelector,
+                accountSelector,
                 TenantContext::get,
                 System::currentTimeMillis);
     }
@@ -69,7 +66,7 @@ public class ContactTaskConfiguration {
      */
     @Bean
     public ContactTaskExpansionService contactTaskExpansionService(
-            AccountFilterSelector selector,
+            ContactAccountSelector selector,
             AccountContactSyncMapper syncMapper,
             AccountContactProperties properties,
             AccountContactMapper contactMapper,

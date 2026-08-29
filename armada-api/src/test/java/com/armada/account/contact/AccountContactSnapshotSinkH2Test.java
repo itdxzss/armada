@@ -7,7 +7,8 @@ import com.armada.account.contact.mapper.AccountContactSyncMapper;
 import com.armada.account.contact.model.entity.AccountContactSync;
 import com.armada.account.contact.service.AccountContactNormalizer;
 import com.armada.account.contact.service.impl.AccountContactSnapshotSink;
-import com.armada.account.mapper.AccountStateMapper;
+import com.armada.account.mapper.AccountProfileMapper;
+import com.armada.account.service.impl.AccountProfileServiceImpl;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.kafka.consumer.contact.AccountContactsReportedEvent;
 import com.armada.shared.tenant.TenantContext;
@@ -64,7 +65,7 @@ class AccountContactSnapshotSinkH2Test {
     @Autowired
     private AccountContactSyncMapper syncMapper;
     @Autowired
-    private AccountStateMapper accountStateMapper;
+    private AccountProfileMapper accountProfileMapper;
 
     private AccountContactSnapshotSink sink;
 
@@ -108,23 +109,31 @@ class AccountContactSnapshotSinkH2Test {
                   CONSTRAINT uq_account_contact_sync UNIQUE (tenant_id, account_id)
                 )
                 """);
+        // 计数落在上游的 account_profile 上，upsert 要 join account 判租户与软删
         execute("""
-                CREATE TABLE account_state (
-                  account_id BIGINT NOT NULL,
+                CREATE TABLE account (
+                  id BIGINT NOT NULL,
                   tenant_id BIGINT NOT NULL,
-                  contact_named_num INT NOT NULL DEFAULT 0,
-                  contact_mutual_num INT NOT NULL DEFAULT 0,
-                  updated_at BIGINT,
-                  PRIMARY KEY (tenant_id, account_id)
+                  deleted_at BIGINT,
+                  PRIMARY KEY (id)
                 )
                 """);
+        execute("INSERT INTO account (id, tenant_id, deleted_at) VALUES (11, 7, NULL)");
         execute("""
-                INSERT INTO account_state
-                  (account_id, tenant_id, contact_named_num, contact_mutual_num, updated_at)
-                VALUES (11, 7, 0, 0, 0)
+                CREATE TABLE account_profile (
+                  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                  tenant_id BIGINT NOT NULL,
+                  account_id BIGINT NOT NULL,
+                  contact_named_num INT,
+                  contact_named_synced_at BIGINT,
+                  created_at BIGINT NOT NULL,
+                  updated_at BIGINT NOT NULL,
+                  CONSTRAINT uq_account_profile UNIQUE (tenant_id, account_id)
+                )
                 """);
         sink = new AccountContactSnapshotSink(
-                contactMapper, syncMapper, accountStateMapper,
+                contactMapper, syncMapper,
+                new AccountProfileServiceImpl(accountProfileMapper),
                 new AccountContactNormalizer(), () -> 2_000L);
     }
 
@@ -221,7 +230,7 @@ class AccountContactSnapshotSinkH2Test {
                 List.of("8613800000001", "8613800000002")));
         sink.handle(chunk(1, 3, 3, true, List.of("8613800000003")));
 
-        assertThat(namedNumOnAccountState()).isEqualTo(3);
+        assertThat(namedNumOnAccountProfile()).isEqualTo(3);
         AccountContactSync state = syncMapper.selectByAccountId(ACCOUNT_ID);
         assertThat(state.getContactNum()).isEqualTo(3);
         assertThat(state.getNamedNum()).isEqualTo(3);
@@ -267,7 +276,7 @@ class AccountContactSnapshotSinkH2Test {
 
         assertThat(contactMapper.countBySyncedAt(ACCOUNT_ID, CUTOFF)).isEqualTo(2);
         assertThat(contactMapper.countNamedBySyncedAt(ACCOUNT_ID, CUTOFF)).isEqualTo(1);
-        assertThat(namedNumOnAccountState()).isEqualTo(1);
+        assertThat(namedNumOnAccountProfile()).isEqualTo(1);
     }
 
     @Test
@@ -372,8 +381,8 @@ class AccountContactSnapshotSinkH2Test {
         return syncMapper.selectByAccountId(ACCOUNT_ID).getSyncStatus();
     }
 
-    private int namedNumOnAccountState() throws SQLException {
-        return (int) singleLong("SELECT contact_named_num FROM account_state");
+    private int namedNumOnAccountProfile() throws SQLException {
+        return (int) singleLong("SELECT contact_named_num FROM account_profile");
     }
 
     private long singleLong(String sql) throws SQLException {
@@ -419,7 +428,7 @@ class AccountContactSnapshotSinkH2Test {
             factory.setMapperLocations(
                     new ClassPathResource("mapper/account/AccountContactMapper.xml"),
                     new ClassPathResource("mapper/account/AccountContactSyncMapper.xml"),
-                    new ClassPathResource("mapper/account/AccountStateMapper.xml"));
+                    new ClassPathResource("mapper/account/AccountProfileMapper.xml"));
             return factory.getObject();
         }
 
@@ -439,8 +448,8 @@ class AccountContactSnapshotSinkH2Test {
         }
 
         @Bean
-        AccountStateMapper accountStateMapper(SqlSessionTemplate template) {
-            return template.getMapper(AccountStateMapper.class);
+        AccountProfileMapper accountProfileMapper(SqlSessionTemplate template) {
+            return template.getMapper(AccountProfileMapper.class);
         }
     }
 }

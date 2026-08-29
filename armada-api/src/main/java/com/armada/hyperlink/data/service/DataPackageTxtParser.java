@@ -37,7 +37,7 @@ public class DataPackageTxtParser {
         int invalidRows = 0;
         int duplicatedRows = 0;
         for (String line : lines) {
-            String normalized = stripBom(line.trim());
+            String normalized = stripBom(line);
             if (normalized.isEmpty()) {
                 continue;
             }
@@ -73,6 +73,6 @@ public class DataPackageTxtParser {
     }
 
     private static String stripBom(String value) {
-        return value.startsWith("\uFEFF") ? value.substring(1).trim() : value;
+        return value.startsWith("\uFEFF") ? value.substring(1) : value;
     }
 }

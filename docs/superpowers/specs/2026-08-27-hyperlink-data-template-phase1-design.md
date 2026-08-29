@@ -13,6 +13,8 @@
 > 5. 单包总量限制改为可配置安全阈值，默认 500000，不再作为覆盖事务正确性的前提（§2.3、§4.2）。
 > 6. 前后端字段级接口以
 > `2026-08-27-hyperlink-data-template-phase1-api-contract.md` v1 为准；本文保留业务和实施解释。
+> 7. 任务模型后续已由用户确认收敛为“一位收信人一行、一次逻辑发送、一个 command”，不建
+> `hyperlink_delivery_attempt`；最终任务执行模型以 `hyperlink-marketing-data-model.md` §4 和 2026-08-28 H3 为准。
 >
 > `docs/business/hyperlink-marketing-data-model.md` 已同步为全模块唯一 Schema 事实源；本文负责一期范围、API、流程和实施拆分，不再保留另一套冲突字段。
 
@@ -421,21 +423,24 @@ sent_at / delivered_at / read_at
 `hyperlink_task_recipient` 不保存 `data_package_phone_id`：号码代次会按保留期清理，持久强引用必然悬空。
 数据包、代次、导入批次、手机号和国家快照已经足够完成历史展示、审计和分析。
 
-一次收件人可能因双图文或重试对应多次协议发送，任务阶段必须增加 `hyperlink_delivery_attempt`；
-`protocol_message_id`、物理消息分片和每次重试结果属于 attempt，不得把多个 ID 塞进 recipient 字符串字段。
+后续任务评审已经明确：竞品只给一位收信人发送一次，同一任务同一号码只保留一行并生成一个稳定业务
+`command_id`。协议超时重放同一个 command，不能换号、换账号或创建第二次业务尝试；因此不建
+`hyperlink_delivery_attempt`。双图文只做历史只读兼容，协议内部如果需要编码多个部分，也不能向任务域暴露成多条
+attempt。
 
-`hyperlink_delivery_attempt` 至少保存：
+最终 `hyperlink_task_recipient` 在上述来源快照之外还保存：
 
 ```text
-hyperlink_task_id / recipient_id
-attempt_no / message_part_no
 account_id / sender_phone_snapshot / sender_country_iso2_snapshot
-protocol_id / protocol_message_id
-status / fail_code / fail_reason
-sent_at / delivered_at / read_at / failed_at
+protocol_id / protocol_backend
+command_id / protocol_message_id
+round_id / round_no
+send_status / fail_code / fail_reason
+submitted_at / sent_at / delivered_at / read_at / failed_at
 ```
 
-唯一键冻结为 `(tenant_id, recipient_id, attempt_no, message_part_no)`；ACK 按
+任务内号码唯一键冻结为 `(tenant_id, hyperlink_task_id, recipient_phone_snapshot)`，命令唯一键冻结为
+`(tenant_id, command_id)`；ACK 按
 唯一的 `(tenant_id, account_id, protocol_id, protocol_message_id)` 回关联，防止不同账号或协议消息 ID 空间碰撞。
 
 ## 7. 数据包 API

@@ -12,6 +12,9 @@ public class AccountContactSync {
     /** 同步状态：失败。 */
     public static final String STATUS_FAILED = "FAILED";
 
+    /** 快照不完整：已入库但未清理残留行。 */
+    public static final String STATUS_PARTIAL = "PARTIAL";
+
     /** 主键。 */
     private Long id;
     /** 租户 ID。 */

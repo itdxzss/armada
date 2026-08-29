@@ -154,7 +154,7 @@ class ResourceAssetMapperH2Test {
     }
 
     @Test
-    void explicitTenantLockQueryRunsInsideRealSpringTransaction() {
+    void globalTenantLockQueriesRunInsideRealSpringTransaction() {
         MarketingTemplateFile current = insertFile("待锁定", 100L, new byte[] {1});
         TenantContext.set(OTHER_TENANT_ID);
         MarketingTemplateFile other = insertFile("其他租户", 100L, new byte[] {2});
@@ -162,8 +162,17 @@ class ResourceAssetMapperH2Test {
 
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
         transaction.executeWithoutResult(status -> {
-            assertThat(fileMapper.selectByIdForUpdate(TENANT_ID, current.getId())).isNotNull();
-            assertThat(fileMapper.selectByIdForUpdate(TENANT_ID, other.getId())).isNull();
+            assertThat(fileMapper.selectByIdForUpdate(current.getId())).isNotNull();
+            assertThat(fileMapper.selectIdByIdForUpdate(current.getId())).isEqualTo(current.getId());
+            assertThat(fileMapper.selectByIdForUpdate(other.getId())).isNull();
+            assertThat(fileMapper.selectIdByIdForUpdate(other.getId())).isNull();
+
+            TenantContext.set(OTHER_TENANT_ID);
+            assertThat(fileMapper.selectByIdForUpdate(other.getId())).isNotNull();
+            assertThat(fileMapper.selectIdByIdForUpdate(other.getId())).isEqualTo(other.getId());
+            assertThat(fileMapper.selectByIdForUpdate(current.getId())).isNull();
+            assertThat(fileMapper.selectIdByIdForUpdate(current.getId())).isNull();
+            TenantContext.set(TENANT_ID);
         });
     }
 

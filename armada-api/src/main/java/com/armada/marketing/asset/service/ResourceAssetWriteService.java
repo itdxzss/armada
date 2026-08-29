@@ -60,7 +60,7 @@ public class ResourceAssetWriteService {
      */
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, String assetName, List<String> tags, long updatedAt) {
-        lockExisting(id);
+        lockExistingId(id);
         if (fileMapper.updateAssetMetadata(id, assetName, updatedAt) != 1) {
             throw notFound();
         }
@@ -76,9 +76,7 @@ public class ResourceAssetWriteService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, long deletedAt) {
         Long tenantId = requireTenant();
-        if (fileMapper.selectByIdForUpdate(tenantId, id) == null) {
-            throw notFound();
-        }
+        lockExistingId(id);
         long references = fileMapper.countReferences(tenantId, id);
         if (references > 0) {
             throw new BusinessException(
@@ -113,12 +111,11 @@ public class ResourceAssetWriteService {
         }
     }
 
-    private MarketingTemplateFile lockExisting(Long id) {
-        MarketingTemplateFile file = fileMapper.selectByIdForUpdate(requireTenant(), id);
-        if (file == null) {
+    private void lockExistingId(Long id) {
+        requireTenant();
+        if (fileMapper.selectIdByIdForUpdate(id) == null) {
             throw notFound();
         }
-        return file;
     }
 
     private static Long requireTenant() {

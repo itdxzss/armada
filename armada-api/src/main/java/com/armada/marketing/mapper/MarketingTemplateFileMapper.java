@@ -55,16 +55,24 @@ public interface MarketingTemplateFileMapper {
     MarketingTemplateFile selectAssetMetadataById(@Param("id") Long id);
 
     /**
-     * 显式限定当前租户并锁定素材，避免 FOR UPDATE 被租户插件重排。
+     * 按 ID 锁定当前租户素材并读取完整内容。
      *
-     * @param tenantId 可信租户上下文中的租户 ID
+     * <p>租户条件由全局租户拦截器注入；本查询不得绕过该拦截器。</p>
+     *
      * @param id 素材文件 ID
      * @return 已锁定素材；不存在、跨租户或已删除时为空
      */
-    @InterceptorIgnore(tenantLine = "true")
-    MarketingTemplateFile selectByIdForUpdate(
-            @Param("tenantId") Long tenantId,
-            @Param("id") Long id);
+    MarketingTemplateFile selectByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 按 ID 轻量锁定当前租户素材，不读取图片字节。
+     *
+     * <p>素材编辑和删除只需串行化对同一主键的写入，租户条件由全局租户拦截器注入。</p>
+     *
+     * @param id 素材文件 ID
+     * @return 已锁定的素材 ID；不存在、跨租户或已删除时为空
+     */
+    Long selectIdByIdForUpdate(@Param("id") Long id);
 
     /**
      * 更新当前租户素材名称和审计时间。

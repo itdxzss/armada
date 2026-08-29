@@ -93,8 +93,15 @@
     <select id="selectByIdForUpdate" resultMap="MarketingTemplateFileResultMap">
         SELECT <include refid="AllColumns"/>
         FROM marketing_template_file
-        WHERE tenant_id = #{tenantId}
-          AND id = #{id}
+        WHERE id = #{id}
+          AND deleted_at IS NULL
+        FOR UPDATE
+    </select>
+
+    <select id="selectIdByIdForUpdate" resultType="long">
+        SELECT id
+        FROM marketing_template_file
+        WHERE id = #{id}
           AND deleted_at IS NULL
         FOR UPDATE
     </select>

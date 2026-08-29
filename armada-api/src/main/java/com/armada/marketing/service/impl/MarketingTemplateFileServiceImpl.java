@@ -130,11 +130,10 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
     }
 
     private MarketingTemplateFile lockExisting(Long id) {
-        Long tenantId = TenantContext.get();
-        if (tenantId == null) {
+        if (TenantContext.get() == null) {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
-        MarketingTemplateFile row = mapper.selectByIdForUpdate(tenantId, id);
+        MarketingTemplateFile row = mapper.selectByIdForUpdate(id);
         if (row == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "图片不存在或已删除");
         }

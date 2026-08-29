@@ -6,6 +6,7 @@ import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.entity.ContactFriendTask;
 import com.armada.contact.task.model.enums.ContactTaskRunStatus;
 import com.armada.contact.task.service.ContactAccountFilterNormalizer;
+import com.armada.account.selection.AccountFilterSelector;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.impl.ContactTaskServiceImpl;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,18 +40,21 @@ class ContactTaskServiceImplTest {
     private ContactFriendTaskAccountMapper accountMapper;
     private ContactTaskExpansionService expansionService;
     private ContactTaskServiceImpl service;
+    private AccountFilterSelector selector;
 
     @BeforeEach
     void setUp() {
         taskMapper = mock(ContactFriendTaskMapper.class);
         accountMapper = mock(ContactFriendTaskAccountMapper.class);
         expansionService = mock(ContactTaskExpansionService.class);
+        selector = mock(AccountFilterSelector.class);
         service = new ContactTaskServiceImpl(
                 taskMapper,
                 accountMapper,
                 new ContactTaskFormValidator(),
                 new ContactAccountFilterNormalizer(new ObjectMapper()),
                 expansionService,
+                selector,
                 () -> TENANT,
                 () -> NOW);
     }
@@ -312,6 +317,29 @@ class ContactTaskServiceImplTest {
         ArgumentCaptor<ContactFriendTask> saved = ArgumentCaptor.forClass(ContactFriendTask.class);
         verify(taskMapper).updateForm(saved.capture());
         assertThat(saved.getValue().getPreviewImageFileId()).isNull();
+    }
+
+    @Test
+    void previewNormalizesTheFilterBeforeCounting() {
+        // 试算必须走和启用时一样的归一化，否则界面数字和真正圈到的号对不上
+        when(selector.count(anyString())).thenReturn(42);
+
+        assertThat(service.previewAccountCount("{\"country_iso2s\":[\"cn\"]}")).isEqualTo(42);
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(selector).count(captor.capture());
+        assertThat(captor.getValue()).contains("countryIso2s").contains("CN");
+    }
+
+    @Test
+    void previewTreatsAnEmptyFilterAsUnrestricted() {
+        when(selector.count(anyString())).thenReturn(7);
+
+        assertThat(service.previewAccountCount(null)).isEqualTo(7);
+
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+        verify(selector).count(captor.capture());
+        assertThat(captor.getValue()).isEqualTo("{}");
     }
 
 }

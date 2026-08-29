@@ -12,15 +12,8 @@
     groupInviteAllowed / continent / platform / widType 在 armada 没有落列，故意没有条件，
     与 AccountFilterCriteria 的能力边界说明一致。
   -->
-  <select id="selectAccounts"
-          resultType="com.armada.account.selection.model.SelectedAccount">
-    SELECT a.id                  AS accountId,
-           a.ws_phone            AS wsPhone,
-           a.protocol_id         AS protocolId,
-           a.protocol_account_id AS protocolAccountId
-    FROM account a
-    INNER JOIN account_state s
-            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+  <!-- 圈号与试算共用同一套条件：拆成两份 WHERE 迟早漂移，界面显示的命中数就会骗人。 -->
+  <sql id="selectionWhere">
     WHERE a.deleted_at IS NULL
       AND a.protocol_account_id IS NOT NULL
       AND a.protocol_account_id &lt;&gt; ''
@@ -72,8 +65,29 @@
       <if test="criteria.registerDaysMax != null">
         AND a.created_at &gt;= (UNIX_TIMESTAMP() * 1000 - #{criteria.registerDaysMax} * 86400000)
       </if>
+  </sql>
+
+  <select id="selectAccounts"
+          resultType="com.armada.account.selection.model.SelectedAccount">
+    SELECT a.id                  AS accountId,
+           a.ws_phone            AS wsPhone,
+           a.protocol_id         AS protocolId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account a
+    INNER JOIN account_state s
+            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    <include refid="selectionWhere"/>
     ORDER BY a.priority DESC, a.id
     LIMIT #{limit}
+  </select>
+
+  <!-- 账号范围试算：只要个数，不受圈号上限约束。 -->
+  <select id="countAccounts" resultType="int">
+    SELECT COUNT(*)
+    FROM account a
+    INNER JOIN account_state s
+            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    <include refid="selectionWhere"/>
   </select>
 
   <!-- 圈号是启用那一刻的快照，轮次执行前必须复查：期间被封或导出的号不能再发 -->

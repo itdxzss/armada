@@ -137,6 +137,38 @@ public class ContactTaskController {
     }
 
     /**
+     * 试算账号范围命中数。
+     *
+     * <p>抽屉里改完筛选条件即时调用，用于显示「命中 N 个账号」并在命中 0 时阻止启用。
+     * 走的是与启用时圈号完全相同的归一化与 SQL 条件。</p>
+     *
+     * @param request 账号筛选请求体
+     * @return 命中账号数
+     */
+    @PostMapping("/account-preview")
+    public ApiResponse<ContactAccountPreviewVO> previewAccounts(
+            @RequestBody(required = false) ContactAccountPreviewRequest request) {
+        String filterJson = request == null ? null : request.accountFilterJson();
+        return ApiResponse.ok(new ContactAccountPreviewVO(service.previewAccountCount(filterJson)));
+    }
+
+    /**
+     * 账号范围试算请求体。
+     *
+     * @param accountFilterJson 前端提交的原始筛选 JSON 字符串
+     */
+    public record ContactAccountPreviewRequest(String accountFilterJson) {
+    }
+
+    /**
+     * 账号范围试算结果。
+     *
+     * @param matchedAccountCount 命中账号数
+     */
+    public record ContactAccountPreviewVO(int matchedAccountCount) {
+    }
+
+    /**
      * 任务动作请求体。
      *
      * @param action 动作名：start / pause / resume / stop

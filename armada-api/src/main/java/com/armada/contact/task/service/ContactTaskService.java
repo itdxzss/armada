@@ -45,6 +45,16 @@ public interface ContactTaskService {
     ContactTaskDetailVO update(Long id, ContactTaskFormDTO form);
 
     /**
+     * 按筛选条件试算命中账号数，供任务抽屉的「账号范围」区块显示。
+     *
+     * <p>与启用时真正圈号走同一套归一化与同一份 SQL 条件；否则界面显示的数字会骗人。</p>
+     *
+     * @param accountFilterJson 前端提交的原始筛选 JSON，允许为 null 或非法
+     * @return 命中账号数
+     */
+    int previewAccountCount(String accountFilterJson);
+
+    /**
      * 执行任务动作：start / pause / resume / stop。
      *
      * @param id 任务 ID

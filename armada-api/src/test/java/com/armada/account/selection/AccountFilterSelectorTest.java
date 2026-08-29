@@ -81,4 +81,28 @@ class AccountFilterSelectorTest {
 
         assertThat(selector().select("{}", 50)).isEmpty();
     }
+    @Test
+    void countUsesTheSameForcedInjectionAsSelection() {
+        when(mapper.countAccounts(any(), eq(2), eq(4))).thenReturn(5000);
+
+        assertThat(selector().count("{\"accountType\":1}")).isEqualTo(5000);
+    }
+
+    @Test
+    void countIsNotTruncatedByTheSelectionLimit() {
+        // 用 select(...).size() 试算会把「命中 5000」显示成「命中 10」
+        when(mapper.countAccounts(any(), anyInt(), anyInt())).thenReturn(5000);
+
+        assertThat(selector().count("{}")).isEqualTo(5000);
+        verify(mapper, org.mockito.Mockito.never()).selectAccounts(any(), anyInt(), anyInt(), anyInt());
+    }
+
+    @Test
+    void countTreatsAnIllegalFilterAsUnrestricted() {
+        when(mapper.countAccounts(any(), anyInt(), anyInt())).thenReturn(9);
+
+        assertThat(selector().count("not json")).isEqualTo(9);
+        assertThat(selector().count(null)).isEqualTo(9);
+    }
+
 }

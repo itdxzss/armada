@@ -1,5 +1,6 @@
 package com.armada.contact.task.service.impl;
 
+import com.armada.account.selection.AccountFilterSelector;
 import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
@@ -55,6 +56,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     private final ContactTaskFormValidator validator;
     private final ContactAccountFilterNormalizer filterNormalizer;
     private final ContactTaskExpansionService expansionService;
+    private final AccountFilterSelector accountFilterSelector;
     private final Supplier<Long> tenantSupplier;
     private final LongSupplier clock;
 
@@ -75,6 +77,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
             ContactTaskFormValidator validator,
             ContactAccountFilterNormalizer filterNormalizer,
             ContactTaskExpansionService expansionService,
+            AccountFilterSelector accountFilterSelector,
             Supplier<Long> tenantSupplier,
             LongSupplier clock) {
         this.taskMapper = taskMapper;
@@ -82,8 +85,15 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         this.validator = validator;
         this.filterNormalizer = filterNormalizer;
         this.expansionService = expansionService;
+        this.accountFilterSelector = accountFilterSelector;
         this.tenantSupplier = tenantSupplier;
         this.clock = clock;
+    }
+
+    @Override
+    public int previewAccountCount(String accountFilterJson) {
+        // 走同一个归一化器再交给同一个圈号服务计数：任何一处走岔，界面显示的命中数就会骗人。
+        return accountFilterSelector.count(filterNormalizer.normalize(accountFilterJson));
     }
 
     @Override

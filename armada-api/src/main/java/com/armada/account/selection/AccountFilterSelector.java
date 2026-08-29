@@ -56,4 +56,19 @@ public class AccountFilterSelector {
                 criteria, ACCOUNT_STATE_NORMAL, ACCOUNT_STATE_EXPORTED, limit);
         return rows == null ? List.of() : List.copyOf(rows);
     }
+
+    /**
+     * 按同一套条件统计命中账号数，用于任务抽屉的账号范围试算。
+     *
+     * <p>刻意不复用 {@link #select} 再取 size：那样会受 limit 截断，
+     * 界面会把「命中 5000 个」显示成「命中 10 个」。</p>
+     *
+     * @param normalizedFilterJson 归一化筛选 JSON；null、空或非法均视为不限定
+     * @return 命中账号数
+     */
+    public int count(String normalizedFilterJson) {
+        AccountFilterCriteria criteria =
+                AccountFilterCriteria.parse(normalizedFilterJson, objectMapper);
+        return mapper.countAccounts(criteria, ACCOUNT_STATE_NORMAL, ACCOUNT_STATE_EXPORTED);
+    }
 }

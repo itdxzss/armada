@@ -31,6 +31,7 @@ public class ContactTaskConfiguration {
      * @param validator 表单校验器
      * @param filterNormalizer 账号筛选归一化器
      * @param expansionService 启用时的圈号与收件人展开服务
+     * @param accountFilterSelector 账号圈选服务，用于账号范围试算
      * @return 通讯录营销任务服务
      */
     @Bean
@@ -39,13 +40,15 @@ public class ContactTaskConfiguration {
             ContactFriendTaskAccountMapper accountMapper,
             ContactTaskFormValidator validator,
             ContactAccountFilterNormalizer filterNormalizer,
-            ContactTaskExpansionService expansionService) {
+            ContactTaskExpansionService expansionService,
+            AccountFilterSelector accountFilterSelector) {
         return new ContactTaskServiceImpl(
                 taskMapper,
                 accountMapper,
                 validator,
                 filterNormalizer,
                 expansionService,
+                accountFilterSelector,
                 TenantContext::get,
                 System::currentTimeMillis);
     }

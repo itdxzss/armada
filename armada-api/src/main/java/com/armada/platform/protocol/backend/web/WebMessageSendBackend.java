@@ -55,6 +55,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.MarketingCorrelation marketing = correlation.marketing();
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
+        MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
         MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
         MessageSendCommand.MessageContent content = command.payload().content();
         WebMessagePayload payload = new WebMessagePayload(
@@ -62,7 +63,10 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 marketing == null ? null : marketing.taskId(),
                 marketing == null ? null : marketing.attemptId(),
                 marketing == null ? null : marketing.targetId(),
-                marketing == null ? null : marketing.roundNo(),
+                // 轮次号是普通营销和通讯录营销共用的 wire 字段，两种来源都要能填上
+                marketing != null
+                        ? marketing.roundNo()
+                        : contactTask == null ? null : contactTask.roundNo(),
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
                 command.target().jid(),
@@ -80,6 +84,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 groupCreation == null ? null : groupCreation.itemId(),
                 historicalGroup == null ? null : historicalGroup.executionId(),
                 historicalGroup == null ? null : historicalGroup.memberId(),
+                contactTask == null ? null : contactTask.taskId(),
+                contactTask == null ? null : contactTask.taskAccountId(),
+                contactTask == null ? null : contactTask.recipientId(),
                 hyperlink == null ? null : hyperlink.taskId(),
                 hyperlink == null ? null : hyperlink.recipientId());
         return new ProtocolMessageOutboxCommand(
@@ -143,6 +150,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             Long groupCreationItemId,
             Long historicalExecutionId,
             Long historicalMemberId,
+            Long contactTaskId,
+            Long taskAccountId,
+            Long recipientId,
             Long hyperlinkTaskId,
             Long hyperlinkRecipientId
     ) {

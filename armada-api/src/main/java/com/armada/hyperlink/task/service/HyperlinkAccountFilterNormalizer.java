@@ -48,6 +48,10 @@ public class HyperlinkAccountFilterNormalizer {
         Integer friendMin = integerBound(value.friendCountMin(), "friendCountMin");
         Integer friendMax = integerBound(value.friendCountMax(), "friendCountMax");
         validateRange(friendMin, friendMax, "friendCount");
+        // 通讯录有名字联系人数：与 friendCount（双向好友）是两个口径，各自独立校验
+        Integer contactNamedMin = integerBound(value.contactNamedNumMin(), "contactNamedNumMin");
+        Integer contactNamedMax = integerBound(value.contactNamedNumMax(), "contactNamedNumMax");
+        validateRange(contactNamedMin, contactNamedMax, "contactNamedNum");
         BigDecimal retentionMin = decimalBound(value.retentionDaysMin(), "retentionDaysMin");
         BigDecimal retentionMax = decimalBound(value.retentionDaysMax(), "retentionDaysMax");
         validateRange(retentionMin, retentionMax, "retentionDays");
@@ -65,7 +69,8 @@ public class HyperlinkAccountFilterNormalizer {
                 accountType, platform, widType, importMode, value.groupInviteAllowed(),
                 text(value.phone(), 32, "phone"),
                 positiveId(value.importBatchId(), "importBatchId"), source,
-                friendMin, friendMax, retentionMin, retentionMax, registerMin, registerMax,
+                friendMin, friendMax, contactNamedMin, contactNamedMax,
+                retentionMin, retentionMax, registerMin, registerMax,
                 createdFrom, createdTo);
     }
 

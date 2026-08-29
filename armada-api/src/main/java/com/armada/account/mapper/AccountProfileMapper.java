@@ -10,6 +10,23 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountProfileMapper {
 
     /**
+     * 按通讯录计数独立同步水位幂等写入，旧快照和同水位冲突不覆盖。
+     *
+     * @param tenantId 当前租户 ID
+     * @param accountId 账号 ID
+     * @param contactNamedNum 通讯录中有名字的联系人数
+     * @param factAt 快照采集时间
+     * @param writtenAt 本次落库时间
+     * @return 受影响行数；账号不属于当前租户或已删除时为 0
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int upsertContactNamedNum(@Param("tenantId") long tenantId,
+                              @Param("accountId") long accountId,
+                              @Param("contactNamedNum") int contactNamedNum,
+                              @Param("factAt") long factAt,
+                              @Param("writtenAt") long writtenAt);
+
+    /**
      * 按好友数独立同步水位幂等写入，旧事件和同水位冲突不覆盖。
      *
      * @param tenantId 当前租户 ID

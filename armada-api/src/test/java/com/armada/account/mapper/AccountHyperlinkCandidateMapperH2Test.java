@@ -75,12 +75,11 @@ class AccountHyperlinkCandidateMapperH2Test {
     @Test
     void appliesEveryFilterBackedByCurrentSchemaAndReturnsDerivedSnapshots() {
         AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
-                List.of("BR"), List.of(), "SOUTH_AMERICA", List.of(10L), List.of(20L),
-                "WEB", "ONLINE", 2, 2, "ANDROID_BUSINESS_COMPANION", "web5",
-                "full_param", true, "5512", 30L, 4, 10, 10,
-                BigDecimal.valueOf(4.9), BigDecimal.valueOf(5.1), 90, 90,
-                NOW - 6 * DAY, NOW - 4 * DAY,
-                List.of("WEB"), NOW);
+                List.of("BR"), List.of(), "SOUTH_AMERICA", List.of(10L), List.of(20L), "WEB",
+                "ONLINE", 2, 2, "ANDROID_BUSINESS_COMPANION", "web5", "full_param",
+                true, "5512", 30L, 4, 10, 10,
+                null, null, BigDecimal.valueOf(4.9), BigDecimal.valueOf(5.1), 90, 90,
+                NOW - 6 * DAY, NOW - 4 * DAY, List.of("WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 10))
                 .singleElement()
@@ -95,10 +94,11 @@ class AccountHyperlinkCandidateMapperH2Test {
     @Test
     void fixedValidityAndExplicitTenantPreventMutedBannedDeletedAndForeignRows() {
         AccountHyperlinkCandidateQuery empty = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null, null,
-                null, null, null, null, null, null, null, null, null, null,
+                List.of(), List.of(), null, List.of(), List.of(), null,
                 null, null, null, null, null, null,
-                List.of("ANDROID", "WEB"), NOW);
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, empty, null, null, 20))
                 .extracting(candidate -> candidate.accountId())
@@ -119,20 +119,22 @@ class AccountHyperlinkCandidateMapperH2Test {
                 .containsExactly("WEB");
 
         AccountHyperlinkCandidateQuery offline = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, "OFFLINE", null,
-                null, null, null, null, null, null, null, null, null, null,
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                "OFFLINE", null, null, null, null, null,
                 null, null, null, null, null, null,
-                List.of("ANDROID", "WEB"), NOW);
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
         assertThat(mapper.selectHyperlinkCandidates(7L, offline, null, null, 20))
                 .extracting(candidate -> candidate.accountId())
                 .containsExactly(5L);
         assertThat(mapper.countHyperlinkCandidates(7L, offline)).isEqualTo(1);
 
         AccountHyperlinkCandidateQuery androidOnly = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null, null,
-                null, null, null, null, null, null, null, null, null, null,
+                List.of(), List.of(), null, List.of(), List.of(), null,
                 null, null, null, null, null, null,
-                List.of("ANDROID"), NOW);
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID"), NOW);
         assertThat(mapper.selectHyperlinkCandidates(7L, androidOnly, null, null, 1))
                 .extracting(candidate -> candidate.accountId())
                 .containsExactly(5L);
@@ -146,10 +148,11 @@ class AccountHyperlinkCandidateMapperH2Test {
         credential(7, 7, 3);
         state(7, 7, 2, 1, null);
         AccountHyperlinkCandidateQuery companion = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), "ANDROID", null, null,
-                null, "ANDROID_BUSINESS_COMPANION", "web5", "full_param", null,
-                null, null, null, null, null, null, null, null, null, null, null,
-                List.of("WEB"), NOW);
+                List.of(), List.of(), null, List.of(), List.of(), "ANDROID",
+                null, null, null, "ANDROID_BUSINESS_COMPANION", "web5", "full_param",
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, companion, null, null, 20))
                 .extracting(candidate -> candidate.accountId())
@@ -169,9 +172,10 @@ class AccountHyperlinkCandidateMapperH2Test {
         state(9, 7, 2, 1, null);
         AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
                 List.of("AS", "DO"), List.of(), null, List.of(), List.of(), null,
-                null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null,
-                List.of("WEB"), NOW);
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
                 .extracting(candidate -> candidate.countryIso2())
@@ -185,10 +189,11 @@ class AccountHyperlinkCandidateMapperH2Test {
         state(7, 7, 2, 1, null);
         execute("UPDATE account SET priority=1 WHERE id=5");
         AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null, null,
-                null, null, null, null, null, null, null, null, null, null,
+                List.of(), List.of(), null, List.of(), List.of(), null,
                 null, null, null, null, null, null,
-                List.of("ANDROID", "WEB"), NOW);
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
 
         List<AccountHyperlinkCandidateVO> firstPage =
                 mapper.selectHyperlinkCandidates(7L, query, null, null, 2);
@@ -205,9 +210,11 @@ class AccountHyperlinkCandidateMapperH2Test {
     @Test
     void profileRangesAreInclusiveUnknownDoesNotMatchAndCountUsesIdenticalSql() {
         AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null,
-                2, null, null, null, null, true, null, null, 4, 10, 10,
-                null, null, 90, 90, null, null, List.of("ANDROID", "WEB"), NOW);
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, 2, null, null, null, null,
+                true, null, null, 4, 10, 10,
+                null, null, null, null, 90, 90,
+                null, null, List.of("ANDROID", "WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
                 .extracting(AccountHyperlinkCandidateVO::accountId)
@@ -215,9 +222,11 @@ class AccountHyperlinkCandidateMapperH2Test {
         assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);
 
         AccountHyperlinkCandidateQuery outsideRange = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null,
-                2, null, null, null, null, true, null, null, 4, 11, null,
-                null, null, 91, null, null, null, List.of("ANDROID", "WEB"), NOW);
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, 2, null, null, null, null,
+                true, null, null, 4, 11, null,
+                null, null, null, null, 91, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
         assertThat(mapper.selectHyperlinkCandidates(7L, outsideRange, null, null, 20))
                 .isEmpty();
         assertThat(mapper.countHyperlinkCandidates(7L, outsideRange)).isZero();
@@ -230,9 +239,11 @@ class AccountHyperlinkCandidateMapperH2Test {
         state(10, 7, 2, 1, null);
         profile(10, 7, 10, true, 2, NOW + DAY, 4);
         AccountHyperlinkCandidateQuery maxOnly = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, 90, null, null, List.of("ANDROID", "WEB"), NOW);
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, 90,
+                null, null, List.of("ANDROID", "WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, maxOnly, null, null, 20))
                 .extracting(AccountHyperlinkCandidateVO::accountId)
@@ -247,9 +258,11 @@ class AccountHyperlinkCandidateMapperH2Test {
         state(11, 7, 2, 1, null);
         profile(11, 7, 10, false, 2, NOW - 90 * DAY, 4);
         AccountHyperlinkCandidateQuery inviteDenied = new AccountHyperlinkCandidateQuery(
-                List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, false, null, null, null, null, null,
-                null, null, null, null, null, null, List.of("WEB"), NOW);
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, null, null, null, null, null,
+                false, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
 
         assertThat(mapper.selectHyperlinkCandidates(7L, inviteDenied, null, null, 20))
                 .extracting(AccountHyperlinkCandidateVO::accountId)
@@ -349,6 +362,7 @@ class AccountHyperlinkCandidateMapperH2Test {
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT,
                   friend_count INT, is_group_invite_allowed TINYINT, rotation_status TINYINT,
                   registered_at BIGINT, marketing_source TINYINT,
+                  contact_named_num INT, contact_named_synced_at BIGINT,
                   UNIQUE (tenant_id, account_id))
                 """);
         execute("""

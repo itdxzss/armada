@@ -43,6 +43,10 @@ server:
 
 armada:
   hyperlink:
+    # 私聊发送能力白名单，默认空集 fail-closed：没有真机验过的协议后端不许发私聊。
+    # 超链任务与通讯录营销共用这一个开关——「该后端能不能发私聊」是同一个物理事实。
+    # 不配则两条线都圈不到任何账号，且界面上看不出异常。
+    private-capable-backends: ${HYPERLINK_PRIVATE_CAPABLE_BACKENDS:}
     data-package:
       # 防误操作的单包当前代号码安全阈值；覆盖仍采用 generation 原子切换。
       max-phones: ${HYPERLINK_DATA_PACKAGE_MAX_PHONES:500000}
@@ -208,6 +212,13 @@ armada:
         concurrency: ${PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_CONCURRENCY:4}
         # 单条群快照会执行多批数据库写入；限制 poll 批量，避免处理一批超过 max.poll.interval.ms 后反复 rebalance。
         max-poll-records: ${PROTOCOL_ACCOUNT_GROUP_SYNC_EVENTS_MAX_POLL_RECORDS:1}
+      account-contact-events:
+        topic: ${PROTOCOL_ACCOUNT_CONTACT_EVENTS_TOPIC:protocol.account.contact-sync.events.v1}
+        group-id: ${PROTOCOL_ACCOUNT_CONTACT_EVENTS_GROUP_ID:armada-api-account-contact-events}
+        concurrency: ${PROTOCOL_ACCOUNT_CONTACT_EVENTS_CONCURRENCY:2}
+        # 一条消息是一片通讯录快照（最多 500 个联系人）且落库要走多批写入；
+        # 限制 poll 批量，避免处理一批超过 max.poll.interval.ms 后反复 rebalance。
+        max-poll-records: ${PROTOCOL_ACCOUNT_CONTACT_EVENTS_MAX_POLL_RECORDS:1}
       account-event-errors:
         retry-interval-ms: ${PROTOCOL_ACCOUNT_EVENTS_RETRY_INTERVAL_MS:1000}
         max-retry-attempts: ${PROTOCOL_ACCOUNT_EVENTS_MAX_RETRY_ATTEMPTS:3}

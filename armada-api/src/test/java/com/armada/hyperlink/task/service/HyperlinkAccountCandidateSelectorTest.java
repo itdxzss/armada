@@ -120,7 +120,7 @@ class HyperlinkAccountCandidateSelectorTest {
         var filter = new com.armada.hyperlink.task.model.dto.HyperlinkAccountFilterDTO(
                 1, List.of("br", "BR"), List.of(), null, List.of(9L), List.of(),
                 null, "online", null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null, null);
 
         assertThat(selector.count(filter, 2_000_000_000_000L)).isEqualTo(23);
 

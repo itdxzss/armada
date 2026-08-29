@@ -46,6 +46,16 @@ public class AccountProfileServiceImpl implements AccountProfileService {
     }
 
     @Override
+    public void updateContactNamedNum(long accountId, int contactNamedNum, long syncedAt) {
+        long tenantId = tenantId(accountId, syncedAt);
+        if (contactNamedNum < 0) {
+            throw validation("通讯录联系人数不能为负数");
+        }
+        mapper.upsertContactNamedNum(
+                tenantId, accountId, contactNamedNum, syncedAt, clock.millis());
+    }
+
+    @Override
     public void updateGroupInviteAllowed(long accountId, boolean allowed, long syncedAt) {
         long tenantId = tenantId(accountId, syncedAt);
         mapper.upsertGroupInviteAllowed(

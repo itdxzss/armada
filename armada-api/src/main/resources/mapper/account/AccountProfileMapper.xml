@@ -2,6 +2,26 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountProfileMapper">
 
+  <!-- 与 upsertFriendCount 同形：各事实独立水位，NULL 表示未采集。 -->
+  <insert id="upsertContactNamedNum">
+    INSERT INTO account_profile (
+      tenant_id, account_id, contact_named_num, contact_named_synced_at, created_at, updated_at)
+    SELECT #{tenantId}, account.id, #{contactNamedNum}, #{factAt}, #{writtenAt}, #{writtenAt}
+    FROM account
+    WHERE account.tenant_id = #{tenantId}
+      AND account.id = #{accountId}
+      AND account.deleted_at IS NULL
+    ON DUPLICATE KEY UPDATE
+      contact_named_num = CASE
+        WHEN VALUES(contact_named_synced_at) &gt; COALESCE(contact_named_synced_at, -1)
+          THEN VALUES(contact_named_num)
+        ELSE contact_named_num
+      END,
+      contact_named_synced_at = GREATEST(
+        COALESCE(contact_named_synced_at, -1), VALUES(contact_named_synced_at)),
+      updated_at = GREATEST(updated_at, VALUES(updated_at))
+  </insert>
+
   <insert id="upsertFriendCount">
     INSERT INTO account_profile (
       tenant_id, account_id, friend_count, friend_count_synced_at, created_at, updated_at)

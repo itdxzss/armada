@@ -44,6 +44,7 @@ class AccountStateChangedSinkAdapterTest {
     @Mock
     private Executor inviteRecoveryExecutor;
 
+
     @InjectMocks
     private AccountStateChangedSinkAdapter adapter;
 

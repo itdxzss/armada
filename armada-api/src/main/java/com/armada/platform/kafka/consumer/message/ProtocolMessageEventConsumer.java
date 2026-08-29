@@ -34,6 +34,7 @@ public class ProtocolMessageEventConsumer {
     public static final String EVENT_MESSAGE_ACK = "message.ack";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
+    private static final String SOURCE_CONTACT_TASK = "contact_task";
     private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
 
     private final ObjectMapper objectMapper;
@@ -139,23 +140,29 @@ public class ProtocolMessageEventConsumer {
         boolean groupCreationMarketing = SOURCE_GROUP_CREATION_MARKETING.equals(source);
         boolean historicalGroupPull = SOURCE_HISTORICAL_GROUP_PULL.equals(source);
         boolean hyperlinkTask = SOURCE_HYPERLINK_TASK.equals(source);
+        // 通讯录任务同样没有普通营销三字段关联，按上游既有口径追加一个来源
+        boolean contactTask = SOURCE_CONTACT_TASK.equals(source);
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
+                        || contactTask
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
-                hyperlinkTask ? null
+                hyperlinkTask || contactTask ? null
                         : requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
                 text(data, "commandId"),
                 requiredBoolean(data, "success", "协议消息发送结果事件缺少 data.success"),
@@ -182,6 +189,15 @@ public class ProtocolMessageEventConsumer {
                         ? requiredLong(data, "historicalMemberId",
                                 "协议消息发送结果事件缺少 data.historicalMemberId")
                         : longValue(data, "historicalMemberId"),
+                contactTask
+                        ? requiredLong(data, "contactTaskId", "协议消息发送结果事件缺少 data.contactTaskId")
+                        : longValue(data, "contactTaskId"),
+                contactTask
+                        ? requiredLong(data, "taskAccountId", "协议消息发送结果事件缺少 data.taskAccountId")
+                        : longValue(data, "taskAccountId"),
+                contactTask
+                        ? requiredLong(data, "recipientId", "协议消息发送结果事件缺少 data.recipientId")
+                        : longValue(data, "recipientId"),
                 firstText(data, "jid", "groupJid"),
                 text(data, "targetKind"),
                 hyperlinkTask

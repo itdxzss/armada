@@ -235,6 +235,7 @@ class MarketingImmediateRetryServiceTest {
                 "GROUP_SEND_ALLOWED",
                 1_999L,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 }

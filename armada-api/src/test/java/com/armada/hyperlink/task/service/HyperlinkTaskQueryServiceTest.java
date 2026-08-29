@@ -201,8 +201,10 @@ class HyperlinkTaskQueryServiceTest {
     private HyperlinkAccountFilterDTO filter() {
         return new HyperlinkAccountFilterDTO(
                 1, List.of("BR"), List.of(), null, List.of(9L), List.of(),
-                "WEB", "ONLINE", 4, 2, null, "web5", "full_param", true,
-                null, null, 3, 10, 20, null, null, 90, 180, null, null);
+                "WEB", "ONLINE", 4, 2, null, "web5",
+                "full_param", true, null, null, 3, 10,
+                20, null, null, null, null, 90,
+                180, null, null);
     }
 
     private String filterJson() {

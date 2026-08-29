@@ -235,6 +235,7 @@ public interface AccountStateMapper {
      */
     int updateLifecycleState(AccountState row);
 
+
     /**
      * 批量更新账号最近一次上线分配的代理展示快照。
      *

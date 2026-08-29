@@ -45,7 +45,7 @@ class BusinessControllerAuthorizationContractTest {
             + "'tenant:historical_group:view', 'tenant:marketing_task:view', "
             + "'tenant:group_pull_marketing:view', 'tenant:group_creation_marketing:view', "
             + "'tenant:hyperlink_template:view', 'tenant:hyperlink_template:create', "
-            + "'tenant:hyperlink_template:edit')";
+            + "'tenant:hyperlink_template:edit', 'tenant:contact_task:view')";
 
     @Test
     void protectsEachBusinessControllerWithItsOwningMenuPermission() {

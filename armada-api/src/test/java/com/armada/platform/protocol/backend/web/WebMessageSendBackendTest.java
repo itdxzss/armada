@@ -123,7 +123,8 @@ class WebMessageSendBackendTest {
                         "historical_group_pull",
                         null,
                         null,
-                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
+                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L),
+                        null),
                 "cmd_historical_web",
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);
@@ -173,6 +174,55 @@ class WebMessageSendBackendTest {
                 .containsEntry("messageType", "LINK_CARD")
                 .containsEntry("text", "正文")
                 .doesNotContainKeys("recipientId", "groupJid", "messageContent", "schemaVersion");
+    }
+
+    @Test
+    void encodesContactTaskCorrelationFields() {
+        // 协议层判 contact_task 时四字段缺一即丢弃，字段名必须逐字一致
+        WebMessageSendBackend backend = new WebMessageSendBackend(
+                outboxService, new ProtocolMasterCommandProperties());
+        MessageSendCommand command = new MessageSendCommand(
+                account(),
+                new MessageSendCommand.MessageTarget(
+                        "8613900000001@s.whatsapp.net",
+                        MessageSendCommand.TargetKind.PRIVATE),
+                new MessageSendCommand.MessagePayload(
+                        MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("hi", null, null, null),
+                        false),
+                new MessageSendCommand.MessageCorrelation(
+                        7L,
+                        "contact_task",
+                        null,
+                        null,
+                        null,
+                        new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
+                        null),
+                "cmd_contact_web",
+                800,
+                0L);
+        when(outboxService.enqueueMessageCommands(anyList()))
+                .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
+                        null, List.of("cmd_contact_web"), 1));
+
+        backend.enqueue(List.of(command));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        Map<String, Object> payload = objectMapper.convertValue(
+                captor.getValue().get(0).payload(), new TypeReference<>() {
+                });
+        assertThat(payload)
+                .containsEntry("source", "contact_task")
+                .containsEntry("contactTaskId", 77L)
+                .containsEntry("taskAccountId", 88L)
+                .containsEntry("recipientId", 99L)
+                .containsEntry("roundNo", 5L)
+                .containsEntry("jid", "8613900000001@s.whatsapp.net")
+                .containsEntry("targetKind", "PRIVATE")
+                .doesNotContainKey("groupJid")
+                .doesNotContainKeys("marketingTaskId", "attemptId", "targetId");
     }
 
     private static MessageSendCommand buttonCommand() {
@@ -227,6 +277,7 @@ class WebMessageSendBackendTest {
                 7L,
                 "marketing_task",
                 new MessageSendCommand.MarketingCorrelation(42L, 501L, 9001L, 1L),
+                null,
                 null,
                 null);
     }

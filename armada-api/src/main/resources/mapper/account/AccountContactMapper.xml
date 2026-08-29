@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.contact.mapper.AccountContactMapper">
+
+  <!-- 整批替换第一步：本批号码 upsert。不能先全量清空再插，
+       否则同步中途失败会把账号通讯录清空。 -->
+  <insert id="upsertBatch">
+    INSERT INTO account_contact (
+      tenant_id, account_id, contact_phone, contact_jid,
+      full_name, first_name, push_name, business_name,
+      is_named, is_mutual, synced_at, created_at, updated_at
+    ) VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (#{row.tenantId}, #{row.accountId}, #{row.contactPhone}, #{row.contactJid},
+       #{row.fullName}, #{row.firstName}, #{row.pushName}, #{row.businessName},
+       #{row.isNamed}, #{row.isMutual}, #{row.syncedAt}, #{row.createdAt}, #{row.updatedAt})
+    </foreach>
+    ON DUPLICATE KEY UPDATE
+      contact_jid = VALUES(contact_jid),
+      full_name = VALUES(full_name),
+      first_name = VALUES(first_name),
+      push_name = VALUES(push_name),
+      business_name = VALUES(business_name),
+      is_named = VALUES(is_named),
+      is_mutual = VALUES(is_mutual),
+      synced_at = VALUES(synced_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <!-- 整批替换第二步：扫掉本批没覆盖到的旧行。 -->
+  <delete id="deleteStale">
+    DELETE FROM account_contact
+     WHERE account_id = #{accountId}
+       AND synced_at &lt; #{syncedAt}
+  </delete>
+
+  <select id="countBySyncedAt" resultType="int">
+    SELECT COUNT(*)
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND synced_at = #{syncedAt}
+  </select>
+
+  <select id="countNamedBySyncedAt" resultType="int">
+    SELECT COUNT(*)
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND synced_at = #{syncedAt}
+       AND is_named = 1
+  </select>
+
+  <select id="countNamed" resultType="int">
+    SELECT COUNT(*)
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND is_named = 1
+  </select>
+
+  <!-- 发送目标集口径是「通讯录里有名字」（设计 §2.8 的 name_num），不是双向好友 -->
+  <select id="selectNamedByAccount"
+          resultType="com.armada.account.contact.model.entity.AccountContact">
+    SELECT id, tenant_id, account_id, contact_phone, contact_jid,
+           full_name, first_name, push_name, business_name,
+           is_named, is_mutual, synced_at, created_at, updated_at
+      FROM account_contact
+     WHERE account_id = #{accountId}
+       AND is_named = 1
+     ORDER BY id
+     LIMIT #{limit}
+  </select>
+
+</mapper>

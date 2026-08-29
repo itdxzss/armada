@@ -51,6 +51,10 @@ public record AccountHyperlinkCandidateQuery(
         Integer friendCountMin,
         /** 双向好友数上限，闭区间；用户输入 0 已在归一化阶段转为不限。 */
         Integer friendCountMax,
+        /** 通讯录中有名字的联系人数下限；口径见 account_profile.contact_named_num。 */
+        Integer contactNamedNumMin,
+        /** 通讯录中有名字的联系人数上限；口径见 account_profile.contact_named_num。 */
+        Integer contactNamedNumMax,
         /** 存活天数下限，最多一位小数，由观察时刻减账号入库时间计算。 */
         BigDecimal retentionDaysMin,
         /** 存活天数上限，最多一位小数，由观察时刻减账号入库时间计算。 */

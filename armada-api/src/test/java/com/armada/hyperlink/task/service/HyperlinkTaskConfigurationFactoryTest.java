@@ -58,9 +58,11 @@ class HyperlinkTaskConfigurationFactoryTest {
     @Test
     void normalizesEveryFilterBackedByAccountProfile() {
         HyperlinkAccountFilterDTO profileFilter = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                1, null, null, null, null, true, null, null, 4,
-                10, 20, null, null, 90, 180, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, 1, null, null, null,
+                null, true, null, null, 4, 10,
+                20, null, null, null, null, 90,
+                180, null, null);
 
         var normalized = factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, profileFilter)).accountFilter();
@@ -94,9 +96,11 @@ class HyperlinkTaskConfigurationFactoryTest {
     void rejectsInvalidRangesAndStaleRollingEnd() {
 
         HyperlinkAccountFilterDTO invalidRange = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, null, null, null, null,
-                null, null, BigDecimal.TEN, BigDecimal.ONE, null, null, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, BigDecimal.TEN, BigDecimal.ONE, null,
+                null, null, null);
         assertThatThrownBy(() -> factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, invalidRange)))
                 .hasMessageContaining("retentionDays 最小值不能大于最大值");
@@ -115,9 +119,11 @@ class HyperlinkTaskConfigurationFactoryTest {
                 .hasMessageContaining("groupIds 元素必须大于 0");
 
         HyperlinkAccountFilterDTO zeroRegisterDays = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, null, null, null, null,
-                null, null, null, null, 0, null, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, 0,
+                null, null, null);
         assertThatThrownBy(() -> factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, zeroRegisterDays)))
                 .hasMessageContaining("registerDaysMin 必须大于 0");
@@ -150,25 +156,31 @@ class HyperlinkTaskConfigurationFactoryTest {
     @Test
     void rejectsInvalidProfileEnumsAndRanges() {
         HyperlinkAccountFilterDTO invalidRotation = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                4, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, 4, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null);
         assertThatThrownBy(() -> factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, invalidRotation)))
                 .hasMessageContaining("rotationStatus 非法");
 
         HyperlinkAccountFilterDTO invalidFriendRange = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, null, null, null, null,
-                20, 10, null, null, null, null, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, 20,
+                10, null, null, null, null, null,
+                null, null, null);
         assertThatThrownBy(() -> factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, invalidFriendRange)))
                 .hasMessageContaining("friendCount 最小值不能大于最大值");
 
         HyperlinkAccountFilterDTO invalidSource = new HyperlinkAccountFilterDTO(
-                1, List.of(), List.of(), null, List.of(), List.of(), null, null,
-                null, null, null, null, null, null, null, null, 5,
-                null, null, null, null, null, null, null, null);
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, 5, null,
+                null, null, null, null, null, null,
+                null, null, null);
         assertThatThrownBy(() -> factory.normalizeForCreate(request(
                 "instant", null, 0, "now", 0, invalidSource)))
                 .hasMessageContaining("source 非法");
@@ -176,17 +188,21 @@ class HyperlinkTaskConfigurationFactoryTest {
 
     private HyperlinkAccountFilterDTO filter(List<String> countries, List<String> excludes,
             String continent, List<Long> groups, List<Long> channels) {
-        return new HyperlinkAccountFilterDTO(1, countries, excludes, continent, groups, channels,
-                " web ", " online ", null, 2, " android_business_companion ",
-                " WEB5 ", " FULL_PARAM ", null, " 5512 ", 30L, null,
-                null, null, BigDecimal.ZERO, BigDecimal.valueOf(10.5), null, null,
-                NOW - 10_000L, NOW + 10_000L);
+        return new HyperlinkAccountFilterDTO(
+                1, countries, excludes, continent, groups, channels,
+                " web ", " online ", null, 2, " android_business_companion ", " WEB5 ",
+                " FULL_PARAM ", null, " 5512 ", 30L, null, null,
+                null, null, null, BigDecimal.ZERO, BigDecimal.valueOf(10.5), null,
+                null, NOW - 10_000L, NOW + 10_000L);
     }
 
     private HyperlinkAccountFilterDTO emptyFilter() {
-        return new HyperlinkAccountFilterDTO(1, List.of(), List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null, null);
+        return new HyperlinkAccountFilterDTO(
+                1, List.of(), List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null);
     }
 
     private HyperlinkTaskSaveDTO request(String mode, Long plannedEndAt, int cycleMinutes,

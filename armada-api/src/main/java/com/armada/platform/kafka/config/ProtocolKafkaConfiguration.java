@@ -40,6 +40,7 @@ import org.springframework.util.backoff.FixedBackOff;
         ProtocolCommandDispatcherProperties.class,
         ProtocolAccountStateEventConsumerProperties.class,
         ProtocolAccountGroupSyncEventConsumerProperties.class,
+        ProtocolAccountContactEventConsumerProperties.class,
         ProtocolAccountEventErrorProperties.class,
         ProtocolGroupEventConsumerProperties.class,
         NormalGroupCreationKafkaProperties.class,

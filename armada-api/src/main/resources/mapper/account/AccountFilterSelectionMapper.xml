@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.selection.mapper.AccountFilterSelectionMapper">
+
+  <!--
+    账号圈选已统一走 com.armada.account.service.AccountHyperlinkCandidateService，
+    超链任务与通讯录营销共用同一份 WHERE，这里只保留发送前的协议事实复查。
+  -->
+  <!-- 圈号是启用那一刻的快照，轮次执行前必须复查：期间被封或导出的号不能再发 -->
+  <select id="selectSendableByIds"
+          resultType="com.armada.account.selection.model.SelectedAccount">
+    SELECT a.id                  AS accountId,
+           a.ws_phone            AS wsPhone,
+           a.protocol_id         AS protocolId,
+           a.protocol_account_id AS protocolAccountId
+    FROM account a
+    INNER JOIN account_state s
+            ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.protocol_account_id IS NOT NULL
+      AND a.protocol_account_id &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.account_state &lt;&gt; #{exportedAccountState}
+      AND a.id IN
+      <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+        #{accountId}
+      </foreach>
+  </select>
+
+</mapper>

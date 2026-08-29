@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskAccountMapper">
+
+  <select id="selectPage"
+          resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
+    SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
+           account_status_snapshot, need_send_num, sent_num, fail_num, state,
+           contact_synced_at, created_at, updated_at
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId}
+     ORDER BY
+    <choose>
+      <when test="sortBy == 'needSendNum'">need_send_num</when>
+      <when test="sortBy == 'sentNum'">sent_num</when>
+      <when test="sortBy == 'failNum'">fail_num</when>
+      <otherwise>id</otherwise>
+    </choose>
+    <choose>
+      <when test="sortOrder == 'asc'">ASC</when>
+      <otherwise>DESC</otherwise>
+    </choose>
+    , id ASC
+     LIMIT #{offset}, #{limit}
+  </select>
+
+  <select id="countByTaskId" resultType="long">
+    SELECT COUNT(*)
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId}
+  </select>
+
+  <!-- 展开收件人需要 task_account.id，因此单行插入并回填主键；
+       重复展开时按唯一键 (task_id, account_id) 更新，不产生第二行。 -->
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO contact_friend_task_account
+      (tenant_id, task_id, account_id, account_phone_snapshot, account_status_snapshot,
+       need_send_num, sent_num, fail_num, state, contact_synced_at, created_at, updated_at)
+    VALUES
+      (#{tenantId}, #{taskId}, #{accountId}, #{accountPhoneSnapshot}, #{accountStatusSnapshot},
+       #{needSendNum}, 0, 0, #{state}, #{contactSyncedAt}, #{createdAt}, #{updatedAt})
+    ON DUPLICATE KEY UPDATE
+      account_phone_snapshot = VALUES(account_phone_snapshot),
+      account_status_snapshot = VALUES(account_status_snapshot),
+      need_send_num = VALUES(need_send_num),
+      state = VALUES(state),
+      contact_synced_at = VALUES(contact_synced_at),
+      updated_at = VALUES(updated_at)
+  </insert>
+
+  <select id="selectById"
+          resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
+    SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
+           account_status_snapshot, need_send_num, sent_num, fail_num, state,
+           contact_synced_at, created_at, updated_at
+      FROM contact_friend_task_account
+     WHERE id = #{id}
+  </select>
+
+  <update id="incrementSentNum">
+    UPDATE contact_friend_task_account
+       SET sent_num = sent_num + 1, updated_at = #{updatedAt}
+     WHERE id = #{id}
+  </update>
+
+  <update id="incrementFailNum">
+    UPDATE contact_friend_task_account
+       SET fail_num = fail_num + 1, updated_at = #{updatedAt}
+     WHERE id = #{id}
+  </update>
+
+  <update id="markRunning">
+    UPDATE contact_friend_task_account
+       SET state = 'RUNNING', updated_at = #{updatedAt}
+     WHERE id = #{id} AND state = 'PENDING'
+  </update>
+
+  <!-- 一条都没发成功的账号收敛为 FAILED，这就是 invalid_account_num 的口径 -->
+  <update id="settleDrainedAccounts">
+    UPDATE contact_friend_task_account a
+       SET a.state = IF(a.sent_num &gt; 0, 'DONE', 'FAILED'),
+           a.account_status_snapshot = IF(a.sent_num &gt; 0, 'valid', 'invalid'),
+           a.updated_at = #{updatedAt}
+     WHERE a.task_id = #{taskId}
+       AND a.state IN ('PENDING', 'RUNNING')
+       AND NOT EXISTS (
+         SELECT 1 FROM contact_friend_task_recipient r
+          WHERE r.task_account_id = a.id
+            AND r.send_status IN ('PENDING', 'SENDING')
+       )
+  </update>
+
+  <select id="countFailedAccounts" resultType="long">
+    SELECT COUNT(*)
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId} AND state = 'FAILED'
+  </select>
+
+</mapper>

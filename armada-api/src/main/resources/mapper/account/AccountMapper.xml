@@ -24,6 +24,7 @@
              p.is_group_invite_allowed AS groupInviteAllowed,
              p.marketing_source AS marketingSource,
              p.friend_count AS friendCount,
+             p.contact_named_num AS contactNamedNum,
              p.registered_at AS registeredAt,
              <include refid="protocolBackendCase"/> AS protocolBackend,
              (
@@ -213,6 +214,12 @@
     </if>
     <if test="query.friendCountMax != null">
       AND candidate.friendCount &lt;= #{query.friendCountMax}
+    </if>
+    <if test="query.contactNamedNumMin != null">
+      AND candidate.contactNamedNum &gt;= #{query.contactNamedNumMin}
+    </if>
+    <if test="query.contactNamedNumMax != null">
+      AND candidate.contactNamedNum &lt;= #{query.contactNamedNumMax}
     </if>
     <if test="query.retentionDaysMin != null">
       AND (#{query.observedAt} - candidate.createdAt) / 86400000.0 &gt;= #{query.retentionDaysMin}

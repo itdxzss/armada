@@ -1105,6 +1105,7 @@ class ProtocolCommandOutboxServiceImplTest {
                         "marketing_task",
                         new MessageSendCommand.MarketingCorrelation(42L, 7001L, 9001L, 1L),
                         null,
+                        null,
                         null),
                 "cmd_android",
                 750,
@@ -1164,7 +1165,8 @@ class ProtocolCommandOutboxServiceImplTest {
                         "historical_group_pull",
                         null,
                         null,
-                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L)),
+                        new MessageSendCommand.HistoricalGroupCorrelation(91L, 301L),
+                        null),
                 "cmd_historical",
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
                 0L);

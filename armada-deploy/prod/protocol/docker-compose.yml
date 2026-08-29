@@ -17,6 +17,10 @@ x-protocol-common-env: &protocol-common-env
   KAFKA_TOPIC_ACCOUNT: ${KAFKA_TOPIC_ACCOUNT:-protocol.account.events.v1}
   KAFKA_TOPIC_ACCOUNT_STATE: ${KAFKA_TOPIC_ACCOUNT_STATE:-protocol.account.state.events.v1}
   KAFKA_TOPIC_ACCOUNT_GROUP_SYNC: ${KAFKA_TOPIC_ACCOUNT_GROUP_SYNC:-protocol.account.group-sync.events.v1}
+  KAFKA_TOPIC_ACCOUNT_CONTACT_SYNC: ${KAFKA_TOPIC_ACCOUNT_CONTACT_SYNC:-protocol.account.contact-sync.events.v1}
+  # 周期强制全量快照的间隔；R2（频繁 resync 是否触发风控）实测之前置 0 关掉周期推送，
+  # 只保留账号上线时的那一次。
+  CONTACT_SNAPSHOT_INTERVAL_MS: ${CONTACT_SNAPSHOT_INTERVAL_MS:-0}
   KAFKA_TOPIC_OWNER: ${KAFKA_TOPIC_OWNER:-protocol.owner.events.v1}
   KAFKA_TOPIC_MESSAGE: ${KAFKA_TOPIC_MESSAGE:-protocol.message.events.v1}
   KAFKA_TOPIC_GROUP: ${KAFKA_TOPIC_GROUP:-protocol.group.events.v1}

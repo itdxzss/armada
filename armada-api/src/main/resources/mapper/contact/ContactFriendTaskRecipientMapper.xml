@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper">
+
+  <resultMap id="recipientMap"
+             type="com.armada.contact.task.model.entity.ContactFriendTaskRecipient">
+    <id column="id" property="id"/>
+    <result column="tenant_id" property="tenantId"/>
+    <result column="task_id" property="taskId"/>
+    <result column="task_account_id" property="taskAccountId"/>
+    <result column="contact_phone" property="contactPhone"/>
+    <result column="contact_jid" property="contactJid"/>
+    <result column="contact_named" property="contactNamed"/>
+    <result column="send_status" property="sendStatus"/>
+    <result column="attempt_count" property="attemptCount"/>
+    <result column="protocol_message_id" property="protocolMessageId"/>
+    <result column="error_code" property="errorCode"/>
+    <result column="error_desc" property="errorDesc"/>
+    <result column="first_sent_at" property="firstSentAt"/>
+    <result column="last_attempt_at" property="lastAttemptAt"/>
+    <result column="round_no" property="roundNo"/>
+    <result column="command_id" property="commandId"/>
+    <result column="created_at" property="createdAt"/>
+    <result column="updated_at" property="updatedAt"/>
+  </resultMap>
+
+  <sql id="recipientColumns">
+    id, tenant_id, task_id, task_account_id, contact_phone, contact_jid,
+    contact_named, send_status, attempt_count, protocol_message_id,
+    error_code, error_desc, first_sent_at, last_attempt_at,
+    round_no, command_id, created_at, updated_at
+  </sql>
+
+  <!-- 幂等键 (task_id, task_account_id, contact_phone) 冲突时忽略：重复展开不产生重复收件人 -->
+  <insert id="insertBatch">
+    INSERT IGNORE INTO contact_friend_task_recipient
+      (tenant_id, task_id, task_account_id, contact_phone, contact_jid,
+       contact_named, send_status, attempt_count, created_at, updated_at)
+    VALUES
+    <foreach collection="rows" item="row" separator=",">
+      (#{row.tenantId}, #{row.taskId}, #{row.taskAccountId}, #{row.contactPhone},
+       #{row.contactJid}, #{row.contactNamed}, 'PENDING', 0,
+       #{row.createdAt}, #{row.updatedAt})
+    </foreach>
+  </insert>
+
+  <select id="selectPendingByAccount" resultMap="recipientMap">
+    SELECT <include refid="recipientColumns"/>
+    FROM contact_friend_task_recipient
+    WHERE task_account_id = #{taskAccountId}
+      AND send_status = 'PENDING'
+    ORDER BY id
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectAccountIdsWithPending" resultType="java.lang.Long">
+    SELECT task_account_id
+    FROM contact_friend_task_recipient
+    WHERE task_id = #{taskId}
+      AND send_status = 'PENDING'
+    GROUP BY task_account_id
+    ORDER BY task_account_id
+    LIMIT #{limit}
+  </select>
+
+  <update id="claimForSend">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'SENDING',
+        round_no = #{roundNo},
+        command_id = #{commandId},
+        attempt_count = attempt_count + 1,
+        last_attempt_at = #{updatedAt},
+        updated_at = #{updatedAt}
+    WHERE id = #{id}
+      AND send_status = 'PENDING'
+  </update>
+
+  <update id="markSuccess">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'SUCCESS',
+        protocol_message_id = #{protocolMessageId},
+        error_code = NULL,
+        error_desc = NULL,
+        first_sent_at = COALESCE(first_sent_at, #{resultAt}),
+        updated_at = #{resultAt}
+    WHERE id = #{id}
+      AND send_status = 'SENDING'
+  </update>
+
+  <update id="markFailed">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'FAILED',
+        error_code = #{errorCode},
+        error_desc = #{errorDesc},
+        updated_at = #{resultAt}
+    WHERE id = #{id}
+      AND send_status = 'SENDING'
+  </update>
+
+  <!-- 置回 PENDING 让下一轮重排；attempt_count 已在 claimForSend 自增，这里不再加 -->
+  <update id="markRetry">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'PENDING',
+        command_id = NULL,
+        error_code = #{errorCode},
+        error_desc = #{errorDesc},
+        updated_at = #{resultAt}
+    WHERE id = #{id}
+      AND send_status = 'SENDING'
+  </update>
+
+  <select id="countUnfinished" resultType="long">
+    SELECT COUNT(*)
+    FROM contact_friend_task_recipient
+    WHERE task_id = #{taskId}
+      AND send_status IN ('PENDING', 'SENDING')
+  </select>
+
+  <select id="countInFlight" resultType="long">
+    SELECT COUNT(*)
+    FROM contact_friend_task_recipient
+    WHERE task_id = #{taskId}
+      AND send_status = 'SENDING'
+  </select>
+
+  <select id="selectById" resultMap="recipientMap">
+    SELECT <include refid="recipientColumns"/>
+    FROM contact_friend_task_recipient
+    WHERE id = #{id}
+  </select>
+
+</mapper>

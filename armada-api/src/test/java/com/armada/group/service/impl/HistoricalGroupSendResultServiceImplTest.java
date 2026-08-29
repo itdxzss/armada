@@ -63,7 +63,8 @@ class HistoricalGroupSendResultServiceImplTest {
                 "evt-ordinary", TENANT_ID, 1L, 2L, 3L, 1L,
                 "acc-history-1", "120363history@g.us", "cmd-ordinary", true,
                 "wamid.1", null, null, 1783159200000L, "worker-a",
-                null, null, "marketing_task", null, null, null, null, null);
+                null, null, "marketing_task", null, null, null, null, null,
+                null, null, null);
         assertThat(service.supports(ordinary)).isFalse();
     }
 
@@ -196,6 +197,7 @@ class HistoricalGroupSendResultServiceImplTest {
                 success ? null : "完整协议失败详情",
                 1783159200000L, "worker-a", null, null,
                 "historical_group_pull", "UNCONFIRMED", "PRECHECK_SKIPPED_BY_SOURCE",
-                1783159199000L, EXECUTION_ID, MEMBER_ID);
+                1783159199000L, EXECUTION_ID, MEMBER_ID,
+                null, null, null);
     }
 }

@@ -1,16 +1,16 @@
 # 通讯录营销 交接状态
 
-- 更新时间：2026-08-29（通讯录快照推送 S1–S4 全部落地后回填）
+- 更新时间：2026-08-29（P4 前端落地后回填）
 - 用途：**上下文清空后的唯一权威入口**。接手时先读本文，再读引用的设计与计划文档。
 - 本文覆盖**两条工作线**：
-  - **A 线 通讯录营销**（§0–§9）—— 四块做完三块，只剩前端
+  - **A 线 通讯录营销**（§0–§9）—— **五块全部做完，含前端**
   - **B 线 通讯录快照推送**（§10）—— 采集链路重做，**S1–S4 全部完成**
 
 ---
 
 ## 0. 一句话现状
 
-**A 线（通讯录营销）：协议层、通讯录采集、任务 CRUD、发送引擎全部落地并零回归；只剩前端一行代码没写。**
+**A 线（通讯录营销）：协议层、通讯录采集、任务 CRUD、发送引擎、前端全部落地并零回归。**
 
 **B 线（通讯录快照推送）：整条链路已改完并零回归——协议层强制全量快照 + 分片推送，armada 消费落库，
 拉取路径已退役，安卓侧同样推快照。详见 §10。**
@@ -18,9 +18,12 @@
 现在的实际效果：数据库有表、6 个接口能调、**账号上线协议层自动推一份全量通讯录快照，armada 整批替换落库**，菜单和权限节点就位，
 **任务启用后会真的圈号、展开收件人、按轮次把私聊消息投给协议层，并把三级回执写回计数直到任务自动完成。**
 
-**唯一缺口是前端**：`wheel-saas-pure-web` 零改动，界面上还看不到「通讯录营销」菜单，
-只能靠直接调接口驱动。另外发送链路与快照落库都只做过纯类测试，
-**没有在有库环境跑通过一次真实闭环**（见 §6.1）。
+**代码层面已无缺口。** 前端 `wheel-saas-pure-web` 有了「通讯录营销」菜单、任务列表、
+四段式任务抽屉、账号数据抽屉、账号筛选弹窗与剧本任务空占位，账号范围试算也已打通。
+
+**真正的缺口是验证**：发送链路、快照落库与前端都只做过纯类/源码契约测试，
+**从未在有库 + 有 Kafka 的环境跑通过一次真实闭环**（见 §6.1），
+且 B 线的 R1/R2 两项真机验证卡在上线前（见 §10.6）。
 
 ---
 
@@ -167,15 +170,34 @@ armada 侧新增 `protocol.account.contact-sync.events.v1` 消费器与
 
 ## 4. 未完成
 
-### P4 前端（wheel-saas-pure-web）— 计划未写，仓库零改动
+**代码全部完成，剩下的都是验证与集成**，见 §6.1、§8、§10.6、§11。
+
+### P4 前端（wheel-saas-pure-web）—— 已完成
+
+计划：`docs/superpowers/plans/2026-08-29-contact-marketing-p4-frontend.md`
 
 ```
-src/views/contact/
-  hyperlink/index.vue + components/ + composables/ + domain/
-  script/index.vue        ← Result 空占位，逐字复刻竞品
+src/api/contact-task.ts                      6 接口 + 试算 + 图片上传
+src/views/contact/hyperlink/
+  index.vue                                  7 列列表页（含成功率进度条）
+  components/  搜索卡 / 任务抽屉 / WhatsApp 预览 / 账号数据抽屉 / 账号筛选弹窗
+  composables/useContactTaskPage.ts
+  domain/      task-form / interval-preset / task-status / account-filter
+src/views/contact/script/index.vue           Result 空占位，逐字复刻
+mock/asyncRoutes.ts + src/router/contact-route.test.ts
 ```
 
-菜单与路由接入 `src/router/`，补 `contact-route.test.ts`（对齐 `hyperlink-route.test.ts`）。
+**样式用我们自己的（Element Plus + `--el-*`），元素按竞品清单逐条对齐**：
+两处进度条、账号统计三项、国家标签带国旗且超 3 折叠 `+N`、四档间隔预设、
+启停二选一卡片、上传区、CSV 导出 12 列、分页 `10/20/50/100/200`、
+账号数据三列服务端排序。前端 127 个测试全绿。
+
+**前端回归基线**：仓库既有 5 个失败（`src/api/group.test.ts` 1、`GroupMemberDrawer` 1、
+`useGroupPermissions` 3），本次未增。
+
+> **跑前端测试必须带 alias loader**：
+> `node --import ./src/api/__tests__/node-test-alias.mjs --test "src/**/*.test.ts"`。
+> 直接跑 `npm test` 会因 Node 23 加载不了 `nprogress.css` 产生大量假红，不是业务回归结论。
 
 ---
 
@@ -378,7 +400,27 @@ echo -n "Errors: ";   grep -h "^Tests run:" *.txt | sed 's/.*Errors: \([0-9]*\).
     整份 1200 人的快照会被写成个位数好友数。必须另查
     `countNamedBySyncedAt(accountId, snapshotCutoff)`。这是计划里就点名的必修偏差。
 
-15. **强制 resync 必须防并发。** 同账号并发两次会把重放事件分流到两份都不完整的 store，
+15. **筛选条件「白名单放行」不等于「SQL 会用」。** `ContactAccountFilterNormalizer`
+    放行约 20 个键，但 `AccountFilterCriteria` + 圈号 SQL 只实现其中一部分；
+    `group_invite_allowed`、`continent`、`platform`、`wid_type`、`online_status`、
+    `error_code|desc`、`created_at_*`、`logged_in_*`、`retention_days_*` 全是**存了不生效**。
+    前端一度把 `group_invite_allowed` 画成控件，等于骗用户「已按此筛选」。
+    **加筛选控件前先在 `AccountFilterSelectionMapper.xml` 里确认该条件真的出现在 WHERE 里。**
+
+16. **试算与真实圈号必须共用同一份 WHERE。** 两份条件迟早漂移，界面显示的命中数就会骗人。
+    做法是把条件抽成 `<sql id="selectionWhere">`，`selectAccounts` 与 `countAccounts` 都 `<include>`。
+    另外**不能用 `select(...).size()` 试算**——那会被 limit 截断，把「命中 5000」显示成「命中 10」。
+
+17. **试算失败要清空计数而不是显示 0。** 显示 0 会让抽屉误判「没命中任何账号」并阻止启用，
+    把一次网络抖动变成一个假的业务错误。
+
+18. **前端仓有两套 runner，别用错。** 169 个测试用 `node:test`，**vitest 不在 `package.json` 里**。
+    组件测试是**源码文本契约测试**（`readFileSync` + 正则），不是挂载测试。
+
+19. **提交钩子的 prettier 会折行，钉死换行的正则会在全量里假红。** 单文件跑过的测试，
+    提交后再跑可能就红了。断言里用 `\s*` 容忍折行。
+
+20. **强制 resync 必须防并发。** 同账号并发两次会把重放事件分流到两份都不完整的 store，
     armada 侧按「收齐」判据一删就是误删。Web 侧用 `contactSnapshotInFlight` Set，
     Go 侧用 `running` map，两边都在 `finally`/`defer` 里释放。
 

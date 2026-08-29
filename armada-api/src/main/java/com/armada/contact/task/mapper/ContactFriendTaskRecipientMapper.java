@@ -106,4 +106,12 @@ public interface ContactFriendTaskRecipientMapper {
      * @return 在途条数
      */
     long countInFlight(@Param("taskId") Long taskId);
+
+    /**
+     * 按主键读取收件人。回执处理时用来读取当前尝试次数。
+     *
+     * @param id 收件人 ID
+     * @return 收件人行，不存在时为 null
+     */
+    ContactFriendTaskRecipient selectById(@Param("id") Long id);
 }

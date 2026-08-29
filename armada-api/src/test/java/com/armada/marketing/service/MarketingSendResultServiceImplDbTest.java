@@ -754,7 +754,8 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 "GROUP_SEND_ALLOWED",
                 timestamp - 1,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 
     private static ProtocolMessageSendResultReportedEvent failedEvent(
@@ -784,7 +785,8 @@ class MarketingSendResultServiceImplDbTest extends DbTestBase {
                 "GROUP_SEND_ALLOWED",
                 timestamp - 1,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 
     private static String commandId(Long taskId, long roundNo, String groupJid) {

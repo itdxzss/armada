@@ -329,4 +329,77 @@ class ProtocolMessageEventConsumerTest {
 
         verifyNoInteractions(sink);
     }
+
+    @Test
+    void onMessage_contactTaskEnvelope_parsesCorrelationWithoutMarketingFields() {
+        // contact_task 事件没有 marketingTaskId/targetId/attemptId，不能因此判非法
+        String raw = """
+                {
+                  "eventId":"evt_contact",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_1",
+                  "occurredAt":"2026-08-29T10:00:00.000Z",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":5,
+                    "source":"contact_task",
+                    "contactTaskId":1,
+                    "taskAccountId":101,
+                    "recipientId":999,
+                    "roundNo":7,
+                    "protocolAccountId":"acc_1",
+                    "groupJid":"8613900000001@s.whatsapp.net",
+                    "commandId":"cmd_1",
+                    "success":true,
+                    "messageId":"wamid.ABC",
+                    "timestamp":1999
+                  }
+                }
+                """;
+
+        onMessage(raw);
+
+        ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        ProtocolMessageSendResultReportedEvent event = captor.getValue();
+        assertThat(event.contactTaskId()).isEqualTo(1L);
+        assertThat(event.taskAccountId()).isEqualTo(101L);
+        assertThat(event.recipientId()).isEqualTo(999L);
+        assertThat(event.roundNo()).isEqualTo(7L);
+        assertThat(event.marketingTaskId()).isNull();
+        assertThat(event.targetId()).isNull();
+        assertThat(event.attemptId()).isNull();
+    }
+
+    @Test
+    void onMessage_contactTaskEnvelopeMissingRecipientId_isRejected() {
+        // 四字段是硬契约，缺一就没法定位回写目标，必须失败重投而不是静默丢弃
+        String raw = """
+                {
+                  "eventId":"evt_contact_bad",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_1",
+                  "occurredAt":"2026-08-29T10:00:00.000Z",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":5,
+                    "source":"contact_task",
+                    "contactTaskId":1,
+                    "taskAccountId":101,
+                    "roundNo":7,
+                    "protocolAccountId":"acc_1",
+                    "groupJid":"8613900000001@s.whatsapp.net",
+                    "commandId":"cmd_1",
+                    "success":true,
+                    "timestamp":1999
+                  }
+                }
+                """;
+
+        assertThatThrownBy(() -> onMessage(raw))
+                .hasMessageContaining("recipientId");
+    }
 }

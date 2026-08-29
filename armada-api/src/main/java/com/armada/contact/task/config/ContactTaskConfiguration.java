@@ -9,6 +9,7 @@ import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
 import com.armada.contact.task.service.ContactAccountFilterNormalizer;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
+import com.armada.contact.task.service.ContactTaskSendResultSink;
 import com.armada.contact.task.service.ContactTaskService;
 import com.armada.contact.task.service.impl.ContactTaskServiceImpl;
 import com.armada.shared.tenant.TenantContext;
@@ -78,5 +79,24 @@ public class ContactTaskConfiguration {
                 recipientMapper,
                 System::currentTimeMillis,
                 TenantContext::get);
+    }
+
+    /**
+     * 装配通讯录任务发送结果回写器。
+     *
+     * <p>实现类的构造参数含 Supplier，Spring 无法自动装配，因此在这里显式构造。</p>
+     *
+     * @param taskMapper 任务主表数据访问
+     * @param accountMapper 任务账号读模型数据访问
+     * @param recipientMapper 收件人明细数据访问
+     * @return 发送结果回写 sink
+     */
+    @Bean
+    public ContactTaskSendResultSink contactTaskSendResultSink(
+            ContactFriendTaskMapper taskMapper,
+            ContactFriendTaskAccountMapper accountMapper,
+            ContactFriendTaskRecipientMapper recipientMapper) {
+        return new ContactTaskSendResultSink(
+                taskMapper, accountMapper, recipientMapper, System::currentTimeMillis);
     }
 }

@@ -88,7 +88,8 @@ class HistoricalGroupSendResultServiceImplDbTest extends DbTestBase {
                 "protocol-account-1", execution.getGroupJid(), "cmd-not-owned", false,
                 null, "SEND_FAILED", "错误命令不能污染成员", now + 1, "worker-db",
                 null, null, "historical_group_pull", "UNCONFIRMED",
-                "PRECHECK_SKIPPED_BY_SOURCE", now, execution.getId(), member.getId());
+                "PRECHECK_SKIPPED_BY_SOURCE", now, execution.getId(), member.getId(),
+                null, null, null);
 
         assertThatThrownBy(() -> service.handleSendResultReported(wrong))
                 .isInstanceOf(BusinessException.class)
@@ -148,6 +149,7 @@ class HistoricalGroupSendResultServiceImplDbTest extends DbTestBase {
                 success ? "wamid." + member.getId() : null, reasonCode, reasonMessage,
                 timestamp, "worker-db", null, null, "historical_group_pull",
                 "UNCONFIRMED", "PRECHECK_SKIPPED_BY_SOURCE", timestamp - 1,
-                execution.getId(), member.getId());
+                execution.getId(), member.getId(),
+                null, null, null);
     }
 }

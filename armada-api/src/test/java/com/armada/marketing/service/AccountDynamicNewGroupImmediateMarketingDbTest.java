@@ -181,6 +181,9 @@ class AccountDynamicNewGroupImmediateMarketingDbTest extends DbTestBase {
                 "GROUP_SEND_ALLOWED",
                 resultAt - 1,
                 null,
+                null,
+                null,
+                null,
                 null));
     }
 

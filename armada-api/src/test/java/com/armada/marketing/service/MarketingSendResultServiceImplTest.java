@@ -263,7 +263,8 @@ class MarketingSendResultServiceImplTest {
                 "PRECHECK_SKIPPED_BY_SOURCE",
                 1783159199000L,
                 91L,
-                301L);
+                301L,
+                null, null, null);
 
         assertThat(service.supports(historical)).isFalse();
     }
@@ -292,7 +293,8 @@ class MarketingSendResultServiceImplTest {
                 "GROUP_SEND_ALLOWED",
                 1783159199000L,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 
     private static MarketingSendAttemptResult successResult() {
@@ -347,7 +349,8 @@ class MarketingSendResultServiceImplTest {
                 "CHAT_SUSPENDED",
                 1783159198000L,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 
     private static ProtocolMessageSendResultReportedEvent immediateFailedEvent() {
@@ -375,7 +378,8 @@ class MarketingSendResultServiceImplTest {
                 event.groupStatusReason(),
                 event.groupStatusCheckedAt(),
                 event.historicalExecutionId(),
-                event.historicalMemberId());
+                event.historicalMemberId(),
+                null, null, null);
     }
 
     private static ProtocolMessageSendResultReportedEvent groupCreationEvent(boolean success) {
@@ -402,7 +406,8 @@ class MarketingSendResultServiceImplTest {
                 null,
                 null,
                 null,
-                null);
+                null,
+                null, null, null);
     }
 
     private static GroupCreationMarketingItem groupCreationItem() {

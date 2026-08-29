@@ -32,6 +32,7 @@ public class ProtocolMessageEventConsumer {
     public static final String EVENT_MESSAGE_SEND_RESULT_REPORTED = "message.send_result_reported";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
+    private static final String SOURCE_CONTACT_TASK = "contact_task";
 
     private final ObjectMapper objectMapper;
     private final List<ProtocolMessageSendResultReportedSink> sinks;
@@ -109,19 +110,23 @@ public class ProtocolMessageEventConsumer {
         String source = text(data, "source");
         boolean groupCreationMarketing = SOURCE_GROUP_CREATION_MARKETING.equals(source);
         boolean historicalGroupPull = SOURCE_HISTORICAL_GROUP_PULL.equals(source);
+        // 通讯录任务用自己的四字段关联，普通营销的三字段在这条链路上本来就没有
+        boolean contactTask = SOURCE_CONTACT_TASK.equals(source);
+        boolean withoutMarketingCorrelation =
+                groupCreationMarketing || historicalGroupPull || contactTask;
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
-                groupCreationMarketing || historicalGroupPull
+                withoutMarketingCorrelation
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
-                groupCreationMarketing || historicalGroupPull
+                withoutMarketingCorrelation
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
-                groupCreationMarketing || historicalGroupPull
+                withoutMarketingCorrelation
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
-                groupCreationMarketing || historicalGroupPull
+                withoutMarketingCorrelation
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
@@ -150,7 +155,16 @@ public class ProtocolMessageEventConsumer {
                 historicalGroupPull
                         ? requiredLong(data, "historicalMemberId",
                                 "协议消息发送结果事件缺少 data.historicalMemberId")
-                        : longValue(data, "historicalMemberId"));
+                        : longValue(data, "historicalMemberId"),
+                contactTask
+                        ? requiredLong(data, "contactTaskId", "协议消息发送结果事件缺少 data.contactTaskId")
+                        : longValue(data, "contactTaskId"),
+                contactTask
+                        ? requiredLong(data, "taskAccountId", "协议消息发送结果事件缺少 data.taskAccountId")
+                        : longValue(data, "taskAccountId"),
+                contactTask
+                        ? requiredLong(data, "recipientId", "协议消息发送结果事件缺少 data.recipientId")
+                        : longValue(data, "recipientId"));
     }
 
     /** 兼容协议层 envelope.data 包裹格式;测试或临时工具也可直接传扁平字段。 */

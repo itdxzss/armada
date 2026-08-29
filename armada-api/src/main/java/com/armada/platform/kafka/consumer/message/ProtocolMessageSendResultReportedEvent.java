@@ -30,6 +30,9 @@ package com.armada.platform.kafka.consumer.message;
  * @param groupStatusCheckedAt 群状态判定时间(epoch毫秒)
  * @param historicalExecutionId 历史群单群执行 ID;source=historical_group_pull 时使用
  * @param historicalMemberId 历史群营销成员 ID;source=historical_group_pull 时使用
+ * @param contactTaskId 通讯录营销任务 ID;source=contact_task 时使用
+ * @param taskAccountId 通讯录任务账号行 ID;source=contact_task 时使用
+ * @param recipientId 通讯录任务收件人 ID;source=contact_task 时使用
  */
 public record ProtocolMessageSendResultReportedEvent(
         String eventId,
@@ -54,6 +57,9 @@ public record ProtocolMessageSendResultReportedEvent(
         String groupStatusReason,
         Long groupStatusCheckedAt,
         Long historicalExecutionId,
-        Long historicalMemberId
+        Long historicalMemberId,
+        Long contactTaskId,
+        Long taskAccountId,
+        Long recipientId
 ) {
 }

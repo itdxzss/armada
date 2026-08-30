@@ -416,6 +416,9 @@ public class ProtocolCommandPublisher {
                 if (credential == null) {
                     throw validation("协议上线命令缺少账号凭据 accountId=" + ref.accountId());
                 }
+                if (credential.getUpdatedAt() == null) {
+                    throw validation("协议上线命令缺少凭据版本 accountId=" + ref.accountId());
+                }
                 IpProxy proxy = proxiesById.get(ref.proxyId());
                 if (proxy == null) {
                     throw validation("协议上线命令缺少代理 proxyId=" + ref.proxyId());
@@ -432,6 +435,10 @@ public class ProtocolCommandPublisher {
                                 credentialPayload,
                                 proxyPayload,
                                 ref.isBusiness(),
+                                ref.declaredAccountType(),
+                                ref.detectAccountType(),
+                                ref.deviceOs(),
+                                credential.getUpdatedAt(),
                                 ref.source(),
                                 ref.onlineAttemptId(),
                                 ref.previousOnlineAttemptId(),
@@ -467,12 +474,20 @@ public class ProtocolCommandPublisher {
         Long proxyId = requiredLong(payload, "proxyId", row.getCommandId());
         String protocolAccountId = textOrDefault(payload, "protocolAccountId", row.getProtocolAccountId());
         boolean isBusiness = booleanValue(payload, "isBusiness", false);
+        int declaredAccountType = integerValue(
+                payload, "declaredAccountType", isBusiness ? 2 : 1);
+        boolean detectAccountType = booleanValue(payload, "detectAccountType", false);
+        int deviceOs = integerValue(payload, "deviceOs", 1);
+        if (deviceOs != 1 && deviceOs != 2) {
+            throw validation("协议上线命令设备平台非法 accountId=" + accountId);
+        }
         String source = textOrDefault(payload, "source", "unknown");
         String onlineAttemptId = requiredText(payload, "onlineAttemptId", row.getCommandId());
         String previousOnlineAttemptId = textOrDefault(payload, "previousOnlineAttemptId", null);
         String protocolBackend = protocolBackend(payload, row);
         CredentialFormat format = credentialFormat(requiredText(payload, "credentialFormat", row.getCommandId()));
-        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId, isBusiness, source,
+        return new OnlineRowRef(row, tenantId, accountId, protocolAccountId, format, proxyId,
+                isBusiness, declaredAccountType, detectAccountType, deviceOs, source,
                 onlineAttemptId, previousOnlineAttemptId, protocolBackend);
     }
 
@@ -596,6 +611,17 @@ public class ProtocolCommandPublisher {
         return value.asBoolean();
     }
 
+    private static int integerValue(JsonNode payload, String fieldName, int defaultValue) {
+        JsonNode value = payload.path(fieldName);
+        if (value.isMissingNode() || value.isNull()) {
+            return defaultValue;
+        }
+        if (!value.isIntegralNumber()) {
+            throw validation("协议上线命令字段不是整数: " + fieldName);
+        }
+        return value.asInt();
+    }
+
     private static String protocolBackend(JsonNode payload, ProtocolCommandOutbox row) {
         String payloadBackend = textOrDefault(payload, "protocolBackend", null);
         if (!isBlank(payloadBackend)) {
@@ -655,6 +681,9 @@ public class ProtocolCommandPublisher {
             CredentialFormat format,
             Long proxyId,
             boolean isBusiness,
+            int declaredAccountType,
+            boolean detectAccountType,
+            int deviceOs,
             String source,
             String onlineAttemptId,
             String previousOnlineAttemptId,
@@ -670,6 +699,10 @@ public class ProtocolCommandPublisher {
             Map<String, Object> credential,
             ProxyDescriptor proxy,
             boolean isBusiness,
+            int declaredAccountType,
+            boolean detectAccountType,
+            int deviceOs,
+            Long credentialVersion,
             String source,
             String onlineAttemptId,
             @JsonInclude(JsonInclude.Include.ALWAYS)

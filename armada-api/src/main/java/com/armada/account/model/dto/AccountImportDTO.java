@@ -10,7 +10,7 @@ package com.armada.account.model.dto;
  * @param accountGroupId 目标分组 ID;为 null 时由 Service 自动取系统默认分组
  * @param importFormat   导入格式编码:1六段 2JSON 3全参,对应 {@link com.armada.account.model.entity.ImportFormat}
  * @param deviceOs       机型:1安卓 2苹果(选填,可为 null)
- * @param accountType    账号类型:1个人 2商业;导入即冻结,后续操作不得改写
+ * @param accountType    导入申报账号类型:1个人 2商业;首次 ONLINE 后由协议自动校验
  * @param ipRegion       导入时选择的 IP 国家/地区名称
  * @param ipAllocationMode 导入时选择的 IP 分配方式:smart=按账号区号匹配国家 mixed=混合国家
  * @param remark         备注(可为 null)

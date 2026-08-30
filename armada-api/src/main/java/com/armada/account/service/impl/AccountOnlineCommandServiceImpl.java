@@ -11,6 +11,8 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
+import com.armada.account.model.enums.AccountTypeCode;
+import com.armada.account.model.enums.AccountTypeVerifyStatusCode;
 import com.armada.account.model.vo.AccountIpRegionRow;
 import com.armada.account.model.vo.AccountBatchOnlineItemVO;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
@@ -254,7 +256,10 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     onlineAttemptId,
                     previousAttemptId(account.getId(), source, failedOnlineAttemptId),
                     ProtocolBackend.fromProtocolId(account.getProtocolId()),
-                    isBusinessAccount(account));
+                    isBusinessAccount(account),
+                    declaredAccountType(account),
+                    shouldDetectAccountType(account),
+                    deviceOs(account));
             int snapshotUpdated = updateProxySnapshots(List.of(new IpProxyAccountAllocation(
                     account.getId(), allocation.proxyId(), allocation.endpoint(), allocation.proxySource())));
             if (snapshotUpdated != 1) {
@@ -739,7 +744,10 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                         onlineAttemptId,
                         previousAttemptId(accountId, source, null),
                         protocolBackend,
-                        isBusinessAccount(account));
+                        isBusinessAccount(account),
+                        declaredAccountType(account),
+                        shouldDetectAccountType(account),
+                        deviceOs(account));
                 prepared.add(new PreparedOnlineCommand(accountId, protocolAccountId, command));
             }
 
@@ -958,7 +966,27 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     }
 
     private static boolean isBusinessAccount(Account account) {
-        return account != null && Integer.valueOf(2).equals(account.getAccountType());
+        return account != null && Integer.valueOf(AccountTypeCode.BUSINESS).equals(account.getAccountType());
+    }
+
+    private static int declaredAccountType(Account account) {
+        if (account != null && account.getDeclaredAccountType() != null) {
+            return account.getDeclaredAccountType();
+        }
+        return isBusinessAccount(account) ? AccountTypeCode.BUSINESS : AccountTypeCode.PERSONAL;
+    }
+
+    private static boolean shouldDetectAccountType(Account account) {
+        return account != null
+                && Integer.valueOf(AccountTypeVerifyStatusCode.PENDING)
+                .equals(account.getAccountTypeVerifyStatus());
+    }
+
+    private static int deviceOs(Account account) {
+        if (account == null || account.getDeviceOs() == null) {
+            return 1;
+        }
+        return account.getDeviceOs();
     }
 
     private static List<Long> normalizeProxyIds(List<Long> proxyIds) {

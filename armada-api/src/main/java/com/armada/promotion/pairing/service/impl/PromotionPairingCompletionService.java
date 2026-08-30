@@ -195,8 +195,8 @@ public class PromotionPairingCompletionService {
     /**
      * 将协议层明确识别的类型映射到既有账号类型。
      *
-     * <p>账号类型入库后不可修改，因此 UNKNOWN、空值或未来新增值必须拒绝落库，
-     * 不能静默按个人号处理。</p>
+     * <p>配对成功回包本身是可靠类型事实，因此 UNKNOWN、空值或未来新增值必须拒绝落库，
+     * 不能静默按个人号处理；此入口直接写成已确认状态。</p>
      */
     private static int resolveAccountType(String detectedAccountType) {
         if (TYPE_PERSONAL.equalsIgnoreCase(detectedAccountType)) {

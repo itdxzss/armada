@@ -59,6 +59,10 @@ class PromotionAccountProvisionServiceImplTest {
         assertThat(accountCaptor.getValue().getChannelName()).isEqualTo("印度投放");
         assertThat(accountCaptor.getValue().getProtocolAccountId()).isEqualTo("acc_919876543210");
         assertThat(accountCaptor.getValue().getAccountType()).isEqualTo(2);
+        assertThat(accountCaptor.getValue().getDeclaredAccountType()).isEqualTo(2);
+        assertThat(accountCaptor.getValue().getAccountTypeVerifyStatus()).isEqualTo(1);
+        assertThat(accountCaptor.getValue().getAccountTypeVerifySource()).isEqualTo(2);
+        assertThat(accountCaptor.getValue().getAccountTypeVerifiedAt()).isEqualTo(1_800_000_000_000L);
 
         ArgumentCaptor<AccountState> stateCaptor = ArgumentCaptor.forClass(AccountState.class);
         verify(stateMapper).updateLoginAndAccountState(stateCaptor.capture());

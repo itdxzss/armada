@@ -326,13 +326,25 @@
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at。tenant_id 由拦截器注入。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account (
-      ws_phone, account_type, device_os, number_source, channel_name,
+      ws_phone, account_type, declared_account_type, account_type_verify_status,
+      account_type_verify_source, account_type_verified_at,
+      device_os, number_source, channel_name,
       ownership, lease_until, account_group_id,
       protocol_id, protocol_account_id, protocol_address,
       priority, dispatched_at, remark,
       created_at, updated_at, created_by
     ) VALUES (
-      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName},
+      #{wsPhone}, #{accountType},
+      <choose>
+        <when test="declaredAccountType != null">#{declaredAccountType}</when>
+        <otherwise>#{accountType}</otherwise>
+      </choose>,
+      <choose>
+        <when test="accountTypeVerifyStatus != null">#{accountTypeVerifyStatus}</when>
+        <otherwise>4</otherwise>
+      </choose>,
+      #{accountTypeVerifySource}, #{accountTypeVerifiedAt},
+      #{deviceOs}, #{numberSource}, #{channelName},
       #{ownership}, #{leaseUntil}, #{accountGroupId},
       #{protocolId}, #{protocolAccountId}, #{protocolAddress},
       #{priority}, #{dispatchedAt}, #{remark},
@@ -343,13 +355,25 @@
   <!-- 推广配对专用写入：保留通用 insert 原样，仅此入口写渠道归因。 -->
   <insert id="insertPromotionAccount" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account (
-      ws_phone, account_type, device_os, number_source, channel_name, promotion_channel_id,
+      ws_phone, account_type, declared_account_type, account_type_verify_status,
+      account_type_verify_source, account_type_verified_at,
+      device_os, number_source, channel_name, promotion_channel_id,
       ownership, lease_until, account_group_id,
       protocol_id, protocol_account_id, protocol_address,
       priority, dispatched_at, remark,
       created_at, updated_at, created_by
     ) VALUES (
-      #{wsPhone}, #{accountType}, #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
+      #{wsPhone}, #{accountType},
+      <choose>
+        <when test="declaredAccountType != null">#{declaredAccountType}</when>
+        <otherwise>#{accountType}</otherwise>
+      </choose>,
+      <choose>
+        <when test="accountTypeVerifyStatus != null">#{accountTypeVerifyStatus}</when>
+        <otherwise>4</otherwise>
+      </choose>,
+      #{accountTypeVerifySource}, #{accountTypeVerifiedAt},
+      #{deviceOs}, #{numberSource}, #{channelName}, #{promotionChannelId},
       #{ownership}, #{leaseUntil}, #{accountGroupId},
       #{protocolId}, #{protocolAccountId}, #{protocolAddress},
       #{priority}, #{dispatchedAt}, #{remark},
@@ -381,6 +405,39 @@
       AND deleted_at IS NULL
     LIMIT 1
   </select>
+
+  <!-- 协议检测结果只允许命中同租户、同协议身份和同一凭据版本；旧事件不得覆盖新结果。 -->
+  <update id="updateTypeVerification">
+    UPDATE account a
+    SET
+        <if test="row.accountType != null">
+          a.account_type = #{row.accountType},
+        </if>
+        a.account_type_verify_status = #{row.accountTypeVerifyStatus},
+        a.account_type_verify_source = #{row.accountTypeVerifySource},
+        a.account_type_verified_at = #{row.accountTypeVerifiedAt},
+        <if test="row.businessVerificationLevel != null">
+          a.business_verification_level = #{row.businessVerificationLevel},
+          a.business_verification_source = #{row.businessVerificationSource},
+          a.business_verification_verified_at = #{row.businessVerificationVerifiedAt},
+        </if>
+        a.updated_at = #{row.updatedAt}
+    WHERE a.tenant_id = #{row.tenantId}
+      AND a.id = #{row.id}
+      AND a.protocol_account_id = #{row.protocolAccountId}
+      AND UPPER(TRIM(a.protocol_id)) = #{row.protocolId}
+      AND a.deleted_at IS NULL
+      AND (a.account_type_verified_at IS NULL
+           OR a.account_type_verified_at &lt; #{row.accountTypeVerifiedAt})
+      AND EXISTS (
+        SELECT 1
+        FROM account_credential c
+        WHERE c.tenant_id = #{row.tenantId}
+          AND c.account_id = a.id
+          AND c.updated_at = #{credentialVersion}
+          AND c.deleted_at IS NULL
+      )
+  </update>
 
   <!--
     指定账号分组随机选在线正常拉手账号。协议字段必须完整，风险未上报或明确允许且未禁言。
@@ -738,7 +795,15 @@
   -->
   <select id="selectPage" resultType="com.armada.account.model.vo.AccountListVoRow">
     SELECT a.id, a.ws_phone AS wsPhone,
-           a.account_type AS accountType, a.device_os AS deviceOs,
+           a.account_type AS accountType,
+           a.declared_account_type AS declaredAccountType,
+           a.account_type_verify_status AS accountTypeVerifyStatus,
+           a.account_type_verify_source AS accountTypeVerifySource,
+           a.account_type_verified_at AS accountTypeVerifiedAt,
+           a.business_verification_level AS businessVerificationLevel,
+           a.business_verification_source AS businessVerificationSource,
+           a.business_verification_verified_at AS businessVerificationVerifiedAt,
+           a.device_os AS deviceOs,
            a.number_source AS numberSource, a.channel_name AS channelName,
            a.protocol_id AS protocolId,
            <include refid="protocolBackendCase"/> AS protocolBackend,

@@ -489,6 +489,7 @@ class ProtocolCommandPublisherTest {
                 "acc_919000000001",
                 "{\"accountId\":100,\"protocolAccountId\":\"acc_919000000001\","
                         + "\"credentialFormat\":\"SIX_SEGMENT\",\"proxyId\":7,\"isBusiness\":true,"
+                        + "\"declaredAccountType\":2,\"detectAccountType\":true,\"deviceOs\":2,"
                         + "\"source\":\"batch_online\",\"onlineAttemptId\":\"oa_android\","
                         + "\"previousOnlineAttemptId\":\"oa_previous\",\"protocolBackend\":\"ANDROID\"}");
         row.setKafkaTopic("protocol.android.commands.v1");
@@ -515,6 +516,10 @@ class ProtocolCommandPublisherTest {
         assertThat(envelope.payload().get("protocolAccountId").asText()).isEqualTo("acc_919000000001");
         assertThat(envelope.payload().get("format").asText()).isEqualTo("six");
         assertThat(envelope.payload().path("isBusiness").asBoolean()).isTrue();
+        assertThat(envelope.payload().path("declaredAccountType").asInt()).isEqualTo(2);
+        assertThat(envelope.payload().path("detectAccountType").asBoolean()).isTrue();
+        assertThat(envelope.payload().path("credentialVersion").asLong()).isEqualTo(1_788_000_000_000L);
+        assertThat(envelope.payload().path("deviceOs").asInt()).isEqualTo(2);
         assertThat(envelope.payload().get("credential").get("static_pub_key").asText()).isEqualTo("static-pub");
         assertThat(envelope.payload().get("credential").get("phone_id").asText()).isEqualTo("phone-id");
         assertThat(envelope.payload().get("proxy").get("protocol").asText()).isEqualTo("socks5");
@@ -741,6 +746,7 @@ class ProtocolCommandPublisherTest {
         credential.setAccountId(accountId);
         credential.setCredFormat(format);
         credential.setCredsJson(json);
+        credential.setUpdatedAt(1_788_000_000_000L);
         return credential;
     }
 

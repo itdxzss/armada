@@ -52,6 +52,8 @@ class AccountImportRowWriterTest {
         assertThat(accountId).isEqualTo(123L);
         assertThat(accountCaptor.getValue().getProtocolId()).isEqualTo(ProtocolBackend.ANDROID.name());
         assertThat(accountCaptor.getValue().getProtocolAccountId()).isEqualTo("acc_27612057408");
+        assertThat(accountCaptor.getValue().getDeclaredAccountType()).isEqualTo(1);
+        assertThat(accountCaptor.getValue().getAccountTypeVerifyStatus()).isZero();
         assertThat(credentialCaptor.getValue().getCredFormat()).isEqualTo(ImportFormat.SIX.getCode());
         assertThat(credentialCaptor.getValue().getCredsJson()).contains("\"phone\":\"27612057408\"");
     }

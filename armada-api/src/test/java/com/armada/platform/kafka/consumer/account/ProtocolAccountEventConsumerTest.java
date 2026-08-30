@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.trace.TraceContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,6 +39,9 @@ class ProtocolAccountEventConsumerTest {
     private ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
 
     @Mock
+    private ProtocolAccountTypeDetectedSink typeDetectedSink;
+
+    @Mock
     private ProtocolAccountGroupMembershipChangedSink membershipChangedSink;
 
     @Mock
@@ -56,6 +60,7 @@ class ProtocolAccountEventConsumerTest {
         consumer = new ProtocolAccountEventConsumer(
                 new ObjectMapper(),
                 sink,
+                typeDetectedSink,
                 groupsReportedSink,
                 offlineDiagnosedSink,
                 new ProtocolAccountGroupEventSinks(
@@ -155,6 +160,50 @@ class ProtocolAccountEventConsumerTest {
         assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
         assertThat(event.proxyId()).isEqualTo(7L);
         assertThat(event.workerId()).isEqualTo("worker-a");
+    }
+
+    @Test
+    void onStateMessage_typeDetectedEnvelope_dispatchesCorrelatedDetection() {
+        onStateMessage("""
+                {
+                  "eventId": "evt-type-1",
+                  "event": "account.type_detected",
+                  "accountId": "acc_861800000001",
+                  "occurredAt": "2026-08-30T01:00:00Z",
+                  "workerId": "android-1",
+                  "data": {
+                    "tenantId": 7,
+                    "accountId": 100,
+                    "protocolAccountId": "acc_861800000001",
+                    "onlineAttemptId": "oa-1",
+                    "commandId": "cmd-1",
+                    "protocolBackend": "ANDROID",
+                    "credentialVersion": 1788000000000,
+                    "declaredAccountType": 1,
+                    "detectedAccountType": "BUSINESS_STANDARD",
+                    "verificationLevel": "HIGH",
+                    "source": "business_profile_query",
+                    "detectedAt": "2026-08-30T00:59:59Z"
+                  }
+                }
+                """);
+
+        ArgumentCaptor<ProtocolAccountTypeDetectedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountTypeDetectedEvent.class);
+        verify(typeDetectedSink).handleTypeDetected(captor.capture());
+        assertThat(captor.getValue()).satisfies(event -> {
+            assertThat(event.eventId()).isEqualTo("evt-type-1");
+            assertThat(event.tenantId()).isEqualTo(7L);
+            assertThat(event.accountId()).isEqualTo(100L);
+            assertThat(event.protocolAccountId()).isEqualTo("acc_861800000001");
+            assertThat(event.credentialVersion()).isEqualTo(1_788_000_000_000L);
+            assertThat(event.declaredAccountType()).isEqualTo(1);
+            assertThat(event.detectedAccountType()).isEqualTo("BUSINESS_STANDARD");
+            assertThat(event.verificationLevel()).isEqualTo("HIGH");
+            assertThat(event.source()).isEqualTo("business_profile_query");
+            assertThat(event.detectedAt())
+                    .isEqualTo(Instant.parse("2026-08-30T00:59:59Z").toEpochMilli());
+        });
     }
 
     @Test

@@ -39,6 +39,9 @@ public class ProtocolAccountEventConsumer {
     /** 现役协议层账号状态变更事件类型。 */
     public static final String EVENT_ACCOUNT_STATE_CHANGED = "account.state_changed";
 
+    /** 协议层账号类型检测事件类型。 */
+    public static final String EVENT_ACCOUNT_TYPE_DETECTED = "account.type_detected";
+
     /** 协议层账号当前群列表回报事件类型。 */
     public static final String EVENT_ACCOUNT_GROUPS_REPORTED = "account.groups_reported";
 
@@ -70,6 +73,7 @@ public class ProtocolAccountEventConsumer {
 
     private final ObjectMapper objectMapper;
     private final ProtocolAccountStateChangedSink stateChangedSink;
+    private final ProtocolAccountTypeDetectedSink typeDetectedSink;
     private final ProtocolAccountGroupsReportedSink groupsReportedSink;
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
     private final ProtocolAccountGroupEventSinks groupEventSinks;
@@ -87,12 +91,14 @@ public class ProtocolAccountEventConsumer {
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
                                         ProtocolAccountStateChangedSink stateChangedSink,
+                                        ProtocolAccountTypeDetectedSink typeDetectedSink,
                                         ProtocolAccountGroupsReportedSink groupsReportedSink,
                                         ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
                                         ProtocolAccountGroupEventSinks groupEventSinks,
                                         ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
+        this.typeDetectedSink = typeDetectedSink;
         this.groupsReportedSink = groupsReportedSink;
         this.offlineDiagnosedSink = offlineDiagnosedSink;
         this.groupEventSinks = groupEventSinks;
@@ -131,6 +137,16 @@ public class ProtocolAccountEventConsumer {
                     event.from(), event.to(), event.semantic(), event.rawCode(), event.onlineAttemptId(),
                     event.workerId());
             stateChangedSink.handleStateChanged(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_TYPE_DETECTED.equals(eventType)) {
+            ProtocolAccountTypeDetectedEvent event = toTypeDetectedEvent(envelope);
+            log.info("协议账号类型事件收到 eventId={} tenantId={} accountId={} protocolAccountId={} "
+                            + "detectedType={} verificationLevel={} source={} credentialVersion={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.detectedAccountType(), event.verificationLevel(), event.source(),
+                    event.credentialVersion(), event.workerId());
+            typeDetectedSink.handleTypeDetected(event);
             return;
         }
         if (EVENT_ACCOUNT_OFFLINE_DIAGNOSED.equals(eventType)) {
@@ -239,6 +255,39 @@ public class ProtocolAccountEventConsumer {
                 text(data, "source"),
                 text(data, "onlineAttemptId"),
                 longValue(data, "proxyId"),
+                text(envelope, "workerId"));
+    }
+
+    private ProtocolAccountTypeDetectedEvent toTypeDetectedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议账号类型事件缺少 accountId");
+        String protocolAccountId = requiredText(
+                data, "protocolAccountId", "协议账号类型事件缺少 data.protocolAccountId");
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号类型事件路由账号不一致");
+        }
+        Long detectedAt = instantMillis(data, "detectedAt", "协议账号类型事件 detectedAt 格式非法");
+        if (detectedAt == null) {
+            detectedAt = occurredAt(envelope);
+        }
+        if (detectedAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号类型事件缺少 detectedAt");
+        }
+        return new ProtocolAccountTypeDetectedEvent(
+                requiredText(envelope, "eventId", "协议账号类型事件缺少 eventId"),
+                requiredPositiveLong(data, "tenantId", "协议账号类型事件 data.tenantId 非法"),
+                requiredPositiveLong(data, "accountId", "协议账号类型事件 data.accountId 非法"),
+                protocolAccountId,
+                text(data, "onlineAttemptId"),
+                text(data, "commandId"),
+                text(data, "protocolBackend"),
+                requiredPositiveLong(data, "credentialVersion", "协议账号类型事件 credentialVersion 非法"),
+                integer(data, "declaredAccountType"),
+                requiredText(data, "detectedAccountType", "协议账号类型事件缺少 detectedAccountType"),
+                text(data, "verificationLevel"),
+                requiredText(data, "source", "协议账号类型事件缺少 source"),
+                detectedAt,
                 text(envelope, "workerId"));
     }
 

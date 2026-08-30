@@ -1,0 +1,2 @@
+-- 应急回滚只关闭 detectAccountType 下发并回退应用版本。
+-- 新增列保留，避免丢失已确认事实；旧版本仍只读取 account.account_type。

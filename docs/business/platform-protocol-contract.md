@@ -5,6 +5,8 @@
 > 产出方式:10-agent 工作流(`wf_1aab2227-54d`)并行读两侧源码 → 交叉对账 → 对争议点独立证伪;所有结论带 `file:line`。
 > 用途:armada `platform/protocol` + `platform/kafka` **防腐层的设计输入**(目标设计是下一轮,不在本文)。
 > 它**取代/订正**记忆里自相矛盾的旧认知(同步HTTP命令 vs Kafka异步、批量上线端点存不存在)。
+>
+> **Armada 现状修订（2026-08-30）:** 本文 §3.3/§3.4 的 `account.type_detected=log-only` 仅描述 2026-06-24 的 wheel↔laqunxitong 基线，不再代表当前 Armada。当前 Armada 从 `protocol.account.state.events.v1` 消费完整 `account.type_detected`，同时校验 tenant/account/protocolAccountId/credentialVersion；可靠结果确认或纠正 `account.account_type`，UNKNOWN 只标记无法确认。Web 与 Android 都只在 ONLINE 后执行一次轻量 business profile 查询。
 
 ---
 

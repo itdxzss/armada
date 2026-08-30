@@ -3,6 +3,8 @@
 > 状态:**审核中(2026-06-25,四张支撑表用户尚在对账)**。取代 `account-data-model-WIP.md`。
 > 这是 armada 账号块(账号分组 / 账号导入 / 账号列表)的权威表设计。`account` + `account_state` 的列边界一旦由 V005 落库即被后续状态块永久共享,故一次定死,杜绝 wheel `account` 表被 V029/V030/V046/V068 反复 ALTER 叠列的债。
 > 实施顺序见 `armada_block_sequencing`:step0 锁模型(本文档)→ step1 CRUD 切片 → step2 平台地基 → step3 活状态回写。
+>
+> **2026-08-30 V167 修订:** 原“`account_type` 导入即冻结”已被“导入申报 + ONLINE 后协议校验”替代。`account_type` 现在是当前有效类型，`declared_account_type` 永久保留导入申报；只有带当前凭据版本的 `account.type_detected` 事件可以原子确认或纠正有效类型。
 
 ---
 
@@ -18,23 +20,29 @@
 | 6 | 主键策略 | **BIGINT AUTO_INCREMENT** | 对齐 V002/V003;`account_id` 做普通外键列 |
 | 7 | **时间列存储** | **一律 `BIGINT`(epoch 毫秒, UTC)**,非 DATETIME | 用户口径「时间用时间戳」;存储=出参=前端 `new Date(ms)`,无 DATETIME↔epoch 转换层;`created_at/updated_at` 应用层写 `System.currentTimeMillis()`(BIGINT 不能 `ON UPDATE CURRENT_TIMESTAMP`);`is_active` 虚拟列照按 `deleted_at IS NULL` 判 |
 | 8 | **V001-V003 老表时间列** | **一并改 BIGINT**(营销/IP/导入链接),含代码改动 | 见 TODO-7;统一口径避免账号块与老三块分裂 |
+| 9 | **账号类型真值** | **导入必须申报；ONLINE 后轻量校验可确认或纠正** | Android 首次握手前需要申报类型；协议结果用 credential version 防止旧凭据事件污染新账号状态 |
 
 **字段口径(2026-06-25 核对):**
 - 「入库时间」= `account.created_at`(导入入库真实时间戳),**不是** first_login_time(wheel 恒 NULL);删该死列。
 - `account_state` / `risk_status` / `mute_status` **可空、无默认**:`NULL` = 未上报,不渲正常/风控/禁言等假确定性。计数列保留 DEFAULT 0。
 - `login_state` 可空、无默认:`NULL` = 未上报/未发起上线;`3` = Armada 已写入上线 outbox、等待协议 Kafka 回传结果。统计卡里的待上线只看 `login_state=3`,不再用 `total-online-offline` 推导;离线只统计 `account_state=2 AND login_state=2`。
 - `truth_ip` = 真实出口公网 IP(住宅 IP,WA 实际看到的),上线时由出口探测器解析;**不等于** `ip_proxy.host`(代理网关入口地址)。step3 才有值。
+- `declared_account_type` = 导入申报，只保存来源事实；`account_type` = 当前有效类型。校验失败只标记 `account_type_verify_status=3`，不得把商业号误改成个人号。
 
 ---
 
-## 二、`account`（身份主表 · 低频冻结 · 21 列）
+## 二、`account`（身份主表 · 低频身份 · 25 列）
 
 ```sql
 CREATE TABLE account (
     id                  BIGINT       NOT NULL AUTO_INCREMENT  COMMENT '主键',
     tenant_id           BIGINT       NOT NULL                 COMMENT '租户ID(拦截器注入)',
     ws_phone            VARCHAR(32)  CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'WA号(按字节精确去重)',
-    account_type        TINYINT      NOT NULL                 COMMENT '账号类型:1个人 2商业(导入即冻结,不得改写)',
+    account_type        TINYINT      NOT NULL                 COMMENT '当前有效账号类型:1个人 2商业',
+    declared_account_type TINYINT    NOT NULL                 COMMENT '导入申报账号类型:1个人 2商业',
+    account_type_verify_status TINYINT NOT NULL DEFAULT 4     COMMENT '账号类型校验状态:0待校验 1已匹配 2已纠正 3无法确认 4存量未校验',
+    account_type_verify_source TINYINT DEFAULT NULL           COMMENT '账号类型校验来源:1凭据元数据 2配对结果 3商业资料查询',
+    account_type_verified_at BIGINT DEFAULT NULL              COMMENT '账号类型最后校验时间(epoch毫秒)',
     device_os           TINYINT               DEFAULT NULL    COMMENT '机型:1安卓 2苹果',
     number_source       TINYINT               DEFAULT NULL    COMMENT '来源:1买量 2裂变 3自购',
     channel_name        VARCHAR(64)           DEFAULT NULL    COMMENT '推广渠道名',
@@ -190,7 +198,7 @@ CREATE TABLE account_import_detail (
 ```
 导出全部/失败 CSV 5 列=账号/状态/失败原因/分组/创建时间。
 
-**六表合计列数**:account 21 / account_state 21 / account_group 10 / account_credential 12 / import_batch 20 / import_detail 10。
+**六表合计列数**:account 25 / account_state 21 / account_group 10 / account_credential 12 / import_batch 20 / import_detail 10。
 
 ---
 
@@ -198,7 +206,7 @@ CREATE TABLE account_import_detail (
 
 | 列 | 来源 | step1 |
 |---|---|---|
-| 账号 / 账号类型·设备 / 渠道·来源 / 协议 / 分组 / 入库时间 | `account`(ws_phone/account_type+device_os/channel_name+number_source/protocol_id/account_group_id→组名/created_at) | ✓ 真值 |
+| 账号 / 账号类型·设备 / 渠道·来源 / 协议 / 分组 / 入库时间 | `account`(ws_phone/account_type+declared_account_type+校验状态/device_os/channel_name/number_source/protocol_id/account_group_id→组名/created_at) | ✓ 真值 |
 | 状态 / 登录 / 风控 / 封号码·原因 / 拉人数 / IP地址 / IP来源 / 失效时间 | `account_state` | login_state=NULL 为未上报/未发起上线,login_state=3 为待上线;step3 点亮 |
 | 头像 / 好友·群 / 超链寿命 | **VO 占位**(禁死列;协议回写,step3/二期) | 常量 |
 | 国家 / IP来源 | **JOIN ip_proxy**(经 IP 绑定 region/source) | 待绑定;见 TODO-2 |

@@ -1298,7 +1298,10 @@ public class ProtocolCommandOutboxServiceImpl
                 command.onlineAttemptId(),
                 command.previousOnlineAttemptId(),
                 command.protocolBackend(),
-                command.isBusiness());
+                command.isBusiness(),
+                command.declaredAccountType(),
+                command.detectAccountType(),
+                command.deviceOs());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -2047,7 +2050,10 @@ public class ProtocolCommandOutboxServiceImpl
             @JsonInclude(JsonInclude.Include.ALWAYS)
             String previousOnlineAttemptId,
             ProtocolBackend protocolBackend,
-            boolean isBusiness
+            boolean isBusiness,
+            Integer declaredAccountType,
+            boolean detectAccountType,
+            Integer deviceOs
     ) {
     }
 

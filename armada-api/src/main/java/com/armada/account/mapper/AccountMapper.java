@@ -121,6 +121,17 @@ public interface AccountMapper {
     Account selectActiveById(@Param("id") Long id);
 
     /**
+     * 按租户、协议身份、凭据版本和检测水位原子更新当前有效账号类型。
+     *
+     * @param row 账号类型校验更新字段
+     * @param credentialVersion 发起检测时的凭据更新时间
+     * @return 更新行数；旧凭据、旧事件或身份不匹配时为 0
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    int updateTypeVerification(@Param("row") Account row,
+                               @Param("credentialVersion") Long credentialVersion);
+
+    /**
      * 从指定账号分组随机选择在线正常且协议身份完整的活跃账号。
      *
      * <p>状态筛选全部下推 SQL，且故意不关联任何任务占用表；tenant_id 由租户拦截器注入。</p>

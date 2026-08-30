@@ -16,7 +16,10 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
  * @param onlineAttemptId   Armada 生成的本次上线尝试 ID
  * @param previousOnlineAttemptId 代理失败重上线时关联的上一尝试 ID
  * @param protocolBackend   协议后端,默认 WEB
- * @param isBusiness       是否为 WhatsApp Business 账号
+ * @param isBusiness        是否按 WhatsApp Business 客户端参数上线
+ * @param declaredAccountType 导入申报账号类型:1个人 2商业
+ * @param detectAccountType 本次 ONLINE 后是否执行一次轻量类型校验
+ * @param deviceOs           主设备平台:1 Android 2 iOS
  */
 public record ProtocolOnlineCommandRequest(
         Long accountId,
@@ -27,8 +30,36 @@ public record ProtocolOnlineCommandRequest(
         String onlineAttemptId,
         String previousOnlineAttemptId,
         ProtocolBackend protocolBackend,
-        boolean isBusiness
+        boolean isBusiness,
+        Integer declaredAccountType,
+        boolean detectAccountType,
+        Integer deviceOs
 ) {
+
+    public ProtocolOnlineCommandRequest(Long accountId,
+                                        String protocolAccountId,
+                                        CredentialFormat credentialFormat,
+                                        Long proxyId,
+                                        String source,
+                                        String onlineAttemptId,
+                                        String previousOnlineAttemptId,
+                                        ProtocolBackend protocolBackend,
+                                        boolean isBusiness,
+                                        Integer declaredAccountType,
+                                        boolean detectAccountType) {
+        this(accountId,
+                protocolAccountId,
+                credentialFormat,
+                proxyId,
+                source,
+                onlineAttemptId,
+                previousOnlineAttemptId,
+                protocolBackend,
+                isBusiness,
+                declaredAccountType,
+                detectAccountType,
+                1);
+    }
 
     public ProtocolOnlineCommandRequest(Long accountId,
                                         String protocolAccountId,
@@ -46,7 +77,10 @@ public record ProtocolOnlineCommandRequest(
                 onlineAttemptId,
                 previousOnlineAttemptId,
                 protocolBackend,
-                false);
+                false,
+                1,
+                false,
+                1);
     }
 
     public ProtocolOnlineCommandRequest(Long accountId,
@@ -64,12 +98,21 @@ public record ProtocolOnlineCommandRequest(
                 onlineAttemptId,
                 previousOnlineAttemptId,
                 ProtocolBackend.WEB,
-                false);
+                false,
+                1,
+                false,
+                1);
     }
 
     public ProtocolOnlineCommandRequest {
         if (protocolBackend == null) {
             protocolBackend = ProtocolBackend.WEB;
+        }
+        if (deviceOs == null) {
+            deviceOs = 1;
+        }
+        if (deviceOs != 1 && deviceOs != 2) {
+            throw new IllegalArgumentException("deviceOs must be 1 or 2");
         }
     }
 }

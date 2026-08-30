@@ -9,6 +9,7 @@ import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.enums.AccountTypeVerifyStatusCode;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,7 +64,7 @@ public class AccountImportRowWriter {
      * @param wid            WA 手机号(纯数字,用于 wsPhone 和 protocolAccountId)
      * @param entry          解析条目(data 字段序列化为 creds_json;日志只打 maskPhone,不打明文)
      * @param accountGroupId 目标分组 ID(已由调用方解析;NOT NULL)
-     * @param meta           导入元信息 DTO:importFormat/deviceOs/accountType 从此取(导入即冻结)
+     * @param meta           导入元信息 DTO:importFormat/deviceOs/accountType 从此取
      * @return 新写入的 account.id
      * @throws org.springframework.dao.DuplicateKeyException 若 uq_tenant_phone 冲突(跨批重复)
      */
@@ -103,8 +104,9 @@ public class AccountImportRowWriter {
                                  int importFormat, long now) {
         Account a = new Account();
         a.setWsPhone(wid);
-        // 铁律:account_type 导入即冻结
         a.setAccountType(accountType);
+        a.setDeclaredAccountType(accountType);
+        a.setAccountTypeVerifyStatus(AccountTypeVerifyStatusCode.PENDING);
         a.setDeviceOs(deviceOs);
         a.setNumberSource(NUMBER_SOURCE_SELF_PURCHASE);
         a.setOwnership(OWNERSHIP_SELF);

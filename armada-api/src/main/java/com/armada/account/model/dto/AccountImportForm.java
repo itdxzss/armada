@@ -17,7 +17,7 @@ public class AccountImportForm {
     private Integer importFormat;
     /** 机型:1=安卓 2=苹果;可空。 */
     private Integer deviceOs;
-    /** 账号类型:1=个人 2=商业;导入即冻结。 */
+    /** 导入申报账号类型:1个人 2商业;首次 ONLINE 后由协议自动校验。 */
     private Integer accountType;
     /** IP 国家/地区;可空。 */
     private String ipRegion;

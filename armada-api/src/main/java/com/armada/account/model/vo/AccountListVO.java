@@ -18,8 +18,29 @@ public record AccountListVO(
         /** WA 号。 */
         String wsPhone,
 
-        /** 账号类型:1个人 2商业。铁律:导入即冻结不可改写。 */
+        /** 当前有效账号类型:1个人 2商业。 */
         Integer accountType,
+
+        /** 导入申报账号类型:1个人 2商业。 */
+        Integer declaredAccountType,
+
+        /** 协议校验状态:0待校验 1已匹配 2已纠正 3无法确认 4存量未校验。 */
+        Integer accountTypeVerifyStatus,
+
+        /** 协议校验来源:1凭据元数据 2配对结果 3商业资料查询。 */
+        Integer accountTypeVerifySource,
+
+        /** 账号类型最后校验时间(epoch 毫秒)。 */
+        Long accountTypeVerifiedAt,
+
+        /** 商业认证级别:1蓝标高认证 2明确非高认证；null 未确认。 */
+        Integer businessVerificationLevel,
+
+        /** 商业认证识别来源。 */
+        Integer businessVerificationSource,
+
+        /** 商业认证级别最后确认时间(epoch 毫秒)。 */
+        Long businessVerificationVerifiedAt,
 
         /** 机型:1安卓 2苹果。 */
         Integer deviceOs,

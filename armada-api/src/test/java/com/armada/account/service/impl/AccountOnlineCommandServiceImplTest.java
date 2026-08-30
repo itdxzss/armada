@@ -250,7 +250,10 @@ class AccountOnlineCommandServiceImplTest {
         account.setWsPhone("8613800138000");
         account.setProtocolAccountId("acc_8613800138000");
         account.setProtocolId("ANDROID");
+        account.setDeviceOs(2);
         account.setAccountType(2);
+        account.setDeclaredAccountType(2);
+        account.setAccountTypeVerifyStatus(0);
         AccountCredential credential = new AccountCredential();
         credential.setAccountId(100L);
         credential.setCredFormat(2);
@@ -282,6 +285,9 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(command.onlineAttemptId()).isEqualTo("oa_android_single");
         assertThat(command.isBusiness()).isTrue();
+        assertThat(command.declaredAccountType()).isEqualTo(2);
+        assertThat(command.detectAccountType()).isTrue();
+        assertThat(command.deviceOs()).isEqualTo(2);
     }
 
     @Test

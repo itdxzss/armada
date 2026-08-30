@@ -16,11 +16,29 @@ public class Account {
     /** WA 号(按字节精确去重,租户内唯一)。 */
     private String wsPhone;
 
-    /**
-     * 账号类型:1 个人 2 商业。
-     * 铁律:导入即冻结,任何后续操作不得改写。
-     */
+    /** 当前有效账号类型:1个人 2商业；初始取申报值，协议可靠结果可纠正。 */
     private Integer accountType;
+
+    /** 导入申报账号类型:1个人 2商业。 */
+    private Integer declaredAccountType;
+
+    /** 协议校验状态:0待校验 1已匹配 2已纠正 3无法确认 4存量未校验。 */
+    private Integer accountTypeVerifyStatus;
+
+    /** 协议校验来源:1凭据元数据 2配对结果 3商业资料查询。 */
+    private Integer accountTypeVerifySource;
+
+    /** 账号类型最后校验时间(epoch 毫秒)。 */
+    private Long accountTypeVerifiedAt;
+
+    /** 商业认证级别:1蓝标高认证 2明确非高认证；null 未确认。 */
+    private Integer businessVerificationLevel;
+
+    /** 商业认证识别来源:1凭据元数据 2配对结果 3商业资料查询。 */
+    private Integer businessVerificationSource;
+
+    /** 商业认证级别最后确认时间(epoch 毫秒)。 */
+    private Long businessVerificationVerifiedAt;
 
     /** 机型:1 安卓 2 苹果。 */
     private Integer deviceOs;
@@ -103,6 +121,62 @@ public class Account {
 
     public void setAccountType(Integer accountType) {
         this.accountType = accountType;
+    }
+
+    public Integer getDeclaredAccountType() {
+        return declaredAccountType;
+    }
+
+    public void setDeclaredAccountType(Integer declaredAccountType) {
+        this.declaredAccountType = declaredAccountType;
+    }
+
+    public Integer getAccountTypeVerifyStatus() {
+        return accountTypeVerifyStatus;
+    }
+
+    public void setAccountTypeVerifyStatus(Integer accountTypeVerifyStatus) {
+        this.accountTypeVerifyStatus = accountTypeVerifyStatus;
+    }
+
+    public Integer getAccountTypeVerifySource() {
+        return accountTypeVerifySource;
+    }
+
+    public void setAccountTypeVerifySource(Integer accountTypeVerifySource) {
+        this.accountTypeVerifySource = accountTypeVerifySource;
+    }
+
+    public Long getAccountTypeVerifiedAt() {
+        return accountTypeVerifiedAt;
+    }
+
+    public void setAccountTypeVerifiedAt(Long accountTypeVerifiedAt) {
+        this.accountTypeVerifiedAt = accountTypeVerifiedAt;
+    }
+
+    public Integer getBusinessVerificationLevel() {
+        return businessVerificationLevel;
+    }
+
+    public void setBusinessVerificationLevel(Integer businessVerificationLevel) {
+        this.businessVerificationLevel = businessVerificationLevel;
+    }
+
+    public Integer getBusinessVerificationSource() {
+        return businessVerificationSource;
+    }
+
+    public void setBusinessVerificationSource(Integer businessVerificationSource) {
+        this.businessVerificationSource = businessVerificationSource;
+    }
+
+    public Long getBusinessVerificationVerifiedAt() {
+        return businessVerificationVerifiedAt;
+    }
+
+    public void setBusinessVerificationVerifiedAt(Long businessVerificationVerifiedAt) {
+        this.businessVerificationVerifiedAt = businessVerificationVerifiedAt;
     }
 
     public Integer getDeviceOs() {

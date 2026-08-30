@@ -53,6 +53,7 @@ class HyperlinkShortLinkMutationGuardTest {
         HyperlinkTaskSaveDTO request = mock(HyperlinkTaskSaveDTO.class);
         when(request.version()).thenReturn(null);
         when(request.sourceTaskId()).thenReturn(null);
+        when(request.sourceStrategyId()).thenReturn(null);
         HyperlinkTaskConfigurationFactory.Normalized normalized = normalized(true);
         when(factory.normalizeForCreate(request)).thenReturn(normalized);
         when(factory.task(eq(request), eq(normalized), anyLong(), anyLong()))
@@ -62,7 +63,8 @@ class HyperlinkShortLinkMutationGuardTest {
                 quote, provision, mock(HyperlinkCleanupStartService.class),
                 mock(HyperlinkTaskRoundMapper.class), audit,
                 new HyperlinkShortLinkGuard(""),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class),
+                mock(com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService.class));
 
         assertGuardUnavailable(() -> service.create(request, principal()));
 
@@ -80,6 +82,7 @@ class HyperlinkShortLinkMutationGuardTest {
         HyperlinkTaskSaveDTO request = mock(HyperlinkTaskSaveDTO.class);
         when(request.version()).thenReturn(3);
         when(request.sourceTaskId()).thenReturn(null);
+        when(request.sourceStrategyId()).thenReturn(null);
         HyperlinkTaskConfigurationFactory.Normalized normalized = normalized(true);
         when(factory.normalizeForUpdate(request, 3)).thenReturn(normalized);
         when(store.requireTask(11L)).thenReturn(task(false));
@@ -93,7 +96,8 @@ class HyperlinkShortLinkMutationGuardTest {
                 mock(HyperlinkTaskQuoteGuardService.class), provision, cleanup,
                 mock(HyperlinkTaskRoundMapper.class), audit,
                 new HyperlinkShortLinkGuard(""),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class),
+                mock(com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService.class));
 
         assertGuardUnavailable(() -> service.update(11L, request, principal()));
 
@@ -154,6 +158,7 @@ class HyperlinkShortLinkMutationGuardTest {
         task.setCreatedBy(8L);
         task.setVersion(3);
         task.setShortLinkEnabled(shortLinkEnabled);
+        task.setConcurrentNum(1);
         return task;
     }
 

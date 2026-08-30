@@ -480,6 +480,7 @@ round.`next_dispatch_at` 只表示业务可执行时间；`lease_owner/lease_exp
 | 5 | 未提及 `default_sub_task_num` | **不落列** | 前端硬编码 50，无 UI 控件，是竞品遗留字段 |
 | 6 | recipient 原本只保存受众快照 | 同行增加实际账号/协议、唯一 command/ACK、发送结果、短码、点击累计与首触归因字段 | §4.4～§4.6；一位收信人一行，避免 50 万级 1:1 拆表和逐次点击流水 |
 | 7 | `hyperlink_stat_daily` 无协议维度 | 增 `protocol_backend TINYINT` | §2.9 分析页有「设备平台」筛选 |
+| 8 | 策略模板另表、六字段同时复制进 task | 统一 `hyperlink_strategy` 保存 TEMPLATE/TASK_SNAPSHOT，task 只强关联快照 ID | 2026-08-30 单一事实源决策；详见聚焦设计 §7、§10 |
 
 最终收口同时确定：双状态与列表投影落 `hyperlink_task_runtime`，调度边界落 `hyperlink_task_round`；任务无删除列；
 目标国家使用 JSON 数组快照；recipient 承载唯一发送命令、结果和短码；计费预约与任务 1:1；首次封号/失效
@@ -490,42 +491,11 @@ recipient；recipient 首触敏感环境保留 90 天。轮次业务时间与 wo
 
 ### 5.3 `hyperlink_strategy`
 
-```sql
-CREATE TABLE IF NOT EXISTS hyperlink_strategy (
-    id                     BIGINT NOT NULL AUTO_INCREMENT COMMENT '超链策略主键',
-    tenant_id              BIGINT NOT NULL COMMENT '租户ID',
-    strategy_name          VARCHAR(128) NOT NULL COMMENT '策略名称;仅后台展示便于识别',
-    task_type              TINYINT NOT NULL COMMENT '任务模式:1即时 2预发布 3周期',
-    task_interval_minutes  INT NOT NULL DEFAULT 0 COMMENT '周期轮次间隔(分钟);仅周期模式有效,下限30',
-    account_filter         JSON DEFAULT NULL COMMENT '账号筛选条件白名单归一化后JSON;NULL或{}=不限定',
-    concurrent_num         INT NOT NULL DEFAULT 10 COMMENT '最大执行账号数;必须>=1',
-    max_use_account        INT NOT NULL DEFAULT 0 COMMENT '最大使用账号数;0=不限号数;周期模式为每轮上限且必须>=1',
-    account_max_send_num   INT NOT NULL DEFAULT 0 COMMENT '每账号最大发送条数;0=打死或封号为止',
-    is_enabled             TINYINT(1) NOT NULL DEFAULT 1 COMMENT '0=停用(不出现在新建任务选项) 1=启用',
-    remark                 VARCHAR(255) DEFAULT NULL COMMENT '备注',
-    version                INT NOT NULL DEFAULT 1 COMMENT '乐观锁版本',
-    created_by             BIGINT DEFAULT NULL COMMENT '创建人user_id',
-    created_at             BIGINT NOT NULL COMMENT '创建时间(epoch毫秒)',
-    updated_at             BIGINT NOT NULL COMMENT '更新时间(epoch毫秒)',
-    deleted_at             BIGINT DEFAULT NULL COMMENT '软删时间(epoch毫秒);NULL=未删',
-    is_active              TINYINT GENERATED ALWAYS AS (
-                               CASE WHEN deleted_at IS NULL THEN 1 ELSE NULL END
-                           ) STORED COMMENT '软删唯一键辅助;有效行为1,已删行为NULL',
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_hyperlink_strategy_name (tenant_id, strategy_name, is_active),
-    KEY idx_hyperlink_strategy_enabled (tenant_id, is_enabled, deleted_at, id),
-    KEY idx_hyperlink_strategy_created (tenant_id, created_at, id),
-    CONSTRAINT ck_hyperlink_strategy_type CHECK (task_type IN (1, 2, 3)),
-    CONSTRAINT ck_hyperlink_strategy_counts CHECK (
-        task_interval_minutes >= 0 AND concurrent_num >= 1
-        AND max_use_account >= 0 AND account_max_send_num >= 0
-    )
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-  COMMENT='超链营销发送策略预设';
-```
-
-策略与任务是**弱引用**：引用即复制参数进任务，改策略不影响在跑任务，因此不维护引用计数、
-删除不做保护（与竞品的"确认删除策略「X」？此操作不可恢复"一致）。
+> **2026-08-30 修订**：本节早期“模板表 + task 内嵌六字段”的 SQL 草案作废，不再维护第二份表结构。
+> `hyperlink_strategy` 是统一事实源，通过 `strategy_scope` 区分 `TEMPLATE` 与 `TASK_SNAPSHOT`；
+> `hyperlink_task.hyperlink_strategy_id` 强关联任务独占快照，快照的 `source_strategy_id` 弱追溯模板。
+> 存量 task 六字段采用 expand/contract 迁移后删除。唯一详细口径为
+> `docs/superpowers/specs/2026-08-30-hyperlink-strategy-template-competitor-parity-design.md` §7、§10。
 
 ### 5.4 超链任务最终物理模型
 

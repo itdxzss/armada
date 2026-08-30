@@ -303,27 +303,25 @@ runtime 是共享读模型但不允许整行覆盖：生命周期服务只写状
 
 ### 4.2 hyperlink_task（低频配置与冻结快照）
 
+> **2026-08-30 单一事实源修订**：发送策略六字段已经迁入统一 `hyperlink_strategy`，每个任务关联一条
+> 独占 `TASK_SNAPSHOT`；任务表不再重复保存策略字段。最终口径以
+> `docs/superpowers/specs/2026-08-30-hyperlink-strategy-template-competitor-parity-design.md` §7、§10 为准。
+
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `task_name` | `VARCHAR(128) NOT NULL` | 任务名称；竞品允许重名 |
-| `task_type` | `TINYINT NOT NULL` | 任务模式：1=即时 2=预发布 3=周期 |
 | `start_mode` | `TINYINT NOT NULL DEFAULT 1` | 1=立即执行 2=延后执行 |
 | `task_delay_minutes` | `INT NOT NULL DEFAULT 0` | 延后分钟；立即执行时为 0 |
 | `task_planned_end_at` | `BIGINT` | 预发布计划结束时间(epoch 毫秒) |
-| `task_interval_minutes` | `INT NOT NULL DEFAULT 0` | 周期间隔；非周期为 0，周期必须 ≥1 |
 | `data_package_id` | `BIGINT` | →`data_package.id`；仅保存不发送时可为 NULL |
 | `data_package_generation` | `INT` | 第一次启用/启动时冻结的号码代次 |
 | `data_package_name_snapshot` | `VARCHAR(128)` | 包名展示快照 |
 | `target_country_iso2s_snapshot` | `JSON` | 冻结代次去重国家数组；支持多国家包和列表国家筛选 |
 | `source_template_id` | `BIGINT` | 内容来源模板 ID，仅追溯 |
 | `source_template_version` | `INT` | 引用时模板版本 |
-| `hyperlink_strategy_id` | `BIGINT` | 来源策略 ID，仅追溯 |
-| `account_filter` | `JSON` | 白名单账号筛选快照，JSON 内含 `filterSchemaVersion` |
-| `max_use_account` | `INT NOT NULL DEFAULT 0` | 即时/预发布最大使用数；周期为每轮上限，0=不限（周期禁止 0） |
-| `concurrent_num` | `INT NOT NULL DEFAULT 10` | 最大执行账号数 |
-| `account_max_send_num` | `INT NOT NULL DEFAULT 0` | 每账号最大发送数；0=直到封号/失效 |
+| `hyperlink_strategy_id` | `BIGINT NOT NULL` | 本任务独占 `TASK_SNAPSHOT` ID，任务内唯一强关联 |
 | `account_send_concurrency` | `INT NOT NULL DEFAULT 20` | 竞品隐藏契约；范围 1~100 |
 | `msg_interval_min_ms` | `INT NOT NULL DEFAULT 500` | 消息间隔下界，0~10000 毫秒 |
 | `msg_interval_max_ms` | `INT NOT NULL DEFAULT 700` | 消息间隔上界，须 ≥ 下界 |
@@ -336,10 +334,12 @@ runtime 是共享读模型但不允许整行覆盖：生命周期服务只写状
 `idx_hyperlink_task_created(tenant_id, created_at, id)`、
 `idx_hyperlink_task_name(tenant_id, task_name, id)`、
 `idx_hyperlink_task_package(tenant_id, data_package_id, id)`、
-`idx_hyperlink_task_planned_end(tenant_id, task_type, task_planned_end_at, id)`。
+`idx_hyperlink_task_planned_end(tenant_id, task_planned_end_at, id)`、
+`uq_hyperlink_task_strategy(tenant_id, hyperlink_strategy_id)`。
 
-任务没有删除按钮、API 或权限，因此本表**不放**没有写入方的 `deleted_at/is_active`。模板/策略是
-“引用后复制”的弱引用；第一次启用/启动时冻结数据包和 recipient。延后任务在 `run_status=0` 编辑时可
+任务没有删除按钮、API 或权限，因此本表**不放**没有写入方的 `deleted_at/is_active`。消息内容模板仍是
+“引用后复制”的弱引用；发送策略改为任务强关联同表 `TASK_SNAPSHOT`，其模板来源才是弱引用。
+第一次启用/启动时冻结数据包和 recipient。延后任务在 `run_status=0` 编辑时可
 在一个事务内释放旧预约与未发送领取、重建冻结快照；一旦进入 `run_status=1`，代次、人数、国家、
 recipient 和内容不可变。
 多国家筛选使用 `JSON_CONTAINS(target_country_iso2s_snapshot, JSON_QUOTE(?))`；任务量级远小于收件人，
@@ -868,35 +868,40 @@ ORDER BY bucket_no;
 
 ### 5.2 hyperlink_strategy（超链策略）
 
-一行 = 一份可在新建任务时"引用策略"一键带入的发送参数预设。**只管发送节奏与账号范围，
-不含消息内容与数据包。**
+`hyperlink_strategy` 是模板与任务发送策略的唯一事实源。一行是一个可复用 `TEMPLATE` 或一个任务独占
+`TASK_SNAPSHOT`；**只管竞品模板与任务共用的六项策略，不含消息内容、数据包、启动时机、消息间隔和单账号内部并发。**
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `id` | `BIGINT` | 主键 |
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
-| `strategy_name` | `VARCHAR(128) NOT NULL` | 策略名称（仅后台展示，便于识别） |
+| `strategy_scope` | `TINYINT NOT NULL` | 1=模板 2=任务快照 |
+| `owner_task_id` | `BIGINT` | 任务快照所属任务 ID；模板为空，任务快照绑定后必填且租户内唯一 |
+| `source_strategy_id` | `BIGINT` | 快照来源模板 ID；弱追溯 |
+| `strategy_name` | `VARCHAR(128)` | 模板必填；任务快照为空 |
 | `task_type` | `TINYINT NOT NULL` | 1=即时 2=预发布(持续运营) 3=周期循环 |
-| `task_interval_minutes` | `INT NOT NULL DEFAULT 0` | 周期轮次间隔(分钟)；仅周期模式有效，**下限 30**（任务侧下限是 1，两边不同，逐字复刻） |
-| `max_use_account` / `concurrent_num` / `account_max_send_num` / `account_filter` | 同 `hyperlink_task` | 参数字段，语义与列型完全一致 |
-| `is_enabled` | `TINYINT(1) NOT NULL DEFAULT 1` | 0=停用（不出现在新建任务选项中） 1=启用 |
-| `remark` | `VARCHAR(255)` | 备注 |
+| `task_interval_minutes` | `INT NOT NULL DEFAULT 0` | 周期轮次间隔(分钟)；模板下限 30、任务快照下限 1，按 scope 校验 |
+| `max_use_account` / `concurrent_num` / `account_max_send_num` / `account_filter` | 统一策略字段 | 模板与任务快照语义、列型一致；`concurrent_num=0` 为 AUTO |
+| `is_enabled` | `TINYINT(1) NOT NULL DEFAULT 1` | 模板是否可选；任务快照恒 1 |
 | `version` | `INT NOT NULL DEFAULT 1` | 编辑乐观锁版本 |
 | `created_by` | `BIGINT` | 创建人 user_id |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 | `deleted_at` | `BIGINT` | 软删时间；NULL=未删 |
-| `is_active` | `TINYINT`（生成列） | 软删唯一键辅助 |
+| `template_active` | `TINYINT`（生成列） | 仅模板软删唯一键辅助 |
 
-索引：`uq_hyperlink_strategy_name`（`tenant_id, strategy_name, is_active`）、
-`idx_hyperlink_strategy_enabled`（`tenant_id, is_enabled, deleted_at, id`）。
+索引按 `tenant_id + strategy_scope` 区分模板和任务快照；模板名称唯一键只约束未删除 `TEMPLATE`；
+`tenant_id + owner_task_id` 保证一个任务只有一份独占快照。
 
-> 策略与任务是**弱引用**：引用后参数复制进任务，改策略不影响在跑任务。这与前端
-> "已带入策略「X」"的提示语义一致。
+> `hyperlink_task.hyperlink_strategy_id` 强关联本任务独占的 `TASK_SNAPSHOT`，任务表不再保存六个策略字段。
+> 快照的 `source_strategy_id` 弱引用最初模板，所以模板修改/删除仍不影响任务。
 
 > **`account_send_concurrency` / `msg_interval_min_sec` / `msg_interval_max_sec` 三列已删除**（2026-08-27 校正）：
 > 竞品策略页没有这三个控件，提交体里是硬编码常量（`20` / `0` / `0`）。落列就是没有写入方的死列（规范一.4）。
 > 任务页的提示文案也印证：策略只带入「任务模式 / 账号范围 / 并发 / 限号 / 周期间隔」。
 > 出处 `readable/assets/strategy-D2fnr_pX.js:443-454, 657-671`。
+
+存量迁移采用 expand/contract：先按任务旧六列一对一生成快照并回填策略 ID，切换所有读写后再删除旧列。
+表结构、约束、事务和验收的唯一详细口径见 2026-08-30 竞品对齐设计 §7、§10。
 
 ---
 

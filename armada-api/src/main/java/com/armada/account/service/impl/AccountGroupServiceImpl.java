@@ -46,6 +46,11 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     /** 系统默认分组名称。 */
     private static final String SYSTEM_GROUP_NAME = "系统默认分组";
 
+    private static final String HYPERLINK_PUBLIC_GROUP_CODE = "HYPERLINK_PUBLIC";
+    private static final String HYPERLINK_PUBLIC_GROUP_NAME = "公共组";
+    private static final String HYPERLINK_MARKETING_GROUP_CODE = "HYPERLINK_MARKETING";
+    private static final String HYPERLINK_MARKETING_GROUP_NAME = "超链组";
+
     /** system_builtin=1:系统内置分组(不可改名/不可删除)。 */
     private static final int SYSTEM_BUILTIN_YES = 1;
 
@@ -95,6 +100,46 @@ public class AccountGroupServiceImpl implements AccountGroupService {
     @Override
     public List<AccountGroupOptionVO> options() {
         return List.copyOf(mapper.selectOptions());
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public List<Long> hyperlinkDefaultGroupIds() {
+        AccountGroup publicGroup = ensureSystemBusinessGroup(
+                HYPERLINK_PUBLIC_GROUP_CODE, HYPERLINK_PUBLIC_GROUP_NAME,
+                "超链营销系统公共账号组");
+        AccountGroup hyperlinkGroup = ensureSystemBusinessGroup(
+                HYPERLINK_MARKETING_GROUP_CODE, HYPERLINK_MARKETING_GROUP_NAME,
+                "超链营销系统专用账号组");
+        return List.of(publicGroup.getId(), hyperlinkGroup.getId());
+    }
+
+    private AccountGroup ensureSystemBusinessGroup(String code, String name, String remark) {
+        AccountGroup existing = mapper.selectBySystemCode(code);
+        if (existing != null) {
+            return existing;
+        }
+        long now = System.currentTimeMillis();
+        if (mapper.claimSystemCodeByName(name, code, now) == 1) {
+            return mapper.selectBySystemCode(code);
+        }
+        AccountGroup row = new AccountGroup();
+        row.setName(name);
+        row.setRemark(remark);
+        row.setSystemBuiltin(SYSTEM_BUILTIN_YES);
+        row.setSystemCode(code);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        try {
+            mapper.insertSystemBusinessGroup(row);
+            return row;
+        } catch (DuplicateKeyException exception) {
+            AccountGroup concurrent = mapper.selectBySystemCode(code);
+            if (concurrent != null) {
+                return concurrent;
+            }
+            throw exception;
+        }
     }
 
     /**

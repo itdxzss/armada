@@ -67,6 +67,44 @@
     ORDER BY name ASC, id ASC
   </select>
 
+  <select id="selectHyperlinkDefaultGroupIds" resultType="long">
+    SELECT id
+    FROM account_group
+    WHERE deleted_at IS NULL
+      AND system_code IN ('HYPERLINK_PUBLIC', 'HYPERLINK_MARKETING')
+    ORDER BY CASE system_code
+      WHEN 'HYPERLINK_PUBLIC' THEN 1
+      WHEN 'HYPERLINK_MARKETING' THEN 2
+      ELSE 3 END, id
+  </select>
+
+  <select id="selectBySystemCode" resultType="com.armada.account.model.entity.AccountGroup">
+    SELECT *
+    FROM account_group
+    WHERE system_code = #{systemCode}
+      AND deleted_at IS NULL
+    LIMIT 1
+  </select>
+
+  <update id="claimSystemCodeByName">
+    UPDATE account_group
+    SET system_builtin = 1,
+        system_code = #{systemCode},
+        updated_at = #{updatedAt}
+    WHERE name = #{name}
+      AND deleted_at IS NULL
+      AND owner_user_id IS NULL
+      AND system_code IS NULL
+  </update>
+
+  <insert id="insertSystemBusinessGroup" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_group
+      (name, remark, system_builtin, system_code, created_at, updated_at, created_by)
+    VALUES
+      (#{name}, #{remark}, #{systemBuiltin}, #{systemCode},
+       #{createdAt}, #{updatedAt}, #{createdBy})
+  </insert>
+
   <!--
     账号分页完成后按当前页去重任务 ID 一次补齐派生标签所需状态，避免逐账号查询。
     拉群扩展使用 tenant_id 双键关联，防止异常数据跨租户串联。
@@ -263,7 +301,11 @@
   </select>
 
   <select id="selectSystemBuiltin" resultType="com.armada.account.model.entity.AccountGroup">
-    SELECT * FROM account_group WHERE system_builtin = 1 AND deleted_at IS NULL LIMIT 1
+    SELECT * FROM account_group
+    WHERE system_builtin = 1
+      AND name = '系统默认分组'
+      AND deleted_at IS NULL
+    LIMIT 1
   </select>
 
   <!-- 时间列为 BIGINT,无 DB 默认值;insert 须显式写入 created_at/updated_at -->

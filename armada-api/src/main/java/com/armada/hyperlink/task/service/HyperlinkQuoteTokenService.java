@@ -103,6 +103,7 @@ public class HyperlinkQuoteTokenService {
             long claimUpperPhoneId,
             String taskMode,
             int maxExecutingAccounts,
+            int maxUseAccounts,
             String billingProvider,
             long expiresAt,
             HyperlinkTaskQuoteVO quote) { }

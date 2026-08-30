@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -14,6 +15,8 @@ import com.armada.hyperlink.task.mapper.HyperlinkTaskMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRoundMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRuntimeMapper;
+import com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy;
+import com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService;
 import com.armada.hyperlink.task.model.dto.HyperlinkAccountFilterDTO;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskButtonDTO;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskMessageContentDTO;
@@ -78,6 +81,11 @@ class HyperlinkTaskDraftLifecycleTest {
         ObjectMapper objectMapper = new ObjectMapper();
         var capacity = mock(
                 com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class);
+        HyperlinkTaskStrategyService taskStrategyService = mock(HyperlinkTaskStrategyService.class);
+        HyperlinkStrategy snapshot = new HyperlinkStrategy();
+        snapshot.setId(501L);
+        when(taskStrategyService.createSnapshot(any(), any(), anyLong(), anyLong()))
+                .thenReturn(snapshot);
         HyperlinkTaskLifecycleService service = new HyperlinkTaskLifecycleService(
                 new HyperlinkTaskConfigurationFactory(
                         validator, objectMapper, new HyperlinkAccountFilterNormalizer()),
@@ -85,7 +93,7 @@ class HyperlinkTaskDraftLifecycleTest {
                 mock(HyperlinkTaskQuoteGuardService.class), provisionFactService,
                 mock(HyperlinkCleanupStartService.class), roundMapper, audit,
                 new HyperlinkShortLinkGuard(""),
-                capacity);
+                capacity, taskStrategyService);
 
         var receipt = service.create(draft(), principal());
 
@@ -93,6 +101,7 @@ class HyperlinkTaskDraftLifecycleTest {
         verify(taskMapper).insert(any());
         verify(contentMapper).insert(any());
         verify(runtimeMapper).insert(any());
+        verify(taskStrategyService).attachOwner(eq(501L), eq(91L), anyLong());
         verify(provisionFactService, never()).prepare(any(), any(), anyLong());
         verify(capacity, never()).requireSufficient(anyInt());
         verify(audit).requireAvailable();

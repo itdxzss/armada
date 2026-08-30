@@ -136,6 +136,7 @@ public class HyperlinkTaskQueryService {
                 tenantId, 1, List.<HyperlinkRecipientCountryCount>of());
         validatePricing(pricing);
         BigDecimal available = pricing.accountBalance().add(pricing.giftBalance());
+        List<Long> defaultGroupIds = accountGroupService.hyperlinkDefaultGroupIds();
         List<HyperlinkIdOptionVO> groupOptions = accountGroupService.options().stream()
                 .map(option -> new HyperlinkIdOptionVO(option.id(), option.name()))
                 .toList();
@@ -155,7 +156,8 @@ public class HyperlinkTaskQueryService {
                 pricing.currencyCode(), pricing.unitPrice(), pricing.accountBalance(),
                 pricing.giftBalance(), available, protocolCount, capacity(protocolCount),
                 HyperlinkTaskConfigurationFactory.ACCOUNT_SEND_CONCURRENCY,
-                DEFAULT_SUB_TASK_NUM, List.of(), groupOptions, countryOptions, channelOptions,
+                DEFAULT_SUB_TASK_NUM, defaultGroupIds,
+                groupOptions, countryOptions, channelOptions,
                 protocolOptions);
     }
 

@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.strategy.mapper.HyperlinkStrategyMapper">
+
+    <sql id="Columns">
+        id, tenant_id, strategy_scope, owner_task_id, source_strategy_id,
+        strategy_name, task_type, account_filter, concurrent_num,
+        max_use_account, account_max_send_num, task_interval_minutes,
+        is_enabled AS enabled, version, created_by, created_at, updated_at, deleted_at
+    </sql>
+
+    <sql id="FilterWhere">
+        <where>
+            strategy_scope = 1 AND deleted_at IS NULL
+            <if test="q.name != null and q.name != ''">
+                AND strategy_name LIKE CONCAT('%', #{q.name}, '%')
+            </if>
+            <if test="taskType != null">
+                AND task_type = #{taskType}
+            </if>
+            <if test="q.enabled != null">
+                AND is_enabled = #{q.enabled}
+            </if>
+        </where>
+    </sql>
+
+    <select id="countPage" resultType="long">
+        SELECT COUNT(*)
+        FROM hyperlink_strategy
+        <include refid="FilterWhere"/>
+    </select>
+
+    <select id="selectPage"
+            resultType="com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy">
+        SELECT <include refid="Columns"/>
+        FROM hyperlink_strategy
+        <include refid="FilterWhere"/>
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{q.pageSize} OFFSET #{q.offset}
+    </select>
+
+    <select id="selectById"
+            resultType="com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy">
+        SELECT <include refid="Columns"/>
+        FROM hyperlink_strategy
+        WHERE id = #{id} AND strategy_scope = 1 AND deleted_at IS NULL
+    </select>
+
+    <select id="selectTaskSnapshotByOwner"
+            resultType="com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy">
+        SELECT <include refid="Columns"/>
+        FROM hyperlink_strategy
+        WHERE owner_task_id = #{taskId} AND strategy_scope = 2 AND deleted_at IS NULL
+    </select>
+
+    <select id="selectOptions"
+            resultType="com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy">
+        SELECT <include refid="Columns"/>
+        FROM hyperlink_strategy
+        WHERE strategy_scope = 1 AND deleted_at IS NULL AND is_enabled = 1
+        <if test="keyword != null and keyword != ''">
+            AND strategy_name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="existsByName" resultType="boolean">
+        SELECT COUNT(*) &gt; 0
+        FROM hyperlink_strategy
+        WHERE strategy_scope = 1 AND strategy_name = #{name} AND deleted_at IS NULL
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <insert id="insert"
+            parameterType="com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hyperlink_strategy
+            (strategy_scope, owner_task_id, source_strategy_id, strategy_name,
+             task_type, account_filter, concurrent_num, max_use_account,
+             account_max_send_num, task_interval_minutes, is_enabled, version,
+             created_by, created_at, updated_at)
+        VALUES
+            (#{strategyScope}, #{ownerTaskId}, #{sourceStrategyId}, #{strategyName},
+             #{taskType}, #{accountFilter}, #{concurrentNum}, #{maxUseAccount},
+             #{accountMaxSendNum}, #{taskIntervalMinutes}, #{enabled}, #{version},
+             #{createdBy}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateByIdAndVersion">
+        UPDATE hyperlink_strategy
+        SET strategy_name = #{entity.strategyName},
+            task_type = #{entity.taskType},
+            account_filter = #{entity.accountFilter},
+            concurrent_num = #{entity.concurrentNum},
+            max_use_account = #{entity.maxUseAccount},
+            account_max_send_num = #{entity.accountMaxSendNum},
+            task_interval_minutes = #{entity.taskIntervalMinutes},
+            is_enabled = #{entity.enabled},
+            version = version + 1,
+            updated_at = #{entity.updatedAt}
+        WHERE id = #{entity.id}
+          AND strategy_scope = 1
+          AND version = #{expectedVersion}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="attachTaskOwner">
+        UPDATE hyperlink_strategy
+        SET owner_task_id = #{taskId}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND strategy_scope = 2
+          AND owner_task_id IS NULL AND deleted_at IS NULL
+    </update>
+
+    <update id="updateTaskSnapshot">
+        UPDATE hyperlink_strategy
+        SET task_type = #{entity.taskType},
+            account_filter = #{entity.accountFilter},
+            concurrent_num = #{entity.concurrentNum},
+            max_use_account = #{entity.maxUseAccount},
+            account_max_send_num = #{entity.accountMaxSendNum},
+            task_interval_minutes = #{entity.taskIntervalMinutes},
+            version = version + 1,
+            updated_at = #{entity.updatedAt}
+        WHERE id = #{entity.id}
+          AND strategy_scope = 2
+          AND owner_task_id = #{taskId}
+          AND deleted_at IS NULL
+    </update>
+
+    <update id="softDelete">
+        UPDATE hyperlink_strategy
+        SET deleted_at = #{deletedAt}, updated_at = #{deletedAt}, version = version + 1
+        WHERE id = #{id} AND strategy_scope = 1 AND deleted_at IS NULL
+    </update>
+</mapper>

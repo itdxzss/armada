@@ -1,5 +1,7 @@
 package com.armada.hyperlink.task.service;
 
+import com.armada.hyperlink.strategy.model.entity.HyperlinkStrategy;
+import com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRoundMapper;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskSaveDTO;
 import com.armada.hyperlink.task.model.entity.HyperlinkTask;
@@ -29,13 +31,15 @@ public class HyperlinkTaskLifecycleService {
     private final HyperlinkTaskAuditPort auditPort;
     private final HyperlinkShortLinkGuard shortLinkGuard;
     private final HyperlinkProtocolCapacityService capacityService;
+    private final HyperlinkTaskStrategyService taskStrategyService;
 
     public HyperlinkTaskLifecycleService(HyperlinkTaskConfigurationFactory configurationFactory,
             HyperlinkTaskStoreService store, HyperlinkTaskQuoteGuardService quoteGuard,
             HyperlinkProvisionFactService provisionFactService,
             HyperlinkCleanupStartService cleanupStartService, HyperlinkTaskRoundMapper roundMapper,
             HyperlinkTaskAuditPort auditPort, HyperlinkShortLinkGuard shortLinkGuard,
-            HyperlinkProtocolCapacityService capacityService) {
+            HyperlinkProtocolCapacityService capacityService,
+            HyperlinkTaskStrategyService taskStrategyService) {
         this.configurationFactory = configurationFactory;
         this.store = store;
         this.quoteGuard = quoteGuard;
@@ -45,6 +49,7 @@ public class HyperlinkTaskLifecycleService {
         this.auditPort = auditPort;
         this.shortLinkGuard = shortLinkGuard;
         this.capacityService = capacityService;
+        this.taskStrategyService = taskStrategyService;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -64,7 +69,11 @@ public class HyperlinkTaskLifecycleService {
         HyperlinkTaskRuntime runtime = configurationFactory.runtime(0, normalized.enabled(), now);
         if (normalized.enabled()) { shortLinkGuard.requireConfigured(task.getShortLinkEnabled()); }
         auditPort.requireAvailable();
+        HyperlinkStrategy strategy = taskStrategyService.createSnapshot(
+                request.sourceStrategyId(), normalized, principal.userId(), now);
+        task.setHyperlinkStrategyId(strategy.getId());
         store.insert(task, configurationFactory.content(0, normalized.content(), now), runtime);
+        taskStrategyService.attachOwner(strategy.getId(), task.getId(), now);
         if (normalized.enabled()) { provisionFactService.prepare(task, claims, now); }
         auditPort.record(new AuditEvent("hyperlink-task:create:" + task.getId(), Action.CREATE,
                 principal.tenantId(), principal.userId(), task.getId(), now));
@@ -75,8 +84,9 @@ public class HyperlinkTaskLifecycleService {
     @Transactional(rollbackFor = Exception.class)
     public HyperlinkTaskMutationReceiptVO update(long taskId, HyperlinkTaskSaveDTO request,
             AuthPrincipal principal) {
-        if (request.version() == null || request.sourceTaskId() != null) {
-            throw validation("更新必须携带 version 且 sourceTaskId 必须为 null");
+        if (request.version() == null || request.sourceTaskId() != null
+                || request.sourceStrategyId() != null) {
+            throw validation("更新必须携带 version，且来源任务和来源策略必须为 null");
         }
         HyperlinkTask existing = store.requireTask(taskId);
         HyperlinkTaskContent existingContent = store.requireContent(taskId);
@@ -94,6 +104,7 @@ public class HyperlinkTaskLifecycleService {
         HyperlinkTask replacement = configurationFactory.task(request, normalized,
                 existing.getCreatedBy(), now);
         replacement.setId(taskId);
+        replacement.setHyperlinkStrategyId(existing.getHyperlinkStrategyId());
         configurationFactory.applyPackageSnapshot(replacement, claims);
         boolean enabledChanged = normalized.enabled() != Boolean.TRUE.equals(runtime.getEnabled());
         boolean frozenChanged = configurationFactory.frozenScopeChanged(existing, replacement);
@@ -104,6 +115,8 @@ public class HyperlinkTaskLifecycleService {
             shortLinkGuard.requireConfigured(replacement.getShortLinkEnabled());
         }
         auditPort.requireAvailable();
+        taskStrategyService.updateSnapshot(taskId, existing.getHyperlinkStrategyId(),
+                normalized, now);
         store.update(replacement, configurationFactory.content(taskId, normalized.content(), now),
                 request.version());
         replacement.setVersion(request.version() + 1);

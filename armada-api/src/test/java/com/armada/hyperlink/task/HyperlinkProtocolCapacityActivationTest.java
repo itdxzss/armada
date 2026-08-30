@@ -55,6 +55,7 @@ class HyperlinkProtocolCapacityActivationTest {
         HyperlinkTaskSaveDTO request = mock(HyperlinkTaskSaveDTO.class);
         when(request.version()).thenReturn(null);
         when(request.sourceTaskId()).thenReturn(null);
+        when(request.sourceStrategyId()).thenReturn(null);
         when(factory.normalizeForCreate(request)).thenReturn(normalized(true, 16));
         HyperlinkTaskLifecycleService service = lifecycle(factory, store, quote, capacity);
 
@@ -78,6 +79,7 @@ class HyperlinkProtocolCapacityActivationTest {
         content.setMessageType(1);
         when(request.version()).thenReturn(3);
         when(request.sourceTaskId()).thenReturn(null);
+        when(request.sourceStrategyId()).thenReturn(null);
         when(factory.normalizeForUpdate(request, 1)).thenReturn(normalized(true, 16));
         when(store.requireTask(11L)).thenReturn(task(16));
         when(store.requireContent(11L)).thenReturn(content);
@@ -120,6 +122,17 @@ class HyperlinkProtocolCapacityActivationTest {
     }
 
     @Test
+    void autoConcurrencyUsesProtocolCapacityAndBusinessLimit() {
+        HyperlinkAccountCandidateSelector selector = mock(HyperlinkAccountCandidateSelector.class);
+        HyperlinkProtocolCapacityService capacity = new HyperlinkProtocolCapacityService(selector);
+        when(selector.protocolCount()).thenReturn(2);
+
+        assertThatCode(() -> capacity.requireSufficient(0)).doesNotThrowAnyException();
+        assertThat(capacity.resolveAutoLimit(0)).isEqualTo(30);
+        assertThat(capacity.resolveAutoLimit(7)).isEqualTo(7);
+    }
+
+    @Test
     void historicalDoubleImageStartFailsBeforeVersionMutation() {
         HyperlinkTaskStoreService store = mock(HyperlinkTaskStoreService.class);
         HyperlinkTaskQuoteGuardService quote = mock(HyperlinkTaskQuoteGuardService.class);
@@ -147,7 +160,8 @@ class HyperlinkProtocolCapacityActivationTest {
         return new HyperlinkTaskLifecycleService(factory, store, quote,
                 mock(HyperlinkProvisionFactService.class), mock(HyperlinkCleanupStartService.class),
                 mock(HyperlinkTaskRoundMapper.class), mock(HyperlinkTaskAuditPort.class),
-                mock(HyperlinkShortLinkGuard.class), capacity);
+                mock(HyperlinkShortLinkGuard.class), capacity,
+                mock(com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService.class));
     }
 
     private HyperlinkTaskActionService action(HyperlinkTaskStoreService store,

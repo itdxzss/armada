@@ -40,10 +40,12 @@ class HyperlinkTaskDetailMapperH2Test {
 
     @BeforeEach
     void setUp() throws SQLException {
-        execute("DROP ALL OBJECTS", taskSchema(), contentSchema(), runtimeSchema(),
+        execute("DROP ALL OBJECTS", taskSchema(), strategySchema(), contentSchema(), runtimeSchema(),
                 "INSERT INTO hyperlink_task VALUES "
-                        + "(11,7,'任务 A',3,2,15,NULL,0,31,NULL,NULL,NULL,NULL,NULL,NULL,"
-                        + "'{\"filterSchemaVersion\":1,\"groupIds\":[9]}',5,3,100,20,500,700,TRUE,4,8,1000,2000)",
+                        + "(11,7,'任务 A',2,15,NULL,31,NULL,NULL,NULL,NULL,NULL,111,"
+                        + "20,500,700,TRUE,4,8,1000,2000)",
+                "INSERT INTO hyperlink_strategy VALUES "
+                        + "(111,7,2,11,3,60,'{\"filterSchemaVersion\":1,\"groupIds\":[9]}',5,3,100)",
                 "INSERT INTO hyperlink_task_content VALUES "
                         + "(11,7,1,3,'标题','正文',NULL,NULL,"
                         + "'[{\"type\":\"CTA_URL\",\"displayText\":\"查看\","
@@ -51,8 +53,10 @@ class HyperlinkTaskDetailMapperH2Test {
                         + "NULL,NULL,55,1000,2000)",
                 "INSERT INTO hyperlink_task_runtime VALUES (11,7,TRUE,0,2,1000,2000)",
                 "INSERT INTO hyperlink_task VALUES "
-                        + "(12,8,'其他租户',1,1,0,NULL,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL,"
-                        + "'{\"filterSchemaVersion\":1}',0,1,0,20,500,700,FALSE,1,9,1000,1000)",
+                        + "(12,8,'其他租户',1,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL,112,"
+                        + "20,500,700,FALSE,1,9,1000,1000)",
+                "INSERT INTO hyperlink_strategy VALUES "
+                        + "(112,8,2,12,1,0,'{\"filterSchemaVersion\":1}',0,1,0)",
                 "INSERT INTO hyperlink_task_content VALUES "
                         + "(12,8,1,1,'标题','正文','描述','https://example.com','[]',"
                         + "NULL,66,NULL,1000,1000)",
@@ -82,16 +86,25 @@ class HyperlinkTaskDetailMapperH2Test {
         return """
                 CREATE TABLE hyperlink_task (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, task_name VARCHAR(128),
-                  task_type INT, start_mode INT, task_delay_minutes INT,
-                  task_planned_end_at BIGINT, task_interval_minutes INT, data_package_id BIGINT,
+                  start_mode INT, task_delay_minutes INT,
+                  task_planned_end_at BIGINT, data_package_id BIGINT,
                   data_package_generation INT, data_package_name_snapshot VARCHAR(128),
                   target_country_iso2s_snapshot VARCHAR(1024), source_template_id BIGINT,
                   source_template_version INT, hyperlink_strategy_id BIGINT,
-                  account_filter VARCHAR(4096), max_use_account INT, concurrent_num INT,
-                  account_max_send_num INT, account_send_concurrency INT,
+                  account_send_concurrency INT,
                   msg_interval_min_ms INT, msg_interval_max_ms INT,
                   is_short_link_enabled BOOLEAN, version INT, created_by BIGINT,
                   created_at BIGINT, updated_at BIGINT)
+                """;
+    }
+
+    private String strategySchema() {
+        return """
+                CREATE TABLE hyperlink_strategy (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, strategy_scope INT NOT NULL,
+                  owner_task_id BIGINT, task_type INT NOT NULL, task_interval_minutes INT NOT NULL,
+                  account_filter VARCHAR(4096) NOT NULL, max_use_account INT NOT NULL,
+                  concurrent_num INT NOT NULL, account_max_send_num INT NOT NULL)
                 """;
     }
 

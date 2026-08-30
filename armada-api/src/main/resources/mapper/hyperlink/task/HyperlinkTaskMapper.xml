@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskMapper">
-    <sql id="Columns">id, tenant_id, task_name, task_type, start_mode, task_delay_minutes,
-        task_planned_end_at, task_interval_minutes, data_package_id, data_package_generation,
-        data_package_name_snapshot, target_country_iso2s_snapshot, source_template_id, source_template_version,
-        hyperlink_strategy_id, account_filter, max_use_account, concurrent_num,
-        account_max_send_num, account_send_concurrency, msg_interval_min_ms,
-        msg_interval_max_ms, is_short_link_enabled, version, created_by, created_at, updated_at</sql>
+    <sql id="Columns">
+        task.id, task.tenant_id, task.task_name, task.start_mode, task.task_delay_minutes,
+        task.task_planned_end_at, task.data_package_id, task.data_package_generation,
+        task.data_package_name_snapshot, task.target_country_iso2s_snapshot,
+        task.source_template_id, task.source_template_version, task.hyperlink_strategy_id,
+        task.account_send_concurrency, task.msg_interval_min_ms, task.msg_interval_max_ms,
+        task.is_short_link_enabled, task.version, task.created_by, task.created_at, task.updated_at,
+        strategy.task_type AS task_type,
+        strategy.task_interval_minutes AS task_interval_minutes,
+        strategy.account_filter AS account_filter,
+        strategy.max_use_account AS max_use_account,
+        strategy.concurrent_num AS concurrent_num,
+        strategy.account_max_send_num AS account_max_send_num
+    </sql>
 
     <sql id="ListColumns">
         task.id,
         task.task_name AS taskName,
-        task.task_type AS taskType,
+        strategy.task_type AS taskType,
         content.message_type AS messageType,
         runtime.is_enabled AS enabled,
         runtime.run_status AS runStatus,
@@ -20,10 +28,10 @@
         content.promotion_link AS promotionLink,
         task.data_package_id AS dataPackageId,
         task.data_package_name_snapshot AS dataPackageName,
-        task.account_filter AS accountFilterJson,
+        strategy.account_filter AS accountFilterJson,
         task.target_country_iso2s_snapshot AS targetCountryIso2sJson,
         task.task_planned_end_at AS plannedEndAt,
-        task.task_interval_minutes AS cycleIntervalMinutes,
+        strategy.task_interval_minutes AS cycleIntervalMinutes,
         task.created_at AS createdAt,
         runtime.recipient_total AS recipientTotal,
         runtime.send_total AS sendTotal,
@@ -44,6 +52,11 @@
 
     <sql id="ListFrom">
         FROM hyperlink_task task
+        INNER JOIN hyperlink_strategy strategy
+          ON strategy.id = task.hyperlink_strategy_id
+         AND strategy.tenant_id = task.tenant_id
+         AND strategy.strategy_scope = 2
+         AND strategy.owner_task_id = task.id
         INNER JOIN hyperlink_task_content content
           ON content.hyperlink_task_id = task.id
          AND content.tenant_id = task.tenant_id
@@ -64,7 +77,7 @@
           AND runtime.run_status = #{q.runStatus}
         </if>
         <if test="q.taskModeCode != null">
-          AND task.task_type = #{q.taskModeCode}
+          AND strategy.task_type = #{q.taskModeCode}
         </if>
         <if test="q.countryIso2 != null and !q.unknownCountry">
           AND JSON_CONTAINS(task.target_country_iso2s_snapshot, JSON_QUOTE(#{q.countryIso2}))
@@ -82,36 +95,46 @@
     </sql>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO hyperlink_task
-        (task_name, task_type, start_mode, task_delay_minutes, task_planned_end_at,
-         task_interval_minutes, data_package_id, data_package_generation, data_package_name_snapshot,
+        (task_name, start_mode, task_delay_minutes, task_planned_end_at,
+         data_package_id, data_package_generation, data_package_name_snapshot,
          target_country_iso2s_snapshot,
-         source_template_id, source_template_version, hyperlink_strategy_id, account_filter,
-         max_use_account, concurrent_num, account_max_send_num, account_send_concurrency,
+         source_template_id, source_template_version, hyperlink_strategy_id, account_send_concurrency,
          msg_interval_min_ms, msg_interval_max_ms, is_short_link_enabled, version,
          created_by, created_at, updated_at)
-        VALUES (#{taskName}, #{taskType}, #{startMode}, #{taskDelayMinutes}, #{taskPlannedEndAt},
-         #{taskIntervalMinutes}, #{dataPackageId}, #{dataPackageGeneration}, #{dataPackageNameSnapshot},
+        VALUES (#{taskName}, #{startMode}, #{taskDelayMinutes}, #{taskPlannedEndAt},
+         #{dataPackageId}, #{dataPackageGeneration}, #{dataPackageNameSnapshot},
          #{targetCountryIso2sSnapshot},
-         #{sourceTemplateId}, #{sourceTemplateVersion}, #{hyperlinkStrategyId}, #{accountFilter},
-         #{maxUseAccount}, #{concurrentNum}, #{accountMaxSendNum}, #{accountSendConcurrency},
+         #{sourceTemplateId}, #{sourceTemplateVersion}, #{hyperlinkStrategyId}, #{accountSendConcurrency},
          #{msgIntervalMinMs}, #{msgIntervalMaxMs}, #{shortLinkEnabled}, #{version},
          #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
     <select id="selectById" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTask">
-        SELECT <include refid="Columns"/> FROM hyperlink_task WHERE id = #{id}
+        SELECT <include refid="Columns"/>
+        FROM hyperlink_task task
+        INNER JOIN hyperlink_strategy strategy
+          ON strategy.id = task.hyperlink_strategy_id
+         AND strategy.tenant_id = task.tenant_id
+         AND strategy.strategy_scope = 2
+         AND strategy.owner_task_id = task.id
+        WHERE task.id = #{id}
     </select>
     <select id="selectDetailById"
             resultType="com.armada.hyperlink.task.model.vo.HyperlinkTaskDetailRow">
-        SELECT t.id, t.task_name, t.task_type, t.start_mode, t.task_delay_minutes,
-          t.task_planned_end_at, t.task_interval_minutes, t.data_package_id,
-          t.data_package_name_snapshot, t.account_filter, t.max_use_account,
-          t.concurrent_num, t.account_max_send_num, t.msg_interval_min_ms,
+        SELECT t.id, t.task_name, strategy.task_type, t.start_mode, t.task_delay_minutes,
+          t.task_planned_end_at, strategy.task_interval_minutes, t.data_package_id,
+          t.data_package_name_snapshot, strategy.account_filter, strategy.max_use_account,
+          strategy.concurrent_num, strategy.account_max_send_num, t.msg_interval_min_ms,
           t.msg_interval_max_ms, t.is_short_link_enabled, t.version,
           t.created_at, t.updated_at, c.message_schema_version, c.message_type,
           c.title, c.content, c.link_description, c.promotion_link, c.buttons,
           c.card_text, c.link_preview_asset_id, c.body_main_asset_id,
           r.is_enabled AS enabled, r.run_status, r.provision_status
         FROM hyperlink_task t
+        INNER JOIN hyperlink_strategy strategy
+          ON strategy.tenant_id = #{tenantId}
+         AND strategy.id = t.hyperlink_strategy_id
+         AND strategy.strategy_scope = 2
+         AND strategy.owner_task_id = t.id
         INNER JOIN hyperlink_task_content c
           ON c.tenant_id = #{tenantId} AND c.hyperlink_task_id = t.id
         INNER JOIN hyperlink_task_runtime r
@@ -119,15 +142,12 @@
         WHERE t.tenant_id = #{tenantId} AND t.id = #{id}
     </select>
     <update id="updateConfig">
-        UPDATE hyperlink_task SET task_name=#{entity.taskName}, task_type=#{entity.taskType},
+        UPDATE hyperlink_task SET task_name=#{entity.taskName},
           start_mode=#{entity.startMode}, task_delay_minutes=#{entity.taskDelayMinutes},
-          task_planned_end_at=#{entity.taskPlannedEndAt}, task_interval_minutes=#{entity.taskIntervalMinutes},
+          task_planned_end_at=#{entity.taskPlannedEndAt},
           data_package_id=#{entity.dataPackageId}, data_package_generation=#{entity.dataPackageGeneration},
           data_package_name_snapshot=#{entity.dataPackageNameSnapshot},
           target_country_iso2s_snapshot=#{entity.targetCountryIso2sSnapshot},
-          account_filter=#{entity.accountFilter},
-          max_use_account=#{entity.maxUseAccount}, concurrent_num=#{entity.concurrentNum},
-          account_max_send_num=#{entity.accountMaxSendNum},
           msg_interval_min_ms=#{entity.msgIntervalMinMs}, msg_interval_max_ms=#{entity.msgIntervalMaxMs},
           is_short_link_enabled=#{entity.shortLinkEnabled}, version=version+1, updated_at=#{entity.updatedAt}
         WHERE id=#{entity.id} AND version=#{expectedVersion}

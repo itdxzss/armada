@@ -41,7 +41,7 @@ public class HyperlinkTaskQuoteGuardService {
         HyperlinkQuoteTokenService.QuoteClaims claims = quoteService.quoteInternal(
                 new HyperlinkTaskQuoteService.InternalQuoteInput(principal.tenantId(),
                         principal.userId(), request.dataPackageId(), request.taskMode(),
-                        request.maxExecutingAccounts()));
+                        request.maxExecutingAccounts(), request.maxUseAccounts()));
         requireMatchingSave(claims, request);
         return claims;
     }
@@ -52,6 +52,7 @@ public class HyperlinkTaskQuoteGuardService {
                 principal.tenantId(), principal.userId(), "START", taskId, version, now);
         if (claims.dataPackageId() != task.getDataPackageId()
                 || claims.maxExecutingAccounts() != task.getConcurrentNum()
+                || claims.maxUseAccounts() != task.getMaxUseAccount()
                 || !claims.taskMode().equals(modeApi(task.getTaskType()))) {
             throw new BusinessException(ErrorCode.HYPERLINK_QUOTE_STALE, "任务已编辑，请重新报价");
         }
@@ -61,19 +62,21 @@ public class HyperlinkTaskQuoteGuardService {
     public HyperlinkQuoteTokenService.QuoteClaims internalForTask(HyperlinkTask task) {
         return quoteService.quoteInternal(new HyperlinkTaskQuoteService.InternalQuoteInput(
                 task.getTenantId(), task.getCreatedBy(), task.getDataPackageId(),
-                modeApi(task.getTaskType()), task.getConcurrentNum()));
+                modeApi(task.getTaskType()), task.getConcurrentNum(), task.getMaxUseAccount()));
     }
 
     private HyperlinkTaskQuoteVO internalQuote(HyperlinkTaskSaveDTO request, AuthPrincipal principal) {
         return quoteService.quote(new HyperlinkTaskQuoteDTO("CREATE", null,
-                request.dataPackageId(), request.taskMode(), request.maxExecutingAccounts()), principal);
+                request.dataPackageId(), request.taskMode(), request.maxExecutingAccounts(),
+                request.maxUseAccounts()), principal);
     }
 
     private void requireMatchingSave(HyperlinkQuoteTokenService.QuoteClaims claims,
             HyperlinkTaskSaveDTO request) {
         if (claims.dataPackageId() != request.dataPackageId()
                 || !claims.taskMode().equals(request.taskMode())
-                || claims.maxExecutingAccounts() != request.maxExecutingAccounts()) {
+                || claims.maxExecutingAccounts() != request.maxExecutingAccounts()
+                || claims.maxUseAccounts() != request.maxUseAccounts()) {
             throw new BusinessException(ErrorCode.HYPERLINK_QUOTE_STALE, "任务配置与报价不一致");
         }
     }

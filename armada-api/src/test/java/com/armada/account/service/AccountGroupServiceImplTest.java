@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -160,6 +161,34 @@ class AccountGroupServiceImplTest {
 
         verify(mapper, never()).insert(any());
         assertThat(result.getId()).isEqualTo(5L);
+    }
+
+    @Test
+    void hyperlinkDefaultGroupsAreLazilyCreatedFromStableCodes() {
+        when(mapper.selectBySystemCode("HYPERLINK_PUBLIC")).thenReturn(null);
+        when(mapper.selectBySystemCode("HYPERLINK_MARKETING")).thenReturn(null);
+        doAnswer(invocation -> {
+            AccountGroup row = invocation.getArgument(0);
+            row.setId("HYPERLINK_PUBLIC".equals(row.getSystemCode()) ? 21L : 22L);
+            return 1;
+        }).when(mapper).insertSystemBusinessGroup(any());
+
+        assertThat(service.hyperlinkDefaultGroupIds()).containsExactly(21L, 22L);
+        verify(mapper).claimSystemCodeByName(eq("公共组"), eq("HYPERLINK_PUBLIC"), anyLong());
+        verify(mapper).claimSystemCodeByName(eq("超链组"), eq("HYPERLINK_MARKETING"), anyLong());
+    }
+
+    @Test
+    void hyperlinkDefaultGroupsReuseExistingStableRowsWithoutWriting() {
+        AccountGroup publicGroup = new AccountGroup();
+        publicGroup.setId(31L);
+        AccountGroup hyperlinkGroup = new AccountGroup();
+        hyperlinkGroup.setId(32L);
+        when(mapper.selectBySystemCode("HYPERLINK_PUBLIC")).thenReturn(publicGroup);
+        when(mapper.selectBySystemCode("HYPERLINK_MARKETING")).thenReturn(hyperlinkGroup);
+
+        assertThat(service.hyperlinkDefaultGroupIds()).containsExactly(31L, 32L);
+        verify(mapper, never()).insertSystemBusinessGroup(any());
     }
 
     // ---- create ----

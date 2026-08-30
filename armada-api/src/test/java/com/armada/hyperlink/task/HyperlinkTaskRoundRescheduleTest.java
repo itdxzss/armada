@@ -99,6 +99,7 @@ class HyperlinkTaskRoundRescheduleTest {
         runtime.setProvisionStatus(HyperlinkProvisionStatus.READY.code());
         when(request.version()).thenReturn(3);
         when(request.sourceTaskId()).thenReturn(null);
+        when(request.sourceStrategyId()).thenReturn(null);
         when(factory.normalizeForUpdate(request, 3)).thenReturn(normalized);
         when(factory.task(eq(request), eq(normalized), eq(8L), anyLong()))
                 .thenReturn(replacement);
@@ -117,7 +118,8 @@ class HyperlinkTaskRoundRescheduleTest {
                 mock(HyperlinkProvisionFactService.class),
                 mock(HyperlinkCleanupStartService.class), rounds, audit,
                 mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class),
+                mock(com.armada.hyperlink.strategy.service.HyperlinkTaskStrategyService.class));
         return new Fixture(service, request, rounds, audit);
     }
 

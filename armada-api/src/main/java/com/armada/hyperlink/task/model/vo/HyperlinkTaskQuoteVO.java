@@ -11,6 +11,8 @@ public record HyperlinkTaskQuoteVO(
         int dataPackageGeneration,
         String dataPackageName,
         int recipientCount,
+        int configuredMaxExecutingAccounts,
+        int effectiveMaxExecutingAccounts,
         String pricingMode,
         String priceCode,
         String currencyCode,

@@ -43,6 +43,7 @@ import com.armada.hyperlink.task.service.HyperlinkFirstRoundService;
 import com.armada.hyperlink.task.service.HyperlinkOwnedRecipientQuoteService;
 import com.armada.hyperlink.task.service.HyperlinkProvisionFactService;
 import com.armada.hyperlink.task.service.HyperlinkProvisioningService;
+import com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService;
 import com.armada.hyperlink.task.service.HyperlinkQuoteTokenService;
 import com.armada.hyperlink.task.service.HyperlinkRecipientClaimService;
 import com.armada.hyperlink.task.service.HyperlinkRoundAccountSelectionService;
@@ -121,6 +122,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
     private HyperlinkCleanupStartService cleanupStartService;
     private HyperlinkTaskQuoteGuardService quoteGuard;
     private HyperlinkProvisionFactService provisionFacts;
+    private HyperlinkProtocolCapacityService capacityService;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -133,8 +135,10 @@ class HyperlinkQuoteStaleRecoveryH2Test {
                 "quote-recovery-test-signing-key-1234567890");
         ownedQuoteService = new HyperlinkOwnedRecipientQuoteService(runtimeMapper, claimMapper,
                 billingMapper, recipientMapper);
+        capacityService = mock(HyperlinkProtocolCapacityService.class);
         quoteService = new HyperlinkTaskQuoteService(dataPackageService, taskMapper,
-                wallet, tokenService, ownedQuoteService);
+                wallet, tokenService, ownedQuoteService,
+                capacityService);
         quoteGuard = new HyperlinkTaskQuoteGuardService(
                 quoteService, tokenService);
         provisionFacts = new HyperlinkProvisionFactService(
@@ -162,6 +166,40 @@ class HyperlinkQuoteStaleRecoveryH2Test {
     }
 
     @Test
+    void autoQuoteKeepsConfiguredZeroAndPricesTheMaxUseCappedEffectiveValue() {
+        assertThat(jdbc().update("UPDATE hyperlink_strategy "
+                + "SET concurrent_num=0,max_use_account=7 WHERE owner_task_id=?", TASK_ID))
+                .isEqualTo(1);
+        when(capacityService.resolveAutoLimit(7)).thenReturn(7);
+
+        HyperlinkTaskQuoteVO quote = quoteService.quote(
+                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null, null), principal());
+
+        assertThat(quote.configuredMaxExecutingAccounts()).isZero();
+        assertThat(quote.effectiveMaxExecutingAccounts()).isEqualTo(7);
+        assertThat(claims(quote.quoteToken(), 1).maxUseAccounts()).isEqualTo(7);
+        assertThat(wallet.quoteConcurrencies).containsExactly(7);
+    }
+
+    @Test
+    void autoQuoteBecomesStaleWhenTheTaskSnapshotMaxUseChanges() {
+        assertThat(jdbc().update("UPDATE hyperlink_strategy "
+                + "SET concurrent_num=0,max_use_account=7 WHERE owner_task_id=?", TASK_ID))
+                .isEqualTo(1);
+        when(capacityService.resolveAutoLimit(7)).thenReturn(7);
+        HyperlinkTaskQuoteVO quote = quoteService.quote(
+                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null, null), principal());
+        assertThat(jdbc().update("UPDATE hyperlink_strategy "
+                + "SET max_use_account=8 WHERE owner_task_id=?", TASK_ID)).isEqualTo(1);
+
+        assertThatThrownBy(() -> quoteGuard.forStart(quote.quoteToken(), TASK_ID, 1,
+                taskMapper.selectById(TASK_ID), principal(), System.currentTimeMillis()))
+                .isInstanceOfSatisfying(BusinessException.class, exception ->
+                        assertThat(exception.getCode())
+                                .isEqualTo(ErrorCode.HYPERLINK_QUOTE_STALE.code()));
+    }
+
+    @Test
     void competingClaimRequotesOwnedNinetyAndResumesWithoutReleaseOrSecondClaim() throws Exception {
         prepareQuoteStaleFailure();
 
@@ -185,7 +223,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
                 .hasValueSatisfying(snapshot -> assertThat(snapshot.recipientCount()).isEqualTo(90));
 
         HyperlinkTaskQuoteVO recoveryQuote = quoteService.quote(
-                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null), principal());
+                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null, null), principal());
         assertThat(recoveryQuote.recipientCount()).isEqualTo(90);
         assertThat(recoveryQuote.estimatedAmount()).isEqualByComparingTo("90");
         assertThat(recoveryQuote.pricingBreakdown())
@@ -233,9 +271,8 @@ class HyperlinkQuoteStaleRecoveryH2Test {
     void quoteStaleRecoveryStartFailsClosedWhenWalletWasCalledAfterQuote() {
         prepareQuoteStaleFailure();
         HyperlinkTaskQuoteVO recoveryQuote = quoteService.quote(
-                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null), principal());
-        HyperlinkTaskStoreService store = new HyperlinkTaskStoreService(taskMapper,
-                mock(HyperlinkTaskContentMapper.class), runtimeMapper);
+                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null, null), principal());
+        HyperlinkTaskStoreService store = storeWithSupportedContent();
         HyperlinkTaskActionService service = new HyperlinkTaskActionService(store,
                 quoteGuard, provisionFacts, roundMapper, cleanupStartService,
                 new RecordingAudit(), new HyperlinkShortLinkGuard(""),
@@ -258,7 +295,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
 
     private void prepareQuoteStaleFailure() {
         HyperlinkTaskQuoteVO initialQuote = quoteService.quote(
-                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null), principal());
+                new HyperlinkTaskQuoteDTO("START", TASK_ID, null, null, null, null), principal());
         assertThat(initialQuote.recipientCount()).isEqualTo(100);
         HyperlinkQuoteTokenService.QuoteClaims initialClaims = claims(initialQuote.quoteToken(), 1);
         inTransaction(() -> provisionFacts.prepare(
@@ -267,6 +304,19 @@ class HyperlinkQuoteStaleRecoveryH2Test {
                 1, 0, 100, 10, 1_100L)).hasSize(10);
         inTransaction(() -> provisioningService.advance(TASK_ID));
         inTransaction(() -> provisioningService.advance(TASK_ID));
+    }
+
+    private HyperlinkTaskStoreService storeWithSupportedContent() {
+        return new HyperlinkTaskStoreService(taskMapper,
+                mock(HyperlinkTaskContentMapper.class), runtimeMapper) {
+            @Override
+            public HyperlinkTaskContent requireContent(long taskId) {
+                HyperlinkTaskContent content = new HyperlinkTaskContent();
+                content.setMessageType(1);
+                content.setContent("hello");
+                return content;
+            }
+        };
     }
 
     private void assertCompetingStartsOnlyOneWins(String quoteToken) throws Exception {
@@ -351,6 +401,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
                 + "VALUES (21,7,'pool',1,100,1,1000,1000)");
         execute("INSERT INTO data_package_stat VALUES (21,7,1,100,0,0,0,0,0,1000,NULL)");
         insertPhones();
+        execute(strategyInsert(TASK_ID), strategyInsert(COMPETING_TASK_ID));
         execute(taskInsert(TASK_ID, "recover"), taskInsert(COMPETING_TASK_ID, "competitor"));
         execute("INSERT INTO hyperlink_task_runtime "
                 + "(hyperlink_task_id,tenant_id,is_enabled,run_status,provision_status,created_at,updated_at) "
@@ -358,13 +409,21 @@ class HyperlinkQuoteStaleRecoveryH2Test {
     }
 
     private String taskInsert(long taskId, String name) {
-        return "INSERT INTO hyperlink_task (id,tenant_id,task_name,task_type,start_mode,"
-                + "task_delay_minutes,task_interval_minutes,data_package_id,data_package_generation,"
-                + "data_package_name_snapshot,target_country_iso2s_snapshot,account_filter,"
-                + "max_use_account,concurrent_num,account_max_send_num,account_send_concurrency,"
+        return "INSERT INTO hyperlink_task (id,tenant_id,task_name,start_mode,"
+                + "task_delay_minutes,data_package_id,data_package_generation,"
+                + "data_package_name_snapshot,target_country_iso2s_snapshot,hyperlink_strategy_id,"
+                + "account_send_concurrency,"
                 + "msg_interval_min_ms,msg_interval_max_ms,is_short_link_enabled,version,created_by,"
                 + "created_at,updated_at) VALUES (" + taskId + ",7,'" + name
-                + "',1,1,0,0,21,1,'pool','[\"BR\",\"US\"]','{}',1,1,0,20,500,700,0,1,8,1000,1000)";
+                + "',1,0,21,1,'pool','[\"BR\",\"US\"]'," + taskId
+                + ",20,500,700,0,1,8,1000,1000)";
+    }
+
+    private String strategyInsert(long taskId) {
+        return "INSERT INTO hyperlink_strategy (id,tenant_id,strategy_scope,owner_task_id,"
+                + "task_type,task_interval_minutes,account_filter,max_use_account,concurrent_num,"
+                + "account_max_send_num,is_enabled,version,created_at,updated_at) VALUES ("
+                + taskId + ",7,2," + taskId + ",1,0,'{}',1,1,0,1,1,1000,1000)";
     }
 
     private void insertPhones() throws SQLException {
@@ -392,7 +451,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
 
     private void createSchema() throws SQLException {
         execute(dataPackageSchema(), dataPackagePhoneSchema(), dataPackageStatSchema(),
-                taskSchema(), runtimeSchema(), claimSchema(), billingSchema(), recipientSchema(),
+                strategySchema(), taskSchema(), runtimeSchema(), claimSchema(), billingSchema(), recipientSchema(),
                 roundSchema());
     }
 
@@ -420,14 +479,23 @@ class HyperlinkQuoteStaleRecoveryH2Test {
 
     private String taskSchema() {
         return "CREATE TABLE hyperlink_task (id BIGINT PRIMARY KEY,tenant_id BIGINT NOT NULL,"
-                + "task_name VARCHAR(1024),task_type INT,start_mode INT,task_delay_minutes INT,"
-                + "task_planned_end_at BIGINT,task_interval_minutes INT,data_package_id BIGINT,"
+                + "task_name VARCHAR(1024),start_mode INT,task_delay_minutes INT,"
+                + "task_planned_end_at BIGINT,data_package_id BIGINT,"
                 + "data_package_generation INT,data_package_name_snapshot VARCHAR(255),"
                 + "target_country_iso2s_snapshot VARCHAR(255),source_template_id BIGINT,"
-                + "source_template_version INT,hyperlink_strategy_id BIGINT,account_filter VARCHAR(2000),"
-                + "max_use_account INT,concurrent_num INT,account_max_send_num INT,"
+                + "source_template_version INT,hyperlink_strategy_id BIGINT,"
                 + "account_send_concurrency INT,msg_interval_min_ms INT,msg_interval_max_ms INT,"
                 + "is_short_link_enabled BOOLEAN,version INT,created_by BIGINT,created_at BIGINT,updated_at BIGINT)";
+    }
+
+    private String strategySchema() {
+        return "CREATE TABLE hyperlink_strategy (id BIGINT PRIMARY KEY,tenant_id BIGINT NOT NULL,"
+                + "strategy_scope INT NOT NULL,owner_task_id BIGINT,source_strategy_id BIGINT,"
+                + "strategy_name VARCHAR(100),task_type INT NOT NULL,task_interval_minutes INT NOT NULL,"
+                + "account_filter VARCHAR(2000) NOT NULL,max_use_account INT NOT NULL,"
+                + "concurrent_num INT NOT NULL,account_max_send_num INT NOT NULL,is_enabled BOOLEAN NOT NULL,"
+                + "version INT NOT NULL,created_by BIGINT,updated_by BIGINT,created_at BIGINT,updated_at BIGINT,"
+                + "deleted BIGINT DEFAULT 0)";
     }
 
     private String runtimeSchema() {
@@ -505,10 +573,12 @@ class HyperlinkQuoteStaleRecoveryH2Test {
 
     private static final class RecordingWallet implements HyperlinkWalletPort {
         private final List<BigDecimal> reserveAmounts = new ArrayList<>();
+        private final List<Integer> quoteConcurrencies = new ArrayList<>();
 
         @Override
         public PricingSnapshot quote(long tenantId, int maxExecutingAccounts,
                 List<HyperlinkRecipientCountryCount> counts) {
+            quoteConcurrencies.add(maxExecutingAccounts);
             List<CountryPrice> breakdown = counts.stream()
                     .map(row -> new CountryPrice(row.countryIso2(), row.recipientCount(),
                             BigDecimal.ONE, BigDecimal.valueOf(row.recipientCount())))

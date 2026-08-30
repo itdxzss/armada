@@ -79,6 +79,9 @@ public interface AccountGroupService {
     /** 当前租户活跃账号分组选项；只读，不触发默认分组懒创建。 */
     List<AccountGroupOptionVO> options();
 
+    /** 当前租户超链营销固定的公共组、超链组 ID。 */
+    List<Long> hyperlinkDefaultGroupIds();
+
     /**
      * 断言分组存在并返回分组实体;不存在则抛 NOT_FOUND 业务异常。
      *

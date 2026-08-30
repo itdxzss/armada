@@ -39,6 +39,20 @@ public interface AccountGroupMapper {
     /** 当前租户活跃分组下拉，按名称和 ID 稳定排序。 */
     List<AccountGroupOptionVO> selectOptions();
 
+    /** 当前租户超链营销默认业务组，按公共组、超链组的固定顺序返回。 */
+    List<Long> selectHyperlinkDefaultGroupIds();
+
+    /** 按稳定业务编码读取当前租户的活跃系统分组。 */
+    AccountGroup selectBySystemCode(@Param("systemCode") String systemCode);
+
+    /** 复用当前租户已有同名无归属活跃分组，并原子升级为系统业务分组。 */
+    int claimSystemCodeByName(@Param("name") String name,
+                              @Param("systemCode") String systemCode,
+                              @Param("updatedAt") long updatedAt);
+
+    /** 创建带稳定业务编码的系统分组。 */
+    int insertSystemBusinessGroup(AccountGroup row);
+
     /**
      * 批量读取当前页占用任务的主状态及拉群资源状态。
      *

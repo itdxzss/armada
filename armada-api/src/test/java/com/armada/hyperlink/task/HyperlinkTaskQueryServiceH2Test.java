@@ -151,7 +151,7 @@ public class HyperlinkTaskQueryServiceH2Test {
     }
 
     @Test
-    void mapperSourceReadsOnlyTheThreeOneToOneListTables() throws Exception {
+    void mapperSourceReadsTaskContentRuntimeAndCanonicalStrategyOnly() throws Exception {
         try (InputStream input = getClass().getResourceAsStream(
                 "/mapper/hyperlink/task/HyperlinkTaskMapper.xml")) {
             assertThat(input).isNotNull();
@@ -159,7 +159,7 @@ public class HyperlinkTaskQueryServiceH2Test {
             String listSql = xml.substring(xml.indexOf("<sql id=\"ListFrom\">"));
             assertThat(listSql)
                     .contains("FROM hyperlink_task task", "hyperlink_task_content content",
-                            "hyperlink_task_runtime runtime")
+                            "hyperlink_task_runtime runtime", "hyperlink_strategy strategy")
                     .doesNotContain("hyperlink_task_recipient ", "hyperlink_task_account_stat");
         }
     }
@@ -191,10 +191,16 @@ public class HyperlinkTaskQueryServiceH2Test {
         execute("""
                 CREATE TABLE hyperlink_task (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, task_name VARCHAR(128) NOT NULL,
-                  task_type INT NOT NULL, task_planned_end_at BIGINT, task_interval_minutes INT NOT NULL,
+                  task_planned_end_at BIGINT,
                   data_package_id BIGINT, data_package_name_snapshot VARCHAR(128),
-                  target_country_iso2s_snapshot CLOB, account_filter CLOB NOT NULL,
+                  target_country_iso2s_snapshot CLOB, hyperlink_strategy_id BIGINT NOT NULL,
                   is_short_link_enabled BOOLEAN NOT NULL, version INT NOT NULL, created_at BIGINT NOT NULL)
+                """);
+        execute("""
+                CREATE TABLE hyperlink_strategy (
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, strategy_scope INT NOT NULL,
+                  owner_task_id BIGINT NOT NULL, task_type INT NOT NULL,
+                  task_interval_minutes INT NOT NULL, account_filter CLOB NOT NULL)
                 """);
         execute("""
                 CREATE TABLE hyperlink_task_content (
@@ -229,10 +235,13 @@ public class HyperlinkTaskQueryServiceH2Test {
         String escapedName = name.replace("'", "''");
         String filter = "{\"filterSchemaVersion\":1,\"countryIso2s\":[\"BR\"],"
                 + "\"groupInviteAllowed\":true}";
+        long strategyId = id + 1_000L;
         execute("INSERT INTO hyperlink_task VALUES (" + id + "," + tenantId + ",'"
-                + escapedName + "'," + mode + ",NULL," + (mode == 3 ? 60 : 0)
-                + ",9,'包" + id + "','" + countries + "','" + filter + "',"
-                + shortLink + ",3," + createdAt + ")");
+                + escapedName + "',NULL,9,'包" + id + "','" + countries + "',"
+                + strategyId + "," + shortLink + ",3," + createdAt + ")");
+        execute("INSERT INTO hyperlink_strategy VALUES (" + strategyId + "," + tenantId
+                + ",2," + id + "," + mode + "," + (mode == 3 ? 60 : 0)
+                + ",'" + filter + "')");
         execute("INSERT INTO hyperlink_task_content VALUES (" + id + "," + tenantId + ","
                 + messageType + ",'https://example.com/" + id + "')");
         execute("INSERT INTO hyperlink_task_runtime VALUES (" + id + "," + tenantId + ","

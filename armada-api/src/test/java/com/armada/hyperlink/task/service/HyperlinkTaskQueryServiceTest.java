@@ -141,7 +141,9 @@ class HyperlinkTaskQueryServiceTest {
         when(accountSelector.protocolCount()).thenReturn(4);
         when(accountSelector.protocolIds()).thenReturn(List.of("ANDROID", "WEB"));
         when(accountGroupService.options()).thenReturn(List.of(
-                new AccountGroupOptionVO(9L, "公共组")));
+                new AccountGroupOptionVO(9L, "公共组"),
+                new AccountGroupOptionVO(10L, "超链组")));
+        when(accountGroupService.hyperlinkDefaultGroupIds()).thenReturn(List.of(9L, 10L));
         when(countryService.options("marketing-export")).thenReturn(new CountryOptionsVO(List.of(
                 new CountryOptionVO("TH", "TH", "泰国", "Thailand", "+66", "🇹🇭",
                         false, "ASIA"),
@@ -163,9 +165,10 @@ class HyperlinkTaskQueryServiceTest {
         assertThat(result.defaultSubTaskNum()).isEqualTo(50);
         assertThat(result.availableBalance()).isEqualByComparingTo("105.00");
         assertThat(result.referenceUnitPrice()).isEqualByComparingTo("0.02");
-        assertThat(result.defaultAccountGroupIds()).isEmpty();
+        assertThat(result.defaultAccountGroupIds()).containsExactly(9L, 10L);
         assertThat(result.groupOptions()).containsExactly(
-                new com.armada.hyperlink.task.model.vo.HyperlinkIdOptionVO(9L, "公共组"));
+                new com.armada.hyperlink.task.model.vo.HyperlinkIdOptionVO(9L, "公共组"),
+                new com.armada.hyperlink.task.model.vo.HyperlinkIdOptionVO(10L, "超链组"));
         assertThat(result.countryOptions()).extracting(option -> option.value())
                 .containsExactly("BR", "TH");
         assertThat(result.countryOptions().get(0).flag()).isEqualTo("🇧🇷");

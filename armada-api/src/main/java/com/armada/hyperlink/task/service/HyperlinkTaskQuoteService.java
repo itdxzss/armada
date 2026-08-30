@@ -29,6 +29,7 @@ public class HyperlinkTaskQuoteService {
     private final HyperlinkWalletPort walletPort;
     private final HyperlinkQuoteTokenService tokenService;
     private final HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService;
+    private final HyperlinkProtocolCapacityService capacityService;
     private final Clock clock;
 
     @Autowired
@@ -36,20 +37,23 @@ public class HyperlinkTaskQuoteService {
             HyperlinkTaskMapper taskMapper,
             HyperlinkWalletPort walletPort,
             HyperlinkQuoteTokenService tokenService,
-            HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService) {
+            HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService,
+            HyperlinkProtocolCapacityService capacityService) {
         this(dataPackageService, taskMapper, walletPort, tokenService,
-                ownedRecipientQuoteService, Clock.systemUTC());
+                ownedRecipientQuoteService, capacityService, Clock.systemUTC());
     }
 
     HyperlinkTaskQuoteService(DataPackageRecipientClaimService dataPackageService,
             HyperlinkTaskMapper taskMapper, HyperlinkWalletPort walletPort,
             HyperlinkQuoteTokenService tokenService,
-            HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService, Clock clock) {
+            HyperlinkOwnedRecipientQuoteService ownedRecipientQuoteService,
+            HyperlinkProtocolCapacityService capacityService, Clock clock) {
         this.dataPackageService = dataPackageService;
         this.taskMapper = taskMapper;
         this.walletPort = walletPort;
         this.tokenService = tokenService;
         this.ownedRecipientQuoteService = ownedRecipientQuoteService;
+        this.capacityService = capacityService;
         this.clock = clock;
     }
 
@@ -62,7 +66,8 @@ public class HyperlinkTaskQuoteService {
                 throw new BusinessException(ErrorCode.VALIDATION, "未开始任务尚未配置数据包");
             }
             input = new QuoteInput("START", task.getId(), task.getDataPackageId(),
-                    modeApi(task.getTaskType()), task.getConcurrentNum(), task.getVersion());
+                    modeApi(task.getTaskType()), task.getConcurrentNum(), task.getMaxUseAccount(),
+                    task.getVersion());
             snapshot = ownedRecipientQuoteService.snapshot(task)
                     .orElseGet(() -> dataPackageService.snapshot(task.getDataPackageId()));
         } else {
@@ -75,12 +80,15 @@ public class HyperlinkTaskQuoteService {
     /** 后台重建按明确租户/操作者/冻结配置重新生成报价事实，不伪造登录身份。 */
     public HyperlinkQuoteTokenService.QuoteClaims quoteInternal(InternalQuoteInput request) {
         if (request == null || request.tenantId() <= 0 || request.userId() <= 0
-                || request.dataPackageId() <= 0 || request.maxExecutingAccounts() <= 0) {
+                || request.dataPackageId() <= 0 || request.maxExecutingAccounts() < 0
+                || request.maxExecutingAccounts()
+                    > HyperlinkTaskConfigurationFactory.MAX_EXECUTING_ACCOUNTS
+                || request.maxUseAccounts() < 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "内部报价参数非法");
         }
         HyperlinkTaskMode.fromApi(request.taskMode());
         QuoteInput input = new QuoteInput("CREATE", null, request.dataPackageId(), request.taskMode(),
-                request.maxExecutingAccounts(), null);
+                request.maxExecutingAccounts(), request.maxUseAccounts(), null);
         return issue(input, request.tenantId(), request.userId(),
                 dataPackageService.snapshot(request.dataPackageId())).claims();
     }
@@ -91,8 +99,12 @@ public class HyperlinkTaskQuoteService {
                 .map(row -> new HyperlinkRecipientCountryCount(row.countryIso2(), row.recipientCount()))
                 .toList();
         int recipientCount = snapshot.recipientCount();
+        capacityService.requireSufficient(input.maxExecutingAccounts());
+        int pricingConcurrency = input.maxExecutingAccounts() == 0
+                ? capacityService.resolveAutoLimit(input.maxUseAccounts())
+                : input.maxExecutingAccounts();
         HyperlinkWalletPort.PricingSnapshot pricing = walletPort.quote(
-                tenantId, input.maxExecutingAccounts(), counts);
+                tenantId, pricingConcurrency, counts);
         BigDecimal available = pricing.accountBalance().add(pricing.giftBalance());
         List<HyperlinkTaskQuoteBreakdownVO> breakdown = pricing.breakdown().stream()
                 .map(row -> new HyperlinkTaskQuoteBreakdownVO(row.countryIso2(), row.recipientCount(),
@@ -102,12 +114,14 @@ public class HyperlinkTaskQuoteService {
         String quoteId = UUID.randomUUID().toString();
         HyperlinkTaskQuoteVO unsigned = new HyperlinkTaskQuoteVO("", expiresAt, snapshot.dataPackageId(),
                 snapshot.generation(), snapshot.packageName(), recipientCount,
+                input.maxExecutingAccounts(), pricingConcurrency,
                 pricing.pricingMode(), pricing.priceCode(), pricing.currencyCode(), pricing.unitPrice(),
                 breakdown, pricing.estimatedAmount(), pricing.accountBalance(), pricing.giftBalance(), available);
         HyperlinkQuoteTokenService.QuoteClaims claims = new HyperlinkQuoteTokenService.QuoteClaims(
                 quoteId, tenantId, userId, input.purpose(), input.taskId(),
                 input.taskVersion(), snapshot.dataPackageId(), snapshot.generation(), snapshot.upperPhoneId(),
-                input.taskMode(), input.maxExecutingAccounts(), pricing.provider(), expiresAt, unsigned);
+                input.taskMode(), input.maxExecutingAccounts(), input.maxUseAccounts(),
+                pricing.provider(), expiresAt, unsigned);
         return new IssuedQuote(claims, unsigned);
     }
 
@@ -115,6 +129,7 @@ public class HyperlinkTaskQuoteService {
         HyperlinkTaskQuoteVO quote = issued.quote();
         return new HyperlinkTaskQuoteVO(tokenService.sign(issued.claims()), quote.expiresAt(), quote.dataPackageId(),
                 quote.dataPackageGeneration(), quote.dataPackageName(), quote.recipientCount(),
+                quote.configuredMaxExecutingAccounts(), quote.effectiveMaxExecutingAccounts(),
                 quote.pricingMode(), quote.priceCode(), quote.currencyCode(), quote.unitPrice(),
                 quote.pricingBreakdown(), quote.estimatedAmount(), quote.accountBalance(),
                 quote.giftBalance(), quote.availableBalance());
@@ -127,17 +142,20 @@ public class HyperlinkTaskQuoteService {
         if ("CREATE".equals(request.purpose())) {
             if (request.taskId() != null || request.dataPackageId() == null
                     || request.taskMode() == null || request.maxExecutingAccounts() == null
-                    || request.maxExecutingAccounts() <= 0) {
+                    || request.maxUseAccounts() == null || request.maxUseAccounts() < 0
+                    || request.maxExecutingAccounts() < 0
+                    || request.maxExecutingAccounts()
+                        > HyperlinkTaskConfigurationFactory.MAX_EXECUTING_ACCOUNTS) {
                 throw new BusinessException(ErrorCode.VALIDATION, "CREATE 报价字段不完整或混入 START 字段");
             }
             HyperlinkTaskMode.fromApi(request.taskMode());
             return new QuoteInput("CREATE", null, request.dataPackageId(), request.taskMode(),
-                    request.maxExecutingAccounts(), null);
+                    request.maxExecutingAccounts(), request.maxUseAccounts(), null);
         }
         if ("START".equals(request.purpose()) && request.taskId() != null
                 && request.dataPackageId() == null && request.taskMode() == null
-                && request.maxExecutingAccounts() == null) {
-            return new QuoteInput("START", request.taskId(), null, null, 0, null);
+                && request.maxExecutingAccounts() == null && request.maxUseAccounts() == null) {
+            return new QuoteInput("START", request.taskId(), null, null, 0, 0, null);
         }
         throw new BusinessException(ErrorCode.VALIDATION, "报价请求 purpose 或互斥字段非法");
     }
@@ -152,11 +170,12 @@ public class HyperlinkTaskQuoteService {
     }
 
     private record QuoteInput(String purpose, Long taskId, Long dataPackageId,
-                              String taskMode, int maxExecutingAccounts, Integer taskVersion) { }
+                              String taskMode, int maxExecutingAccounts, int maxUseAccounts,
+                              Integer taskVersion) { }
 
     /** 后台重建使用的最小且显式的报价归属与冻结参数。 */
     public record InternalQuoteInput(long tenantId, long userId, long dataPackageId,
-            String taskMode, int maxExecutingAccounts) { }
+            String taskMode, int maxExecutingAccounts, int maxUseAccounts) { }
 
     private record IssuedQuote(HyperlinkQuoteTokenService.QuoteClaims claims,
             HyperlinkTaskQuoteVO quote) { }

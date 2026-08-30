@@ -86,7 +86,11 @@ public class HyperlinkRoundAccountSelectionService {
 
     /** 实际派发账号数受 concurrentNum 和当前模式账号上限共同约束。 */
     public int selectionCap(HyperlinkTask task) {
-        int concurrent = Math.max(1, task.getConcurrentNum());
+        int concurrent = task.getConcurrentNum() == 0
+                ? Math.min(HyperlinkTaskConfigurationFactory.MAX_EXECUTING_ACCOUNTS,
+                        candidateSelector.protocolCount()
+                                * HyperlinkProtocolCapacityService.ACCOUNTS_PER_PROTOCOL)
+                : task.getConcurrentNum();
         if (task.getMaxUseAccount() == null || task.getMaxUseAccount() == 0) {
             return concurrent;
         }

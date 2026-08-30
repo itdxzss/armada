@@ -23,9 +23,21 @@ public class HyperlinkProtocolCapacityService {
     /** 真正启用任务前重检；边界值允许，零协议不能启用任何正并发任务。 */
     public void requireSufficient(int requestedAccounts) {
         long capacity = maxExecutingAccounts();
+        if (requestedAccounts == 0 && capacity < 1) {
+            throw new BusinessException(ErrorCode.HYPERLINK_PROTOCOL_CAPACITY_INSUFFICIENT,
+                    "协议容量不足：自动均分至少需要 1 个可用协议账号槽位");
+        }
         if (requestedAccounts > capacity) {
             throw new BusinessException(ErrorCode.HYPERLINK_PROTOCOL_CAPACITY_INSUFFICIENT,
                     "协议容量不足：请求执行账号数 " + requestedAccounts + "，当前容量 " + capacity);
         }
+    }
+
+    /** AUTO 配置在当前协议容量下的安全上限；实际选号仍受匹配账号数约束。 */
+    public int resolveAutoLimit(int maxUseAccounts) {
+        long capacity = maxExecutingAccounts();
+        long businessLimit = maxUseAccounts > 0 ? maxUseAccounts : Long.MAX_VALUE;
+        return (int) Math.min(HyperlinkTaskConfigurationFactory.MAX_EXECUTING_ACCOUNTS,
+                Math.min(capacity, businessLimit));
     }
 }

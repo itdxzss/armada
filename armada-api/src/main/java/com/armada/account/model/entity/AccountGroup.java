@@ -30,6 +30,9 @@ public class AccountGroup {
     /** 是否系统内置:1=是,0=否。系统内置分组不可删除。 */
     private Integer systemBuiltin;
 
+    /** 系统业务分组稳定编码；展示名称可变，业务引用不能依赖名称。 */
+    private String systemCode;
+
     /** 创建时间(epoch 毫秒,UTC)。insert 时由调用方写入,表无 DB 默认值。 */
     private Long createdAt;
 
@@ -104,6 +107,14 @@ public class AccountGroup {
 
     public void setSystemBuiltin(Integer systemBuiltin) {
         this.systemBuiltin = systemBuiltin;
+    }
+
+    public String getSystemCode() {
+        return systemCode;
+    }
+
+    public void setSystemCode(String systemCode) {
+        this.systemCode = systemCode;
     }
 
     public Long getCreatedAt() {

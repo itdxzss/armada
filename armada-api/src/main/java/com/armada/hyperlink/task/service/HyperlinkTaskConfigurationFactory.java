@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 public class HyperlinkTaskConfigurationFactory {
     /** 竞品隐藏但冻结为服务端常量的单账号逻辑发送并发。 */
     public static final int ACCOUNT_SEND_CONCURRENCY = 20;
+    public static final int MAX_EXECUTING_ACCOUNTS = 100;
     private static final long MINUTE_MILLIS = 60_000L;
     private final HyperlinkMessageContentValidator contentValidator;
     private final ObjectMapper objectMapper;
@@ -88,16 +89,17 @@ public class HyperlinkTaskConfigurationFactory {
         int minMs = intervalMs(request.messageIntervalMinSeconds());
         int maxMs = intervalMs(request.messageIntervalMaxSeconds());
         if (minMs > maxMs) { throw validation("消息间隔下界不能大于上界"); }
-        int maxExecuting = positive(request.maxExecutingAccounts(), "maxExecutingAccounts 必须大于 0");
+        int maxExecuting = executingAccounts(request.maxExecutingAccounts());
         int maxUse = nonNegative(request.maxUseAccounts(), "maxUseAccounts 不能小于 0");
         int maxSend = nonNegative(request.maxSendPerAccount(), "maxSendPerAccount 不能小于 0");
         if (maxExecuting * ACCOUNT_SEND_CONCURRENCY > 10_000
-                || (maxUse > 0 && maxExecuting > maxUse)) {
+                || (maxUse > 0 && maxExecuting > 0 && maxExecuting > maxUse)) {
             throw validation("执行账号数超出任务容量");
         }
         ModeFields modeFields = normalizeModeFields(taskMode, request.plannedEndAt(),
                 request.cycleIntervalMinutes(), maxUse, maxExecuting);
-        if (taskMode == HyperlinkTaskMode.CYCLE && maxUse < maxExecuting) {
+        if (taskMode == HyperlinkTaskMode.CYCLE
+                && maxExecuting > 0 && maxUse < maxExecuting) {
             throw validation("周期任务的周期间隔和账号上限非法");
         }
         int delay = normalizeDelay(startMode, request.delayMinutes());
@@ -223,8 +225,10 @@ public class HyperlinkTaskConfigurationFactory {
                 .setScale(0, RoundingMode.UNNECESSARY).intValueExact();
     }
 
-    private int positive(Integer value, String message) {
-        if (value == null || value < 1) { throw validation(message); }
+    private int executingAccounts(Integer value) {
+        if (value == null || value < 0 || value > MAX_EXECUTING_ACCOUNTS) {
+            throw validation("maxExecutingAccounts 必须在 0 到 100 之间，0 表示自动均分");
+        }
         return value;
     }
 
@@ -243,7 +247,7 @@ public class HyperlinkTaskConfigurationFactory {
         }
         if (mode == HyperlinkTaskMode.CYCLE) {
             if (cycleIntervalMinutes == null || cycleIntervalMinutes < 1
-                    || maxUse < 1 || maxUse < maxExecuting) {
+                    || maxUse < 1 || (maxExecuting > 0 && maxUse < maxExecuting)) {
                 throw validation("周期任务的周期间隔和账号上限非法");
             }
             return new ModeFields(null, cycleIntervalMinutes);

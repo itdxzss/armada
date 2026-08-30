@@ -6,5 +6,6 @@ public record HyperlinkTaskQuoteDTO(
         Long taskId,
         Long dataPackageId,
         String taskMode,
-        Integer maxExecutingAccounts) {
+        Integer maxExecutingAccounts,
+        Integer maxUseAccounts) {
 }

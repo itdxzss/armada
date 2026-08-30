@@ -42,9 +42,31 @@ class HyperlinkStrategyMigrationSqlTest {
                 .contains("DROP COLUMN account_filter")
                 .contains("DROP COLUMN concurrent_num")
                 .contains("system_code VARCHAR(32)")
-                .contains("groups.owner_user_id IS NULL")
+                .contains("account_group_row.owner_user_id IS NULL")
                 .contains("HYPERLINK_PUBLIC", "HYPERLINK_MARKETING")
                 .doesNotContain("account_send_concurrency", "msg_interval_min");
+    }
+
+    @Test
+    void migrationAvoidsMysqlReservedGroupsAlias() throws Exception {
+        String sql = Files.readString(MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("UPDATE account_group AS account_group_row")
+                .doesNotContain("UPDATE account_group groups", "groups.");
+    }
+
+    @Test
+    void migrationCanResumeAfterAccountGroupSchemaWasPartiallyApplied() throws Exception {
+        String sql = Files.readString(MIGRATION, StandardCharsets.UTF_8);
+
+        assertThat(sql)
+                .contains("information_schema.columns")
+                .contains("column_name = 'system_code'")
+                .contains("information_schema.statistics")
+                .contains("index_name = 'uq_account_group_system_code'")
+                .contains("PREPARE hyperlink_group_schema_stmt")
+                .contains("DEALLOCATE PREPARE hyperlink_group_schema_stmt");
     }
 
     @Test

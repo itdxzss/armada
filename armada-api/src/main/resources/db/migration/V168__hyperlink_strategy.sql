@@ -56,10 +56,29 @@ CREATE TABLE IF NOT EXISTS hyperlink_strategy (
   COMMENT='超链发送策略唯一事实源;模板与任务快照共表';
 
 -- 竞品默认勾选公共组与超链组。用稳定编码取 ID，避免业务逻辑依赖可展示中文名称。
-ALTER TABLE account_group
-    ADD COLUMN system_code VARCHAR(32) DEFAULT NULL
-        COMMENT '系统业务分组稳定编码' AFTER system_builtin,
-    ADD UNIQUE KEY uq_account_group_system_code (tenant_id, system_code);
+SET @hyperlink_group_schema_sql := IF(
+    (SELECT COUNT(*) FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = 'account_group'
+       AND column_name = 'system_code') = 0,
+    'ALTER TABLE account_group ADD COLUMN system_code VARCHAR(32) DEFAULT NULL COMMENT ''系统业务分组稳定编码'' AFTER system_builtin',
+    'SELECT 1'
+);
+PREPARE hyperlink_group_schema_stmt FROM @hyperlink_group_schema_sql;
+EXECUTE hyperlink_group_schema_stmt;
+DEALLOCATE PREPARE hyperlink_group_schema_stmt;
+
+SET @hyperlink_group_schema_sql := IF(
+    (SELECT COUNT(*) FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND table_name = 'account_group'
+       AND index_name = 'uq_account_group_system_code') = 0,
+    'ALTER TABLE account_group ADD UNIQUE KEY uq_account_group_system_code (tenant_id, system_code)',
+    'SELECT 1'
+);
+PREPARE hyperlink_group_schema_stmt FROM @hyperlink_group_schema_sql;
+EXECUTE hyperlink_group_schema_stmt;
+DEALLOCATE PREPARE hyperlink_group_schema_stmt;
 
 SET @hyperlink_group_now := CAST(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000 AS UNSIGNED);
 
@@ -77,18 +96,18 @@ CROSS JOIN (
 ) defaults;
 
 -- 若租户已有同名活跃分组，复用其 ID 并升级为不可删除的系统业务组。
-UPDATE account_group groups
+UPDATE account_group AS account_group_row
 INNER JOIN (
     SELECT '公共组' AS name, 'HYPERLINK_PUBLIC' AS system_code
     UNION ALL
     SELECT '超链组', 'HYPERLINK_MARKETING'
-) defaults ON defaults.name = groups.name
-SET groups.system_builtin = 1,
-    groups.system_code = defaults.system_code,
-    groups.updated_at = @hyperlink_group_now
-WHERE groups.deleted_at IS NULL
-  AND groups.owner_user_id IS NULL
-  AND groups.system_code IS NULL;
+) defaults ON defaults.name = account_group_row.name
+SET account_group_row.system_builtin = 1,
+    account_group_row.system_code = defaults.system_code,
+    account_group_row.updated_at = @hyperlink_group_now
+WHERE account_group_row.deleted_at IS NULL
+  AND account_group_row.owner_user_id IS NULL
+  AND account_group_row.system_code IS NULL;
 
 -- 每个存量任务生成独占快照；owner_task_id 是幂等回填键。
 INSERT IGNORE INTO hyperlink_strategy

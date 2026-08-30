@@ -15,11 +15,11 @@
     <insert id="insertIgnore" useGeneratedKeys="true" keyProperty="id">
         INSERT IGNORE INTO hyperlink_task_account_usage
         (hyperlink_task_id, account_id, account_phone_snapshot, sender_country_iso2_snapshot,
-         account_type_snapshot, account_created_at_snapshot, protocol_id_snapshot,
+         account_type_snapshot, sender_device_os_snapshot, account_created_at_snapshot, protocol_id_snapshot,
          protocol_account_id_snapshot, protocol_backend, success_limit, usage_status,
          last_selected_round_no, next_send_at, version, created_at, updated_at)
         VALUES (#{hyperlinkTaskId}, #{accountId}, #{accountPhoneSnapshot}, #{senderCountryIso2Snapshot},
-         #{accountTypeSnapshot}, #{accountCreatedAtSnapshot}, #{protocolIdSnapshot},
+         #{accountTypeSnapshot}, #{senderDeviceOsSnapshot}, #{accountCreatedAtSnapshot}, #{protocolIdSnapshot},
          #{protocolAccountIdSnapshot}, #{protocolBackend}, #{successLimit}, #{usageStatus},
          #{lastSelectedRoundNo}, #{nextSendAt}, #{version}, #{createdAt}, #{updatedAt})
     </insert>
@@ -72,6 +72,22 @@
           invalid_reason=COALESCE(invalid_reason,#{invalidReason}),
           invalid_at=COALESCE(invalid_at,#{now}), version=version+1, updated_at=#{now}
         WHERE id=#{id} AND usage_status IN (1,2) AND invalid_at IS NULL
+    </update>
+    <update id="markActiveByAccountInvalid">
+        UPDATE hyperlink_task_account_usage usage_row
+        SET usage_row.usage_status=#{usageStatus},
+          usage_row.invalid_code=COALESCE(usage_row.invalid_code,#{invalidCode}),
+          usage_row.invalid_reason=COALESCE(usage_row.invalid_reason,#{invalidReason}),
+          usage_row.invalid_at=COALESCE(usage_row.invalid_at,#{now}),
+          usage_row.version=usage_row.version+1, usage_row.updated_at=#{now}
+        WHERE usage_row.tenant_id=#{tenantId} AND usage_row.account_id=#{accountId}
+          AND usage_row.usage_status IN (1,2) AND usage_row.invalid_at IS NULL
+          AND EXISTS (
+            SELECT 1 FROM hyperlink_task_runtime runtime_row
+            WHERE runtime_row.tenant_id=usage_row.tenant_id
+              AND runtime_row.hyperlink_task_id=usage_row.hyperlink_task_id
+              AND runtime_row.run_status IN (1,3)
+          )
     </update>
     <select id="countInFlight" resultType="int">
         SELECT COALESCE(SUM(in_flight_count),0) FROM hyperlink_task_account_usage

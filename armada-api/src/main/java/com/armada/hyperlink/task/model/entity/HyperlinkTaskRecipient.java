@@ -16,6 +16,7 @@ public class HyperlinkTaskRecipient {
     private String senderPhoneSnapshot;
     private String senderCountryIso2Snapshot;
     private Integer senderAccountTypeSnapshot;
+    private Integer senderDeviceOsSnapshot;
     private String protocolId;
     private Integer protocolBackend;
     private String commandId;
@@ -74,6 +75,8 @@ public class HyperlinkTaskRecipient {
     public void setSenderCountryIso2Snapshot(String value) { this.senderCountryIso2Snapshot = value; }
     public Integer getSenderAccountTypeSnapshot() { return senderAccountTypeSnapshot; }
     public void setSenderAccountTypeSnapshot(Integer value) { this.senderAccountTypeSnapshot = value; }
+    public Integer getSenderDeviceOsSnapshot() { return senderDeviceOsSnapshot; }
+    public void setSenderDeviceOsSnapshot(Integer value) { this.senderDeviceOsSnapshot = value; }
     public String getProtocolId() { return protocolId; }
     public void setProtocolId(String value) { this.protocolId = value; }
     public Integer getProtocolBackend() { return protocolBackend; }

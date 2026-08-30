@@ -64,7 +64,7 @@ class HyperlinkAccountCandidateSelectorTest {
         HyperlinkPrivateCapabilityPort capabilityPort = mock(HyperlinkPrivateCapabilityPort.class);
         when(capabilityPort.supports(ProtocolBackend.WEB, "WEB")).thenReturn(true);
         AccountHyperlinkCandidateVO selected = new AccountHyperlinkCandidateVO(
-                1L, 7, "5511", "BR", 2, 100L, "WEB", "acc-1", "WEB");
+                1L, 7, "5511", "BR", 2, 1, 100L, "WEB", "acc-1", "WEB");
         when(accountService.selectCandidates(any(), isNull(), isNull(), eq(2)))
                 .thenReturn(List.of(selected));
         HyperlinkAccountCandidateSelector selector = new HyperlinkAccountCandidateSelector(

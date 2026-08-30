@@ -9,6 +9,7 @@ public class HyperlinkTaskAccountUsage {
     private String accountPhoneSnapshot;
     private String senderCountryIso2Snapshot;
     private Integer accountTypeSnapshot;
+    private Integer senderDeviceOsSnapshot;
     private Long accountCreatedAtSnapshot;
     private String protocolIdSnapshot;
     private String protocolAccountIdSnapshot;
@@ -43,6 +44,8 @@ public class HyperlinkTaskAccountUsage {
     public void setSenderCountryIso2Snapshot(String value) { this.senderCountryIso2Snapshot = value; }
     public Integer getAccountTypeSnapshot() { return accountTypeSnapshot; }
     public void setAccountTypeSnapshot(Integer value) { this.accountTypeSnapshot = value; }
+    public Integer getSenderDeviceOsSnapshot() { return senderDeviceOsSnapshot; }
+    public void setSenderDeviceOsSnapshot(Integer value) { this.senderDeviceOsSnapshot = value; }
     public Long getAccountCreatedAtSnapshot() { return accountCreatedAtSnapshot; }
     public void setAccountCreatedAtSnapshot(Long value) { this.accountCreatedAtSnapshot = value; }
     public String getProtocolIdSnapshot() { return protocolIdSnapshot; }

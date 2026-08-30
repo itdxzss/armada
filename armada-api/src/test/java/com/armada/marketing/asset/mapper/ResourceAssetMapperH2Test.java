@@ -130,7 +130,7 @@ class ResourceAssetMapperH2Test {
     }
 
     @Test
-    void referenceCountsDeduplicateTwoSlotsOfOneHyperlinkTemplate() throws SQLException {
+    void referenceCountsDeduplicateTwoSlotsOfOneTemplateOrTask() throws SQLException {
         MarketingTemplateFile file = insertFile("被引用", 100L, new byte[] {1});
         execute("""
                 INSERT INTO marketing_template (tenant_id, image_file_id, deleted_at)
@@ -143,13 +143,20 @@ class ResourceAssetMapperH2Test {
                     (7, %d, %d, NULL),
                     (8, %d, %d, NULL)
                 """.formatted(file.getId(), file.getId(), file.getId(), file.getId()));
+        execute("""
+                INSERT INTO hyperlink_task_content
+                    (hyperlink_task_id, tenant_id, link_preview_asset_id, body_main_asset_id)
+                VALUES
+                    (101, 7, %d, %d),
+                    (102, 8, %d, %d)
+                """.formatted(file.getId(), file.getId(), file.getId(), file.getId()));
 
-        assertThat(fileMapper.countReferences(TENANT_ID, file.getId())).isEqualTo(2);
+        assertThat(fileMapper.countReferences(TENANT_ID, file.getId())).isEqualTo(3);
         assertThat(fileMapper.selectReferenceCounts(TENANT_ID, List.of(file.getId())))
                 .singleElement()
                 .satisfies(count -> {
                     assertThat(count.assetId()).isEqualTo(file.getId());
-                    assertThat(count.referenceCount()).isEqualTo(2);
+                    assertThat(count.referenceCount()).isEqualTo(3);
                 });
     }
 
@@ -262,6 +269,14 @@ class ResourceAssetMapperH2Test {
                     link_preview_asset_id BIGINT,
                     body_main_asset_id BIGINT,
                     deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE hyperlink_task_content (
+                    hyperlink_task_id BIGINT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    link_preview_asset_id BIGINT,
+                    body_main_asset_id BIGINT
                 )
                 """);
     }

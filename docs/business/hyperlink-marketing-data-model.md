@@ -436,6 +436,7 @@ recipient 和内容不可变。
 | `sender_phone_snapshot` | `VARCHAR(32)` | 发信号码快照 |
 | `sender_country_iso2_snapshot` | `CHAR(2)` | 发信国家快照 |
 | `sender_account_type_snapshot` | `TINYINT` | 1=个人 2=商业 |
+| `sender_device_os_snapshot` | `TINYINT` | 发送时设备 OS 快照：1=安卓 2=苹果；未知为 NULL |
 | `protocol_id` | `VARCHAR(32)` | 实际协议标识快照 |
 | `protocol_backend` | `TINYINT` | 1=WEB(分身) 2=ANDROID(主设备) |
 | `command_id` | `VARCHAR(64)` | 唯一协议命令 ID；超时恢复重放同一 ID |
@@ -479,10 +480,11 @@ recipient 和内容不可变。
 - `idx_hyperlink_recipient_task_time(tenant_id, hyperlink_task_id, submitted_at, account_id, send_status, id)`：账号 Tab 任意时间范围分组统计；覆盖单任务最多 50 万行的精确扫描。
 - `idx_hyperlink_recipient_sender_phone(tenant_id, hyperlink_task_id, sender_phone_snapshot, id)`：深度归因发信号码筛选。
 - `idx_hyperlink_recipient_projection(tenant_id, needs_metrics_projection, updated_at, id)`：指标投影器批量认领。
-- `idx_hyperlink_recipient_stat(tenant_id, submitted_at, sender_country_iso2_snapshot,
-  recipient_country_iso2_snapshot, sender_account_type_snapshot, protocol_backend)`：市场日/小时投影回填。
+- `idx_hyperlink_recipient_market_stat(tenant_id, submitted_at, sender_country_iso2_snapshot,
+  recipient_country_iso2_snapshot, sender_account_type_snapshot, sender_device_os_snapshot,
+  account_id, send_status)`：市场日/小时投影回填；协议后端不是设备维度。
 
-点击 UV 从 recipient 的 `click_count>0` 计算。recipient 不保存会被清理的 `data_package_phone_id`；
+点击 UV 从 recipient 的 `first_visit_at IS NOT NULL` 计算。recipient 不保存会被清理的 `data_package_phone_id`；
 任务与数据包代次固定 1:N，所以保留来源快照但不依赖资源池明细存活。派发事务对待发 recipient 做条件更新，
 一次写入不可变的 round/account/command/short_code；协议超时只查询或重放同一个 `command_id`。前端没有
 跨账号重试或尝试历史，当前模型禁止失败后换账号创建第二个命令；若产品以后明确增加该能力，必须重新评审，
@@ -603,6 +605,7 @@ round_account 和 recipient 状态继续，不重新生成受众、不重复发�
 | `account_phone_snapshot` | `VARCHAR(32) NOT NULL` | 首次选中时的发信号码快照 |
 | `sender_country_iso2_snapshot` | `CHAR(2)` | 发信国家快照 |
 | `account_type_snapshot` | `TINYINT NOT NULL` | 1个人 2商业 |
+| `sender_device_os_snapshot` | `TINYINT` | 首次选中时设备 OS：1安卓 2苹果；未知为 NULL |
 | `account_created_at_snapshot` | `BIGINT NOT NULL` | 账号入库时间快照 |
 | `success_limit` | `INT NOT NULL DEFAULT 0` | 本任务成功上限快照；0=不限 |
 | `successful_send_count` | `BIGINT NOT NULL DEFAULT 0` | 已跨过单钩的 recipient 数，跨轮累计 |
@@ -990,21 +993,21 @@ ORDER BY bucket_no;
 | `recipient_country_iso2` | `CHAR(2) NOT NULL` | 被营销国家；未知落 `ZZ` |
 | `account_type` | `TINYINT NOT NULL` | 账号类型：1=个人 2=商业 |
 | `task_type` | `TINYINT NOT NULL` | 1=即时 2=预发布(持续运营) 3=周期循环 |
-| `protocol_backend` | `TINYINT NOT NULL` | 协议链路：1=WEB(分身) 2=ANDROID(主设备)；对应分析页「设备平台」筛选 |
+| `sender_device_os` | `TINYINT NOT NULL` | 发送时设备 OS：0=未知 1=安卓 2=苹果；对应 `deviceOs` 筛选 |
 | `is_short_link_enabled` | `TINYINT(1) NOT NULL` | 是否深度追踪 |
-| `send_total` | `INT NOT NULL DEFAULT 0` | 发送量 |
-| `success_num` | `INT NOT NULL DEFAULT 0` | 单钩量 |
-| `delivered_num` | `INT NOT NULL DEFAULT 0` | 双钩量 |
-| `click_uv_num` | `INT NOT NULL DEFAULT 0` | 点击 UV |
-| `used_account_count` | `INT NOT NULL DEFAULT 0` | 使用号数（去重） |
-| `banned_account_count` | `INT NOT NULL DEFAULT 0` | 封号数 |
+| `send_total` | `BIGINT NOT NULL DEFAULT 0` | 发送量 |
+| `success_num` | `BIGINT NOT NULL DEFAULT 0` | 单钩量 |
+| `delivered_num` | `BIGINT NOT NULL DEFAULT 0` | 双钩量 |
+| `click_uv_num` | `BIGINT NOT NULL DEFAULT 0` | 点击 UV（行内 recipient 去重） |
+| `used_account_count` | `BIGINT NOT NULL DEFAULT 0` | 使用号数（当前时间桶和维度行内账号去重） |
+| `banned_account_count` | `BIGINT NOT NULL DEFAULT 0` | 封号数（仅 `usage_status=3`，当前时间桶和维度行内账号去重） |
 | `created_at` / `updated_at` | `BIGINT NOT NULL` | epoch 毫秒 |
 
 索引：
 
 | 索引 | 字段 | 说明 |
 |---|---|---|
-| `uq_hyperlink_stat_daily` | `tenant_id, stat_date, sender_country_iso2, recipient_country_iso2, account_type, task_type, protocol_backend, is_short_link_enabled` | 幂等回填 |
+| `uq_hyperlink_stat_daily` | `tenant_id, stat_date, sender_country_iso2, recipient_country_iso2, account_type, task_type, sender_device_os, is_short_link_enabled` | 幂等回填 |
 | `idx_hyperlink_stat_daily_range` | `tenant_id, stat_date, id` | 日期范围扫描 |
 | `idx_hyperlink_stat_daily_retention` | `stat_date, id` | 90 天分批保留清理 |
 
@@ -1019,7 +1022,7 @@ ORDER BY bucket_no;
 | `tenant_id` | `BIGINT NOT NULL` | 租户 ID |
 | `stat_hour_start_at` | `BIGINT NOT NULL` | 按业务时区整点对应的 UTC epoch 毫秒 |
 | `sender_country_iso2` / `recipient_country_iso2` | `CHAR(2) NOT NULL` | 发信/被营销国家，未知 `ZZ` |
-| `account_type` / `task_type` / `protocol_backend` | `TINYINT NOT NULL` | 账号类型、任务模式、协议维度 |
+| `account_type` / `task_type` / `sender_device_os` | `TINYINT NOT NULL` | 账号类型、任务模式、发送时设备 OS 维度 |
 | `is_short_link_enabled` | `TINYINT(1) NOT NULL` | 深度追踪维度 |
 | `send_total` / `success_num` / `delivered_num` | `BIGINT NOT NULL DEFAULT 0` | 本小时逻辑投递指标 |
 | `click_uv_num` / `used_account_count` / `banned_account_count` | `BIGINT NOT NULL DEFAULT 0` | 本小时行内去重指标 |
@@ -1028,33 +1031,34 @@ ORDER BY bucket_no;
 索引：
 
 - `uq_hyperlink_stat_hourly(tenant_id, stat_hour_start_at, sender_country_iso2,
-  recipient_country_iso2, account_type, task_type, protocol_backend, is_short_link_enabled)`：幂等回填。
+  recipient_country_iso2, account_type, task_type, sender_device_os, is_short_link_enabled)`：幂等回填。
 - `idx_hyperlink_stat_hourly_range(tenant_id, stat_hour_start_at, id)`：7 天范围扫描。
 - `idx_hyperlink_stat_hourly_retention(stat_hour_start_at, id)`：8 天保留清理。
 
-投影作业每 5 分钟回填当前/上一小时；每日低峰重算最近 8 天，吸收迟到 ACK、封号与点击。页面不直接扫
-recipient；小时行超过 8×24 小时后分批硬删，原始事实仍在，可随时重建。日表继续保留 90 天，两张表使用同一
-维度解析器和指标口径，不能各写一套 SQL。
+投影作业每 5 分钟回填当前/上一小时；每日低峰重算最近 8 天，吸收迟到 ACK、封号与点击。国家对趋势只读
+投影；小时行超过 8×24 小时后分批硬删，原始事实仍在，可随时重建。日表继续保留 90 天，两张表使用同一
+维度解析器和指标口径，不能各写一套 SQL。顶部 `overview` 为避免账号跨国家对重复，只额外执行一次受
+90 天/7 天窗口及组合索引约束的明细全局去重查询；若真实压测不达标，再引入账号粒度稀疏投影，不能退回前端累加。
 
 ### 7.3 为什么采用“日长期 + 小时短期”
 
 分析页支持按日与按小时两种粒度。若两种粒度都预聚合：
 
 ```
-维度基数 ≈ 发信国家(~50) × 被营销国家(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) × 协议(2) ≈ 6 万组合
+维度基数 ≈ 发信国家(~50) × 被营销国家(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) × 设备(2) ≈ 6 万组合
 日粒度：6 万行/天  × 90 天 ≈ 540 万行（实际国家对高度稀疏，真实量级低两个数量级） → 可接受
 时粒度：6 万 × 24 行/天 × 90 天 ≈ 1.3 亿行 → 不可接受
 ```
 
 小时表若也保留 90 天，理论上限约 1.3 亿行；但需求只允许查询 7 天。采用 8 天滚动保留后，理论密集上限
 降到约 1152 万行，且真实国家对高度稀疏，实际远低于该值。最终固定为：**日表保留 90 天、小时表保留
-8 天，页面不实时聚合 recipient**。`idx_hyperlink_recipient_stat` 仍保留给投影回填和校准，不承担在线页面查询。
+8 天，国家对列表与趋势不实时聚合 recipient**。`idx_hyperlink_recipient_market_stat` 同时服务投影回填、校准和
+顶部 `overview` 的单次精确去重查询。
 
-`used_account_count` / `click_uv_num` / `banned_account_count` 是**行内去重、跨行相加**的口径。
-校正说明（2026-08-27）：竞品分析页的 KPI 卡就是把各国家对的 `summary` 逐行相加得到的
-（`readable/assets/analysis-DA45fcKJ.js:1148-1205`），**同一账号跨国家对会被重复计数**。
-这是竞品的既有口径，我们照抄——不做全局 `COUNT(DISTINCT)` 回源。
-该口径必须写进列注释与接口注释，防止后人当 bug 修。
+`used_account_count` / `banned_account_count` 在日/小时投影中是**时间桶与维度行内去重**，用于国家对趋势。
+校正说明（2026-08-30）：竞品前端可确认会把各国家对的 `summary` 逐行相加
+（`readable/assets/analysis-DA45fcKJ.js:1148-1205`），但没有竞品后端 SQL，无法证明其全局业务口径。
+Armada 顶部 `overview` 因此独立执行 `COUNT(DISTINCT account_id)`；前端不得从国家对行反推全局使用号数和封号数。
 
 ---
 
@@ -1232,7 +1236,7 @@ hylb 的账号筛选里 `retention_days`（存活天数）与 `register_days`（
 | 15 | 策略删掉 `account_send_concurrency` / `msg_interval_*` 三列（§5.2） |
 | 16 | `default_sub_task_num=50` 解释为调度批量切片大小，不落列、不参与业务计数和计费 |
 | 17 | 素材走 `marketing_template_file` **加列**，不新建第二张素材表；`ref_count` 不落列（§6.1） |
-| 18 | 分析的去重计数照抄竞品「跨行相加」口径，不做全局 `COUNT(DISTINCT)` 回源；日/小时分别读 90 天/8 天投影（§7） |
+| 18 | 分析趋势采用日/小时桶内去重；竞品前端虽跨国家对相加，但后端口径未知，Armada 顶部 `overview` 单独全局 `COUNT(DISTINCT)`，不由前端累加（§7） |
 | 19 | 超链任务**不套用分组级账号占用锁**（占用模型是分组粒度，超链按筛选跨分组圈号） |
 | 20 | 深度归因在 recipient 保存首次 IP/user-agent/设备等首触快照，敏感读取/导出加独立权限和审计，首触环境 90 天后置空；累计次数与首末时间长期保留 |
 | 21 | 任务物理模型按工作负载固定为 10 张任务表 + 1 张共享画像表；领号作业、账号执行用量/轮次分配和账号累计统计独立落表；访问趋势按 recipient 首访时间直接聚合，不建账号小时、30 分钟桶、逐次点击、独立短链、封号、收信人轮次或发送尝试表；本次复核后表数不变 |

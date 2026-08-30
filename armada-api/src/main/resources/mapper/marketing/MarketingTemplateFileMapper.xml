@@ -138,6 +138,16 @@
                 FROM hyperlink_template
                 WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND body_main_asset_id IN
                 <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                UNION ALL
+                SELECT link_preview_asset_id, 'hyperlink_task', hyperlink_task_id
+                FROM hyperlink_task_content
+                WHERE tenant_id = #{tenantId} AND link_preview_asset_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                UNION ALL
+                SELECT body_main_asset_id, 'hyperlink_task', hyperlink_task_id
+                FROM hyperlink_task_content
+                WHERE tenant_id = #{tenantId} AND body_main_asset_id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
             ) raw_references
             GROUP BY asset_id, source_type, source_id
         ) distinct_references
@@ -160,6 +170,14 @@
                 SELECT 'hyperlink_template', id
                 FROM hyperlink_template
                 WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND body_main_asset_id = #{id}
+                UNION ALL
+                SELECT 'hyperlink_task', hyperlink_task_id
+                FROM hyperlink_task_content
+                WHERE tenant_id = #{tenantId} AND link_preview_asset_id = #{id}
+                UNION ALL
+                SELECT 'hyperlink_task', hyperlink_task_id
+                FROM hyperlink_task_content
+                WHERE tenant_id = #{tenantId} AND body_main_asset_id = #{id}
             ) raw_references
             GROUP BY source_type, source_id
         ) distinct_references

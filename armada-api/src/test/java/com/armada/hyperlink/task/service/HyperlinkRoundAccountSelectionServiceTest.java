@@ -64,6 +64,10 @@ class HyperlinkRoundAccountSelectionServiceTest {
                 ArgumentCaptor.forClass(HyperlinkTaskRoundAccount.class);
         verify(roundAccounts).insertIgnore(inserted.capture());
         assertThat(inserted.getValue().getAccountId()).isEqualTo(third.accountId());
+        ArgumentCaptor<HyperlinkTaskAccountUsage> proposed =
+                ArgumentCaptor.forClass(HyperlinkTaskAccountUsage.class);
+        verify(usages, times(3)).insertIgnore(proposed.capture());
+        assertThat(proposed.getAllValues().get(2).getSenderDeviceOsSnapshot()).isEqualTo(1);
     }
 
     @Test
@@ -159,7 +163,7 @@ class HyperlinkRoundAccountSelectionServiceTest {
     }
 
     private AccountHyperlinkCandidateVO candidate(long accountId) {
-        return new AccountHyperlinkCandidateVO(accountId, 0, "55" + accountId, "BR", 2,
+        return new AccountHyperlinkCandidateVO(accountId, 0, "55" + accountId, "BR", 2, 1,
                 1_000L, "WEB", "acc-" + accountId, "WEB");
     }
 

@@ -70,6 +70,7 @@ class HyperlinkDispatchServiceTest {
         verify(fixture.shortCodeGenerator, org.mockito.Mockito.times(2)).next();
         assertThat(fixture.recipient.getShortCode()).isEqualTo("freshCode00002");
         assertThat(fixture.recipient.getCommandId()).isEqualTo("hl:7:11:13");
+        assertThat(fixture.recipient.getSenderDeviceOsSnapshot()).isEqualTo(2);
         verify(fixture.messageSendPort).enqueue(any());
     }
 
@@ -298,6 +299,7 @@ class HyperlinkDispatchServiceTest {
         value.setAccountPhoneSnapshot("8613900000000");
         value.setSenderCountryIso2Snapshot("CN");
         value.setAccountTypeSnapshot(1);
+        value.setSenderDeviceOsSnapshot(2);
         value.setProtocolIdSnapshot("web");
         value.setProtocolAccountIdSnapshot("acc-51");
         value.setProtocolBackend(1);

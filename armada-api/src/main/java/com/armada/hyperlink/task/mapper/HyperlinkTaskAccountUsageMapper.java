@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.mapper;
 
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -28,6 +29,12 @@ public interface HyperlinkTaskAccountUsageMapper {
     int markInvalid(@Param("id") long id, @Param("usageStatus") int usageStatus,
             @Param("invalidCode") String invalidCode, @Param("invalidReason") String invalidReason,
             @Param("now") long now);
+    @InterceptorIgnore(tenantLine = "true")
+    int markActiveByAccountInvalid(@Param("tenantId") long tenantId,
+            @Param("accountId") long accountId,
+            @Param("usageStatus") int usageStatus,
+            @Param("invalidCode") String invalidCode,
+            @Param("invalidReason") String invalidReason, @Param("now") long now);
     int countInFlight(@Param("taskId") long taskId);
     int markSelectedRound(@Param("id") long id, @Param("roundNo") long roundNo,
             @Param("now") long now);

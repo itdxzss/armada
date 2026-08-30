@@ -118,6 +118,7 @@ public class HyperlinkRoundAccountSelectionService {
         usage.setAccountPhoneSnapshot(account.wsPhone());
         usage.setSenderCountryIso2Snapshot(account.countryIso2());
         usage.setAccountTypeSnapshot(account.accountType());
+        usage.setSenderDeviceOsSnapshot(account.deviceOs());
         usage.setAccountCreatedAtSnapshot(account.createdAt());
         ProtocolBackend backend = ProtocolBackend.fromExplicitProtocolId(account.protocolBackend());
         usage.setProtocolIdSnapshot(account.protocolId());

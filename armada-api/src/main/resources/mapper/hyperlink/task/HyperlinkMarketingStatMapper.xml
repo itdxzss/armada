@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkMarketingStatMapper">
+
+    <sql id="analysisFilters">
+        AND stat_row.tenant_id=#{tenantId}
+        <if test="taskType != null">AND stat_row.task_type=#{taskType}</if>
+        <if test="senderCountryIso2 != null">
+            AND stat_row.sender_country_iso2=#{senderCountryIso2}
+        </if>
+        <if test="recipientCountryIso2 != null">
+            AND stat_row.recipient_country_iso2=#{recipientCountryIso2}
+        </if>
+        <if test="accountType != null">AND stat_row.account_type=#{accountType}</if>
+        <if test="senderDeviceOs != null">
+            AND stat_row.sender_device_os=#{senderDeviceOs}
+        </if>
+        <if test="shortLinkEnabled != null">
+            AND stat_row.is_short_link_enabled=#{shortLinkEnabled}
+        </if>
+    </sql>
+
+    <sql id="rawAnalysisFilters">
+        AND recipient.tenant_id=#{tenantId}
+        AND recipient.submitted_at&gt;=#{startAt}
+        AND recipient.submitted_at&lt;#{endExclusiveAt}
+        <if test="taskType != null">AND task.task_type=#{taskType}</if>
+        <if test="senderCountryIso2 != null">
+            AND COALESCE(recipient.sender_country_iso2_snapshot,'ZZ')=#{senderCountryIso2}
+        </if>
+        <if test="recipientCountryIso2 != null">
+            AND COALESCE(recipient.recipient_country_iso2_snapshot,'ZZ')=#{recipientCountryIso2}
+        </if>
+        <if test="accountType != null">
+            AND COALESCE(recipient.sender_account_type_snapshot,0)=#{accountType}
+        </if>
+        <if test="senderDeviceOs != null">
+            AND COALESCE(recipient.sender_device_os_snapshot,0)=#{senderDeviceOs}
+        </if>
+        <if test="shortLinkEnabled != null">
+            AND task.is_short_link_enabled=#{shortLinkEnabled}
+        </if>
+    </sql>
+
+    <select id="selectDaily"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkMarketingStatRow">
+        SELECT CAST(stat_row.stat_date AS SIGNED) AS stat_time,
+          stat_row.sender_country_iso2, stat_row.recipient_country_iso2,
+          SUM(stat_row.send_total) AS send_total,
+          SUM(stat_row.success_num) AS success_num,
+          SUM(stat_row.delivered_num) AS delivered_num,
+          SUM(stat_row.used_account_count) AS used_account_count,
+          SUM(stat_row.banned_account_count) AS banned_account_count,
+          SUM(stat_row.click_uv_num) AS click_uv_num,
+          MAX(stat_row.updated_at) AS updated_at
+        FROM hyperlink_stat_daily stat_row
+        WHERE stat_row.stat_date BETWEEN #{statDateFrom} AND #{statDateTo}
+        <include refid="analysisFilters"/>
+        GROUP BY stat_row.stat_date, stat_row.sender_country_iso2,
+          stat_row.recipient_country_iso2
+        ORDER BY stat_row.sender_country_iso2, stat_row.recipient_country_iso2,
+          stat_row.stat_date
+    </select>
+
+    <select id="selectHourly"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkMarketingStatRow">
+        SELECT stat_row.stat_hour_start_at AS stat_time,
+          stat_row.sender_country_iso2, stat_row.recipient_country_iso2,
+          SUM(stat_row.send_total) AS send_total,
+          SUM(stat_row.success_num) AS success_num,
+          SUM(stat_row.delivered_num) AS delivered_num,
+          SUM(stat_row.used_account_count) AS used_account_count,
+          SUM(stat_row.banned_account_count) AS banned_account_count,
+          SUM(stat_row.click_uv_num) AS click_uv_num,
+          MAX(stat_row.updated_at) AS updated_at
+        FROM hyperlink_stat_hourly stat_row
+        WHERE stat_row.stat_hour_start_at&gt;=#{startAt}
+          AND stat_row.stat_hour_start_at&lt;#{endExclusiveAt}
+        <include refid="analysisFilters"/>
+        GROUP BY stat_row.stat_hour_start_at, stat_row.sender_country_iso2,
+          stat_row.recipient_country_iso2
+        ORDER BY stat_row.sender_country_iso2, stat_row.recipient_country_iso2,
+          stat_row.stat_hour_start_at
+    </select>
+
+    <select id="selectExactOverview"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkMarketingStatRow">
+        SELECT COUNT(*) AS send_total,
+          SUM(CASE WHEN recipient.sent_at IS NOT NULL THEN 1 ELSE 0 END) AS success_num,
+          SUM(CASE WHEN recipient.delivered_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered_num,
+          COUNT(DISTINCT recipient.account_id) AS used_account_count,
+          COUNT(DISTINCT CASE WHEN usage_row.usage_status=3
+            THEN recipient.account_id ELSE NULL END) AS banned_account_count,
+          SUM(CASE WHEN recipient.first_visit_at IS NOT NULL THEN 1 ELSE 0 END) AS click_uv_num,
+          MAX(CASE WHEN COALESCE(usage_row.updated_at,0)&gt;recipient.updated_at
+            THEN usage_row.updated_at ELSE recipient.updated_at END) AS updated_at
+        FROM hyperlink_task_recipient recipient
+        INNER JOIN hyperlink_task task
+          ON task.tenant_id=recipient.tenant_id AND task.id=recipient.hyperlink_task_id
+        LEFT JOIN hyperlink_task_account_usage usage_row
+          ON usage_row.tenant_id=recipient.tenant_id
+         AND usage_row.hyperlink_task_id=recipient.hyperlink_task_id
+         AND usage_row.account_id=recipient.account_id
+        WHERE 1=1
+        <include refid="rawAnalysisFilters"/>
+    </select>
+
+    <select id="selectCountries"
+            resultType="com.armada.hyperlink.task.model.vo.HyperlinkMarketingStatRow">
+        <choose>
+            <when test="granularity == 'day'">
+                SELECT DISTINCT stat_row.sender_country_iso2, stat_row.recipient_country_iso2
+                FROM hyperlink_stat_daily stat_row
+                WHERE stat_row.stat_date BETWEEN #{statDateFrom} AND #{statDateTo}
+                  AND stat_row.tenant_id=#{tenantId}
+            </when>
+            <otherwise>
+                SELECT DISTINCT stat_row.sender_country_iso2, stat_row.recipient_country_iso2
+                FROM hyperlink_stat_hourly stat_row
+                WHERE stat_row.stat_hour_start_at&gt;=#{startAt}
+                  AND stat_row.stat_hour_start_at&lt;#{endExclusiveAt}
+                  AND stat_row.tenant_id=#{tenantId}
+            </otherwise>
+        </choose>
+        ORDER BY stat_row.sender_country_iso2, stat_row.recipient_country_iso2
+    </select>
+
+    <select id="selectProjectionTenantIds" resultType="long">
+        SELECT DISTINCT recipient.tenant_id
+        FROM hyperlink_task_recipient recipient
+        WHERE recipient.submitted_at&gt;=#{startAt} AND recipient.submitted_at&lt;#{endAt}
+        ORDER BY recipient.tenant_id
+    </select>
+
+    <insert id="upsertDailyBucket">
+        INSERT INTO hyperlink_stat_daily
+          (tenant_id, stat_date, sender_country_iso2, recipient_country_iso2,
+           account_type, task_type, sender_device_os, is_short_link_enabled,
+           send_total, success_num, delivered_num, used_account_count,
+           banned_account_count, click_uv_num, created_at, updated_at)
+        SELECT #{tenantId}, #{statDate},
+          COALESCE(recipient.sender_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.recipient_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.sender_account_type_snapshot,0), task.task_type,
+          COALESCE(recipient.sender_device_os_snapshot,0), task.is_short_link_enabled,
+          COUNT(*),
+          SUM(CASE WHEN recipient.sent_at IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN recipient.delivered_at IS NOT NULL THEN 1 ELSE 0 END),
+          COUNT(DISTINCT recipient.account_id),
+          COUNT(DISTINCT CASE WHEN usage_row.usage_status=3
+            THEN recipient.account_id ELSE NULL END),
+          SUM(CASE WHEN recipient.first_visit_at IS NOT NULL THEN 1 ELSE 0 END),
+          #{now}, #{now}
+        FROM hyperlink_task_recipient recipient
+        INNER JOIN hyperlink_task task
+          ON task.tenant_id=recipient.tenant_id AND task.id=recipient.hyperlink_task_id
+        LEFT JOIN hyperlink_task_account_usage usage_row
+          ON usage_row.tenant_id=recipient.tenant_id
+         AND usage_row.hyperlink_task_id=recipient.hyperlink_task_id
+         AND usage_row.account_id=recipient.account_id
+        WHERE recipient.tenant_id=#{tenantId}
+          AND recipient.submitted_at&gt;=#{startAt} AND recipient.submitted_at&lt;#{endAt}
+        GROUP BY COALESCE(recipient.sender_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.recipient_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.sender_account_type_snapshot,0), task.task_type,
+          COALESCE(recipient.sender_device_os_snapshot,0), task.is_short_link_enabled
+        ON DUPLICATE KEY UPDATE
+          send_total=VALUES(send_total), success_num=VALUES(success_num),
+          delivered_num=VALUES(delivered_num), used_account_count=VALUES(used_account_count),
+          banned_account_count=VALUES(banned_account_count), click_uv_num=VALUES(click_uv_num),
+          updated_at=VALUES(updated_at)
+    </insert>
+
+    <insert id="upsertHourlyBucket">
+        INSERT INTO hyperlink_stat_hourly
+          (tenant_id, stat_hour_start_at, sender_country_iso2, recipient_country_iso2,
+           account_type, task_type, sender_device_os, is_short_link_enabled,
+           send_total, success_num, delivered_num, used_account_count,
+           banned_account_count, click_uv_num, created_at, updated_at)
+        SELECT #{tenantId}, #{hourStartAt},
+          COALESCE(recipient.sender_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.recipient_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.sender_account_type_snapshot,0), task.task_type,
+          COALESCE(recipient.sender_device_os_snapshot,0), task.is_short_link_enabled,
+          COUNT(*),
+          SUM(CASE WHEN recipient.sent_at IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN recipient.delivered_at IS NOT NULL THEN 1 ELSE 0 END),
+          COUNT(DISTINCT recipient.account_id),
+          COUNT(DISTINCT CASE WHEN usage_row.usage_status=3
+            THEN recipient.account_id ELSE NULL END),
+          SUM(CASE WHEN recipient.first_visit_at IS NOT NULL THEN 1 ELSE 0 END),
+          #{now}, #{now}
+        FROM hyperlink_task_recipient recipient
+        INNER JOIN hyperlink_task task
+          ON task.tenant_id=recipient.tenant_id AND task.id=recipient.hyperlink_task_id
+        LEFT JOIN hyperlink_task_account_usage usage_row
+          ON usage_row.tenant_id=recipient.tenant_id
+         AND usage_row.hyperlink_task_id=recipient.hyperlink_task_id
+         AND usage_row.account_id=recipient.account_id
+        WHERE recipient.tenant_id=#{tenantId}
+          AND recipient.submitted_at&gt;=#{hourStartAt}
+          AND recipient.submitted_at&lt;#{hourEndAt}
+        GROUP BY COALESCE(recipient.sender_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.recipient_country_iso2_snapshot,'ZZ'),
+          COALESCE(recipient.sender_account_type_snapshot,0), task.task_type,
+          COALESCE(recipient.sender_device_os_snapshot,0), task.is_short_link_enabled
+        ON DUPLICATE KEY UPDATE
+          send_total=VALUES(send_total), success_num=VALUES(success_num),
+          delivered_num=VALUES(delivered_num), used_account_count=VALUES(used_account_count),
+          banned_account_count=VALUES(banned_account_count), click_uv_num=VALUES(click_uv_num),
+          updated_at=VALUES(updated_at)
+    </insert>
+
+    <delete id="deleteDailyBefore">
+        DELETE FROM hyperlink_stat_daily WHERE stat_date&lt;#{statDate}
+        ORDER BY id LIMIT #{limit}
+    </delete>
+
+    <delete id="deleteHourlyBefore">
+        DELETE FROM hyperlink_stat_hourly WHERE stat_hour_start_at&lt;#{hourStartAt}
+        ORDER BY id LIMIT #{limit}
+    </delete>
+</mapper>

@@ -157,6 +157,7 @@ public class HyperlinkDispatchService {
                 recipient.setSenderPhoneSnapshot(usage.getAccountPhoneSnapshot());
                 recipient.setSenderCountryIso2Snapshot(usage.getSenderCountryIso2Snapshot());
                 recipient.setSenderAccountTypeSnapshot(usage.getAccountTypeSnapshot());
+                recipient.setSenderDeviceOsSnapshot(usage.getSenderDeviceOsSnapshot());
                 recipient.setProtocolId(usage.getProtocolIdSnapshot());
                 recipient.setProtocolBackend(usage.getProtocolBackend());
                 recipient.setCommandId(commandId);

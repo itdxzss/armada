@@ -204,6 +204,29 @@ class HyperlinkTaskLifecycleMigrationSqlTest {
                 .containsExactly(13L, 11L);
     }
 
+    @Test
+    void accountStateInvalidationOnlyUpdatesMatchingActiveTenantUsage() throws SQLException {
+        execute("INSERT INTO hyperlink_task_runtime (tenant_id,hyperlink_task_id,run_status) VALUES "
+                        + "(7,11,1),(7,12,2),(8,13,1)",
+                "INSERT INTO hyperlink_task_account_usage "
+                        + "(id,tenant_id,hyperlink_task_id,account_id,success_limit,"
+                        + "successful_send_count,reserved_success_slot_count,in_flight_count,"
+                        + "usage_status,version,created_at,updated_at) VALUES "
+                        + "(51,7,11,17,100,0,0,0,1,1,100,100),"
+                        + "(52,7,12,17,100,0,0,0,1,1,100,100),"
+                        + "(53,8,13,17,100,0,0,0,1,1,100,100)");
+
+        assertThat(usageMapper.markActiveByAccountInvalid(
+                7L, 17L, 3, "WA_403", "账号被平台禁用", 2_000L)).isEqualTo(1);
+
+        assertThat(value("SELECT usage_status || ':' || invalid_code || ':' || invalid_at "
+                + "FROM hyperlink_task_account_usage WHERE id=51")).isEqualTo("3:WA_403:2000");
+        assertThat(value("SELECT usage_status FROM hyperlink_task_account_usage WHERE id=52"))
+                .isEqualTo("1");
+        assertThat(value("SELECT usage_status FROM hyperlink_task_account_usage WHERE id=53"))
+                .isEqualTo("1");
+    }
+
     private HyperlinkTaskRecipient assignedRecipient(long id, String commandId, String shortCode) {
         HyperlinkTaskRecipient row = new HyperlinkTaskRecipient();
         row.setId(id);
@@ -395,6 +418,7 @@ class HyperlinkTaskLifecycleMigrationSqlTest {
                   sender_phone_snapshot VARCHAR(32),
                   sender_country_iso2_snapshot CHAR(2),
                   sender_account_type_snapshot TINYINT,
+                  sender_device_os_snapshot TINYINT,
                   protocol_id VARCHAR(32),
                   protocol_backend TINYINT,
                   command_id VARCHAR(64),
@@ -437,6 +461,12 @@ class HyperlinkTaskLifecycleMigrationSqlTest {
                   version INT NOT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL
+                )
+                """, """
+                CREATE TABLE hyperlink_task_runtime (
+                  tenant_id BIGINT NOT NULL,
+                  hyperlink_task_id BIGINT PRIMARY KEY,
+                  run_status INT NOT NULL
                 )
                 """);
     }

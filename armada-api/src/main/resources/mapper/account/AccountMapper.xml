@@ -257,6 +257,7 @@
            candidate.wsPhone,
            candidate.countryIso2,
            candidate.accountType,
+           candidate.deviceOs,
            candidate.createdAt,
            candidate.protocolId,
            candidate.protocolAccountId,

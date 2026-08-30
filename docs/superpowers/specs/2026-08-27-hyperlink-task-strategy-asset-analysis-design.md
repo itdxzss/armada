@@ -139,8 +139,10 @@ concurrent_num × account_send_concurrency ≤ 10000          （常量 mr = 1e4
 
 ### 2.9 市场分析
 
-请求参数：`date_from`、`date_to`、`granularity`(`day`|`hour`)、`type`(任务模式)、
-`sender_country_iso2`、`recipient_country_iso2`、`account_type`、`platform`、`use_short_link`。
+竞品请求参数为 snake_case；Armada 接口固定 camelCase：`dateFrom`、`dateTo`、
+`granularity`(`day`|`hour`)、`taskType`、`senderCountryIso2`、`recipientCountryIso2`、
+`accountType`、`deviceOs`(`android`|`iphone`)、`shortLinkEnabled`。设备筛选来自发送时
+`account.device_os` 快照，不使用 `protocolBackend`，也不复用任务账号筛选的六值 `platform`。
 
 窗口限制：**按日 ≤ 90 天，按小时 ≤ 7 天**（超出前端直接拦，不发请求）。
 
@@ -165,8 +167,9 @@ items[] = {
 > 这条事实极大地简化了我们的实现：不需要为汇总口径做全局 `COUNT(DISTINCT)` 回源。
 > 预聚合表按行给出、前端相加即与竞品一致。这是**有意保留的竞品口径**，写进接口注释，防止后人当 bug 修。
 
-比率一律由前端现算：单钩率 `=单钩÷发送`、双钩率 `=双钩÷单钩`、点击率 `=点击UV÷单钩`、
-封号率 `=封号÷使用号数`、号均 `=单钩÷使用号数`。预计落地率是页面明示的经验估算，精确公式为
+比率一律按原始计数现算：单钩率 `=单钩÷发送`、双钩率 `=双钩÷单钩`、点击率 `=点击UV÷单钩`、
+封号率 `=封号÷使用号数`、号均 `=单钩÷使用号数`。Armada 后端返回固定指标中的三个率和号均原值，
+前端只做百分比/小数格式化；点击率仍由页面计算。预计落地率是页面明示的经验估算，精确公式为
 `min(99%, 双钩率 + 20 个百分点)`，不是后端字段。
 
 ### 2.10 账号筛选弹窗的完整字段
@@ -440,12 +443,13 @@ round.`next_dispatch_at` 只表示业务可执行时间；`lease_owner/lease_exp
 |---|---|
 | `granularity=day`（≤90 天） | `hyperlink_stat_daily` 预聚合表，按筛选维度过滤后分组 |
 | `granularity=hour`（≤7 天） | `hyperlink_stat_hourly` 滚动 8 天预聚合，页面不扫 recipient |
-| `marketing-stats/countries` | 区间内出现过的发信国 / 被营销国去重清单，供筛选下拉 |
-| `marketing-stats/accounts` | 保留接口与指标契约；跨任务账号时间统计在市场分析菜单实施时按真实范围/QPS决定独立读模型，不反向要求任务域预建账号小时表 |
+| 顶部 `overview` | 相同筛选窗口内按 recipient 受控回源，账号和封号全局 `COUNT(DISTINCT)` |
+| `marketing-stats/countries` | 与主查询相同时间窗口；从对应日/小时投影取发信国 / 被营销国去重清单 |
+账号明细与导出继续由任务详情页既有接口负责；市场页不重复提供 `accounts` 或 `accounts/export`。
 
 日聚合每小时回填昨天/今天；小时聚合每 5 分钟回填当前/上一小时、每日低峰重算最近 8 天，均按唯一键
 幂等 UPSERT。小时表若保留 90 天理论量过大，但页面只允许 7 天，因此滚动 8 天是容量与查询效率的平衡；
-`idx_hyperlink_recipient_stat` 只服务后台回填/校准，不承担页面实时查询。
+`idx_hyperlink_recipient_market_stat` 服务后台回填/校准及顶部 `overview` 的一次受控精确聚合；列表和趋势不回源。
 
 ---
 
@@ -479,7 +483,7 @@ round.`next_dispatch_at` 只表示业务可执行时间；`lease_owner/lease_exp
 | 4 | `hyperlink_strategy` 含 `msg_interval_*`、`account_send_concurrency` | **删除这三列** | §2.7 策略页无对应控件，落列即死列（规范一.4） |
 | 5 | 未提及 `default_sub_task_num` | **不落列** | 前端硬编码 50，无 UI 控件，是竞品遗留字段 |
 | 6 | recipient 原本只保存受众快照 | 同行增加实际账号/协议、唯一 command/ACK、发送结果、短码、点击累计与首触归因字段 | §4.4～§4.6；一位收信人一行，避免 50 万级 1:1 拆表和逐次点击流水 |
-| 7 | `hyperlink_stat_daily` 无协议维度 | 增 `protocol_backend TINYINT` | §2.9 分析页有「设备平台」筛选 |
+| 7 | `hyperlink_stat_daily` 无设备维度 | 增 `sender_device_os TINYINT` 与 recipient 发送时快照 | §2.9 的 android/iphone 是设备 OS，不是协议后端 |
 | 8 | 策略模板另表、六字段同时复制进 task | 统一 `hyperlink_strategy` 保存 TEMPLATE/TASK_SNAPSHOT，task 只强关联快照 ID | 2026-08-30 单一事实源决策；详见聚焦设计 §7、§10 |
 
 最终收口同时确定：双状态与列表投影落 `hyperlink_task_runtime`，调度边界落 `hyperlink_task_round`；任务无删除列；
@@ -521,15 +525,16 @@ recipient 首访索引直接聚合。recipient 已完整表达
 
 ### 5.5 `hyperlink_stat_daily` / `hyperlink_stat_hourly`
 
-沿用数据模型 §7.1，**新增 `protocol_backend TINYINT NOT NULL`**（1 WEB / 2 ANDROID）。
+沿用数据模型 §7.1，设备维度固定为 **`sender_device_os TINYINT NOT NULL`**
+（0 未知 / 1 安卓 / 2 苹果），取 recipient 的发送时快照。
 
 唯一键：`(tenant_id, stat_date, sender_country_iso2, recipient_country_iso2, account_type,
-task_type, is_short_link_enabled, protocol_backend)`。
+task_type, sender_device_os, is_short_link_enabled)`。
 
 未知国家落 `ZZ`。维度基数估算（加了协议维度后）：
 
 ```
-发信国(~50) × 被营销国(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) × 协议(2) ≈ 6 万组合
+发信国(~50) × 被营销国(~50) × 账号类型(2) × 任务模式(3) × 深度追踪(2) × 设备(2) ≈ 6 万组合
 理论上限 6 万行/天 × 90 天 ≈ 540 万行
 实际国家对高度稀疏（一个租户通常只跑 3~10 个国家对），真实量级低两个数量级
 ```
@@ -663,18 +668,18 @@ GET    /api/resource-assets/{id}/content     取字节（沿用现有 MarketingT
 
 ```
 GET /api/hyperlink-tasks/marketing-stats             主查询
-GET /api/hyperlink-tasks/marketing-stats/countries    筛选下拉的国家清单
-GET /api/hyperlink-tasks/marketing-stats/accounts     账号维度统计
-POST /api/hyperlink-tasks/marketing-stats/accounts/export
+GET /api/hyperlink-tasks/marketing-stats/countries    同时间范围的国家清单
 ```
 
 `marketing-stats` 参数（camelCase 化）：`dateFrom`、`dateTo`、`granularity`、`taskType`、
-`senderCountryIso2`、`recipientCountryIso2`、`accountType`、`protocolBackend`、`isShortLinkEnabled`。
+`senderCountryIso2`、`recipientCountryIso2`、`accountType`、`deviceOs`、`shortLinkEnabled`。
+其中 `deviceOs` 只接受 `android|iphone`，按发送时设备 OS 快照过滤。
+`countries` 接收 `dateFrom`、`dateTo`、`granularity`，国家候选必须与当前可见窗口一致。
 
 窗口校验后端也要做一遍：`day ≤ 90 天`、`hour ≤ 7 天`，超出返回 `40001`。
 前端拦截不能替代后端校验——直接调接口就能绕过。
 
-响应即 §2.9 的 `items[]` 结构（`granularity` + `items`），字段 camelCase。
+响应即 §2.9 的 `overview + items[]` 结构（`granularity` + 全局精确 `overview` + 国家对 `items`），字段 camelCase。
 
 ### 6.5 公网点击入口
 

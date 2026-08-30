@@ -10,6 +10,7 @@ package com.armada.account.model.vo;
  * @param wsPhone 发信号码
  * @param countryIso2 由号码最长区号匹配得到的国家代码；无法识别时为空
  * @param accountType 账号类型
+ * @param deviceOs 设备 OS:1 安卓,2 苹果
  * @param createdAt 账号入库时间
  * @param protocolId 协议标识
  * @param protocolAccountId 协议账号句柄
@@ -21,6 +22,7 @@ public record AccountHyperlinkCandidateVO(
         String wsPhone,
         String countryIso2,
         int accountType,
+        Integer deviceOs,
         long createdAt,
         String protocolId,
         String protocolAccountId,

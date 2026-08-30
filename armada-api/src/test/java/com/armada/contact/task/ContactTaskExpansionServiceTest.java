@@ -287,6 +287,6 @@ class ContactTaskExpansionServiceTest {
     private static AccountHyperlinkCandidateVO candidate(
             long accountId, String wsPhone, String protocolId, String protocolAccountId) {
         return new AccountHyperlinkCandidateVO(
-                accountId, 0, wsPhone, "CN", 1, 0L, protocolId, protocolAccountId, "WEB");
+                accountId, 0, wsPhone, "CN", 1, 1, 0L, protocolId, protocolAccountId, "WEB");
     }
 }

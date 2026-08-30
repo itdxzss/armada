@@ -97,7 +97,7 @@ public interface MarketingTemplateFileMapper {
     int softDeleteAsset(@Param("id") Long id, @Param("deletedAt") long deletedAt);
 
     /**
-     * 批量统计素材在现有模板表中的去重引用次数。
+     * 批量统计素材在现有模板和超链任务中的去重引用次数。
      *
      * @param tenantId 可信租户上下文中的租户 ID
      * @param ids 当前页素材 ID
@@ -109,11 +109,11 @@ public interface MarketingTemplateFileMapper {
             @Param("ids") List<Long> ids);
 
     /**
-     * 精确统计一个素材在现有模板表中的去重引用次数。
+     * 精确统计一个素材在现有模板和超链任务中的去重引用次数。
      *
      * @param tenantId 可信租户上下文中的租户 ID
      * @param id 素材文件 ID
-     * @return 有效模板去重引用数
+     * @return 有效模板与任务的去重引用数
      */
     @InterceptorIgnore(tenantLine = "true")
     long countReferences(@Param("tenantId") Long tenantId, @Param("id") Long id);

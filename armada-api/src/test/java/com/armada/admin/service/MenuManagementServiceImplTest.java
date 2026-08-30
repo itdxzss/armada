@@ -124,6 +124,20 @@ class MenuManagementServiceImplTest {
     }
 
     @Test
+    void createAcceptsHyperlinkAnalysisComponent() {
+        SysMenu hyperlinkDirectory = menu(1L, 0L, "D", 1, "HyperlinkMarketing");
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(hyperlinkDirectory));
+
+        MenuCreateDTO analysis = new MenuCreateDTO(
+                1L, "超链市场分析", "HyperlinkAnalysis", "M",
+                "/hyperlink/analysis", "hyperlink/analysis/index",
+                "tenant:hyperlink_analysis:view", null, 60);
+
+        assertThatCode(() -> service.create(analysis)).doesNotThrowAnyException();
+        verify(menuMapper).insert(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void effectiveRoutesUnionEnabledRolesAndSuppressDisabledAncestor() {
         SysUser user = new SysUser();
         user.setId(7L);

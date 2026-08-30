@@ -86,6 +86,7 @@ class AccountHyperlinkCandidateMapperH2Test {
                 .satisfies(candidate -> {
                     assertThat(candidate.accountId()).isEqualTo(1L);
                     assertThat(candidate.countryIso2()).isEqualTo("BR");
+                    assertThat(candidate.deviceOs()).isEqualTo(1);
                     assertThat(candidate.protocolBackend()).isEqualTo("WEB");
                 });
         assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);

@@ -299,6 +299,7 @@
           account_id=#{accountId}, sender_phone_snapshot=#{senderPhoneSnapshot},
           sender_country_iso2_snapshot=#{senderCountryIso2Snapshot},
           sender_account_type_snapshot=#{senderAccountTypeSnapshot},
+          sender_device_os_snapshot=#{senderDeviceOsSnapshot},
           protocol_id=#{protocolId}, protocol_backend=#{protocolBackend}, command_id=#{commandId},
           short_code=#{shortCode},
           send_status=2, next_dispatch_at=#{nextDispatchAt}, updated_at=#{updatedAt}

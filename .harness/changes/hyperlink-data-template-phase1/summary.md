@@ -75,11 +75,13 @@
 - 任务未来只能复制“数据包号码快照 + 模板内容快照”，不能在运行时依赖可覆盖的数据包当前代或可编辑模板。
 - `data_package_phone.pool_status` 是当前可领取投影，不是完整投递历史。
 - 模板不创建 `task_ref_count` 死列；任务上线后由真实引用关系计算删除保护。
+- 普通按钮“底部小字”和卡片按钮“副标题”共用 `content` 字段，均允许最多 2000 字符；前端、后端校验保持一致。
 - 一期不做预探测、点击、短链、发送策略、任务执行、市场分析或通用素材库改名。
 
 ## 验证
 
 - 聚焦后端回归：超链、H2/MyBatis、鉴权和 Flyway 合同共 53 条通过，0 失败、0 错误。
+- `HyperlinkMessageContentValidatorTest`：10 条通过，覆盖按钮消息可选内容的 2000/2001 字符边界。
 - V141～V152 与已部署隔离 worktree 逐文件一致，并由固定 Flyway 校验和测试锁定。
 - `python3 .harness/wiki/test_api_docs.py`：232 个端点生成与渲染测试通过。
 - `mvn -DskipTests package`：Spring Boot jar 构建通过；Flyway 迁移打入制品。

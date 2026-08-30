@@ -25,8 +25,8 @@ public class HyperlinkMessageContentValidator {
     private static final int TITLE_MAX_LENGTH = 1024;
     /** 单图文正文最大字符数。 */
     private static final int SINGLE_CONTENT_MAX_LENGTH = 2000;
-    /** 按钮消息正文最大字符数。 */
-    private static final int BUTTON_CONTENT_MAX_LENGTH = 200;
+    /** 普通按钮底部小字/卡片按钮副标题最大字符数。 */
+    private static final int BUTTON_CONTENT_MAX_LENGTH = 2000;
     /** 链接描述最大字符数。 */
     private static final int LINK_DESCRIPTION_MAX_LENGTH = 512;
     /** 绝对 URL 最大字符数。 */
@@ -131,7 +131,8 @@ public class HyperlinkMessageContentValidator {
             HyperlinkMessageContent input,
             String title,
             boolean card) {
-        String content = optional(input.content(), BUTTON_CONTENT_MAX_LENGTH, "按钮消息正文最长 200 字符");
+        String content = optional(
+                input.content(), BUTTON_CONTENT_MAX_LENGTH, "按钮消息底部小字/副标题最长 2000 字符");
         List<HyperlinkButton> buttons = normalizeButtons(input.buttons());
         String cardText = card
                 ? required(input.cardText(), "卡片按钮必须填写卡片底部文字",

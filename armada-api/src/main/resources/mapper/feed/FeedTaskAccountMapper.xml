@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.feed.task.mapper.FeedTaskAccountMapper">
+
+  <sql id="accountColumns">
+    id, tenant_id, task_id, account_id, account_phone_snapshot, send_status,
+    retry_num, retry_max, command_id, protocol_message_id, send_at, success_at,
+    failed_at, fail_code, fail_reason, round_no, created_at, updated_at
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT IGNORE INTO feed_task_account (
+      tenant_id, task_id, account_id, account_phone_snapshot, send_status,
+      retry_num, retry_max, created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{taskId}, #{accountId}, #{accountPhoneSnapshot}, #{sendStatus},
+      #{retryNum}, #{retryMax}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.feed.task.model.entity.FeedTaskAccount">
+    SELECT <include refid="accountColumns"/>
+      FROM feed_task_account
+     WHERE id = #{id}
+  </select>
+
+  <select id="selectPage" resultType="com.armada.feed.task.model.entity.FeedTaskAccount">
+    SELECT <include refid="accountColumns"/>
+      FROM feed_task_account
+     WHERE task_id = #{taskId}
+    <if test="accountPhone != null and accountPhone != ''">
+       AND account_phone_snapshot LIKE CONCAT('%', #{accountPhone}, '%')
+    </if>
+     ORDER BY id DESC
+     LIMIT #{offset}, #{limit}
+  </select>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+      FROM feed_task_account
+     WHERE task_id = #{taskId}
+    <if test="accountPhone != null and accountPhone != ''">
+       AND account_phone_snapshot LIKE CONCAT('%', #{accountPhone}, '%')
+    </if>
+  </select>
+
+  <select id="countOpen" resultType="long">
+    SELECT COUNT(*)
+      FROM feed_task_account
+     WHERE task_id = #{taskId}
+       AND send_status IN ('pending', 'sending', 'retrying')
+  </select>
+
+  <select id="selectDispatchable" resultType="com.armada.feed.task.model.entity.FeedTaskAccount">
+    SELECT <include refid="accountColumns"/>
+      FROM feed_task_account
+     WHERE task_id = #{taskId}
+       AND send_status IN ('pending', 'retrying')
+     ORDER BY id ASC
+     LIMIT #{limit}
+  </select>
+
+  <update id="markSending">
+    UPDATE feed_task_account
+       SET send_status = 'sending',
+           retry_num = retry_num + 1,
+           command_id = #{commandId},
+           round_no = #{roundNo},
+           send_at = CASE WHEN send_at IS NULL THEN #{sendAt} ELSE send_at END,
+           updated_at = #{sendAt}
+     WHERE id = #{id}
+       AND send_status = #{expectedStatus}
+  </update>
+
+  <update id="markSuccess">
+    UPDATE feed_task_account
+       SET send_status = 'success',
+           protocol_message_id = #{messageId},
+           success_at = #{successAt},
+           fail_code = NULL,
+           fail_reason = NULL,
+           updated_at = #{successAt}
+     WHERE id = #{id}
+       AND send_status = 'sending'
+  </update>
+
+  <update id="markRetrying">
+    UPDATE feed_task_account
+       SET send_status = 'retrying',
+           fail_code = #{failCode},
+           fail_reason = #{failReason},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND send_status = 'sending'
+  </update>
+
+  <update id="markFailed">
+    UPDATE feed_task_account
+       SET send_status = 'failed',
+           fail_code = #{failCode},
+           fail_reason = #{failReason},
+           failed_at = #{failedAt},
+           updated_at = #{failedAt}
+     WHERE id = #{id}
+       AND send_status IN ('pending', 'sending', 'retrying')
+  </update>
+
+</mapper>

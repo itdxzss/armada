@@ -34,7 +34,8 @@ public class MarketingTemplateFileController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', "
             + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit', "
-            + "'tenant:contact_task:create', 'tenant:contact_task:edit')")
+            + "'tenant:contact_task:create', 'tenant:contact_task:edit', "
+            + "'tenant:feed_task:create', 'tenant:feed_task:edit')")
     public ApiResponse<MarketingTemplateFileVO> upload(@RequestParam("file") MultipartFile file) {
         return ApiResponse.ok(service.uploadImage(file));
     }
@@ -45,7 +46,8 @@ public class MarketingTemplateFileController {
             + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
             + "'tenant:group_creation_marketing:view', 'tenant:hyperlink_template:view', "
             + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit', "
-            + "'tenant:contact_task:view')")
+            + "'tenant:contact_task:view', 'tenant:feed_task:view', "
+            + "'tenant:feed_task:create', 'tenant:feed_task:edit')")
     public ResponseEntity<byte[]> content(@PathVariable Long id) {
         MarketingTemplateFileContent file = service.content(id);
         return ResponseEntity.ok()

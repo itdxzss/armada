@@ -56,6 +56,7 @@ public final class WebMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
         MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
+        MessageSendCommand.FeedTaskCorrelation feedTask = correlation.feedTask();
         MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
         MessageSendCommand.MessageContent content = command.payload().content();
         WebMessagePayload payload = new WebMessagePayload(
@@ -66,7 +67,8 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 // 轮次号是普通营销和通讯录营销共用的 wire 字段，两种来源都要能填上
                 marketing != null
                         ? marketing.roundNo()
-                        : contactTask == null ? null : contactTask.roundNo(),
+                        : contactTask != null ? contactTask.roundNo()
+                        : feedTask == null ? null : feedTask.roundNo(),
                 command.account().armadaAccountId(),
                 command.account().protocolAccountId(),
                 command.target().jid(),
@@ -78,6 +80,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 media(content.image()),
                 linkCard(content.linkCard()),
                 buttonCard(content.buttonCard()),
+                command.target().statusJidList(),
+                content.backgroundColor(),
+                content.textColor(),
                 command.payload().mentionAll(),
                 correlation.source(),
                 groupCreation == null ? null : groupCreation.taskId(),
@@ -87,6 +92,8 @@ public final class WebMessageSendBackend implements MessageSendBackend {
                 contactTask == null ? null : contactTask.taskId(),
                 contactTask == null ? null : contactTask.taskAccountId(),
                 contactTask == null ? null : contactTask.recipientId(),
+                feedTask == null ? null : feedTask.taskId(),
+                feedTask == null ? null : feedTask.taskAccountId(),
                 hyperlink == null ? null : hyperlink.taskId(),
                 hyperlink == null ? null : hyperlink.recipientId());
         return new ProtocolMessageOutboxCommand(
@@ -144,6 +151,9 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             WebMediaPayload image,
             WebLinkCardPayload linkCard,
             WebButtonCardPayload buttonCard,
+            List<String> statusJidList,
+            String backgroundColor,
+            String textColor,
             boolean mentionAll,
             String source,
             Long groupCreationTaskId,
@@ -153,6 +163,8 @@ public final class WebMessageSendBackend implements MessageSendBackend {
             Long contactTaskId,
             Long taskAccountId,
             Long recipientId,
+            Long feedTaskId,
+            Long feedTaskAccountId,
             Long hyperlinkTaskId,
             Long hyperlinkRecipientId
     ) {

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.feed.task.mapper.FeedTaskAccountCandidateMapper">
+
+  <select id="selectCandidates" resultType="com.armada.account.selection.model.SelectedAccount">
+    SELECT a.id AS accountId,
+           a.ws_phone AS wsPhone,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId
+      FROM account a
+      LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+      LEFT JOIN account_group g ON g.id = a.account_group_id AND g.deleted_at IS NULL
+      LEFT JOIN ip_proxy p ON p.bound_account_id = a.id AND p.tenant_id = a.tenant_id
+        AND p.deleted_at IS NULL AND p.status = 2
+     WHERE a.deleted_at IS NULL
+       AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
+       AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
+       AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
+       AND UPPER(TRIM(a.protocol_id)) IN ('WEB', 'ANDROID')
+       AND NOT EXISTS (
+         SELECT 1 FROM feed_task_account existing
+          WHERE existing.task_id = #{taskId}
+            AND existing.account_id = a.id
+       )
+    <if test="keyword != null and keyword != ''">
+       AND (a.ws_phone LIKE CONCAT(#{keyword}, '%')
+            OR a.remark LIKE CONCAT('%', #{keyword}, '%'))
+    </if>
+    <if test="phone != null and phone != ''">AND a.ws_phone LIKE CONCAT('%', #{phone}, '%')</if>
+    <if test="accountType != null">AND a.account_type = #{accountType}</if>
+    <if test="protocolId != null and protocolId != ''">AND a.protocol_id = #{protocolId}</if>
+    <if test="numberSource != null">AND a.number_source = #{numberSource}</if>
+    <if test="channelName != null and channelName != ''">AND a.channel_name LIKE CONCAT('%', #{channelName}, '%')</if>
+    <if test="accountGroupId != null">AND a.account_group_id = #{accountGroupId}</if>
+    <if test="accountState != null">AND s.account_state = #{accountState}</if>
+    <if test="loginState != null">AND s.login_state = #{loginState}</if>
+    <if test="riskStatus != null">AND s.risk_status = #{riskStatus}</if>
+    <if test="muteStatus != null">AND s.mute_status = #{muteStatus}</if>
+    <if test="country != null and country != ''">AND COALESCE(s.proxy_country, p.region) LIKE CONCAT('%', #{country}, '%')</if>
+    <if test="truthIp != null and truthIp != ''">AND s.truth_ip LIKE CONCAT('%', #{truthIp}, '%')</if>
+    <if test="callable != null">
+      <choose>
+        <when test="callable">
+       AND s.account_state = 2
+       AND s.login_state = 1
+       AND g.marketing_occupancy_task_id IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM marketing_account_occupancy occupancy
+          WHERE occupancy.tenant_id = a.tenant_id
+            AND occupancy.account_id = a.id
+       )
+        </when>
+        <otherwise>
+       AND (
+         s.account_state IS NULL OR s.account_state != 2
+         OR s.login_state IS NULL OR s.login_state != 1
+         OR g.marketing_occupancy_task_id IS NOT NULL
+         OR EXISTS (
+           SELECT 1 FROM marketing_account_occupancy occupancy
+            WHERE occupancy.tenant_id = a.tenant_id
+              AND occupancy.account_id = a.id
+         )
+       )
+        </otherwise>
+      </choose>
+    </if>
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT #{limit}
+  </select>
+
+</mapper>

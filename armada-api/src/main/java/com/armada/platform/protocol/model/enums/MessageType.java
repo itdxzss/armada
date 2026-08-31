@@ -18,5 +18,8 @@ public enum MessageType {
     LINK_CARD,
 
     /** 按钮卡片消息。 */
-    BUTTON_CARD
+    BUTTON_CARD,
+
+    /** WhatsApp Status 动态。 */
+    STATUS
 }

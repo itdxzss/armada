@@ -331,6 +331,79 @@ class ProtocolMessageEventConsumerTest {
     }
 
     @Test
+    void onMessage_feedTaskEnvelope_parsesStatusCorrelationWithoutMarketingFields() {
+        String raw = """
+                {
+                  "eventId":"evt_feed",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_1",
+                  "occurredAt":"2026-08-29T10:00:00.000Z",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":5,
+                    "source":"feed_task",
+                    "feedTaskId":77,
+                    "feedTaskAccountId":88,
+                    "protocolAccountId":"acc_1",
+                    "jid":"status@broadcast",
+                    "targetKind":"STATUS",
+                    "commandId":"cmd_status_1",
+                    "success":true,
+                    "messageId":"wamid.STATUS",
+                    "timestamp":1999,
+                    "outcome":"SUCCESS",
+                    "terminal":true
+                  }
+                }
+                """;
+
+        onMessage(raw);
+
+        ArgumentCaptor<ProtocolMessageSendResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        ProtocolMessageSendResultReportedEvent event = captor.getValue();
+        assertThat(event.feedTaskId()).isEqualTo(77L);
+        assertThat(event.feedTaskAccountId()).isEqualTo(88L);
+        assertThat(event.jid()).isEqualTo("status@broadcast");
+        assertThat(event.targetKind()).isEqualTo("STATUS");
+        assertThat(event.marketingTaskId()).isNull();
+        assertThat(event.targetId()).isNull();
+        assertThat(event.attemptId()).isNull();
+        assertThat(event.groupJid()).isNull();
+        assertThat(event.terminal()).isTrue();
+    }
+
+    @Test
+    void onMessage_feedTaskEnvelopeMissingAccountId_isRejected() {
+        String raw = """
+                {
+                  "eventId":"evt_feed_bad",
+                  "event":"message.send_result_reported",
+                  "version":"v1",
+                  "accountId":"acc_1",
+                  "occurredAt":"2026-08-29T10:00:00.000Z",
+                  "workerId":"worker-a",
+                  "data":{
+                    "tenantId":5,
+                    "source":"feed_task",
+                    "feedTaskId":77,
+                    "protocolAccountId":"acc_1",
+                    "jid":"status@broadcast",
+                    "targetKind":"STATUS",
+                    "commandId":"cmd_status_1",
+                    "success":true,
+                    "timestamp":1999
+                  }
+                }
+                """;
+
+        assertThatThrownBy(() -> onMessage(raw))
+                .hasMessageContaining("feedTaskAccountId");
+    }
+
+    @Test
     void onMessage_contactTaskEnvelope_parsesCorrelationWithoutMarketingFields() {
         // contact_task 事件没有 marketingTaskId/targetId/attemptId，不能因此判非法
         String raw = """

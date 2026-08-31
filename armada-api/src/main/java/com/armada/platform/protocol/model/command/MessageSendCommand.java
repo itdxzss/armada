@@ -34,10 +34,14 @@ public record MessageSendCommand(
      * @param jid WhatsApp 群或私聊 JID
      * @param kind 目标类型
      */
-    public record MessageTarget(String jid, TargetKind kind) {
+    public record MessageTarget(String jid, TargetKind kind, List<String> statusJidList) {
+        public MessageTarget(String jid, TargetKind kind) {
+            this(jid, kind, List.of());
+        }
+
         /** Java 调用兼容：存量单参数构造均为群目标。 */
         public MessageTarget(String groupJid) {
-            this(groupJid, TargetKind.GROUP);
+            this(groupJid, TargetKind.GROUP, List.of());
         }
 
         /** Java 读取兼容：存量群营销断言仍可读取 groupJid。 */
@@ -51,7 +55,9 @@ public record MessageSendCommand(
         /** 群聊目标，继续透传兼容 groupJid。 */
         GROUP,
         /** 私聊目标。 */
-        PRIVATE
+        PRIVATE,
+        /** WhatsApp Status 广播目标。 */
+        STATUS
     }
 
     /**
@@ -76,8 +82,14 @@ public record MessageSendCommand(
             String text,
             MessageMedia image,
             MessageLinkCard linkCard,
-            MessageButtonCard buttonCard
+            MessageButtonCard buttonCard,
+            String backgroundColor,
+            String textColor
     ) {
+        public MessageContent(String text, MessageMedia image, MessageLinkCard linkCard,
+                MessageButtonCard buttonCard) {
+            this(text, image, linkCard, buttonCard, null, null);
+        }
     }
 
     /**
@@ -149,19 +161,26 @@ public record MessageSendCommand(
             GroupCreationCorrelation groupCreation,
             HistoricalGroupCorrelation historicalGroup,
             ContactTaskCorrelation contactTask,
+            FeedTaskCorrelation feedTask,
             HyperlinkCorrelation hyperlink
     ) {
         /** 上游 6 参构造兼容：不触碰上游既有调用点，contactTask 默认为空。 */
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
                 HyperlinkCorrelation hyperlink) {
-            this(tenantId, source, marketing, groupCreation, historicalGroup, null, hyperlink);
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null, hyperlink);
         }
 
         /** 存量群营销 Java 构造兼容，contactTask 与 hyperlink 默认为空。 */
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
+                GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
+                ContactTaskCorrelation contactTask, HyperlinkCorrelation hyperlink) {
+            this(tenantId, source, marketing, groupCreation, historicalGroup, contactTask, null, hyperlink);
+        }
+
+        public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup) {
-            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null);
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null, null);
         }
     }
 
@@ -212,6 +231,10 @@ public record MessageSendCommand(
             Long recipientId,
             Long roundNo
     ) {
+    }
+
+    /** WhatsApp Status 动态发布任务关联。 */
+    public record FeedTaskCorrelation(Long taskId, Long taskAccountId, Long roundNo) {
     }
 
     /** 超链任务唯一发送事实关联，不包含 attempt。 */

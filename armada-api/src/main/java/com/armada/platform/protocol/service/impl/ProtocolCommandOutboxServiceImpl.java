@@ -105,6 +105,7 @@ public class ProtocolCommandOutboxServiceImpl
 
     /** 营销消息发送命令类型。 */
     public static final String COMMAND_TYPE_MESSAGE_SEND_REQUESTED = "message.send.requested";
+    public static final String COMMAND_TYPE_STATUS_PUBLISH_REQUESTED = "status.publish.requested";
 
     /** 账号聚合类型。 */
     public static final String AGGREGATE_TYPE_ACCOUNT = "ACCOUNT";
@@ -153,6 +154,10 @@ public class ProtocolCommandOutboxServiceImpl
     /** 超链任务唯一 recipient 聚合类型。 */
     public static final String AGGREGATE_TYPE_HYPERLINK_TASK_RECIPIENT = "HYPERLINK_TASK_RECIPIENT";
 
+    public static final String AGGREGATE_TYPE_CONTACT_TASK_RECIPIENT = "CONTACT_TASK_RECIPIENT";
+
+    public static final String AGGREGATE_TYPE_FEED_TASK_ACCOUNT = "FEED_TASK_ACCOUNT";
+
     private static final int MAX_ACCOUNT_LIFECYCLE_COMMANDS_PER_BATCH = 1_000;
     private static final int MAX_COMMANDS_PER_BATCH = 500;
     private static final long IMMEDIATE_RETRY_AT = 0L;
@@ -160,6 +165,8 @@ public class ProtocolCommandOutboxServiceImpl
     private static final String BATCH_ID_PREFIX = "batch_";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
     private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
+    private static final String SOURCE_CONTACT_TASK = "contact_task";
+    private static final String SOURCE_FEED_TASK = "feed_task";
 
     private final ProtocolCommandOutboxMapper mapper;
     private final ObjectMapper objectMapper;
@@ -1251,13 +1258,22 @@ public class ProtocolCommandOutboxServiceImpl
         row.setTenantId(TenantContext.get());
         row.setCommandId(command.commandId());
         row.setBatchId(batchId);
-        row.setCommandType(COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
+        row.setCommandType(command.target().kind() ==
+                com.armada.platform.protocol.model.command.MessageSendCommand.TargetKind.STATUS
+                ? COMMAND_TYPE_STATUS_PUBLISH_REQUESTED
+                : COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
         if (command.correlation().groupCreation() != null) {
             row.setAggregateType(AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM);
             row.setAggregateId(command.correlation().groupCreation().itemId());
         } else if (command.correlation().historicalGroup() != null) {
             row.setAggregateType(AGGREGATE_TYPE_HISTORICAL_GROUP_PULL_MEMBER);
             row.setAggregateId(command.correlation().historicalGroup().memberId());
+        } else if (command.correlation().contactTask() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_CONTACT_TASK_RECIPIENT);
+            row.setAggregateId(command.correlation().contactTask().recipientId());
+        } else if (command.correlation().feedTask() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_FEED_TASK_ACCOUNT);
+            row.setAggregateId(command.correlation().feedTask().taskAccountId());
         } else if (command.correlation().hyperlink() != null) {
             row.setAggregateType(AGGREGATE_TYPE_HYPERLINK_TASK_RECIPIENT);
             row.setAggregateId(command.correlation().hyperlink().recipientId());
@@ -1955,6 +1971,8 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.groupCreation().itemId() == null
                     || correlation.marketing() != null
                     || correlation.historicalGroup() != null
+                    || correlation.contactTask() != null
+                    || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind()
                         != MessageSendCommand.TargetKind.GROUP) {
@@ -1967,6 +1985,8 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.historicalGroup().executionId() == null
                     || correlation.historicalGroup().memberId() == null
                     || correlation.marketing() != null
+                    || correlation.contactTask() != null
+                    || correlation.feedTask() != null
                     || correlation.hyperlink() != null
                     || outboxCommand.command().target().kind()
                         != MessageSendCommand.TargetKind.GROUP) {
@@ -1984,6 +2004,8 @@ public class ProtocolCommandOutboxServiceImpl
                     || correlation.marketing() != null
                     || correlation.groupCreation() != null
                     || correlation.historicalGroup() != null
+                    || correlation.contactTask() != null
+                    || correlation.feedTask() != null
                     || outboxCommand.command().target().kind()
                         != MessageSendCommand.TargetKind.PRIVATE) {
                 throw new BusinessException(ErrorCode.VALIDATION,
@@ -1994,13 +2016,57 @@ public class ProtocolCommandOutboxServiceImpl
         if (SOURCE_HYPERLINK_TASK.equals(correlation.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "超链任务消息命令缺少唯一 recipient 关联");
         }
+        if (correlation.contactTask() != null) {
+            if (!SOURCE_CONTACT_TASK.equals(correlation.source())
+                    || correlation.contactTask().taskId() == null
+                    || correlation.contactTask().taskAccountId() == null
+                    || correlation.contactTask().recipientId() == null
+                    || correlation.contactTask().roundNo() == null
+                    || correlation.marketing() != null
+                    || correlation.groupCreation() != null
+                    || correlation.historicalGroup() != null
+                    || correlation.feedTask() != null
+                    || correlation.hyperlink() != null
+                    || outboxCommand.command().target().kind()
+                        != MessageSendCommand.TargetKind.PRIVATE) {
+                throw new BusinessException(ErrorCode.VALIDATION, "通讯录任务消息命令缺少收件人关联");
+            }
+            return;
+        }
+        if (SOURCE_CONTACT_TASK.equals(correlation.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "通讯录任务消息命令缺少收件人关联");
+        }
+        if (correlation.feedTask() != null) {
+            if (!SOURCE_FEED_TASK.equals(correlation.source())
+                    || correlation.feedTask().taskId() == null
+                    || correlation.feedTask().taskAccountId() == null
+                    || correlation.feedTask().roundNo() == null
+                    || correlation.marketing() != null
+                    || correlation.groupCreation() != null
+                    || correlation.historicalGroup() != null
+                    || correlation.contactTask() != null
+                    || correlation.hyperlink() != null
+                    || outboxCommand.command().target().kind()
+                        != MessageSendCommand.TargetKind.STATUS
+                    || outboxCommand.command().payload().type() != com.armada.platform.protocol.model.enums.MessageType.STATUS
+                    || outboxCommand.command().target().statusJidList() == null
+                    || outboxCommand.command().target().statusJidList().isEmpty()) {
+                throw new BusinessException(ErrorCode.VALIDATION, "动态发布任务消息命令缺少账号关联");
+            }
+            return;
+        }
+        if (SOURCE_FEED_TASK.equals(correlation.source())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "动态发布任务消息命令缺少账号关联");
+        }
         if (correlation.marketing() == null
                 || correlation.marketing().taskId() == null
                 || correlation.marketing().targetId() == null
                 || correlation.marketing().attemptId() == null
                 || correlation.marketing().roundNo() == null
                 || correlation.groupCreation() != null
-                || correlation.historicalGroup() != null) {
+                || correlation.historicalGroup() != null
+                || correlation.contactTask() != null
+                || correlation.feedTask() != null) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少营销回写字段");
         }
     }

@@ -3,6 +3,8 @@ package com.armada.account.service;
 import com.armada.account.converter.FullParamsToSixConverter;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.enums.AccountDeviceOsCode;
+import com.armada.account.model.enums.AccountTypeCode;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -12,6 +14,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -64,6 +67,31 @@ public class AccountImportParser {
      */
     private static final Pattern WID_PATTERN = Pattern.compile("^\\d{7,15}$");
 
+    /** iOS 原生凭据中的主 JID。 */
+    private static final Pattern IOS_JID_PATTERN =
+            Pattern.compile("^(\\d{7,15})@s\\.whatsapp\\.net$");
+
+    /** iOS 原生凭据中的 LID。 */
+    private static final Pattern IOS_LID_PATTERN = Pattern.compile("^\\d+@lid$");
+
+    /** iOS 原生凭据必须存在的普通文本字段。 */
+    private static final List<String> IOS_NATIVE_REQUIRED_TEXT_KEYS = List.of(
+            "phone", "jid", "platform", "device", "manufacturer",
+            "osVersion", "osBuildNumber", "whatsappVersion", "phoneUUID",
+            "mcc", "mnc", "country", "language");
+
+    /** iOS 原生凭据必须存在且能按标准 Base64 解码的字段。 */
+    private static final List<String> IOS_NATIVE_PUBLIC_KEY_FIELDS = List.of(
+            "clientStaticPublicKey", "identityPublicKey", "signPreKeyPublicKey");
+
+    /** iOS 原生私钥字段，解码后固定为 32 字节。 */
+    private static final List<String> IOS_NATIVE_PRIVATE_KEY_FIELDS = List.of(
+            "clientStaticPrivateKey", "identityPrivateKey", "signPreKeyPrivateKey");
+
+    /** iOS 原生凭据必须存在且为正整数的字段。 */
+    private static final List<String> IOS_NATIVE_REQUIRED_POSITIVE_ID_KEYS =
+            List.of("registrationID", "signPreKeyID");
+
     /** 五段 Android 输入的列数(phone 至 id_pri_key)。 */
     private static final int FIVE_SEGMENT_COLUMN_COUNT = 5;
 
@@ -81,12 +109,18 @@ public class AccountImportParser {
      * 六列追加 {@code phoneId}。</p>
      *
      * @param format    导入格式枚举
+     * @param deviceOs  设备系统编码；PARAMS 用它区分 Android 转换和 iOS 原生保真
+     * @param accountType 导入申报账号类型；iOS PARAMS 用它校验 ios/smb_ios
      * @param fileBytes 文件字节(可为 null)
      * @param text      文本内容(可为 null;非空时优先于 fileBytes)
      * @return 逐条解析结果,每条可能含 parseError
      * @throws BusinessException 未知格式时抛业务异常
      */
-    public List<ParsedEntry> parse(ImportFormat format, byte[] fileBytes, String text) {
+    public List<ParsedEntry> parse(ImportFormat format,
+                                   Integer deviceOs,
+                                   Integer accountType,
+                                   byte[] fileBytes,
+                                   String text) {
         if (format == ImportFormat.SIX) {
             return parseSix(fileBytes, text);
         }
@@ -94,6 +128,9 @@ public class AccountImportParser {
             return parseJson(fileBytes, text);
         }
         if (format == ImportFormat.PARAMS) {
+            if (Integer.valueOf(AccountDeviceOsCode.IOS).equals(deviceOs)) {
+                return parseIosNativeParams(fileBytes, text, accountType);
+            }
             return parseParams(fileBytes, text);
         }
         throw new BusinessException(ErrorCode.VALIDATION, "未知导入格式: " + format);
@@ -320,6 +357,11 @@ public class AccountImportParser {
         entry.setRaw(source);
         entry.setRawPayload(rawPayload);
         entry.setSourceEntryName(source);
+        String platform = node.path("platform").asText().trim();
+        if ("ios".equals(platform) || "smb_ios".equals(platform)) {
+            entry.setParseError("platform 与 deviceOs 不一致");
+            return entry;
+        }
         FullParamsToSixConverter.Result converted = fullParamsConverter.convert(node);
         if (!converted.isSuccess()) {
             entry.setParseError(converted.error());
@@ -328,6 +370,162 @@ public class AccountImportParser {
         entry.setWid(converted.phone());
         entry.setData(converted.credential());
         return entry;
+    }
+
+    /** 逐行解析并保留 iOS 原生凭据对象。 */
+    private List<ParsedEntry> parseIosNativeParams(byte[] fileBytes, String text, Integer accountType) {
+        String src = (text != null && !text.isEmpty()) ? text
+                : (fileBytes != null ? new String(fileBytes, StandardCharsets.UTF_8) : "");
+        if (src.isBlank()) {
+            return makeErrorEntry("", "输入内容为空");
+        }
+        String[] lines = src.split("\\R", -1);
+        List<ParsedEntry> result = new ArrayList<>(lines.length);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isBlank()) {
+                continue;
+            }
+            String source = "params-input[" + (i + 1) + "]";
+            try {
+                JsonNode node = mapper.readTree(line);
+                if (!node.isObject()) {
+                    result.add(makeErrorEntry(source, "iOS 原生全参必须为 JSON 对象", line));
+                    continue;
+                }
+                result.add(parseIosNativeNode(node, source, line, accountType));
+            } catch (IOException exception) {
+                log.warn("[AccountImportParser] iOS 原生 PARAMS JSON 解析失败 lineNo={}", i + 1);
+                result.add(makeErrorEntry(source, "JSON 解析失败", line));
+            }
+        }
+        return result.isEmpty() ? makeErrorEntry("", "输入内容为空") : result;
+    }
+
+    /** 校验 iOS 原生凭据；错误只包含字段名和规则，不回显字段值。 */
+    private ParsedEntry parseIosNativeNode(
+            JsonNode node, String source, String rawPayload, Integer accountType) {
+        ParsedEntry entry = new ParsedEntry();
+        entry.setRaw(source);
+        entry.setRawPayload(rawPayload);
+        entry.setSourceEntryName(source);
+
+        String error = validateIosNativeCredential(node, accountType);
+        if (error != null) {
+            entry.setParseError(error);
+            return entry;
+        }
+        entry.setWid(node.path("phone").asText().trim());
+        entry.setData(node);
+        return entry;
+    }
+
+    private String validateIosNativeCredential(JsonNode node, Integer accountType) {
+        for (String key : IOS_NATIVE_REQUIRED_TEXT_KEYS) {
+            if (!hasNonBlankText(node, key)) {
+                return "凭据不全:缺 " + key;
+            }
+        }
+        for (String key : IOS_NATIVE_PUBLIC_KEY_FIELDS) {
+            String error = validateRequiredBase64Length(node, key, 32, 33);
+            if (error != null) {
+                return error;
+            }
+        }
+        for (String key : IOS_NATIVE_PRIVATE_KEY_FIELDS) {
+            String error = validateRequiredBase64Length(node, key, 32);
+            if (error != null) {
+                return error;
+            }
+        }
+        String signatureError = validateRequiredBase64Length(node, "signPreKeySignature", 64);
+        if (signatureError != null) {
+            return signatureError;
+        }
+        String routingError = validateRequiredNonEmptyBase64(node, "edgeRoutingInfo");
+        if (routingError != null) {
+            return routingError;
+        }
+        for (String key : IOS_NATIVE_REQUIRED_POSITIVE_ID_KEYS) {
+            JsonNode value = node.get(key);
+            if (value == null || value.isNull()) {
+                return "凭据不全:缺 " + key;
+            }
+            if (!value.canConvertToLong()
+                    || value.asLong() <= 0
+                    || value.asLong() > 0xFFFF_FFFFL) {
+                return key + " 格式错误";
+            }
+        }
+
+        String phone = node.path("phone").asText().trim();
+        if (!WID_PATTERN.matcher(phone).matches()) {
+            return "phone 格式错误";
+        }
+        java.util.regex.Matcher jidMatcher = IOS_JID_PATTERN.matcher(
+                node.path("jid").asText().trim());
+        if (!jidMatcher.matches() || !phone.equals(jidMatcher.group(1))) {
+            return "phone 与 jid 不一致";
+        }
+        if (node.hasNonNull("lid")
+                && !node.path("lid").asText().isBlank()
+                && !IOS_LID_PATTERN.matcher(node.path("lid").asText().trim()).matches()) {
+            return "lid 格式错误";
+        }
+
+        String platform = node.path("platform").asText().trim();
+        String expectedPlatform;
+        if (Integer.valueOf(AccountTypeCode.PERSONAL).equals(accountType)) {
+            expectedPlatform = "ios";
+        } else if (Integer.valueOf(AccountTypeCode.BUSINESS).equals(accountType)) {
+            expectedPlatform = "smb_ios";
+        } else {
+            return "账号类型格式错误";
+        }
+        if (!expectedPlatform.equals(platform)) {
+            return "platform 与账号类型不一致";
+        }
+        return null;
+    }
+
+    private boolean hasNonBlankText(JsonNode node, String key) {
+        JsonNode value = node.get(key);
+        return value != null && value.isTextual() && !value.asText().isBlank();
+    }
+
+    private String validateRequiredBase64Length(JsonNode node, String key, int... acceptedLengths) {
+        if (!hasNonBlankText(node, key)) {
+            return "凭据不全:缺 " + key;
+        }
+        byte[] decoded;
+        try {
+            decoded = Base64.getDecoder().decode(node.path(key).asText().trim());
+        } catch (IllegalArgumentException exception) {
+            return key + " 格式错误";
+        }
+        for (int acceptedLength : acceptedLengths) {
+            if (decoded.length == acceptedLength) {
+                return null;
+            }
+        }
+        return key + " 长度错误";
+    }
+
+    private String validateRequiredNonEmptyBase64(JsonNode node, String key) {
+        if (!hasNonBlankText(node, key)) {
+            return "凭据不全:缺 " + key;
+        }
+        return validateNonEmptyBase64(node, key);
+    }
+
+    private String validateNonEmptyBase64(JsonNode node, String key) {
+        try {
+            return Base64.getDecoder().decode(node.path(key).asText().trim()).length > 0
+                    ? null
+                    : key + " 格式错误";
+        } catch (IllegalArgumentException exception) {
+            return key + " 格式错误";
+        }
     }
 
     // ---- wid 抠取(通用) ----

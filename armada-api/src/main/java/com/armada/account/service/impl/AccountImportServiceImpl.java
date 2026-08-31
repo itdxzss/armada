@@ -155,7 +155,8 @@ public class AccountImportServiceImpl implements AccountImportService {
                 ? groupService.requireExisting(meta.accountGroupId()).getId()
                 : groupService.ensureSystemGroup().getId();
 
-        List<ParsedEntry> entries = parser.parse(format, fileBytes, text);
+        List<ParsedEntry> entries = parser.parse(
+                format, meta.deviceOs(), meta.accountType(), fileBytes, text);
         // 空 entries 或 parser 检测到「输入内容为空」(fileBytes/text 均空时 parser 产出该错误条目)
         if (entries.isEmpty() || isNoContentResult(entries)) {
             throw new BusinessException(ErrorCode.VALIDATION, "无可导入内容");

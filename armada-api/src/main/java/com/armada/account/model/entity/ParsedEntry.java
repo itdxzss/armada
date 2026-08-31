@@ -38,8 +38,8 @@ public class ParsedEntry {
     private String wid;
 
     /**
-     * 规范化后的运行时凭据树节点。JSON 格式保留原凭据对象；SIX 以及 PARAMS
-     * 转 Android 的结果均为六段对象。原始导入内容只保存在 {@link #rawPayload}。
+     * 规范化后的运行时凭据树节点。JSON 格式保留原凭据对象；SIX 与 Android PARAMS
+     * 为六字段对象；iOS PARAMS 保留原生完整对象。原始导入内容只保存在 {@link #rawPayload}。
      */
     private JsonNode data;
 

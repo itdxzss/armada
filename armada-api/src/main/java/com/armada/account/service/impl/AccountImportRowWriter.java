@@ -9,6 +9,8 @@ import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
+import com.armada.account.model.enums.AccountDeviceOsCode;
 import com.armada.account.model.enums.AccountTypeVerifyStatusCode;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -87,7 +89,7 @@ public class AccountImportRowWriter {
         // 步骤 ③:插入 account_credential(creds_json 由 data 序列化;日志只打 maskPhone+长度)
         String credsJson = serializeCredsJson(entry, wid);
         AccountCredential credential = buildCredential(
-                accountId, wid, runtimeCredentialFormat(meta.importFormat()), credsJson, now);
+                accountId, wid, runtimeCredentialFormat(meta.importFormat(), meta.deviceOs()), credsJson, now);
         credentialMapper.insert(credential);
 
         log.info("[AccountImportRowWriter] 三步写成功 maskPhone={}*** accountId={} credsLen={}",
@@ -124,10 +126,13 @@ public class AccountImportRowWriter {
         return a;
     }
 
-    private int runtimeCredentialFormat(int importFormat) {
-        return importFormat == ImportFormat.PARAMS.getCode()
-                ? ImportFormat.SIX.getCode()
-                : importFormat;
+    private int runtimeCredentialFormat(int importFormat, Integer deviceOs) {
+        if (importFormat == ImportFormat.PARAMS.getCode()) {
+            return Integer.valueOf(AccountDeviceOsCode.IOS).equals(deviceOs)
+                    ? AccountCredentialFormatCode.IOS_NATIVE_FULL
+                    : AccountCredentialFormatCode.SIX_SEGMENT;
+        }
+        return importFormat;
     }
 
     private AccountState buildAccountState(Long accountId, long now) {

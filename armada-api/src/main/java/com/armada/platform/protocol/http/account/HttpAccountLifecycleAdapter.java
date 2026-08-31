@@ -55,6 +55,7 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
     private static final String WIRE_FORMAT_SIX = "six";
     private static final String WIRE_FORMAT_BAILEYS_JSON = "baileys_json";
     private static final String WIRE_FORMAT_PARAMS = "params";
+    private static final String WIRE_FORMAT_IOS_NATIVE_FULL = "ios_native_full";
 
     /** 凭据原文必须是 JSON object,这里解析成 Map 后作为 credential 字段透传给协议层。 */
     private static final TypeReference<Map<String, Object>> CREDENTIAL_TYPE = new TypeReference<>() {
@@ -182,6 +183,7 @@ public class HttpAccountLifecycleAdapter implements AccountLifecyclePort {
             case SIX_SEGMENT -> WIRE_FORMAT_SIX;
             case BAILEYS_JSON -> WIRE_FORMAT_BAILEYS_JSON;
             case PARAMS -> WIRE_FORMAT_PARAMS;
+            case IOS_NATIVE_FULL -> WIRE_FORMAT_IOS_NATIVE_FULL;
         };
     }
 

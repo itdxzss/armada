@@ -161,6 +161,28 @@ class AccountHyperlinkCandidateMapperH2Test {
     }
 
     @Test
+    void iosNativeFullFormatIsAndroidPrimaryAndMatchesFullParamFilter()
+            throws SQLException {
+        insertAccount(12, 7, "447700900123", 2, 2, 10, 20, "WEB", NOW - DAY, null);
+        credential(12, 7, 4);
+        state(12, 7, 2, 1, null);
+        AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                "ONLINE", null, 2, "IOS_BUSINESS_PRIMARY", "native6", "full_param",
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID"), NOW);
+
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
+                .singleElement()
+                .satisfies(candidate -> {
+                    assertThat(candidate.accountId()).isEqualTo(12L);
+                    assertThat(candidate.protocolBackend()).isEqualTo("ANDROID");
+                });
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);
+    }
+
+    @Test
     void resolvesHyphenatedAndSlashSeparatedCountryPrefixesBeforeGenericSharedPrefix()
             throws SQLException {
         execute("INSERT INTO country VALUES (3,'AS','+1-684','OCEANIA',1,NULL)");

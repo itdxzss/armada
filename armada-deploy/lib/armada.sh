@@ -42,7 +42,10 @@ armada_build_backend() {
   JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
     || die "构建后无法确定唯一后端 jar: ${API_DIR}/target"
   [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
+  BACKEND_JAR_SHA256="$(armada_sha256_file "${JAR_PATH}")" \
+    || die "无法计算后端 jar SHA-256: ${JAR_PATH}"
   ok "后端 jar 已就绪: ${JAR_PATH}"
+  ok "后端 jar SHA-256: ${BACKEND_JAR_SHA256}"
 }
 
 armada_build_frontend() {
@@ -102,6 +105,27 @@ armada_sync_backend() {
   armada_rsync "backend jar" -a --partial -e "${RSYNC_SSH}" \
     "${JAR_PATH}" \
     "${SSH_USER}@${SSH_HOST}:${REMOTE_DIR}/armada-api/target/${JAR_NAME}"
+  armada_verify_remote_backend_artifact
+}
+
+armada_verify_remote_backend_artifact() {
+  local remote_hash
+  [ -n "${BACKEND_JAR_SHA256:-}" ] || die "本地后端 jar SHA-256 缺失"
+  remote_hash="$(ssh_run "sha256sum '${REMOTE_DIR}/armada-api/target/${JAR_NAME}' | awk '{print \$1}'")" \
+    || die "无法读取远端后端 jar SHA-256"
+  [ "${remote_hash}" = "${BACKEND_JAR_SHA256}" ] \
+    || die "远端后端 jar 与本地构建产物不一致"
+  ok "远端后端 jar SHA-256 已核对"
+}
+
+armada_verify_running_backend_artifact() {
+  local running_hash
+  [ -n "${BACKEND_JAR_SHA256:-}" ] || die "本地后端 jar SHA-256 缺失"
+  running_hash="$(ssh_run "docker exec armada-backend sha256sum /app/app.jar | awk '{print \$1}'")" \
+    || die "无法读取运行中容器的后端 jar SHA-256"
+  [ "${running_hash}" = "${BACKEND_JAR_SHA256}" ] \
+    || die "运行中容器不是本次构建的后端 jar"
+  ok "运行中容器后端 jar SHA-256 已核对"
 }
 
 armada_sync_frontend() {
@@ -170,6 +194,7 @@ armada_verify_selected() {
   local verify_frontend="$2"
   if [ "${verify_backend}" = 1 ]; then
     ssh_run "docker inspect -f '{{.State.Status}}' armada-backend | grep -q '^running$'"
+    armada_verify_running_backend_artifact
     armada_wait_backend_ready
     armada_verify_backend_runtime
     armada_verify_api_proxy

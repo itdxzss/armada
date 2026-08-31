@@ -564,6 +564,7 @@ public class ProtocolCommandPublisher {
             case SIX_SEGMENT -> "six";
             case BAILEYS_JSON -> "baileys_json";
             case PARAMS -> "params";
+            case IOS_NATIVE_FULL -> "ios_native_full";
         };
     }
 

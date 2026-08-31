@@ -13,6 +13,7 @@ import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -104,7 +105,7 @@ class AccountImportRowWriterTest {
                 accountMapper, stateMapper, credentialMapper);
 
         writer.writeOne("5210000000001", sixEntry(), 9L,
-                new AccountImportDTO(9L, ImportFormat.PARAMS.getCode(), 2, 1,
+                new AccountImportDTO(9L, ImportFormat.PARAMS.getCode(), 1, 1,
                         "MX", null, null, "params.txt"));
 
         ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
@@ -114,9 +115,39 @@ class AccountImportRowWriterTest {
         verify(credentialMapper).insert(credentialCaptor.capture());
         assertThat(accountCaptor.getValue().getProtocolId())
                 .isEqualTo(ProtocolBackend.ANDROID.name());
-        assertThat(accountCaptor.getValue().getDeviceOs()).isEqualTo(2);
+        assertThat(accountCaptor.getValue().getDeviceOs()).isEqualTo(1);
         assertThat(credentialCaptor.getValue().getCredFormat())
                 .isEqualTo(ImportFormat.SIX.getCode());
+    }
+
+    @Test
+    void writeOne_preservesIosNativeCredentialAsRuntimeFormatFour() {
+        when(accountMapper.insert(any(Account.class))).thenAnswer(invocation -> {
+            Account account = invocation.getArgument(0);
+            account.setId(126L);
+            return 1;
+        });
+        when(stateMapper.insert(any())).thenReturn(1);
+        when(credentialMapper.insert(any())).thenReturn(1);
+        AccountImportRowWriter writer = new AccountImportRowWriter(
+                accountMapper, stateMapper, credentialMapper);
+
+        writer.writeOne("447700900123", iosNativeEntry(), 9L,
+                new AccountImportDTO(9L, ImportFormat.PARAMS.getCode(), 2, 2,
+                        "GB", null, null, "ios-params.txt"));
+
+        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
+        ArgumentCaptor<AccountCredential> credentialCaptor =
+                ArgumentCaptor.forClass(AccountCredential.class);
+        verify(accountMapper).insert(accountCaptor.capture());
+        verify(credentialMapper).insert(credentialCaptor.capture());
+        assertThat(accountCaptor.getValue().getProtocolId()).isEqualTo(ProtocolBackend.ANDROID.name());
+        assertThat(accountCaptor.getValue().getDeviceOs()).isEqualTo(2);
+        assertThat(credentialCaptor.getValue().getCredFormat())
+                .isEqualTo(AccountCredentialFormatCode.IOS_NATIVE_FULL);
+        assertThat(credentialCaptor.getValue().getCredsJson())
+                .contains("\"platform\":\"smb_ios\"")
+                .contains("\"signPreKeySignature\":\"signature\"");
     }
 
     private static ParsedEntry sixEntry() {
@@ -129,6 +160,18 @@ class AccountImportRowWriterTest {
         data.put("static_pri_key", "static-pri");
         data.put("static_pub_key", "static-pub");
         data.put("device_identity_key", "device-identity");
+        entry.setData(data);
+        return entry;
+    }
+
+    private static ParsedEntry iosNativeEntry() {
+        ParsedEntry entry = new ParsedEntry();
+        var data = new ObjectMapper().createObjectNode();
+        data.put("phone", "447700900123");
+        data.put("jid", "447700900123@s.whatsapp.net");
+        data.put("platform", "smb_ios");
+        data.put("registrationID", 1234567890L);
+        data.put("signPreKeySignature", "signature");
         entry.setData(data);
         return entry;
     }

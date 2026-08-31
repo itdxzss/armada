@@ -190,7 +190,7 @@
       AND candidate.credentialFormat = 1
     </if>
     <if test="query.importMode == 'full_param'">
-      AND candidate.credentialFormat = 3
+      AND candidate.credentialFormat IN (3, 4)
     </if>
     <if test="query.groupInviteAllowed != null">
       AND candidate.groupInviteAllowed = #{query.groupInviteAllowed}
@@ -627,12 +627,13 @@
   </select>
 
   <!--
-    协议后端判定口径:凭证格式是唯一可靠依据(1=六段安卓,2/3=Web),凭证缺失才回退导入时的 protocol_id。
+    协议后端判定口径:凭证格式是唯一可靠依据(1=六段安卓,4=iOS 原生主设备,2/3=Web),
+    凭证缺失才回退导入时的 protocol_id。
     列表页与命令分流必须共用同一口径,否则会出现页面显示安卓、命令却发去 Web 的分叉。
   -->
   <sql id="protocolBackendCase">
     CASE
-      WHEN c.cred_format = 1 THEN 'ANDROID'
+      WHEN c.cred_format IN (1, 4) THEN 'ANDROID'
       WHEN c.cred_format IN (2, 3) THEN 'WEB'
       WHEN UPPER(a.protocol_id) = 'ANDROID' THEN 'ANDROID'
       ELSE 'WEB'

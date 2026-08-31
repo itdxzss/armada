@@ -532,6 +532,52 @@ class ProtocolCommandPublisherTest {
     }
 
     @Test
+    void publishBatch_iosNativeFullHydratesCompleteCredentialForAndroidLifecycleTopic() {
+        ProtocolCommandOutbox row = outboxRow(
+                "cmd_ios_native",
+                1L,
+                100L,
+                "acc_447700900123",
+                "{\"accountId\":100,\"protocolAccountId\":\"acc_447700900123\","
+                        + "\"credentialFormat\":\"IOS_NATIVE_FULL\",\"proxyId\":7,\"isBusiness\":true,"
+                        + "\"declaredAccountType\":2,\"detectAccountType\":true,\"deviceOs\":2,"
+                        + "\"source\":\"batch_online\",\"onlineAttemptId\":\"oa_ios_native\","
+                        + "\"previousOnlineAttemptId\":null,\"protocolBackend\":\"ANDROID\"}");
+        row.setKafkaTopic("protocol.android.commands.v1");
+        row.setProtocolBackend("ANDROID");
+        String credentialJson = "{\"phone\":\"447700900123\","
+                + "\"jid\":\"447700900123@s.whatsapp.net\",\"platform\":\"smb_ios\","
+                + "\"registrationID\":1234567890,\"signPreKeyID\":7654321,"
+                + "\"identityPrivateKey\":\"private-key-placeholder\","
+                + "\"signPreKeySignature\":\"signature-placeholder\"}";
+        when(credentialMapper.selectByTenantAndAccountIds(1L, List.of(100L)))
+                .thenReturn(List.of(credential(100L, 4, credentialJson)));
+        when(ipProxyMapper.selectActiveByTenantAndIds(1L, List.of(7L)))
+                .thenReturn(List.of(proxy(7L, 100L, 2, "proxy-a.internal", 1080,
+                        "user-a", "pass_session-Aaa111", "印度")));
+        when(kafkaTemplate.send(any(ProducerRecord.class)))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        List<ProtocolCommandPublishOutcome> outcomes = publisher.publishBatch(List.of(row));
+
+        assertThat(outcomes).singleElement().satisfies(outcome -> assertThat(outcome.succeeded()).isTrue());
+        ArgumentCaptor<ProducerRecord<String, ProtocolCommandEnvelope>> captor = producerRecordCaptor();
+        verify(kafkaTemplate).send(captor.capture());
+        ProducerRecord<String, ProtocolCommandEnvelope> record = captor.getValue();
+        assertThat(record.topic()).isEqualTo("protocol.android.commands.v1");
+        assertThat(record.value().payload().path("format").asText()).isEqualTo("ios_native_full");
+        assertThat(record.value().payload().path("credentialVersion").asLong())
+                .isEqualTo(1_788_000_000_000L);
+        assertThat(record.value().payload().path("credential").path("platform").asText())
+                .isEqualTo("smb_ios");
+        assertThat(record.value().payload().path("credential").path("registrationID").asLong())
+                .isEqualTo(1234567890L);
+        assertThat(record.value().payload().path("credential").path("identityPrivateKey").asText())
+                .isEqualTo("private-key-placeholder");
+        assertThat(row.getPayloadJson()).doesNotContain("identityPrivateKey");
+    }
+
+    @Test
     void publishBatch_onlineRowWithNullOnlineAttemptReturnsValidationFailureWithoutSendingKafka() {
         ProtocolCommandOutbox row = outboxRow(
                 "cmd_100",

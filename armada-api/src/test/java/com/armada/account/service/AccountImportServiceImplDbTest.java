@@ -10,6 +10,7 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportExportFile;
 import com.armada.shared.exception.BusinessException;
@@ -112,7 +113,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         String first = fullParams("5210000000101");
         String second = fullParams("5210000000102").replace(
                 "\"phoneUUID\":\"phone-uuid-test\",", "");
-        var meta = new AccountImportDTO(null, 3, 2, 1, "墨西哥", null, null, "mx-params.txt");
+        var meta = new AccountImportDTO(null, 3, 1, 1, "墨西哥", null, null, "mx-params.txt");
 
         AccountImportBatchVO batch = service.importAccounts(
                 meta, (first + "\n" + second).getBytes(StandardCharsets.UTF_8), null);
@@ -122,7 +123,7 @@ class AccountImportServiceImplDbTest extends DbTestBase {
         assertThat(batch.formatErrorRows()).isEqualTo(1);
         Account account = accountMapper.selectActiveByWsPhone("5210000000101");
         assertThat(account.getProtocolId()).isEqualTo("ANDROID");
-        assertThat(account.getDeviceOs()).isEqualTo(2);
+        assertThat(account.getDeviceOs()).isEqualTo(1);
         AccountCredential credential = credentialMapper.selectByAccountId(account.getId());
         assertThat(credential.getCredFormat()).isEqualTo(1);
         JsonNode storedCredential = new ObjectMapper().readTree(credential.getCredsJson());
@@ -134,6 +135,35 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 (rs, rowNum) -> rs.getString("raw_payload"),
                 batch.id());
         assertThat(rawPayloads).containsExactly(first, second);
+    }
+
+    @Test
+    void import_iosNativeParamsStoresCompleteRuntimeFormatFour() throws Exception {
+        String original = iosNativeParams("447700900123", "smb_ios");
+        var meta = new AccountImportDTO(null, 3, 2, 2, "英国", null, null, "ios-params.txt");
+
+        AccountImportBatchVO batch = service.importAccounts(
+                meta, original.getBytes(StandardCharsets.UTF_8), null);
+
+        assertThat(batch.totalRows()).isEqualTo(1);
+        assertThat(batch.importedRows()).isEqualTo(1);
+        Account account = accountMapper.selectActiveByWsPhone("447700900123");
+        assertThat(account.getProtocolId()).isEqualTo("ANDROID");
+        assertThat(account.getDeviceOs()).isEqualTo(2);
+        assertThat(account.getAccountType()).isEqualTo(2);
+        AccountCredential credential = credentialMapper.selectByAccountId(account.getId());
+        assertThat(credential.getCredFormat()).isEqualTo(AccountCredentialFormatCode.IOS_NATIVE_FULL);
+        JsonNode stored = new ObjectMapper().readTree(credential.getCredsJson());
+        assertThat(stored.path("platform").asText()).isEqualTo("smb_ios");
+        assertThat(stored.path("registrationID").asLong()).isEqualTo(1234567890L);
+        assertThat(stored.path("signPreKeySignature").asText()).isEqualTo(base64Bytes(64));
+        assertThat(stored.path("supplierExtension").path("nested").asBoolean()).isTrue();
+        assertThat(stored).hasSizeGreaterThan(20);
+        String rawPayload = jdbcTemplate.queryForObject(
+                "SELECT raw_payload FROM account_import_detail WHERE batch_id = ?",
+                String.class,
+                batch.id());
+        assertThat(rawPayload).isEqualTo(original);
     }
 
     @Test
@@ -304,6 +334,44 @@ class AccountImportServiceImplDbTest extends DbTestBase {
                 + "\"registrationID\":77,"
                 + "\"signPreKeyID\":78"
                 + "}";
+    }
+
+    private static String iosNativeParams(String phone, String platform) {
+        String key = base64Bytes(32);
+        String signature = base64Bytes(64);
+        return "{"
+                + "\"jid\":\"" + phone + "@s.whatsapp.net\","
+                + "\"lid\":\"123456789012345@lid\","
+                + "\"mcc\":\"000\",\"mnc\":\"000\","
+                + "\"phone\":\"" + phone + "\","
+                + "\"device\":\"iPhone_16_Plus\","
+                + "\"country\":\"GB\",\"language\":\"en\","
+                + "\"platform\":\"" + platform + "\","
+                + "\"pushName\":\"Test Account\","
+                + "\"osVersion\":\"18.5\","
+                + "\"phoneUUID\":\"11111111-2222-4333-8444-555555555555\","
+                + "\"deviceUUID\":\"opaque-device-id\","
+                + "\"identityID\":\"opaque-identity-id\","
+                + "\"manufacturer\":\"Apple\","
+                + "\"signPreKeyID\":7654321,"
+                + "\"osBuildNumber\":\"22F76\","
+                + "\"registrationID\":1234567890,"
+                + "\"edgeRoutingInfo\":\"AQIDBA==\","
+                + "\"roProductDevice\":\"iPhone\","
+                + "\"whatsappVersion\":\"2.26.25.77\","
+                + "\"identityPublicKey\":\"" + key + "\","
+                + "\"identityPrivateKey\":\"" + key + "\","
+                + "\"signPreKeyPublicKey\":\"" + key + "\","
+                + "\"signPreKeySignature\":\"" + signature + "\","
+                + "\"signPreKeyPrivateKey\":\"" + key + "\","
+                + "\"clientStaticPublicKey\":\"" + key + "\","
+                + "\"clientStaticPrivateKey\":\"" + key + "\","
+                + "\"supplierExtension\":{\"nested\":true}"
+                + "}";
+    }
+
+    private static String base64Bytes(int length) {
+        return java.util.Base64.getEncoder().encodeToString(new byte[length]);
     }
 
     @Test

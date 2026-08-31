@@ -74,6 +74,20 @@ class HyperlinkMessageContentValidatorTest {
     }
 
     @Test
+    void buttonMessageOptionalContentMatchesCompetitorTwoThousandCharacterLimit() {
+        String accepted = "文".repeat(2000);
+        HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, "标题", accepted, null, null, List.of(button()), null, null, null));
+
+        assertThat(normalized.content()).hasSize(2000);
+        assertThatThrownBy(() -> validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 4, "标题", "文".repeat(2001), null, null,
+                List.of(button()), "卡片说明", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("2000");
+    }
+
+    @Test
     void cardButtonRequiresCardTextAndKeepsNormalizedValue() {
         HyperlinkMessageContent missingCardText = new HyperlinkMessageContent(
                 1, 4, "标题", null, null, null, List.of(button()), "  ", null, null);

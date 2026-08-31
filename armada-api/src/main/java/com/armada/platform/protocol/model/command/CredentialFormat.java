@@ -3,7 +3,7 @@ package com.armada.platform.protocol.model.command;
 /**
  * 上线凭据格式(防腐层语义)。
  *
- * <p>对应 account_credential.cred_format 的三种导入形态。协议层 inline 上线(方案 B)只认这三种,
+ * <p>对应 account_credential.cred_format 的运行时形态。协议层 inline 上线只认这些格式,
  * legacy 形态被协议层显式拒绝,故本枚举不含 legacy。int 编码↔枚举、枚举↔协议层 wire 字符串的映射
  * 不放在本枚举内:前者落账号编排(⑤口),后者落 HTTP adapter(③口)。</p>
  */
@@ -23,5 +23,10 @@ public enum CredentialFormat {
     /**
      * 全参数(cred_format=3);移植自全参登录形态。
      */
-    PARAMS
+    PARAMS,
+
+    /**
+     * iOS 主设备原生完整凭据(cred_format=4)，上线时完整传给 Android/Zhuan 协议后端。
+     */
+    IOS_NATIVE_FULL
 }

@@ -26,7 +26,8 @@ public enum ImportFormat {
 
     /**
      * 全参账号格式:TXT 或粘贴文本中每个非空行一个 JSON 对象。
-     * 导入时转换为 Android 六段运行时凭据，批次仍保留 PARAMS 来源格式。
+     * Android 导入时转换为六字段运行时凭据；iOS 导入保留原生完整对象，
+     * 批次均保留 PARAMS 来源格式。
      */
     PARAMS(3);
 

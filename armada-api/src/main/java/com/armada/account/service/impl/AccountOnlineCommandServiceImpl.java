@@ -9,8 +9,8 @@ import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
-import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ImportResult;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
 import com.armada.account.model.enums.AccountTypeCode;
 import com.armada.account.model.enums.AccountTypeVerifyStatusCode;
 import com.armada.account.model.vo.AccountIpRegionRow;
@@ -647,11 +647,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * 将导入凭据格式转换为协议层命令使用的凭据格式。
      */
     private static CredentialFormat toCredentialFormat(Integer code) {
-        ImportFormat importFormat = ImportFormat.fromCode(code);
-        return switch (importFormat) {
-            case SIX -> CredentialFormat.SIX_SEGMENT;
-            case JSON -> CredentialFormat.BAILEYS_JSON;
-            case PARAMS -> CredentialFormat.PARAMS;
+        if (code == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "上线凭据格式不能为空");
+        }
+        return switch (code) {
+            case AccountCredentialFormatCode.SIX_SEGMENT -> CredentialFormat.SIX_SEGMENT;
+            case AccountCredentialFormatCode.BAILEYS_JSON -> CredentialFormat.BAILEYS_JSON;
+            case AccountCredentialFormatCode.PARAMS -> CredentialFormat.PARAMS;
+            case AccountCredentialFormatCode.IOS_NATIVE_FULL -> CredentialFormat.IOS_NATIVE_FULL;
+            default -> throw new BusinessException(
+                    ErrorCode.VALIDATION, "未知上线凭据格式编码: " + code);
         };
     }
 

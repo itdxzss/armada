@@ -244,7 +244,7 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
-    void online_androidProtocolAccount_enqueuesAndroidBackendCommand() {
+    void online_iosNativeProtocolAccount_enqueuesAndroidBackendCommand() {
         Account account = new Account();
         account.setId(100L);
         account.setWsPhone("8613800138000");
@@ -256,7 +256,7 @@ class AccountOnlineCommandServiceImplTest {
         account.setAccountTypeVerifyStatus(0);
         AccountCredential credential = new AccountCredential();
         credential.setAccountId(100L);
-        credential.setCredFormat(2);
+        credential.setCredFormat(4);
         credential.setCredsJson("{\"phone\":\"8613800138000\"}");
         ProxyEndpoint endpoint = new ProxyEndpoint(
                 ProxyEndpoint.PROTOCOL_SOCKS5,
@@ -282,6 +282,7 @@ class AccountOnlineCommandServiceImplTest {
         verify(protocolCommandOutboxService).enqueueOnlineCommands(commandsCaptor.capture());
         ProtocolOnlineCommandRequest command = commandsCaptor.getValue().get(0);
         assertThat(command.protocolBackend()).isEqualTo(ProtocolBackend.ANDROID);
+        assertThat(command.credentialFormat()).isEqualTo(CredentialFormat.IOS_NATIVE_FULL);
         assertThat(command.protocolAccountId()).isEqualTo("acc_8613800138000");
         assertThat(command.onlineAttemptId()).isEqualTo("oa_android_single");
         assertThat(command.isBusiness()).isTrue();

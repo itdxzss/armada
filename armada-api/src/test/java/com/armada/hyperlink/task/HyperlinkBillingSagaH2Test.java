@@ -78,7 +78,8 @@ class HyperlinkBillingSagaH2Test {
 
     @BeforeEach
     void setUp() throws SQLException {
-        executeSql("DROP ALL OBJECTS", taskSchema(), billingSchema(), recipientSchema());
+        executeSql("DROP ALL OBJECTS", strategySchema(), taskSchema(), billingSchema(),
+                recipientSchema());
         TenantContext.set(TENANT_ID);
         wallet = new RecordingWallet();
         audit = new RecordingAudit();
@@ -301,12 +302,15 @@ class HyperlinkBillingSagaH2Test {
     }
 
     private void insertTask(int version) throws SQLException {
+        executeSql("INSERT INTO hyperlink_strategy (id, tenant_id, strategy_scope, owner_task_id, "
+                + "task_type, task_interval_minutes, account_filter, max_use_account, concurrent_num, "
+                + "account_max_send_num) VALUES (31, 7, 2, 11, 1, 0, '{}', 1, 1, 0)");
         executeSql("INSERT INTO hyperlink_task (id, tenant_id, task_name, task_type, start_mode, "
                 + "task_delay_minutes, task_interval_minutes, data_package_id, data_package_generation, "
-                + "data_package_name_snapshot, target_country_iso2s_snapshot, account_filter, "
+                + "data_package_name_snapshot, target_country_iso2s_snapshot, hyperlink_strategy_id, account_filter, "
                 + "max_use_account, concurrent_num, account_max_send_num, account_send_concurrency, "
                 + "msg_interval_min_ms, msg_interval_max_ms, is_short_link_enabled, version, created_at, updated_at) "
-                + "VALUES (11, 7, 'task', 1, 1, 0, 0, 21, 1, 'pack', '[\"BR\",\"US\"]', '{}', "
+                + "VALUES (11, 7, 'task', 1, 1, 0, 0, 21, 1, 'pack', '[\"BR\",\"US\"]', 31, '{}', "
                 + "1, 1, 0, 1, 500, 700, 0, " + version + ", 1000, 1000)");
     }
 
@@ -384,6 +388,16 @@ class HyperlinkBillingSagaH2Test {
                     account_max_send_num INT, account_send_concurrency INT, msg_interval_min_ms INT,
                     msg_interval_max_ms INT, is_short_link_enabled BOOLEAN, version INT,
                     created_by BIGINT, created_at BIGINT, updated_at BIGINT)
+                """;
+    }
+
+    private String strategySchema() {
+        return """
+                CREATE TABLE hyperlink_strategy (
+                    id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, strategy_scope INT NOT NULL,
+                    owner_task_id BIGINT NOT NULL, task_type INT, task_interval_minutes INT,
+                    account_filter VARCHAR(2000), max_use_account INT, concurrent_num INT,
+                    account_max_send_num INT)
                 """;
     }
 

@@ -23,5 +23,5 @@
 - Web 与 Android 协议层共用消息命令结构和统一结果事件。
 
 ## 回滚方案
-- 回退本功能代码与 `V171__feed_task.sql`。
+- 回退本功能代码与 `V172__feed_task.sql`。
 - 如迁移已执行，先删除菜单权限节点，再删除 `feed_task_account`、`feed_task` 表。

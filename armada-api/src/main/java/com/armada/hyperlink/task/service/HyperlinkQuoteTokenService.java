@@ -1,30 +1,39 @@
 package com.armada.hyperlink.task.service;
 
+import com.armada.hyperlink.task.model.enums.HyperlinkBillingMode;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskQuoteVO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.util.Base64;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /** 自包含 HMAC 报价票据；数据库仅保存 quoteId，不保存 token 明文。 */
 @Service
 public class HyperlinkQuoteTokenService {
+    private static final Logger log = LoggerFactory.getLogger(HyperlinkQuoteTokenService.class);
     private static final String ALGORITHM = "HmacSHA256";
+    private static final int MINIMUM_SIGNING_KEY_BYTES = 32;
     private final ObjectMapper objectMapper;
     private final byte[] signingKey;
 
     public HyperlinkQuoteTokenService(ObjectMapper objectMapper,
-            @Value("${armada.hyperlink.quote-signing-key:}") String signingKey) {
+            @Value("${armada.hyperlink.quote-signing-key:}") String signingKey,
+            @Value("${armada.hyperlink.billing-mode:UNAVAILABLE}") String configuredBillingMode) {
         this.objectMapper = objectMapper;
-        this.signingKey = signingKey.getBytes(StandardCharsets.UTF_8);
+        byte[] configuredKey = signingKey.getBytes(StandardCharsets.UTF_8);
+        this.signingKey = resolveSigningKey(configuredKey,
+                HyperlinkBillingMode.fromProperty(configuredBillingMode));
     }
 
     /** 为已完成后端报价签发短期不可篡改票据。 */
@@ -80,10 +89,22 @@ public class HyperlinkQuoteTokenService {
     }
 
     private void ensureConfigured() {
-        if (signingKey.length < 32) {
+        if (signingKey.length < MINIMUM_SIGNING_KEY_BYTES) {
             throw new BusinessException(ErrorCode.HYPERLINK_BILLING_UNAVAILABLE,
                     "报价签名密钥未配置，任务启用门禁保持关闭");
         }
+    }
+
+    private byte[] resolveSigningKey(byte[] configuredKey, HyperlinkBillingMode billingMode) {
+        if (configuredKey.length >= MINIMUM_SIGNING_KEY_BYTES
+                || billingMode != HyperlinkBillingMode.ZERO_TEST) {
+            return configuredKey;
+        }
+        byte[] ephemeralKey = new byte[MINIMUM_SIGNING_KEY_BYTES];
+        new SecureRandom().nextBytes(ephemeralKey);
+        log.warn("ZERO_TEST billing is using an ephemeral quote signing key; "
+                + "outstanding quotes expire after backend restart");
+        return ephemeralKey;
     }
 
     private BusinessException stale(String message) {

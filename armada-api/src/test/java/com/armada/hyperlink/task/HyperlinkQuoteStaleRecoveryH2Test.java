@@ -132,7 +132,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
         insertFixtures();
         wallet = new RecordingWallet();
         HyperlinkQuoteTokenService tokenService = new HyperlinkQuoteTokenService(objectMapper,
-                "quote-recovery-test-signing-key-1234567890");
+                "quote-recovery-test-signing-key-1234567890", "UNAVAILABLE");
         ownedQuoteService = new HyperlinkOwnedRecipientQuoteService(runtimeMapper, claimMapper,
                 billingMapper, recipientMapper);
         capacityService = mock(HyperlinkProtocolCapacityService.class);
@@ -382,7 +382,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
 
     private HyperlinkQuoteTokenService.QuoteClaims claims(String token, int version) {
         return new HyperlinkQuoteTokenService(objectMapper,
-                "quote-recovery-test-signing-key-1234567890")
+                "quote-recovery-test-signing-key-1234567890", "UNAVAILABLE")
                 .verify(token, TENANT_ID, 8L, "START", TASK_ID, version,
                         System.currentTimeMillis());
     }

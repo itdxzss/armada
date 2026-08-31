@@ -157,6 +157,48 @@ test_backend_jar_resolution_requires_one_executable_jar() {
   rm -rf "${fixture}"
 }
 
+test_backend_artifact_sha256_is_portable_and_exact() {
+  local actual fixture
+  fixture="$(mktemp)"
+  # shellcheck source=/dev/null
+  . "${ARTIFACT_LIB}"
+  printf 'hello' >"${fixture}"
+
+  actual="$(armada_sha256_file "${fixture}")"
+
+  rm -f "${fixture}"
+  [ "${actual}" = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824" ] \
+    || fail "unexpected SHA-256: ${actual}"
+}
+
+test_backend_deploy_verifies_staged_and_running_jar_hashes() {
+  local armada_content
+  armada_content="$(cat "${SCRIPT_DIR}/lib/armada.sh")"
+
+  assert_contains "${armada_content}" 'BACKEND_JAR_SHA256="$(armada_sha256_file "${JAR_PATH}")"'
+  assert_contains "${armada_content}" "armada_verify_remote_backend_artifact"
+  assert_contains "${armada_content}" "armada_verify_running_backend_artifact"
+  assert_contains "${armada_content}" "docker exec armada-backend sha256sum /app/app.jar"
+}
+
+test_backend_deploy_force_recreates_selected_container() {
+  local script_content win_content
+  script_content="$(cat "${SCRIPT}")"
+  win_content="$(cat "${WIN_SCRIPT}")"
+
+  assert_contains "${script_content}" 'COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} --force-recreate"'
+  assert_contains "${win_content}" 'COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} --force-recreate"'
+}
+
+test_current_workspace_deploy_warns_that_it_does_not_fetch() {
+  local script_content win_content
+  script_content="$(cat "${SCRIPT}")"
+  win_content="$(cat "${WIN_SCRIPT}")"
+
+  assert_contains "${script_content}" "未指定 --branch：不会 fetch/pull"
+  assert_contains "${win_content}" "未指定 --branch：不会 fetch/pull"
+}
+
 test_backend_deploy_uses_stable_staging_name() {
   local content
   content="$(cat \
@@ -1498,6 +1540,17 @@ test_armada_compose_disables_group_link_health_check_by_default() {
   assert_contains "${example_content}" 'ARMADA_GROUP_LINK_HEALTH_CHECK_ENABLED=false'
 }
 
+test_armada_compose_passes_hyperlink_public_base_url_to_backend() {
+  local app_content compose_content example_content
+  app_content="$(cat "${SCRIPT_DIR}/../armada-api/src/main/resources/application.yml")"
+  compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
+  example_content="$(cat "${SCRIPT_DIR}/.env.example")"
+
+  assert_contains "${app_content}" 'public-base-url: ${ARMADA_HYPERLINK_PUBLIC_BASE_URL:}'
+  assert_contains "${compose_content}" 'ARMADA_HYPERLINK_PUBLIC_BASE_URL: ${ARMADA_HYPERLINK_PUBLIC_BASE_URL:-}'
+  assert_contains "${example_content}" 'ARMADA_HYPERLINK_PUBLIC_BASE_URL=http://armada.65.2.123.53.nip.io'
+}
+
 test_armada_compose_passes_normal_group_kafka_config_to_backend() {
   local compose_content example_content
   compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
@@ -1566,6 +1619,10 @@ test_kafka_checker_reports_consumer_group_state_read_only() {
 }
 
 test_backend_jar_resolution_requires_one_executable_jar
+test_backend_artifact_sha256_is_portable_and_exact
+test_backend_deploy_verifies_staged_and_running_jar_hashes
+test_backend_deploy_force_recreates_selected_container
+test_current_workspace_deploy_warns_that_it_does_not_fetch
 test_backend_deploy_uses_stable_staging_name
 test_armada_compose_passes_promotion_token_encryption_config_to_backend
 test_assert_contains_handles_large_haystack
@@ -1633,6 +1690,7 @@ test_deep_check_preserves_unauthenticated_response_body
 test_main_orchestrator_uses_armada_module
 test_armada_compose_passes_android_base_url_to_backend
 test_armada_compose_disables_group_link_health_check_by_default
+test_armada_compose_passes_hyperlink_public_base_url_to_backend
 test_armada_compose_passes_normal_group_kafka_config_to_backend
 test_windows_entrypoint_requires_normal_group_environment_contract
 test_kafka_checker_redacts_connection_errors

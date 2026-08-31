@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.hyperlink.task.mapper.HyperlinkTaskAuditEventMapper">
+    <insert id="insertIdempotent"
+            parameterType="com.armada.hyperlink.task.model.entity.HyperlinkTaskAuditEvent"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO hyperlink_task_audit_event
+            (tenant_id, event_id, action, actor_user_id, hyperlink_task_id, occurred_at, created_at)
+        VALUES
+            (#{tenantId}, #{eventId}, #{action}, #{actorUserId}, #{hyperlinkTaskId},
+             #{occurredAt}, #{createdAt})
+        ON DUPLICATE KEY UPDATE event_id=VALUES(event_id)
+    </insert>
+
+    <update id="assertWritable">
+        UPDATE hyperlink_task_audit_event SET event_id=event_id WHERE 1=0
+    </update>
+</mapper>

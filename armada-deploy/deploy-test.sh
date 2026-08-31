@@ -494,6 +494,9 @@ if [ "${SCOPE}" != "all" ] && [ "${SCOPE}" != "full" ]; then
   COMPOSE_UP_EXTRA="--no-deps"
 fi
 COMPOSE_UP_ARGS="up -d --build"
+if [ "${BUILD_BE}" = 1 ]; then
+  COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} --force-recreate"
+fi
 [ -n "${COMPOSE_UP_EXTRA}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${COMPOSE_UP_EXTRA}"
 [ -n "${SERVICES}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${SERVICES}"
 COMPOSE_UP_COMMAND="docker compose ${COMPOSE_UP_ARGS}"
@@ -655,6 +658,7 @@ print_plan() {
     printf '  armada 分支   : origin/%s%s\n' "${DEPLOY_BRANCH}" "$([ "${DRY_RUN}" = 1 ] && printf ' (dry-run 不拉取)')"
   else
     printf '  armada 来源   : 当前工作区\n'
+    warn "未指定 --branch：不会 fetch/pull；将部署当前工作区（含未提交改动）"
   fi
   printf '  构建目录      : %s\n' "${BUILD_REPO_ROOT}"
   printf '  编排目录      : %s\n' "${DEPLOY_ASSET_DIR}"

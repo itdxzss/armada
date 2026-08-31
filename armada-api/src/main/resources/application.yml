@@ -43,6 +43,12 @@ server:
 
 armada:
   hyperlink:
+    # 默认失败关闭；ZERO_TEST 只供测试环境在未接真实钱包时跑通业务闭环。
+    billing-mode: ${ARMADA_HYPERLINK_BILLING_MODE:UNAVAILABLE}
+    # 真实计费必须配置至少 32 字节；ZERO_TEST 未配置时使用进程内临时密钥。
+    quote-signing-key: ${ARMADA_HYPERLINK_QUOTE_SIGNING_KEY:}
+    # 开启深度追踪时用于生成接收人可访问的 /api/public/hl/{shortCode} 公网短链。
+    public-base-url: ${ARMADA_HYPERLINK_PUBLIC_BASE_URL:}
     # 私聊发送能力白名单，默认空集 fail-closed：没有真机验过的协议后端不许发私聊。
     # 超链任务与通讯录营销共用这一个开关——「该后端能不能发私聊」是同一个物理事实。
     # 不配则两条线都圈不到任何账号，且界面上看不出异常。

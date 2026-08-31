@@ -236,7 +236,7 @@ account/
 
 `.harness` 已复制进 armada。本次重构**严格执行**其规则,但分两类处理:
 
-- **A 类|代码质量规则 → 100% 遵守**:反屎山约束、红线 1-11(禁魔法值 / 重复 / 空catch / 返null / System.out…)、Java 风格、Javadoc、方法≤100行 / 类≤800行 / 参数≤5 / 圈复杂度≤10 / 嵌套≤3、SQL 下推禁内存分页、H2 数据库单元测试、`account_type` 冻结。
+- **A 类|代码质量规则 → 100% 遵守**:反屎山约束、红线 1-11(禁魔法值 / 重复 / 空catch / 返null / System.out…)、Java 风格、Javadoc、方法≤100行 / 类≤800行 / 参数≤5 / 圈复杂度≤10 / 嵌套≤3、SQL 下推禁内存分页、H2 数据库单元测试、`account_type` 只允许账号类型校验链路按凭据版本原子更新。
 - **B 类|结构规则 → 为 armada 重写**(它们描述 wheel 旧架构,正是本次重构替换的对象):
   - `工程结构.md` 整篇按 armada(单工程 / `com.armada` / 按域分包 / mapper 分域 / XML 在 `resources/mapper/<域>`)**重写**;
   - 编码规范结构条款随之更新:**砍 Repository 层**(红线#3/#6 改);传输对象**保持本文档版**(`*DTO`/`*VO` + `model/{dto,vo}` + MapStruct,替原 `*Request`/`*Vo`/`*Dtos.java`);包根 `com.armada`(替红线#1)。

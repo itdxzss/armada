@@ -15,6 +15,7 @@
 - [x] 零计费未配置外部报价密钥时使用进程内临时密钥
 - [x] 增加租户隔离、事件幂等的数据库审计表与适配器
 - [x] 测试环境 Compose 默认启用 `ZERO_TEST`，生产 Compose 不启用
+- [x] 配置 test1 公网短链基址，并由 Compose 显式传入后端容器
 - [x] 补聚焦单测、H2 真实 Mapper 测试和 Flyway 结构合同
 
 ## 关键设计决策
@@ -48,11 +49,14 @@
   `bash deploy-test.sh --env test1 --be -y`。
 - 来源: 当前 `1.0.3-snapshot@9727a5d6` 脏工作区；未提交、未推送。
 - 最终本地、远端暂存、运行容器 JAR SHA-256:
-  `7b96e4d8be277fa83488ab0138ce707fedc3093310d200a759d7fcb3eaab1b0b`。
-- 运行镜像: `sha256:28cbe63e231c8b883019cbea32de65d90fa3450054c157ff70657fa83622cf58`；
+  `e203f1d81fefaf9142fdd91ccc6c37c97fb01546c0468cfb05c43758e805e434`。
+- 运行镜像: `sha256:8459e44c64d2d7b323a5e58cd5a761eeb614191b05a47400e18378cde10fa85a`；
   `status=running`、`restart=0`。
 - Flyway: schema 已在首次部署从 170 迁移至 171；最终复部署确认 171 为最新，无待执行迁移。
-- 运行配置: `ARMADA_HYPERLINK_BILLING_MODE=ZERO_TEST`；应用约 20 秒启动完成。
+- 运行配置: `ARMADA_HYPERLINK_BILLING_MODE=ZERO_TEST`；
+  `ARMADA_HYPERLINK_PUBLIC_BASE_URL=http://armada.65.2.123.53.nip.io`；应用约 21 秒启动完成。
+- 从本机请求 `http://armada.65.2.123.53.nip.io/api/public/hl/notfound123`
+  返回预期 `404`，证明公网网关已将短链入口转发至后端；有效短码的 `302` 跳转待业务任务生成后验收。
 - 同步修复 Bash 部署脚本: 后端部署强制重建容器，并在远端暂存和容器运行两个阶段校验
   本次构建 JAR SHA-256；不一致即部署失败。不带 `--branch` 时新增明确警告：不会自动
   fetch/pull，而是部署当前工作区（包括未提交改动）。

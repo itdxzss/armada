@@ -1,12 +1,14 @@
 package com.armada.hyperlink.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.armada.platform.kafka.consumer.message.ProtocolMessageAckEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageAckSink;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageEventConsumer;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedSink;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,7 +27,8 @@ class HyperlinkProtocolAckRoutingTest {
             }
         };
         ProtocolMessageEventConsumer consumer = new ProtocolMessageEventConsumer(
-                new ObjectMapper(), List.of(sink), List.of());
+                new ObjectMapper(), List.of(sink), List.of(),
+                mock(ProtocolRiskEventSink.class));
 
         consumer.onMessage("""
                 {"event":"message.send_result_reported","data":{"tenantId":7,
@@ -51,7 +54,8 @@ class HyperlinkProtocolAckRoutingTest {
             @Override public void handleAck(ProtocolMessageAckEvent event) { captured.set(event); }
         };
         ProtocolMessageEventConsumer consumer = new ProtocolMessageEventConsumer(
-                new ObjectMapper(), List.of(), List.of(sink));
+                new ObjectMapper(), List.of(), List.of(sink),
+                mock(ProtocolRiskEventSink.class));
 
         consumer.onMessage("""
                 {"event":"message.ack","eventId":"ack-1","workerId":"w1","data":{
@@ -76,7 +80,8 @@ class HyperlinkProtocolAckRoutingTest {
             @Override public void handleAck(ProtocolMessageAckEvent event) { captured.set(event); }
         };
         ProtocolMessageEventConsumer consumer = new ProtocolMessageEventConsumer(
-                new ObjectMapper(), List.of(), List.of(sink));
+                new ObjectMapper(), List.of(), List.of(sink),
+                mock(ProtocolRiskEventSink.class));
         consumer.onMessage("""
                 {"event":"message.ack","data":{"tenantId":7,"source":"hyperlink_task",
                   "hyperlinkTaskId":11,"hyperlinkRecipientId":13,"protocolAccountId":"acc_17",

@@ -88,6 +88,18 @@ class HyperlinkDispatchServiceTest {
     }
 
     @Test
+    void schedulesTheRecipientSpecificIntervalSelectedForTheProtocolCommand() {
+        Fixture fixture = new Fixture(false);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
+        int intervalMs = HyperlinkSendIntervalPicker.pickMs(task(false), 13L);
+
+        assertThat(fixture.service.dispatchOne(11L)).isTrue();
+
+        verify(fixture.usageMapper).scheduleNextSend(41L, 1_000L + intervalMs, 1_000L);
+        assertThat(fixture.recipient.getNextDispatchAt()).isEqualTo(1_000L + intervalMs);
+    }
+
+    @Test
     void fullGlobalAccountCapacityOnlyDelaysTheCandidate() {
         Fixture fixture = new Fixture(false);
         when(fixture.usageMapper.selectAvailable(anyLong(), anyLong(), anyLong(), anyInt(), anyInt()))
@@ -306,8 +318,8 @@ class HyperlinkDispatchServiceTest {
         HyperlinkTask value = new HyperlinkTask();
         value.setId(11L);
         value.setTenantId(7L);
-        value.setMsgIntervalMinMs(0);
-        value.setMsgIntervalMaxMs(0);
+        value.setMsgIntervalMinMs(1_000);
+        value.setMsgIntervalMaxMs(5_000);
         value.setAccountSendConcurrency(2);
         value.setShortLinkEnabled(shortLinkEnabled);
         return value;

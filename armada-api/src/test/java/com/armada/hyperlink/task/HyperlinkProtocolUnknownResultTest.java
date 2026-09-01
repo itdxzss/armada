@@ -237,6 +237,44 @@ class HyperlinkProtocolUnknownResultTest {
     }
 
     @Test
+    void terminalRateLimitIsRecordedAsThisAttemptFailureWithoutFreezingTheAccount() {
+        HyperlinkTaskRecipientMapper recipients = mock(HyperlinkTaskRecipientMapper.class);
+        HyperlinkTaskAccountUsageMapper usages = mock(HyperlinkTaskAccountUsageMapper.class);
+        DataPackageRecipientClaimService data = mock(DataPackageRecipientClaimService.class);
+        HyperlinkTaskRecipient recipient = recipient();
+        HyperlinkTaskAccountUsage usage = new HyperlinkTaskAccountUsage();
+        usage.setId(19L);
+        when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
+        when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
+        when(recipients.applyResult(any(HyperlinkTaskRecipient.class))).thenReturn(1);
+        HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        AccountOperationRestrictionService restrictionService =
+                mock(AccountOperationRestrictionService.class);
+        HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
+                recipients, usages, new HyperlinkRecipientStateMachine(), data, dispatchGuard,
+                restrictionService);
+
+        service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
+                "rate-limited", 7L, null, null, null, null, "acc17", null,
+                "hl:7:11:13", false, null, "RATE_LIMITED", "slow down",
+                2_000L, "worker", null, null, "hyperlink_task",
+                null, null, null, null, null,
+                "8613800000000@s.whatsapp.net", "PRIVATE", 11L, 13L,
+                "FAILED", true));
+
+        verify(recipients).applyResult(argThat(value -> value.getSendStatus() == 6
+                && "RATE_LIMITED".equals(value.getFailCode())));
+        verify(usages).completeSlot(19L, false, 2_000L);
+        verify(recipients, never()).requeueAfterAccountRestriction(
+                anyLong(), anyString(), anyLong());
+        verify(usages, never()).markOperationRestricted(
+                anyLong(), anyInt(), any(), any(), anyLong());
+        verify(restrictionService, never()).restrictMessageSending(
+                anyLong(), anyString(), anyLong(), anyLong());
+        verify(dispatchGuard).releaseAfterCommit(17L, "hl:7:11:13", 11L, 13L);
+    }
+
+    @Test
     void delayedCallbackFromPreviousDispatchAttemptIsIgnored() {
         HyperlinkTaskRecipientMapper recipients = mock(HyperlinkTaskRecipientMapper.class);
         HyperlinkTaskRecipient current = recipient();

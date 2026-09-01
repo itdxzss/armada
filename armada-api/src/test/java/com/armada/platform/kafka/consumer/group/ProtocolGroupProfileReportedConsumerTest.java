@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +51,8 @@ class ProtocolGroupProfileReportedConsumerTest {
     private ProtocolGroupProfileReportedSink profileReportedSink;
     @Mock
     private ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
+    @Mock
+    private ProtocolRiskEventSink riskEventSink;
 
     private ProtocolGroupEventConsumer consumer;
 
@@ -59,7 +62,7 @@ class ProtocolGroupProfileReportedConsumerTest {
                 new ObjectMapper(), healthSink, joinResultSink, actionResultSink,
                 batchParticipantSink, membersResultSink, inviteLinkChangedSink,
                 participantChangedSink, metadataUpdatedSink, profileReportedSink,
-                snapshotResultReportedSink);
+                snapshotResultReportedSink, riskEventSink);
     }
 
     @Test

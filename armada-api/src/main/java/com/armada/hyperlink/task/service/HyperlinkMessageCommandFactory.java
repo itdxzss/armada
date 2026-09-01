@@ -51,7 +51,7 @@ public class HyperlinkMessageCommandFactory {
                         null, null, null,
                         new MessageSendCommand.HyperlinkCorrelation(task.getId(), recipient.getId())),
                 commandId,
-                Math.max(0, task.getMsgIntervalMinMs()),
+                HyperlinkSendIntervalPicker.pickMs(task, recipient.getId()),
                 notBeforeAt);
     }
 

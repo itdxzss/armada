@@ -1,0 +1,11 @@
+-- 正式迁移文件：
+-- armada-api/src/main/resources/db/migration/V176__protocol_risk_event.sql
+-- armada-api/src/main/resources/db/migration/V177__account_operation_restriction_sources.sql
+--
+-- 关键语义：
+-- 1. protocol_risk_event 是三类固定协议风控码的 append-only 事实表；租户内 event_id 幂等。
+-- 2. account_state 保留兼容的 mute_status/cooldown_until 派生投影，同时新增消息兜底、平台消息限制、
+--    拉人限制三个来源的独立截止，避免平台解除误清拉人限制。
+-- 3. V177 的列与索引 DDL 均有 information_schema 守卫；存量 mute_status/cooldown_until
+--    按能力保守回填到来源截止列。
+

@@ -1,6 +1,9 @@
 package com.armada.platform.kafka.consumer.group;
 
 import com.armada.platform.kafka.trace.KafkaTraceSupport;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
+import com.armada.platform.protocol.risk.model.ProtocolRiskSignal;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.trace.TraceContext;
@@ -141,6 +144,7 @@ public class ProtocolGroupEventConsumer {
 
     /** 按需单群快照命令结算下游处理边界。 */
     private final ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
+    private final ProtocolRiskEventSink riskEventSink;
 
     /**
      * 创建协议群组事件 consumer。
@@ -162,7 +166,8 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupParticipantChangedSink participantChangedSink,
                                       ProtocolGroupMetadataUpdatedSink metadataUpdatedSink,
                                       ProtocolGroupProfileReportedSink profileReportedSink,
-                                      ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink) {
+                                      ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink,
+                                      ProtocolRiskEventSink riskEventSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -174,6 +179,7 @@ public class ProtocolGroupEventConsumer {
         this.metadataUpdatedSink = metadataUpdatedSink;
         this.profileReportedSink = profileReportedSink;
         this.snapshotResultReportedSink = snapshotResultReportedSink;
+        this.riskEventSink = riskEventSink;
     }
 
     /**
@@ -211,8 +217,13 @@ public class ProtocolGroupEventConsumer {
             case EVENT_GROUP_METADATA_UPDATED -> handleMetadataUpdated(envelope, eventId);
             case EVENT_GROUP_PROFILE_REPORTED -> handleProfileReported(envelope, eventId);
             case EVENT_GROUP_SNAPSHOT_RESULT_REPORTED -> handleSnapshotResultReported(envelope, eventId);
-            default -> log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
-                    eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
+            default -> {
+                if (containsRiskSignal(dataNode(envelope))) {
+                    throw validation("未接入的协议群组事件携带风控信号");
+                }
+                log.warn("协议群组事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
+                        eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
+            }
         }
     }
 
@@ -797,6 +808,17 @@ public class ProtocolGroupEventConsumer {
                 text(envelope, "workerId"));
         log.info("协议群成员查询结果收到 eventId={} tenantId={} queryId={} commandId={} outcome={}",
                 event.eventId(), event.tenantId(), event.queryId(), event.commandId(), event.outcome());
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_MEMBERS_RESULT_REPORTED,
+                        "GROUP_MEMBERS_QUERY", event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(), event.protocolBackend()),
+                new ProtocolRiskResultMetadata.Correlation(
+                        "pull_task", event.pullTaskId(), event.queryId(), event.groupExecutionId(),
+                        event.commandId(),
+                        null, "GROUP", event.groupJid(), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage()));
         membersResultReportedSink.handleMembersResultReported(event);
     }
 
@@ -836,6 +858,12 @@ public class ProtocolGroupEventConsumer {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private static boolean containsRiskSignal(JsonNode data) {
+        return ProtocolRiskSignal.fromCode(text(data, "reasonCode")).isPresent()
+                || ProtocolRiskSignal.fromCode(text(data, "errorCode")).isPresent()
+                || ProtocolRiskSignal.fromCode(text(data, "signalCode")).isPresent();
     }
 
     private static BusinessException validation(String message) {
@@ -907,6 +935,18 @@ public class ProtocolGroupEventConsumer {
                 timestamp == null ? 0L : timestamp, text(envelope, "workerId"));
         log.info("协议群动作结果收到 eventId={} tenantId={} actionId={} commandId={} outcome={}",
                 event.eventId(), event.tenantId(), event.actionId(), event.commandId(), event.outcome());
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_ACTION_RESULT_REPORTED,
+                        event.operation(), event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(),
+                        text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        "pull_task", event.pullTaskId(), event.actionId(), event.groupExecutionId(),
+                        event.commandId(),
+                        null, "GROUP", text(data, "groupJid"), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage()));
         actionResultReportedSink.handleActionResultReported(event);
     }
 
@@ -961,6 +1001,18 @@ public class ProtocolGroupEventConsumer {
                         timestamp == null ? 0L : timestamp, text(envelope, "workerId"));
         log.info("协议批量拉人单成员结果收到 eventId={} tenantId={} pullCallId={} commandId={} outcome={}",
                 event.eventId(), event.tenantId(), event.pullCallId(), event.commandId(), event.outcome());
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_ACTION_RESULT_REPORTED,
+                        "PARTICIPANT_ADD", event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(),
+                        text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        "pull_task", event.pullTaskId(), event.pullCallId(), event.groupExecutionId(),
+                        event.commandId(),
+                        null, "GROUP", text(data, "groupJid"), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage()));
         batchParticipantResultReportedSink.handleBatchParticipantResultReported(event);
     }
 
@@ -981,6 +1033,9 @@ public class ProtocolGroupEventConsumer {
         Long groupLinkId = longValue(data, "groupLinkId");
         String groupJid = text(data, "groupJid");
         if (tenantId == null || groupJid == null || groupJid.isBlank()) {
+            if (ProtocolRiskSignal.fromCode(text(data, "errorCode")).isPresent()) {
+                throw validation("协议群组风控事件缺少租户或群JID");
+            }
             log.warn("协议群组健康事件缺少租户或群JID,跳过 eventId={} tenantId={} groupLinkId={} groupJid={}",
                     eventId, tenantId, groupLinkId, groupJid);
             return;
@@ -991,6 +1046,18 @@ public class ProtocolGroupEventConsumer {
                         + "memberCount={} workerId={}",
                 event.eventId(), event.tenantId(), event.groupLinkId(), event.groupJid(), event.health(),
                 event.memberCount(), event.workerId());
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_HEALTH_REPORTED,
+                        "GROUP_HEALTH", event.checkedAt(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        longValue(data, "accountId"), event.protocolAccountId(),
+                        text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        "group_link", event.groupLinkId(), null, event.groupLinkId(),
+                        text(data, "commandId"),
+                        null, "GROUP", event.groupJid(), text(data, "rawCode")),
+                event.errorCode(), null));
         healthReportedSink.handleHealthReported(event);
     }
 
@@ -1048,6 +1115,7 @@ public class ProtocolGroupEventConsumer {
         log.info("协议进群结果收到 eventId={} tenantId={} correlation={} commandId={} attemptNo={} outcome={}",
                 event.eventId(), event.tenantId(), event.correlation(),
                 event.commandId(), event.attemptNo(), event.outcome());
+        riskEventSink.handleResult(joinRiskMetadata(event, data));
         joinResultReportedSink.handleJoinResultReported(event);
     }
 
@@ -1075,6 +1143,49 @@ public class ProtocolGroupEventConsumer {
                     requiredLong(data, "actionId"));
         }
         throw new BusinessException(ErrorCode.VALIDATION, "协议进群结果 source 非法");
+    }
+
+    private static ProtocolRiskResultMetadata joinRiskMetadata(
+            ProtocolGroupJoinResultReportedEvent event, JsonNode data) {
+        String businessType;
+        Long businessId;
+        Long businessItemId;
+        Long groupBusinessId;
+        if (event.correlation() instanceof ProtocolJoinTaskGroupJoinCorrelation joinTask) {
+            businessType = "join_task";
+            businessId = joinTask.joinTaskId();
+            businessItemId = joinTask.joinTaskResultId();
+            groupBusinessId = joinTask.joinTaskResultId();
+        } else {
+            ProtocolPullTaskGroupJoinCorrelation pullTask =
+                    (ProtocolPullTaskGroupJoinCorrelation) event.correlation();
+            businessType = "pull_task";
+            businessId = pullTask.pullTaskId();
+            businessItemId = pullTask.actionId();
+            groupBusinessId = pullTask.groupExecutionId();
+        }
+        return riskMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_JOIN_RESULT_REPORTED,
+                        "GROUP_JOIN", event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(),
+                        text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        businessType, businessId, businessItemId, groupBusinessId,
+                        event.commandId(), null,
+                        "GROUP", event.groupJid(), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage());
+    }
+
+    private static ProtocolRiskResultMetadata riskMetadata(
+            ProtocolRiskResultMetadata.Event event,
+            ProtocolRiskResultMetadata.Account account,
+            ProtocolRiskResultMetadata.Correlation correlation,
+            String reasonCode,
+            String reasonMessage) {
+        return new ProtocolRiskResultMetadata(
+                event, account, correlation, reasonCode, reasonMessage);
     }
 
     private JsonNode readEnvelope(String rawMessage) {

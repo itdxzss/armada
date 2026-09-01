@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.trace.TraceContext;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,8 @@ class ProtocolGroupEventConsumerTest {
     private ProtocolGroupProfileReportedSink profileReportedSink;
     @Mock
     private ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
+    @Mock
+    private ProtocolRiskEventSink riskEventSink;
 
     private ProtocolGroupEventConsumer consumer;
 
@@ -64,7 +67,7 @@ class ProtocolGroupEventConsumerTest {
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
                 batchParticipantResultSink, membersResultSink, inviteLinkChangedSink,
                 participantChangedSink, metadataUpdatedSink, profileReportedSink,
-                snapshotResultReportedSink);
+                snapshotResultReportedSink, riskEventSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -367,6 +370,11 @@ class ProtocolGroupEventConsumerTest {
                         "8613800000902@s.whatsapp.net",
                         "8613800000902:5@s.whatsapp.net", "8613800000902", true, true)),
                 "", "", false, 1782712801000L, "worker-a"));
+        verify(riskEventSink).handleResult(org.mockito.ArgumentMatchers.argThat(metadata ->
+                "GROUP_MEMBERS_QUERY".equals(metadata.event().operationType())
+                        && metadata.correlation().businessId() == 100L
+                        && metadata.correlation().businessItemId() == 701L
+                        && metadata.correlation().groupBusinessId() == 11L));
     }
 
     @Test
@@ -440,6 +448,12 @@ class ProtocolGroupEventConsumerTest {
                 new ProtocolJoinTaskGroupJoinCorrelation(9L, 26L), 382L,
                 "acc-1", "cmd-1", 2, "FAILED", null,
                 "TEMPORARY_FAILURE", "temporary", true, 1782712801000L, "worker-a"));
+        verify(riskEventSink).handleResult(org.mockito.ArgumentMatchers.argThat(metadata ->
+                "GROUP_JOIN".equals(metadata.event().operationType())
+                        && "join_task".equals(metadata.correlation().businessType())
+                        && metadata.correlation().businessId() == 9L
+                        && metadata.correlation().businessItemId() == 26L
+                        && metadata.correlation().groupBusinessId() == 26L));
     }
 
     @Test
@@ -547,6 +561,10 @@ class ProtocolGroupEventConsumerTest {
         verify(actionResultSink).handleActionResultReported(captor.capture());
         assertThat(captor.getValue().outcome()).isEqualTo("UNKNOWN");
         assertThat(captor.getValue().reasonCode()).isEqualTo("ACCOUNT_BUSY");
+        verify(riskEventSink).handleResult(org.mockito.ArgumentMatchers.argThat(metadata ->
+                "CONTACT_SAVE".equals(metadata.event().operationType())
+                        && metadata.correlation().businessItemId() == 601L
+                        && metadata.correlation().groupBusinessId() == 11L));
     }
 
     @Test
@@ -740,6 +758,10 @@ class ProtocolGroupEventConsumerTest {
                         7L, 100L, 11L, 801L, 902L, "puller-902", "cmd-batch-1", 1,
                         "8613800000903@s.whatsapp.net", "UNKNOWN", "UNCERTAIN",
                         "PARTICIPANT_ADD_TIMEOUT", "timed out", true, 5_000L, "worker-a"));
+        verify(riskEventSink).handleResult(org.mockito.ArgumentMatchers.argThat(metadata ->
+                "PARTICIPANT_ADD".equals(metadata.event().operationType())
+                        && metadata.correlation().businessItemId() == 801L
+                        && metadata.correlation().groupBusinessId() == 11L));
         verifyNoInteractions(actionResultSink);
     }
 
@@ -897,6 +919,26 @@ class ProtocolGroupEventConsumerTest {
         assertThat(captor.getValue().groupJid()).isEqualTo("120363428058767969@g.us");
         assertThat(captor.getValue().health()).isEqualTo("BANNED");
         assertThat(captor.getValue().errorCode()).isEqualTo("CHAT_SUSPENDED");
+        verify(riskEventSink).handleResult(org.mockito.ArgumentMatchers.argThat(metadata ->
+                "CHAT_SUSPENDED".equals(metadata.reasonCode())
+                        && "120363428058767969@g.us".equals(
+                        metadata.correlation().groupJid())));
+    }
+
+    @Test
+    void onMessage_riskHealthWithoutTenantIsRejectedInsteadOfSkipped() {
+        String raw = """
+                {"eventId":"evt-risk-missing-tenant","event":"group.health_reported",
+                 "accountId":"acc_17","data":{"accountId":17,
+                 "protocolAccountId":"acc_17","groupJid":"1203630@g.us",
+                 "health":"BANNED","errorCode":"CHAT_SUSPENDED",
+                 "checkedAt":"2026-08-07T01:32:42.912Z"}}
+                """;
+
+        assertThatThrownBy(() -> onMessage(raw))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("缺少租户或群JID");
+        verifyNoInteractions(sink, riskEventSink);
     }
 
     @Test
@@ -914,6 +956,17 @@ class ProtocolGroupEventConsumerTest {
         onMessage(raw);
 
         verifyNoInteractions(sink, joinResultSink, actionResultSink);
+    }
+
+    @Test
+    void onMessage_unregisteredGroupEventWithRiskSignalIsRejected() {
+        assertThatThrownBy(() -> onMessage("""
+                {"eventId":"evt-future-risk","event":"group.future_result",
+                 "data":{"signalCode":"CHAT_SUSPENDED"}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("携带风控信号");
+        verifyNoInteractions(riskEventSink);
     }
 
     @Test

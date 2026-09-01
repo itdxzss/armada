@@ -1,6 +1,9 @@
 package com.armada.platform.kafka.consumer.message;
 
 import com.armada.platform.kafka.trace.KafkaTraceSupport;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
+import com.armada.platform.protocol.risk.model.ProtocolRiskSignal;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.trace.TraceContext;
@@ -14,7 +17,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
@@ -40,20 +42,16 @@ public class ProtocolMessageEventConsumer {
     private final ObjectMapper objectMapper;
     private final List<ProtocolMessageSendResultReportedSink> sinks;
     private final List<ProtocolMessageAckSink> ackSinks;
+    private final ProtocolRiskEventSink riskEventSink;
 
-    @Autowired
     public ProtocolMessageEventConsumer(ObjectMapper objectMapper,
                                         List<ProtocolMessageSendResultReportedSink> sinks,
-                                        List<ProtocolMessageAckSink> ackSinks) {
+                                        List<ProtocolMessageAckSink> ackSinks,
+                                        ProtocolRiskEventSink riskEventSink) {
         this.objectMapper = objectMapper;
         this.sinks = List.copyOf(sinks);
         this.ackSinks = List.copyOf(ackSinks);
-    }
-
-    /** 非 Spring 单测的存量构造兼容。 */
-    public ProtocolMessageEventConsumer(ObjectMapper objectMapper,
-            List<ProtocolMessageSendResultReportedSink> sinks) {
-        this(objectMapper, sinks, List.of());
+        this.riskEventSink = riskEventSink;
     }
 
     /**
@@ -79,22 +77,90 @@ public class ProtocolMessageEventConsumer {
         String eventType = text(envelope, "event");
         String eventId = text(envelope, "eventId");
         if (EVENT_MESSAGE_ACK.equals(eventType)) {
-            ProtocolMessageAckEvent event = toAckEvent(envelope, dataNode(envelope));
+            JsonNode data = dataNode(envelope);
+            ProtocolMessageAckEvent event = toAckEvent(envelope, data);
+            riskEventSink.handleResult(toRiskMetadata(event, data));
             selectAckSink(event).handleAck(event);
             return;
         }
         if (!EVENT_MESSAGE_SEND_RESULT_REPORTED.equals(eventType)) {
+            if (containsRiskSignal(dataNode(envelope))) {
+                throw new BusinessException(
+                        ErrorCode.VALIDATION, "未接入的协议消息事件携带风控信号");
+            }
             log.warn("协议消息事件暂未接入,跳过 eventId={} eventType={} accountId={} workerId={}",
                     eventId, eventType, text(envelope, "accountId"), text(envelope, "workerId"));
             return;
         }
-        ProtocolMessageSendResultReportedEvent event = toSendResultReportedEvent(envelope, dataNode(envelope));
+        JsonNode data = dataNode(envelope);
+        ProtocolMessageSendResultReportedEvent event = toSendResultReportedEvent(envelope, data);
         log.info("协议消息发送结果事件收到 eventId={} tenantId={} taskId={} attemptId={} "
                         + "historicalExecutionId={} historicalMemberId={} success={} messageId={} workerId={}",
                 event.eventId(), event.tenantId(), event.marketingTaskId(), event.attemptId(),
                 event.historicalExecutionId(), event.historicalMemberId(), event.success(),
                 event.messageId(), event.workerId());
+        riskEventSink.handleResult(toRiskMetadata(event, data));
         selectSink(event).handleSendResultReported(event);
+    }
+
+    private static ProtocolRiskResultMetadata toRiskMetadata(
+            ProtocolMessageSendResultReportedEvent event, JsonNode data) {
+        return new ProtocolRiskResultMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_MESSAGE_SEND_RESULT_REPORTED,
+                        "MESSAGE_SEND", event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        longValue(data, "accountId"), event.protocolAccountId(),
+                        text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        event.source(), businessId(event), businessItemId(event),
+                        "GROUP".equalsIgnoreCase(event.targetKind())
+                                ? businessItemId(event) : null,
+                        event.commandId(), event.messageId(), event.targetKind(),
+                        event.jid(), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage());
+    }
+
+    private static ProtocolRiskResultMetadata toRiskMetadata(
+            ProtocolMessageAckEvent event, JsonNode data) {
+        return new ProtocolRiskResultMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_MESSAGE_ACK,
+                        "MESSAGE_ACK", event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(),
+                        firstText(data, "protocolBackend", "protocolId")),
+                new ProtocolRiskResultMetadata.Correlation(
+                        event.source(), event.hyperlinkTaskId(), event.hyperlinkRecipientId(), null,
+                        event.commandId(), event.messageId(), event.targetKind(),
+                        event.jid(), text(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage());
+    }
+
+    private static Long businessId(ProtocolMessageSendResultReportedEvent event) {
+        return switch (event.source() == null ? "" : event.source()) {
+            case SOURCE_HYPERLINK_TASK -> event.hyperlinkTaskId();
+            case SOURCE_CONTACT_TASK -> event.contactTaskId();
+            case SOURCE_GROUP_CREATION_MARKETING -> event.groupCreationTaskId();
+            case SOURCE_HISTORICAL_GROUP_PULL -> event.historicalExecutionId();
+            default -> event.marketingTaskId();
+        };
+    }
+
+    private static Long businessItemId(ProtocolMessageSendResultReportedEvent event) {
+        return switch (event.source() == null ? "" : event.source()) {
+            case SOURCE_HYPERLINK_TASK -> event.hyperlinkRecipientId();
+            case SOURCE_CONTACT_TASK -> event.recipientId();
+            case SOURCE_GROUP_CREATION_MARKETING -> event.groupCreationItemId();
+            case SOURCE_HISTORICAL_GROUP_PULL -> event.historicalMemberId();
+            default -> event.targetId();
+        };
+    }
+
+    private static boolean containsRiskSignal(JsonNode data) {
+        return ProtocolRiskSignal.fromCode(text(data, "reasonCode")).isPresent()
+                || ProtocolRiskSignal.fromCode(text(data, "errorCode")).isPresent()
+                || ProtocolRiskSignal.fromCode(text(data, "signalCode")).isPresent();
     }
 
     /** 每个已识别来源必须且只能由一个 sink 负责，避免重复或遗漏业务回写。 */

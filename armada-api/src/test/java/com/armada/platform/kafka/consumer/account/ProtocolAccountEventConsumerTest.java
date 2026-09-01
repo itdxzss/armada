@@ -10,6 +10,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.trace.TraceContext;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +55,9 @@ class ProtocolAccountEventConsumerTest {
     @Mock
     private ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink;
 
+    @Mock
+    private ProtocolRiskEventSink riskEventSink;
+
     private ProtocolAccountEventConsumer consumer;
 
     @BeforeEach
@@ -65,7 +70,53 @@ class ProtocolAccountEventConsumerTest {
                 offlineDiagnosedSink,
                 new ProtocolAccountGroupEventSinks(
                         membershipChangedSink, groupDepartureSink, groupJoinSink),
-                metadataSyncRequestedSink);
+                metadataSyncRequestedSink,
+                riskEventSink);
+    }
+
+    @Test
+    void onStateMessage_accountRestrictedDispatchesPlatformDeadlineAndScopeFacts() {
+        onStateMessage("""
+                {"eventId":"evt-restricted-1","event":"account.restricted",
+                 "accountId":"acc_17","occurredAt":"2026-09-01T10:00:00Z",
+                 "workerId":"node-2","data":{"tenantId":7,"accountId":17,
+                 "protocolAccountId":"acc_17","protocolBackend":"ANDROID",
+                 "isActive":true,"restrictedUntil":"2026-09-02T10:00:00Z",
+                 "enforcementType":"BIZ_QUALITY","reasonCode":"ACCOUNT_REACHOUT_RESTRICTED",
+                 "rawCode":"463","reasonMessage":"reachout restricted"}}
+                """);
+
+        ArgumentCaptor<ProtocolAccountRestrictedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolAccountRestrictedEvent.class);
+        verify(riskEventSink).handleAccountRestricted(captor.capture());
+        ProtocolAccountRestrictedEvent event = captor.getValue();
+        assertThat(event.tenantId()).isEqualTo(7L);
+        assertThat(event.accountId()).isEqualTo(17L);
+        assertThat(event.protocolAccountId()).isEqualTo("acc_17");
+        assertThat(event.active()).isTrue();
+        assertThat(event.restrictedUntil()).isEqualTo(
+                Instant.parse("2026-09-02T10:00:00Z").toEpochMilli());
+        assertThat(event.rawCode()).isEqualTo("463");
+    }
+
+    @Test
+    void onStateMessage_rateLimitedLegacyStateAlsoForwardsRiskMetadata() {
+        onStateMessage("""
+                {"eventId":"evt-rate-state","event":"account.state_changed",
+                 "accountId":"acc_17","occurredAt":"2026-09-01T10:00:00Z",
+                 "workerId":"node-2","data":{"tenantId":7,"accountId":17,
+                 "from":"ONLINE","to":"RATE_LIMITED","semantic":"RATE_LIMITED",
+                 "rawCode":429,"source":"protocol","onlineAttemptId":"attempt-1"}}
+                """);
+
+        ArgumentCaptor<ProtocolRiskResultMetadata> captor =
+                ArgumentCaptor.forClass(ProtocolRiskResultMetadata.class);
+        verify(riskEventSink).handleResult(captor.capture());
+        assertThat(captor.getValue().reasonCode()).isEqualTo("RATE_LIMITED");
+        assertThat(captor.getValue().account().accountId()).isEqualTo(17L);
+        assertThat(captor.getValue().correlation().commandId()).isEqualTo("attempt-1");
+        assertThat(captor.getValue().correlation().rawCode()).isEqualTo("429");
+        verify(sink).handleStateChanged(any());
     }
 
     private void onStateMessage(String rawMessage) {

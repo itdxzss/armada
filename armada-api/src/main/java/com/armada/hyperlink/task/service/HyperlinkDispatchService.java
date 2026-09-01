@@ -49,8 +49,8 @@ public class HyperlinkDispatchService {
     private static final int SHORT_CODE_INSERT_ATTEMPTS = 8;
     private static final long RESULT_RECONCILIATION_DELAY_MS = 30_000L;
     private static final long GLOBAL_CAPACITY_RETRY_DELAY_MS = 30_000L;
-    private static final Set<String> RECOVERABLE_RESTRICTION_CODES = Set.of(
-            "CHAT_SUSPENDED", "ACCOUNT_REACHOUT_RESTRICTED", "RATE_LIMITED");
+    private static final Set<String> RECOVERABLE_RESTRICTION_CODES =
+            Set.of("ACCOUNT_REACHOUT_RESTRICTED");
     private final HyperlinkTaskMapper taskMapper;
     private final HyperlinkTaskContentMapper contentMapper;
     private final HyperlinkTaskRuntimeMapper runtimeMapper;
@@ -159,7 +159,8 @@ public class HyperlinkDispatchService {
             }
             AtomicBoolean retainAfterCommit = registerGuardCleanup(
                     usage.getAccountId(), commandId);
-            long nextSendAt = now + interval(task, recipient.getId());
+            long nextSendAt = Math.addExact(now,
+                    HyperlinkSendIntervalPicker.pickMs(task, recipient.getId()));
             try {
                 requireScheduled(usageMapper.scheduleNextSend(usage.getId(), nextSendAt, now));
                 recipient.setHyperlinkTaskRoundId(round.getId());
@@ -309,8 +310,4 @@ public class HyperlinkDispatchService {
         }
     }
 
-    private long interval(HyperlinkTask task, long recipientId) {
-        int range = task.getMsgIntervalMaxMs() - task.getMsgIntervalMinMs();
-        return task.getMsgIntervalMinMs() + (range == 0 ? 0 : Math.floorMod(recipientId, range + 1));
-    }
 }

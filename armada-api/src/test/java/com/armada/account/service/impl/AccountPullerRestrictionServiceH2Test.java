@@ -66,6 +66,11 @@ class AccountPullerRestrictionServiceH2Test {
                   login_state TINYINT,
                   mute_status TINYINT,
                   cooldown_until BIGINT,
+                  fallback_message_restriction_until BIGINT,
+                  platform_message_restriction_until BIGINT,
+                  platform_message_restriction_active TINYINT,
+                  platform_message_restriction_reported_at BIGINT,
+                  pulling_restriction_until BIGINT,
                   restriction_reason_code VARCHAR(64),
                   restriction_reported_at BIGINT,
                   created_at BIGINT NOT NULL,
@@ -159,10 +164,11 @@ class AccountPullerRestrictionServiceH2Test {
         jdbc.update("""
                 UPDATE account_state
                 SET mute_status = 1, cooldown_until = ?,
+                    fallback_message_restriction_until = ?,
                     restriction_reason_code = 'MESSAGE_RATE_LIMITED',
                     restriction_reported_at = 500
                 WHERE tenant_id = 1 AND account_id = 10
-                """, messageUntil);
+                """, messageUntil, messageUntil);
 
         assertThat(service.restrictPulling(
                 10L, "ACCOUNT_REACHOUT_RESTRICTED", 1_000L, 2_000L)).isTrue();
@@ -186,6 +192,97 @@ class AccountPullerRestrictionServiceH2Test {
         assertThat(service.findPullerRestrictionsByAccountIds(java.util.List.of(11L))
                 .get(11L).status()).isEqualTo(AccountPullerRestrictionStatus.ALLOWED.code());
         assertThat(service.summarizePullersByGroupId(100L, 4_000L).restrictedCount()).isZero();
+    }
+
+    @Test
+    void platformMessageRestrictionUsesExplicitDeadline() {
+        long platformUntil = 9_999_000L;
+
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L, platformUntil, 4_000L))
+                .isTrue();
+
+        assertThat(status(1L, 11L)).isEqualTo(
+                AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED.code());
+        assertThat(until(1L, 11L)).isEqualTo(platformUntil);
+        assertThat(reason(1L, 11L)).isEqualTo("ACCOUNT_REACHOUT_RESTRICTED");
+    }
+
+    @Test
+    void messageFailureCannotExtendAnActivePlatformDeadline() {
+        long platformUntil = 20_000L;
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L, platformUntil, 4_000L))
+                .isTrue();
+
+        assertThat(service.restrictMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 5_000L, 6_000L)).isFalse();
+
+        assertThat(until(1L, 11L)).isEqualTo(platformUntil);
+        assertThat(sourceUntil("platform_message_restriction_until", 11L))
+                .isEqualTo(platformUntil);
+        assertThat(sourceUntil("fallback_message_restriction_until", 11L)).isNull();
+    }
+
+    @Test
+    void delayedMessageFailureFromBeforePlatformDeadlineCannotRestartFallbackWindow() {
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L, 10_000L, 4_000L))
+                .isTrue();
+
+        assertThat(service.restrictMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 8_000L, 11_000L)).isFalse();
+        assertThat(service.restrictMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 12_000L, 13_000L)).isTrue();
+
+        assertThat(sourceUntil("fallback_message_restriction_until", 11L))
+                .isEqualTo(12_000L + DAY_MILLIS);
+    }
+
+    @Test
+    void expiredPlatformFactStillWatermarksDelayedPreCutoffMessageFailure() {
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L, 10_000L, 11_000L))
+                .isTrue();
+
+        assertThat(status(1L, 11L)).isNull();
+        assertThat(sourceUntil("platform_message_restriction_until", 11L))
+                .isEqualTo(10_000L);
+        assertThat(service.restrictMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 8_000L, 11_000L)).isFalse();
+        assertThat(sourceUntil("fallback_message_restriction_until", 11L)).isNull();
+    }
+
+    @Test
+    void platformReleaseClearsOnlyPlatformMessageRestrictionAndKeepsPulling() {
+        assertThat(service.restrictPulling(
+                11L, "RATE_LIMITED", 3_000L, 4_000L)).isTrue();
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 4_000L, 30_000L, 5_000L))
+                .isTrue();
+
+        assertThat(service.clearPlatformMessageSending(11L, 6_000L, 7_000L)).isTrue();
+
+        assertThat(status(1L, 11L)).isEqualTo(
+                AccountOperationRestrictionStatus.PULLING_RESTRICTED.code());
+        assertThat(until(1L, 11L)).isEqualTo(3_000L + DAY_MILLIS);
+        assertThat(sourceUntil("platform_message_restriction_until", 11L)).isNull();
+        assertThat(sourceUntil("pulling_restriction_until", 11L))
+                .isEqualTo(3_000L + DAY_MILLIS);
+    }
+
+    @Test
+    void stalePlatformReleaseCannotClearNewerActiveRestriction() {
+        assertThat(service.restrictPlatformMessageSending(
+                11L, "ACCOUNT_REACHOUT_RESTRICTED", 6_000L, 30_000L, 7_000L))
+                .isTrue();
+
+        assertThat(service.clearPlatformMessageSending(11L, 5_000L, 8_000L)).isFalse();
+
+        assertThat(status(1L, 11L)).isEqualTo(
+                AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED.code());
+        assertThat(sourceUntil("platform_message_restriction_until", 11L))
+                .isEqualTo(30_000L);
     }
 
     @Test
@@ -232,6 +329,12 @@ class AccountPullerRestrictionServiceH2Test {
                 SELECT restriction_reason_code FROM account_state
                 WHERE tenant_id=? AND account_id=?
                 """, String.class, tenantId, accountId);
+    }
+
+    private Long sourceUntil(String column, long accountId) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM account_state WHERE tenant_id=1 AND account_id=?",
+                Long.class, accountId);
     }
 
     private void execute(String sql) throws SQLException {

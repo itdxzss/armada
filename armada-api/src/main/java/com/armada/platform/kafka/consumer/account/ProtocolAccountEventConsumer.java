@@ -1,6 +1,9 @@
 package com.armada.platform.kafka.consumer.account;
 
 import com.armada.platform.kafka.trace.KafkaTraceSupport;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
+import com.armada.platform.protocol.risk.model.ProtocolRiskSignal;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.trace.TraceContext;
@@ -38,6 +41,9 @@ public class ProtocolAccountEventConsumer {
 
     /** 现役协议层账号状态变更事件类型。 */
     public static final String EVENT_ACCOUNT_STATE_CHANGED = "account.state_changed";
+
+    /** 平台账号外联限制生效/解除事件类型。 */
+    public static final String EVENT_ACCOUNT_RESTRICTED = "account.restricted";
 
     /** 协议层账号类型检测事件类型。 */
     public static final String EVENT_ACCOUNT_TYPE_DETECTED = "account.type_detected";
@@ -78,6 +84,7 @@ public class ProtocolAccountEventConsumer {
     private final ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink;
     private final ProtocolAccountGroupEventSinks groupEventSinks;
     private final ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink;
+    private final ProtocolRiskEventSink riskEventSink;
 
     /**
      * 创建协议账号事件 consumer。
@@ -88,6 +95,7 @@ public class ProtocolAccountEventConsumer {
      * @param offlineDiagnosedSink 账号离线诊断下游处理口
      * @param groupEventSinks 群关系与普通成员退群事实下游处理入口
      * @param metadataSyncRequestedSink 单群详情同步请求下游处理口
+     * @param riskEventSink 风控事实与账号限制投影入口
      */
     public ProtocolAccountEventConsumer(ObjectMapper objectMapper,
                                         ProtocolAccountStateChangedSink stateChangedSink,
@@ -95,7 +103,8 @@ public class ProtocolAccountEventConsumer {
                                         ProtocolAccountGroupsReportedSink groupsReportedSink,
                                         ProtocolAccountOfflineDiagnosedSink offlineDiagnosedSink,
                                         ProtocolAccountGroupEventSinks groupEventSinks,
-                                        ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink) {
+                                        ProtocolGroupMetadataSyncRequestedSink metadataSyncRequestedSink,
+                                        ProtocolRiskEventSink riskEventSink) {
         this.objectMapper = objectMapper;
         this.stateChangedSink = stateChangedSink;
         this.typeDetectedSink = typeDetectedSink;
@@ -103,6 +112,7 @@ public class ProtocolAccountEventConsumer {
         this.offlineDiagnosedSink = offlineDiagnosedSink;
         this.groupEventSinks = groupEventSinks;
         this.metadataSyncRequestedSink = metadataSyncRequestedSink;
+        this.riskEventSink = riskEventSink;
     }
 
     /**
@@ -136,7 +146,27 @@ public class ProtocolAccountEventConsumer {
                     event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
                     event.from(), event.to(), event.semantic(), event.rawCode(), event.onlineAttemptId(),
                     event.workerId());
+            riskEventSink.handleResult(new ProtocolRiskResultMetadata(
+                    new ProtocolRiskResultMetadata.Event(
+                            event.eventId(), event.tenantId(), EVENT_ACCOUNT_STATE_CHANGED,
+                            "ACCOUNT_STATE", event.occurredAt(), event.workerId()),
+                    new ProtocolRiskResultMetadata.Account(
+                            event.accountId(), event.protocolAccountId(), null),
+                    new ProtocolRiskResultMetadata.Correlation(
+                            event.source(), null, null, null, event.onlineAttemptId(), null,
+                            null, null, event.rawCode() == null
+                                    ? null : String.valueOf(event.rawCode())),
+                    accountStateRiskCode(event), null));
             stateChangedSink.handleStateChanged(event);
+            return;
+        }
+        if (EVENT_ACCOUNT_RESTRICTED.equals(eventType)) {
+            ProtocolAccountRestrictedEvent event = toAccountRestrictedEvent(envelope);
+            log.info("协议账号外联限制事件收到 eventId={} tenantId={} accountId={} "
+                            + "protocolAccountId={} active={} restrictedUntil={} enforcementType={} workerId={}",
+                    event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
+                    event.active(), event.restrictedUntil(), event.enforcementType(), event.workerId());
+            riskEventSink.handleAccountRestricted(event);
             return;
         }
         if (EVENT_ACCOUNT_TYPE_DETECTED.equals(eventType)) {
@@ -255,6 +285,55 @@ public class ProtocolAccountEventConsumer {
                 text(data, "source"),
                 text(data, "onlineAttemptId"),
                 longValue(data, "proxyId"),
+                text(envelope, "workerId"));
+    }
+
+    private static String accountStateRiskCode(ProtocolAccountStateChangedEvent event) {
+        if (ProtocolRiskSignal.fromCode(event.semantic()).isPresent()) {
+            return event.semantic();
+        }
+        return ProtocolRiskSignal.fromCode(event.to()).isPresent() ? event.to() : null;
+    }
+
+    private ProtocolAccountRestrictedEvent toAccountRestrictedEvent(JsonNode envelope) {
+        JsonNode data = dataNode(envelope);
+        String routedProtocolAccountId = requiredText(
+                envelope, "accountId", "协议账号限制事件缺少 accountId");
+        String protocolAccountId = anyText(data, "protocolAccountId", "protocolId");
+        if (protocolAccountId == null) {
+            protocolAccountId = routedProtocolAccountId;
+        }
+        if (!routedProtocolAccountId.equals(protocolAccountId)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号限制事件路由账号不一致");
+        }
+        Boolean active = boolAny(data, "isActive", "active");
+        if (active == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号限制事件缺少 active");
+        }
+        Long eventOccurredAt = occurredAt(envelope);
+        if (eventOccurredAt == null) {
+            eventOccurredAt = epochMillisAny(data, "reportedAt", "timestamp");
+        }
+        if (eventOccurredAt == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "协议账号限制事件缺少 occurredAt");
+        }
+        String reasonCode = anyText(data, "reasonCode", "restrictionReasonCode");
+        if (reasonCode == null || reasonCode.isBlank()) {
+            reasonCode = "ACCOUNT_REACHOUT_RESTRICTED";
+        }
+        return new ProtocolAccountRestrictedEvent(
+                requiredText(envelope, "eventId", "协议账号限制事件缺少 eventId"),
+                requiredPositiveLong(data, "tenantId", "协议账号限制事件 data.tenantId 非法"),
+                requiredPositiveLong(data, "accountId", "协议账号限制事件 data.accountId 非法"),
+                protocolAccountId,
+                anyText(data, "protocolBackend", "backend"),
+                active,
+                epochMillisAny(data, "restrictedUntil", "restrictionEnd", "end"),
+                anyText(data, "enforcementType", "enforcement_type"),
+                reasonCode,
+                anyText(data, "rawCode", "code"),
+                anyText(data, "reasonMessage", "message"),
+                eventOccurredAt,
                 text(envelope, "workerId"));
     }
 
@@ -673,6 +752,31 @@ public class ProtocolAccountEventConsumer {
         } catch (DateTimeParseException ex) {
             throw new BusinessException(ErrorCode.VALIDATION, invalidMessage);
         }
+    }
+
+    /** 接受 epoch 毫秒数字/数字字符串或 ISO-8601，兼容 Web 与 Android 事件来源。 */
+    private static Long epochMillisAny(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.path(field);
+            if (value.isMissingNode() || value.isNull()) { continue; }
+            if (value.isIntegralNumber()) { return value.longValue(); }
+            if (value.isTextual() && !value.asText().isBlank()) {
+                String textValue = value.asText().trim();
+                try {
+                    return Long.valueOf(textValue);
+                } catch (NumberFormatException ignored) {
+                    try {
+                        return Instant.parse(textValue).toEpochMilli();
+                    } catch (DateTimeParseException ex) {
+                        throw new BusinessException(ErrorCode.VALIDATION,
+                                "协议账号事件时间字段格式非法: " + field);
+                    }
+                }
+            }
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "协议账号事件时间字段格式非法: " + field);
+        }
+        return null;
     }
 
     private static Integer integer(JsonNode node, String fieldName) {

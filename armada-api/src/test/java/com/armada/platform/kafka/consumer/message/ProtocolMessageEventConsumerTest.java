@@ -1,6 +1,9 @@
 package com.armada.platform.kafka.consumer.message;
 
 import com.armada.shared.trace.TraceContext;
+import com.armada.shared.exception.BusinessException;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,13 +30,80 @@ class ProtocolMessageEventConsumerTest {
     @Mock
     private ProtocolMessageSendResultReportedSink sink;
 
+    @Mock
+    private ProtocolRiskEventSink riskEventSink;
+    @Mock
+    private ProtocolMessageAckSink ackSink;
+
     private ProtocolMessageEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
         // 个别路由所有权测试会构造独立 sink 列表，默认 sink 在这些用例中不会被访问。
         lenient().when(sink.supports(any())).thenReturn(true);
-        consumer = new ProtocolMessageEventConsumer(new ObjectMapper(), java.util.List.of(sink));
+        lenient().when(ackSink.supports(any())).thenReturn(true);
+        consumer = new ProtocolMessageEventConsumer(
+                new ObjectMapper(), java.util.List.of(sink), java.util.List.of(ackSink),
+                riskEventSink);
+    }
+
+    @Test
+    void onMessage_forwardsSemanticRiskCodeBeforeBusinessSink() {
+        onMessage("""
+                {"eventId":"evt-risk-message","event":"message.send_result_reported",
+                 "accountId":"acc_17","occurredAt":"2026-09-01T10:00:00Z",
+                 "data":{"tenantId":7,"accountId":17,"protocolAccountId":"acc_17",
+                 "protocolBackend":"WEB",
+                 "commandId":"hl:7:8:9","success":false,
+                 "reasonCode":"RATE_LIMITED","reasonMessage":"slow down","rawCode":429,
+                 "timestamp":1788256800000,"source":"hyperlink_task",
+                 "jid":"15550001@s.whatsapp.net","targetKind":"PRIVATE",
+                 "hyperlinkTaskId":8,"hyperlinkRecipientId":9,
+                 "outcome":"FAILED","terminal":true}}
+                """);
+
+        ArgumentCaptor<ProtocolRiskResultMetadata> captor =
+                ArgumentCaptor.forClass(ProtocolRiskResultMetadata.class);
+        verify(riskEventSink).handleResult(captor.capture());
+        assertThat(captor.getValue().reasonCode()).isEqualTo("RATE_LIMITED");
+        assertThat(captor.getValue().account().accountId()).isEqualTo(17L);
+        assertThat(captor.getValue().account().protocolBackend()).isEqualTo("WEB");
+        assertThat(captor.getValue().correlation().rawCode()).isEqualTo("429");
+        assertThat(captor.getValue().correlation().businessId()).isEqualTo(8L);
+        assertThat(captor.getValue().correlation().targetKind()).isEqualTo("PRIVATE");
+    }
+
+    @Test
+    void onMessage_ackAlsoForwardsRiskMetadata() {
+        onMessage("""
+                {"eventId":"evt-risk-ack","event":"message.ack","accountId":"acc_17",
+                 "data":{"tenantId":7,"accountId":17,"protocolAccountId":"acc_17",
+                 "protocolBackend":"ANDROID","source":"hyperlink_task",
+                 "hyperlinkTaskId":8,"hyperlinkRecipientId":9,"commandId":"hl:7:8:9",
+                 "jid":"15550001@s.whatsapp.net","targetKind":"PRIVATE","messageId":"m-1",
+                 "ackStatus":"FAILED","success":false,
+                 "reasonCode":"ACCOUNT_REACHOUT_RESTRICTED","rawCode":463,
+                 "reasonMessage":"restricted","timestamp":1788256800000}}
+                """);
+
+        ArgumentCaptor<ProtocolRiskResultMetadata> captor =
+                ArgumentCaptor.forClass(ProtocolRiskResultMetadata.class);
+        verify(riskEventSink).handleResult(captor.capture());
+        assertThat(captor.getValue().event().source()).isEqualTo("message.ack");
+        assertThat(captor.getValue().reasonCode()).isEqualTo("ACCOUNT_REACHOUT_RESTRICTED");
+        assertThat(captor.getValue().correlation().rawCode()).isEqualTo("463");
+        verify(ackSink).handleAck(any());
+    }
+
+    @Test
+    void onMessage_unknownEventWithRiskSignalIsRejectedInsteadOfSkipped() {
+        assertThatThrownBy(() -> onMessage("""
+                {"eventId":"evt-unknown-risk","event":"message.future_result",
+                 "data":{"signalCode":"RATE_LIMITED"}}
+                """))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("携带风控信号");
+        verifyNoInteractions(riskEventSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -241,7 +311,8 @@ class ProtocolMessageEventConsumerTest {
         when(marketingSink.supports(any())).thenReturn(false);
         when(historicalSink.supports(any())).thenReturn(true);
         ProtocolMessageEventConsumer historicalConsumer = new ProtocolMessageEventConsumer(
-                new ObjectMapper(), java.util.List.of(marketingSink, historicalSink));
+                new ObjectMapper(), java.util.List.of(marketingSink, historicalSink),
+                java.util.List.of(), riskEventSink);
         String raw = """
                 {
                   "eventId":"evt_historical_1",
@@ -289,7 +360,8 @@ class ProtocolMessageEventConsumerTest {
         when(first.supports(any())).thenReturn(true);
         when(second.supports(any())).thenReturn(true);
         ProtocolMessageEventConsumer ambiguousConsumer = new ProtocolMessageEventConsumer(
-                new ObjectMapper(), java.util.List.of(first, second));
+                new ObjectMapper(), java.util.List.of(first, second),
+                java.util.List.of(), riskEventSink);
         String raw = """
                 {
                   "eventId":"evt_ambiguous",

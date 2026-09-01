@@ -10,6 +10,7 @@ import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskContent;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.service.HyperlinkMessageCommandFactory;
+import com.armada.hyperlink.task.service.HyperlinkSendIntervalPicker;
 import com.armada.hyperlink.task.service.HyperlinkShortLinkGuard;
 import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.platform.protocol.model.enums.MessageType;
@@ -36,6 +37,9 @@ class HyperlinkMessageCommandFactoryTest {
         assertThat(first.correlation().hyperlink().taskId()).isEqualTo(11L);
         assertThat(first.correlation().hyperlink().recipientId()).isEqualTo(13L);
         assertThat(first.correlation().marketing()).isNull();
+        assertThat(first.sendIntervalMs())
+                .isEqualTo(HyperlinkSendIntervalPicker.pickMs(task(), 13L))
+                .isNotEqualTo(task().getMsgIntervalMinMs());
         assertThat(first.payload().type()).isEqualTo(MessageType.BUTTON_CARD);
         assertThat(first.payload().content().text()).isEqualTo("卡片文字");
         assertThat(first.payload().content().buttonCard().title()).isEqualTo("标题");
@@ -140,7 +144,8 @@ class HyperlinkMessageCommandFactoryTest {
         HyperlinkTask value = new HyperlinkTask();
         value.setId(11L);
         value.setTenantId(7L);
-        value.setMsgIntervalMinMs(500);
+        value.setMsgIntervalMinMs(1_000);
+        value.setMsgIntervalMaxMs(5_000);
         return value;
     }
 

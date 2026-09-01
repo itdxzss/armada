@@ -206,20 +206,33 @@
     LIMIT #{limit}
   </select>
 
-  <!-- 状态按能力合并，截止时间只延长；旧事实不能覆盖较新的原因或缩短限制。 -->
-  <update id="markAccountOperationRestricted">
+  <!-- 拉人限制独立保留截止时间，兼容 mute_status/cooldown_until 由各来源投影计算。 -->
+  <update id="markPullingRestricted">
     UPDATE account_state
-    SET mute_status = CASE
-          WHEN mute_status IS NULL THEN #{incomingStatus}
-          WHEN mute_status = #{incomingStatus} THEN mute_status
-          ELSE #{combinedStatus}
-        END,
-        cooldown_until = CASE
-          WHEN cooldown_until IS NULL
-            OR cooldown_until &lt; #{candidateUntil}
+    SET pulling_restriction_until = CASE
+          WHEN pulling_restriction_until IS NULL
+            OR pulling_restriction_until &lt; #{candidateUntil}
           THEN #{candidateUntil}
-          ELSE cooldown_until
+          ELSE pulling_restriction_until
         END,
+        mute_status = CASE
+          WHEN (fallback_message_restriction_until IS NOT NULL
+                  AND fallback_message_restriction_until &gt; #{now})
+            OR (platform_message_restriction_active = 1
+                  AND platform_message_restriction_until IS NOT NULL
+                  AND platform_message_restriction_until &gt; #{now})
+          THEN 3
+          ELSE 2
+        END,
+        cooldown_until = GREATEST(
+          #{candidateUntil},
+          CASE WHEN pulling_restriction_until &gt; #{now}
+            THEN pulling_restriction_until ELSE 0 END,
+          CASE WHEN fallback_message_restriction_until &gt; #{now}
+            THEN fallback_message_restriction_until ELSE 0 END,
+          CASE WHEN platform_message_restriction_active = 1
+              AND platform_message_restriction_until &gt; #{now}
+            THEN platform_message_restriction_until ELSE 0 END),
         restriction_reason_code = CASE
           WHEN restriction_reported_at IS NULL
             OR restriction_reported_at &lt;= #{occurredAt}
@@ -237,22 +250,177 @@
       AND #{candidateUntil} &gt; #{now}
   </update>
 
-  <!-- 调度线程无请求租户上下文；按统一截止时间恢复任意操作限制。 -->
+  <!-- 平台限制仍有效时，消息失败只是同一限制的观测，不能用固定 24 小时推远明确截止。 -->
+  <update id="markFallbackMessageRestricted">
+    UPDATE account_state
+    SET fallback_message_restriction_until = CASE
+          WHEN fallback_message_restriction_until IS NULL
+            OR fallback_message_restriction_until &lt; #{candidateUntil}
+          THEN #{candidateUntil}
+          ELSE fallback_message_restriction_until
+        END,
+        mute_status = CASE
+          WHEN pulling_restriction_until IS NOT NULL
+            AND pulling_restriction_until &gt; #{now}
+          THEN 3
+          ELSE 1
+        END,
+        cooldown_until = GREATEST(
+          #{candidateUntil},
+          CASE WHEN fallback_message_restriction_until &gt; #{now}
+            THEN fallback_message_restriction_until ELSE 0 END,
+          CASE WHEN pulling_restriction_until &gt; #{now}
+            THEN pulling_restriction_until ELSE 0 END),
+        restriction_reason_code = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt;= #{occurredAt}
+          THEN #{reasonCode}
+          ELSE restriction_reason_code
+        END,
+        restriction_reported_at = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt; #{occurredAt}
+          THEN #{occurredAt}
+          ELSE restriction_reported_at
+        END,
+        updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
+    WHERE account_id = #{accountId}
+      AND #{candidateUntil} &gt; #{now}
+      AND (
+        platform_message_restriction_reported_at IS NULL
+        OR (
+          (platform_message_restriction_until IS NULL
+              AND #{occurredAt} &gt; platform_message_restriction_reported_at)
+          OR (platform_message_restriction_until IS NOT NULL
+              AND platform_message_restriction_until &lt;= #{now}
+              AND #{occurredAt} &gt; platform_message_restriction_until)
+        )
+      )
+  </update>
+
+  <!-- 平台状态是账号级权威投影：覆盖同类消息失败推断，但不触碰拉人限制。 -->
+  <update id="markPlatformMessageRestricted">
+    UPDATE account_state
+    SET fallback_message_restriction_until = CASE
+          WHEN #{candidateUntil} &gt; #{now} THEN NULL
+          ELSE fallback_message_restriction_until
+        END,
+        platform_message_restriction_until = #{candidateUntil},
+        platform_message_restriction_active = CASE
+          WHEN #{candidateUntil} &gt; #{now} THEN 1 ELSE 0 END,
+        platform_message_restriction_reported_at = #{occurredAt},
+        mute_status = CASE
+          WHEN #{candidateUntil} &gt; #{now}
+            AND pulling_restriction_until &gt; #{now} THEN 3
+          WHEN #{candidateUntil} &gt; #{now} THEN 1
+          WHEN fallback_message_restriction_until &gt; #{now}
+            AND pulling_restriction_until &gt; #{now} THEN 3
+          WHEN fallback_message_restriction_until &gt; #{now} THEN 1
+          WHEN pulling_restriction_until IS NOT NULL
+            AND pulling_restriction_until &gt; #{now}
+          THEN 2
+          ELSE NULL
+        END,
+        cooldown_until = NULLIF(GREATEST(
+          CASE WHEN #{candidateUntil} &gt; #{now} THEN #{candidateUntil} ELSE 0 END,
+          CASE WHEN fallback_message_restriction_until &gt; #{now}
+            THEN fallback_message_restriction_until ELSE 0 END,
+          CASE WHEN pulling_restriction_until &gt; #{now}
+            THEN pulling_restriction_until ELSE 0 END), 0),
+        restriction_reason_code = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt;= #{occurredAt}
+          THEN #{reasonCode}
+          ELSE restriction_reason_code
+        END,
+        restriction_reported_at = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt; #{occurredAt}
+          THEN #{occurredAt}
+          ELSE restriction_reported_at
+        END,
+        updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
+    WHERE account_id = #{accountId}
+      AND (
+        platform_message_restriction_reported_at IS NULL
+        OR platform_message_restriction_reported_at &lt;= #{occurredAt}
+      )
+  </update>
+
+  <!-- 解除只清平台来源；其它能力/来源仍按自己的截止时间继续生效。 -->
+  <update id="clearPlatformMessageRestriction">
+    UPDATE account_state
+    SET mute_status = CASE
+          WHEN fallback_message_restriction_until &gt; #{now}
+            AND pulling_restriction_until &gt; #{now} THEN 3
+          WHEN fallback_message_restriction_until &gt; #{now} THEN 1
+          WHEN pulling_restriction_until &gt; #{now} THEN 2
+          ELSE NULL
+        END,
+        cooldown_until = NULLIF(GREATEST(
+          CASE WHEN fallback_message_restriction_until &gt; #{now}
+            THEN fallback_message_restriction_until ELSE 0 END,
+          CASE WHEN pulling_restriction_until &gt; #{now}
+            THEN pulling_restriction_until ELSE 0 END), 0),
+        platform_message_restriction_until = NULL,
+        platform_message_restriction_active = 0,
+        platform_message_restriction_reported_at = #{occurredAt},
+        updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
+    WHERE account_id = #{accountId}
+      AND (
+        platform_message_restriction_reported_at IS NULL
+        OR platform_message_restriction_reported_at &lt;= #{occurredAt}
+      )
+  </update>
+
+  <!-- 调度线程无请求租户上下文；逐来源清理到期值后重算兼容状态投影。 -->
   <update id="restoreExpiredAccountOperationRestrictions">
     UPDATE account_state
-    SET mute_status = NULL,
-        cooldown_until = NULL,
+    SET mute_status = CASE
+          WHEN (fallback_message_restriction_until &gt; #{now}
+                  OR (platform_message_restriction_active = 1
+                    AND platform_message_restriction_until &gt; #{now}))
+            AND pulling_restriction_until &gt; #{now} THEN 3
+          WHEN fallback_message_restriction_until &gt; #{now}
+            OR (platform_message_restriction_active = 1
+              AND platform_message_restriction_until &gt; #{now}) THEN 1
+          WHEN pulling_restriction_until &gt; #{now} THEN 2
+          ELSE NULL
+        END,
+        cooldown_until = NULLIF(GREATEST(
+          CASE WHEN fallback_message_restriction_until &gt; #{now}
+            THEN fallback_message_restriction_until ELSE 0 END,
+          CASE WHEN platform_message_restriction_active = 1
+              AND platform_message_restriction_until &gt; #{now}
+            THEN platform_message_restriction_until ELSE 0 END,
+          CASE WHEN pulling_restriction_until &gt; #{now}
+            THEN pulling_restriction_until ELSE 0 END), 0),
+        fallback_message_restriction_until = CASE
+          WHEN fallback_message_restriction_until &lt;= #{now} THEN NULL
+          ELSE fallback_message_restriction_until END,
+        platform_message_restriction_active = CASE
+          WHEN platform_message_restriction_active = 1
+            AND platform_message_restriction_until &lt;= #{now} THEN 0
+          ELSE platform_message_restriction_active END,
+        pulling_restriction_until = CASE
+          WHEN pulling_restriction_until &lt;= #{now} THEN NULL
+          ELSE pulling_restriction_until END,
         updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
-    WHERE mute_status IS NOT NULL
-      AND cooldown_until IS NOT NULL
-      AND cooldown_until &lt;= #{now}
+    WHERE (fallback_message_restriction_until IS NOT NULL
+            AND fallback_message_restriction_until &lt;= #{now})
+       OR (platform_message_restriction_active = 1
+            AND platform_message_restriction_until IS NOT NULL
+            AND platform_message_restriction_until &lt;= #{now})
+       OR (pulling_restriction_until IS NOT NULL
+            AND pulling_restriction_until &lt;= #{now})
     ORDER BY cooldown_until ASC, id ASC
     LIMIT #{limit}
   </update>
 
   <select id="selectPullerRestrictionsByAccountIds"
           resultType="com.armada.account.model.entity.AccountState">
-    SELECT account_id, mute_status, cooldown_until,
+    SELECT account_id, mute_status,
+           pulling_restriction_until AS cooldown_until,
            restriction_reason_code, restriction_reported_at
     FROM account_state
     WHERE account_id IN
@@ -265,7 +433,7 @@
           resultType="com.armada.account.model.entity.AccountState">
     SELECT state_row.account_id,
            state_row.mute_status,
-           state_row.cooldown_until,
+           state_row.pulling_restriction_until AS cooldown_until,
            state_row.restriction_reason_code,
            state_row.restriction_reported_at
     FROM account_state state_row
@@ -275,7 +443,7 @@
      AND account_row.deleted_at IS NULL
     WHERE account_row.account_group_id = #{accountGroupId}
       AND state_row.mute_status IN (2, 3)
-    ORDER BY state_row.cooldown_until ASC, state_row.id ASC
+    ORDER BY state_row.pulling_restriction_until ASC, state_row.id ASC
   </select>
 
 

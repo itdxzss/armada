@@ -309,14 +309,34 @@ public interface AccountStateMapper {
             @Param("eligibleBefore") long eligibleBefore,
             @Param("limit") int limit);
 
-    /** 在当前租户内写入或单调延长账号操作限制，并合并不同受限能力。 */
-    int markAccountOperationRestricted(
+    /** 在当前租户内单调延长拉人限制，并重算兼容状态投影。 */
+    int markPullingRestricted(
             @Param("accountId") Long accountId,
-            @Param("incomingStatus") int incomingStatus,
-            @Param("combinedStatus") int combinedStatus,
             @Param("reasonCode") String reasonCode,
             @Param("occurredAt") long occurredAt,
             @Param("candidateUntil") long candidateUntil,
+            @Param("now") long now);
+
+    /** 写入消息失败推断的兜底限制；平台明确状态仍有效时拒绝向后推。 */
+    int markFallbackMessageRestricted(
+            @Param("accountId") Long accountId,
+            @Param("reasonCode") String reasonCode,
+            @Param("occurredAt") long occurredAt,
+            @Param("candidateUntil") long candidateUntil,
+            @Param("now") long now);
+
+    /** 写入平台明确的消息限制截止，并清除同类兜底推断。 */
+    int markPlatformMessageRestricted(
+            @Param("accountId") Long accountId,
+            @Param("reasonCode") String reasonCode,
+            @Param("occurredAt") long occurredAt,
+            @Param("candidateUntil") long candidateUntil,
+            @Param("now") long now);
+
+    /** 按平台事件水位只清除平台来源的消息限制。 */
+    int clearPlatformMessageRestriction(
+            @Param("accountId") Long accountId,
+            @Param("occurredAt") long occurredAt,
             @Param("now") long now);
 
     /** 跨租户按批次恢复已到期的账号操作限制。 */

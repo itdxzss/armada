@@ -31,36 +31,63 @@ public class AccountOperationRestrictionServiceImpl implements AccountOperationR
     /** {@inheritDoc} */
     @Override
     public boolean restrictPulling(Long accountId, String reasonCode, long occurredAt, long now) {
-        return restrict(accountId, AccountOperationRestrictionStatus.PULLING_RESTRICTED,
-                reasonCode, occurredAt, now);
+        long candidateUntil = fallbackUntil(occurredAt);
+        if (!validRestriction(accountId, occurredAt, candidateUntil, now)) {
+            return false;
+        }
+        return stateMapper.markPullingRestricted(
+                accountId, normalizeReasonCode(
+                        reasonCode, AccountOperationRestrictionStatus.PULLING_RESTRICTED),
+                occurredAt, candidateUntil, now) == 1;
     }
 
     /** {@inheritDoc} */
     @Override
     public boolean restrictMessageSending(
             Long accountId, String reasonCode, long occurredAt, long now) {
-        return restrict(accountId, AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED,
-                reasonCode, occurredAt, now);
+        long candidateUntil = fallbackUntil(occurredAt);
+        if (!validRestriction(accountId, occurredAt, candidateUntil, now)) {
+            return false;
+        }
+        return stateMapper.markFallbackMessageRestricted(
+                accountId, normalizeReasonCode(
+                        reasonCode, AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED),
+                occurredAt, candidateUntil, now) == 1;
     }
 
-    private boolean restrict(Long accountId, AccountOperationRestrictionStatus incomingStatus,
-            String reasonCode, long occurredAt, long now) {
+    /** {@inheritDoc} */
+    @Override
+    public boolean restrictPlatformMessageSending(
+            Long accountId, String reasonCode, long occurredAt, Long restrictedUntil, long now) {
+        long candidateUntil = restrictedUntil == null
+                ? fallbackUntil(occurredAt) : restrictedUntil;
+        if (accountId == null || occurredAt <= 0 || candidateUntil <= occurredAt || now <= 0) {
+            return false;
+        }
+        return stateMapper.markPlatformMessageRestricted(
+                accountId, normalizeReasonCode(
+                        reasonCode, AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED),
+                occurredAt, candidateUntil, now) == 1;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public boolean clearPlatformMessageSending(Long accountId, long occurredAt, long now) {
         if (accountId == null || occurredAt <= 0 || now <= 0) {
             return false;
         }
-        long candidateUntil = occurredAt > Long.MAX_VALUE - RESTRICTION_MILLIS
+        return stateMapper.clearPlatformMessageRestriction(accountId, occurredAt, now) == 1;
+    }
+
+    private static long fallbackUntil(long occurredAt) {
+        return occurredAt > Long.MAX_VALUE - RESTRICTION_MILLIS
                 ? Long.MAX_VALUE : occurredAt + RESTRICTION_MILLIS;
-        if (candidateUntil <= now) {
-            return false;
-        }
-        return stateMapper.markAccountOperationRestricted(
-                accountId,
-                incomingStatus.code(),
-                AccountOperationRestrictionStatus.MESSAGE_SENDING_AND_PULLING_RESTRICTED.code(),
-                normalizeReasonCode(reasonCode, incomingStatus),
-                occurredAt,
-                candidateUntil,
-                now) == 1;
+    }
+
+    private static boolean validRestriction(
+            Long accountId, long occurredAt, long candidateUntil, long now) {
+        return accountId != null && occurredAt > 0 && candidateUntil > occurredAt
+                && now > 0 && candidateUntil > now;
     }
 
     /** {@inheritDoc} */

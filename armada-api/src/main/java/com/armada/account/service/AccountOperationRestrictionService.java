@@ -32,6 +32,17 @@ public interface AccountOperationRestrictionService {
             Long accountId, String reasonCode, long occurredAt, long now);
 
     /**
+     * 记录平台账号级消息发送限制；明确截止时间优先，缺失时才使用 24 小时保守值。
+     *
+     * <p>平台投影与单条消息失败推断分源保存，后续消息失败不能把平台明确截止时间向后推。</p>
+     */
+    boolean restrictPlatformMessageSending(
+            Long accountId, String reasonCode, long occurredAt, Long restrictedUntil, long now);
+
+    /** 按平台解除事件的事实时间，只清除平台来源的消息发送限制。 */
+    boolean clearPlatformMessageSending(Long accountId, long occurredAt, long now);
+
+    /**
      * 跨租户恢复所有已到期账号操作限制，内部按固定批次处理。
      *
      * @param now Armada 当前时间(epoch 毫秒)

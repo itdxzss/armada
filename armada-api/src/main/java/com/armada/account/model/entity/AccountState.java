@@ -34,6 +34,21 @@ public class AccountState {
     /** 冷却到期(epoch 毫秒)。 */
     private Long cooldownUntil;
 
+    /** 单条消息失败推断的消息发送限制截止时间(epoch 毫秒)。 */
+    private Long fallbackMessageRestrictionUntil;
+
+    /** 平台 account.restricted 明确给出的消息发送限制截止时间(epoch 毫秒)。 */
+    private Long platformMessageRestrictionUntil;
+
+    /** 平台 account.restricted 最近状态：true 生效，false 解除或到期，null 未观察。 */
+    private Boolean platformMessageRestrictionActive;
+
+    /** 最近一次平台 account.restricted 生效/解除事实时间(epoch 毫秒)。 */
+    private Long platformMessageRestrictionReportedAt;
+
+    /** 拉人限制独立截止时间(epoch 毫秒)。 */
+    private Long pullingRestrictionUntil;
+
     /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
     private Integer muteStatus;
 
@@ -149,6 +164,46 @@ public class AccountState {
 
     public void setCooldownUntil(Long cooldownUntil) {
         this.cooldownUntil = cooldownUntil;
+    }
+
+    public Long getFallbackMessageRestrictionUntil() {
+        return fallbackMessageRestrictionUntil;
+    }
+
+    public void setFallbackMessageRestrictionUntil(Long value) {
+        fallbackMessageRestrictionUntil = value;
+    }
+
+    public Long getPlatformMessageRestrictionUntil() {
+        return platformMessageRestrictionUntil;
+    }
+
+    public void setPlatformMessageRestrictionUntil(Long value) {
+        platformMessageRestrictionUntil = value;
+    }
+
+    public Boolean getPlatformMessageRestrictionActive() {
+        return platformMessageRestrictionActive;
+    }
+
+    public void setPlatformMessageRestrictionActive(Boolean value) {
+        platformMessageRestrictionActive = value;
+    }
+
+    public Long getPlatformMessageRestrictionReportedAt() {
+        return platformMessageRestrictionReportedAt;
+    }
+
+    public void setPlatformMessageRestrictionReportedAt(Long value) {
+        platformMessageRestrictionReportedAt = value;
+    }
+
+    public Long getPullingRestrictionUntil() {
+        return pullingRestrictionUntil;
+    }
+
+    public void setPullingRestrictionUntil(Long value) {
+        pullingRestrictionUntil = value;
     }
 
     public Integer getMuteStatus() {

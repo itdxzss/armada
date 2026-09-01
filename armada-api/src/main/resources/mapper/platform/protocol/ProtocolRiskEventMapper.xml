@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.platform.protocol.risk.mapper.ProtocolRiskEventMapper">
+    <insert id="insertIdempotent"
+            parameterType="com.armada.platform.protocol.risk.model.ProtocolRiskEvent"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO protocol_risk_event (
+            tenant_id, event_id, signal_code, scope_type, operation_type,
+            account_id, protocol_account_id, protocol_backend, source,
+            business_type, business_id, business_item_id, group_business_id,
+            command_id, message_id,
+            target_kind, chat_jid, raw_code, reason_message, is_active,
+            enforcement_type, restricted_until, trace_id, worker_id,
+            occurred_at, received_at
+        ) VALUES (
+            #{tenantId}, #{eventId}, #{signalCode}, #{scopeType}, #{operationType},
+            #{accountId}, #{protocolAccountId}, #{protocolBackend}, #{source},
+            #{businessType}, #{businessId}, #{businessItemId}, #{groupBusinessId},
+            #{commandId}, #{messageId},
+            #{targetKind}, #{chatJid}, #{rawCode}, #{reasonMessage}, #{isActive},
+            #{enforcementType}, #{restrictedUntil}, #{traceId}, #{workerId},
+            #{occurredAt}, #{receivedAt}
+        )
+        ON DUPLICATE KEY UPDATE event_id=VALUES(event_id)
+    </insert>
+</mapper>

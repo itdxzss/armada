@@ -27,8 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class HyperlinkProtocolResultService
         implements ProtocolMessageSendResultReportedSink, ProtocolMessageAckSink {
     private static final String SOURCE = "hyperlink_task";
-    private static final Set<String> RECOVERABLE_RESTRICTION_CODES = Set.of(
-            "CHAT_SUSPENDED", "ACCOUNT_REACHOUT_RESTRICTED", "RATE_LIMITED");
+    private static final Set<String> RECOVERABLE_RESTRICTION_CODES =
+            Set.of("ACCOUNT_REACHOUT_RESTRICTED");
     private static final Set<String> BANNED_CODES = Set.of("ACCOUNT_BANNED");
     private static final Set<String> INVALID_CODES = Set.of(
             "DEVICE_DELETED", "DEVICE_REMOVED", "LOGGED_OUT", "PRIMARY_DEVICE_LOGGED_OUT",

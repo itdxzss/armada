@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.trace.TraceContext;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,12 +26,15 @@ class ProtocolNormalGroupCreationEventConsumerTest {
 
     @Mock
     private ProtocolNormalGroupCreationResultReportedSink resultSink;
+    @Mock
+    private ProtocolRiskEventSink riskEventSink;
 
     private ProtocolNormalGroupCreationEventConsumer consumer;
 
     @BeforeEach
     void setUp() {
-        consumer = new ProtocolNormalGroupCreationEventConsumer(new ObjectMapper(), resultSink);
+        consumer = new ProtocolNormalGroupCreationEventConsumer(
+                new ObjectMapper(), resultSink, riskEventSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -38,6 +43,33 @@ class ProtocolNormalGroupCreationEventConsumerTest {
 
     private void onMessage(String rawMessage, String headerTraceId) {
         consumer.onMessage(rawMessage, headerTraceId);
+    }
+
+    @Test
+    void onMessage_forwardsRiskMetadataWithTaskItemCommandAndGroup() {
+        onMessage("""
+                {"eventId":"evt-normal-risk","event":"group.action_result_reported",
+                 "accountId":"acc-android-1","workerId":"android-worker-1",
+                 "data":{"tenantId":7,"taskId":100,"itemId":200,
+                 "source":"normal_group_creation","operation":"GROUP_CREATE",
+                 "accountId":901,"protocolAccountId":"acc-android-1",
+                 "protocolBackend":"ANDROID","commandId":"cmd-normal-risk","attemptNo":1,
+                 "outcome":"FAILED","groupJid":"120363normal@g.us",
+                 "reasonCode":"CHAT_SUSPENDED","rawCode":403,
+                 "reasonMessage":"chat suspended","retryable":false,"timestamp":5000}}
+                """);
+
+        ArgumentCaptor<ProtocolRiskResultMetadata> captor =
+                ArgumentCaptor.forClass(ProtocolRiskResultMetadata.class);
+        verify(riskEventSink).handleResult(captor.capture());
+        ProtocolRiskResultMetadata metadata = captor.getValue();
+        assertThat(metadata.reasonCode()).isEqualTo("CHAT_SUSPENDED");
+        assertThat(metadata.correlation().businessId()).isEqualTo(100L);
+        assertThat(metadata.correlation().businessItemId()).isEqualTo(200L);
+        assertThat(metadata.correlation().groupBusinessId()).isEqualTo(200L);
+        assertThat(metadata.correlation().commandId()).isEqualTo("cmd-normal-risk");
+        assertThat(metadata.correlation().groupJid()).isEqualTo("120363normal@g.us");
+        assertThat(metadata.correlation().rawCode()).isEqualTo("403");
     }
 
     @Test

@@ -1,6 +1,8 @@
 package com.armada.platform.kafka.consumer.group;
 
 import com.armada.platform.kafka.trace.KafkaTraceSupport;
+import com.armada.platform.protocol.risk.ProtocolRiskEventSink;
+import com.armada.platform.protocol.risk.ProtocolRiskResultMetadata;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.trace.TraceContext;
@@ -36,12 +38,15 @@ public class ProtocolNormalGroupCreationEventConsumer {
 
     private final ObjectMapper objectMapper;
     private final ProtocolNormalGroupCreationResultReportedSink resultReportedSink;
+    private final ProtocolRiskEventSink riskEventSink;
 
     public ProtocolNormalGroupCreationEventConsumer(
             ObjectMapper objectMapper,
-            ProtocolNormalGroupCreationResultReportedSink resultReportedSink) {
+            ProtocolNormalGroupCreationResultReportedSink resultReportedSink,
+            ProtocolRiskEventSink riskEventSink) {
         this.objectMapper = objectMapper;
         this.resultReportedSink = resultReportedSink;
+        this.riskEventSink = riskEventSink;
     }
 
     /**
@@ -133,12 +138,24 @@ public class ProtocolNormalGroupCreationEventConsumer {
             throw new BusinessException(ErrorCode.VALIDATION, "新建普群结果缺少 retryable");
         }
         Long timestamp = longValue(data, "timestamp");
-        resultReportedSink.handleNormalGroupCreationResult(
+        ProtocolNormalGroupCreationResultReportedEvent event =
                 new ProtocolNormalGroupCreationResultReportedEvent(
                         eventId, tenantId, taskId, itemId, memberId, direction, action,
                         accountId, protocolAccountId, backend, commandId, attemptNo, outcome,
                         groupJid, text(data, "reasonCode"), text(data, "reasonMessage"),
-                        retryable, timestamp == null ? 0L : timestamp, text(envelope, "workerId")));
+                        retryable, timestamp == null ? 0L : timestamp, text(envelope, "workerId"));
+        riskEventSink.handleResult(new ProtocolRiskResultMetadata(
+                new ProtocolRiskResultMetadata.Event(
+                        event.eventId(), event.tenantId(), EVENT_GROUP_ACTION_RESULT_REPORTED,
+                        event.action(), event.timestamp(), event.workerId()),
+                new ProtocolRiskResultMetadata.Account(
+                        event.accountId(), event.protocolAccountId(), event.protocolBackend()),
+                new ProtocolRiskResultMetadata.Correlation(
+                        SOURCE_NORMAL_GROUP_CREATION, event.taskId(), event.itemId(), event.itemId(),
+                        event.commandId(), null, "GROUP", event.groupJid(),
+                        scalarText(data, "rawCode")),
+                event.reasonCode(), event.reasonMessage()));
+        resultReportedSink.handleNormalGroupCreationResult(event);
     }
 
     private JsonNode readEnvelope(String rawMessage) {
@@ -183,6 +200,12 @@ public class ProtocolNormalGroupCreationEventConsumer {
             return null;
         }
         return value.asText();
+    }
+
+    private static String scalarText(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        return value == null || value.isNull() || value.isContainerNode()
+                ? null : value.asText();
     }
 
     private static Long longValue(JsonNode node, String field) {

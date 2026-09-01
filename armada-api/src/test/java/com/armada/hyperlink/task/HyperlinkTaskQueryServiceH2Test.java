@@ -8,6 +8,7 @@ import com.armada.hyperlink.task.converter.HyperlinkTaskListConverter;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskMapper;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskListQuery;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskListExportFile;
+import com.armada.hyperlink.task.model.vo.HyperlinkTaskListItemVO;
 import com.armada.hyperlink.task.service.HyperlinkTaskListQueryService;
 import com.armada.hyperlink.task.service.impl.HyperlinkTaskListQueryServiceImpl;
 import com.armada.shared.exception.BusinessException;
@@ -88,6 +89,21 @@ public class HyperlinkTaskQueryServiceH2Test {
         assertThat(service.list(query).list()).extracting("id")
                 .containsExactly(106L, 103L, 102L, 101L, 105L, 104L)
                 .doesNotContain(201L);
+    }
+
+    @Test
+    void listExposesActualFinishTimeFromRuntimeOnlyForTerminalRows() {
+        HyperlinkTaskListQuery query = new HyperlinkTaskListQuery();
+        query.setPageSize(200);
+
+        List<HyperlinkTaskListItemVO> items = service.list(query).list();
+
+        assertThat(items).filteredOn(item -> item.id() == 105L)
+                .extracting(HyperlinkTaskListItemVO::finishedAt)
+                .containsExactly(2_500L);
+        assertThat(items).filteredOn(item -> item.id() == 101L)
+                .extracting(HyperlinkTaskListItemVO::finishedAt)
+                .containsExactly((Long) null);
     }
 
     @Test
@@ -217,7 +233,7 @@ public class HyperlinkTaskQueryServiceH2Test {
                   fail_404_num BIGINT NOT NULL, invalid_account_count INT NOT NULL,
                   click_uv_num INT NOT NULL, click_total BIGINT NOT NULL, used_account_count INT NOT NULL,
                   actual_concurrency INT NOT NULL, execution_duration_sec BIGINT NOT NULL,
-                  active_since_at BIGINT, metrics_updated_at BIGINT)
+                  active_since_at BIGINT, finished_at BIGINT, metrics_updated_at BIGINT)
                 """);
     }
 
@@ -248,7 +264,8 @@ public class HyperlinkTaskQueryServiceH2Test {
                 + messageType + ",'https://example.com/" + id + "')");
         execute("INSERT INTO hyperlink_task_runtime VALUES (" + id + "," + tenantId + ","
                 + enabled + "," + runStatus + "," + provision
-                + ",100,90,80,60,30,10,4,2,5,7,8,3,120,NULL,2900)");
+                + ",100,90,80,60,30,10,4,2,5,7,8,3,120,NULL,"
+                + (runStatus == 2 || runStatus == 4 ? createdAt + 500 : "NULL") + ",2900)");
     }
 
     private void execute(String sql) throws SQLException {

@@ -4,7 +4,7 @@ import com.armada.hyperlink.task.model.dto.HyperlinkAccountFilterDTO;
 import com.armada.hyperlink.task.model.enums.HyperlinkProvisionStatus;
 import java.util.List;
 
-/** 超链任务 H1 列表项；比率由前端按公共公式计算。 */
+/** 超链任务 H1 列表项；比率由前端按公共公式计算，终态结束时间取运行态真实落库值。 */
 public record HyperlinkTaskListItemVO(
         long id,
         String taskName,
@@ -36,5 +36,6 @@ public record HyperlinkTaskListItemVO(
         long clickTotal,
         int actualConcurrency,
         long executionDurationSec,
+        Long finishedAt,
         Long metricsUpdatedAt) {
 }

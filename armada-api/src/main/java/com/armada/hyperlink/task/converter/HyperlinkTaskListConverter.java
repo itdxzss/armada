@@ -43,7 +43,7 @@ public class HyperlinkTaskListConverter {
                 number(row.getUsedAccountCount()), number(row.getInvalidAccountCount()),
                 number(row.getClickUvNum()), number(row.getClickTotal()),
                 number(row.getActualConcurrency()), executionDuration(row, now),
-                row.getMetricsUpdatedAt());
+                row.getFinishedAt(), row.getMetricsUpdatedAt());
     }
 
     /** 账号筛选完整标签；列表可自行截断，导出始终使用全量。 */

@@ -49,6 +49,7 @@
         runtime.actual_concurrency AS actualConcurrency,
         runtime.execution_duration_sec AS executionDurationSec,
         runtime.active_since_at AS activeSinceAt,
+        runtime.finished_at AS finishedAt,
         runtime.metrics_updated_at AS metricsUpdatedAt
     </sql>
 

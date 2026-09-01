@@ -33,6 +33,7 @@ public class HyperlinkTaskListRow {
     private Integer actualConcurrency;
     private Long executionDurationSec;
     private Long activeSinceAt;
+    private Long finishedAt;
     private Long metricsUpdatedAt;
 
     public Long getId() { return id; }
@@ -97,6 +98,8 @@ public class HyperlinkTaskListRow {
     public void setExecutionDurationSec(Long value) { this.executionDurationSec = value; }
     public Long getActiveSinceAt() { return activeSinceAt; }
     public void setActiveSinceAt(Long value) { this.activeSinceAt = value; }
+    public Long getFinishedAt() { return finishedAt; }
+    public void setFinishedAt(Long value) { this.finishedAt = value; }
     public Long getMetricsUpdatedAt() { return metricsUpdatedAt; }
     public void setMetricsUpdatedAt(Long value) { this.metricsUpdatedAt = value; }
 }

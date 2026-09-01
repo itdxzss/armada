@@ -43,7 +43,7 @@ public interface AccountHyperlinkCandidateService {
      * 在当前事务内锁定当前租户的账号身份行，串行化同账号跨任务派发。
      *
      * @param accountId 账号 ID
-     * @return true 表示账号仍存在且已锁定，false 表示账号不存在或已软删
+     * @return true 表示账号仍可发送消息且已锁定；false 表示账号不存在、已软删或消息发送受限
      */
     boolean lockForHyperlinkDispatch(long accountId);
 }

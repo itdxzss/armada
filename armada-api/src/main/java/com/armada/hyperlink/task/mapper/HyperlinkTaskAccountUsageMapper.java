@@ -25,6 +25,13 @@ public interface HyperlinkTaskAccountUsageMapper {
             @Param("now") long now);
     int completeSlot(@Param("id") long id, @Param("successful") boolean successful,
             @Param("now") long now);
+    /** 软受限账号退出当前任务，但不计入永久失效/封号。 */
+    int markOperationRestricted(
+            @Param("id") long id,
+            @Param("usageStatus") int usageStatus,
+            @Param("reasonCode") String reasonCode,
+            @Param("reason") String reason,
+            @Param("now") long now);
     int deleteUnusedByTask(@Param("taskId") long taskId);
     int markInvalid(@Param("id") long id, @Param("usageStatus") int usageStatus,
             @Param("invalidCode") String invalidCode, @Param("invalidReason") String invalidReason,

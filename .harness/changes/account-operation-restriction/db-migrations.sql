@@ -1,0 +1,12 @@
+-- 正式迁移文件：
+-- armada-api/src/main/resources/db/migration/V172__account_operation_restriction.sql
+--
+-- 关键语义：
+-- 1. 复用 account_state.mute_status + cooldown_until，不新增第二套状态/截止时间。
+-- 2. 新增 restriction_reason_code、restriction_reported_at 用于页面诊断。
+-- 3. 到期扫描索引为 idx_account_state_restriction_due (cooldown_until, id)。
+-- 4. 存量禁言归并为消息发送受限，存量拉手冷却事实合并为拉人或双重受限。
+--
+-- 配套迁移：
+-- armada-api/src/main/resources/db/migration/V173__hyperlink_recipient_dispatch_attempt.sql
+-- 为账号受限后的同料子换号重发增加派发尝试号，确保新的协议 commandId 不复用旧幂等键。

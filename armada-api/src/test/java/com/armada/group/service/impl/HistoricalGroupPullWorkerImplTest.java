@@ -183,7 +183,8 @@ class HistoricalGroupPullWorkerImplTest {
         HistoricalGroupPullMember member = member(21L, 1, "8613800000021", false);
         putMembers(member);
         when(accountLookupService.findRandomOnlineNormalWebByGroupId(301L)).thenReturn(Optional.empty());
-        when(accountLookupService.findRandomOnlineNormalByGroupId(301L)).thenReturn(Optional.empty());
+        when(accountLookupService.findRandomOnlineNormalPullerByGroupId(301L))
+                .thenReturn(Optional.empty());
 
         worker.execute(TENANT_ID, EXECUTION_ID);
 
@@ -266,7 +267,7 @@ class HistoricalGroupPullWorkerImplTest {
                 new ProtocolAccountRef(601L, ProtocolBackend.ANDROID, "android-601", "8613700000601");
         when(accountLookupService.findRandomOnlineNormalWebByGroupId(301L))
                 .thenReturn(Optional.empty());
-        when(accountLookupService.findRandomOnlineNormalByGroupId(301L))
+        when(accountLookupService.findRandomOnlineNormalPullerByGroupId(301L))
                 .thenReturn(Optional.of(android));
 
         worker.execute(TENANT_ID, EXECUTION_ID);

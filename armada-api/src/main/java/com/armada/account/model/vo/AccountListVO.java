@@ -98,8 +98,17 @@ public record AccountListVO(
         /** 风控倒计时终点(epoch 毫秒)。 */
         Long riskEndTime,
 
-        /** 禁言状态:1禁言6h 2禁言24h;NULL=未上报。 */
+        /** 账号操作限制统一截止时间(epoch 毫秒)。 */
+        Long cooldownUntil,
+
+        /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
         Integer muteStatus,
+
+        /** 最近一次操作限制原因码。 */
+        String restrictionReasonCode,
+
+        /** 最近一次操作限制事实时间(epoch 毫秒)。 */
+        Long restrictionReportedAt,
 
         /** 封号错误码(401/403/440)。 */
         String blockErrorCode,

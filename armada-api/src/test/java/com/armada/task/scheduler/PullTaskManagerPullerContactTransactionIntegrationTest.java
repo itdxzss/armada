@@ -343,7 +343,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         insertReleasedFailedPuller(47L, 2);
         List<ProtocolAccountRef> refs = List.of(
                 protocolRef(45L), protocolRef(47L), protocolRef(48L), protocolRef(50L));
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(refs);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(refs);
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
                 protocolRef(901L), protocolRef(48L), protocolRef(50L)));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
@@ -393,7 +393,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
 
     @Test
     void noAvailablePullerWaitsOnlyThisExecutionRow() {
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of());
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of());
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
 
         PullTaskExecutionDispatchResult result =
@@ -435,7 +435,34 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
-    void expiredCooldownIsRestoredOnlyAfterOnlineNormalValidation() {
+    void assignedRestrictedPullerIsReleasedAndReplacedBeforeContactCommands() {
+        PullTaskGroupAccount restricted = puller(100L, executionId(), 902L);
+        groupAccountMapper.insert(restricted);
+        ProtocolAccountRef manager = protocolRef(901L);
+        ProtocolAccountRef replacement = protocolRef(903L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L))
+                .thenReturn(List.of(replacement));
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(902L)))
+                .thenReturn(List.of());
+        when(accountLookup.findActiveProtocolRefs(anyList()))
+                .thenReturn(List.of(manager, replacement));
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-contact-replacement"), 1));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> pullers = groupAccountMapper.selectByExecutionAndRole(
+                executionId(), PullTaskGroupAccountRole.PULLER.code());
+        assertThat(pullers.stream().filter(row -> row.getAccountId() == 902L)
+                .findFirst().orElseThrow().getReleasedAt()).isEqualTo(610L);
+        assertThat(pullers.stream().filter(row -> row.getReleasedAt() == null)
+                .map(PullTaskGroupAccount::getAccountId)).containsExactly(903L);
+    }
+
+    @Test
+    void accountDomainEligibilityDoesNotRewriteLegacyRoleCooldown() {
         seedProtocolAccounts();
         PullTaskGroupAccount cooled = puller(200L, 502L, 902L);
         groupAccountMapper.insert(cooled);
@@ -453,7 +480,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 502L, PullTaskGroupAccountRole.PULLER.code()).get(0)
                 .getAvailabilityStatus())
-                .isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
+                .isEqualTo(PullTaskGroupAccountAvailability.RISK_COOLDOWN.code());
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code()))
                 .singleElement()
@@ -466,7 +493,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 901L, ProtocolBackend.WEB, "manager-901", "8613800000901");
         ProtocolAccountRef puller = new ProtocolAccountRef(
                 902L, ProtocolBackend.WEB, "puller-902", "8613800000902");
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(puller));
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(puller));
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(manager, puller));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(

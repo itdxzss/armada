@@ -25,16 +25,18 @@ public class HyperlinkMessageContentValidator {
     private static final int TITLE_MAX_LENGTH = 1024;
     /** 单图文正文最大字符数。 */
     private static final int SINGLE_CONTENT_MAX_LENGTH = 2000;
-    /** 普通按钮底部小字/卡片按钮副标题最大字符数。 */
-    private static final int BUTTON_CONTENT_MAX_LENGTH = 2000;
+    /** 普通按钮协议 Body 最大字符数。 */
+    private static final int NORMAL_BUTTON_BODY_MAX_LENGTH = 1024;
+    /** 卡片按钮协议 Footer 最大字符数。 */
+    private static final int CARD_BUTTON_FOOTER_MAX_LENGTH = 60;
     /** 链接描述最大字符数。 */
     private static final int LINK_DESCRIPTION_MAX_LENGTH = 512;
     /** 绝对 URL 最大字符数。 */
     private static final int URL_MAX_LENGTH = 2048;
-    /** 卡片底部文字最大字符数。 */
+    /** 卡片正文最大字符数。 */
     private static final int CARD_TEXT_MAX_LENGTH = 500;
     /** 按钮展示文字最大字符数。 */
-    private static final int BUTTON_TEXT_MAX_LENGTH = 30;
+    private static final int BUTTON_TEXT_MAX_LENGTH = 20;
     /** 一期唯一按钮排序值。 */
     private static final int BUTTON_SORT = 1;
     /** 一期超链模板图片最大字节数。 */
@@ -131,12 +133,15 @@ public class HyperlinkMessageContentValidator {
             HyperlinkMessageContent input,
             String title,
             boolean card) {
-        String content = optional(
-                input.content(), BUTTON_CONTENT_MAX_LENGTH, "按钮消息底部小字/副标题最长 2000 字符");
+        String content = card
+                ? optional(input.content(), CARD_BUTTON_FOOTER_MAX_LENGTH,
+                        "卡片按钮副标题小字最长 60 字符")
+                : optional(input.content(), NORMAL_BUTTON_BODY_MAX_LENGTH,
+                        "普通按钮底部小字最长 1024 字符");
         List<HyperlinkButton> buttons = normalizeButtons(input.buttons());
         String cardText = card
-                ? required(input.cardText(), "卡片按钮必须填写卡片底部文字",
-                        CARD_TEXT_MAX_LENGTH, "卡片底部文字最长 500 字符")
+                ? required(input.cardText(), "卡片按钮必须填写卡片正文",
+                        CARD_TEXT_MAX_LENGTH, "卡片正文最长 500 字符")
                 : null;
         if (input.bodyMainAssetId() != null) {
             validateAsset(input.bodyMainAssetId());
@@ -156,7 +161,7 @@ public class HyperlinkMessageContentValidator {
             throw new BusinessException(ErrorCode.VALIDATION, "一期按钮类型只支持 CTA_URL");
         }
         String displayText = required(
-                button.displayText(), "按钮文字不能为空", BUTTON_TEXT_MAX_LENGTH, "按钮文字最长 30 字符");
+                button.displayText(), "按钮文字不能为空", BUTTON_TEXT_MAX_LENGTH, "按钮文字最长 20 字符");
         String targetValue = required(
                 button.targetValue(), "按钮目标 URL 不能为空", URL_MAX_LENGTH, "按钮目标 URL 最长 2048 字符");
         requireHttpUrl(targetValue, "按钮目标必须是合法的绝对 http/https URL");

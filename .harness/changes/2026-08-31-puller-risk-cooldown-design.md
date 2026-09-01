@@ -1,8 +1,12 @@
-# 变更记录：普通拉群拉手专用限制与自动恢复
+# 历史设计：普通拉群拉手专用限制与自动恢复（已废止）
 
 - 日期 / 分支 / worktree：2026-08-31 / `1.0.3-snapshot` / `/Users/daishuaishuai/IdeaProjects/armada`
 - 需求来源：用户现场问题与设计确认；[正式设计](../../docs/superpowers/specs/2026-08-31-puller-risk-cooldown-design.md)
-- 状态：设计完成，待用户评审
+- 状态：已被 `.harness/changes/account-operation-restriction/summary.md` 取代
+
+> 2026-09-01 决策变更：不再新增拉手专用状态和截止时间，改为复用
+> `account_state.mute_status / cooldown_until`，通过状态码区分消息发送受限、拉人受限和双重受限。
+> 下文仅保留为历史决策记录，不得作为当前实现依据。
 
 ## 目标（一句话）
 

@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 class HyperlinkMessageCommandFactoryTest {
 
     @Test
-    void buttonContentMapsToExistingButtonCardWireWithStablePrivateTarget() {
+    void cardButtonMapsCardTextToBodyAndContentToFooter() {
         HyperlinkMessageCommandFactory factory = new HyperlinkMessageCommandFactory(
                 mock(MarketingTemplateFileService.class), new ObjectMapper(),
                 new HyperlinkShortLinkGuard("https://links.example.test/root/"));
@@ -37,14 +37,42 @@ class HyperlinkMessageCommandFactoryTest {
         assertThat(first.correlation().hyperlink().recipientId()).isEqualTo(13L);
         assertThat(first.correlation().marketing()).isNull();
         assertThat(first.payload().type()).isEqualTo(MessageType.BUTTON_CARD);
-        assertThat(first.payload().content().text()).isEqualTo("正文");
+        assertThat(first.payload().content().text()).isEqualTo("卡片文字");
         assertThat(first.payload().content().buttonCard().title()).isEqualTo("标题");
-        assertThat(first.payload().content().buttonCard().footer()).isEqualTo("卡片文字");
+        assertThat(first.payload().content().buttonCard().footer()).isEqualTo("正文");
         assertThat(first.payload().content().buttonCard().buttons()).singleElement()
                 .satisfies(button -> {
                     assertThat(button.displayText()).isEqualTo("查看");
                     assertThat(button.value()).isEqualTo("https://example.com/promo");
                 });
+    }
+
+    @Test
+    void normalButtonKeepsContentInBodyWithoutFooter() {
+        HyperlinkMessageCommandFactory factory = new HyperlinkMessageCommandFactory(
+                mock(MarketingTemplateFileService.class), new ObjectMapper(),
+                new HyperlinkShortLinkGuard("https://links.example.test/root/"));
+        HyperlinkTaskContent content = content();
+        content.setMessageType(3);
+        content.setCardText(null);
+
+        var command = factory.create(task(), content, recipient(), usage(), 1000L);
+
+        assertThat(command.payload().content().text()).isEqualTo("正文");
+        assertThat(command.payload().content().buttonCard().footer()).isNull();
+    }
+
+    @Test
+    void retryAfterAccountRestrictionUsesANewProtocolCommandId() {
+        HyperlinkMessageCommandFactory factory = new HyperlinkMessageCommandFactory(
+                mock(MarketingTemplateFileService.class), new ObjectMapper(),
+                new HyperlinkShortLinkGuard("https://links.example.test/root/"));
+        HyperlinkTaskRecipient recipient = recipient();
+        recipient.setDispatchAttempt(2);
+
+        var command = factory.create(task(), content(), recipient, usage(), 1_000L);
+
+        assertThat(command.commandId()).isEqualTo("hl:7:11:13:2");
     }
 
     @Test

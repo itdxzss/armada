@@ -14,7 +14,7 @@ import java.util.List;
  * @param linkDescription 单图文链接描述
  * @param promotionLink 单图文推广链接
  * @param buttons 按钮数组
- * @param cardText 卡片底部文字
+ * @param cardText 卡片正文
  * @param linkPreviewAssetId 链接预览图素材 ID
  * @param bodyMainAssetId 正文主图素材 ID
  * @param remark 运营备注

@@ -308,4 +308,28 @@ public interface AccountStateMapper {
             @Param("desiredOfflineState") int desiredOfflineState,
             @Param("eligibleBefore") long eligibleBefore,
             @Param("limit") int limit);
+
+    /** 在当前租户内写入或单调延长账号操作限制，并合并不同受限能力。 */
+    int markAccountOperationRestricted(
+            @Param("accountId") Long accountId,
+            @Param("incomingStatus") int incomingStatus,
+            @Param("combinedStatus") int combinedStatus,
+            @Param("reasonCode") String reasonCode,
+            @Param("occurredAt") long occurredAt,
+            @Param("candidateUntil") long candidateUntil,
+            @Param("now") long now);
+
+    /** 跨租户按批次恢复已到期的账号操作限制。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int restoreExpiredAccountOperationRestrictions(
+            @Param("now") long now,
+            @Param("limit") int limit);
+
+    /** 批量读取当前租户账号的普通拉群拉手限制。 */
+    List<AccountState> selectPullerRestrictionsByAccountIds(
+            @Param("accountIds") List<Long> accountIds);
+
+    /** 读取当前租户指定分组仍为受限状态的账号。 */
+    List<AccountState> selectPullerRestrictionsByGroupId(
+            @Param("accountGroupId") Long accountGroupId);
 }

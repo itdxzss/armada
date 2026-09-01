@@ -15,7 +15,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * @param accountState   账号生命周期状态
  * @param riskStatus     风控状态
  * @param loginState     登录状态
- * @param muteStatus     禁言状态
+ * @param muteStatus     操作限制状态
  * @param accountGroupId 账号分组 ID
  * @param numberSource   号码来源
  * @param channelName    推广渠道名

@@ -1,5 +1,8 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.model.vo.AccountPullerRestrictionSnapshot;
+import com.armada.account.model.vo.AccountPullerRestrictionSummary;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -40,11 +43,13 @@ import com.armada.task.model.vo.PullTaskStandardTaskDetailVO;
 import com.armada.task.model.vo.PullTaskStandardTaskSummaryVO;
 import com.armada.task.model.vo.PullTaskStandardSettingVO;
 import com.armada.task.model.vo.PullTaskStandardGroupSettingVO;
+import com.armada.task.model.vo.PullTaskPullerRestrictionSummaryVO;
 import com.armada.task.service.PullTaskStandardReadService;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -62,19 +67,23 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardReadResources resources;
     private final GroupLinkService groupLinkService;
+    private final AccountOperationRestrictionService pullerRestrictionService;
 
     /**
      * @param taskMapper 任务主表入口
      * @param resources 普通群链接全部读事实入口
      * @param groupLinkService 群域 WhatsApp 真实群名读取入口
+     * @param pullerRestrictionService 拉手专用限制读取入口
      */
     public PullTaskStandardReadServiceImpl(
             PullTaskMapper taskMapper,
             PullTaskStandardReadResources resources,
-            GroupLinkService groupLinkService) {
+            GroupLinkService groupLinkService,
+            AccountOperationRestrictionService pullerRestrictionService) {
         this.taskMapper = taskMapper;
         this.resources = resources;
         this.groupLinkService = groupLinkService;
+        this.pullerRestrictionService = pullerRestrictionService;
     }
 
     @Override
@@ -94,7 +103,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 task.getId(), task.getTaskName(), task.getStatus(), task.getCreationMode(),
                 task.getGroupCount(), task.getExpectedPullCount(), task.getStartedAt(), task.getFinishedAt(),
                 task.getCreatedAt(), task.getRemark(), List.of(), taskSummary(aggregate),
-                standardSetting(setting), groupSetting(groupSetting));
+                standardSetting(setting), groupSetting(groupSetting),
+                pullerRestriction(setting.getPullerGroupId()));
     }
 
     @Override
@@ -198,13 +208,28 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
     }
 
     private List<PullTaskStandardRoleVO> roles(long executionId) {
-        List<PullTaskStandardRoleVO> result = new ArrayList<>();
+        List<PullTaskGroupAccount> rows = new ArrayList<>();
         for (PullTaskGroupAccountRole role : PullTaskGroupAccountRole.values()) {
-            resources.facts().accountMapper()
-                    .selectByExecutionAndRole(executionId, role.code()).stream()
-                    .map(PullTaskStandardReadServiceImpl::role).forEach(result::add);
+            rows.addAll(resources.facts().accountMapper()
+                    .selectByExecutionAndRole(executionId, role.code()));
         }
-        return result;
+        List<Long> pullerAccountIds = rows.stream()
+                .filter(row -> Objects.equals(
+                        row.getRoleType(), PullTaskGroupAccountRole.PULLER.code()))
+                .map(PullTaskGroupAccount::getAccountId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<Long, AccountPullerRestrictionSnapshot> restrictions =
+                pullerRestrictionService.findPullerRestrictionsByAccountIds(pullerAccountIds);
+        return rows.stream().map(row -> role(row, restrictions)).toList();
+    }
+
+    private PullTaskPullerRestrictionSummaryVO pullerRestriction(Long pullerGroupId) {
+        AccountPullerRestrictionSummary summary = pullerRestrictionService
+                .summarizePullersByGroupId(pullerGroupId, System.currentTimeMillis());
+        return new PullTaskPullerRestrictionSummaryVO(
+                summary.serverNow(), summary.restrictedCount(), summary.nextRestrictionUntil());
     }
 
     private static PullTaskStandardExecutionSummaryVO summary(
@@ -316,7 +341,12 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         return Integer.valueOf(1).equals(value);
     }
 
-    private static PullTaskStandardRoleVO role(PullTaskGroupAccount row) {
+    private static PullTaskStandardRoleVO role(
+            PullTaskGroupAccount row,
+            Map<Long, AccountPullerRestrictionSnapshot> restrictions) {
+        AccountPullerRestrictionSnapshot restriction = Objects.equals(
+                row.getRoleType(), PullTaskGroupAccountRole.PULLER.code())
+                ? restrictions.get(row.getAccountId()) : null;
         return new PullTaskStandardRoleVO(
                 row.getId(), row.getAccountId(), row.getAccountPhone(),
                 value(row.getRoleType()),
@@ -325,7 +355,10 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 row.getMembershipReasonCode(), row.getMembershipReasonMessage(),
                 row.getMembershipResultAt(),
                 value(row.getAvailabilityStatus()), row.getUnavailableReasonCode(),
-                row.getPullCallId());
+                row.getPullCallId(),
+                restriction == null ? null : restriction.status(),
+                restriction == null ? null : restriction.restrictionUntil(),
+                restriction == null ? null : restriction.restrictionReasonCode());
     }
 
     private static PullTaskStandardCallVO call(PullTaskPullCall row) {

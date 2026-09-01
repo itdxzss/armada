@@ -91,7 +91,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void firstDispatchSelectsAtCursorAndCreatesGenerationOne() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         PullTaskPullCall call = createCall(1);
@@ -107,7 +107,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void secondCallReusesCurrentPullerWithoutMovingCursor() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -122,7 +122,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void offlineCurrentPullerSelectsNextAndIncrementsGenerationOnce() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()), List.of(protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -139,7 +139,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void noReplacementClearsCurrentAssignmentAndReturnsWaitResource() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()), List.of());
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -160,7 +160,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void clearingUnavailablePullerKeepsGenerationUntilReplacementIsAssigned() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         PullTaskPullCall first = createCall(1);
@@ -179,7 +179,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void accountStateEventClearsCurrentRoleWithoutRebindingSubmittedCall() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -197,7 +197,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void transportFailureDoesNotInvalidateStickyPuller() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -209,7 +209,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void callbackFromOldGenerationCannotInvalidateNewPuller() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -224,7 +224,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void firstAAfterAtoBtoAReuseCannotInvalidateSecondA() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
@@ -242,7 +242,7 @@ class PullTaskStickyPullerTransactionServiceTest {
 
     @Test
     void plannedCallAndAttemptsReceiveTheSamePullerAndGeneration() {
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
         PullTaskPullCall call = createCall(1);
@@ -262,7 +262,7 @@ class PullTaskStickyPullerTransactionServiceTest {
     void submittedCallCannotBeRebound() {
         PullTaskPullCall call = createCall(1);
         callMapper.markSubmitted(call.getId(), "cmd-1", 900L);
-        when(accountLookup.findActiveProtocolRefs(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()));
 

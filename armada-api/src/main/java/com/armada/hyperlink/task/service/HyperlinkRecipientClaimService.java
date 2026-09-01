@@ -15,10 +15,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** recipient 每批最多 50 行的可恢复、幂等领取事务。 */
+/** recipient 每批最多 500 行的可恢复、幂等领取事务。 */
 @Service
 public class HyperlinkRecipientClaimService {
-    public static final int BATCH_SIZE = 50;
+    public static final int BATCH_SIZE = 500;
     private final HyperlinkTaskRecipientClaimMapper claimMapper;
     private final HyperlinkTaskRecipientMapper recipientMapper;
     private final DataPackageRecipientClaimService dataPackageService;

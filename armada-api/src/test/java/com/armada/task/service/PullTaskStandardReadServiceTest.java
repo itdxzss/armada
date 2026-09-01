@@ -7,6 +7,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.model.vo.AccountPullerRestrictionSnapshot;
+import com.armada.account.model.vo.AccountPullerRestrictionSummary;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -59,6 +62,8 @@ class PullTaskStandardReadServiceTest {
     private final PullTaskStandardGroupSettingMapper groupSettingMapper =
             mock(PullTaskStandardGroupSettingMapper.class);
     private final GroupLinkService groupLinkService = mock(GroupLinkService.class);
+    private final AccountOperationRestrictionService pullerRestrictionService =
+            mock(AccountOperationRestrictionService.class);
     private final PullTaskStandardReadService service = new PullTaskStandardReadServiceImpl(
             taskMapper,
             new PullTaskStandardReadResources(
@@ -68,7 +73,8 @@ class PullTaskStandardReadServiceTest {
                     groupSettingMapper,
                     new PullTaskStandardReadFactMappers(
                             accountMapper, materialMapper, callMapper, actionMapper)),
-            groupLinkService);
+            groupLinkService,
+            pullerRestrictionService);
 
     @Test
     void readsTaskExecutionCallsRolesAndMemberFactsWithoutStaticSamples() {
@@ -113,8 +119,22 @@ class PullTaskStandardReadServiceTest {
                 .thenReturn(List.of(action()));
         when(groupLinkService.findWhatsAppGroupNamesByIds(List.of(21L)))
                 .thenReturn(Map.of(21L, "WhatsApp 详情群名"));
+        when(pullerRestrictionService.summarizePullersByGroupId(
+                org.mockito.ArgumentMatchers.eq(12L),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new AccountPullerRestrictionSummary(4_000L, 1, 9_000L));
+        when(pullerRestrictionService.findPullerRestrictionsByAccountIds(List.of(1_502L)))
+                .thenReturn(Map.of(1_502L,
+                        new AccountPullerRestrictionSnapshot(
+                                1_502L, 2, 9_000L, "RATE_LIMITED")));
 
         assertThat(service.task(100L).executions()).isEmpty();
+        assertThat(service.task(100L).pullerRestriction())
+                .satisfies(summary -> {
+                    assertThat(summary.serverNow()).isEqualTo(4_000L);
+                    assertThat(summary.restrictedCount()).isEqualTo(1);
+                    assertThat(summary.nextRestrictionUntil()).isEqualTo(9_000L);
+                });
         assertThat(service.task(100L).creationMode()).isEqualTo(PullTaskCreationMode.NEW_GROUP);
         assertThat(service.task(100L).summary().successfulMemberCount()).isEqualTo(1);
         assertThat(service.task(100L).standardSetting().pullerSyncMode().name())
@@ -147,6 +167,17 @@ class PullTaskStandardReadServiceTest {
                     assertThat(row.membershipReasonMessage()).isEqualTo("privacy blocked");
                     assertThat(row.membershipResultAt()).isEqualTo(5_000L);
                 });
+        assertThat(detail.roles())
+                .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.PULLER.code())
+                .singleElement()
+                .satisfies(row -> {
+                    assertThat(row.pullerRestrictionStatus()).isEqualTo(2);
+                    assertThat(row.pullerRestrictionUntil()).isEqualTo(9_000L);
+                });
+        assertThat(detail.roles())
+                .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.MANAGER.code())
+                .singleElement()
+                .satisfies(row -> assertThat(row.pullerRestrictionStatus()).isNull());
         assertThat(detail.roles())
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.PROMOTER.code())
                 .singleElement()

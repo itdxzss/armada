@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountHyperlinkCandidateService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.hyperlink.data.service.DataPackageRecipientClaimService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskContentMapper;
@@ -134,7 +135,8 @@ class HyperlinkDispatchConcurrencyTest {
         HyperlinkDispatchService service = new HyperlinkDispatchService(taskMapper,
                 contentMapper, runtimeMapper, roundMapper, usageMapper, recipientMapper,
                 commandFactory, mock(HyperlinkShortCodeGenerator.class), capability,
-                messageSendPort, data, accountService, dispatchGuard);
+                messageSendPort, data, accountService,
+                mock(AccountOperationRestrictionService.class), dispatchGuard);
         return new Fixture(service, runtimeMapper, roundMapper, usageMapper, accountService,
                 recipientMapper, messageSendPort);
     }

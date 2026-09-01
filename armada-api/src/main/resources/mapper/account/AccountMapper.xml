@@ -105,7 +105,7 @@
         AND (p.tenant_id = #{tenantId} OR p.tenant_id IS NULL)
         AND a.deleted_at IS NULL
         AND s.account_state = 2
-        AND s.mute_status IS NULL
+        AND (s.mute_status IS NULL OR s.mute_status = 2)
         AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
         AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
         AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
@@ -315,12 +315,17 @@
     ORDER BY protocolId ASC
   </select>
 
-  <!-- 同账号跨任务派发容量的数据库串行点；必须处于派发事务内。 -->
+  <!-- 同账号跨任务派发容量的数据库串行点；拉人受限(2)不影响消息发送。 -->
   <select id="lockActiveForHyperlinkDispatch" resultType="long">
-    SELECT id FROM account
-    WHERE tenant_id = #{tenantId}
-      AND id = #{accountId}
-      AND deleted_at IS NULL
+    SELECT a.id
+    FROM account a
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    WHERE a.tenant_id = #{tenantId}
+      AND a.id = #{accountId}
+      AND a.deleted_at IS NULL
+      AND (s.mute_status IS NULL OR s.mute_status = 2)
     LIMIT 1 FOR UPDATE
   </select>
 
@@ -441,7 +446,8 @@
   </update>
 
   <!--
-    指定账号分组随机选在线正常拉手账号。协议字段必须完整，风险未上报或明确允许且未禁言。
+    指定账号分组随机选在线正常营销账号。协议字段必须完整，风险未上报或明确允许，
+    且消息发送能力未受限；仅拉人受限仍可入选。
     选号刻意不连接营销/任务占用表：占用是具体任务事实，不能改变账号作为通用拉手的可用性。
     tenant_id 由租户拦截器注入，状态表同时按 tenant_id 关联，防止跨租户串行。
   -->
@@ -463,7 +469,7 @@
       AND s.account_state = #{normalAccountState}
       AND s.login_state = #{onlineLoginState}
       AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
-      AND s.mute_status IS NULL
+      AND (s.mute_status IS NULL OR s.mute_status = #{allowedRestrictionStatus})
     ORDER BY RAND()
     LIMIT 1
   </select>
@@ -484,6 +490,51 @@
       AND s.account_state = #{normalAccountState}
       AND s.login_state = #{onlineLoginState}
     ORDER BY a.id ASC
+  </select>
+
+  <!-- 普通拉群拉手选号：仅拉人受限(2/3)停用；消息发送受限(1)仍可拉人。 -->
+  <select id="selectOnlineNormalPullersByGroupId"
+          resultType="com.armada.account.model.entity.Account">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.account_group_id = #{groupId}
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
+    ORDER BY a.id ASC
+  </select>
+
+  <!-- 已分配拉手和正式生成命令前共用的账号域复核。 -->
+  <select id="selectEligiblePullersByIds"
+          resultType="com.armada.account.model.entity.Account">
+    <if test="ids != null and ids.size() &gt; 0">
+    SELECT a.*
+    FROM account a
+    INNER JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state = #{normalAccountState}
+      AND s.login_state = #{onlineLoginState}
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
+      AND a.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </if>
+    <if test="ids == null or ids.size() == 0">
+    SELECT * FROM account WHERE 1=0
+    </if>
   </select>
 
   <!--
@@ -512,7 +563,7 @@
       AND s.account_state = #{normalAccountState}
       AND s.login_state = #{onlineLoginState}
       AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
-      AND s.mute_status IS NULL
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
     ORDER BY RAND()
     LIMIT 1
   </select>
@@ -670,7 +721,6 @@
       AND s.login_state = #{onlineLoginState}
       AND s.account_state = #{normalAccountState}
       AND (s.risk_status IS NULL OR s.risk_status = 1)
-      AND s.mute_status IS NULL
     ORDER BY COALESCE(current_sync.last_sync_requested_at, 0) ASC,
              COALESCE(s.last_state_sync_time, a.updated_at, a.created_at, 0) ASC,
              a.id ASC
@@ -818,6 +868,8 @@
            s.account_state AS accountState, s.login_state AS loginState,
            s.risk_status AS riskStatus, s.risk_end_time AS riskEndTime,
            s.cooldown_until AS cooldownUntil, s.mute_status AS muteStatus,
+           s.restriction_reason_code AS restrictionReasonCode,
+           s.restriction_reported_at AS restrictionReportedAt,
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,
            s.state_source AS stateSource, s.truth_ip AS truthIp,
            COALESCE(s.proxy_country, p.region) AS proxyCountry,

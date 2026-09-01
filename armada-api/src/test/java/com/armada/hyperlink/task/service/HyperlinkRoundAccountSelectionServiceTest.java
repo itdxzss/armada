@@ -142,6 +142,27 @@ class HyperlinkRoundAccountSelectionServiceTest {
         verify(roundAccounts, never()).insertIgnore(any());
     }
 
+    @Test
+    void operationRestrictedAccountDoesNotConsumeTheReplacementAccountCap() {
+        HyperlinkTask task = task(1, 1);
+        HyperlinkTaskRound round = round();
+        HyperlinkTaskRoundAccount restricted = new HyperlinkTaskRoundAccount();
+        restricted.setAccountId(1L);
+        when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of(restricted));
+        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(0, 1);
+        when(roundAccounts.countOperationRestrictedByRoundId(21L)).thenReturn(1);
+        when(candidates.select(task, null, null, 50, NOW))
+                .thenReturn(List.of(candidate(2L)));
+        when(usages.selectByTaskAndAccount(11L, 2L)).thenReturn(usage(102L, 2L,
+                HyperlinkTaskAccountUsageStatus.AVAILABLE));
+        when(usages.markSelectedRound(102L, 2L, NOW)).thenReturn(1);
+        when(roundAccounts.insertIgnore(any())).thenReturn(1);
+
+        assertThat(service.select(task, round, NOW)).isEqualTo(1);
+
+        verify(roundAccounts).insertIgnore(any());
+    }
+
     private HyperlinkTask task() {
         return task(2, 2);
     }

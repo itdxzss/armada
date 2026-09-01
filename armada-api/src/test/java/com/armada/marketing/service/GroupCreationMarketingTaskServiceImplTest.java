@@ -124,7 +124,7 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
     }
 
     @Test
-    void createMatchesOnlyNormalOnlineUsableAccounts() {
+    void createAllowsPullingRestrictionButRejectsMessageRestriction() {
         long now = System.currentTimeMillis();
         Long groupId = insertAccountGroup("GCM-usable-only-" + now, now);
         Long templateId = insertTemplate("GCM模板-usable-only-" + now, now);
@@ -138,24 +138,25 @@ class GroupCreationMarketingTaskServiceImplTest extends DbTestBase {
                 AccountLoginStateCode.ONLINE, 2, null, now);
         insertAccountWithState(groupId, "8613000001005", "muted", "acc_muted", AccountStateCode.NORMAL,
                 AccountLoginStateCode.ONLINE, 1, 1, now);
-        Long usableId = insertAccountWithState(groupId, "8613000001006", "usable", "acc_usable", AccountStateCode.NORMAL,
+        Long pullingRestrictedId = insertAccountWithState(
+                groupId, "8613000001006", "pulling-only", "acc_pulling_only",
+                AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1, 2, now);
+        Long usableId = insertAccountWithState(groupId, "8613000001007", "usable", "acc_usable", AccountStateCode.NORMAL,
                 AccountLoginStateCode.ONLINE, 1, null, now);
         Fixture fixture = new Fixture(groupId, "GCM-usable-only-" + now, templateId,
-                "GCM模板-usable-only-" + now, List.of(usableId));
+                "GCM模板-usable-only-" + now, List.of(pullingRestrictedId, usableId));
 
         GroupCreationMarketingTaskDetailVO created = service.createTask(request(
                 "建群营销-只用可用账号",
                 fixture,
                 List.of(material("a.txt", "8613900000000"), material("b.txt", "8613911111111"))));
 
-        assertThat(created.matchedItemCount()).isEqualTo(1);
-        assertThat(created.unmatchedFileCount()).isEqualTo(1);
-        assertThat(created.items()).singleElement().satisfies(item -> {
-            assertThat(item.accountId()).isEqualTo(usableId);
-            assertThat(item.fileName()).isEqualTo("a.txt");
-            assertThat(item.protocolAccountId()).isEqualTo("acc_usable");
-        });
-        assertThat(service.accountCandidates(groupId)).extracting("accountId").containsExactly(usableId);
+        assertThat(created.matchedItemCount()).isEqualTo(2);
+        assertThat(created.unmatchedFileCount()).isZero();
+        assertThat(created.items()).extracting("accountId")
+                .containsExactly(pullingRestrictedId, usableId);
+        assertThat(service.accountCandidates(groupId)).extracting("accountId")
+                .containsExactly(pullingRestrictedId, usableId);
     }
 
     @Test

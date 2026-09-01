@@ -7,7 +7,8 @@
         task.data_package_name_snapshot, task.target_country_iso2s_snapshot,
         task.source_template_id, task.source_template_version, task.hyperlink_strategy_id,
         task.account_send_concurrency, task.msg_interval_min_ms, task.msg_interval_max_ms,
-        task.is_short_link_enabled, task.version, task.created_by, task.created_at, task.updated_at,
+        task.is_short_link_enabled AS shortLinkEnabled,
+        task.version, task.created_by, task.created_at, task.updated_at,
         strategy.task_type AS task_type,
         strategy.task_interval_minutes AS task_interval_minutes,
         strategy.account_filter AS account_filter,
@@ -23,6 +24,7 @@
         content.message_type AS messageType,
         runtime.is_enabled AS enabled,
         runtime.run_status AS runStatus,
+        runtime.provision_status AS provisionStatus,
         task.is_short_link_enabled AS shortLinkEnabled,
         task.version,
         content.promotion_link AS promotionLink,
@@ -69,7 +71,6 @@
         WHERE task.tenant_id = #{q.tenantId}
           AND content.tenant_id = #{q.tenantId}
           AND runtime.tenant_id = #{q.tenantId}
-          AND runtime.provision_status IN (0, 2)
         <if test="q.taskNameLike != null">
           AND task.task_name LIKE CONCAT('%', #{q.taskNameLike}, '%') ESCAPE '!'
         </if>

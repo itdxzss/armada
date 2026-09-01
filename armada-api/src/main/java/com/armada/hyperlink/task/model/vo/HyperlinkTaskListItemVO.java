@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.model.vo;
 
 import com.armada.hyperlink.task.model.dto.HyperlinkAccountFilterDTO;
+import com.armada.hyperlink.task.model.enums.HyperlinkProvisionStatus;
 import java.util.List;
 
 /** 超链任务 H1 列表项；比率由前端按公共公式计算。 */
@@ -11,6 +12,7 @@ public record HyperlinkTaskListItemVO(
         String taskMode,
         boolean enabled,
         int runStatus,
+        HyperlinkProvisionStatus provisionStatus,
         boolean shortLinkEnabled,
         int version,
         String promotionLink,

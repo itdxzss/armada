@@ -31,7 +31,7 @@ public class AccountQuery extends PageQuery {
     /** 登录状态:1在线 2离线(可选)。 */
     private Integer loginState;
 
-    /** 禁言状态:1禁言6h 2禁言24h(可选)。 */
+    /** 操作限制:1消息发送 2拉人 3两者都受限(可选)。 */
     private Integer muteStatus;
 
     /** 归属分组 ID(可选)。 */

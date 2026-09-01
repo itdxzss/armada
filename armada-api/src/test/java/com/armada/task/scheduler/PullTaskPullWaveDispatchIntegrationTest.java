@@ -103,7 +103,7 @@ class PullTaskPullWaveDispatchIntegrationTest {
         materialMapper.batchInsert(materials(5));
         insertPuller();
         ProtocolAccountRef puller = protocolPuller();
-        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(puller));
+        when(accountLookup.findEligiblePullerProtocolRefs(anyList())).thenReturn(List.of(puller));
         AtomicInteger commandSeq = new AtomicInteger();
         when(outboxService.enqueuePullTaskBatchAddCommands(anyList()))
                 .thenAnswer(invocation -> new ProtocolCommandOutboxEnqueueResult(
@@ -172,6 +172,30 @@ class PullTaskPullWaveDispatchIntegrationTest {
         assertThat(wave.getDispatchCompletedAt()).isEqualTo(41_000L);
         assertThat(executionMapper.selectById(executionId).getNextRunAt()).isEqualTo(41_000L);
         verifyNoInteractions(callbackFixture);
+    }
+
+    @Test
+    void restrictionDetectedAfterStickyBindingPreventsOutboxCommand() {
+        when(accountLookup.findEligiblePullerProtocolRefs(anyList()))
+                .thenReturn(List.of(protocolPuller()))
+                .thenReturn(List.of());
+
+        PullTaskGroupExecution candidate = claim("worker-1", 1_000L, 6_000L);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        assertThat(callMapper.selectByExecution(executionId))
+                .hasSize(5)
+                .allSatisfy(call -> {
+                    assertThat(call.getCallStatus())
+                            .isEqualTo(PullTaskPullCallStatus.PLANNED.code());
+                    assertThat(call.getCommandId()).isNull();
+                });
+        assertThat(materialMapper.selectByExecution(executionId))
+                .extracting(PullTaskMaterialMember::getPullStatus)
+                .containsOnly(PullTaskMaterialPullStatus.UNCONSUMED.code());
+        verifyNoInteractions(outboxService);
     }
 
     private PullTaskGroupExecution claim(String owner, long now, long expiresAt) {

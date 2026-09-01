@@ -312,7 +312,7 @@
         <foreach collection="executableAccountStates" item="executableState"
                  open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
-      AND s.mute_status IS NULL
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
     ORDER BY CASE
                WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
                     = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
@@ -363,7 +363,7 @@
         <foreach collection="executableAccountStates" item="executableState"
                  open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
-      AND s.mute_status IS NULL
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
     ORDER BY a.id ASC
     LIMIT #{limit}
   </select>

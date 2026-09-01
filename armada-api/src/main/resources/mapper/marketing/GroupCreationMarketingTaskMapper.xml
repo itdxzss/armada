@@ -187,7 +187,7 @@
           AND s.login_state = 1
           AND s.account_state = 2
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
         ORDER BY a.id ASC
     </select>
 
@@ -210,7 +210,7 @@
           AND s.login_state = 1
           AND s.account_state = 2
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
         ORDER BY a.id ASC
         LIMIT 1
     </select>
@@ -234,7 +234,7 @@
           AND s.login_state = 1
           AND s.account_state = 2
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
           <if test="excludedAccountIds != null and excludedAccountIds.size() > 0">
               AND a.id NOT IN
               <foreach collection="excludedAccountIds" item="accountId" open="(" separator="," close=")">

@@ -80,6 +80,12 @@ public interface HyperlinkTaskRecipientMapper {
             @Param("generation") int generation, @Param("limit") int limit);
     int deleteUnsubmitted(@Param("taskId") long taskId, @Param("limit") int limit);
     HyperlinkTaskRecipient selectByCommandId(@Param("commandId") String commandId);
+    /** 按事件携带的任务/recipient 身份读取当前逻辑发送，用于识别旧尝试的迟到回调。 */
+    @InterceptorIgnore(tenantLine = "true")
+    HyperlinkTaskRecipient selectCurrentByIdentity(
+            @Param("tenantId") long tenantId,
+            @Param("taskId") long taskId,
+            @Param("recipientId") long recipientId);
     HyperlinkTaskRecipient selectByProtocolMessage(@Param("accountId") long accountId,
             @Param("protocolId") String protocolId, @Param("messageId") String messageId);
     /** 按 ACK 完整关联身份锁定 recipient，供 usage 后固定锁序重读最新状态。 */
@@ -97,6 +103,11 @@ public interface HyperlinkTaskRecipientMapper {
             @Param("submittedAt") long submittedAt,
             @Param("nextReconciliationAt") long nextReconciliationAt);
     int applyResult(HyperlinkTaskRecipient entity);
+    /** 明确账号受限且未发送成功时，把同一料子原子释放回待发并递增尝试号。 */
+    int requeueAfterAccountRestriction(
+            @Param("id") long id,
+            @Param("commandId") String commandId,
+            @Param("now") long now);
     int scheduleReconciliation(@Param("commandId") String commandId,
             @Param("nextDispatchAt") long nextDispatchAt, @Param("now") long now);
     int advanceAck(@Param("entity") HyperlinkTaskRecipient entity,

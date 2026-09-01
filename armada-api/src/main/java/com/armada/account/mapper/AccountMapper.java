@@ -73,7 +73,7 @@ public interface AccountMapper {
      *
      * @param tenantId 当前租户 ID
      * @param accountId 账号 ID
-     * @return 被锁定的账号 ID；不存在或已软删时为 null
+     * @return 被锁定的账号 ID；不存在、已软删或消息发送受限时为 null；仅拉人受限仍可发送
      */
     @InterceptorIgnore(tenantLine = "true")
     Long lockActiveForHyperlinkDispatch(
@@ -146,7 +146,8 @@ public interface AccountMapper {
             @Param("groupId") Long groupId,
             @Param("normalAccountState") int normalAccountState,
             @Param("onlineLoginState") int onlineLoginState,
-            @Param("riskAllowed") int riskAllowed);
+            @Param("riskAllowed") int riskAllowed,
+            @Param("allowedRestrictionStatus") int allowedRestrictionStatus);
 
     /**
      * 查询指定账号组内全部在线正常且协议身份完整的账号。
@@ -158,6 +159,30 @@ public interface AccountMapper {
      */
     List<Account> selectOnlineNormalByGroupId(
             @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState);
+
+    /**
+     * 查询普通拉群任务可选的拉手账号，额外排除拉手专用限制状态。
+     *
+     * @param groupId 账号组 ID
+     * @param normalAccountState 正常账号状态码
+     * @param onlineLoginState 在线登录状态码
+     * @return 按账号 ID 排序的候选账号
+     */
+    List<Account> selectOnlineNormalPullersByGroupId(
+            @Param("groupId") Long groupId,
+            @Param("normalAccountState") int normalAccountState,
+            @Param("onlineLoginState") int onlineLoginState);
+
+    /**
+     * 从指定账号中筛选当前可执行普通拉人命令的账号。
+     *
+     * <p>该查询供已分配拉手复核和命令生成前最后复核使用，只看专用限制状态值，
+     * 不在请求线程按截止时间自行放行。</p>
+     */
+    List<Account> selectEligiblePullersByIds(
+            @Param("ids") List<Long> ids,
             @Param("normalAccountState") int normalAccountState,
             @Param("onlineLoginState") int onlineLoginState);
 

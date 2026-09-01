@@ -28,6 +28,11 @@
           AND u.usage_status=1
           AND (u.success_limit=0 OR u.successful_send_count+u.reserved_success_slot_count&lt;u.success_limit)
     </select>
+    <select id="countOperationRestrictedByRoundId" resultType="int">
+        SELECT COUNT(*) FROM hyperlink_task_round_account a
+        INNER JOIN hyperlink_task_account_usage u ON u.id=a.task_account_usage_id
+        WHERE a.hyperlink_task_round_id=#{roundId} AND u.usage_status=6
+    </select>
     <update id="syncUnavailableFromUsage">
         UPDATE hyperlink_task_round_account a
         INNER JOIN hyperlink_task_account_usage u ON u.id=a.task_account_usage_id
@@ -35,6 +40,6 @@
         SET a.assignment_status=CASE WHEN u.usage_status=2 THEN 2 ELSE 3 END,
           a.released_at=COALESCE(a.released_at,#{now}), a.updated_at=#{now}
         WHERE a.hyperlink_task_round_id=#{roundId} AND a.assignment_status=1
-          AND u.usage_status IN (2,3,4,5)
+          AND u.usage_status IN (2,3,4,5,6)
     </update>
 </mapper>

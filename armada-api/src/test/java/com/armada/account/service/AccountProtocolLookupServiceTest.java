@@ -4,6 +4,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.enums.AccountOperationRestrictionStatus;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -109,6 +110,25 @@ class AccountProtocolLookupServiceTest {
     }
 
     @Test
+    void randomSelectionPassesTheRestrictionAllowedByEachOperation() {
+        when(accountMapper.selectRandomOnlineNormalByGroupId(
+                301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1,
+                AccountOperationRestrictionStatus.PULLING_RESTRICTED.code()))
+                .thenReturn(account(51L, "WEB", "web-51", "9551"));
+        when(accountMapper.selectRandomOnlineNormalByGroupId(
+                302L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE, 1,
+                AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED.code()))
+                .thenReturn(account(52L, null, "web-52", "9552"));
+
+        assertThat(service.findRandomOnlineNormalByGroupId(301L))
+                .contains(new ProtocolAccountRef(
+                        51L, ProtocolBackend.WEB, "web-51", "9551"));
+        assertThat(service.findRandomOnlineNormalPullerByGroupId(302L))
+                .contains(new ProtocolAccountRef(
+                        52L, ProtocolBackend.WEB, "web-52", "9552"));
+    }
+
+    @Test
     void findOnlineNormalByGroupIdReturnsEveryEligibleProtocolAccount() {
         when(accountMapper.selectOnlineNormalByGroupId(
                 301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE))
@@ -121,6 +141,41 @@ class AccountProtocolLookupServiceTest {
                 new ProtocolAccountRef(52L, ProtocolBackend.ANDROID, "android-52", "9552"));
         verify(accountMapper).selectOnlineNormalByGroupId(
                 301L, AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+    }
+
+    @Test
+    void findOnlineNormalPullersByGroupIdUsesDedicatedRestrictionStatus() {
+        when(accountMapper.selectOnlineNormalPullersByGroupId(
+                301L,
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(
+                        account(51L, "WEB", "web-51", "9551"),
+                        account(52L, "ANDROID", "android-52", "9552")));
+
+        assertThat(service.findOnlineNormalPullersByGroupId(301L)).containsExactly(
+                new ProtocolAccountRef(51L, ProtocolBackend.WEB, "web-51", "9551"),
+                new ProtocolAccountRef(52L, ProtocolBackend.ANDROID, "android-52", "9552"));
+        verify(accountMapper).selectOnlineNormalPullersByGroupId(
+                301L,
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE);
+    }
+
+    @Test
+    void findEligiblePullerProtocolRefsFiltersInAccountDomainAndPreservesOrder() {
+        when(accountMapper.selectEligiblePullersByIds(
+                List.of(3L, 1L, 2L),
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE))
+                .thenReturn(List.of(
+                        account(1L, "ANDROID", "android-1", "911"),
+                        account(3L, "WEB", "web-3", "933")));
+
+        assertThat(service.findEligiblePullerProtocolRefs(List.of(3L, 1L, 2L)))
+                .containsExactly(
+                        new ProtocolAccountRef(3L, ProtocolBackend.WEB, "web-3", "933"),
+                        new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "android-1", "911"));
     }
 
     @Test

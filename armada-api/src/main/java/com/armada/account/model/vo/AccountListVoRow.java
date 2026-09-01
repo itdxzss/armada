@@ -95,11 +95,17 @@ public class AccountListVoRow {
     /** 风控倒计时终点(epoch 毫秒)。 */
     private Long riskEndTime;
 
-    /** 冷却到期(epoch 毫秒)。 */
+    /** 账号操作限制统一截止时间(epoch 毫秒)。 */
     private Long cooldownUntil;
 
-    /** 禁言状态:1禁言6h 2禁言24h;NULL=未上报。 */
+    /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
     private Integer muteStatus;
+
+    /** 最近一次操作限制原因码。 */
+    private String restrictionReasonCode;
+
+    /** 最近一次操作限制事实时间(epoch 毫秒)。 */
+    private Long restrictionReportedAt;
 
     /** 封号错误码(401/403/440)。 */
     private String blockErrorCode;
@@ -374,6 +380,22 @@ public class AccountListVoRow {
 
     public void setMuteStatus(Integer muteStatus) {
         this.muteStatus = muteStatus;
+    }
+
+    public String getRestrictionReasonCode() {
+        return restrictionReasonCode;
+    }
+
+    public void setRestrictionReasonCode(String restrictionReasonCode) {
+        this.restrictionReasonCode = restrictionReasonCode;
+    }
+
+    public Long getRestrictionReportedAt() {
+        return restrictionReportedAt;
+    }
+
+    public void setRestrictionReportedAt(Long restrictionReportedAt) {
+        this.restrictionReportedAt = restrictionReportedAt;
     }
 
     public String getBlockErrorCode() {

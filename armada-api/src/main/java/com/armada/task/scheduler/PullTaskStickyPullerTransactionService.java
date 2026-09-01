@@ -327,7 +327,8 @@ public class PullTaskStickyPullerTransactionService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
-        List<ProtocolAccountRef> resolved = accountLookup.findActiveProtocolRefs(accountIds);
+        List<ProtocolAccountRef> resolved = accountLookup
+                .findEligiblePullerProtocolRefs(accountIds);
         Map<Long, ProtocolAccountRef> protocols = new HashMap<>();
         if (resolved != null) {
             resolved.stream().filter(Objects::nonNull)

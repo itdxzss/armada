@@ -218,7 +218,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
                 puller.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
                 "ACCOUNT_OFFLINE", null, 520L);
         accountMapper.releasePuller(puller.getId(), 530L);
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(PULLER));
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(PULLER));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
 
         assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))
@@ -247,8 +247,8 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         accountMapper.updateMembership(puller.getId(),
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 510L, 510L);
         accountMapper.releasePuller(puller.getId(), 530L);
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of());
-        when(accountLookup.findActiveProtocolRefs(List.of(905L)))
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of());
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(905L)))
                 .thenReturn(List.of(account(905L)));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
 
@@ -267,7 +267,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     void activeManagerCandidateRestoresInitialManagerJoinWait() throws SQLException {
         waitAt(PullTaskExecutionStage.MANAGER_JOIN,
                 PullTaskWaitResourceType.MANAGER, "当前没有可用管理员");
-        when(accountLookup.findRandomOnlineNormalByGroupId(88L))
+        when(accountLookup.findRandomOnlineNormalPullerByGroupId(88L))
                 .thenReturn(Optional.of(MANAGER));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
 
@@ -331,7 +331,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
                 puller.getId(), PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
                 "RATE_LIMITED", 9_999L, 520L);
         accountMapper.releasePuller(puller.getId(), 530L);
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(PULLER));
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(PULLER));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
 
         assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))

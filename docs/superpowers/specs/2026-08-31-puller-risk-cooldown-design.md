@@ -1,5 +1,10 @@
 # 普通拉群拉手受限与自动恢复设计
 
+> **历史设计，已于 2026-09-01 废止。** 当前实现复用
+> `account_state.mute_status / cooldown_until`，以状态码区分消息发送受限、拉人受限和双重受限；
+> 以 [账号操作限制统一变更记录](../../../.harness/changes/account-operation-restriction/summary.md)
+> 为准。下文只保留决策演进记录，不得作为开发依据。
+
 | 项目 | 内容 |
 | --- | --- |
 | 日期 | 2026-08-31 |

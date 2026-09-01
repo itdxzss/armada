@@ -13,5 +13,6 @@ public interface HyperlinkTaskRoundAccountMapper {
     int deleteUnconsumedByTask(@Param("taskId") long taskId);
     int countByRoundId(@Param("roundId") long roundId);
     int countAvailableByRoundId(@Param("roundId") long roundId);
+    int countOperationRestrictedByRoundId(@Param("roundId") long roundId);
     int syncUnavailableFromUsage(@Param("roundId") long roundId, @Param("now") long now);
 }

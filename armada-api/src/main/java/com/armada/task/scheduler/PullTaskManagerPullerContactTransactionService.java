@@ -279,11 +279,14 @@ public class PullTaskManagerPullerContactTransactionService {
         if (planned <= 0 || setting.getPullerGroupId() == null) {
             return List.of();
         }
-        List<ProtocolAccountRef> eligible = eligiblePullers(
-                setting.getPullerGroupId(), now);
+        List<ProtocolAccountRef> eligible = eligiblePullers(setting.getPullerGroupId());
         List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
-        restoreReleasedPullers(existing, eligible, planned, now);
+        Set<Long> eligibleAssignedIds = eligibleAssignedIds(existing, eligible);
+        releaseIneligiblePullers(existing, eligibleAssignedIds, now);
+        existing = groupAccountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
+        restoreReleasedPullers(existing, eligibleAssignedIds, planned, now);
         existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         int activeCount = activePullers(existing).size();
@@ -310,41 +313,56 @@ public class PullTaskManagerPullerContactTransactionService {
                 .stream().limit(planned).toList();
     }
 
-    private List<ProtocolAccountRef> eligiblePullers(Long groupId, long now) {
-        List<ProtocolAccountRef> validated = resources.accountLookup()
-                .findOnlineNormalByGroupId(groupId);
-        List<Long> accountIds = validated.stream()
+    private List<ProtocolAccountRef> eligiblePullers(Long groupId) {
+        List<ProtocolAccountRef> eligible = resources.accountLookup()
+                .findOnlineNormalPullersByGroupId(groupId);
+        return eligible == null ? List.of() : eligible.stream()
                 .filter(Objects::nonNull)
-                .map(ProtocolAccountRef::armadaAccountId)
-                .distinct().toList();
-        if (accountIds.isEmpty()) {
-            return List.of();
-        }
-        groupAccountMapper.restoreExpiredPullerCooldowns(
-                accountIds, PullTaskGroupAccountRole.PULLER.code(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                PullTaskGroupAccountAvailability.AVAILABLE.code(), now);
-        List<Long> blockedRows = groupAccountMapper.selectAccountIdsByAvailability(
-                accountIds, PullTaskGroupAccountRole.PULLER.code(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code());
-        Set<Long> blocked = blockedRows == null ? Set.of() : new HashSet<>(blockedRows);
-        return validated.stream()
-                .filter(Objects::nonNull)
-                .filter(account -> !blocked.contains(account.armadaAccountId()))
                 .toList();
+    }
+
+    private Set<Long> eligibleAssignedIds(
+            List<PullTaskGroupAccount> existing,
+            List<ProtocolAccountRef> groupEligible) {
+        Set<Long> eligibleIds = new HashSet<>();
+        groupEligible.forEach(account -> eligibleIds.add(account.armadaAccountId()));
+        List<Long> remainingIds = accountIds(existing).stream()
+                .filter(accountId -> !eligibleIds.contains(accountId))
+                .sorted()
+                .toList();
+        if (remainingIds.isEmpty()) {
+            return eligibleIds;
+        }
+        List<ProtocolAccountRef> assignedEligible = resources.accountLookup()
+                .findEligiblePullerProtocolRefs(remainingIds);
+        if (assignedEligible != null) {
+            assignedEligible.stream()
+                    .filter(Objects::nonNull)
+                    .map(ProtocolAccountRef::armadaAccountId)
+                    .forEach(eligibleIds::add);
+        }
+        return eligibleIds;
+    }
+
+    private void releaseIneligiblePullers(
+            List<PullTaskGroupAccount> existing,
+            Set<Long> eligibleIds,
+            long now) {
+        for (PullTaskGroupAccount row : activePullers(existing)) {
+            if (eligibleIds.contains(row.getAccountId())) {
+                continue;
+            }
+            if (groupAccountMapper.releasePuller(row.getId(), now) != 1) {
+                throw new IllegalStateException("受限拉手占用释放失败");
+            }
+        }
     }
 
     private void restoreReleasedPullers(
             List<PullTaskGroupAccount> existing,
-            List<ProtocolAccountRef> eligible,
+            Set<Long> eligibleIds,
             int planned,
             long now) {
-        Set<Long> eligibleIds = new HashSet<>();
-        for (ProtocolAccountRef account : eligible) {
-            if (account != null) {
-                eligibleIds.add(account.armadaAccountId());
-            }
-        }
         int activeCount = activePullers(existing).size();
         for (PullTaskGroupAccount row : existing) {
             if (activeCount >= planned) {

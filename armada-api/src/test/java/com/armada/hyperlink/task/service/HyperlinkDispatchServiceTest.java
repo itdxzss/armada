@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountHyperlinkCandidateService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.hyperlink.data.service.DataPackageRecipientClaimService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskContentMapper;
@@ -23,6 +24,7 @@ import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskContent;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRound;
+import com.armada.hyperlink.task.model.enums.HyperlinkTaskAccountUsageStatus;
 import com.armada.hyperlink.task.port.HyperlinkPrivateCapabilityPort;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -137,20 +139,25 @@ class HyperlinkDispatchServiceTest {
     }
 
     @Test
-    void missingAccountDelaysOnceAndEndsTheTransactionBeforeTryingAnotherAccount() {
+    void messageUnavailableAccountRetiresAndContinuesWithNextAccount() {
         Fixture fixture = new Fixture(false);
         when(fixture.usageMapper.selectAvailable(anyLong(), anyLong(), anyLong(), anyInt(), anyInt()))
                 .thenReturn(List.of(usage(), secondUsage()));
         when(fixture.accountService.lockForHyperlinkDispatch(51L)).thenReturn(false);
+        when(fixture.accountService.lockForHyperlinkDispatch(52L)).thenReturn(true);
+        when(fixture.dispatchGuard.tryAcquire(52L, "hl:7:11:13")).thenReturn(true);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
 
         assertThat(fixture.service.dispatchOne(11L)).isTrue();
 
         verify(fixture.usageMapper).completeSlot(41L, false, 1_000L);
-        verify(fixture.usageMapper).scheduleNextSend(41L, 31_000L, 1_000L);
-        verify(fixture.recipientMapper, never()).lockSendingIdsByAccount(anyLong(), anyLong(), anyInt());
-        verify(fixture.recipientMapper, never()).lockPending(anyLong(), anyLong(), anyLong(), anyLong());
-        verify(fixture.dispatchGuard, never()).tryAcquire(anyLong(), any());
-        verify(fixture.accountService, never()).lockForHyperlinkDispatch(52L);
+        verify(fixture.usageMapper).markOperationRestricted(
+                41L, HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(),
+                "MESSAGE_SENDING_UNAVAILABLE", "账号当前不可用于营销消息发送", 1_000L);
+        verify(fixture.usageMapper, never()).scheduleNextSend(41L, 31_000L, 1_000L);
+        verify(fixture.accountService).lockForHyperlinkDispatch(52L);
+        verify(fixture.recipientMapper).lockSendingIdsByAccount(7L, 52L, 20);
+        verify(fixture.messageSendPort).enqueue(any());
     }
 
     @Test
@@ -190,6 +197,30 @@ class HyperlinkDispatchServiceTest {
     }
 
     @Test
+    void localAccountRestrictionRequeuesMaterialWithoutRecordingTerminalFailure() {
+        Fixture fixture = new Fixture(false);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
+        when(fixture.recipientMapper.requeueAfterAccountRestriction(
+                13L, "hl:7:11:13", 1_000L)).thenReturn(1);
+        when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
+                List.of(MessageSendEnqueueItem.rejected(
+                        "hl:7:11:13", "ACCOUNT_REACHOUT_RESTRICTED", "restricted"))));
+
+        assertThat(fixture.service.dispatchOne(11L)).isTrue();
+
+        verify(fixture.restrictionService).restrictMessageSending(
+                51L, "ACCOUNT_REACHOUT_RESTRICTED", 1_000L, 1_000L);
+        verify(fixture.recipientMapper).requeueAfterAccountRestriction(
+                13L, "hl:7:11:13", 1_000L);
+        verify(fixture.usageMapper).completeSlot(41L, false, 1_000L);
+        verify(fixture.usageMapper).markOperationRestricted(
+                41L, 6, "ACCOUNT_REACHOUT_RESTRICTED", "restricted", 1_000L);
+        verify(fixture.recipientMapper, never()).applyResult(any());
+        verify(fixture.dataPackageService, never()).advanceDeliveryFact(
+                anyLong(), anyLong(), anyInt(), any(), any(), anyLong());
+    }
+
+    @Test
     void acceptedOutboxKeepsHolderAfterDatabaseCommit() {
         Fixture fixture = new Fixture(false);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
@@ -216,6 +247,10 @@ class HyperlinkDispatchServiceTest {
                 mock(HyperlinkAccountDispatchGuard.class);
         private final AccountHyperlinkCandidateService accountService =
                 mock(AccountHyperlinkCandidateService.class);
+        private final AccountOperationRestrictionService restrictionService =
+                mock(AccountOperationRestrictionService.class);
+        private final DataPackageRecipientClaimService dataPackageService =
+                mock(DataPackageRecipientClaimService.class);
         private final HyperlinkTaskRecipient recipient = recipient();
         private final HyperlinkDispatchService service;
 
@@ -240,24 +275,25 @@ class HyperlinkDispatchServiceTest {
             when(usageMapper.reserveSlot(anyLong(), anyInt(), anyInt(), anyLong()))
                     .thenReturn(1);
             when(usageMapper.scheduleNextSend(anyLong(), anyLong(), anyLong())).thenReturn(1);
+            when(usageMapper.markOperationRestricted(
+                    anyLong(), anyInt(), any(), any(), anyLong())).thenReturn(1);
             when(capabilityPort.supports(ProtocolBackend.WEB, "web")).thenReturn(true);
             when(accountService.lockForHyperlinkDispatch(51L)).thenReturn(true);
             when(recipientMapper.lockSendingIdsByAccount(7L, 51L, 20))
                     .thenReturn(List.of());
             when(recipientMapper.lockPending(7L, 11L, 31L, 1_000L)).thenReturn(recipient);
             MessageSendCommand command = mock(MessageSendCommand.class);
-            when(commandFactory.commandId(7L, 11L, 13L)).thenReturn("hl:7:11:13");
+            when(commandFactory.commandId(7L, 11L, 13L, null))
+                    .thenReturn("hl:7:11:13");
             when(dispatchGuard.tryAcquire(51L, "hl:7:11:13")).thenReturn(true);
             when(commandFactory.create(any(), any(), any(), any(), anyLong())).thenReturn(command);
             when(contentMapper.selectByTaskId(11L)).thenReturn(content());
             when(messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
                     List.of(MessageSendEnqueueItem.accepted("hl:7:11:13"))));
-            DataPackageRecipientClaimService dataPackageService =
-                    mock(DataPackageRecipientClaimService.class);
             service = new HyperlinkDispatchService(taskMapper, contentMapper, runtimeMapper,
                     roundMapper, usageMapper, recipientMapper, commandFactory, shortCodeGenerator,
                     capabilityPort, messageSendPort, dataPackageService,
-                    accountService, dispatchGuard,
+                    accountService, restrictionService, dispatchGuard,
                     Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneOffset.UTC));
         }
     }

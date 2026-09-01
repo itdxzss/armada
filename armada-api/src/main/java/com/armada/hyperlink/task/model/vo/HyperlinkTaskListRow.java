@@ -8,6 +8,7 @@ public class HyperlinkTaskListRow {
     private Integer messageType;
     private Boolean enabled;
     private Integer runStatus;
+    private Integer provisionStatus;
     private Boolean shortLinkEnabled;
     private Integer version;
     private String promotionLink;
@@ -46,6 +47,8 @@ public class HyperlinkTaskListRow {
     public void setEnabled(Boolean value) { this.enabled = value; }
     public Integer getRunStatus() { return runStatus; }
     public void setRunStatus(Integer value) { this.runStatus = value; }
+    public Integer getProvisionStatus() { return provisionStatus; }
+    public void setProvisionStatus(Integer value) { this.provisionStatus = value; }
     public Boolean getShortLinkEnabled() { return shortLinkEnabled; }
     public void setShortLinkEnabled(Boolean value) { this.shortLinkEnabled = value; }
     public Integer getVersion() { return version; }

@@ -42,10 +42,13 @@ public class HyperlinkRoundAccountSelectionService {
         List<HyperlinkTaskRoundAccount> selected = roundAccountMapper.selectByRoundId(round.getId());
         int selectedTotal = selected.size();
         int available = roundAccountMapper.countAvailableByRoundId(round.getId());
+        int operationRestricted = roundAccountMapper.countOperationRestrictedByRoundId(
+                round.getId());
+        int selectedAgainstCap = Math.max(0, selectedTotal - operationRestricted);
         int selectionCap = selectionCap(task);
         int canAdd = Math.max(0, Math.min(selectionCap - available,
                 task.getMaxUseAccount() == null || task.getMaxUseAccount() == 0
-                        ? selectionCap : task.getMaxUseAccount() - selectedTotal));
+                        ? selectionCap : task.getMaxUseAccount() - selectedAgainstCap));
         if (canAdd > 0) {
             Set<Long> selectedAccountIds = new HashSet<>();
             selected.forEach(value -> selectedAccountIds.add(value.getAccountId()));

@@ -277,6 +277,11 @@
     <select id="selectByCommandId" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
         SELECT * FROM hyperlink_task_recipient WHERE command_id=#{commandId}
     </select>
+    <select id="selectCurrentByIdentity"
+            resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
+        SELECT * FROM hyperlink_task_recipient
+        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId} AND id=#{recipientId}
+    </select>
     <select id="selectByProtocolMessage" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
         SELECT * FROM hyperlink_task_recipient
         WHERE account_id=#{accountId} AND protocol_id=#{protocolId} AND protocol_message_id=#{messageId}
@@ -322,6 +327,19 @@
           fail_reason=CASE WHEN #{sendStatus} IN (6,7) THEN #{failReason} ELSE fail_reason END,
           updated_at=#{updatedAt}
         WHERE command_id=#{commandId} AND send_status=2
+    </update>
+    <update id="requeueAfterAccountRestriction">
+        UPDATE hyperlink_task_recipient SET
+          hyperlink_task_round_id=NULL, round_no=NULL,
+          account_id=NULL, sender_phone_snapshot=NULL,
+          sender_country_iso2_snapshot=NULL, sender_account_type_snapshot=NULL,
+          sender_device_os_snapshot=NULL, protocol_id=NULL, protocol_backend=NULL,
+          command_id=NULL, dispatch_attempt=dispatch_attempt+1,
+          protocol_message_id=NULL, short_code=NULL,
+          send_status=1, next_dispatch_at=#{now},
+          fail_code=NULL, fail_reason=NULL, failed_at=NULL,
+          updated_at=#{now}
+        WHERE id=#{id} AND command_id=#{commandId} AND send_status=2
     </update>
     <update id="advanceAck">
         UPDATE hyperlink_task_recipient SET send_status=#{entity.sendStatus},

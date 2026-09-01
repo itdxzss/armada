@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** 扫描所有租户未收敛的准备作业，并逐任务恢复一个批次。 */
+/** 扫描所有租户未收敛的准备作业，并逐任务执行一次有界推进。 */
 @Component
 public class HyperlinkProvisioningScheduler {
     private static final Logger log = LoggerFactory.getLogger(HyperlinkProvisioningScheduler.class);

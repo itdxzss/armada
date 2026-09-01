@@ -532,7 +532,7 @@
           AND s.account_state = 2
           AND s.login_state = 1
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) != ''
           AND source_group.marketing_occupancy_task_id IS NULL
@@ -571,7 +571,7 @@
           AND s.account_state = 2
           AND s.login_state = 1
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
           AND a.protocol_account_id IS NOT NULL
           AND TRIM(a.protocol_account_id) != ''
           AND marketing_group.marketing_occupancy_type = 2

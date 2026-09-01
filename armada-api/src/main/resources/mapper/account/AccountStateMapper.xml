@@ -126,7 +126,6 @@
     SET account_state = #{targetState},
         updated_at = #{updatedAt}
     WHERE account_state = #{expectedState}
-      AND mute_status IS NULL
       AND account_id IN
     <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
       #{accountId}
@@ -205,6 +204,78 @@
       AND s.last_state_sync_time &lt;= #{eligibleBefore}
     ORDER BY s.last_state_sync_time ASC, s.id ASC
     LIMIT #{limit}
+  </select>
+
+  <!-- 状态按能力合并，截止时间只延长；旧事实不能覆盖较新的原因或缩短限制。 -->
+  <update id="markAccountOperationRestricted">
+    UPDATE account_state
+    SET mute_status = CASE
+          WHEN mute_status IS NULL THEN #{incomingStatus}
+          WHEN mute_status = #{incomingStatus} THEN mute_status
+          ELSE #{combinedStatus}
+        END,
+        cooldown_until = CASE
+          WHEN cooldown_until IS NULL
+            OR cooldown_until &lt; #{candidateUntil}
+          THEN #{candidateUntil}
+          ELSE cooldown_until
+        END,
+        restriction_reason_code = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt;= #{occurredAt}
+          THEN #{reasonCode}
+          ELSE restriction_reason_code
+        END,
+        restriction_reported_at = CASE
+          WHEN restriction_reported_at IS NULL
+            OR restriction_reported_at &lt; #{occurredAt}
+          THEN #{occurredAt}
+          ELSE restriction_reported_at
+        END,
+        updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
+    WHERE account_id = #{accountId}
+      AND #{candidateUntil} &gt; #{now}
+  </update>
+
+  <!-- 调度线程无请求租户上下文；按统一截止时间恢复任意操作限制。 -->
+  <update id="restoreExpiredAccountOperationRestrictions">
+    UPDATE account_state
+    SET mute_status = NULL,
+        cooldown_until = NULL,
+        updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
+    WHERE mute_status IS NOT NULL
+      AND cooldown_until IS NOT NULL
+      AND cooldown_until &lt;= #{now}
+    ORDER BY cooldown_until ASC, id ASC
+    LIMIT #{limit}
+  </update>
+
+  <select id="selectPullerRestrictionsByAccountIds"
+          resultType="com.armada.account.model.entity.AccountState">
+    SELECT account_id, mute_status, cooldown_until,
+           restriction_reason_code, restriction_reported_at
+    FROM account_state
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
+  </select>
+
+  <select id="selectPullerRestrictionsByGroupId"
+          resultType="com.armada.account.model.entity.AccountState">
+    SELECT state_row.account_id,
+           state_row.mute_status,
+           state_row.cooldown_until,
+           state_row.restriction_reason_code,
+           state_row.restriction_reported_at
+    FROM account_state state_row
+    INNER JOIN account account_row
+      ON account_row.id = state_row.account_id
+     AND account_row.tenant_id = state_row.tenant_id
+     AND account_row.deleted_at IS NULL
+    WHERE account_row.account_group_id = #{accountGroupId}
+      AND state_row.mute_status IN (2, 3)
+    ORDER BY state_row.cooldown_until ASC, state_row.id ASC
   </select>
 
 

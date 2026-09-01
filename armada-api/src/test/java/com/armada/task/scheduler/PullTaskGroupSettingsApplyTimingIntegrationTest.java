@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
+import com.armada.group.service.GroupFolderService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -455,7 +456,7 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
                 901L, ProtocolBackend.WEB, "manager-901", "8613800000901");
         ProtocolAccountRef puller = new ProtocolAccountRef(
                 902L, ProtocolBackend.WEB, "puller-902", "8613800000902");
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(puller));
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(puller));
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(manager, puller));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
@@ -676,6 +677,11 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
         @Bean
         PullTaskBatchSizeSelector batchSizeSelector() {
             return new PullTaskBatchSizeSelector((minimum, maximum) -> minimum);
+        }
+
+        @Bean
+        GroupFolderService groupFolderService() {
+            return mock(GroupFolderService.class);
         }
     }
 }

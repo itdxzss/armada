@@ -16,6 +16,7 @@
 - [x] 增加租户隔离、事件幂等的数据库审计表与适配器
 - [x] 测试环境 Compose 默认启用 `ZERO_TEST`，生产 Compose 不启用
 - [x] 配置 test1 公网短链基址，并由 Compose 显式传入后端容器
+- [x] 修复 `selectById` 的短链开关字段映射，避免深度追踪任务漏生成 shortCode
 - [x] 补聚焦单测、H2 真实 Mapper 测试和 Flyway 结构合同
 
 ## 关键设计决策
@@ -35,6 +36,8 @@
   39 tests，0 failures，0 errors，0 skipped。
 - `mvn -Dtest='FlywayMigrationSqlContractTest,HyperlinkZeroBillingMigrationSqlTest' test`:
   2 tests，0 failures，0 errors。
+- `mvn -Dtest='HyperlinkTaskDetailMapperH2Test,HyperlinkDispatchServiceTest,HyperlinkMessageCommandFactoryTest' test`:
+  通过；新增真实 Mapper XML 回归测试先复现 `shortLinkEnabled=null`，显式列别名修复后转绿。
 - `bash armada-deploy/deploy-test.test.sh`: 通过。
 - `docker compose --env-file armada-deploy/.env.example -f armada-deploy/docker-compose.rds.yml config --quiet`:
   通过。
@@ -47,16 +50,18 @@
 
 - 环境: `test1`，范围: 仅后端，命令:
   `bash deploy-test.sh --env test1 --be -y`。
-- 来源: 当前 `1.0.3-snapshot@9727a5d6` 脏工作区；未提交、未推送。
+- 最新部署来源: 当前 `1.0.3-snapshot@b74b1112` 脏工作区；本次 Mapper 修复未提交、未推送。
 - 最终本地、远端暂存、运行容器 JAR SHA-256:
-  `e203f1d81fefaf9142fdd91ccc6c37c97fb01546c0468cfb05c43758e805e434`。
-- 运行镜像: `sha256:8459e44c64d2d7b323a5e58cd5a761eeb614191b05a47400e18378cde10fa85a`；
+  `46f183287bbc00892246fccb491e3f1fa129c90ac0740454e0503b87375d5fe3`。
+- 运行镜像: `sha256:50ed70d3772dd93cc2f9df43f989293767cdac913bd9a4767d67166c6e421b9f`；
   `status=running`、`restart=0`。
 - Flyway: schema 已在首次部署从 170 迁移至 171；最终复部署确认 171 为最新，无待执行迁移。
 - 运行配置: `ARMADA_HYPERLINK_BILLING_MODE=ZERO_TEST`；
   `ARMADA_HYPERLINK_PUBLIC_BASE_URL=http://armada.65.2.123.53.nip.io`；应用约 21 秒启动完成。
 - 从本机请求 `http://armada.65.2.123.53.nip.io/api/public/hl/notfound123`
   返回预期 `404`，证明公网网关已将短链入口转发至后端；有效短码的 `302` 跳转待业务任务生成后验收。
+- 任务 1 在修复前因 `is_short_link_enabled` 未显式映射为 `shortLinkEnabled`，
+  201 条 recipient 均在建 command 前失败。修复部署后确认任务仍暂停、未提交任何协议命令，新容器内该 shortCode 异常计数为 0。
 - 同步修复 Bash 部署脚本: 后端部署强制重建容器，并在远端暂存和容器运行两个阶段校验
   本次构建 JAR SHA-256；不一致即部署失败。不带 `--branch` 时新增明确警告：不会自动
   fetch/pull，而是部署当前工作区（包括未提交改动）。

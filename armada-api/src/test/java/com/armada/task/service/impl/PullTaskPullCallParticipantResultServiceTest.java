@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -18,7 +19,6 @@ import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
-import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
@@ -31,7 +31,6 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
-import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -72,7 +71,7 @@ class PullTaskPullCallParticipantResultServiceTest {
     private PullTaskMaterialMemberMapper materialMapper;
     private PullTaskGroupAccountMapper accountMapper;
     private PullTaskGroupExecutionMapper executionMapper;
-    private PullTaskStandardSettingMapper settingMapper;
+    private AccountOperationRestrictionService pullerRestrictionService;
     private PullTaskStickyPullerTransactionService stickyPullers;
     private PullTaskGroupExecutionFailureService groupFailure;
     private PullTaskPullWaveProgressService waveProgress;
@@ -86,7 +85,7 @@ class PullTaskPullCallParticipantResultServiceTest {
         materialMapper = mock(PullTaskMaterialMemberMapper.class);
         accountMapper = mock(PullTaskGroupAccountMapper.class);
         executionMapper = mock(PullTaskGroupExecutionMapper.class);
-        settingMapper = mock(PullTaskStandardSettingMapper.class);
+        pullerRestrictionService = mock(AccountOperationRestrictionService.class);
         stickyPullers = mock(PullTaskStickyPullerTransactionService.class);
         groupFailure = mock(PullTaskGroupExecutionFailureService.class);
         waveProgress = mock(PullTaskPullWaveProgressService.class);
@@ -95,7 +94,7 @@ class PullTaskPullCallParticipantResultServiceTest {
                 new PullTaskUnknownResultResources(
                         mock(PullTaskAccountActionMapper.class), callMapper, attemptMapper,
                         materialMapper, accountMapper),
-                executionMapper, settingMapper,
+                executionMapper, pullerRestrictionService,
                 new PullTaskPullCallResultCoordination(
                         stickyPullers, groupFailure, waveProgress), eventPublisher);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call());
@@ -455,9 +454,9 @@ class PullTaskPullCallParticipantResultServiceTest {
     void uncertainAccountRiskReleasesMemberAndRotatesPullerWithoutRosterQuery(
             String reasonCode) {
         stubAccountFailure(reasonCode);
-        PullTaskStandardSetting setting = new PullTaskStandardSetting();
-        setting.setPullerRiskMinutes(5);
-        when(settingMapper.selectByTaskId(11L)).thenReturn(setting);
+        when(pullerRestrictionService.restrictPulling(
+                eq(71L), eq(reasonCode), eq(5_000L), anyLong()))
+                .thenReturn(true);
 
         assertThat(service.handle(callback(
                 PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
@@ -473,13 +472,16 @@ class PullTaskPullCallParticipantResultServiceTest {
                 .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
         assertThat(aggregate.target().pullCallId()).isNull();
 
-        verify(accountMapper).markUnavailable(
-                61L, PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                reasonCode, 305_000L, 5_000L);
+        verify(pullerRestrictionService).restrictPulling(
+                eq(71L), eq(reasonCode), eq(5_000L), anyLong());
+        verify(accountMapper, never()).markUnavailable(
+                anyLong(), anyInt(), any(), any(), anyLong());
         verify(stickyPullers).invalidateIfCurrent(
                 argThat(row -> row.getId() == 21L),
                 argThat(row -> row.getId() == 31L),
                 eq(reasonCode), eq(5_000L));
+        verify(eventPublisher).publishEvent(new PullTaskPullerUnavailableEvent(
+                7L, 21L, 61L, 5_000L));
     }
 
     @Test

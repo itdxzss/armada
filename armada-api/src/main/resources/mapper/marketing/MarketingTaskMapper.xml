@@ -814,7 +814,7 @@
           AND state.account_state = 2
           AND state.login_state = 1
           AND (state.risk_status IS NULL OR state.risk_status = 1)
-          AND state.mute_status IS NULL
+          AND (state.mute_status IS NULL OR state.mute_status = 2)
     </select>
 
     <select id="countOwnedGroupPullMarketingGroup" resultType="int">
@@ -861,7 +861,7 @@
           AND state.account_state = 2
           AND state.login_state = 1
           AND (state.risk_status IS NULL OR state.risk_status = 1)
-          AND state.mute_status IS NULL
+          AND (state.mute_status IS NULL OR state.mute_status = 2)
         ORDER BY target.id
     </select>
 
@@ -1268,7 +1268,7 @@
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
         LIMIT 1
     </select>
 
@@ -1294,7 +1294,7 @@
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
         LIMIT 1
     </select>
 
@@ -1405,7 +1405,7 @@
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
           AND self_participant.presence_status IN (0, 1)
           AND (current_profile.id IS NULL
                OR (COALESCE(current_profile.banned, 0) = 0
@@ -1459,7 +1459,7 @@
           AND TRIM(a.protocol_account_id) &lt;&gt; ''
           AND group_sync.baseline_state IN (2, 3)
           AND (s.risk_status IS NULL OR s.risk_status = 1)
-          AND s.mute_status IS NULL
+          AND (s.mute_status IS NULL OR s.mute_status = 2)
           AND self_participant.presence_status IN (0, 1)
           AND (current_profile.id IS NULL
                OR (COALESCE(current_profile.banned, 0) = 0

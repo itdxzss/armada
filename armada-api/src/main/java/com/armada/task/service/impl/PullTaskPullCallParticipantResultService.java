@@ -1,10 +1,10 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
-import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskFactResult;
@@ -18,7 +18,6 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
-import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -47,7 +46,6 @@ public class PullTaskPullCallParticipantResultService {
 
     static final int MAX_FAILURE_RETRY_COUNT = 3;
     static final int MAX_EXPLICIT_FAILURE_COUNT = MAX_FAILURE_RETRY_COUNT + 1;
-    private static final long MILLIS_PER_MINUTE = 60_000L;
     private static final String ROSTER_QUERY_UNAVAILABLE = "ROSTER_QUERY_UNAVAILABLE";
     private static final String PROTOCOL_RESULT_UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
     private static final Set<String> RISK_REASON_CODES = Set.of(
@@ -69,7 +67,7 @@ public class PullTaskPullCallParticipantResultService {
 
     private final PullTaskUnknownResultResources resources;
     private final PullTaskGroupExecutionMapper executionMapper;
-    private final PullTaskStandardSettingMapper settingMapper;
+    private final AccountOperationRestrictionService pullerRestrictionService;
     private final PullTaskPullCallResultCoordination coordination;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -77,12 +75,12 @@ public class PullTaskPullCallParticipantResultService {
     public PullTaskPullCallParticipantResultService(
             PullTaskUnknownResultResources resources,
             PullTaskGroupExecutionMapper executionMapper,
-            PullTaskStandardSettingMapper settingMapper,
+            AccountOperationRestrictionService pullerRestrictionService,
             PullTaskPullCallResultCoordination coordination,
             ApplicationEventPublisher eventPublisher) {
         this.resources = resources;
         this.executionMapper = executionMapper;
-        this.settingMapper = settingMapper;
+        this.pullerRestrictionService = pullerRestrictionService;
         this.coordination = coordination;
         this.eventPublisher = eventPublisher;
     }
@@ -521,18 +519,16 @@ public class PullTaskPullCallParticipantResultService {
         if (!RISK_REASON_CODES.contains(reasonCode)) {
             return;
         }
-        PullTaskStandardSetting setting = settingMapper.selectByTaskId(callback.pullTaskId());
-        if (setting == null) {
-            throw new IllegalStateException("拉手风控事实缺少冻结配置");
+        if (!pullerRestrictionService.restrictPulling(
+                puller.getAccountId(), reasonCode,
+                callback.occurredAt(), System.currentTimeMillis())) {
+            return;
         }
-        Long cooldownUntil = setting.getPullerRiskMinutes() == null
-                || setting.getPullerRiskMinutes() <= 0
-                ? null : Math.addExact(callback.occurredAt(), Math.multiplyExact(
-                setting.getPullerRiskMinutes().longValue(), MILLIS_PER_MINUTE));
-        markPullerUnavailable(puller, call, execution,
-                new PullerUnavailability(
-                        PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                        reasonCode, cooldownUntil, callback.occurredAt()));
+        coordination.stickyPullers().invalidateIfCurrent(
+                execution, call, reasonCode, callback.occurredAt());
+        eventPublisher.publishEvent(new PullTaskPullerUnavailableEvent(
+                execution.getTenantId(), execution.getId(), puller.getId(),
+                callback.occurredAt()));
     }
 
     private void markPullerUnavailable(

@@ -14,5 +14,8 @@ public record PullTaskStandardRoleVO(
         Long membershipResultAt,
         int availabilityStatus,
         String unavailableReasonCode,
-        Long pullCallId) {
+        Long pullCallId,
+        Integer pullerRestrictionStatus,
+        Long pullerRestrictionUntil,
+        String pullerRestrictionReasonCode) {
 }

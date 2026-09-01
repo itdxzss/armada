@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.converter;
 
 import com.armada.hyperlink.task.model.dto.HyperlinkAccountFilterDTO;
+import com.armada.hyperlink.task.model.enums.HyperlinkProvisionStatus;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskListItemVO;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskListRow;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -29,7 +30,9 @@ public class HyperlinkTaskListConverter {
         return new HyperlinkTaskListItemVO(
                 number(row.getId()), text(row.getTaskName()), number(row.getMessageType()),
                 taskMode(row.getTaskType()), Boolean.TRUE.equals(row.getEnabled()),
-                number(row.getRunStatus()), Boolean.TRUE.equals(row.getShortLinkEnabled()),
+                number(row.getRunStatus()),
+                HyperlinkProvisionStatus.fromCode(row.getProvisionStatus()),
+                Boolean.TRUE.equals(row.getShortLinkEnabled()),
                 number(row.getVersion()), row.getPromotionLink(), row.getDataPackageId(),
                 row.getDataPackageName(), accountFilter(row.getAccountFilterJson()),
                 countries(row.getTargetCountryIso2sJson()), row.getPlannedEndAt(),

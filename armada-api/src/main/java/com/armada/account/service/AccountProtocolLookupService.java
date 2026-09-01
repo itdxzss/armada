@@ -28,15 +28,26 @@ public interface AccountProtocolLookupService {
     Optional<ProtocolAccountRef> findActiveProtocolRef(Long accountId);
 
     /**
-     * 从当前租户指定账号分组随机选择一个在线正常拉手账号。
+     * 从当前租户指定账号分组随机选择一个在线正常的营销执行账号。
      *
-     * <p>候选必须协议身份完整、在线、生命周期正常、风险允许且未禁言；选号不关联任务占用表，
+     * <p>候选必须协议身份完整、在线、生命周期正常、风险允许且消息发送能力未受限；
+     * 拉人受限不影响营销执行。选号不关联任务占用表，
      * 避免账号被某类任务登记占用后错误排除其它合法调度。</p>
      *
      * @param groupId 账号分组 ID
      * @return 随机可用协议引用；无候选时为空
      */
     Optional<ProtocolAccountRef> findRandomOnlineNormalByGroupId(Long groupId);
+
+    /**
+     * 从当前租户指定账号分组随机选择一个在线正常拉手账号。
+     *
+     * <p>消息发送受限不影响拉人；拉人受限或双重受限不会入选。</p>
+     *
+     * @param groupId 账号分组 ID
+     * @return 随机可用拉手；无候选时为空
+     */
+    Optional<ProtocolAccountRef> findRandomOnlineNormalPullerByGroupId(Long groupId);
 
     /**
      * 查询指定分组内全部在线正常账号,用于用户显式触发的群列表同步。
@@ -55,6 +66,20 @@ public interface AccountProtocolLookupService {
      * @return 在线正常、协议后端明确的账号引用
      */
     List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId);
+
+    /**
+     * 查询普通拉群任务当前可选拉手。
+     *
+     * <p>除在线、正常和协议后端明确外，账号的拉手专用限制状态必须为可用。</p>
+     */
+    List<ProtocolAccountRef> findOnlineNormalPullersByGroupId(Long groupId);
+
+    /**
+     * 复核已分配拉手是否仍可执行普通拉人命令。
+     *
+     * <p>用于粘性拉手复用和命令生成前最后一道边界；结果保持输入账号首次出现顺序。</p>
+     */
+    List<ProtocolAccountRef> findEligiblePullerProtocolRefs(List<Long> accountIds);
 
     /**
      * 从当前租户指定分组随机选择一个在线正常的 Web 拉手账号。

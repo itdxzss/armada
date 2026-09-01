@@ -74,17 +74,31 @@ class HyperlinkMessageContentValidatorTest {
     }
 
     @Test
-    void buttonMessageOptionalContentMatchesCompetitorTwoThousandCharacterLimit() {
-        String accepted = "文".repeat(2000);
+    void normalButtonBodyMatchesInteractiveMessageLimit() {
+        String accepted = "文".repeat(1024);
         HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
                 1, 3, "标题", accepted, null, null, List.of(button()), null, null, null));
 
-        assertThat(normalized.content()).hasSize(2000);
+        assertThat(normalized.content()).hasSize(1024);
         assertThatThrownBy(() -> validator.validateAndNormalize(new HyperlinkMessageContent(
-                1, 4, "标题", "文".repeat(2001), null, null,
-                List.of(button()), "卡片说明", null, null)))
+                1, 3, "标题", "文".repeat(1025), null, null,
+                List.of(button()), null, null, null)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("2000");
+                .hasMessageContaining("1024");
+    }
+
+    @Test
+    void cardButtonFooterMatchesInteractiveMessageLimit() {
+        HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 4, "标题", "副".repeat(60), null, null,
+                List.of(button()), "卡片正文", null, null));
+
+        assertThat(normalized.content()).hasSize(60);
+        assertThatThrownBy(() -> validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 4, "标题", "副".repeat(61), null, null,
+                List.of(button()), "卡片正文", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("60");
     }
 
     @Test
@@ -93,7 +107,7 @@ class HyperlinkMessageContentValidatorTest {
                 1, 4, "标题", null, null, null, List.of(button()), "  ", null, null);
         assertThatThrownBy(() -> validator.validateAndNormalize(missingCardText))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("卡片底部文字");
+                .hasMessageContaining("卡片正文");
 
         HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
                 1, 4, "标题", null, "遗留描述", "https://legacy.example",
@@ -123,6 +137,26 @@ class HyperlinkMessageContentValidatorTest {
         assertThatThrownBy(() -> validator.validateAndNormalize(input))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("恰好配置 1 个 URL 按钮");
+    }
+
+    @Test
+    void buttonTextMatchesInteractiveMessageLimit() {
+        HyperlinkButton acceptedButton = new HyperlinkButton(
+                HyperlinkButtonType.CTA_URL, "按".repeat(20),
+                "https://example.com/promo", false, 1);
+        HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, "标题", null, null, null,
+                List.of(acceptedButton), null, null, null));
+
+        assertThat(normalized.buttons().get(0).displayText()).hasSize(20);
+        HyperlinkButton rejectedButton = new HyperlinkButton(
+                HyperlinkButtonType.CTA_URL, "按".repeat(21),
+                "https://example.com/promo", false, 1);
+        assertThatThrownBy(() -> validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, "标题", null, null, null,
+                List.of(rejectedButton), null, null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("20");
     }
 
     @Test

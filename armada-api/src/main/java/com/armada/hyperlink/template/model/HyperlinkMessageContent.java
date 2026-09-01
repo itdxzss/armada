@@ -12,7 +12,7 @@ import java.util.List;
  * @param linkDescription 单图文链接描述
  * @param promotionLink 单图文原始推广链接
  * @param buttons 按钮数组
- * @param cardText 卡片底部小字
+ * @param cardText 卡片正文，卡片按钮发送时映射到协议 Body
  * @param linkPreviewAssetId 链接预览图稳定素材 ID
  * @param bodyMainAssetId 正文主图或卡片头图稳定素材 ID
  */

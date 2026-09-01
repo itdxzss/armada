@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -55,7 +56,7 @@ class HyperlinkRecipientClaimServiceTest {
 
         verify(recipientMapper, times(1)).insertIgnoreBatch(anyList());
         verify(dataPackageService, times(1)).claimBatch(anyLong(), anyLong(), anyInt(),
-                anyLong(), anyLong(), anyInt(), anyLong());
+                anyLong(), anyLong(), eq(500), anyLong());
     }
 
     private HyperlinkTaskRecipientClaim claim() {

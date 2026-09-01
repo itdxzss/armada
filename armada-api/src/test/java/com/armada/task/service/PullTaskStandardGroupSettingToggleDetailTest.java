@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.model.vo.AccountPullerRestrictionSummary;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.group.service.GroupLinkService;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
@@ -37,6 +39,8 @@ class PullTaskStandardGroupSettingToggleDetailTest {
             mock(PullTaskStandardSettingMapper.class);
     private final PullTaskStandardGroupSettingMapper groupSettingMapper =
             mock(PullTaskStandardGroupSettingMapper.class);
+    private final AccountOperationRestrictionService pullerRestrictionService =
+            mock(AccountOperationRestrictionService.class);
     private final PullTaskStandardReadService service = new PullTaskStandardReadServiceImpl(
             taskMapper,
             new PullTaskStandardReadResources(
@@ -49,7 +53,8 @@ class PullTaskStandardGroupSettingToggleDetailTest {
                             mock(PullTaskMaterialMemberMapper.class),
                             mock(PullTaskPullCallMapper.class),
                             mock(PullTaskAccountActionMapper.class))),
-            mock(GroupLinkService.class));
+            mock(GroupLinkService.class),
+            pullerRestrictionService);
 
     /** 开关状态本身要能回读，前端据此决定整块控件是否展开。 */
     @Test
@@ -72,6 +77,10 @@ class PullTaskStandardGroupSettingToggleDetailTest {
         when(settingMapper.selectByTaskId(100L)).thenReturn(setting());
         when(groupSettingMapper.selectByTaskId(100L))
                 .thenReturn(groupSetting(groupSettingEnabled));
+        when(pullerRestrictionService.summarizePullersByGroupId(
+                org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new AccountPullerRestrictionSummary(1_000L, 0, null));
     }
 
     private static PullTask task() {

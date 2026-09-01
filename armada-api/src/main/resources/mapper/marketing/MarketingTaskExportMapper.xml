@@ -654,8 +654,9 @@
                     COALESCE(latest.account_phone, fixed.sender_phone) AS senderPhone,
                     COALESCE(latest.account_id, fixed.sender_account_id) AS observerAccountId,
                    CASE
-                       WHEN account_state.mute_status = 1 THEN '禁言6小时'
-                       WHEN account_state.mute_status = 2 THEN '禁言24小时'
+                       WHEN account_state.mute_status = 1 THEN '消息发送受限'
+                       WHEN account_state.mute_status = 2 THEN '拉人受限'
+                       WHEN account_state.mute_status = 3 THEN '消息发送和拉人受限'
                        WHEN account_state.account_state = 1 THEN '新增'
                        WHEN account_state.account_state = 2 THEN '正常'
                        WHEN account_state.account_state = 3 THEN '封禁'

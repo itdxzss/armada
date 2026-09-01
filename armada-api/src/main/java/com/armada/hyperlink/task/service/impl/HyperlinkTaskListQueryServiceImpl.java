@@ -3,6 +3,7 @@ package com.armada.hyperlink.task.service.impl;
 import com.armada.hyperlink.task.converter.HyperlinkTaskListConverter;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskMapper;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskListQuery;
+import com.armada.hyperlink.task.model.enums.HyperlinkProvisionStatus;
 import com.armada.hyperlink.task.model.enums.HyperlinkTaskMode;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskListExportFile;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskListItemVO;
@@ -173,6 +174,12 @@ public class HyperlinkTaskListQueryServiceImpl implements HyperlinkTaskListQuery
     }
 
     private static String status(HyperlinkTaskListItemVO item) {
+        if (item.provisionStatus() == HyperlinkProvisionStatus.PROCESSING) {
+            return "准备中";
+        }
+        if (item.provisionStatus() == HyperlinkProvisionStatus.FAILED) {
+            return "准备失败";
+        }
         if (!item.enabled()) {
             return "已停用";
         }

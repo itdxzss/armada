@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskMapper;
+import com.armada.hyperlink.task.model.entity.HyperlinkTask;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskDetailRow;
+import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -14,6 +16,7 @@ import java.sql.Statement;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -40,6 +43,7 @@ class HyperlinkTaskDetailMapperH2Test {
 
     @BeforeEach
     void setUp() throws SQLException {
+        TenantContext.set(7L);
         execute("DROP ALL OBJECTS", taskSchema(), strategySchema(), contentSchema(), runtimeSchema(),
                 "INSERT INTO hyperlink_task VALUES "
                         + "(11,7,'任务 A',2,15,NULL,31,NULL,NULL,NULL,NULL,NULL,111,"
@@ -61,6 +65,19 @@ class HyperlinkTaskDetailMapperH2Test {
                         + "(12,8,1,1,'标题','正文','描述','https://example.com','[]',"
                         + "NULL,66,NULL,1000,1000)",
                 "INSERT INTO hyperlink_task_runtime VALUES (12,8,FALSE,0,0,1000,1000)");
+    }
+
+    @AfterEach
+    void tearDown() {
+        TenantContext.clear();
+    }
+
+    @Test
+    void selectByIdMapsShortLinkFlagUsedByDispatch() {
+        HyperlinkTask task = mapper.selectById(11L);
+
+        assertThat(task).isNotNull();
+        assertThat(task.getShortLinkEnabled()).isTrue();
     }
 
     @Test

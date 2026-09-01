@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.service;
 
 import com.armada.account.service.AccountHyperlinkCandidateService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskContentMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskMapper;
@@ -14,6 +15,7 @@ import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRound;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRuntime;
 import com.armada.hyperlink.task.model.enums.HyperlinkRecipientStatus;
+import com.armada.hyperlink.task.model.enums.HyperlinkTaskAccountUsageStatus;
 import com.armada.hyperlink.task.model.enums.HyperlinkTaskRoundStatus;
 import com.armada.hyperlink.data.model.enums.DataPackagePoolStatus;
 import com.armada.hyperlink.data.service.DataPackageRecipientClaimService;
@@ -28,6 +30,8 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Clock;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +49,8 @@ public class HyperlinkDispatchService {
     private static final int SHORT_CODE_INSERT_ATTEMPTS = 8;
     private static final long RESULT_RECONCILIATION_DELAY_MS = 30_000L;
     private static final long GLOBAL_CAPACITY_RETRY_DELAY_MS = 30_000L;
+    private static final Set<String> RECOVERABLE_RESTRICTION_CODES = Set.of(
+            "CHAT_SUSPENDED", "ACCOUNT_REACHOUT_RESTRICTED", "RATE_LIMITED");
     private final HyperlinkTaskMapper taskMapper;
     private final HyperlinkTaskContentMapper contentMapper;
     private final HyperlinkTaskRuntimeMapper runtimeMapper;
@@ -57,6 +63,7 @@ public class HyperlinkDispatchService {
     private final MessageSendPort messageSendPort;
     private final DataPackageRecipientClaimService dataPackageRecipientClaimService;
     private final AccountHyperlinkCandidateService accountHyperlinkCandidateService;
+    private final AccountOperationRestrictionService operationRestrictionService;
     private final HyperlinkAccountDispatchGuard dispatchGuard;
     private final Clock clock;
 
@@ -69,11 +76,12 @@ public class HyperlinkDispatchService {
             HyperlinkPrivateCapabilityPort capabilityPort, MessageSendPort messageSendPort,
             DataPackageRecipientClaimService dataPackageRecipientClaimService,
             AccountHyperlinkCandidateService accountHyperlinkCandidateService,
+            AccountOperationRestrictionService operationRestrictionService,
             HyperlinkAccountDispatchGuard dispatchGuard) {
         this(taskMapper, contentMapper, runtimeMapper, roundMapper, usageMapper, recipientMapper,
                 commandFactory, shortCodeGenerator, capabilityPort, messageSendPort,
                 dataPackageRecipientClaimService, accountHyperlinkCandidateService,
-                dispatchGuard, Clock.systemUTC());
+                operationRestrictionService, dispatchGuard, Clock.systemUTC());
     }
 
     HyperlinkDispatchService(HyperlinkTaskMapper taskMapper,
@@ -84,6 +92,7 @@ public class HyperlinkDispatchService {
             HyperlinkPrivateCapabilityPort capabilityPort, MessageSendPort messageSendPort,
             DataPackageRecipientClaimService dataPackageRecipientClaimService,
             AccountHyperlinkCandidateService accountHyperlinkCandidateService,
+            AccountOperationRestrictionService operationRestrictionService,
             HyperlinkAccountDispatchGuard dispatchGuard, Clock clock) {
         this.taskMapper = taskMapper;
         this.contentMapper = contentMapper;
@@ -97,6 +106,7 @@ public class HyperlinkDispatchService {
         this.messageSendPort = messageSendPort;
         this.dataPackageRecipientClaimService = dataPackageRecipientClaimService;
         this.accountHyperlinkCandidateService = accountHyperlinkCandidateService;
+        this.operationRestrictionService = operationRestrictionService;
         this.dispatchGuard = dispatchGuard;
         this.clock = clock;
     }
@@ -126,8 +136,8 @@ public class HyperlinkDispatchService {
                     task.getAccountSendConcurrency(), now) != 1) { continue; }
             if (!accountHyperlinkCandidateService.lockForHyperlinkDispatch(
                     usage.getAccountId())) {
-                delayForGlobalCapacity(usage, now);
-                return true;
+                retireMessageUnavailableUsage(usage, now);
+                continue;
             }
             List<Long> sendingIds = recipientMapper.lockSendingIdsByAccount(
                     tenantId, usage.getAccountId(), HyperlinkAccountDispatchGuard.MAX_IN_FLIGHT);
@@ -141,7 +151,8 @@ public class HyperlinkDispatchService {
                 usageMapper.completeSlot(usage.getId(), false, now);
                 return false;
             }
-            String commandId = commandFactory.commandId(task.getTenantId(), taskId, recipient.getId());
+            String commandId = commandFactory.commandId(
+                    task.getTenantId(), taskId, recipient.getId(), recipient.getDispatchAttempt());
             if (!dispatchGuard.tryAcquire(usage.getAccountId(), commandId)) {
                 delayForGlobalCapacity(usage, now);
                 return true;
@@ -172,16 +183,20 @@ public class HyperlinkDispatchService {
                 if (item == null || !item.accepted()) {
                     String code = item == null ? "LOCAL_ADAPTER_REJECTED" : item.reasonCode();
                     String reason = item == null ? "本地协议适配器拒绝" : item.reasonMessage();
-                    recipient.setSendStatus(HyperlinkRecipientStatus.FAILED.code());
-                    recipient.setProtocolMessageId(null);
-                    recipient.setFailCode(code);
-                    recipient.setFailReason(reason);
-                    recipientMapper.applyResult(recipient);
-                    usageMapper.completeSlot(usage.getId(), false, now);
-                    dataPackageRecipientClaimService.advanceDeliveryFact(taskId,
-                            recipient.getDataPackageId(), recipient.getDataPackageGeneration(),
-                            recipient.getRecipientPhoneSnapshot(),
-                            DataPackagePoolStatus.RETRYABLE_FAILED, now);
+                    if (isRecoverableRestriction(code)) {
+                        requeueAfterAccountRestriction(recipient, usage, code, reason, now);
+                    } else {
+                        recipient.setSendStatus(HyperlinkRecipientStatus.FAILED.code());
+                        recipient.setProtocolMessageId(null);
+                        recipient.setFailCode(code);
+                        recipient.setFailReason(reason);
+                        recipientMapper.applyResult(recipient);
+                        usageMapper.completeSlot(usage.getId(), false, now);
+                        dataPackageRecipientClaimService.advanceDeliveryFact(taskId,
+                                recipient.getDataPackageId(), recipient.getDataPackageGeneration(),
+                                recipient.getRecipientPhoneSnapshot(),
+                                DataPackagePoolStatus.RETRYABLE_FAILED, now);
+                    }
                 } else {
                     recipientMapper.markSubmitted(commandId, now,
                             now + RESULT_RECONCILIATION_DELAY_MS);
@@ -203,6 +218,40 @@ public class HyperlinkDispatchService {
         usageMapper.completeSlot(usage.getId(), false, now);
         requireScheduled(usageMapper.scheduleNextSend(
                 usage.getId(), now + GLOBAL_CAPACITY_RETRY_DELAY_MS, now));
+    }
+
+    private void retireMessageUnavailableUsage(HyperlinkTaskAccountUsage usage, long now) {
+        usageMapper.completeSlot(usage.getId(), false, now);
+        if (usageMapper.markOperationRestricted(
+                usage.getId(), HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(),
+                "MESSAGE_SENDING_UNAVAILABLE", "账号当前不可用于营销消息发送", now) != 1) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "消息发送不可用账号退出当前任务失败");
+        }
+    }
+
+    private void requeueAfterAccountRestriction(HyperlinkTaskRecipient recipient,
+            HyperlinkTaskAccountUsage usage, String reasonCode, String reason, long now) {
+        operationRestrictionService.restrictMessageSending(
+                usage.getAccountId(), reasonCode, now, now);
+        if (recipientMapper.requeueAfterAccountRestriction(
+                recipient.getId(), recipient.getCommandId(), now) != 1) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "账号受限后的料子换号释放失败");
+        }
+        usageMapper.completeSlot(usage.getId(), false, now);
+        if (usageMapper.markOperationRestricted(
+                usage.getId(), HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(),
+                reasonCode, reason, now) != 1) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "账号受限后的当前任务账号退出失败");
+        }
+    }
+
+    private boolean isRecoverableRestriction(String reasonCode) {
+        String normalized = reasonCode == null ? ""
+                : reasonCode.trim().toUpperCase(Locale.ROOT);
+        return RECOVERABLE_RESTRICTION_CODES.contains(normalized);
     }
 
     private AtomicBoolean registerGuardCleanup(long accountId, String commandId) {

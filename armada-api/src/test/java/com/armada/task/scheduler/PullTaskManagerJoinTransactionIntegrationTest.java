@@ -99,7 +99,7 @@ class PullTaskManagerJoinTransactionIntegrationTest {
     void managerJoinPersistsSubmittedFactsAndReleasesLeaseForCallback() {
         ProtocolAccountRef account = new ProtocolAccountRef(
                 901L, ProtocolBackend.WEB, "acc-901", "8613800000901");
-        when(accountLookup.findRandomOnlineNormalByGroupId(88L))
+        when(accountLookup.findRandomOnlineNormalPullerByGroupId(88L))
                 .thenReturn(Optional.of(account));
         when(outboxService.enqueuePullTaskGroupJoinCommands(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(

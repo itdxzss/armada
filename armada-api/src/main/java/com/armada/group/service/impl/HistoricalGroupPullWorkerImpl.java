@@ -139,7 +139,8 @@ public class HistoricalGroupPullWorkerImpl implements HistoricalGroupPullWorker 
                 accountLookupService.findRandomOnlineNormalWebByGroupId(execution.getPullerAccountGroupId());
         if (selected.isEmpty()) {
             Optional<ProtocolAccountRef> anyBackend =
-                    accountLookupService.findRandomOnlineNormalByGroupId(execution.getPullerAccountGroupId());
+                    accountLookupService.findRandomOnlineNormalPullerByGroupId(
+                            execution.getPullerAccountGroupId());
             if (anyBackend.isPresent() && anyBackend.get().backend() != ProtocolBackend.WEB) {
                 finishFrontFailure(executionId, members, "PULLER_SELECT",
                         new Failure(PULLER_BACKEND_UNSUPPORTED, PULLER_BACKEND_UNSUPPORTED_MESSAGE));

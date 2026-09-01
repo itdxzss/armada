@@ -18,7 +18,8 @@ public record PullTaskStandardTaskDetailVO(
         List<PullTaskStandardExecutionSummaryVO> executions,
         PullTaskStandardTaskSummaryVO summary,
         PullTaskStandardSettingVO standardSetting,
-        PullTaskStandardGroupSettingVO groupSetting) {
+        PullTaskStandardGroupSettingVO groupSetting,
+        PullTaskPullerRestrictionSummaryVO pullerRestriction) {
 
     /** 冻结执行行列表。 */
     public PullTaskStandardTaskDetailVO {
@@ -39,7 +40,7 @@ public record PullTaskStandardTaskDetailVO(
             List<PullTaskStandardExecutionSummaryVO> executions) {
         this(taskId, taskName, status, PullTaskCreationMode.PASTED_LINK,
                 groupCount, expectedPullCount, startedAt, finishedAt, createdAt, remark,
-                executions, null, null, null);
+                executions, null, null, null, null);
     }
 
     /** 聚合兼容构造；设置尚未装配的旧调用保持可编译。 */
@@ -57,6 +58,6 @@ public record PullTaskStandardTaskDetailVO(
             PullTaskStandardTaskSummaryVO summary) {
         this(taskId, taskName, status, PullTaskCreationMode.PASTED_LINK,
                 groupCount, expectedPullCount, startedAt, finishedAt, createdAt, remark,
-                executions, summary, null, null);
+                executions, summary, null, null, null);
     }
 }

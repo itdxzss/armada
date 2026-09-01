@@ -1,5 +1,6 @@
 package com.armada.hyperlink.task.service;
 
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
@@ -26,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class HyperlinkProtocolResultService
         implements ProtocolMessageSendResultReportedSink, ProtocolMessageAckSink {
     private static final String SOURCE = "hyperlink_task";
-    private static final Set<String> BANNED_CODES = Set.of(
-            "ACCOUNT_BANNED", "CHAT_SUSPENDED", "ACCOUNT_REACHOUT_RESTRICTED");
+    private static final Set<String> RECOVERABLE_RESTRICTION_CODES = Set.of(
+            "CHAT_SUSPENDED", "ACCOUNT_REACHOUT_RESTRICTED", "RATE_LIMITED");
+    private static final Set<String> BANNED_CODES = Set.of("ACCOUNT_BANNED");
     private static final Set<String> INVALID_CODES = Set.of(
             "DEVICE_DELETED", "DEVICE_REMOVED", "LOGGED_OUT", "PRIMARY_DEVICE_LOGGED_OUT",
             "PRIMARY_DEVICE_WAS_LOGGED_OUT", "ACCOUNT_UNBOUND", "ACCOUNT_INVALID");
@@ -36,17 +38,20 @@ public class HyperlinkProtocolResultService
     private final HyperlinkRecipientStateMachine stateMachine;
     private final DataPackageRecipientClaimService dataPackageRecipientClaimService;
     private final HyperlinkAccountDispatchGuard dispatchGuard;
+    private final AccountOperationRestrictionService operationRestrictionService;
 
     public HyperlinkProtocolResultService(HyperlinkTaskRecipientMapper recipientMapper,
             HyperlinkTaskAccountUsageMapper usageMapper,
             HyperlinkRecipientStateMachine stateMachine,
             DataPackageRecipientClaimService dataPackageRecipientClaimService,
-            HyperlinkAccountDispatchGuard dispatchGuard) {
+            HyperlinkAccountDispatchGuard dispatchGuard,
+            AccountOperationRestrictionService operationRestrictionService) {
         this.recipientMapper = recipientMapper;
         this.usageMapper = usageMapper;
         this.stateMachine = stateMachine;
         this.dataPackageRecipientClaimService = dataPackageRecipientClaimService;
         this.dispatchGuard = dispatchGuard;
+        this.operationRestrictionService = operationRestrictionService;
     }
 
     @Override
@@ -60,7 +65,10 @@ public class HyperlinkProtocolResultService
         Long previous = TenantContext.get();
         TenantContext.set(event.tenantId());
         try {
-            HyperlinkTaskRecipient recipient = recipientMapper.selectByCommandId(event.commandId());
+            HyperlinkTaskRecipient recipient = resolveCurrentRecipient(
+                    event.tenantId(), event.hyperlinkTaskId(), event.hyperlinkRecipientId(),
+                    event.commandId());
+            if (recipient == null) { return; }
             requireIdentity(recipient, event.hyperlinkTaskId(), event.hyperlinkRecipientId());
             long now = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
             String outcome = event.outcome() == null ? null
@@ -85,6 +93,11 @@ public class HyperlinkProtocolResultService
             recipient.setFailReason(safe(event.reasonMessage(), 255));
             recipient.setUpdatedAt(now);
             HyperlinkTaskAccountUsage usage = lockUsage(recipient);
+            if (!successful && isRecoverableRestriction(event.reasonCode())
+                    && requeueRestrictedRecipient(
+                    recipient, usage, event.reasonCode(), event.reasonMessage(), now)) {
+                return;
+            }
             int updated = recipientMapper.applyResult(recipient);
             if (updated == 1) {
                 if (usage != null) {
@@ -125,7 +138,10 @@ public class HyperlinkProtocolResultService
         TenantContext.set(event.tenantId());
         try {
             HyperlinkTaskRecipient observedRecipient = event.commandId() == null ? null
-                    : recipientMapper.selectByCommandId(event.commandId());
+                    : resolveCurrentRecipient(
+                    event.tenantId(), event.hyperlinkTaskId(), event.hyperlinkRecipientId(),
+                    event.commandId());
+            if (observedRecipient == null && event.commandId() != null) { return; }
             if (observedRecipient == null && event.accountId() != null && event.protocolId() != null) {
                 observedRecipient = recipientMapper.selectByProtocolMessage(
                         event.accountId(), event.protocolId(), event.messageId());
@@ -143,6 +159,13 @@ public class HyperlinkProtocolResultService
             HyperlinkRecipientStatus next = stateMachine.advance(current, incoming);
             if (next == current) { return; }
             long now = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
+            if (current == HyperlinkRecipientStatus.SENDING
+                    && incoming.terminalFailure()
+                    && isRecoverableRestriction(event.reasonCode())
+                    && requeueRestrictedRecipient(
+                    recipient, usage, event.reasonCode(), event.reasonMessage(), now)) {
+                return;
+            }
             recipient.setSendStatus(next.code());
             recipient.setProtocolMessageId(event.messageId());
             recipient.setFailCode(safe(event.reasonCode(), 64));
@@ -170,6 +193,59 @@ public class HyperlinkProtocolResultService
         if (recipient.getAccountId() == null) { return null; }
         return usageMapper.selectByTaskAndAccountForUpdate(
                 recipient.getHyperlinkTaskId(), recipient.getAccountId());
+    }
+
+    private boolean requeueRestrictedRecipient(HyperlinkTaskRecipient recipient,
+            HyperlinkTaskAccountUsage usage, String reasonCode, String reason, long occurredAt) {
+        if (recipient.getAccountId() == null || usage == null) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "账号受限换号缺少账号占用事实");
+        }
+        long processedAt = System.currentTimeMillis();
+        operationRestrictionService.restrictMessageSending(
+                recipient.getAccountId(), reasonCode, occurredAt, processedAt);
+        if (recipientMapper.requeueAfterAccountRestriction(
+                recipient.getId(), recipient.getCommandId(), processedAt) != 1) {
+            return false;
+        }
+        usageMapper.completeSlot(usage.getId(), false, processedAt);
+        if (usageMapper.markOperationRestricted(
+                usage.getId(), HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(),
+                reasonCode, safe(reason, 255), processedAt) != 1) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "账号受限后的当前任务账号退出失败");
+        }
+        releaseGuardAfterCommit(recipient);
+        return true;
+    }
+
+    private boolean isRecoverableRestriction(String reasonCode) {
+        String normalized = reasonCode == null ? ""
+                : reasonCode.trim().toUpperCase(Locale.ROOT);
+        return RECOVERABLE_RESTRICTION_CODES.contains(normalized);
+    }
+
+    private HyperlinkTaskRecipient resolveCurrentRecipient(
+            Long tenantId, Long taskId, Long recipientId, String commandId) {
+        HyperlinkTaskRecipient recipient = recipientMapper.selectByCommandId(commandId);
+        if (recipient != null) {
+            return recipient;
+        }
+        if (tenantId == null || taskId == null || recipientId == null) {
+            return null;
+        }
+        HyperlinkTaskRecipient current = recipientMapper.selectCurrentByIdentity(
+                tenantId, taskId, recipientId);
+        if (current == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "超链 recipient 不存在");
+        }
+        String commandPrefix = "hl:" + tenantId + ":" + taskId + ":" + recipientId;
+        if (commandId != null
+                && (commandId.equals(commandPrefix)
+                || commandId.startsWith(commandPrefix + ":"))) {
+            return null;
+        }
+        throw new BusinessException(ErrorCode.CONFLICT, "超链结果 commandId 不属于该 recipient");
     }
 
     private void invalidateUsageIfNeeded(HyperlinkTaskAccountUsage usage, String code,

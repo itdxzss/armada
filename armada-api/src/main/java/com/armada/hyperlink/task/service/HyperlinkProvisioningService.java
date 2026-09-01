@@ -9,6 +9,9 @@ import org.springframework.stereotype.Service;
 /** 分批 claim、任务级预约与首轮事务的可恢复编排。 */
 @Service
 public class HyperlinkProvisioningService {
+    static final int MAX_CLAIM_BATCHES_PER_ADVANCE = 4;
+    static final long CLAIM_TIME_BUDGET_MILLIS = 1_000L;
+
     private final HyperlinkRecipientClaimService claimService;
     private final HyperlinkBillingSagaService billingSagaService;
     private final HyperlinkFirstRoundService firstRoundService;
@@ -35,10 +38,20 @@ public class HyperlinkProvisioningService {
         this.clock = clock;
     }
 
-    /** 每次只领取一批，给所有任务公平恢复机会。 */
+    /**
+     * 单次推进连续执行有限个短 claim 事务；批次数和耗时双重限流，避免大事务并给其他任务恢复机会。
+     */
     public void advance(long taskId) {
         try {
-            HyperlinkRecipientClaimService.ClaimBatchResult result = claimService.claimNext(taskId);
+            long deadlineAt = clock.millis() + CLAIM_TIME_BUDGET_MILLIS;
+            int claimedBatches = 0;
+            HyperlinkRecipientClaimService.ClaimBatchResult result;
+            do {
+                result = claimService.claimNext(taskId);
+                claimedBatches++;
+            } while (!result.completed()
+                    && claimedBatches < MAX_CLAIM_BATCHES_PER_ADVANCE
+                    && clock.millis() < deadlineAt);
             if (!result.completed()) { return; }
             billingSagaService.ensureProvisionReservation(taskId);
             firstRoundService.createFirstRound(taskId);

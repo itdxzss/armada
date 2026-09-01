@@ -62,6 +62,13 @@
           usage_status=CASE WHEN success_limit&gt;0 AND successful_send_count+CASE WHEN #{successful} THEN 1 ELSE 0 END&gt;=success_limit THEN 2 ELSE usage_status END,
           version=version+1, updated_at=#{now} WHERE id=#{id}
     </update>
+    <update id="markOperationRestricted">
+        UPDATE hyperlink_task_account_usage SET usage_status=#{usageStatus},
+          invalid_code=COALESCE(invalid_code,#{reasonCode}),
+          invalid_reason=COALESCE(invalid_reason,#{reason}),
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id} AND usage_status IN (1,2) AND invalid_at IS NULL
+    </update>
     <delete id="deleteUnusedByTask">
         DELETE FROM hyperlink_task_account_usage WHERE hyperlink_task_id=#{taskId}
           AND successful_send_count=0 AND in_flight_count=0

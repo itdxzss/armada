@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.hyperlink.data.service.DataPackageRecipientClaimService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
@@ -98,7 +99,8 @@ class HyperlinkAccountDispatchGuardTest {
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages,
                 new HyperlinkRecipientStateMachine(),
-                mock(DataPackageRecipientClaimService.class), guard);
+                mock(DataPackageRecipientClaimService.class), guard,
+                mock(AccountOperationRestrictionService.class));
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "late-unknown", 7L, null, null, null, null, "acc51", null,

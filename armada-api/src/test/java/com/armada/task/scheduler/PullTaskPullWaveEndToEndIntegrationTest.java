@@ -93,7 +93,7 @@ class PullTaskPullWaveEndToEndIntegrationTest {
         materialMapper.batchInsert(materials(27));
         firstPullerRoleId = insertPuller(902L, 1);
         secondPullerRoleId = insertPuller(904L, 2);
-        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
+        when(accountLookup.findEligiblePullerProtocolRefs(anyList())).thenReturn(List.of(
                 protocol(902L), protocol(904L)));
         AtomicInteger commandSeq = new AtomicInteger();
         when(outboxService.enqueuePullTaskBatchAddCommands(anyList()))

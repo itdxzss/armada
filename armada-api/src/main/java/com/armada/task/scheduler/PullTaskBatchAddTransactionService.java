@@ -211,7 +211,7 @@ public class PullTaskBatchAddTransactionService {
 
     private ProtocolAccountRef activeProtocol(long accountId) {
         List<ProtocolAccountRef> active = resources.accountLookup()
-                .findActiveProtocolRefs(List.of(accountId));
+                .findEligiblePullerProtocolRefs(List.of(accountId));
         if (active == null) {
             return null;
         }

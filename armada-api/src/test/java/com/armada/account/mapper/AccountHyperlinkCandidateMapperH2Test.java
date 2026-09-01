@@ -143,6 +143,27 @@ class AccountHyperlinkCandidateMapperH2Test {
     }
 
     @Test
+    void hyperlinkAllowsPullingRestrictionButRejectsMessageRestriction() throws SQLException {
+        insertAccount(13, 7, "551243", 2, 1, 10, 20, "WEB", NOW - DAY, null);
+        credential(13, 7, 3);
+        state(13, 7, 2, 1, 2);
+        insertAccount(14, 7, "551244", 2, 1, 10, 20, "WEB", NOW - DAY, null);
+        credential(14, 7, 3);
+        state(14, 7, 2, 1, 3);
+        AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
+
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
+                .extracting(AccountHyperlinkCandidateVO::accountId)
+                .containsExactly(1L, 5L, 13L);
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(3);
+    }
+
+    @Test
     void derivesPrimaryOrCompanionFromCredentialFormatBeforeProtocolIdFallback()
             throws SQLException {
         insertAccount(7, 7, "551240", 2, 1, 10, 20, "ANDROID", NOW - DAY, null);
@@ -295,9 +316,24 @@ class AccountHyperlinkCandidateMapperH2Test {
 
     @Test
     void hyperlinkDispatchAccountRowLockSerializesConcurrentTasks() throws Exception {
+        insertAccount(13, 7, "551243", 2, 1, 10, 20, "WEB", NOW - DAY, null);
+        credential(13, 7, 3);
+        state(13, 7, 2, 1, 2);
+        insertAccount(14, 7, "551244", 2, 1, 10, 20, "WEB", NOW - DAY, null);
+        credential(14, 7, 3);
+        state(14, 7, 2, 1, 3);
         Long foreignTenant = new TransactionTemplate(transactionManager)
                 .execute(status -> mapper.lockActiveForHyperlinkDispatch(8L, 1L));
         assertThat(foreignTenant).isNull();
+        Long pullingRestricted = new TransactionTemplate(transactionManager)
+                .execute(status -> mapper.lockActiveForHyperlinkDispatch(7L, 13L));
+        assertThat(pullingRestricted).isEqualTo(13L);
+        Long messageRestricted = new TransactionTemplate(transactionManager)
+                .execute(status -> mapper.lockActiveForHyperlinkDispatch(7L, 3L));
+        assertThat(messageRestricted).isNull();
+        Long bothRestricted = new TransactionTemplate(transactionManager)
+                .execute(status -> mapper.lockActiveForHyperlinkDispatch(7L, 14L));
+        assertThat(bothRestricted).isNull();
 
         CountDownLatch locked = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);

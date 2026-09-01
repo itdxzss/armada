@@ -20,6 +20,7 @@ public class HyperlinkTaskRecipient {
     private String protocolId;
     private Integer protocolBackend;
     private String commandId;
+    private Integer dispatchAttempt;
     private String protocolMessageId;
     private String shortCode;
     private Integer sendStatus;
@@ -83,6 +84,8 @@ public class HyperlinkTaskRecipient {
     public void setProtocolBackend(Integer value) { this.protocolBackend = value; }
     public String getCommandId() { return commandId; }
     public void setCommandId(String value) { this.commandId = value; }
+    public Integer getDispatchAttempt() { return dispatchAttempt; }
+    public void setDispatchAttempt(Integer value) { this.dispatchAttempt = value; }
     public String getProtocolMessageId() { return protocolMessageId; }
     public void setProtocolMessageId(String value) { this.protocolMessageId = value; }
     public String getShortCode() { return shortCode; }

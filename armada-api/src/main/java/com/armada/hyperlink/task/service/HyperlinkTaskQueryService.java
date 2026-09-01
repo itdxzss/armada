@@ -48,7 +48,7 @@ public class HyperlinkTaskQueryService {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(HyperlinkTaskQueryService.class);
     private static final int PROTOCOL_ACCOUNT_FACTOR = 15;
-    private static final int DEFAULT_SUB_TASK_NUM = HyperlinkRecipientClaimService.BATCH_SIZE;
+    private static final int DEFAULT_SUB_TASK_NUM = 50;
     private static final TypeReference<List<HyperlinkButton>> BUTTON_LIST = new TypeReference<>() { };
 
     private final HyperlinkTaskMapper taskMapper;

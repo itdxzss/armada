@@ -536,14 +536,17 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean AccountProtocolLookupService accountLookup() {
             AccountProtocolLookupService lookup = mock(AccountProtocolLookupService.class);
-            when(lookup.findRandomOnlineNormalByGroupId(88L)).thenReturn(Optional.of(MANAGER));
-            when(lookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(PULLER));
+            when(lookup.findRandomOnlineNormalPullerByGroupId(88L))
+                    .thenReturn(Optional.of(MANAGER));
+            when(lookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(PULLER));
             when(lookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(STATION));
             when(lookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(MANAGER));
             when(lookup.findActiveProtocolRef(902L)).thenReturn(Optional.of(PULLER));
             when(lookup.findActiveProtocolRef(903L)).thenReturn(Optional.of(STATION));
             when(lookup.findActiveProtocolRefs(anyList()))
                     .thenReturn(List.of(MANAGER, PULLER, STATION));
+            when(lookup.findEligiblePullerProtocolRefs(anyList()))
+                    .thenReturn(List.of(PULLER));
             return lookup;
         }
 
@@ -917,11 +920,12 @@ class PullTaskExecutionEndToEndIntegrationTest {
         @Bean PullTaskPullCallParticipantResultService participantResultService(
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskStandardSettingMapper settingMapper,
                 PullTaskPullCallResultCoordination coordination,
                 org.springframework.context.ApplicationEventPublisher eventPublisher) {
             return new PullTaskPullCallParticipantResultService(
-                    resources, executionMapper, settingMapper, coordination, eventPublisher);
+                    resources, executionMapper,
+                    mock(com.armada.account.service.AccountOperationRestrictionService.class),
+                    coordination, eventPublisher);
         }
 
         @Bean PullTaskPullWaveProgressService pullWaveProgressService(

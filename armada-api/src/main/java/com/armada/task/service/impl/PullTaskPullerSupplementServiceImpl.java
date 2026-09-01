@@ -267,7 +267,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
     private List<PullTaskPullerCandidateVO> candidates(
             long groupId, List<PullTaskGroupAccount> existing) {
         List<ProtocolAccountRef> online = safe(
-                resources.accountLookup().findOnlineNormalByGroupId(groupId));
+                resources.accountLookup().findOnlineNormalPullersByGroupId(groupId));
         List<Long> ids = online.stream().filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId).distinct().toList();
         if (ids.isEmpty()) {
@@ -275,9 +275,6 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         }
         Set<Long> excluded = new HashSet<>();
         existing.stream().map(PullTaskGroupAccount::getAccountId).forEach(excluded::add);
-        excluded.addAll(safe(resources.accountMapper().selectAccountIdsByAvailability(
-                ids, PullTaskGroupAccountRole.PULLER.code(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code())));
         excluded.addAll(safe(resources.accountMapper().selectOccupiedAccountIds(
                 ids, PullTaskGroupAccountRole.PULLER.code())));
         Map<Long, PullTaskPullerCandidateVO> result = new HashMap<>();

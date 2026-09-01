@@ -4,6 +4,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.enums.AccountOperationRestrictionStatus;
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -63,9 +64,30 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
                 groupId,
                 AccountStateCode.NORMAL,
                 AccountLoginStateCode.ONLINE,
-                RISK_ALLOWED));
+                RISK_ALLOWED,
+                AccountOperationRestrictionStatus.PULLING_RESTRICTED.code()));
         if (selected.isEmpty()) {
             LOGGER.info("账号协议随机选号无候选: groupId={}", groupId);
+        }
+        return selected;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Optional<ProtocolAccountRef> findRandomOnlineNormalPullerByGroupId(Long groupId) {
+        if (groupId == null) {
+            LOGGER.info("账号协议随机拉手选号无候选: groupId为空");
+            return Optional.empty();
+        }
+        Optional<ProtocolAccountRef> selected = toProtocolRef(
+                accountMapper.selectRandomOnlineNormalByGroupId(
+                        groupId,
+                        AccountStateCode.NORMAL,
+                        AccountLoginStateCode.ONLINE,
+                        RISK_ALLOWED,
+                        AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED.code()));
+        if (selected.isEmpty()) {
+            LOGGER.info("账号协议随机拉手选号无候选: groupId={}", groupId);
         }
         return selected;
     }
@@ -97,6 +119,42 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
                         AccountLoginStateCode.ONLINE).stream()
                 .map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
                 .flatMap(Optional::stream)
+                .toList();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<ProtocolAccountRef> findOnlineNormalPullersByGroupId(Long groupId) {
+        if (groupId == null) {
+            return List.of();
+        }
+        return accountMapper.selectOnlineNormalPullersByGroupId(
+                        groupId,
+                        AccountStateCode.NORMAL,
+                        AccountLoginStateCode.ONLINE).stream()
+                .map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<ProtocolAccountRef> findEligiblePullerProtocolRefs(List<Long> accountIds) {
+        List<Long> requestedIds = normalizeIds(accountIds);
+        if (requestedIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, ProtocolAccountRef> refsById = new LinkedHashMap<>();
+        for (Account account : accountMapper.selectEligiblePullersByIds(
+                requestedIds,
+                AccountStateCode.NORMAL,
+                AccountLoginStateCode.ONLINE)) {
+            toStrictProtocolRef(account)
+                    .ifPresent(ref -> refsById.putIfAbsent(ref.armadaAccountId(), ref));
+        }
+        return requestedIds.stream()
+                .map(refsById::get)
+                .filter(ref -> ref != null)
                 .toList();
     }
 

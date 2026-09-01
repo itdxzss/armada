@@ -24,7 +24,6 @@ import com.armada.task.model.enums.PullTaskGroupAccountSource;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -129,7 +128,8 @@ public class PullTaskResourceRecoveryTransactionService {
             boolean ready = candidate.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code()
                     && setting.getManagerGroupId() != null
                     && resources.accountLookup()
-                    .findRandomOnlineNormalByGroupId(setting.getManagerGroupId()).isPresent();
+                    .findRandomOnlineNormalPullerByGroupId(
+                            setting.getManagerGroupId()).isPresent();
             return ready ? ResourceCheck.available() : managerWaiting(0);
         }
         List<Long> activeIds = activeIds(stored);
@@ -188,26 +188,33 @@ public class PullTaskResourceRecoveryTransactionService {
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         List<ProtocolAccountRef> validated = setting.getPullerGroupId() == null
                 ? List.of() : safe(resources.accountLookup()
-                .findOnlineNormalByGroupId(setting.getPullerGroupId()));
+                .findOnlineNormalPullersByGroupId(setting.getPullerGroupId()));
         Set<Long> validatedIds = new LinkedHashSet<>(validated.stream()
                 .filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId)
                 .toList());
-        validatedIds.addAll(activeIds(stored.stream()
+        List<Long> supplementedAccountIds = stored.stream()
                 .filter(row -> Objects.equals(row.getSourceType(),
                         PullTaskGroupAccountSource.SUPPLEMENT.code()))
-                .toList()));
+                .map(PullTaskGroupAccount::getAccountId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        validatedIds.addAll(safe(resources.accountLookup()
+                .findEligiblePullerProtocolRefs(supplementedAccountIds)).stream()
+                .filter(Objects::nonNull)
+                .map(ProtocolAccountRef::armadaAccountId)
+                .toList());
         List<Long> validatedIdList = List.copyOf(validatedIds);
-        restorePullerAvailability(validatedIdList, now);
-        Set<Long> eligibleIds = eligiblePullerIds(validatedIdList);
+        restoreOffline(validatedIdList, PullTaskGroupAccountRole.PULLER, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
-        int available = reoccupyValidatedPullers(refreshed, eligibleIds, now);
+        int available = reoccupyValidatedPullers(refreshed, validatedIds, now);
         int planned = setting.getPullerCountPerGroup() == null
                 ? 0 : setting.getPullerCountPerGroup();
         boolean stageCanSelect = candidate.getStage()
                 == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
-        boolean ready = available > 0 || stageCanSelect && !eligibleIds.isEmpty();
+        boolean ready = available > 0 || stageCanSelect && !validatedIds.isEmpty();
         if (ready) {
             return ResourceCheck.available();
         }
@@ -241,17 +248,6 @@ public class PullTaskResourceRecoveryTransactionService {
                 .distinct().toList();
     }
 
-    private void restorePullerAvailability(List<Long> validatedIds, long now) {
-        if (validatedIds.isEmpty()) {
-            return;
-        }
-        accountMapper.restoreExpiredPullerCooldowns(
-                validatedIds, PullTaskGroupAccountRole.PULLER.code(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code(),
-                PullTaskGroupAccountAvailability.AVAILABLE.code(), now);
-        restoreOffline(validatedIds, PullTaskGroupAccountRole.PULLER, now);
-    }
-
     private void restoreOffline(
             List<Long> validatedIds, PullTaskGroupAccountRole role, long now) {
         if (validatedIds.isEmpty()) {
@@ -260,19 +256,6 @@ public class PullTaskResourceRecoveryTransactionService {
         accountMapper.restoreValidatedAvailability(
                 validatedIds, role.code(), OFFLINE_AVAILABILITY,
                 PullTaskGroupAccountAvailability.AVAILABLE.code(), now);
-    }
-
-    private Set<Long> eligiblePullerIds(List<Long> validatedIds) {
-        if (validatedIds.isEmpty()) {
-            return Set.of();
-        }
-        List<Long> blockedRows = accountMapper.selectAccountIdsByAvailability(
-                validatedIds, PullTaskGroupAccountRole.PULLER.code(),
-                PullTaskGroupAccountAvailability.RISK_COOLDOWN.code());
-        Set<Long> blocked = blockedRows == null ? Set.of() : new HashSet<>(blockedRows);
-        Set<Long> eligible = new HashSet<>(validatedIds);
-        eligible.removeAll(blocked);
-        return eligible;
     }
 
     private int reoccupyValidatedPullers(

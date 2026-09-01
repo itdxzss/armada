@@ -34,7 +34,8 @@ public class HyperlinkMessageCommandFactory {
     public MessageSendCommand create(HyperlinkTask task, HyperlinkTaskContent content,
             HyperlinkTaskRecipient recipient, HyperlinkTaskAccountUsage usage, long notBeforeAt) {
         HyperlinkMessageDeliveryGuard.requireSupported(content);
-        String commandId = commandId(task.getTenantId(), task.getId(), recipient.getId());
+        String commandId = commandId(task.getTenantId(), task.getId(), recipient.getId(),
+                recipient.getDispatchAttempt());
         MessageSendCommand.MessagePayload payload = switch (content.getMessageType()) {
             case 1 -> linkCardPayload(task, content, recipient);
             case 3, 4 -> buttonPayload(content, recipient);
@@ -55,7 +56,14 @@ public class HyperlinkMessageCommandFactory {
     }
 
     public String commandId(long tenantId, long taskId, long recipientId) {
-        return "hl:" + tenantId + ":" + taskId + ":" + recipientId;
+        return commandId(tenantId, taskId, recipientId, 1);
+    }
+
+    /** 账号受限换号重发时使用新的 commandId，避免协议幂等键复用旧失败结果。 */
+    public String commandId(long tenantId, long taskId, long recipientId, Integer dispatchAttempt) {
+        int attempt = dispatchAttempt == null || dispatchAttempt < 1 ? 1 : dispatchAttempt;
+        String base = "hl:" + tenantId + ":" + taskId + ":" + recipientId;
+        return attempt == 1 ? base : base + ":" + attempt;
     }
 
     private MessageSendCommand.MessagePayload linkCardPayload(HyperlinkTask task,
@@ -74,13 +82,16 @@ public class HyperlinkMessageCommandFactory {
         HyperlinkButton button = buttons(content.getButtons()).get(0);
         String targetUrl = Boolean.TRUE.equals(button.useShortLink())
                 ? shortLinkGuard.publicUrl(recipient.getShortCode()) : button.targetValue();
+        boolean cardButton = content.getMessageType() == 4;
+        String body = cardButton ? content.getCardText() : content.getContent();
+        String footer = cardButton ? content.getContent() : null;
         MessageSendCommand.MessageButtonCard card = new MessageSendCommand.MessageButtonCard(
-                content.getTitle(), content.getMessageType() == 4 ? content.getCardText() : null,
+                content.getTitle(), footer,
                 List.of(new MessageSendCommand.MessageButton(
                         "link", button.displayText(), targetUrl)),
                 media(content.getBodyMainAssetId()));
         return new MessageSendCommand.MessagePayload(MessageType.BUTTON_CARD,
-                new MessageSendCommand.MessageContent(content.getContent(), null, null, card), false);
+                new MessageSendCommand.MessageContent(body, null, null, card), false);
     }
 
     private List<HyperlinkButton> buttons(String json) {

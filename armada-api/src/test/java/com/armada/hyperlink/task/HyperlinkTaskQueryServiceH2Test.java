@@ -71,23 +71,23 @@ public class HyperlinkTaskQueryServiceH2Test {
     }
 
     @Test
-    void listIsTenantSafeStablePagedAndHidesUnreadyRows() {
+    void listIsTenantSafeStablePagedAndIncludesProvisioningRows() {
         HyperlinkTaskListQuery query = new HyperlinkTaskListQuery();
         query.setPageSize(1);
 
         PageResult<?> first = service.list(query);
-        assertThat(first.total()).isEqualTo(4);
-        assertThat(first.list()).extracting("id").containsExactly(102L);
+        assertThat(first.total()).isEqualTo(6);
+        assertThat(first.list()).extracting("id").containsExactly(106L);
 
         query.setPage(2);
-        assertThat(service.list(query).list()).extracting("id").containsExactly(101L);
+        assertThat(service.list(query).list()).extracting("id").containsExactly(103L);
 
         query.setPageSize(999);
         query.setPage(1);
         assertThat(query.getPageSize()).isEqualTo(200);
         assertThat(service.list(query).list()).extracting("id")
-                .containsExactly(102L, 101L, 105L, 104L)
-                .doesNotContain(103L, 201L);
+                .containsExactly(106L, 103L, 102L, 101L, 105L, 104L)
+                .doesNotContain(201L);
     }
 
     @Test
@@ -120,9 +120,10 @@ public class HyperlinkTaskQueryServiceH2Test {
 
         assertThat(csv).startsWith("\uFEFF");
         assertThat(parseCsvLine(csv.lines().findFirst().orElseThrow())).hasSize(26);
-        assertThat(all.exportedCount()).isEqualTo(4);
+        assertThat(all.exportedCount()).isEqualTo(6);
         assertThat(csv).contains("\"单图文\"", "\"双图文\"", "\"普通按钮\"", "\"卡片按钮\"");
-        assertThat(csv).contains("包含国家:BR", "允许拉群:true", "\"已停用\"");
+        assertThat(csv).contains("包含国家:BR", "允许拉群:true", "\"已停用\"",
+                "\"准备中\"", "\"准备失败\"");
 
         HyperlinkTaskListQuery literal = new HyperlinkTaskListQuery();
         literal.setTaskName("%_!");
@@ -223,9 +224,10 @@ public class HyperlinkTaskQueryServiceH2Test {
     private void seed() throws SQLException {
         insert(101, 7, "百分比%_!任务", 1, 1, "[\"BR\"]", 0, true, 0, true, 3_000);
         insert(102, 7, "周期任务", 3, 4, "[\"US\",null]", 2, true, 3, true, 3_000);
-        insert(103, 7, "准备中隐藏", 2, 3, "[\"CN\"]", 1, true, 1, false, 4_000);
+        insert(103, 7, "准备中", 2, 3, "[\"CN\"]", 1, true, 0, false, 4_000);
         insert(104, 7, "已停用按钮", 1, 3, "[\"PH\"]", 0, false, 4, false, 1_000);
         insert(105, 7, "双图文任务", 2, 2, "[\"CN\"]", 2, true, 2, false, 2_000);
+        insert(106, 7, "准备失败", 1, 1, "[\"BR\"]", 3, true, 0, false, 5_000);
         insert(201, 8, "其他租户", 1, 1, "[\"BR\"]", 0, true, 0, true, 9_000);
     }
 

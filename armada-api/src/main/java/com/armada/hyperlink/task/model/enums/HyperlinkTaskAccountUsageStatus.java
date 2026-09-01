@@ -11,7 +11,9 @@ public enum HyperlinkTaskAccountUsageStatus {
     /** 设备删除、退出登录等明确失效。 */
     INVALID(4),
     /** 运营人工停用。 */
-    DISABLED(5);
+    DISABLED(5),
+    /** 账号触达能力软受限；退出当前任务，等待账号域到期恢复后供后续任务使用。 */
+    OPERATION_RESTRICTED(6);
 
     private final int code;
 

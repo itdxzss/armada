@@ -74,7 +74,7 @@ class PullTaskPullerSupplementServiceTest {
                 tasks(), settings(), executions(), roles());
         reset(accountLookup, accountGroupService, dispatchTrigger);
         when(accountGroupService.requireExisting(89L)).thenReturn(accountGroup());
-        when(accountLookup.findOnlineNormalByGroupId(89L)).thenReturn(List.of(
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(
                 account(901L), account(902L), account(903L), account(904L), account(905L)));
         when(accountLookup.findActiveProtocolRefs(List.of(800L)))
                 .thenReturn(List.of(account(800L)));

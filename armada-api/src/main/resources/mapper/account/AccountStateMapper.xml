@@ -248,6 +248,8 @@
         updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
     WHERE account_id = #{accountId}
       AND #{candidateUntil} &gt; #{now}
+      AND (manual_restriction_cleared_at IS NULL
+        OR manual_restriction_cleared_at &lt; #{occurredAt})
   </update>
 
   <!-- 平台限制仍有效时，消息失败只是同一限制的观测，不能用固定 24 小时推远明确截止。 -->
@@ -286,6 +288,8 @@
         updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
     WHERE account_id = #{accountId}
       AND #{candidateUntil} &gt; #{now}
+      AND (manual_restriction_cleared_at IS NULL
+        OR manual_restriction_cleared_at &lt; #{occurredAt})
       AND (
         platform_message_restriction_reported_at IS NULL
         OR (
@@ -341,10 +345,33 @@
         END,
         updated_at = CASE WHEN updated_at &gt; #{now} THEN updated_at ELSE #{now} END
     WHERE account_id = #{accountId}
+      AND (manual_restriction_cleared_at IS NULL
+        OR manual_restriction_cleared_at &lt; #{occurredAt})
       AND (
         platform_message_restriction_reported_at IS NULL
         OR platform_message_restriction_reported_at &lt;= #{occurredAt}
       )
+  </update>
+
+  <!-- 手动解除只清业务操作限制；生命周期、登录和旧 risk_* 风控不变。 -->
+  <update id="clearOperationRestrictionsManually">
+    UPDATE account_state
+    SET mute_status = NULL,
+        cooldown_until = NULL,
+        fallback_message_restriction_until = NULL,
+        platform_message_restriction_until = NULL,
+        platform_message_restriction_active = 0,
+        pulling_restriction_until = NULL,
+        manual_restriction_cleared_at = CASE
+          WHEN manual_restriction_cleared_at IS NULL
+            OR manual_restriction_cleared_at &lt; #{clearedAt}
+          THEN #{clearedAt} ELSE manual_restriction_cleared_at END,
+        updated_at = CASE
+          WHEN updated_at &gt; #{clearedAt} THEN updated_at ELSE #{clearedAt} END
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+      #{accountId}
+    </foreach>
   </update>
 
   <!-- 解除只清平台来源；其它能力/来源仍按自己的截止时间继续生效。 -->

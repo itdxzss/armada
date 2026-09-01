@@ -95,7 +95,7 @@ class AccountMutationDbTest extends DbTestBase {
         // account_state IS NULL,不满足严格删除口径
         assertThatThrownBy(() -> accountService.batchDelete(List.of(id)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("仅导出/封禁/解绑");
+                .hasMessageContaining("仅导出/封禁/解绑/被抢登");
     }
 
     // ──────────────────────────── 删除:通过(state=4 且 dispatched_at=NULL) ────────────────────────────
@@ -120,7 +120,7 @@ class AccountMutationDbTest extends DbTestBase {
 
     /**
      * I-1 混合批全或无:ids=[可删号(state=4), 不可删号(state=NULL)]
-     * → batchDelete 整批抛 VALIDATION("仅导出/封禁/解绑..."),
+     * → batchDelete 整批抛 VALIDATION("仅导出/封禁/解绑/被抢登..."),
      * 且可删的那条没被软删(selectActiveByWsPhone 仍非空)。
      */
     @Test
@@ -131,7 +131,7 @@ class AccountMutationDbTest extends DbTestBase {
 
         assertThatThrownBy(() -> accountService.batchDelete(List.of(deletableId, pendingId)))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("仅导出/封禁/解绑");
+                .hasMessageContaining("仅导出/封禁/解绑/被抢登");
 
         // 全或无:可删的那条也不应被软删
         assertThat(accountMapper.selectActiveByWsPhone("8613800139001")).isNotNull();

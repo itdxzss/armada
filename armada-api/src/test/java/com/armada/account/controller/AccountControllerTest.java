@@ -20,6 +20,7 @@ import com.armada.account.model.vo.AccountBatchCommandResultVO;
 import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.model.vo.AccountOperationRestrictionClearVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatusVO;
 import com.armada.account.model.vo.AccountWsPhoneExportFile;
@@ -28,6 +29,7 @@ import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.account.service.AccountService;
 import com.armada.account.service.AccountWsPhoneExportService;
 import com.armada.boot.web.GlobalExceptionHandler;
@@ -73,6 +75,9 @@ class AccountControllerTest {
     @Mock
     private AccountWsPhoneExportService accountWsPhoneExportService;
 
+    @Mock
+    private AccountOperationRestrictionService accountOperationRestrictionService;
+
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -85,7 +90,8 @@ class AccountControllerTest {
                         accountBatchLifecycleService,
                         accountLifecycleCommandService,
                         accountOnlineAttemptLogService,
-                        accountWsPhoneExportService))
+                        accountWsPhoneExportService,
+                        accountOperationRestrictionService))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -119,6 +125,25 @@ class AccountControllerTest {
         verify(accountWsPhoneExportService).export(org.mockito.ArgumentMatchers.argThat(
                 (AccountWsPhoneExportDTO request) -> request.ids().equals(List.of(101L, 102L))
                         && request.groupName().equals("马来西亚客户组")));
+    }
+
+    @Test
+    void postBatchClearOperationRestrictionsDelegatesSelectedIds() throws Exception {
+        when(accountOperationRestrictionService.clearOperationRestrictionsManually(
+                eq(List.of(101L, 102L)), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(new AccountOperationRestrictionClearVO(2, 2));
+
+        mockMvc.perform(post("/api/accounts/batch-clear-operation-restrictions")
+                        .contentType("application/json")
+                        .content("{\"ids\":[101,102]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requested").value(2))
+                .andExpect(jsonPath("$.data.cleared").value(2));
+
+        verify(accountOperationRestrictionService)
+                .clearOperationRestrictionsManually(
+                        eq(List.of(101L, 102L)),
+                        org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

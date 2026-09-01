@@ -56,7 +56,8 @@ public interface AccountService {
     /**
      * 严格口径批量软删除账号(全或无)。
      *
-     * <p>口径:账号 account_state 必须 ∈ {封禁=3, 导出=4, 解绑=5} 且 dispatched_at IS NULL(不在任务中)。
+     * <p>口径:账号 account_state 必须 ∈ {封禁=3, 导出=4, 解绑=5, 被抢登=6}
+     * 且 dispatched_at IS NULL(不在任务中)。
      * 任一账号不满足 → 整批抛 VALIDATION 并回报违规账号 id,不调 batchSoftDelete。</p>
      *
      * <p>step1 导入态 account_state=NULL → 拒删;memory 中 test_data_cleanup 走 DB 硬删,不走本方法。</p>

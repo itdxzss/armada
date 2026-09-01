@@ -49,6 +49,9 @@ public class AccountState {
     /** 拉人限制独立截止时间(epoch 毫秒)。 */
     private Long pullingRestrictionUntil;
 
+    /** 业务风控最近人工解除时间水位(epoch 毫秒)。 */
+    private Long manualRestrictionClearedAt;
+
     /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
     private Integer muteStatus;
 
@@ -204,6 +207,14 @@ public class AccountState {
 
     public void setPullingRestrictionUntil(Long value) {
         pullingRestrictionUntil = value;
+    }
+
+    public Long getManualRestrictionClearedAt() {
+        return manualRestrictionClearedAt;
+    }
+
+    public void setManualRestrictionClearedAt(Long value) {
+        manualRestrictionClearedAt = value;
     }
 
     public Integer getMuteStatus() {

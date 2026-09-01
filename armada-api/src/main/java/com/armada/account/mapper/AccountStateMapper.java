@@ -339,6 +339,11 @@ public interface AccountStateMapper {
             @Param("occurredAt") long occurredAt,
             @Param("now") long now);
 
+    /** 在当前租户内清除两类业务风控并写入人工解除水位。 */
+    int clearOperationRestrictionsManually(
+            @Param("accountIds") List<Long> accountIds,
+            @Param("clearedAt") long clearedAt);
+
     /** 跨租户按批次恢复已到期的账号操作限制。 */
     @InterceptorIgnore(tenantLine = "true")
     int restoreExpiredAccountOperationRestrictions(

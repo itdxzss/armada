@@ -17,6 +17,7 @@ import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountDeleteGateRow;
 import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.vo.AccountListVoRow;
@@ -248,6 +249,39 @@ class AccountServiceImplTest {
 
         assertThat(service.getLoginStatesByIds(List.of())).isEmpty();
         verify(accountMapper, never()).selectActiveLoginStatesByIds(anyList());
+    }
+
+    @Test
+    void batchDeleteAllowsUndispatchedLoginReplacedAccount() {
+        AccountDeleteGateRow row = new AccountDeleteGateRow();
+        row.setId(61L);
+        row.setAccountState(6);
+        row.setDispatchedAt(null);
+        when(accountMapper.selectStatesByIds(List.of(61L))).thenReturn(List.of(row));
+        when(accountMapper.batchSoftDelete(eq(List.of(61L)), anyLong())).thenReturn(1);
+        AccountServiceImpl service = new AccountServiceImpl(
+                accountMapper, accountGroupMapper, accountConverter);
+
+        service.batchDelete(List.of(61L));
+
+        verify(accountMapper).batchSoftDelete(eq(List.of(61L)), anyLong());
+    }
+
+    @Test
+    void batchDeleteRejectsDispatchedLoginReplacedAccount() {
+        AccountDeleteGateRow row = new AccountDeleteGateRow();
+        row.setId(62L);
+        row.setAccountState(6);
+        row.setDispatchedAt(9_000L);
+        when(accountMapper.selectStatesByIds(List.of(62L))).thenReturn(List.of(row));
+        AccountServiceImpl service = new AccountServiceImpl(
+                accountMapper, accountGroupMapper, accountConverter);
+
+        assertThatThrownBy(() -> service.batchDelete(List.of(62L)))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class)
+                .hasMessageContaining("被抢登");
+
+        verify(accountMapper, never()).batchSoftDelete(anyList(), anyLong());
     }
 
     private static AccountState loginState(Long accountId, Integer loginState) {

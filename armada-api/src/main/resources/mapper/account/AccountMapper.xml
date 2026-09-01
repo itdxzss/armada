@@ -868,6 +868,12 @@
            s.account_state AS accountState, s.login_state AS loginState,
            s.risk_status AS riskStatus, s.risk_end_time AS riskEndTime,
            s.cooldown_until AS cooldownUntil, s.mute_status AS muteStatus,
+           NULLIF(GREATEST(
+             COALESCE(s.fallback_message_restriction_until, 0),
+             CASE WHEN s.platform_message_restriction_active = 1
+               THEN COALESCE(s.platform_message_restriction_until, 0)
+               ELSE 0 END), 0) AS messageRestrictionUntil,
+           s.pulling_restriction_until AS pullingRestrictionUntil,
            s.restriction_reason_code AS restrictionReasonCode,
            s.restriction_reported_at AS restrictionReportedAt,
            s.block_error_code AS blockErrorCode, s.block_reason AS blockReason,

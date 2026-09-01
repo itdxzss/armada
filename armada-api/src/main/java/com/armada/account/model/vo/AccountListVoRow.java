@@ -98,6 +98,12 @@ public class AccountListVoRow {
     /** 账号操作限制统一截止时间(epoch 毫秒)。 */
     private Long cooldownUntil;
 
+    /** 超链消息发送限制的当前有效截止时间(epoch 毫秒)。 */
+    private Long messageRestrictionUntil;
+
+    /** 拉手拉人限制的截止时间(epoch 毫秒)。 */
+    private Long pullingRestrictionUntil;
+
     /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
     private Integer muteStatus;
 
@@ -372,6 +378,22 @@ public class AccountListVoRow {
 
     public void setCooldownUntil(Long cooldownUntil) {
         this.cooldownUntil = cooldownUntil;
+    }
+
+    public Long getMessageRestrictionUntil() {
+        return messageRestrictionUntil;
+    }
+
+    public void setMessageRestrictionUntil(Long value) {
+        messageRestrictionUntil = value;
+    }
+
+    public Long getPullingRestrictionUntil() {
+        return pullingRestrictionUntil;
+    }
+
+    public void setPullingRestrictionUntil(Long value) {
+        pullingRestrictionUntil = value;
     }
 
     public Integer getMuteStatus() {

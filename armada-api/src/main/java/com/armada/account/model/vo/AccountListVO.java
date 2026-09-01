@@ -101,6 +101,12 @@ public record AccountListVO(
         /** 账号操作限制统一截止时间(epoch 毫秒)。 */
         Long cooldownUntil,
 
+        /** 超链消息发送限制的当前有效截止时间(epoch 毫秒)。 */
+        Long messageRestrictionUntil,
+
+        /** 拉手拉人限制的截止时间(epoch 毫秒)。 */
+        Long pullingRestrictionUntil,
+
         /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
         Integer muteStatus,
 

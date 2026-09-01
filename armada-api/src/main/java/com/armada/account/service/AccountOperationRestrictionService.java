@@ -1,5 +1,6 @@
 package com.armada.account.service;
 
+import com.armada.account.model.vo.AccountOperationRestrictionClearVO;
 import com.armada.account.model.vo.AccountPullerRestrictionSnapshot;
 import com.armada.account.model.vo.AccountPullerRestrictionSummary;
 import java.util.List;
@@ -41,6 +42,18 @@ public interface AccountOperationRestrictionService {
 
     /** 按平台解除事件的事实时间，只清除平台来源的消息发送限制。 */
     boolean clearPlatformMessageSending(Long accountId, long occurredAt, long now);
+
+    /**
+     * 在当前租户内批量清除超链发送和拉手拉人的本地限制时间。
+     *
+     * <p>解除后的新风控事实仍可生效，但解除时间之前的延迟/重放事实不再回灌。</p>
+     *
+     * @param accountIds 账号 ID，批量上限 2000，重复 ID 自动去重
+     * @param clearedAt 人工解除时间(epoch 毫秒)
+     * @return 请求数和当前租户实际更新数
+     */
+    AccountOperationRestrictionClearVO clearOperationRestrictionsManually(
+            List<Long> accountIds, long clearedAt);
 
     /**
      * 跨租户恢复所有已到期账号操作限制，内部按固定批次处理。

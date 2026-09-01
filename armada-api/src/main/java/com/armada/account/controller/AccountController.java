@@ -14,6 +14,7 @@ import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.model.vo.AccountOnlineVO;
+import com.armada.account.model.vo.AccountOperationRestrictionClearVO;
 import com.armada.account.model.vo.AccountProbeVO;
 import com.armada.account.model.vo.AccountStatsVO;
 import com.armada.account.model.vo.AccountStatusVO;
@@ -23,6 +24,7 @@ import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountLifecycleCommandService;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.account.service.AccountOperationRestrictionService;
 import com.armada.account.service.AccountService;
 import com.armada.account.service.AccountWsPhoneExportService;
 import com.armada.shared.response.ApiResponse;
@@ -59,6 +61,7 @@ public class AccountController {
     private final AccountLifecycleCommandService accountLifecycleCommandService;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
     private final AccountWsPhoneExportService accountWsPhoneExportService;
+    private final AccountOperationRestrictionService accountOperationRestrictionService;
 
     public AccountController(AccountService accountService,
                              AccountGroupService accountGroupService,
@@ -66,7 +69,8 @@ public class AccountController {
                              AccountBatchLifecycleService accountBatchLifecycleService,
                              AccountLifecycleCommandService accountLifecycleCommandService,
                              AccountOnlineAttemptLogService accountOnlineAttemptLogService,
-                             AccountWsPhoneExportService accountWsPhoneExportService) {
+                             AccountWsPhoneExportService accountWsPhoneExportService,
+                             AccountOperationRestrictionService accountOperationRestrictionService) {
         this.accountService = accountService;
         this.accountGroupService = accountGroupService;
         this.accountOnlineCommandService = accountOnlineCommandService;
@@ -74,6 +78,7 @@ public class AccountController {
         this.accountLifecycleCommandService = accountLifecycleCommandService;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
         this.accountWsPhoneExportService = accountWsPhoneExportService;
+        this.accountOperationRestrictionService = accountOperationRestrictionService;
     }
 
     /**
@@ -317,7 +322,7 @@ public class AccountController {
     /**
      * A7 批量软删除账号(全或无严格口径)。
      *
-     * <p>仅封禁/导出/解绑状态且不在任务中的账号可删除;任一不满足整批拒删抛 BusinessException。</p>
+     * <p>仅封禁/导出/解绑/被抢登状态且不在任务中的账号可删除;任一不满足整批拒删。</p>
      *
      * @param request 账号 ID 列表
      * @return 空成功响应
@@ -326,5 +331,18 @@ public class AccountController {
     public ApiResponse<Void> batchDelete(@RequestBody AccountIdsDTO request) {
         accountService.batchDelete(request.ids());
         return ApiResponse.ok();
+    }
+
+    /**
+     * 批量手动移除超链发送和拉手拉人的本地风控时间限制。
+     *
+     * <p>不修改旧账号级 risk_status/risk_end_time；解除后的新业务风控仍会重新生效。</p>
+     */
+    @PostMapping("/batch-clear-operation-restrictions")
+    public ApiResponse<AccountOperationRestrictionClearVO> clearOperationRestrictions(
+            @RequestBody AccountIdsDTO request) {
+        return ApiResponse.ok(accountOperationRestrictionService
+                .clearOperationRestrictionsManually(
+                        request.ids(), System.currentTimeMillis()));
     }
 }

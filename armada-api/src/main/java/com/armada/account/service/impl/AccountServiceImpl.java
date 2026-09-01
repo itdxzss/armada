@@ -50,11 +50,12 @@ public class AccountServiceImpl implements AccountService {
     private static final Logger log = LoggerFactory.getLogger(AccountServiceImpl.class);
 
     /**
-     * 可删除账号状态集合:封禁 / 导出 / 解绑。
+     * 可删除账号状态集合:封禁 / 导出 / 解绑 / 被抢登。
      * 对应 account_state 表 account_state 列口径,使用 {@link AccountStateCode} 常量替代魔法值。
      */
     private static final Set<Integer> DELETABLE_STATES = Set.of(
-            AccountStateCode.BANNED, AccountStateCode.EXPORTED, AccountStateCode.UNBOUND);
+            AccountStateCode.BANNED, AccountStateCode.EXPORTED,
+            AccountStateCode.UNBOUND, AccountStateCode.LOGIN_REPLACED);
 
     /** 账号、账号状态及账号分页数据访问。 */
     private final AccountMapper accountMapper;
@@ -331,7 +332,7 @@ public class AccountServiceImpl implements AccountService {
     /**
      * 按严格状态口径批量软删除账号。
      *
-     * <p>仅允许删除封禁、导出或解绑且未进入任务的账号。校验采用全或无语义，
+     * <p>仅允许删除封禁、导出、解绑或被抢登且未进入任务的账号。校验采用全或无语义，
      * 任一账号不满足条件时不执行任何软删除。</p>
      *
      * @param ids 待删除账号 ID
@@ -348,7 +349,8 @@ public class AccountServiceImpl implements AccountService {
         for (AccountDeleteGateRow row : rows) {
             if (!isDeletable(row)) {
                 throw new BusinessException(ErrorCode.VALIDATION,
-                        "仅导出/封禁/解绑状态且不在任务的账号可删除(账号 " + row.getId() + " 不满足条件)");
+                        "仅导出/封禁/解绑/被抢登状态且不在任务的账号可删除(账号 "
+                                + row.getId() + " 不满足条件)");
             }
         }
         long now = System.currentTimeMillis();

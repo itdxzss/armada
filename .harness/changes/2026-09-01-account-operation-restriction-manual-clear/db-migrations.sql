@@ -1,0 +1,2 @@
+-- Apply through Flyway only:
+-- armada-api/src/main/resources/db/migration/V178__account_operation_restriction_manual_clear.sql

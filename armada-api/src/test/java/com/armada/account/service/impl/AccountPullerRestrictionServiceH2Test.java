@@ -64,6 +64,8 @@ class AccountPullerRestrictionServiceH2Test {
                   account_id BIGINT NOT NULL,
                   account_state TINYINT,
                   login_state TINYINT,
+                  risk_status TINYINT,
+                  risk_end_time BIGINT,
                   mute_status TINYINT,
                   cooldown_until BIGINT,
                   fallback_message_restriction_until BIGINT,
@@ -71,6 +73,7 @@ class AccountPullerRestrictionServiceH2Test {
                   platform_message_restriction_active TINYINT,
                   platform_message_restriction_reported_at BIGINT,
                   pulling_restriction_until BIGINT,
+                  manual_restriction_cleared_at BIGINT,
                   restriction_reason_code VARCHAR(64),
                   restriction_reported_at BIGINT,
                   created_at BIGINT NOT NULL,
@@ -283,6 +286,55 @@ class AccountPullerRestrictionServiceH2Test {
                 AccountOperationRestrictionStatus.MESSAGE_SENDING_RESTRICTED.code());
         assertThat(sourceUntil("platform_message_restriction_until", 11L))
                 .isEqualTo(30_000L);
+    }
+
+    @Test
+    void manualClearRemovesBothBusinessRestrictionsAndWatermarksOldFacts() {
+        long clearAt = 10_000L;
+        jdbc.update("""
+                UPDATE account_state
+                SET risk_status = 2, risk_end_time = 99_000
+                WHERE tenant_id = 1 AND account_id = 10
+                """);
+        assertThat(service.restrictPulling(
+                10L, "RATE_LIMITED", 3_000L, 4_000L)).isTrue();
+        assertThat(service.restrictPlatformMessageSending(
+                10L, "ACCOUNT_REACHOUT_RESTRICTED", 4_000L, 80_000L, 5_000L))
+                .isTrue();
+
+        var result = service.clearOperationRestrictionsManually(
+                java.util.List.of(10L, 20L, 10L), clearAt);
+
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.cleared()).isEqualTo(1);
+        assertThat(status(1L, 10L)).isNull();
+        assertThat(until(1L, 10L)).isNull();
+        assertThat(sourceUntil("fallback_message_restriction_until", 10L)).isNull();
+        assertThat(sourceUntil("platform_message_restriction_until", 10L)).isNull();
+        assertThat(sourceUntil("pulling_restriction_until", 10L)).isNull();
+        assertThat(sourceUntil("manual_restriction_cleared_at", 10L)).isEqualTo(clearAt);
+        assertThat(jdbc.queryForObject("""
+                SELECT risk_status FROM account_state
+                WHERE tenant_id = 1 AND account_id = 10
+                """, Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT risk_end_time FROM account_state
+                WHERE tenant_id = 1 AND account_id = 10
+                """, Long.class)).isEqualTo(99_000L);
+
+        assertThat(service.restrictPulling(
+                10L, "OLD_PULLING", 9_000L, 11_000L)).isFalse();
+        assertThat(service.restrictMessageSending(
+                10L, "OLD_MESSAGE", 9_500L, 11_000L)).isFalse();
+        assertThat(service.restrictPlatformMessageSending(
+                10L, "OLD_PLATFORM", 9_000L, 90_000L, 11_000L)).isFalse();
+        assertThat(service.restrictPulling(
+                10L, "NEW_PULLING", 12_000L, 13_000L)).isTrue();
+        assertThat(service.restrictMessageSending(
+                10L, "NEW_MESSAGE", 12_001L, 13_000L)).isTrue();
+        assertThat(status(1L, 10L)).isEqualTo(
+                AccountOperationRestrictionStatus
+                        .MESSAGE_SENDING_AND_PULLING_RESTRICTED.code());
     }
 
     @Test

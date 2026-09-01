@@ -62,4 +62,16 @@ class AccountConverterTest {
         assertThat(vo.friendsNum()).isZero();
         assertThat(vo.groupsNum()).isEqualTo(3);
     }
+
+    @Test
+    void toAccountListVO_keepsSeparateBusinessRestrictionDeadlines() {
+        AccountListVoRow row = new AccountListVoRow();
+        row.setMessageRestrictionUntil(10_000L);
+        row.setPullingRestrictionUntil(20_000L);
+
+        AccountListVO vo = converter.toAccountListVO(row, "FREE");
+
+        assertThat(vo.messageRestrictionUntil()).isEqualTo(10_000L);
+        assertThat(vo.pullingRestrictionUntil()).isEqualTo(20_000L);
+    }
 }

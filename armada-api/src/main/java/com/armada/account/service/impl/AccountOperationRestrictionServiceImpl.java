@@ -4,22 +4,31 @@ import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.enums.AccountOperationRestrictionStatus;
 import com.armada.account.model.enums.AccountPullerRestrictionStatus;
+import com.armada.account.model.vo.AccountOperationRestrictionClearVO;
 import com.armada.account.model.vo.AccountPullerRestrictionSnapshot;
 import com.armada.account.model.vo.AccountPullerRestrictionSummary;
 import com.armada.account.service.AccountOperationRestrictionService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /** 拉人受限事实写入统一账号操作限制状态的账号域实现。 */
 @Service
 public class AccountOperationRestrictionServiceImpl implements AccountOperationRestrictionService {
 
+    private static final Logger log = LoggerFactory.getLogger(
+            AccountOperationRestrictionServiceImpl.class);
     private static final long RESTRICTION_MILLIS = 86_400_000L;
     private static final int RECOVERY_BATCH_SIZE = 500;
+    private static final int MAX_MANUAL_CLEAR_ACCOUNTS = 2_000;
 
     private final AccountStateMapper stateMapper;
 
@@ -77,6 +86,36 @@ public class AccountOperationRestrictionServiceImpl implements AccountOperationR
             return false;
         }
         return stateMapper.clearPlatformMessageRestriction(accountId, occurredAt, now) == 1;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountOperationRestrictionClearVO clearOperationRestrictionsManually(
+            List<Long> accountIds, long clearedAt) {
+        if (accountIds == null || accountIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 列表不能为空");
+        }
+        if (clearedAt <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "人工解除时间无效");
+        }
+        LinkedHashSet<Long> distinctIds = new LinkedHashSet<>();
+        for (Long accountId : accountIds) {
+            if (accountId == null || accountId <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 必须为正整数");
+            }
+            distinctIds.add(accountId);
+        }
+        if (distinctIds.size() > MAX_MANUAL_CLEAR_ACCOUNTS) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "单次最多手动解除 2000 个账号的业务风控");
+        }
+        List<Long> normalizedIds = List.copyOf(distinctIds);
+        int cleared = stateMapper.clearOperationRestrictionsManually(
+                normalizedIds, clearedAt);
+        log.info("账号业务风控手动解除 requested={} cleared={}",
+                normalizedIds.size(), cleared);
+        return new AccountOperationRestrictionClearVO(normalizedIds.size(), cleared);
     }
 
     private static long fallbackUntil(long occurredAt) {

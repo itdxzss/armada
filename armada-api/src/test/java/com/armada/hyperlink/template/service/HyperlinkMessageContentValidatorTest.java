@@ -55,17 +55,6 @@ class HyperlinkMessageContentValidatorTest {
     }
 
     @Test
-    void singleLinkPreviewAllowsBlankPromotionLink() throws IOException {
-        fileService.put(11L, new MarketingTemplateFileContent("image/jpeg", jpegBytes()));
-        HyperlinkMessageContent input = new HyperlinkMessageContent(
-                1, 1, "标题", "正文", "描述", "  ", List.of(), null, 11L, null);
-
-        HyperlinkMessageContent normalized = validator.validateAndNormalize(input);
-
-        assertThat(normalized.promotionLink()).isNull();
-    }
-
-    @Test
     void normalButtonKeepsOneCtaAndClearsLinkPreviewFields() throws IOException {
         fileService.put(12L, new MarketingTemplateFileContent("image/jpeg", jpegBytes()));
         HyperlinkMessageContent input = new HyperlinkMessageContent(

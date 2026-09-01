@@ -117,11 +117,9 @@ public class HyperlinkMessageContentValidator {
                 input.content(), "单图文正文不能为空", SINGLE_CONTENT_MAX_LENGTH, "单图文正文最长 2000 字符");
         String description = required(input.linkDescription(), "链接描述不能为空",
                 LINK_DESCRIPTION_MAX_LENGTH, "链接描述最长 512 字符");
-        String promotionLink = optional(
-                input.promotionLink(), URL_MAX_LENGTH, "推广链接最长 2048 字符");
-        if (promotionLink != null) {
-            requireHttpUrl(promotionLink, "推广链接必须是合法的绝对 http/https URL");
-        }
+        String promotionLink = required(
+                input.promotionLink(), "推广链接不能为空", URL_MAX_LENGTH, "推广链接最长 2048 字符");
+        requireHttpUrl(promotionLink, "推广链接必须是合法的绝对 http/https URL");
         if (input.linkPreviewAssetId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "单图文必须选择链接预览图");
         }

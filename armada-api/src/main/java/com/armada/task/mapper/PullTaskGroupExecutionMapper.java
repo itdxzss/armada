@@ -182,12 +182,23 @@ public interface PullTaskGroupExecutionMapper {
                         PullTaskExecutionStatus.WAIT_RESOURCE.code()));
     }
 
+    /**
+     * 查询当前任务历史执行行已经绑定过的候选群 JID，防止换群时重复使用。
+     *
+     * @param taskId 当前任务 ID
+     * @param groupJids 非空候选群 JID
+     * @return 已被当前任务绑定过的候选群 JID
+     */
+    List<String> selectAssignedGroupJids(
+            @Param("taskId") long taskId,
+            @Param("groupJids") List<String> groupJids);
+
     /** 统计指定群组中当前被活动执行行占用的数量。 */
     int countActiveByGroupLinkIds(
             @Param("groupLinkIds") List<Long> groupLinkIds,
             @Param("executionStatuses") List<Integer> executionStatuses);
 
-    /** 统计引用指定来源分组且尚未结束的父任务数量。 */
+    /** 统计引用指定来源分组且尚未结束的资源池或群链接父任务数量。 */
     int countTasksUsingFolders(
             @Param("folderIds") List<Long> folderIds,
             @Param("parentStatuses") List<String> parentStatuses);

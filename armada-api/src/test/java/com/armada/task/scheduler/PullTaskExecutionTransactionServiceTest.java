@@ -235,6 +235,49 @@ class PullTaskExecutionTransactionServiceTest {
     }
 
     @Test
+    void pastedLinkRetryClaimsANewGroupAndDoesNotReuseTaskHistory() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
+                + "WHERE task_id = 100");
+        insertAndFreeze(100L, 1, LINK);
+        execute("UPDATE pull_task_group_execution "
+                + "SET group_jid = '120363000000901@g.us', execution_status = 5 "
+                + "WHERE task_id = 100 AND seq = 1");
+        insertUnboundRetryAndFreeze(100L, 2);
+        GroupPoolResourceVO used = new GroupPoolResourceVO(
+                901L, "120363000000901@g.us",
+                "chat.whatsapp.com/POOL01", "POOL01");
+        GroupPoolResourceVO next = new GroupPoolResourceVO(
+                902L, "120363000000902@g.us",
+                "chat.whatsapp.com/POOL02", "POOL02");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(used, next));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 902L))
+                .thenReturn(next);
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        PullTaskExecutionWork work = transactionService
+                .prepare(claimed, "worker-1", 600L).orElseThrow();
+
+        assertThat(work.normalizedLink()).isEqualTo("chat.whatsapp.com/POOL02");
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(claimed.getId());
+        assertThat(saved.getGroupLinkId()).isEqualTo(902L);
+        assertThat(saved.getGroupJid()).isEqualTo("120363000000902@g.us");
+        verify(groupFolderService).requireUsableResourceForUpdate(18L, 902L);
+    }
+
+    @Test
+    void pastedLinkTaskKeepsItsSourceFolderProtectedWhileActive() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
+                + "WHERE task_id = 100");
+
+        assertThat(executionMapper.countTasksUsingFolders(
+                List.of(18L), List.of(PullTaskStandardStatus.EXECUTING.name())))
+                .isEqualTo(1);
+    }
+
+    @Test
     void emptyFolderMovesParentToWaitGroupResource() throws SQLException {
         seedParent(100L, "EXECUTING");
         execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
@@ -342,6 +385,24 @@ class PullTaskExecutionTransactionServiceTest {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setTaskId(taskId);
         row.setSeq(seq);
+        row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        row.setSourceFileIndex(seq);
+        row.setSourceFileName("material-" + seq + ".txt");
+        row.setTotalLineCount(1);
+        row.setValidMemberCount(1);
+        row.setInvalidLineCount(0);
+        row.setDuplicateLineCount(0);
+        row.setCreatedAt(100L);
+        row.setUpdatedAt(100L);
+        executionMapper.insertDraft(row);
+        executionMapper.freezeDraftRows(taskId, 500L);
+    }
+
+    private void insertUnboundRetryAndFreeze(long taskId, int seq) {
+        PullTaskGroupExecution row = new PullTaskGroupExecution();
+        row.setTaskId(taskId);
+        row.setSeq(seq);
+        row.setAttemptNo(2);
         row.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
         row.setSourceFileIndex(seq);
         row.setSourceFileName("material-" + seq + ".txt");

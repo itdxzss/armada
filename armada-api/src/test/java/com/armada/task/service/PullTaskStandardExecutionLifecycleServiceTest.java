@@ -21,6 +21,7 @@ import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.mapper.PullTaskPullWaveMapper;
+import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
@@ -72,6 +73,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 task(3L, 7L, "COMPLETED"),
                 task(4L, 8L, "EXECUTING"),
                 task(5L, 7L, "PAUSED"),
+                task(6L, 7L, "EXECUTING"),
                 execution(11L, 7L, 1L, 1, 2, 4, 0),
                 execution(12L, 7L, 1L, 2, 3, 5, 0),
                 execution(13L, 7L, 1L, 3, 4, 7, 0),
@@ -79,10 +81,12 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 execution(31L, 7L, 3L, 1, 4, 7, 0),
                 execution(41L, 8L, 4L, 1, 2, 5, 0),
                 execution(51L, 7L, 5L, 1, 2, 5, 1),
+                execution(61L, 7L, 6L, 1, 2, 5, 0),
                 puller(101L, 7L, 1L, 11L, 501L, null),
                 puller(102L, 7L, 1L, 12L, 502L, null),
                 puller(201L, 7L, 2L, 21L, 601L, 700L));
-        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id IN (1, 2, 5)");
+        execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id IN (2, 5)");
+        insertSetting(1L, 18L);
         reset(dispatchTrigger);
         reset(outboxService);
         reset(groupFolderService);
@@ -230,6 +234,17 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     @Test
+    void pastedManualLinkWithoutSourceFolderDoesNotCreateRetry() {
+        banTerminationService.terminateBannedGroup(7L, 9061L);
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 61L)).isEqualTo(5);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 6 AND attempt_no = 2",
+                Integer.class)).isZero();
+        verify(groupFolderService, times(0)).moveToUngrouped(9061L);
+    }
+
+    @Test
     void groupBanFailsLastPausedExecutionButKeepsParentPaused() {
         banTerminationService.terminateBannedGroup(7L, 9051L);
 
@@ -347,6 +362,17 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 + "', 2, 1, 2, 1, 100, " + released + ", 100, 100)";
     }
 
+    private void insertSetting(long taskId, long sourceGroupFolderId) throws SQLException {
+        execute("INSERT INTO pull_task_standard_setting "
+                + "(tenant_id, task_id, auto_start, source_group_folder_id, "
+                + "material_admin_timing, pull_count_min, pull_count_max, "
+                + "pull_interval_seconds, puller_count_per_group, station_count_per_call, "
+                + "concurrent_group_count, manager_group_id, puller_group_id, "
+                + "manager_group_name, puller_group_name, created_at, updated_at) VALUES "
+                + "(7, " + taskId + ", 0, " + sourceGroupFolderId
+                + ", 1, 1, 2, 1, 1, 0, 1, 88, 89, 'manager', 'puller', 100, 100)");
+    }
+
     private void execute(String sql) throws SQLException {
         try (var connection = dataSource.getConnection();
              var statement = connection.createStatement()) {
@@ -376,6 +402,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                                             MybatisPlusInterceptor interceptor) throws Exception {
             return PullTaskNormalLinkH2Support.sqlSessionFactory(dataSource, interceptor,
                     "mapper/task/PullTaskMapper.xml",
+                    "mapper/task/PullTaskStandardSettingMapper.xml",
                     "mapper/task/PullTaskGroupExecutionMapper.xml",
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskAccountActionMapper.xml",
@@ -395,6 +422,10 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
         @Bean PullTaskGroupExecutionMapper executionMapper(SqlSessionTemplate template) {
             return template.getMapper(PullTaskGroupExecutionMapper.class);
+        }
+
+        @Bean PullTaskStandardSettingMapper settingMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskStandardSettingMapper.class);
         }
 
         @Bean PullTaskGroupAccountMapper accountMapper(SqlSessionTemplate template) {
@@ -438,12 +469,14 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         @Bean
         PullTaskStandardExecutionLifecycleResources lifecycleResources(
                 PullTaskGroupExecutionMapper executionMapper,
+                PullTaskStandardSettingMapper settingMapper,
                 PullTaskAccountActionMapper actionMapper,
                 com.armada.task.mapper.PullTaskMemberQueryMapper memberQueryMapper,
                 PullTaskLifecyclePullResources pull,
                 ProtocolCommandOutboxService outboxService) {
             return new PullTaskStandardExecutionLifecycleResources(
-                    executionMapper, actionMapper, memberQueryMapper, pull, outboxService);
+                    executionMapper, settingMapper, actionMapper,
+                    memberQueryMapper, pull, outboxService);
         }
 
         @Bean

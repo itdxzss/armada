@@ -144,6 +144,15 @@
                open="(" separator="," close=")">#{groupJid}</foreach>
   </select>
 
+  <select id="selectAssignedGroupJids" resultType="java.lang.String">
+    SELECT DISTINCT group_jid
+    FROM pull_task_group_execution
+    WHERE task_id = #{taskId}
+      AND group_jid IN
+      <foreach collection="groupJids" item="groupJid"
+               open="(" separator="," close=")">#{groupJid}</foreach>
+  </select>
+
   <select id="countActiveByGroupLinkIds" resultType="int">
     SELECT COUNT(*)
     FROM pull_task_group_execution
@@ -163,7 +172,7 @@
       ON task_setting.tenant_id = parent_task.tenant_id
      AND task_setting.task_id = parent_task.id
     WHERE parent_task.deleted_at IS NULL
-      AND parent_task.creation_mode = 'RESOURCE_POOL'
+      AND parent_task.creation_mode IN ('PASTED_LINK', 'RESOURCE_POOL')
       AND parent_task.status IN
       <foreach collection="parentStatuses" item="status"
                open="(" separator="," close=")">#{status}</foreach>

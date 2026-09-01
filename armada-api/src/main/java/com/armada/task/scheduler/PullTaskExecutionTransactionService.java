@@ -13,9 +13,9 @@ import com.armada.task.model.dto.PullTaskExecutionWork;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import java.util.HashSet;
@@ -37,7 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PullTaskExecutionTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final String WAIT_GROUP_REASON = "当前群组资源池暂无可用群组";
+    private static final String WAIT_GROUP_REASON = "当前群组分组暂无可用群组";
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -85,9 +85,10 @@ public class PullTaskExecutionTransactionService {
             if (candidate.getExecutionStatus() == PullTaskExecutionStatus.WAIT_START.code()) {
                 PullTaskStandardSetting setting =
                         settingMapper.selectByTaskId(candidate.getTaskId());
-                GroupPoolResourceVO resource = requiresRuntimeGroup(parent, candidate)
-                        ? nextAvailableResource(setting) : null;
-                if (requiresRuntimeGroup(parent, candidate) && resource == null) {
+                boolean runtimeGroupRequired = requiresRuntimeGroup(parent, candidate, setting);
+                GroupPoolResourceVO resource = runtimeGroupRequired
+                        ? nextAvailableResource(setting, candidate.getTaskId()) : null;
+                if (runtimeGroupRequired && resource == null) {
                     waitForGroupResource(parent, now);
                     release(candidate.getId(), lockOwner, now);
                     return Optional.empty();
@@ -165,7 +166,9 @@ public class PullTaskExecutionTransactionService {
         }
     }
 
-    private GroupPoolResourceVO nextAvailableResource(PullTaskStandardSetting setting) {
+    private GroupPoolResourceVO nextAvailableResource(
+            PullTaskStandardSetting setting,
+            long taskId) {
         if (setting == null || setting.getSourceGroupFolderId() == null) {
             return null;
         }
@@ -179,6 +182,7 @@ public class PullTaskExecutionTransactionService {
                 .toList();
         Set<String> occupied = new HashSet<>(
                 executionMapper.selectOccupiedGroupJids(groupJids));
+        occupied.addAll(executionMapper.selectAssignedGroupJids(taskId, groupJids));
         return resources.stream()
                 .filter(resource -> !occupied.contains(resource.groupJid()))
                 .findFirst()
@@ -187,8 +191,13 @@ public class PullTaskExecutionTransactionService {
 
     private static boolean requiresRuntimeGroup(
             PullTask parent,
-            PullTaskGroupExecution candidate) {
-        return parent.getCreationMode() == PullTaskCreationMode.RESOURCE_POOL
+            PullTaskGroupExecution candidate,
+            PullTaskStandardSetting setting) {
+        PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(parent.getCreationMode());
+        boolean isRetry = candidate.getAttemptNo() != null && candidate.getAttemptNo() > 1;
+        return mode.usesSelectedGroupFolder(
+                        setting == null ? null : setting.getSourceGroupFolderId())
+                && (mode.isResourcePool() || isRetry)
                 && candidate.getGroupLinkId() == null
                 && candidate.getGroupJid() == null
                 && candidate.getStage() != PullTaskExecutionStage.GROUP_CREATE.code();

@@ -19,6 +19,7 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.mapper.PullTaskPullWaveMapper;
+import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -38,6 +39,7 @@ class PullTaskGroupBanTerminationServiceTest {
 
     @Mock private PullTaskMapper taskMapper;
     @Mock private PullTaskGroupExecutionMapper executionMapper;
+    @Mock private PullTaskStandardSettingMapper settingMapper;
     @Mock private PullTaskGroupAccountMapper accountMapper;
     @Mock private PullTaskAccountActionMapper actionMapper;
     @Mock private com.armada.task.mapper.PullTaskMemberQueryMapper memberQueryMapper;
@@ -56,7 +58,7 @@ class PullTaskGroupBanTerminationServiceTest {
     void setUp() {
         PullTaskStandardExecutionLifecycleResources resources =
                 new PullTaskStandardExecutionLifecycleResources(
-                        executionMapper, actionMapper, memberQueryMapper,
+                        executionMapper, settingMapper, actionMapper, memberQueryMapper,
                         new PullTaskLifecyclePullResources(
                                 accountMapper, pullCallMapper, attemptMapper,
                                 materialMapper, waveMapper),

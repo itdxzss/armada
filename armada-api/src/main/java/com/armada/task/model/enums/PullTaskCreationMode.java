@@ -36,4 +36,17 @@ public enum PullTaskCreationMode {
     public boolean isResourcePool() {
         return this == RESOURCE_POOL;
     }
+
+    /**
+     * 判断普通任务是否由已选择的群组分组提供群组。
+     *
+     * <p>资源池存量任务按原语义始终走分组；群链接模式只有实际保存来源分组时，才允许成功移组和
+     * 封群后领取下一个群。纯手工粘贴链接不能据此自动换群。</p>
+     *
+     * @param sourceGroupFolderId 冻结配置中的来源群组分组 ID
+     * @return 是否使用已选择的群组分组
+     */
+    public boolean usesSelectedGroupFolder(Long sourceGroupFolderId) {
+        return this == RESOURCE_POOL || (this == PASTED_LINK && sourceGroupFolderId != null);
+    }
 }

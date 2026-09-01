@@ -5,11 +5,13 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
+import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import org.springframework.stereotype.Service;
@@ -24,6 +26,7 @@ public class PullTaskClosingTransactionService {
     private final PullTaskMapper taskMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
+    private final PullTaskStandardSettingMapper settingMapper;
     private final PullTaskParentCompletionService parentCompletionService;
     private final GroupFolderService groupFolderService;
 
@@ -31,22 +34,33 @@ public class PullTaskClosingTransactionService {
      * @param taskMapper      父任务 Mapper
      * @param executionMapper 执行行 Mapper
      * @param accountMapper   角色账号 Mapper
+     * @param settingMapper   普通任务冻结配置 Mapper
      * @param parentCompletionService 父任务终态聚合服务
+     * @param groupFolderService 群组分组服务
      */
     public PullTaskClosingTransactionService(
             PullTaskMapper taskMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskGroupAccountMapper accountMapper,
+            PullTaskStandardSettingMapper settingMapper,
             PullTaskParentCompletionService parentCompletionService,
             GroupFolderService groupFolderService) {
         this.taskMapper = taskMapper;
         this.executionMapper = executionMapper;
         this.accountMapper = accountMapper;
+        this.settingMapper = settingMapper;
         this.parentCompletionService = parentCompletionService;
         this.groupFolderService = groupFolderService;
     }
 
-    /** 把一条 CLOSING 行推进完成，并按真实执行行终态聚合父任务。 */
+    /**
+     * 把一条 CLOSING 行推进完成，并按真实执行行终态聚合父任务。
+     *
+     * @param candidate 待收口执行行
+     * @param lockOwner 当前调度锁持有者
+     * @param now 当前时间(epoch 毫秒)
+     * @return 调度推进结果
+     */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult close(
             PullTaskGroupExecution candidate,
@@ -68,8 +82,11 @@ public class PullTaskClosingTransactionService {
                 return PullTaskExecutionDispatchResult.LOST;
             }
             accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
-            if (parent.getCreationMode() == PullTaskCreationMode.RESOURCE_POOL
-                    && candidate.getGroupLinkId() != null) {
+            PullTaskStandardSetting setting = settingMapper.selectByTaskId(parent.getId());
+            Long sourceGroupFolderId = setting == null ? null : setting.getSourceGroupFolderId();
+            if (candidate.getGroupLinkId() != null
+                    && PullTaskCreationMode.fromNullable(parent.getCreationMode())
+                    .usesSelectedGroupFolder(sourceGroupFolderId)) {
                 groupFolderService.moveToUsed(candidate.getGroupLinkId());
             }
             parentCompletionService.completeIfTerminalByExecutionId(candidate.getId(), now);

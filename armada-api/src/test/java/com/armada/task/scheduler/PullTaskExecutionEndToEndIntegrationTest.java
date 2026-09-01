@@ -870,9 +870,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskMapper taskMapper,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskGroupAccountMapper accountMapper,
+                PullTaskStandardSettingMapper settingMapper,
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskClosingTransactionService(
-                    taskMapper, executionMapper, accountMapper, parentCompletion,
+                    taskMapper, executionMapper, accountMapper, settingMapper, parentCompletion,
                     org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class));
         }
 

@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskExecutionManualTransition;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
@@ -191,14 +192,21 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
         cancelNotSubmitted(execution.getTaskId(), execution.getId(), now);
         releasePullers(execution.getId(), now);
         PullTask parent = requiredTask(execution.getTaskId());
-        if (PullTaskCreationMode.RESOURCE_POOL == parent.getCreationMode()) {
+        if (usesSelectedGroupFolder(parent)) {
             retryTxtWithAnotherGroup(parent, execution, now);
             return;
         }
         completionService.completeIfTerminalByExecutionId(execution.getId(), now);
     }
 
-    /** 群资源池模式下，封禁只淘汰当前群，同一 TXT 生成下一次从头执行记录。 */
+    private boolean usesSelectedGroupFolder(PullTask parent) {
+        PullTaskStandardSetting setting = resources.settingMapper().selectByTaskId(parent.getId());
+        Long sourceGroupFolderId = setting == null ? null : setting.getSourceGroupFolderId();
+        return PullTaskCreationMode.fromNullable(parent.getCreationMode())
+                .usesSelectedGroupFolder(sourceGroupFolderId);
+    }
+
+    /** 来源分组模式下，封禁只淘汰当前群，同一 TXT 生成下一次从头执行记录。 */
     private void retryTxtWithAnotherGroup(
             PullTask parent, PullTaskGroupExecution failed, long now) {
         if (failed.getGroupLinkId() != null) {

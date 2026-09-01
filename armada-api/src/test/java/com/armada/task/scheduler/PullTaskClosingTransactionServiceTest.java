@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.shared.tenant.TenantContext;
@@ -11,8 +12,10 @@ import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
+import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -27,12 +30,15 @@ class PullTaskClosingTransactionServiceTest {
     private final PullTaskGroupExecutionMapper executionMapper =
             mock(PullTaskGroupExecutionMapper.class);
     private final PullTaskGroupAccountMapper accountMapper = mock(PullTaskGroupAccountMapper.class);
+    private final PullTaskStandardSettingMapper settingMapper =
+            mock(PullTaskStandardSettingMapper.class);
     private final PullTaskParentCompletionService parentCompletionService =
             mock(PullTaskParentCompletionService.class);
     private final GroupFolderService groupFolderService = mock(GroupFolderService.class);
     private final PullTaskClosingTransactionService service =
             new PullTaskClosingTransactionService(
-                    taskMapper, executionMapper, accountMapper, parentCompletionService,
+                    taskMapper, executionMapper, accountMapper, settingMapper,
+                    parentCompletionService,
                     groupFolderService);
 
     @AfterEach
@@ -45,6 +51,7 @@ class PullTaskClosingTransactionServiceTest {
         PullTaskGroupExecution candidate = candidate();
         PullTask parent = parent();
         when(taskMapper.selectLifecycle(100L)).thenReturn(parent);
+        when(settingMapper.selectByTaskId(100L)).thenReturn(folderSetting());
         when(executionMapper.transitionClaimed(
                 any(PullTaskGroupExecution.class),
                 org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.CLOSING.code())))
@@ -72,6 +79,7 @@ class PullTaskClosingTransactionServiceTest {
         candidate.setCreatorLeaveResult(5);
         candidate.setCreatorLeaveReason("管理权限转移失败，未执行群主退群");
         when(taskMapper.selectLifecycle(100L)).thenReturn(parent());
+        when(settingMapper.selectByTaskId(100L)).thenReturn(folderSetting());
         when(executionMapper.transitionClaimed(
                 any(PullTaskGroupExecution.class),
                 org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.CLOSING.code())))
@@ -91,14 +99,36 @@ class PullTaskClosingTransactionServiceTest {
         assertThat(captor.getValue().getCreatorLeaveReason()).contains("权限转移失败");
     }
 
+    @Test
+    void pastedManualLinkWithoutSourceFolderStaysInItsCurrentFolder() {
+        PullTaskGroupExecution candidate = candidate();
+        when(taskMapper.selectLifecycle(100L)).thenReturn(parent());
+        when(executionMapper.transitionClaimed(
+                any(PullTaskGroupExecution.class),
+                org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.CLOSING.code())))
+                .thenReturn(1);
+
+        assertThat(service.close(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        verifyNoInteractions(groupFolderService);
+    }
+
     private static PullTask parent() {
         PullTask row = new PullTask();
         row.setId(100L);
         row.setTaskType(PullTaskType.STANDARD);
         row.setMode("NORMAL_LINK");
-        row.setCreationMode(PullTaskCreationMode.RESOURCE_POOL);
+        row.setCreationMode(PullTaskCreationMode.PASTED_LINK);
         row.setStatus("EXECUTING");
         row.setVersion(9);
+        return row;
+    }
+
+    private static PullTaskStandardSetting folderSetting() {
+        PullTaskStandardSetting row = new PullTaskStandardSetting();
+        row.setTaskId(100L);
+        row.setSourceGroupFolderId(18L);
         return row;
     }
 

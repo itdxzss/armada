@@ -34,6 +34,8 @@ import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
 class PullTaskManagerJoinResultServiceImplTest {
@@ -152,14 +154,20 @@ class PullTaskManagerJoinResultServiceImplTest {
         verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
     }
 
-    @Test
-    void revokedInviteSchedulesOneCurrentLinkRecoveryBeforeFailingTheExecution() {
+    @ParameterizedTest
+    @CsvSource({
+        "INVITE_REVOKED,群邀请链接已失效",
+        "INVITE_INVALID,群邀请码无效"
+    })
+    void invalidInviteSchedulesOneCurrentLinkRecoveryBeforeFailingTheExecution(
+            String reasonCode,
+            String reasonMessage) {
         stubOpenFacts();
 
         boolean handled = service.apply(new PullTaskManagerJoinCallback(
                 7L, 100L, 11L, 601L, "cmd-pull-1",
                 PullTaskManagerJoinProtocolOutcome.FAILED,
-                null, "INVITE_REVOKED", "raw protocol text", false, 5_000L));
+                null, reasonCode, "raw protocol text", false, 5_000L));
 
         assertThat(handled).isTrue();
         ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
@@ -169,9 +177,9 @@ class PullTaskManagerJoinResultServiceImplTest {
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
         assertThat(transition.getValue().target().stage())
                 .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
-        assertThat(transition.getValue().target().reasonCode()).isEqualTo("INVITE_REVOKED");
+        assertThat(transition.getValue().target().reasonCode()).isEqualTo(reasonCode);
         assertThat(transition.getValue().target().reasonMessage())
-                .isEqualTo("群邀请链接已失效");
+                .isEqualTo(reasonMessage);
         assertThat(transition.getValue().target().nextRunAt()).isEqualTo(35_000L);
         verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
     }

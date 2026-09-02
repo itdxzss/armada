@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +74,27 @@ class GroupBatchSnapshotDispatchServiceTest {
                 any(), eq(GroupBatchTaskItemStatus.PENDING.code()),
                 eq(GroupBatchTaskItemStatus.WAITING_RESULT.code()));
         assertThat(item.getCurrentCommandId()).isEqualTo("cmd-batch");
+    }
+
+    @Test
+    void inviteRefreshSelectsOnlyAnOnlineInGroupAdmin() {
+        TenantContext.set(1L);
+        GroupBatchTaskItem item = item();
+        GroupExecutionAccount admin = new GroupExecutionAccount(
+                78L, "web", "acc-78", "918", true);
+        GroupExecutionAccountSelector selector =
+                org.mockito.Mockito.mock(GroupExecutionAccountSelector.class);
+        when(support.selector()).thenReturn(selector);
+        when(selector.findAdmin(5001L, 0)).thenReturn(Optional.of(admin));
+        when(support.groupJid(5001L)).thenReturn("120363batch@g.us");
+        when(outboxService.enqueueGroupSnapshotCommands(any()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd-link"), 1));
+        when(itemMapper.markWaitingResult(any(), anyInt(), anyInt())).thenReturn(1);
+
+        assertThat(service().dispatch(item, GroupBatchTaskType.REFRESH_LINK, 1_000L)).isTrue();
+
+        verify(selector).findAdmin(5001L, 0);
+        verify(selector, never()).find(5001L, 0);
     }
 
     private GroupBatchSnapshotDispatchService service() {

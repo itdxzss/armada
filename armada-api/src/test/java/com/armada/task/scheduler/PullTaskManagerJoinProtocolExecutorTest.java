@@ -55,6 +55,28 @@ class PullTaskManagerJoinProtocolExecutorTest {
     }
 
     @Test
+    void invalidInviteUsesRefreshedCurrentCodeForOneAndroidRetry() {
+        PullTaskGroupExecution candidate = revokedCandidate();
+        candidate.setReasonCode("INVITE_INVALID");
+        PullTaskManagerJoinWork work = work(ProtocolBackend.ANDROID);
+        when(inviteLinkService.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "OldInviteCode"))
+                .thenReturn(Optional.of("NewInviteCode"));
+        when(joinPort.join(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(new GroupJoinResult(
+                        "120363group@g.us", GroupJoinOutcome.JOINED));
+
+        PullTaskManagerJoinOutcome outcome = executor.join(candidate, work);
+
+        assertThat(outcome).isEqualTo(
+                PullTaskManagerJoinOutcome.confirmed("120363group@g.us"));
+        ArgumentCaptor<GroupJoinCommand> command = ArgumentCaptor.forClass(GroupJoinCommand.class);
+        verify(joinPort).join(command.capture());
+        assertThat(command.getValue().inviteLinkOrCode()).isEqualTo("NewInviteCode");
+        assertThat(command.getValue().account().backend()).isEqualTo(ProtocolBackend.ANDROID);
+    }
+
+    @Test
     void revokedInviteWithoutReplacementFailsAfterTheSingleRecoveryAttempt() {
         PullTaskGroupExecution candidate = revokedCandidate();
         PullTaskManagerJoinWork work = work(ProtocolBackend.ANDROID);

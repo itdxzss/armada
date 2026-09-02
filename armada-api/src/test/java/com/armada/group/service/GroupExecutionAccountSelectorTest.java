@@ -171,35 +171,47 @@ class GroupExecutionAccountSelectorTest {
     @Test
     void findAdminReturnsEmptyWhenGroupHasNoOnlineAdminSoCallerCanSkipTheProtocolCall() {
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of());
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
-        assertThat(selector.findAdmin(10L)).isEmpty();
+        assertThat(selector.findAdmin(10L, 0)).isEmpty();
     }
 
     @Test
     void findAdminSelectsTheGroupAdminCandidateReturnedByMapper() {
         GroupExecutionAccount admin = account(7L, "923310000001", true);
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of(admin));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
-        assertThat(selector.findAdmin(10L)).contains(admin);
+        assertThat(selector.findAdmin(10L, 0)).contains(admin);
+    }
+
+    @Test
+    void findAdminUsesCompletedAttemptsToRotateCandidates() {
+        GroupExecutionAccount first = account(7L, "923310000001", true);
+        GroupExecutionAccount second = account(8L, "923310000002", true);
+        when(mapper.selectGroupAdminExecutionAccounts(
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
+                .thenReturn(List.of(first, second));
+        GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
+
+        assertThat(selector.findAdmin(10L, 1)).contains(second);
     }
 
     @Test
     void requireAdminReturnsAvailableGroupAdminWithoutRequiringOwner() {
         GroupExecutionAccount admin = account(7L, "923310000001", true);
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of(admin));
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 
         assertThat(selector.requireAdmin(10L)).isEqualTo(admin);
         verify(mapper).selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1);
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4);
         verify(mapper, org.mockito.Mockito.never()).selectGroupOwnerExecutionAccount(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyInt(),
@@ -209,7 +221,7 @@ class GroupExecutionAccountSelectorTest {
     @Test
     void requireAdminThrowsInsteadOfFallingBackToOrdinaryMember() {
         when(mapper.selectGroupAdminExecutionAccounts(
-                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 1))
+                10L, AccountLoginStateCode.ONLINE, GroupExecutableAccountStates.executable(), 4))
                 .thenReturn(List.of());
         GroupExecutionAccountSelector selector = new GroupExecutionAccountSelector(mapper);
 

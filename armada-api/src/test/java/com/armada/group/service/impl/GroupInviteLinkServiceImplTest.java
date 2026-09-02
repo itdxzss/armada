@@ -20,7 +20,6 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.port.GroupInvitePort;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -69,7 +68,7 @@ class GroupInviteLinkServiceImplTest {
                 new GroupCurrentIdentity(51L, "120363group@g.us", "FrozenCode"));
         GroupExecutionAccount admin = new GroupExecutionAccount(
                 901L, "web", "acc-901", "8613800000901", true);
-        when(accountSelector.findCandidates(51L)).thenReturn(List.of(admin));
+        when(accountSelector.findAdmin(51L, 0)).thenReturn(java.util.Optional.of(admin));
         when(invitePort.getInvite(admin.protocolRef(), "120363group@g.us")).thenReturn(
                 new GroupInviteResult("120363group@g.us", "ReplacementCode",
                         "https://chat.whatsapp.com/ReplacementCode"));
@@ -80,6 +79,29 @@ class GroupInviteLinkServiceImplTest {
         verify(currentPersistence).apply(
                 eq(51L), eq("120363group@g.us"), eq("ReplacementCode"), anyLong());
         verifyNoInteractions(registry);
+    }
+
+    @Test
+    void activeRefreshWithoutKnownGroupJidStopsBeforeSelectingAnAdmin() {
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, null, "FrozenCode"));
+
+        assertThat(service.refreshCurrentInviteCode(51L, null, "FrozenCode"))
+                .isEmpty();
+
+        verifyNoInteractions(accountSelector, invitePort);
+    }
+
+    @Test
+    void activeRefreshWithoutOnlineInGroupAdminSkipsTheProtocolCall() {
+        when(groupLinkMapper.selectCurrentIdentity(51L)).thenReturn(
+                new GroupCurrentIdentity(51L, "120363group@g.us", "FrozenCode"));
+        when(accountSelector.findAdmin(51L, 0)).thenReturn(java.util.Optional.empty());
+
+        assertThat(service.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "FrozenCode")).isEmpty();
+
+        verifyNoInteractions(invitePort);
     }
 
     @Test

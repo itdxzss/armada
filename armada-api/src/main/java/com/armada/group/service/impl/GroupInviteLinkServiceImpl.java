@@ -163,10 +163,7 @@ public class GroupInviteLinkServiceImpl implements GroupInviteLinkService {
         if (resolvedGroupJid == null) {
             return Optional.empty();
         }
-        GroupExecutionAccount admin = accountSelector.findCandidates(groupLinkId).stream()
-                .filter(GroupExecutionAccount::groupAdmin)
-                .findFirst()
-                .orElse(null);
+        GroupExecutionAccount admin = accountSelector.findAdmin(groupLinkId, 0).orElse(null);
         if (admin == null) {
             return Optional.empty();
         }

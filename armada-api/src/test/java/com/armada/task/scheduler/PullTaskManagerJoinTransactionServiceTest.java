@@ -40,6 +40,8 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
 class PullTaskManagerJoinTransactionServiceTest {
@@ -359,18 +361,24 @@ class PullTaskManagerJoinTransactionServiceTest {
                 PullTaskActionStatus.SUBMITTED.code(), NOW);
     }
 
-    @Test
-    void revokedLinkFailsTheExecutionRowWithoutBlamingTheSelectedAccount() {
+    @ParameterizedTest
+    @CsvSource({
+        "INVITE_REVOKED,群邀请链接已失效",
+        "INVITE_INVALID,群邀请码无效"
+    })
+    void invalidLinkFailsTheExecutionRowWithoutBlamingTheSelectedAccount(
+            String reasonCode,
+            String reasonMessage) {
         PullTaskManagerJoinWork work = work();
         when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
         when(actionMapper.writeBackResult(601L, PullTaskActionStatus.FAILED.code(),
-                "INVITE_REVOKED", "群邀请链接已失效", NOW)).thenReturn(1);
+                reasonCode, reasonMessage, NOW)).thenReturn(1);
         when(groupAccountMapper.updateMembership(501L,
                 PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, NOW)).thenReturn(1);
 
         PullTaskExecutionDispatchResult result = service.complete(
-                work, PullTaskManagerJoinOutcome.executionFailed("INVITE_REVOKED"), NOW);
+                work, PullTaskManagerJoinOutcome.executionFailed(reasonCode), NOW);
 
         assertThat(result).isEqualTo(PullTaskExecutionDispatchResult.FAILED);
         ArgumentCaptor<PullTaskGroupExecution> update =

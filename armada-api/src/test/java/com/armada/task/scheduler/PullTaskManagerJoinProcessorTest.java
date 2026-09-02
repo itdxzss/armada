@@ -97,7 +97,9 @@ class PullTaskManagerJoinProcessorTest {
     @Test
     void revokedInviteFailsTheExecutionInsteadOfCyclingThroughManagers() {
         PullTaskGroupExecution candidate = candidate();
-        PullTaskManagerJoinWork work = work();
+        candidate.setGroupJid("120363group@g.us");
+        candidate.setReasonCode("INVITE_REVOKED");
+        PullTaskManagerJoinWork work = recoveryWork();
         when(transactions.prepare(candidate, "worker-1", 1_000L))
                 .thenReturn(PullTaskManagerJoinPreparation.ready(work));
         PullTaskManagerJoinOutcome failed =
@@ -108,7 +110,29 @@ class PullTaskManagerJoinProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.FAILED);
+        verifyNoInteractions(memberQueryAwaitService);
         verify(transactions).complete(work, failed, 1_000L);
+    }
+
+    @Test
+    void invalidInviteRecoveryWithKnownGroupRetriesTheCurrentLinkBeforeMembershipVerification() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setGroupJid("120363group@g.us");
+        candidate.setReasonCode("INVITE_INVALID");
+        PullTaskManagerJoinWork work = recoveryWork();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        PullTaskManagerJoinOutcome confirmed =
+                PullTaskManagerJoinOutcome.confirmed("120363group@g.us");
+        when(protocolExecutor.join(candidate, work)).thenReturn(confirmed);
+        when(transactions.complete(work, confirmed, 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        verify(protocolExecutor).join(candidate, work);
+        verifyNoInteractions(memberQueryAwaitService);
+        verify(transactions).complete(work, confirmed, 1_000L);
     }
 
     @Test

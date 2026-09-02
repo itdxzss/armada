@@ -13,6 +13,7 @@ import java.util.Locale;
 public final class AndroidGroupJoinErrorMapper {
 
     private static final int APPLICATION_ERROR_HTTP_STATUS = 200;
+    private static final String GROUP_JOIN_OPERATION = "group.join";
     private static final String RAW_CODE_BAD_REQUEST = "400";
     private static final String RAW_CODE_UNAUTHORIZED = "401";
     private static final String RAW_CODE_FORBIDDEN = "403";
@@ -22,6 +23,12 @@ public final class AndroidGroupJoinErrorMapper {
     private static final String MESSAGE_ACCOUNT_OFFLINE = "离线";
     private static final String MESSAGE_INVITE_CODE_EMPTY = "邀请码为空";
     private static final String MESSAGE_BAD_REQUEST = "bad-request";
+    private static final String MESSAGE_GROUP = "group";
+    private static final String MESSAGE_GROUP_BANNED = "banned";
+    private static final String MESSAGE_GROUP_FULL = "full";
+    private static final String MESSAGE_GROUP_GONE = "gone";
+    private static final String MESSAGE_GROUP_NOT_FOUND = "not found";
+    private static final String MESSAGE_GROUP_UNAVAILABLE = "unavailable";
     private static final String MESSAGE_RATE_OVERLIMIT = "rate-overlimit";
     private static final String MESSAGE_TIME_OUT = "time out";
     private static final String MESSAGE_TIMEOUT = "timeout";
@@ -56,7 +63,7 @@ public final class AndroidGroupJoinErrorMapper {
             ProtocolAccountRef account,
             String operation,
             String operationId) {
-        ProtocolErrorCode code = errorCode(response);
+        ProtocolErrorCode code = errorCode(response, operation);
         ProtocolException.Metadata metadata = ProtocolException.Metadata.of(
                 APPLICATION_ERROR_HTTP_STATUS,
                 response.rawProtocolCode(),
@@ -70,7 +77,7 @@ public final class AndroidGroupJoinErrorMapper {
                 .withContext(ProtocolBackend.ANDROID, operation, operationId);
     }
 
-    private ProtocolErrorCode errorCode(AndroidDecodedResponse response) {
+    private ProtocolErrorCode errorCode(AndroidDecodedResponse response, String operation) {
         String message = lower(response.message());
         if (response.validationError() != null) {
             return ProtocolErrorCode.BAD_REQUEST;
@@ -81,9 +88,16 @@ public final class AndroidGroupJoinErrorMapper {
         if (message.contains(MESSAGE_INVITE_CODE_EMPTY)) {
             return ProtocolErrorCode.INVALID_GROUP_LINK;
         }
+        if (GROUP_JOIN_OPERATION.equals(operation) && isGroupUnavailable(message)) {
+            return ProtocolErrorCode.GROUP_UNAVAILABLE;
+        }
         if (RAW_CODE_BAD_REQUEST.equals(response.rawProtocolCode())
                 && message.contains(MESSAGE_BAD_REQUEST)) {
-            return ProtocolErrorCode.GROUP_UNAVAILABLE;
+            // Android 邀请进群只在邀请码校验阶段返回该组合；统一为可触发一次
+            // 当前邀请码查询的语义，避免把失效链接误报成群不可用。
+            return GROUP_JOIN_OPERATION.equals(operation)
+                    ? ProtocolErrorCode.INVITE_INVALID
+                    : ProtocolErrorCode.GROUP_UNAVAILABLE;
         }
         if (RAW_CODE_RATE_LIMITED.equals(response.rawProtocolCode())
                 || message.contains(MESSAGE_RATE_OVERLIMIT)) {
@@ -111,5 +125,14 @@ public final class AndroidGroupJoinErrorMapper {
 
     private static String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isGroupUnavailable(String message) {
+        return message.contains(MESSAGE_GROUP)
+                && (message.contains(MESSAGE_GROUP_BANNED)
+                || message.contains(MESSAGE_GROUP_FULL)
+                || message.contains(MESSAGE_GROUP_GONE)
+                || message.contains(MESSAGE_GROUP_NOT_FOUND)
+                || message.contains(MESSAGE_GROUP_UNAVAILABLE));
     }
 }

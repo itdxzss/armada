@@ -65,9 +65,10 @@ public final class GroupExecutionAccountSelector {
      * 不再发出注定被协议层拒绝的调用。角色快照过期的残余情况由协议层兜底拒绝。</p>
      *
      * @param groupLinkId 群入口 ID
-     * @return 最近在群的管理员账号;群内无在线管理员时为空
+     * @param completedAttempts 已完成尝试数，用于稳定轮换管理员候选
+     * @return 当前游标对应的管理员账号;群内无在线管理员或候选耗尽时为空
      */
-    public Optional<GroupExecutionAccount> findAdmin(Long groupLinkId) {
+    public Optional<GroupExecutionAccount> findAdmin(Long groupLinkId, int completedAttempts) {
         if (groupLinkId == null) {
             return Optional.empty();
         }
@@ -75,10 +76,8 @@ public final class GroupExecutionAccountSelector {
                 groupLinkId,
                 AccountLoginStateCode.ONLINE,
                 GroupExecutableAccountStates.executable(),
-                1);
-        return candidates == null || candidates.isEmpty()
-                ? Optional.empty()
-                : Optional.of(candidates.get(0));
+                MAX_RETRY_CANDIDATES);
+        return candidateAt(candidates, completedAttempts);
     }
 
     /**
@@ -140,7 +139,7 @@ public final class GroupExecutionAccountSelector {
      * @throws BusinessException 无在线在群管理员时抛出
      */
     public GroupExecutionAccount requireAdmin(Long groupLinkId) {
-        return findAdmin(groupLinkId).orElseThrow(() -> new BusinessException(
+        return findAdmin(groupLinkId, 0).orElseThrow(() -> new BusinessException(
                 ErrorCode.GROUP_EXECUTOR_UNAVAILABLE,
                 "没有在线且仍在该群内的管理员账号"));
     }

@@ -61,7 +61,8 @@ public class GroupBatchSnapshotDispatchService {
     @Transactional(rollbackFor = Exception.class)
     public boolean dispatch(GroupBatchTaskItem item, GroupBatchTaskType type, long now) {
         int cursor = valueOrZero(item.getCandidateCursor());
-        Optional<GroupExecutionAccount> selected = support.selector().find(item.getGroupLinkId(), cursor);
+        Optional<GroupExecutionAccount> selected = selectAccount(
+                item.getGroupLinkId(), type, cursor);
         if (selected.isEmpty()) {
             settleFailure(item, NO_ACCOUNT_CODE, "系统内没有在线且仍在该群内的账号", now);
             return false;
@@ -117,7 +118,7 @@ public class GroupBatchSnapshotDispatchService {
             GroupBatchTask task, GroupBatchTaskItem item, GroupBatchTaskType type, long now) {
         int nextCursor = valueOrZero(item.getCandidateCursor()) + 1;
         Optional<GroupExecutionAccount> next = nextCursor < Math.max(1, properties.maxCandidates())
-                ? support.selector().find(item.getGroupLinkId(), nextCursor)
+                ? selectAccount(item.getGroupLinkId(), type, nextCursor)
                 : Optional.empty();
         if (next.isPresent()) {
             GroupBatchTaskItem retry = identity(item);
@@ -165,6 +166,13 @@ public class GroupBatchSnapshotDispatchService {
         outcome.setOperatedAt(now);
         outcome.setUpdatedAt(now);
         settlement.settle(outcome);
+    }
+
+    private Optional<GroupExecutionAccount> selectAccount(
+            Long groupLinkId, GroupBatchTaskType type, int completedAttempts) {
+        return type == GroupBatchTaskType.REFRESH_LINK
+                ? support.selector().findAdmin(groupLinkId, completedAttempts)
+                : support.selector().find(groupLinkId, completedAttempts);
     }
 
     private static GroupBatchTaskItem identity(GroupBatchTaskItem item) {

@@ -114,6 +114,11 @@ public class PullTaskManagerJoinProcessor {
 
     private PullTaskManagerJoinOutcome joinOrVerifyRecovery(
             PullTaskManagerJoinWork work, PullTaskGroupExecution candidate, long now) {
+        // 邀请码失效恢复必须优先于通用的重启成员复核。此时 knownGroupJid 正是查询
+        // 当前邀请码的必要条件；若先做成员复核，未入群管理员会被误判成资源缺口。
+        if (PullTaskManagerJoinProtocolExecutor.requiresInviteRefresh(candidate)) {
+            return protocolExecutor.join(candidate, work);
+        }
         if (work.payload().knownGroupJid() != null
                 && !work.payload().knownGroupJid().isBlank()) {
             return verifyMembership(

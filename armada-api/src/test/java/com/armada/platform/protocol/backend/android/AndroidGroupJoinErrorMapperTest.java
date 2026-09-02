@@ -39,6 +39,10 @@ class AndroidGroupJoinErrorMapperTest {
     void mapsKnownNativeGroupJoinFailures() {
         assertThat(mappedCode("邀请码为空", null)).isEqualTo(ProtocolErrorCode.INVALID_GROUP_LINK);
         assertThat(mappedCode("通过邀请码进群失败, bad-request, Code: 400", "400"))
+                .isEqualTo(ProtocolErrorCode.INVITE_INVALID);
+        assertThat(mappedCode("bad-request: group unavailable", "400"))
+                .isEqualTo(ProtocolErrorCode.GROUP_UNAVAILABLE);
+        assertThat(mappedCode("group unavailable", "403"))
                 .isEqualTo(ProtocolErrorCode.GROUP_UNAVAILABLE);
         assertThat(mappedCode("rate-overlimit", "429")).isEqualTo(ProtocolErrorCode.ACCOUNT_BUSY);
         assertThat(mappedCode("request time out", null)).isEqualTo(ProtocolErrorCode.TIMEOUT);
@@ -61,6 +65,28 @@ class AndroidGroupJoinErrorMapperTest {
         assertThat(exception.operation()).contains("group.join");
         assertThat(exception.operationId()).contains("join-task-row:11");
         assertThat(exception.getMessage()).doesNotContain("unexpected native failure");
+    }
+
+    @Test
+    void keepsGenericBadRequestOutOfInviteRecoveryForOtherOperations() {
+        ProtocolException exception = mapper.toException(
+                response("bad-request", null, "400"),
+                account(),
+                "account.status",
+                "account:10");
+
+        assertThat(exception.errorCode()).isEqualTo(ProtocolErrorCode.GROUP_UNAVAILABLE);
+    }
+
+    @Test
+    void keepsExplicitGroupTextFromChangingOtherOperationMappings() {
+        ProtocolException exception = mapper.toException(
+                response("group unavailable", null, "403"),
+                account(),
+                "account.status",
+                "account:10");
+
+        assertThat(exception.errorCode()).isEqualTo(ProtocolErrorCode.GROUP_JOIN_REJECTED);
     }
 
     private ProtocolErrorCode mappedCode(String message, String rawCode) {

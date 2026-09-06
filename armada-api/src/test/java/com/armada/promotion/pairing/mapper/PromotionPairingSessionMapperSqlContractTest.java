@@ -41,6 +41,20 @@ class PromotionPairingSessionMapperSqlContractTest {
         assertThat(annotation.tenantLine()).isEqualTo("true");
     }
 
+    @Test
+    void controlStatusLookupAlwaysRequiresExplicitTenant() throws Exception {
+        String xml = mapperXml();
+        int start = xml.indexOf("<select id=\"selectByIdAndTenant\"");
+        String query = xml.substring(start, xml.indexOf("</select>", start));
+
+        assertThat(query).contains("id = #{id}", "tenant_id = #{tenantId}", "LIMIT 1");
+        InterceptorIgnore annotation = PromotionPairingSessionMapper.class
+                .getMethod("selectByIdAndTenant", Long.class, Long.class)
+                .getAnnotation(InterceptorIgnore.class);
+        assertThat(annotation).isNotNull();
+        assertThat(annotation.tenantLine()).isEqualTo("true");
+    }
+
     private String mapperXml() throws IOException {
         try (var stream = Objects.requireNonNull(
                 getClass().getClassLoader().getResourceAsStream(RESOURCE), RESOURCE)) {

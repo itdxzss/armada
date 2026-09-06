@@ -1,6 +1,7 @@
 package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
@@ -13,6 +14,7 @@ import com.armada.account.model.enums.AccountTypeVerifySourceCode;
 import com.armada.account.model.enums.AccountTypeVerifyStatusCode;
 import com.armada.account.service.PromotionAccountProvisionCommand;
 import com.armada.account.service.PromotionAccountProvisionService;
+import com.armada.account.service.AccountPairingProvisionCommand;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -34,6 +36,7 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
 
     private static final Logger log = LoggerFactory.getLogger(PromotionAccountProvisionServiceImpl.class);
     private static final int NUMBER_SOURCE_PAID_ACQUISITION = 1;
+    private static final int NUMBER_SOURCE_SELF_PURCHASE = 3;
     private static final int OWNERSHIP_SELF = 1;
     private static final int DEFAULT_PRIORITY = 0;
     private static final String STATE_SOURCE = "PROMOTION_PAIRING";
@@ -41,13 +44,16 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
     private final AccountMapper accountMapper;
     private final AccountStateMapper stateMapper;
     private final AccountCredentialMapper credentialMapper;
+    private final AccountGroupMapper accountGroupMapper;
 
     public PromotionAccountProvisionServiceImpl(AccountMapper accountMapper,
                                                 AccountStateMapper stateMapper,
-                                                AccountCredentialMapper credentialMapper) {
+                                                AccountCredentialMapper credentialMapper,
+                                                AccountGroupMapper accountGroupMapper) {
         this.accountMapper = accountMapper;
         this.stateMapper = stateMapper;
         this.credentialMapper = credentialMapper;
+        this.accountGroupMapper = accountGroupMapper;
     }
 
     @Override
@@ -58,6 +64,14 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
     @Override
     public boolean existsActiveByPhoneGlobally(String phone) {
         return StringUtils.hasText(phone) && accountMapper.existsActiveByWsPhoneAnyTenant(phone.trim());
+    }
+
+    @Override
+    public void validateControlTarget(Long accountGroupId) {
+        if (accountGroupId == null || accountGroupId <= 0
+                || accountGroupMapper.selectById(accountGroupId) == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号分组不存在或已删除");
+        }
     }
 
     @Override
@@ -127,6 +141,69 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
         return account.getId();
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long provisionControl(AccountPairingProvisionCommand command) {
+        validateControl(command);
+        validateControlTarget(command.accountGroupId());
+        if (accountMapper.selectActiveByWsPhone(command.phone()) != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该 WhatsApp 账号已存在");
+        }
+
+        Account account = new Account();
+        account.setWsPhone(command.phone());
+        account.setAccountType(command.accountType());
+        account.setDeclaredAccountType(command.accountType());
+        account.setAccountTypeVerifyStatus(AccountTypeVerifyStatusCode.MATCHED);
+        account.setAccountTypeVerifySource(AccountTypeVerifySourceCode.PAIR_SUCCESS);
+        account.setAccountTypeVerifiedAt(command.occurredAt());
+        account.setNumberSource(NUMBER_SOURCE_SELF_PURCHASE);
+        account.setOwnership(OWNERSHIP_SELF);
+        account.setAccountGroupId(command.accountGroupId());
+        account.setProtocolId(ProtocolBackend.WEB.name());
+        account.setProtocolAccountId(command.protocolAccountId());
+        account.setProtocolAddress(command.protocolAddress());
+        account.setPriority(DEFAULT_PRIORITY);
+        account.setRemark(command.remark());
+        account.setCreatedAt(command.occurredAt());
+        account.setUpdatedAt(command.occurredAt());
+        account.setCreatedBy(command.ownerUserId());
+        requireOne(accountMapper.insert(account), "账号主表写入失败");
+
+        AccountState state = new AccountState();
+        state.setAccountId(account.getId());
+        state.setProxyFailureCount(0);
+        state.setPullIntoGroupCount(0);
+        state.setCreatedAt(command.occurredAt());
+        state.setUpdatedAt(command.occurredAt());
+        requireOne(stateMapper.insert(state), "账号状态初始化失败");
+        state.setAccountState(AccountStateCode.NORMAL);
+        state.setLoginState(AccountLoginStateCode.ONLINE);
+        state.setLastStateSyncTime(command.occurredAt());
+        state.setStateSource("CONTROL_PAIRING");
+        requireOne(stateMapper.updateLoginAndAccountState(state), "账号在线状态写入失败");
+        if (StringUtils.hasText(command.proxyCountry()) || StringUtils.hasText(command.proxySource())) {
+            state.setProxyCountry(command.proxyCountry());
+            state.setProxySource(command.proxySource());
+            requireOne(stateMapper.updateProxySnapshots(List.of(state)), "账号代理快照写入失败");
+        }
+
+        AccountCredential credential = new AccountCredential();
+        credential.setAccountId(account.getId());
+        credential.setWsPhone(command.phone());
+        credential.setCredFormat(ImportFormat.JSON.getCode());
+        credential.setCredsJson(command.credentialJson());
+        credential.setProxySessionId(command.proxySessionId());
+        credential.setCreatedAt(command.occurredAt());
+        credential.setUpdatedAt(command.occurredAt());
+        requireOne(credentialMapper.insertPromotionCredential(credential), "账号凭据写入失败");
+
+        log.info("控台认证码账号落库成功 maskPhone={} accountId={} groupId={} credsLen={}",
+                maskPhone(command.phone()), account.getId(), command.accountGroupId(),
+                command.credentialJson().length());
+        return account.getId();
+    }
+
     private static void validate(PromotionAccountProvisionCommand command) {
         if (command == null || !StringUtils.hasText(command.phone())
                 || command.promotionChannelId() == null
@@ -135,6 +212,17 @@ public class PromotionAccountProvisionServiceImpl implements PromotionAccountPro
                 || (command.accountType() != 1 && command.accountType() != 2)
                 || command.occurredAt() <= 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "配对账号落库参数不完整");
+        }
+    }
+
+    private static void validateControl(AccountPairingProvisionCommand command) {
+        if (command == null || !StringUtils.hasText(command.phone())
+                || command.accountGroupId() == null || command.ownerUserId() == null
+                || !StringUtils.hasText(command.protocolAccountId())
+                || !StringUtils.hasText(command.credentialJson())
+                || (command.accountType() != 1 && command.accountType() != 2)
+                || command.occurredAt() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "控台配对账号落库参数不完整");
         }
     }
 

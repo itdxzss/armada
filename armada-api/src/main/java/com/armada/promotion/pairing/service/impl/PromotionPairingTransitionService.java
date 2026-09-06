@@ -33,6 +33,12 @@ public class PromotionPairingTransitionService {
         capiEventService.initialize(session, context, attribution, occurredAt);
     }
 
+    /** 控台会话只落本地状态，不产生推广 CAPI 归因事件。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void createControlSession(PromotionPairingSession session) {
+        requireOne(sessionMapper.insert(session), "配对会话创建失败");
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void markAccepted(Long sessionId,
                              Long tenantId,
@@ -42,6 +48,17 @@ public class PromotionPairingTransitionService {
         requireOne(sessionMapper.markAccepted(
                 sessionId, tenantId, pairingId, expiresAt, occurredAt), "配对会话状态已变化");
         capiEventService.activate(sessionId, PromotionCapiEventStage.LOGIN_REQUEST, occurredAt);
+    }
+
+    /** 控台会话记录协议受理结果，不产生推广 CAPI 事件。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void markControlAccepted(Long sessionId,
+                                    Long tenantId,
+                                    String pairingId,
+                                    long expiresAt,
+                                    long occurredAt) {
+        requireOne(sessionMapper.markAccepted(
+                sessionId, tenantId, pairingId, expiresAt, occurredAt), "配对会话状态已变化");
     }
 
     private static void requireOne(int affected, String message) {

@@ -3,16 +3,19 @@
 <mapper namespace="com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper">
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO promotion_pairing_session
-      (promotion_channel_id, channel_name, owner_user_id, session_token_hash, phone, protocol_account_id, status,
+      (pairing_scene, promotion_channel_id, channel_name, owner_user_id, account_group_id, remark,
+       session_token_hash, phone, protocol_account_id, status,
        expires_at, created_at, updated_at)
     VALUES
-      (#{promotionChannelId}, #{channelName}, #{ownerUserId}, #{sessionTokenHash}, #{phone}, #{protocolAccountId}, #{status},
+      (#{pairingScene}, #{promotionChannelId}, #{channelName}, #{ownerUserId}, #{accountGroupId}, #{remark},
+       #{sessionTokenHash}, #{phone}, #{protocolAccountId}, #{status},
        #{expiresAt}, #{createdAt}, #{updatedAt})
   </insert>
 
   <sql id="columns">
-    id, tenant_id AS tenantId, promotion_channel_id AS promotionChannelId,
+    id, pairing_scene AS pairingScene, tenant_id AS tenantId, promotion_channel_id AS promotionChannelId,
     channel_name AS channelName, owner_user_id AS ownerUserId,
+    account_group_id AS accountGroupId, remark,
     session_token_hash AS sessionTokenHash, phone, protocol_account_id AS protocolAccountId,
     pairing_id AS pairingId, pairing_code AS pairingCode, status, proxy_id AS proxyId,
     proxy_session_id AS proxySessionId, proxy_region AS proxyRegion, proxy_source AS proxySource,
@@ -37,6 +40,12 @@
     SELECT <include refid="columns"/> FROM promotion_pairing_session
     WHERE id = #{id} AND tenant_id = #{tenantId}
     FOR UPDATE
+  </select>
+
+  <select id="selectByIdAndTenant" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE id = #{id} AND tenant_id = #{tenantId}
+    LIMIT 1
   </select>
 
   <select id="selectExpiredActive" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">

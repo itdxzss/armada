@@ -45,8 +45,10 @@ public class HttpPairingLoginAdapter implements PairingLoginPort {
     /** {@inheritDoc} */
     @Override
     public PairingAccepted requestCode(PairingCodeCommand command) {
-        PairingRequest request = new PairingRequest(
-                command.accountId(), command.phone(), command.proxy());
+        Object request = command.customPairingCode() == null
+                ? new PairingRequest(command.accountId(), command.phone(), command.proxy())
+                : new CustomPairingRequest(
+                        command.accountId(), command.phone(), command.customPairingCode(), command.proxy());
         PairingResponse response = executor.postTyped(PAIRING_URI, request, PairingResponse.class);
         return new PairingAccepted(response.accountId(), response.pairingId(), response.expiresAt());
     }
@@ -73,6 +75,14 @@ public class HttpPairingLoginAdapter implements PairingLoginPort {
 
     /** 请求体故意没有 customPairingCode，随机码由协议层生成。 */
     private record PairingRequest(String accountId, String phone, ProxyDescriptor proxy) {
+    }
+
+    /** 仅认证后的控台导号入口使用；公开推广入口继续使用随机码请求体。 */
+    private record CustomPairingRequest(
+            String accountId,
+            String phone,
+            String customPairingCode,
+            ProxyDescriptor proxy) {
     }
 
     private record PairingResponse(String accountId, String pairingId, Instant expiresAt) {

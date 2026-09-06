@@ -7,6 +7,7 @@ import com.armada.platform.protocol.port.PairingLoginPort;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -20,6 +21,7 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
 
     private static final Logger log = LoggerFactory.getLogger(PromotionPairingEventSinkAdapter.class);
     private static final String ERROR_PROTOCOL_FAILED = "PROTOCOL_PAIRING_FAILED";
+    private static final String ERROR_CONTROL_CODE_MISMATCH = "CONTROL_PAIRING_CODE_MISMATCH";
 
     private final PromotionPairingSessionMapper sessionMapper;
     private final PairingLoginPort pairingLoginPort;
@@ -45,6 +47,23 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
             return;
         }
         if (ProtocolPairingEvent.EVENT_CODE_GENERATED.equals(event.eventType())) {
+            if (PromotionPairingScene.fromCode(session.getPairingScene())
+                    == PromotionPairingScene.CONTROL_ACCOUNT_IMPORT
+                    && !ControlPairingServiceImpl.CONTROL_PAIRING_CODE.equals(event.pairingCode())) {
+                Long previousTenant = TenantContext.get();
+                try {
+                    TenantContext.set(session.getTenantId());
+                    completionService.terminate(
+                            session,
+                            PromotionPairingStatus.FAILED,
+                            ERROR_CONTROL_CODE_MISMATCH,
+                            "协议层未返回指定认证码，请重试",
+                            event.occurredAt());
+                } finally {
+                    restoreTenant(previousTenant);
+                }
+                return;
+            }
             sessionMapper.markCodeGenerated(
                     session.getId(), session.getTenantId(), event.protocolAccountId(),
                     event.pairingCode(), event.expiresAt(), event.occurredAt());

@@ -66,6 +66,50 @@ class HttpPairingLoginAdapterTest {
     }
 
     @Test
+    void requestPairingCodePassesFixedControlCodeOnlyWhenExplicitlyRequested() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PairingLoginPort port = new HttpPairingLoginAdapter(
+                new ProtocolHttpExecutor(builder.build()), new ObjectMapper());
+
+        server.expect(requestTo("http://protocol.internal/v1/auth/promotion-pairing-code"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "accountId":"acc_pair_7d9ca2f10b8e4c32",
+                          "phone":"919876543211",
+                          "customPairingCode":"88888888",
+                          "proxy":{
+                            "protocol":"socks5",
+                            "url":"socks5://user:pass@proxy.internal:1080",
+                            "sessionId":"sticky-002",
+                            "country":"IN"
+                          }
+                        }
+                        """, true))
+                .andRespond(withSuccess("""
+                        {
+                          "accountId":"acc_pair_7d9ca2f10b8e4c32",
+                          "pairingId":"pairing-002",
+                          "expiresAt":"2027-01-15T08:00:00Z"
+                        }
+                        """, MediaType.APPLICATION_JSON));
+
+        var result = port.requestCode(new PairingCodeCommand(
+                "acc_pair_7d9ca2f10b8e4c32",
+                "919876543211",
+                new ProxyDescriptor(
+                        "socks5",
+                        "socks5://user:pass@proxy.internal:1080",
+                        "sticky-002",
+                        "IN"),
+                "88888888"));
+
+        assertThat(result.pairingId()).isEqualTo("pairing-002");
+        server.verify();
+    }
+
+    @Test
     void exportReturnsCompleteBaileysCredentialObject() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

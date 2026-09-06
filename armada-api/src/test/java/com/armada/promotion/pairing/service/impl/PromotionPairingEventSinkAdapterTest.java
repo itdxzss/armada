@@ -9,6 +9,8 @@ import com.armada.platform.protocol.model.result.PairingCredentialExport;
 import com.armada.platform.protocol.port.PairingLoginPort;
 import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
+import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -61,5 +63,28 @@ class PromotionPairingEventSinkAdapterTest {
         adapter.handle(staleEvent);
 
         verifyNoInteractions(pairingLoginPort, completionService);
+    }
+
+    @Test
+    void controlPairingFailsClosedWhenProtocolDoesNotReturnEightEights() {
+        PromotionPairingSession session = new PromotionPairingSession();
+        session.setId(7002L);
+        session.setTenantId(7L);
+        session.setPairingScene(PromotionPairingScene.CONTROL_ACCOUNT_IMPORT.code());
+        session.setProtocolAccountId("acc_pair_control");
+        when(sessionMapper.selectActiveByProtocolAccountId("acc_pair_control")).thenReturn(session);
+        ProtocolPairingEvent event = new ProtocolPairingEvent(
+                "evt-code", ProtocolPairingEvent.EVENT_CODE_GENERATED, "acc_pair_control", null,
+                2_001L, "worker-1", "ABCD1234", 92_001L,
+                null, null, null, null, null);
+        PromotionPairingEventSinkAdapter adapter = new PromotionPairingEventSinkAdapter(
+                sessionMapper, pairingLoginPort, completionService);
+
+        adapter.handle(event);
+
+        verify(completionService).terminate(
+                session, PromotionPairingStatus.FAILED, "CONTROL_PAIRING_CODE_MISMATCH",
+                "协议层未返回指定认证码，请重试", 2_001L);
+        verifyNoInteractions(pairingLoginPort);
     }
 }

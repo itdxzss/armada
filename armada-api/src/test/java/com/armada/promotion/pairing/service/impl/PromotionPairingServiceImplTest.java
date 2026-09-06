@@ -25,6 +25,7 @@ import com.armada.promotion.pairing.model.command.PromotionPairingAttribution;
 import com.armada.promotion.pairing.model.command.PromotionPairingCreateCommand;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
 import com.armada.resource.service.IpProxyAllocation;
 import com.armada.resource.service.IpProxyService;
 import java.time.Instant;
@@ -91,6 +92,8 @@ class PromotionPairingServiceImplTest {
                 .hasSize(64);
         assertThat(sessionCaptor.getValue().getTenantId()).isEqualTo(7L);
         assertThat(sessionCaptor.getValue().getChannelName()).isEqualTo("印度投放");
+        assertThat(sessionCaptor.getValue().getPairingScene())
+                .isEqualTo(PromotionPairingScene.PROMOTION.code());
 
         ArgumentCaptor<PairingCodeCommand> commandCaptor = ArgumentCaptor.forClass(PairingCodeCommand.class);
         verify(pairingLoginPort).requestCode(commandCaptor.capture());
@@ -99,6 +102,7 @@ class PromotionPairingServiceImplTest {
                 .isNotEqualTo("acc_919876543210");
         assertThat(commandCaptor.getValue().phone()).isEqualTo("919876543210");
         assertThat(commandCaptor.getValue().proxy().sessionId()).isEqualTo("sticky001");
+        assertThat(commandCaptor.getValue().customPairingCode()).isNull();
         verify(transitionService).markAccepted(
                 eq(7001L), eq(7L), eq("pairing-001"), anyLong(), anyLong());
     }

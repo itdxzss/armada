@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.PromotionAccountProvisionCommand;
+import com.armada.account.service.AccountPairingProvisionCommand;
 import com.armada.account.service.PromotionAccountProvisionService;
 import com.armada.platform.kafka.consumer.pairing.ProtocolPairingEvent;
 import com.armada.platform.protocol.model.result.PairingCredentialExport;
@@ -16,6 +17,7 @@ import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionCapiEventStage;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
 import com.armada.promotion.pairing.service.PromotionCapiEventService;
 import com.armada.resource.service.IpProxyService;
 import org.junit.jupiter.api.Test;
@@ -68,6 +70,43 @@ class PromotionPairingCompletionServiceTest {
         assertThat(commandCaptor.getValue().accountType()).isEqualTo(2);
         verify(capiEventService).activate(
                 7001L, PromotionCapiEventStage.LOGIN_SUCCESS, 1_800_000_000_000L);
+    }
+
+    @Test
+    void controlPairingCreatesOrdinaryAccountWithoutPromotionCapiEvent() {
+        PromotionPairingSession session = waitingSession();
+        session.setPairingScene(PromotionPairingScene.CONTROL_ACCOUNT_IMPORT.code());
+        session.setAccountGroupId(301L);
+        session.setRemark("异地主设备");
+        when(sessionMapper.selectByIdForUpdate(7001L, 7L)).thenReturn(session);
+        when(sessionMapper.claimFinalizing(7001L, 7L, 1_800_000_000_000L)).thenReturn(1);
+        when(accountProvisionService.provisionControl(any(AccountPairingProvisionCommand.class)))
+                .thenReturn(902L);
+        when(sessionMapper.markSucceeded(7001L, 7L, 902L, 1_800_000_000_000L)).thenReturn(1);
+        PromotionPairingCompletionService service = new PromotionPairingCompletionService(
+                sessionMapper, accountProvisionService, ipProxyService, capiEventService);
+
+        Long accountId = service.complete(
+                7001L,
+                7L,
+                new ProtocolPairingEvent(
+                        "evt-control", ProtocolPairingEvent.EVENT_COMPLETED,
+                        "acc_919876543210", "7001", 1_800_000_000_000L,
+                        "worker-1", null, null, "919876543210",
+                        "919876543210@s.whatsapp.net",
+                        "http://protocol-worker-1:3000", null, "PERSONAL"),
+                new PairingCredentialExport(
+                        "acc_919876543210",
+                        "{\"schema\":\"baileys.auth_state.v1\",\"creds\":{},\"keys\":{}}"));
+
+        assertThat(accountId).isEqualTo(902L);
+        ArgumentCaptor<AccountPairingProvisionCommand> commandCaptor =
+                ArgumentCaptor.forClass(AccountPairingProvisionCommand.class);
+        verify(accountProvisionService).provisionControl(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().accountGroupId()).isEqualTo(301L);
+        assertThat(commandCaptor.getValue().remark()).isEqualTo("异地主设备");
+        verify(ipProxyService).confirmPairingAllocation(7001L, 902L, 1001L);
+        verifyNoInteractions(capiEventService);
     }
 
     @Test

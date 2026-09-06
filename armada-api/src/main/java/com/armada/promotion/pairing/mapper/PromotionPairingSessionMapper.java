@@ -25,6 +25,10 @@ public interface PromotionPairingSessionMapper {
     @InterceptorIgnore(tenantLine = "true")
     PromotionPairingSession selectByIdForUpdate(@Param("id") Long id, @Param("tenantId") Long tenantId);
 
+    /** 控台按当前租户查询会话状态，不允许跨租户读取认证码。 */
+    @InterceptorIgnore(tenantLine = "true")
+    PromotionPairingSession selectByIdAndTenant(@Param("id") Long id, @Param("tenantId") Long tenantId);
+
     /** 跨租户批量扫描已经到期但尚未结束的会话。 */
     @InterceptorIgnore(tenantLine = "true")
     List<PromotionPairingSession> selectExpiredActive(@Param("now") long now, @Param("limit") int limit);
@@ -42,7 +46,7 @@ public interface PromotionPairingSessionMapper {
                      @Param("pairingId") String pairingId, @Param("expiresAt") long expiresAt,
                      @Param("updatedAt") long updatedAt);
 
-    /** 回填协议层随机生成的配对码并进入待手机确认状态。 */
+    /** 回填协议层生成或确认的配对码并进入待手机确认状态。 */
     @InterceptorIgnore(tenantLine = "true")
     int markCodeGenerated(@Param("id") Long id,
                           @Param("tenantId") Long tenantId,

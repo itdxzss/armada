@@ -1,6 +1,7 @@
 package com.armada.promotion.pairing.service.impl;
 
 import com.armada.account.service.PromotionAccountProvisionCommand;
+import com.armada.account.service.AccountPairingProvisionCommand;
 import com.armada.account.service.PromotionAccountProvisionService;
 import com.armada.platform.kafka.consumer.pairing.ProtocolPairingEvent;
 import com.armada.platform.protocol.model.result.PairingCredentialExport;
@@ -8,6 +9,7 @@ import com.armada.promotion.pairing.mapper.PromotionPairingSessionMapper;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionCapiEventStage;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
 import com.armada.promotion.pairing.service.PromotionCapiEventService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
@@ -59,6 +61,7 @@ public class PromotionPairingCompletionService {
         }
         validateEventCorrelation(session, event);
         PromotionPairingStatus status = PromotionPairingStatus.fromCode(session.getStatus());
+        PromotionPairingScene scene = PromotionPairingScene.fromCode(session.getPairingScene());
         if (status == PromotionPairingStatus.SUCCEEDED) {
             return session.getAccountId();
         }
@@ -66,7 +69,7 @@ public class PromotionPairingCompletionService {
             int changed = sessionMapper.markTerminal(
                     sessionId, tenantId, PromotionPairingStatus.EXPIRED.code(),
                     ERROR_EXPIRED, MESSAGE_EXPIRED, event.occurredAt());
-            if (changed == 1) {
+            if (changed == 1 && scene == PromotionPairingScene.PROMOTION) {
                 capiEventService.cancelWaiting(sessionId, event.occurredAt());
             }
             if (changed == 1 && session.getProxyId() != null) {
@@ -90,24 +93,25 @@ public class PromotionPairingCompletionService {
             throw new BusinessException(ErrorCode.CONFLICT, "配对会话缺少代理绑定");
         }
 
-        Long accountId = accountProvisionService.provision(new PromotionAccountProvisionCommand(
-                session.getPhone(),
-                session.getPromotionChannelId(),
-                session.getChannelName(),
-                session.getOwnerUserId(),
-                session.getProtocolAccountId(),
-                event.ownerEndpoint(),
-                credential.credentialJson(),
-                session.getProxySessionId(),
-                session.getProxyRegion(),
-                session.getProxySource(),
-                resolveAccountType(event.detectedAccountType()),
-                event.occurredAt()));
+        int accountType = resolveAccountType(event.detectedAccountType());
+        Long accountId = scene == PromotionPairingScene.CONTROL_ACCOUNT_IMPORT
+                ? accountProvisionService.provisionControl(new AccountPairingProvisionCommand(
+                        session.getPhone(), session.getAccountGroupId(), session.getRemark(),
+                        session.getOwnerUserId(), session.getProtocolAccountId(), event.ownerEndpoint(),
+                        credential.credentialJson(), session.getProxySessionId(), session.getProxyRegion(),
+                        session.getProxySource(), accountType, event.occurredAt()))
+                : accountProvisionService.provision(new PromotionAccountProvisionCommand(
+                        session.getPhone(), session.getPromotionChannelId(), session.getChannelName(),
+                        session.getOwnerUserId(), session.getProtocolAccountId(), event.ownerEndpoint(),
+                        credential.credentialJson(), session.getProxySessionId(), session.getProxyRegion(),
+                        session.getProxySource(), accountType, event.occurredAt()));
         ipProxyService.confirmPairingAllocation(sessionId, accountId, session.getProxyId());
         requireOne(sessionMapper.markSucceeded(
                 sessionId, tenantId, accountId, event.occurredAt()), "配对成功状态写入失败");
-        capiEventService.activate(
-                sessionId, PromotionCapiEventStage.LOGIN_SUCCESS, event.occurredAt());
+        if (scene == PromotionPairingScene.PROMOTION) {
+            capiEventService.activate(
+                    sessionId, PromotionCapiEventStage.LOGIN_SUCCESS, event.occurredAt());
+        }
         return accountId;
     }
 
@@ -137,7 +141,8 @@ public class PromotionPairingCompletionService {
         int changed = sessionMapper.markTerminal(
                 sessionId, tenantId, PromotionPairingStatus.EXPIRED.code(),
                 ERROR_EXPIRED, MESSAGE_EXPIRED, cutoff);
-        if (changed == 1) {
+        if (changed == 1
+                && PromotionPairingScene.fromCode(current.getPairingScene()) == PromotionPairingScene.PROMOTION) {
             capiEventService.cancelWaiting(sessionId, cutoff);
         }
         if (changed == 1 && current.getProxyId() != null) {
@@ -168,7 +173,8 @@ public class PromotionPairingCompletionService {
         int changed = sessionMapper.markTerminal(
                 session.getId(), session.getTenantId(), terminalStatus.code(),
                 errorCode, errorMessage, occurredAt);
-        if (changed == 1) {
+        if (changed == 1
+                && PromotionPairingScene.fromCode(session.getPairingScene()) == PromotionPairingScene.PROMOTION) {
             capiEventService.cancelWaiting(session.getId(), occurredAt);
         }
         if (changed == 1 && session.getProxyId() != null) {

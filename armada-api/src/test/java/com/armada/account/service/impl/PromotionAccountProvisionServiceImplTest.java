@@ -7,15 +7,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountCredentialMapper;
+import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCredential;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.service.PromotionAccountProvisionCommand;
+import com.armada.account.service.AccountPairingProvisionCommand;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -31,6 +34,8 @@ class PromotionAccountProvisionServiceImplTest {
     private AccountStateMapper stateMapper;
     @Mock
     private AccountCredentialMapper credentialMapper;
+    @Mock
+    private AccountGroupMapper accountGroupMapper;
 
     @Test
     void provisionReusesAccountStateAndCredentialTables() {
@@ -43,7 +48,7 @@ class PromotionAccountProvisionServiceImplTest {
         when(stateMapper.updateProxySnapshots(any())).thenReturn(1);
         when(credentialMapper.insertPromotionCredential(any(AccountCredential.class))).thenReturn(1);
         PromotionAccountProvisionServiceImpl service = new PromotionAccountProvisionServiceImpl(
-                accountMapper, stateMapper, credentialMapper);
+                accountMapper, stateMapper, credentialMapper, accountGroupMapper);
 
         Long accountId = service.provision(new PromotionAccountProvisionCommand(
                 "919876543210", 501L, "印度投放", 81L,
@@ -78,5 +83,37 @@ class PromotionAccountProvisionServiceImplTest {
         assertThat(credentialCaptor.getValue().getCredFormat()).isEqualTo(ImportFormat.JSON.getCode());
         assertThat(credentialCaptor.getValue().getProxySessionId()).isEqualTo("sticky001");
         assertThat(credentialCaptor.getValue().getCredsJson()).contains("\"keys\"");
+    }
+
+    @Test
+    void controlPairingCreatesSelfPurchasedWebAccountInSelectedGroup() {
+        AccountGroup group = new AccountGroup();
+        group.setId(301L);
+        when(accountGroupMapper.selectById(301L)).thenReturn(group);
+        when(accountMapper.insert(any(Account.class))).thenAnswer(invocation -> {
+            invocation.<Account>getArgument(0).setId(902L);
+            return 1;
+        });
+        when(stateMapper.insert(any(AccountState.class))).thenReturn(1);
+        when(stateMapper.updateLoginAndAccountState(any(AccountState.class))).thenReturn(1);
+        when(stateMapper.updateProxySnapshots(any())).thenReturn(1);
+        when(credentialMapper.insertPromotionCredential(any(AccountCredential.class))).thenReturn(1);
+        PromotionAccountProvisionServiceImpl service = new PromotionAccountProvisionServiceImpl(
+                accountMapper, stateMapper, credentialMapper, accountGroupMapper);
+
+        Long accountId = service.provisionControl(new AccountPairingProvisionCommand(
+                "919876543211", 301L, "异地主设备", 81L,
+                "acc_pair_control", "http://protocol-worker-1:3000",
+                "{\"schema\":\"baileys.auth_state.v1\",\"creds\":{},\"keys\":{}}",
+                "sticky002", "IN", "provider-a", 1, 1_800_000_000_000L));
+
+        assertThat(accountId).isEqualTo(902L);
+        ArgumentCaptor<Account> accountCaptor = ArgumentCaptor.forClass(Account.class);
+        verify(accountMapper).insert(accountCaptor.capture());
+        assertThat(accountCaptor.getValue().getAccountGroupId()).isEqualTo(301L);
+        assertThat(accountCaptor.getValue().getNumberSource()).isEqualTo(3);
+        assertThat(accountCaptor.getValue().getProtocolId()).isEqualTo("WEB");
+        assertThat(accountCaptor.getValue().getRemark()).isEqualTo("异地主设备");
+        assertThat(accountCaptor.getValue().getCreatedBy()).isEqualTo(81L);
     }
 }

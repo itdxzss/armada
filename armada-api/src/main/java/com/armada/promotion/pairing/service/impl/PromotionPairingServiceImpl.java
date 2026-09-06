@@ -14,6 +14,7 @@ import com.armada.promotion.pairing.model.command.PromotionPairingAttribution;
 import com.armada.promotion.pairing.model.command.PromotionPairingCreateCommand;
 import com.armada.promotion.pairing.model.entity.PromotionPairingSession;
 import com.armada.promotion.pairing.model.enums.PromotionPairingStatus;
+import com.armada.promotion.pairing.model.enums.PromotionPairingScene;
 import com.armada.promotion.pairing.model.vo.PromotionPairingCreatedVO;
 import com.armada.promotion.pairing.model.vo.PromotionPairingStatusVO;
 import com.armada.promotion.pairing.service.PromotionPairingService;
@@ -182,6 +183,7 @@ public class PromotionPairingServiceImpl implements PromotionPairingService {
                                                  String tokenHash,
                                                  long now) {
         PromotionPairingSession session = new PromotionPairingSession();
+        session.setPairingScene(PromotionPairingScene.PROMOTION.code());
         session.setTenantId(context.tenantId());
         session.setPromotionChannelId(context.channelId());
         session.setChannelName(context.channelName());

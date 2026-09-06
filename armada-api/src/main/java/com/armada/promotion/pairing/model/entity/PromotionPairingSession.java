@@ -4,6 +4,8 @@ package com.armada.promotion.pairing.model.entity;
 public class PromotionPairingSession {
     /** 配对会话主键。 */
     private Long id;
+    /** 场景:1推广落地页,2控台认证码导号。 */
+    private Integer pairingScene;
     /** 渠道所属租户 ID。 */
     private Long tenantId;
     /** 发起配对的推广渠道 ID。 */
@@ -12,6 +14,10 @@ public class PromotionPairingSession {
     private String channelName;
     /** 渠道归属用户 ID 快照。 */
     private Long ownerUserId;
+    /** 控台导号选择的账号分组。 */
+    private Long accountGroupId;
+    /** 控台导号备注。 */
+    private String remark;
     /** 公开会话令牌的 SHA-256 十六进制摘要。 */
     private String sessionTokenHash;
     /** 只包含数字的完整国际手机号。 */
@@ -20,7 +26,7 @@ public class PromotionPairingSession {
     private String protocolAccountId;
     /** 协议层为本次请求生成的配对任务 ID。 */
     private String pairingId;
-    /** 协议层随机生成并等待手机确认的配对码。 */
+    /** 协议层生成或确认并等待手机输入的配对码。 */
     private String pairingCode;
     /** 配对状态，取值见 PromotionPairingStatus。 */
     private Integer status;
@@ -51,6 +57,10 @@ public class PromotionPairingSession {
     public Long getId() { return id; }
     /** @param id 配对会话主键 */
     public void setId(Long id) { this.id = id; }
+    /** @return 配对业务场景 */
+    public Integer getPairingScene() { return pairingScene; }
+    /** @param pairingScene 配对业务场景 */
+    public void setPairingScene(Integer pairingScene) { this.pairingScene = pairingScene; }
     /** @return 渠道所属租户 ID */
     public Long getTenantId() { return tenantId; }
     /** @param tenantId 渠道所属租户 ID */
@@ -67,6 +77,14 @@ public class PromotionPairingSession {
     public Long getOwnerUserId() { return ownerUserId; }
     /** @param ownerUserId 渠道归属用户 ID 快照 */
     public void setOwnerUserId(Long ownerUserId) { this.ownerUserId = ownerUserId; }
+    /** @return 控台导号目标分组 */
+    public Long getAccountGroupId() { return accountGroupId; }
+    /** @param accountGroupId 控台导号目标分组 */
+    public void setAccountGroupId(Long accountGroupId) { this.accountGroupId = accountGroupId; }
+    /** @return 控台导号备注 */
+    public String getRemark() { return remark; }
+    /** @param remark 控台导号备注 */
+    public void setRemark(String remark) { this.remark = remark; }
     /** @return 会话令牌摘要 */
     public String getSessionTokenHash() { return sessionTokenHash; }
     /** @param sessionTokenHash 会话令牌摘要 */
@@ -83,9 +101,9 @@ public class PromotionPairingSession {
     public String getPairingId() { return pairingId; }
     /** @param pairingId 协议层配对任务 ID */
     public void setPairingId(String pairingId) { this.pairingId = pairingId; }
-    /** @return 等待手机确认的随机配对码 */
+    /** @return 等待手机确认的配对码 */
     public String getPairingCode() { return pairingCode; }
-    /** @param pairingCode 等待手机确认的随机配对码 */
+    /** @param pairingCode 等待手机确认的配对码 */
     public void setPairingCode(String pairingCode) { this.pairingCode = pairingCode; }
     /** @return 配对状态数据库码 */
     public Integer getStatus() { return status; }

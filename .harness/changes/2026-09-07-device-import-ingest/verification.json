@@ -127,13 +127,10 @@
   },
   "originalDependencyUnchanged": true,
   "deploymentScriptTests": {
-    "status": "BLOCKED",
-    "reasons": [
-      "nested worktree protocol jump key path missing",
-      "production protocol .env.example absent from checkout"
-    ]
+    "test1": "PASS exit 0 from main checkout",
+    "productionPackage": "BLOCKED existing missing prod/scripts/inspect-production-host.sh"
   },
   "fullCurrentRepositorySuite": "NOT_RUN; prior old-base results archived separately",
-  "remoteDeployment": "NOT_RUN; target environment and ingress configuration pending",
+  "remoteDeployment": "STAGED_NOT_ACTIVATED; see test1-staging.json",
   "realDeviceOnline": "NOT_RUN"
 }

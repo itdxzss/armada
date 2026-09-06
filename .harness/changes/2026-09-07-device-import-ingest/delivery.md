@@ -1,6 +1,6 @@
 # 手机直传控端入口：主线集成交付
 
-已基于当前 `1.0.3-snapshot` 的 `b68890ed` 完成移植；集成工作树为 `.worktrees/device-import-ingest-main`，分支 `codex/device-import-ingest-integration`。本地验证完成；尚未远程部署或验证真实手机上线。
+已基于当前 `1.0.3-snapshot` 的 `b68890ed` 完成移植；集成工作树为 `.worktrees/device-import-ingest-main`，分支 `codex/device-import-ingest-integration`。本地验证完成；test1 已暂存候选镜像并放行专用 443 安全组，但运行服务未切换，未验证真实手机上线。
 
 ## 结果与主线兼容
 
@@ -44,3 +44,7 @@ env JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/C
 按 expert-reviewer 自查完整改动：保留主线原生导入与类型校验；无 schema 迁移；设备请求不能指定租户或运行格式；固定错误消息不输出原始异常。H2 验证使用真实 Mapper/XML/事务，协议命令边界仍为测试替身，不能视为 Kafka 或协议握手成功。
 
 发布需要：确认 test1/perf2、专用域名及可信证书、私网管理绑定地址、令牌对应租户/分组/机型/账号类型/IP 策略。秘密通过目标环境安全配置；现有部署脚本必须实际启用 `docker-compose.device-ingest.yml`，不能只使用原 base Compose，否则必填令牌未注入会导致启动失败。专用入口只开放 TCP 443。部署流程与回滚见 [README](../../../armada-deploy/device-ingest/README.md)。
+
+## test1 准备进展
+
+详见 [test1-staging.json](test1-staging.json)。`d96ea1e0` 修复了普通重部署可能丢失令牌注入/管理端绑定的问题，并已通过 9 项本地网关与 Compose 回归。主仓库的测试环境部署脚本测试已通过。AWS 专用安全组已放行 443，仅附着 test1；镜像已暂存且 JAR 哈希一致。域名/可信证书和实际默认配置尚未确认，所以未启动新入口、未切换后端。历史表格中的远程 NOT_RUN 指此前状态，当前只有只读预检、网络规则与制品暂存的证据。

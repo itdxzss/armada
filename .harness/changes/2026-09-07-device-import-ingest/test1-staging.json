@@ -1,0 +1,59 @@
+{
+  "date": "2026-09-07",
+  "environment": "test1",
+  "releaseCommit": "d96ea1e01b006f8a42c71316cf535f506ba3452c",
+  "backendSourceCommit": "555856b30b22923af76255a43eb9f81a88bacc80",
+  "status": "STAGED_NOT_ACTIVATED",
+  "stagingDirectory": "/home/app/armada-ingest-releases/d96ea1e0",
+  "image": "armada-device-ingest:test1-d96ea1e0",
+  "imageId": "sha256:d1a7ac4a67325bc342696a8ea5d1ffbc7c4ed5d3022c84d4ec98eb4096c724f8",
+  "jarSha256": "458c3dc2410ce2fbfc82cbebd8843c59df0caa4b43176c09b770f2d4a08a61e4",
+  "uploadedAndImageJarVerified": true,
+  "liveBackendSwitched": false,
+  "liveBackendStartedAt": "2026-09-01T08:58:36.919932714Z",
+  "liveBackendRestartCount": 0,
+  "publicGatewayDeployed": false,
+  "securityGroup": {
+    "id": "sg-0dee32df02effce71",
+    "region": "ap-south-1",
+    "instanceId": "i-06cf0d5fb86263860",
+    "tcp443IPv4Public": true,
+    "onlyAttachedToTest1": true,
+    "newEgressRules": 0,
+    "existingGroupsPreserved": true
+  },
+  "flywayReadOnlyPreflight": {
+    "applied": 179,
+    "failed": 0,
+    "checksumMismatches": [],
+    "missingInLocal": [
+      "172"
+    ],
+    "pending": [
+      "179"
+    ]
+  },
+  "checks": {
+    "redeployComposeAndGateway": {
+      "tests": 9,
+      "exitCode": 0
+    },
+    "deployTestScript": {
+      "exitCode": 0
+    },
+    "controlPairingMigrationSqlTest": {
+      "tests": 1,
+      "exitCode": 0
+    },
+    "productionPackageScript": {
+      "exitCode": 1,
+      "reason": "existing missing prod/scripts/inspect-production-host.sh; not used for test1"
+    }
+  },
+  "pending": [
+    "ingest hostname and trusted certificate provisioning",
+    "token defaults confirmation and secure server configuration",
+    "live backend and TLS gateway activation",
+    "public endpoint and real-device acceptance"
+  ]
+}

@@ -219,6 +219,14 @@ class DeviceIngestComposeTest(unittest.TestCase):
             self.assertEqual(ports[0]["host_ip"], "127.0.0.1")
             self.assertNotIn("ports", model["services"]["backend"])
             self.assertEqual(model["services"]["device-ingest-nginx"]["ports"][0]["target"], 443)
+            # 日常 --be/--fe 发布只显式加载基础 Compose，也必须保留令牌和私网绑定。
+            base_arguments = arguments[:6] + arguments[8:]
+            base_model = json.loads(run(*base_arguments, env=env))
+            self.assertEqual(base_model["services"]["nginx"]["ports"][0]["host_ip"], "127.0.0.1")
+            self.assertEqual(base_model["services"]["backend"]["environment"].get(
+                "ARMADA_DEVICE_INGEST_CLIENTS_JSON"), "[]")
+            self.assertEqual(base_model["services"]["backend"]["environment"].get(
+                "MYBATIS_PLUS_CONFIGURATION_LOG_IMPL"), "org.apache.ibatis.logging.nologging.NoLoggingImpl")
             del env["ARMADA_DEVICE_INGEST_CLIENTS_JSON"]
             result = subprocess.run(arguments, env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

@@ -59,6 +59,8 @@ docker compose -f docker-compose.yml -f docker-compose.device-ingest.yml exec -T
 
 Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理员端口列表，不能降级为数组追加，否则可能保留原先面向公网的绑定。底层文件名如为 `docker-compose.rds.yml`，两个 `-f` 命令均使用该实际文件名。后端不得存在面向公网的 `ports` 映射。
 
+基础 `docker-compose.rds.yml` 同样读取必填令牌映射、关闭请求/SQL 参数日志，并读取 `ARMADA_ADMIN_BIND_IP`。首次部署后将这些值保留在服务器受保护的 `.env` 中，后续常规 `--be` / `--fe` 发布才能保持令牌注入和管理端绑定。基础文件的绑定默认值仍供未启用设备入口的旧环境使用；本入口部署必须运行 preflight 并显式配置私网或回环地址。EC2 公网 NAT 可以抵达私网地址绑定的端口，因此必须同时验证安全组；私网绑定本身不证明公网封闭。
+
 5. 先确认服务健康、配置启动门禁和私网管理访问，再放行该网关的公网 TCP 443。检查 IPv4/IPv6、防火墙/安全组、Docker 发布端口、旧负载均衡器以及后端 8080：只有 443 可从公网访问；其他入口按现有私网范围收敛。`preflight.py` 只核对绑定值，不能代替安全组实测。
 
 网关没有健康检查 API、后台站点、登录、批次查询、导出、Swagger 或其他 `/api/` 代理。nginx access log 关闭，处理请求的 error log 不记录请求原文；请求临时目录使用 tmpfs。后端叠加配置关闭 MyBatis 参数日志及 Web 请求详细日志，不得在运行环境开启请求/凭据调试。

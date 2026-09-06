@@ -5,6 +5,11 @@ services:
       dockerfile: backend.prebuilt.Dockerfile
     container_name: armada-backend
     environment:
+      ARMADA_DEVICE_INGEST_CLIENTS_JSON: ${ARMADA_DEVICE_INGEST_CLIENTS_JSON:?device ingest mapping is required}
+      MYBATIS_PLUS_CONFIGURATION_LOG_IMPL: org.apache.ibatis.logging.nologging.NoLoggingImpl
+      SPRING_MVC_LOG_REQUEST_DETAILS: "false"
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: INFO
+      LOGGING_LEVEL_COM_ARMADA_ACCOUNT_MAPPER: INFO
       DB_URL: ${DB_URL}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
@@ -102,7 +107,7 @@ services:
     environment:
       APP_TITLE: ${APP_TITLE:-Wheel SaaS}
     ports:
-      - "${ARMADA_HTTP_PORT:-18080}:80"
+      - "${ARMADA_ADMIN_BIND_IP:-0.0.0.0}:${ARMADA_HTTP_PORT:-18080}:80"
     volumes:
       - ./logs/nginx:/var/log/nginx
     logging:

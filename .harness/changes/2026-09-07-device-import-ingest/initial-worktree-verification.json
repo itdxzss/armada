@@ -1,0 +1,150 @@
+{
+  "date": "2026-09-07",
+  "branch": "codex/device-import-ingest-local",
+  "dependencyHead": "39e22427e7c68906c7bdf7aa6e3ee5051e6d109c",
+  "mainHeadObserved": "b68890ed060924e09e45b56c4f6f511b247a672f",
+  "scope": "Local implementation only; deployment and real-device acceptance NOT_RUN",
+  "targetedJava": {
+    "exitCode": 0,
+    "totals": {
+      "tests": 112,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "suite": "com.armada.account.controller.DeviceImportControllerTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.converter.FullParamsToSixConverterTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.AccountImportParserTest",
+        "tests": 35,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.DeviceImportServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.DeviceImportTransactionTest",
+        "tests": 10,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountImportExportFilenameTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountImportRowWriterTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountOnlineCommandServiceImplTest",
+        "tests": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.state.AccountImportLoginResultSettlerTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.DeviceImportRequestConverterTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.DeviceIngestTokensTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.TokenAuthenticationFilterTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "nginxCompose": {
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "exitCode": 0,
+    "scope": "Local isolated nginx with synthetic upstream and temporary test certificate"
+  },
+  "build": {
+    "exitCode": 0,
+    "jarPath": "/Users/daishuaishuai/IdeaProjects/armada/.worktrees/device-import-ingest/armada-api/target/armada-api-1.0.2-SNAPSHOT.jar",
+    "sha256": "9968b4eefeb79ddce8a8e271c0d7c1810b73aa1c3e04ab0ebcf5af37febf1975",
+    "sizeBytes": 87197784,
+    "h2Bundled": false,
+    "testSupportBundled": false,
+    "environmentFileBundled": false
+  },
+  "xmlValidation": {
+    "exitCode": 0
+  },
+  "apiDocumentationTest": {
+    "tests": 1,
+    "exitCode": 0
+  },
+  "broadLocalRun": {
+    "tests": 332,
+    "initialFailures": 2,
+    "initialErrors": 3,
+    "socketSuiteRetest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0
+    },
+    "remainingBaselineFailures": 2,
+    "remainingBaselineErrors": 1,
+    "baselineReproduction": {
+      "tests": 17,
+      "failures": 2,
+      "errors": 1,
+      "containsDeviceIngestImplementation": false
+    }
+  },
+  "legacyDeployScripts": {
+    "testDeploy": "FAILED: nested-worktree protocol sibling path",
+    "productionPackage": "FAILED: missing prod/protocol/.env.example"
+  },
+  "remoteDeployment": "NOT_RUN",
+  "mysqlAcceptance": "NOT_RUN",
+  "realDeviceHandoff": "NOT_RUN"
+}

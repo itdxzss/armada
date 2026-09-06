@@ -1,0 +1,78 @@
+{
+  "sourceWorktree": "/Users/daishuaishuai/IdeaProjects/armada/.worktrees/full-params-android-import",
+  "sourceBranch": "codex/full-params-android-import-local",
+  "sourceHead": "39e22427e7c68906c7bdf7aa6e3ee5051e6d109c",
+  "targetWorktree": "/Users/daishuaishuai/IdeaProjects/armada/.worktrees/device-import-ingest",
+  "copiedFiles": [
+    {
+      "path": ".harness/changes/2026-07-30-full-params-android-import.md",
+      "sha256": "47a78d191c8f9fce50ed0d75f040babe01177a0725d369d02830242c774cdc09",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/converter/FullParamsToSixConverter.java",
+      "sha256": "6afa36983610be4574e17495dc812507d167b9a69126576541856d02f5247ec8",
+      "sourceStatus": "untracked"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/model/entity/ImportFormat.java",
+      "sha256": "bcb62d09e88b49448671f6307f157fca7c82f197898d9f3ac8b5d1035ee38032",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/model/entity/ParsedEntry.java",
+      "sha256": "eeb58d33bdf0c1e2aeea64adbda7374af445c9e02c35341ca624d3e464d9c9d3",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/service/AccountImportParser.java",
+      "sha256": "31e1a1f3c8ea325224d1c1083293dc93dbf0d21b5245f38132841efb5a314886",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/service/impl/AccountImportRowWriter.java",
+      "sha256": "ee7763511769cb5e4086f77c23d043c652608c740407517ca1581c51031d9306",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/main/java/com/armada/account/service/impl/AccountImportServiceImpl.java",
+      "sha256": "f6a5820737e472bd2efe314def63fc6b2d3172399305ca4aa1f1bbbd733cce7f",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/controller/AccountImportControllerDbTest.java",
+      "sha256": "c7ee8d708cbcd291bd0de67298a979b17d0030b8f86c44bc9a14c7f2a5bc9577",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/converter/FullParamsToSixConverterTest.java",
+      "sha256": "71dd6df6be88580c47a51ce006c45b05fae742b8f5174217ad89a2aa09938b7d",
+      "sourceStatus": "untracked"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/dispatch/AccountImportOnlineDispatcherDbTest.java",
+      "sha256": "cfdad1df672c58d97fb78e1efc275c86bca19d8f0ee32304cddc5ccea97ca258",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/service/AccountImportParserTest.java",
+      "sha256": "fcdefaa5dd438aa9029fdb6c50ba32a1e278484ee338ca871656351c8a4f46be",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/service/AccountImportServiceImplDbTest.java",
+      "sha256": "33dd6692b94b56acc93523e27b3cd511ef30d6298fa999c476dd71d85e67a3cd",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/service/impl/AccountImportRowWriterTest.java",
+      "sha256": "764897c7129ae3c785fe6a8aebf41e6627ce22b849d63a4ec300611ccab11b73",
+      "sourceStatus": "modified"
+    },
+    {
+      "path": "armada-api/src/test/java/com/armada/account/service/impl/AccountOnlineCommandServiceImplTest.java",
+      "sha256": "3c8174a01dbf1aef48ce6b165b78a064fa2cb47444f624c5be2f25deca0c3561",
+      "sourceStatus": "modified"
+    }
+  ]
+}

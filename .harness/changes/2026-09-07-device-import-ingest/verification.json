@@ -1,0 +1,139 @@
+{
+  "date": "2026-09-07",
+  "branch": "codex/device-import-ingest-integration",
+  "integrationBase": "b68890ed060924e09e45b56c4f6f511b247a672f",
+  "originalDependencyBase": "39e22427e7c68906c7bdf7aa6e3ee5051e6d109c",
+  "targetedJava": {
+    "exitCode": 0,
+    "totals": {
+      "tests": 130,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "suites": [
+      {
+        "suite": "com.armada.account.controller.AccountPairingControllerTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.controller.DeviceImportControllerTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.converter.FullParamsToSixConverterTest",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.AccountImportParserTest",
+        "tests": 43,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.DeviceImportServiceTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.DeviceImportTransactionTest",
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountImportExportFilenameTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountImportRowWriterTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.service.impl.AccountOnlineCommandServiceImplTest",
+        "tests": 36,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.account.state.AccountImportLoginResultSettlerTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.DeviceImportRequestConverterTest",
+        "tests": 2,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.DeviceIngestTokensTest",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      {
+        "suite": "com.armada.boot.security.TokenAuthenticationFilterTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    ]
+  },
+  "nginxCompose": {
+    "exitCode": 0,
+    "tests": 9
+  },
+  "apiDocs": {
+    "exitCode": 0,
+    "tests": 1,
+    "controllers": 54,
+    "endpoints": 291
+  },
+  "xmlValidation": {
+    "exitCode": 0
+  },
+  "package": {
+    "exitCode": 0,
+    "artifact": "armada-api-1.0.2-SNAPSHOT.jar",
+    "bytes": 90632426,
+    "sha256": "458c3dc2410ce2fbfc82cbebd8843c59df0caa4b43176c09b770f2d4a08a61e4",
+    "noTestLibrariesOrEnv": true
+  },
+  "originalDependencyUnchanged": true,
+  "deploymentScriptTests": {
+    "status": "BLOCKED",
+    "reasons": [
+      "nested worktree protocol jump key path missing",
+      "production protocol .env.example absent from checkout"
+    ]
+  },
+  "fullCurrentRepositorySuite": "NOT_RUN; prior old-base results archived separately",
+  "remoteDeployment": "NOT_RUN; target environment and ingress configuration pending",
+  "realDeviceOnline": "NOT_RUN"
+}

@@ -1,0 +1,61 @@
+{
+  "date": "2026-09-07",
+  "scope": "Inherited full-params baseline only; no new endpoint acceptance",
+  "exitCode": 0,
+  "suites": [
+    {
+      "suite": "com.armada.account.converter.FullParamsToSixConverterTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    },
+    {
+      "suite": "com.armada.account.service.AccountImportParserTest",
+      "tests": 35,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    },
+    {
+      "suite": "com.armada.account.service.impl.AccountImportExportFilenameTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    },
+    {
+      "suite": "com.armada.account.service.impl.AccountImportRowWriterTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    },
+    {
+      "suite": "com.armada.account.service.impl.AccountOnlineCommandServiceImplTest",
+      "tests": 36,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    },
+    {
+      "suite": "com.armada.account.state.AccountImportLoginResultSettlerTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "javaVersion": "17.0.19"
+    }
+  ],
+  "totals": {
+    "tests": 81,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

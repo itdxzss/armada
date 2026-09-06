@@ -2,6 +2,16 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountImportDetailMapper">
 
+  <!-- 设备入口复用现有状态；租户过滤由插件注入，EXISTS 在数据库中短路。 -->
+  <select id="existsPendingByPhone" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM account_import_detail
+      WHERE ws_phone = #{phone}
+        AND parse_result = #{successResult}
+        AND online_phase IN (#{queuedPhase}, #{dispatchedPhase})
+    )
+  </select>
+
   <!--
     批量插入明细行;tenant_id 由拦截器注入。
     batchInsert 用 foreach 生成多值 INSERT,一次 SQL 写多行。

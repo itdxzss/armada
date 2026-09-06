@@ -18,6 +18,17 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountImportDetailMapper {
 
     /**
+     * 判断当前租户同号是否仍在导入上线处理中，防止删除账号后重复派发。
+     * @param phone 纯数字手机号
+     * @param successResult 成功解析结果编码
+     * @param queuedPhase 待派发阶段
+     * @param dispatchedPhase 等待回写阶段
+     * @return 是否存在；由租户拦截器注入当前 tenant_id
+     */
+    boolean existsPendingByPhone(@Param("phone") String phone, @Param("successResult") int successResult,
+                                 @Param("queuedPhase") int queuedPhase, @Param("dispatchedPhase") int dispatchedPhase);
+
+    /**
      * 批量插入明细行(&lt;foreach&gt; 多值 INSERT)。
      * tenant_id 由拦截器注入,不手写。
      */

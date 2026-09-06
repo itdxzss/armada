@@ -64,7 +64,7 @@ public class AccountImportRowWriter {
      * 不留孤儿行。成功后返回新账号 ID。</p>
      *
      * @param wid            WA 手机号(纯数字,用于 wsPhone 和 protocolAccountId)
-     * @param entry          解析条目(data 字段序列化为 creds_json;日志只打 maskPhone,不打明文)
+     * @param entry          解析条目(data 字段序列化为 creds_json;不输出内容或手机号)
      * @param accountGroupId 目标分组 ID(已由调用方解析;NOT NULL)
      * @param meta           导入元信息 DTO:importFormat/deviceOs/accountType 从此取
      * @return 新写入的 account.id
@@ -86,16 +86,14 @@ public class AccountImportRowWriter {
         AccountState state = buildAccountState(accountId, now);
         stateMapper.insert(state);
 
-        // 步骤 ③:插入 account_credential(creds_json 由 data 序列化;日志只打 maskPhone+长度)
-        String credsJson = serializeCredsJson(entry, wid);
+        // 步骤 ③:凭据只进入受保护的数据库列，不进入诊断日志。
+        String credsJson = serializeCredsJson(entry);
+        int credentialFormat = entry.getRuntimeCredentialFormat() != null
+                ? entry.getRuntimeCredentialFormat()
+                : runtimeCredentialFormat(meta.importFormat(), meta.deviceOs());
         AccountCredential credential = buildCredential(
-                accountId, wid, runtimeCredentialFormat(meta.importFormat(), meta.deviceOs()), credsJson, now);
+                accountId, wid, credentialFormat, credsJson, now);
         credentialMapper.insert(credential);
-
-        log.info("[AccountImportRowWriter] 三步写成功 maskPhone={}*** accountId={} credsLen={}",
-                wid.length() > 4 ? wid.substring(0, wid.length() - 4) : "****",
-                accountId,
-                credsJson == null ? 0 : credsJson.length());
 
         return accountId;
     }
@@ -161,18 +159,16 @@ public class AccountImportRowWriter {
     /**
      * 将 {@link ParsedEntry#getData()} 序列化为 JSON 字符串存入凭据列。
      * 序列化失败时返回原始 raw 标识(兜底;实际 data 来自 parse,不应失败)。
-     * 铁律:日志只打 maskPhone+长度,不打 creds_json 明文。
+     * 铁律:日志只记录固定错误码，不输出凭据或异常原文。
      */
-    private String serializeCredsJson(ParsedEntry entry, String wid) {
+    private String serializeCredsJson(ParsedEntry entry) {
         if (entry.getData() == null) {
             return null;
         }
         try {
             return objectMapper.writeValueAsString(entry.getData());
         } catch (JsonProcessingException e) {
-            log.warn("[AccountImportRowWriter] creds_json 序列化失败 maskPhone={}*** error={}",
-                    wid.length() > 4 ? wid.substring(0, wid.length() - 4) : "****",
-                    e.getMessage());
+            log.warn("[AccountImportRowWriter] code=CREDENTIAL_SERIALIZATION_FAILED");
             return entry.getRaw();
         }
     }

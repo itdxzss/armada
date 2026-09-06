@@ -1,0 +1,93 @@
+# 由官方镜像 envsubst 仅替换 INGEST_HOSTNAME；禁止在此放置令牌或实际业务默认值。
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name ${INGEST_HOSTNAME};
+    ssl_certificate /etc/nginx/tls/fullchain.pem;
+    ssl_certificate_key /etc/nginx/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+
+    default_type application/json;
+    charset utf-8;
+    access_log off;
+    # 请求解析错误可能包含原始 request line；该入口不记录 nginx 请求异常原文。
+    error_log /dev/null crit;
+    client_max_body_size 128k;
+    client_body_buffer_size 128k;
+    client_body_temp_path /var/cache/nginx/client_temp;
+    client_header_timeout 10s;
+    client_body_timeout 10s;
+    send_timeout 10s;
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
+    error_page 400 497 =400 @bad_request;
+    error_page 401 =401 @unauthorized;
+    error_page 403 =403 @forbidden;
+    error_page 404 =404 @not_found;
+    error_page 405 =405 @method_not_allowed;
+    error_page 406 =406 @not_acceptable;
+    error_page 408 =408 @request_timeout;
+    error_page 409 =409 @conflict;
+    error_page 413 =413 @too_large;
+    error_page 415 =415 @media_type;
+    error_page 500 =500 @server_error;
+    error_page 502 =502 @bad_gateway;
+    error_page 503 =503 @unavailable;
+    error_page 504 =504 @gateway_timeout;
+
+    if ($host != "${INGEST_HOSTNAME}") { return 404; }
+
+    location = /api/device-imports {
+        if ($is_args != "") { return 400; }
+        # location 使用归一化 URI；再校验原文才能拒绝编码、双斜线、点路径别名。
+        if ($request_uri != "/api/device-imports") { return 404; }
+        if ($request_method !~ ^(POST|OPTIONS)$) { return 405; }
+        if ($request_method = OPTIONS) {
+            add_header Allow "POST, OPTIONS" always;
+            add_header Cache-Control "no-store" always;
+            return 204;
+        }
+
+        proxy_pass http://backend:8080;
+        proxy_http_version 1.1;
+        proxy_pass_request_headers off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Ingest-Token $http_x_ingest_token;
+        proxy_set_header Content-Type $http_content_type;
+        proxy_set_header Accept application/json;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_intercept_errors on;
+        proxy_connect_timeout 3s;
+        proxy_read_timeout 12s;
+        proxy_send_timeout 12s;
+    }
+
+    location / { return 404; }
+    location @bad_request { return 400 '{"message":"请求格式或路径不正确"}'; }
+    location @unauthorized { return 401 '{"message":"导入令牌无效"}'; }
+    location @forbidden { return 403 '{"message":"导入请求被拒绝"}'; }
+    location @not_found { return 404 '{"message":"接口不存在"}'; }
+    location @method_not_allowed {
+        add_header Allow "POST, OPTIONS" always;
+        add_header Cache-Control "no-store" always;
+        return 405 '{"message":"请求方法不支持"}';
+    }
+    location @not_acceptable { return 406 '{"message":"响应仅支持 application/json"}'; }
+    location @request_timeout { return 408 '{"message":"请求超时，请重试"}'; }
+    location @conflict { return 409 '{"message":"账号已导入或正在上线，请在控端查看并处理"}'; }
+    location @too_large { return 413 '{"message":"请求内容过大"}'; }
+    location @media_type { return 415 '{"message":"请求必须使用 application/json"}'; }
+    location @server_error { return 500 '{"message":"导入服务暂不可用，请稍后重试"}'; }
+    location @bad_gateway { return 502 '{"message":"导入服务暂不可用，请稍后重试"}'; }
+    location @unavailable { return 503 '{"message":"导入服务或配置暂不可用，请联系管理员"}'; }
+    location @gateway_timeout { return 504 '{"message":"请求超时，请在控端核对导入结果"}'; }
+}

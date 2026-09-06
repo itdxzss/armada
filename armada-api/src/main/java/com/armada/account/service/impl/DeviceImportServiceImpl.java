@@ -1,0 +1,79 @@
+package com.armada.account.service.impl;
+
+import com.armada.account.mapper.AccountImportDetailMapper;
+import com.armada.account.model.dto.DeviceImportDTO;
+import com.armada.account.model.dto.DeviceImportDefaults;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
+import com.armada.account.model.entity.ImportResult;
+import com.armada.account.model.entity.ParsedEntry;
+import com.armada.account.model.vo.AccountImportBatchVO;
+import com.armada.account.model.vo.DeviceImportVO;
+import com.armada.account.service.AccountImportParser;
+import com.armada.account.service.AccountImportService;
+import com.armada.account.service.DeviceImportService;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import java.util.Objects;
+import java.util.regex.Pattern;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+/** 原子复用批量导入服务；手机号冲突或任意落库失败时回滚整个手机请求。 */
+@Service
+public class DeviceImportServiceImpl implements DeviceImportService {
+
+    private static final Pattern PHONE = Pattern.compile("[0-9]{7,15}");
+    private static final Pattern LINE_BREAK = Pattern.compile("\\R");
+    private static final String QUEUED = "QUEUED";
+    private static final int SINGLE_ROW = 1;
+
+    private final AccountImportParser parser;
+    private final AccountImportService imports;
+    private final AccountImportDetailMapper details;
+
+    /** 注入现有解析、导入和明细查询，不另建凭据写入或调度通道。 */
+    public DeviceImportServiceImpl(AccountImportParser parser, AccountImportService imports,
+                                   AccountImportDetailMapper details) {
+        this.parser = parser;
+        this.imports = imports;
+        this.details = details;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class, timeout = 10)
+    public DeviceImportVO importAccount(DeviceImportDTO request, DeviceImportDefaults defaults) {
+        if (defaults == null || !Objects.equals(TenantContext.get(), defaults.tenantId())) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        ParsedEntry entry = validate(request);
+        if (details.existsPendingByPhone(request.phone(), ImportResult.SUCCESS.getCode(),
+                AccountImportOnlinePhase.QUEUED, AccountImportOnlinePhase.DISPATCHED)) {
+            throw new BusinessException(ErrorCode.CONFLICT);
+        }
+        AccountImportBatchVO batch = imports.importDeviceAccount(defaults.metadata(), entry);
+        // RowWriter 冲突会标记参与事务 rollback-only，必须抛业务异常退出，不能正常返回再提交。
+        if (batch.duplicateRows() > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT);
+        }
+        if (batch.totalRows() != SINGLE_ROW || batch.importedRows() != SINGLE_ROW
+                || batch.formatErrorRows() != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION);
+        }
+        return new DeviceImportVO(batch.id(), QUEUED);
+    }
+
+    private ParsedEntry validate(DeviceImportDTO request) {
+        if (request == null || request.phone() == null || !PHONE.matcher(request.phone()).matches()
+                || request.payload() == null || request.payload().isBlank()
+                || LINE_BREAK.matcher(request.payload()).find()) {
+            throw new BusinessException(ErrorCode.VALIDATION);
+        }
+        ParsedEntry entry = parser.parseDeviceParams(request.payload());
+        if (entry.getParseError() != null || !request.phone().equals(entry.getWid())) {
+            throw new BusinessException(ErrorCode.VALIDATION);
+        }
+        return entry;
+    }
+}

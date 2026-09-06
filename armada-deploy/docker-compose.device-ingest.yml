@@ -1,0 +1,39 @@
+# 叠加到已确认发布基线的 Compose，不单独启动旧工作树整包。
+# !override 要求 Docker Compose >= 2.24.4，防止端口数组合并后遗留公网管理端口。
+services:
+  backend:
+    environment:
+      ARMADA_DEVICE_INGEST_CLIENTS_JSON: ${ARMADA_DEVICE_INGEST_CLIENTS_JSON:?device ingest mapping is required}
+      MYBATIS_PLUS_CONFIGURATION_LOG_IMPL: org.apache.ibatis.logging.nologging.NoLoggingImpl
+      SPRING_MVC_LOG_REQUEST_DETAILS: "false"
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_WEB: INFO
+      LOGGING_LEVEL_COM_ARMADA_ACCOUNT_MAPPER: INFO
+
+  nginx:
+    ports: !override
+      - "${ARMADA_ADMIN_BIND_IP:?private or loopback admin bind IP is required}:${ARMADA_HTTP_PORT:-18080}:80"
+
+  device-ingest-nginx:
+    image: nginx:1.28-alpine
+    depends_on:
+      - backend
+    environment:
+      INGEST_HOSTNAME: ${INGEST_HOSTNAME:?public TLS hostname is required}
+      NGINX_ENVSUBST_FILTER: "^INGEST_HOSTNAME$$"
+    ports:
+      - "443:443"
+    volumes:
+      - ./device-ingest/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${INGEST_TLS_DIR:?external TLS certificate directory is required}/fullchain.pem:/etc/nginx/tls/fullchain.pem:ro
+      - ${INGEST_TLS_DIR:?external TLS certificate directory is required}/privkey.pem:/etc/nginx/tls/privkey.pem:ro
+    read_only: true
+    tmpfs:
+      - /etc/nginx/conf.d
+      - /var/cache/nginx
+      - /var/run
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "2"

@@ -26,14 +26,28 @@ public class FullParamsToSixConverter {
      * @return 成功时包含手机号和六段凭据；失败时只包含不泄露字段值的错误原因
      */
     public Result convert(JsonNode source) {
+        return convertWithPhoneField(source, "phone");
+    }
+
+    /**
+     * 转换手机直传全参，沿用指定工作树的纯数字 jid 契约。
+     * @param source 手机上传的完整凭据对象
+     * @return 六段凭据或不包含字段值的错误原因
+     */
+    public Result convertDevice(JsonNode source) {
+        return convertWithPhoneField(source, "jid");
+    }
+
+    private Result convertWithPhoneField(JsonNode source, String phoneField) {
         if (source == null || !source.isObject()) {
             return Result.failure("全参必须为 JSON 对象");
         }
         Map<String, String> values = new LinkedHashMap<>();
         for (String sourceField : FIELD_MAPPING.keySet()) {
-            JsonNode value = source.get(sourceField);
+            String inputField = "phone".equals(sourceField) ? phoneField : sourceField;
+            JsonNode value = source.get(inputField);
             if (value == null || !value.isTextual() || value.asText().trim().isEmpty()) {
-                return Result.failure("凭据不全:缺 " + sourceField);
+                return Result.failure("凭据不全:缺 " + inputField);
             }
             values.put(sourceField, value.asText().trim());
         }

@@ -43,6 +43,19 @@ public class ParsedEntry {
      */
     private JsonNode data;
 
+    /** 手机直传解析确定的运行时格式；管理端导入继续根据格式和机型选择。 */
+    private Integer runtimeCredentialFormat;
+
+    /** 获取解析阶段确定的运行时凭据格式。 */
+    public Integer getRuntimeCredentialFormat() {
+        return runtimeCredentialFormat;
+    }
+
+    /** 设置服务端解析确定的格式，不能由手机请求字段赋值。 */
+    public void setRuntimeCredentialFormat(Integer runtimeCredentialFormat) {
+        this.runtimeCredentialFormat = runtimeCredentialFormat;
+    }
+
     /**
      * 解析/完整性校验错误原因。{@code null} 表示本条无错误。
      *

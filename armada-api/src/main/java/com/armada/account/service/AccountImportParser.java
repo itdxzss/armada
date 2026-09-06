@@ -4,10 +4,13 @@ import com.armada.account.converter.FullParamsToSixConverter;
 import com.armada.account.model.entity.ImportFormat;
 import com.armada.account.model.entity.ParsedEntry;
 import com.armada.account.model.enums.AccountDeviceOsCode;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
 import com.armada.account.model.enums.AccountTypeCode;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayInputStream;
@@ -46,6 +49,11 @@ public class AccountImportParser {
      * 照 MarketingTemplateConverter 的 BUTTONS_JSON 写法。
      */
     private final ObjectMapper mapper = new ObjectMapper();
+
+    /** 全参拒绝重复字段和尾随对象，异常不能输出请求内容。 */
+    private final ObjectReader paramsReader = mapper.reader()
+            .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
+            .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     /** 全参到 Android 六段的纯转换器。 */
     private final FullParamsToSixConverter fullParamsConverter = new FullParamsToSixConverter();
@@ -134,6 +142,33 @@ public class AccountImportParser {
             return parseParams(fileBytes, text);
         }
         throw new BusinessException(ErrorCode.VALIDATION, "未知导入格式: " + format);
+    }
+
+    /**
+     * 解析手机直传的单行全参，保存原文并生成六段运行时凭据。
+     * @param text 已由设备入口校验为单行的完整 JSON
+     * @return 一条解析结果，机型仅用于展示，不改变该入口的六段契约
+     */
+    public ParsedEntry parseDeviceParams(String text) {
+        String source = "params-input[1]";
+        ParsedEntry entry = new ParsedEntry();
+        entry.setRaw(source);
+        entry.setRawPayload(text);
+        entry.setSourceEntryName(source);
+        entry.setRuntimeCredentialFormat(AccountCredentialFormatCode.SIX_SEGMENT);
+        try {
+            FullParamsToSixConverter.Result result = fullParamsConverter.convertDevice(paramsReader.readTree(text));
+            if (!result.isSuccess()) {
+                entry.setParseError(result.error());
+            } else {
+                entry.setWid(result.phone());
+                entry.setData(result.credential());
+            }
+        } catch (IOException exception) {
+            log.warn("[AccountImportParser] code=PARAMS_JSON_INVALID");
+            entry.setParseError("JSON 解析失败");
+        }
+        return entry;
     }
 
     // ---- SIX 格式 ----
@@ -338,7 +373,7 @@ public class AccountImportParser {
 
     private ParsedEntry parseParamsLine(String line, String source, int lineNo) {
         try {
-            JsonNode node = mapper.readTree(line);
+            JsonNode node = paramsReader.readTree(line);
             if (!node.isObject()) {
                 return makeErrorEntry(source, "全参必须为 JSON 对象", line);
             }
@@ -388,7 +423,7 @@ public class AccountImportParser {
             }
             String source = "params-input[" + (i + 1) + "]";
             try {
-                JsonNode node = mapper.readTree(line);
+                JsonNode node = paramsReader.readTree(line);
                 if (!node.isObject()) {
                     result.add(makeErrorEntry(source, "iOS 原生全参必须为 JSON 对象", line));
                     continue;

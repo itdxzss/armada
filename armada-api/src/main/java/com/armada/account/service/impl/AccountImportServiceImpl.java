@@ -7,6 +7,7 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
 import com.armada.account.model.enums.SourceFileType;
+import com.armada.account.model.enums.AccountCredentialFormatCode;
 import com.armada.account.model.entity.AccountImportBatch;
 import com.armada.account.model.entity.AccountImportDetail;
 import com.armada.account.model.entity.AccountImportLoginResult;
@@ -144,26 +145,45 @@ public class AccountImportServiceImpl implements AccountImportService {
      */
     @Override
     public AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text) {
+        ImportFormat format = requireMetadata(meta);
+        List<ParsedEntry> entries = parser.parse(
+                format, meta.deviceOs(), meta.accountType(), fileBytes, text);
+        return importEntries(meta, entries, resolveSourceFileType(fileBytes, text));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public AccountImportBatchVO importDeviceAccount(AccountImportDTO meta, ParsedEntry entry) {
+        if (requireMetadata(meta) != ImportFormat.PARAMS || entry == null || entry.getParseError() != null
+                || !Integer.valueOf(AccountCredentialFormatCode.SIX_SEGMENT).equals(entry.getRuntimeCredentialFormat())) {
+            throw new BusinessException(ErrorCode.VALIDATION);
+        }
+        return importEntries(meta, List.of(entry), SourceFileType.TXT);
+    }
+
+    private ImportFormat requireMetadata(AccountImportDTO meta) {
         // 必填字段前置校验:importFormat/accountType 为 null 时拆箱会 NPE
-        if (meta.importFormat() == null || meta.accountType() == null) {
+        if (meta == null || meta.importFormat() == null || meta.accountType() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "导入格式/账号类型不能为空");
         }
-        ImportFormat format = ImportFormat.fromCode(meta.importFormat());
+        return ImportFormat.fromCode(meta.importFormat());
+    }
+
+    /** 管理端与设备入口共用此落库流程，设备入口外层事务覆盖全部五张表。 */
+    private AccountImportBatchVO importEntries(AccountImportDTO meta, List<ParsedEntry> entries,
+                                               String sourceFileType) {
 
         // 目标分组:明确传入则校验存在,否则懒建系统默认分组
         Long resolvedGroupId = meta.accountGroupId() != null
                 ? groupService.requireExisting(meta.accountGroupId()).getId()
                 : groupService.ensureSystemGroup().getId();
 
-        List<ParsedEntry> entries = parser.parse(
-                format, meta.deviceOs(), meta.accountType(), fileBytes, text);
         // 空 entries 或 parser 检测到「输入内容为空」(fileBytes/text 均空时 parser 产出该错误条目)
         if (entries.isEmpty() || isNoContentResult(entries)) {
             throw new BusinessException(ErrorCode.VALIDATION, "无可导入内容");
         }
 
         long now = System.currentTimeMillis();   // 本批统一时间戳(批次/明细/账号行共用,epoch 毫秒)
-        String sourceFileType = resolveSourceFileType(fileBytes, text);
 
         // 审计锚点先行:批次行在任何账号入库前已存在;total 已知,三计数先写 0 循环后回填。
         // login_* step1 不写=NULL,留 step3 回填。insert 后自增 id 回填到 batch.id。
@@ -197,8 +217,7 @@ public class AccountImportServiceImpl implements AccountImportService {
                     result = ImportResult.DUPLICATE;
                     failReason = "库内已存在相同账号";
                     duplicateCount++;
-                    log.info("[AccountImportService] 库内重复 maskPhone={}*** lineNo={}",
-                            maskPhone(entry.getWid()), lineNo);
+                    log.info("[AccountImportService] code=ACCOUNT_DUPLICATE batchId={}", batch.getId());
                 }
             } else if (result == ImportResult.DUPLICATE) {
                 // 批内重复(同号在本批前面已出现过):不建号,只计数
@@ -221,8 +240,7 @@ public class AccountImportServiceImpl implements AccountImportService {
         // 批量插明细
         detailMapper.batchInsert(details);
 
-        log.info("[AccountImportService] 导入完成 batchId={} total={} imported={} duplicate={} formatError={}",
-                batch.getId(), entries.size(), importedCount, duplicateCount, formatErrorCount);
+        log.info("[AccountImportService] code=IMPORT_FINISHED batchId={}", batch.getId());
 
         // 回查批次行组装 VO(三计数已由 updateCounts 更新)
         AccountImportBatch saved = batchMapper.selectById(batch.getId());
@@ -352,14 +370,6 @@ public class AccountImportServiceImpl implements AccountImportService {
                 b.getStatus(),
                 b.getCreatedAt()
         );
-    }
-
-    /** 日志脱敏:保留前缀,后 4 位用 *** 替换。 */
-    private String maskPhone(String wid) {
-        if (wid == null || wid.length() <= 4) {
-            return "****";
-        }
-        return wid.substring(0, wid.length() - 4) + "***";
     }
 
     /** 单行分类结果内部载体(不抽公共类,无其他调用点)。 */

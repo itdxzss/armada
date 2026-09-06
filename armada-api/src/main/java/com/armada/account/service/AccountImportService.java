@@ -3,6 +3,7 @@ package com.armada.account.service;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.dto.AccountImportQuery;
+import com.armada.account.model.entity.ParsedEntry;
 import com.armada.account.model.vo.AccountImportBatchListVO;
 import com.armada.account.model.vo.AccountImportBatchVO;
 import com.armada.account.model.vo.AccountImportDetailVO;
@@ -31,6 +32,14 @@ public interface AccountImportService {
      * @throws BusinessException 导入内容为空(无可导入条目)或格式枚举非法时抛出
      */
     AccountImportBatchVO importAccounts(AccountImportDTO meta, byte[] fileBytes, String text);
+
+    /**
+     * 将设备入口已校验、已转换的单行全参交给同一批次落库流程。
+     * @param meta 令牌提供的服务端默认值，来源格式必须为 PARAMS
+     * @param entry 服务端解析出的六段凭据及原始全参
+     * @return 原有批次结果，由设备 Service 判断成功或冲突并负责整体事务
+     */
+    AccountImportBatchVO importDeviceAccount(AccountImportDTO meta, ParsedEntry entry);
 
     /**
      * 分页查询导入批次列表(LEFT JOIN account_group 取组名)。

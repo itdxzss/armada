@@ -1,6 +1,7 @@
 package com.armada.boot.security;
 
 import com.armada.admin.service.CurrentIdentityService;
+import com.armada.account.controller.DeviceImportController;
 import com.armada.platform.auth.exception.AuthInfrastructureException;
 import com.armada.platform.auth.model.AuthSession;
 import com.armada.platform.auth.service.SessionService;
@@ -46,7 +47,8 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return request.getRequestURI().startsWith("/api/public/");
+        return request.getRequestURI().startsWith("/api/public/")
+                || DeviceImportController.PATH.equals(request.getRequestURI());
     }
 
     @Override

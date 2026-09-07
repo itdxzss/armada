@@ -31,6 +31,7 @@ public final class DeviceImportTestData {
             node.put(field, "test-only-invalid-" + UUID.randomUUID());
         }
         node.put("jid", phone);
+        node.put("phone", phone);
         return node.toString();
     }
 

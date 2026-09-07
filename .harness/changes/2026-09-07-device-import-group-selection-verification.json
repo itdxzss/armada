@@ -1,12 +1,12 @@
 {
   "baseCommit": "0d46f9390f0fb39bb9924f951870a0dc608387f9",
   "java": {
-    "tests": 138,
+    "tests": 140,
     "exitCode": 0,
     "suites": [
       {
         "name": "com.armada.account.converter.FullParamsToSixConverterTest",
-        "tests": "8",
+        "tests": "9",
         "failures": "0",
         "errors": "0",
         "skipped": "0"
@@ -62,7 +62,7 @@
       },
       {
         "name": "com.armada.account.service.DeviceImportTransactionTest",
-        "tests": "13",
+        "tests": "14",
         "failures": "0",
         "errors": "0",
         "skipped": "0"
@@ -108,8 +108,8 @@
     "endpoints": 292
   },
   "jar": {
-    "sha256": "35af37e1d6f7f6fafb1a3d7804a6fa581453f1e17f740233362643fc2b650fc9",
-    "bytes": 90633587
+    "sha256": "1000316877a6be0e4661d3d923412ed16de1edfc53e8e877f8c23d4317e9122c",
+    "bytes": 90633768
   },
   "review": "no blocking findings; live protocol and phone UI acceptance pending",
   "test1": {
@@ -126,5 +126,15 @@
       "new artifact deployment",
       "public API and real-device acceptance"
     ]
+  },
+  "mobileContract": {
+    "phoneRequired": true,
+    "jidForms": [
+      "phone",
+      "phone@s.whatsapp.net"
+    ],
+    "rawPayloadPreserved": true,
+    "testedWithEmptyLid": true,
+    "realDeviceAcceptance": "NOT_RUN"
   }
 }

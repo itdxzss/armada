@@ -14,6 +14,23 @@ class FullParamsToSixConverterTest {
     private final FullParamsToSixConverter converter = new FullParamsToSixConverter();
 
     @Test
+    void deviceRequiresPhoneAndMatchingTelephoneJidWithoutMutatingInput() {
+        ObjectNode source = validSource();
+        source.put("phone", "5210000000001");
+        source.put("jid", "5210000000001@s.whatsapp.net");
+        assertThat(converter.convertDevice(source).isSuccess()).isTrue();
+        assertThat(source.path("jid").asText()).isEqualTo("5210000000001@s.whatsapp.net");
+        for (String invalid : new String[]{"5210000000099@s.whatsapp.net", "5210000000001@lid",
+                "5210000000001:0@s.whatsapp.net", " 5210000000001", "5210000000001@other.invalid"}) {
+            source.put("jid", invalid);
+            assertThat(converter.convertDevice(source).isSuccess()).isFalse();
+        }
+        source.put("jid", "5210000000001");
+        source.remove("phone");
+        assertThat(converter.convertDevice(source).isSuccess()).isFalse();
+    }
+
+    @Test
     void convert_mapsAndroidSixFieldsFromFullParams() {
         ObjectNode source = validSource();
         source.put("registrationID", 77);

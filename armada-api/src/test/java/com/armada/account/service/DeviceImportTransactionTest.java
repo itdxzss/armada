@@ -132,6 +132,23 @@ class DeviceImportTransactionTest {
     }
 
     @Test
+    void mobileIosTelephoneJidIsAcceptedWithoutChangingOriginalPayload() throws Exception {
+        var json = new ObjectMapper();
+        var source = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(DeviceImportTestData.payload(PHONE));
+        source.put("phone", PHONE);
+        source.put("jid", PHONE + "@s.whatsapp.net");
+        source.put("platform", "smb_ios");
+        source.put("lid", "");
+        String payload = source.toString();
+        service.importAccount(new DeviceImportDTO(11L, PHONE, payload), defaults);
+        assertRowCounts(1);
+        assertThat(sameContent(jdbc.queryForObject("SELECT raw_payload FROM account_import_detail", String.class), payload)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT cred_format FROM account_credential", Integer.class)).isEqualTo(1);
+        assertThat(json.readTree(jdbc.queryForObject("SELECT creds_json FROM account_credential", String.class))
+                .path("phone").asText()).isEqualTo(PHONE);
+    }
+
+    @Test
     void commitsOriginalPayloadAndSixCredentialIntoExistingQueue() throws Exception {
         String payload = DeviceImportTestData.payload(PHONE);
         var accepted = service.importAccount(new DeviceImportDTO(11L, PHONE, payload), defaults);

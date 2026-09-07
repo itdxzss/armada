@@ -26,28 +26,14 @@ public class FullParamsToSixConverter {
      * @return 成功时包含手机号和六段凭据；失败时只包含不泄露字段值的错误原因
      */
     public Result convert(JsonNode source) {
-        return convertWithPhoneField(source, "phone");
-    }
-
-    /**
-     * 转换手机直传全参，沿用指定工作树的纯数字 jid 契约。
-     * @param source 手机上传的完整凭据对象
-     * @return 六段凭据或不包含字段值的错误原因
-     */
-    public Result convertDevice(JsonNode source) {
-        return convertWithPhoneField(source, "jid");
-    }
-
-    private Result convertWithPhoneField(JsonNode source, String phoneField) {
         if (source == null || !source.isObject()) {
             return Result.failure("全参必须为 JSON 对象");
         }
         Map<String, String> values = new LinkedHashMap<>();
         for (String sourceField : FIELD_MAPPING.keySet()) {
-            String inputField = "phone".equals(sourceField) ? phoneField : sourceField;
-            JsonNode value = source.get(inputField);
+            JsonNode value = source.get(sourceField);
             if (value == null || !value.isTextual() || value.asText().trim().isEmpty()) {
-                return Result.failure("凭据不全:缺 " + inputField);
+                return Result.failure("凭据不全:缺 " + sourceField);
             }
             values.put(sourceField, value.asText().trim());
         }
@@ -66,6 +52,28 @@ public class FullParamsToSixConverter {
             credential.put(mapping.getValue(), values.get(mapping.getKey()));
         }
         return Result.success(phone, credential);
+    }
+
+    /**
+     * 转换手机直传全参；V8 的电话 jid 带域后缀，号码必须与 phone 一致。
+     * @param source 手机上传的完整凭据对象
+     * @return 六段凭据或不包含字段值的错误原因
+     */
+    public Result convertDevice(JsonNode source) {
+        if (source == null || !source.isObject() || !source.path("phone").isTextual()
+                || !source.path("jid").isTextual()) {
+            return Result.failure("全参必须包含 phone 和 jid 字符串");
+        }
+        String phone = source.path("phone").textValue();
+        String jid = source.path("jid").textValue();
+        if (!PHONE_PATTERN.matcher(phone).matches()
+                || !(jid.equals(phone) || jid.equals(phone + "@s.whatsapp.net"))) {
+            return Result.failure("phone 与电话 jid 不一致");
+        }
+        // 仅用于既有转换器的内存副本；导入明细继续保存未经修改的手机原文。
+        ObjectNode normalized = source.deepCopy();
+        normalized.put("jid", phone);
+        return convert(normalized);
     }
 
     private static Map<String, String> fieldMapping() {

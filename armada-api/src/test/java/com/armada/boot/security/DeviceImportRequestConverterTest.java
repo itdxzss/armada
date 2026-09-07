@@ -39,7 +39,7 @@ class DeviceImportRequestConverterTest {
         String sentinel = DeviceImportTestData.payload("999000000001");
         MockHttpInputMessage input = new MockHttpInputMessage(DeviceImportTestData.body(11L, "999000000001", sentinel)
                 .getBytes(StandardCharsets.UTF_8));
-        DeviceImportDTO result = new DeviceImportRequestConverter().read(DeviceImportDTO.class, input);
+        DeviceImportDTO result = (DeviceImportDTO) new DeviceImportRequestConverter().read(DeviceImportDTO.class, input);
         assertThat(result.accountGroupId()).isEqualTo(11L);
         assertThat(result.payload().equals(sentinel)).isTrue();
         assertThat(result.toString().contains(sentinel)).isFalse();

@@ -116,6 +116,18 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void waitingPhoneLogoutBlocksSingleAndBatchBeforeAnySideEffects() {
+        Account account = onlineAccount();
+        when(accountMapper.selectActiveById(100L)).thenReturn(account);
+        when(accountMapper.existsWaitingLogoutByAccounts(List.of(100L), 4)).thenReturn(true);
+        assertThatThrownBy(() -> service.online(100L)).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("手机尚未确认退出");
+        assertThatThrownBy(() -> service.onlineBatch(List.of(100L))).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("手机尚未确认退出");
+        verifyNoInteractions(credentialMapper, stateMapper, ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
     void online_pendingAccountReturnsIdempotentResultWithoutAllocatingProxyOrWritingOutbox() {
         Account account = onlineAccount();
         when(accountMapper.selectActiveById(100L)).thenReturn(account);

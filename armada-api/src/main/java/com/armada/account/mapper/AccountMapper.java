@@ -26,6 +26,10 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface AccountMapper {
 
+    /** 查询候选账号是否仍有等待退出的手机导入，供单个/批量上线共同阻断。 */
+    boolean existsWaitingLogoutByAccounts(@Param("accountIds") List<Long> accountIds,
+                                          @Param("waitingPhase") int waitingPhase);
+
     /**
      * 按超链任务冻结筛选查询当前租户候选账号。
      *

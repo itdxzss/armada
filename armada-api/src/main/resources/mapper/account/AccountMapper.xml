@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountMapper">
+  <select id="existsWaitingLogoutByAccounts" resultType="boolean">
+    SELECT EXISTS (
+      SELECT 1 FROM account_import_detail
+      WHERE online_phase = #{waitingPhase} AND account_id IN
+      <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    )
+  </select>
+
 
   <!--
     超链发信账号候选：账号域拥有 account/account_state/account_credential/import_detail 查询。

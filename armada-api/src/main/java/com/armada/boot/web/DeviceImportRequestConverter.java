@@ -1,6 +1,7 @@
 package com.armada.boot.web;
 
 import com.armada.account.model.dto.DeviceImportDTO;
+import com.armada.account.model.dto.DeviceLogoutDTO;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,7 +16,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /** 仅对设备 DTO 有效的严格 JSON 读取器；读取流时限额，不缓存到文件，不附带解析原文异常。 */
-public final class DeviceImportRequestConverter extends AbstractHttpMessageConverter<DeviceImportDTO> {
+public final class DeviceImportRequestConverter extends AbstractHttpMessageConverter<Object> {
 
     /** 冻结请求上限，与专用 nginx 配置一致。 */
     public static final int MAX_BODY_BYTES = 128 * 1024;
@@ -30,17 +31,25 @@ public final class DeviceImportRequestConverter extends AbstractHttpMessageConve
 
     @Override
     protected boolean supports(Class<?> type) {
-        return type == DeviceImportDTO.class;
+        return type == DeviceImportDTO.class || type == DeviceLogoutDTO.class;
     }
 
     @Override
-    protected DeviceImportDTO readInternal(Class<? extends DeviceImportDTO> type, HttpInputMessage input) {
+    protected Object readInternal(Class<?> type, HttpInputMessage input) {
         try {
             byte[] body = input.getBody().readNBytes(MAX_BODY_BYTES + 1);
             if (body.length > MAX_BODY_BYTES) {
                 throw new MaxUploadSizeExceededException(MAX_BODY_BYTES);
             }
             JsonNode root = reader.readTree(body);
+            if (type == DeviceLogoutDTO.class) {
+                if (root == null || !root.isObject() || root.size() != 1
+                        || !root.path("batchId").isIntegralNumber() || !root.path("batchId").canConvertToLong()
+                        || root.path("batchId").longValue() <= 0) {
+                    throw new HttpMessageNotReadableException("退出确认必须只包含正整数 batchId", input);
+                }
+                return new DeviceLogoutDTO(root.path("batchId").longValue());
+            }
             if (root == null || !root.isObject() || root.size() != 3
                     || !root.path("accountGroupId").isIntegralNumber()
                     || !root.path("accountGroupId").canConvertToLong() || root.path("accountGroupId").longValue() <= 0
@@ -61,7 +70,7 @@ public final class DeviceImportRequestConverter extends AbstractHttpMessageConve
     }
 
     @Override
-    protected void writeInternal(DeviceImportDTO request, HttpOutputMessage output) {
+    protected void writeInternal(Object request, HttpOutputMessage output) {
         throw new UnsupportedOperationException("设备凭据不能作为响应输出");
     }
 }

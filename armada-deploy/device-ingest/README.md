@@ -1,6 +1,6 @@
 # 手机凭据导入：部署、验收与回滚
 
-本目录提供独立 TLS 网关，公网业务路径仅为 `GET /api/device-imports/groups` 和 `POST /api/device-imports`。分组查询返回仅含 id/name 的数组，上传请求为 `{accountGroupId,phone,payload}`。入口使用静态 `X-Ingest-Token`，成功返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}`，失败返回真实 4xx/5xx 和 `{ "message": "可读原因" }`。两个精确路径各自 OPTIONS 返回 204，无 CORS。
+本目录提供独立 TLS 网关，公网业务精确路径为 `GET /api/device-imports/groups`、`POST /api/device-imports`、`POST /api/device-imports/logout-confirmed`，均使用 `X-Ingest-Token`。上传 `{accountGroupId,phone,payload}` 返回 `200 {"batchId":123,"onlinePhase":"WAITING_LOGOUT"}`；手机核验官方退出后提交 `{batchId}`，返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}` 才放行既有调度。错误为真实 4xx/5xx JSON message；三个路径各自支持 OPTIONS，无 CORS。
 
 **当前状态：test1 新后端与正式 443 网关已启用，可信证书和自动续期正常；租户 A 的公网分组查询返回 200、47 项，鉴权和路径限制已验证。手机新版已安装，真实账号上传及控端上线仍待手机登录后验收。** 当前契约见 [手机联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)，证书进度见 [证书验收记录](../../.harness/changes/2026-09-07-device-ingest-certificate.md)。
 
@@ -81,11 +81,11 @@ Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理�
 
 使用指定测试租户和明确授权的测试手机账号，手机按冻结接口发送完整单行全参；禁止把 body/token 写到终端参数、日志、截图、测试断言或 Git。
 
-1. 手机先查询、选择分组，再上传 accountGroupId/phone/payload；收到 200 且只包含 `batchId`、`onlinePhase=QUEUED`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
+1. 手机先查询、选择分组，再上传 accountGroupId/phone/payload；收到 200 且只包含 `batchId`、`onlinePhase=WAITING_LOGOUT`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
 2. 控端内网按 batchId 验证：来源 PARAMS=3、运行凭据 SIX=1、协议 ANDROID、账号和批次分组均为手机所选分组、令牌机型/账号类型/IP 策略正确，原文保留。检查仅输出字段存在性、长度或哈希，不输出密钥。
-3. 观察既有 10 秒调度从 QUEUED 派发，确认 outbox/协议受理和当前轮次 ONLINE 回调；没有代理资源、Kafka/协议故障时可能保持队列，不能将 HTTP 200 当作在线验收。
+3. 手机明确核验官方退出并提交 logout-confirmed 后，观察既有 10 秒调度从 QUEUED 派发，确认 outbox/协议受理和当前轮次 ONLINE 回调；没有代理资源、Kafka/协议故障时可能保持队列，不能将 HTTP 200 当作在线验收。
 4. 手机成功提示后执行官方登出，确认当前账号交给控端。现有契约没有手机退出回执，因此调度可能先于用户确认登出；不得声称零抢登交接。
-5. 同号再次提交返回 409，不覆盖已有凭据、不增加批次、不再次派发。在线、离线或失败但未删除的账号均属于已存在账号；删除账号后旧明细仍 QUEUED/DISPATCHED 也会拒绝。
+5. 同号再次提交返回 409，不覆盖已有凭据、不增加批次、不再次派发。在线、离线或失败但未删除的账号均属于已存在账号；删除账号后旧明细仍 WAITING_LOGOUT/QUEUED/DISPATCHED 也会拒绝。
 6. 网络超时可能发生在提交之后；重传 409 时必须从控端核对结果。手机按现有契约不会因为 409 登出，不新增自动重试或幂等成功恢复语义。
 7. 核查应用/网关日志没有请求内容或令牌；分别保存 HTTP、数据库、调度、协议状态、手机登出五层脱敏证据。
 
@@ -108,7 +108,7 @@ H2 不等于 MySQL InnoDB；指定测试 MySQL、远程部署、公网封闭和�
 
 先关闭专用网关或撤销其 443 放行，阻止新上传；保留私网管理员访问。再回滚到部署前**当前发布基线**的镜像和配置，不使用本分支的七月基点替代线上版本。
 
-设备导入功能本身无新增 schema；test1 本次当前发布基线另含 V179，已由 Flyway 正常执行。回滚应用镜像不回退数据库迁移，不删除任何导入数据或凭据。已经受理的 QUEUED 仍可能继续由既有调度处理；关闭公网入口不等于取消队列，取消任务需要通过现有管理能力另行明确处理。移除运行环境变量不会即时撤销进程内令牌；轮换后必须重启。
+交接门复用原 online_phase，V179_1 仅扩充该列阶段注释，不改写业务数据。回滚应用镜像不回退数据库迁移，不删除任何导入数据或凭据。已经受理的 QUEUED 仍可能继续由既有调度处理；关闭公网入口不等于取消队列，取消任务需要通过现有管理能力另行明确处理。移除运行环境变量不会即时撤销进程内令牌；轮换后必须重启。
 
 ## 7. test1 证书与续期
 

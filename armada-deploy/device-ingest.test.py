@@ -54,6 +54,7 @@ server {
     }
     location = /read-test-body { internal; return 204; }
     location = /api/device-imports/groups { proxy_pass http://127.0.0.1:8081; }
+    location = /api/device-imports/logout-confirmed { proxy_pass http://127.0.0.1:8081; }
     location / { return 500; }
 }
 server {
@@ -61,6 +62,13 @@ server {
     access_log off;
     error_log /dev/null crit;
     default_type application/json;
+    location = /api/device-imports/logout-confirmed {
+        if ($http_authorization != "") { return 500; }
+        if ($http_cookie != "") { return 500; }
+        if ($http_x_tenant_code != "") { return 500; }
+        if ($http_x_ingest_token != "MARKER") { return 401; }
+        return 200 '{"batchId":123,"onlinePhase":"QUEUED"}';
+    }
     location = /api/device-imports/groups {
         if ($http_authorization != "") { return 500; }
         if ($http_cookie != "") { return 500; }
@@ -76,7 +84,7 @@ server {
         if ($http_x_ingest_token = "GATEWAY_ERROR") { return 502; }
         if ($http_x_ingest_token != "MARKER") { return 401 '{"message":"token rejected"}'; }
         if ($http_x_test_body != 'EXPECTED_UPLOAD') { return 422 '{"message":"upload body was changed"}'; }
-        return 200 '{"batchId":123,"onlinePhase":"QUEUED"}';
+        return 200 '{"batchId":123,"onlinePhase":"WAITING_LOGOUT"}';
     }
     location / { return 500; }
 }
@@ -121,8 +129,25 @@ server {
         status, headers, body = self.request("POST", headers={"Authorization": self.marker,
                                                                "Cookie": self.marker, "X-Tenant-Code": self.marker})
         self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), {"batchId": 123, "onlinePhase": "WAITING_LOGOUT"})
+        self.assertIn("no-store", headers.get("Cache-Control", ""))
+
+    def test_logout_confirmation_is_an_exact_authenticated_post(self):
+        path = "/api/device-imports/logout-confirmed"
+        status, headers, body = self.request("POST", path, body=b'{"batchId":123}', headers={
+            "Authorization": self.marker, "Cookie": self.marker, "X-Tenant-Code": self.marker})
+        self.assertEqual(status, 200)
         self.assertEqual(json.loads(body), {"batchId": 123, "onlinePhase": "QUEUED"})
         self.assertIn("no-store", headers.get("Cache-Control", ""))
+        self.assertEqual(self.request("POST", path, headers={"X-Ingest-Token": ""})[0], 401)
+        self.assertEqual(self.request("POST", path + "?batchId=123")[0], 400)
+        for alias in [path + "/", "/api//device-imports/logout-confirmed", "/api/device-imports/%6cogout-confirmed"]:
+            self.assertEqual(self.request("POST", alias)[0], 404)
+        for method in ["GET", "PUT", "DELETE", "HEAD"]:
+            status, headers, _ = self.request(method, path)
+            self.assertEqual(status, 405)
+            self.assertEqual(headers.get("Allow"), "POST, OPTIONS")
+        self.assertEqual(self.request("OPTIONS", path)[0], 204)
 
     def test_group_list_is_authenticated_get_with_only_expected_fields(self):
         path = "/api/device-imports/groups"

@@ -8,9 +8,31 @@
       SELECT 1 FROM account_import_detail
       WHERE ws_phone = #{phone}
         AND parse_result = #{successResult}
-        AND online_phase IN (#{queuedPhase}, #{dispatchedPhase})
+        AND online_phase IN (#{queuedPhase}, #{dispatchedPhase}, #{waitingLogoutPhase})
     )
   </select>
+
+  <update id="holdDeviceImport">
+    UPDATE account_import_detail SET online_phase = #{waitingPhase}
+    WHERE batch_id = #{batchId} AND online_phase = #{queuedPhase}
+  </update>
+
+  <!-- 无 LIMIT；租户插件分别约束明细及批次。已删除账号/批次不允许继续交接。 -->
+  <select id="selectDeviceHandoffPhasesForUpdate" resultType="integer">
+    SELECT d.online_phase
+    FROM account_import_detail d
+    JOIN account_import_batch b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    JOIN account a ON a.id = d.account_id AND a.tenant_id = d.tenant_id
+    WHERE d.batch_id = #{batchId} AND d.parse_result = #{successResult}
+      AND b.source_file_name = #{source} AND b.total_rows = 1 AND b.imported_rows = 1
+      AND b.deleted_at IS NULL AND a.deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <update id="releaseDeviceImport">
+    UPDATE account_import_detail SET online_phase = #{queuedPhase}
+    WHERE batch_id = #{batchId} AND online_phase = #{waitingPhase}
+  </update>
 
   <!--
     批量插入明细行;tenant_id 由拦截器注入。

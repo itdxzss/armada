@@ -44,12 +44,13 @@ class DeviceImportServiceTest {
     }
 
     @Test
-    void validPayloadUsesExistingImportAndReturnsQueued() {
+    void validPayloadUsesExistingImportAndWaitsForLogout() {
         String payload = DeviceImportTestData.payload("999000000001");
         when(imports.importDeviceAccount(any(), any())).thenReturn(batch(1, 0));
+        when(details.holdDeviceImport(123L, 1, 4)).thenReturn(1);
         var result = service.importAccount(new DeviceImportDTO(11L, "999000000001", payload), defaults);
         assertThat(result.batchId()).isEqualTo(123);
-        assertThat(result.onlinePhase()).isEqualTo("QUEUED");
+        assertThat(result.onlinePhase()).isEqualTo("WAITING_LOGOUT");
         var metadata = org.mockito.ArgumentCaptor.forClass(AccountImportDTO.class);
         verify(imports).importDeviceAccount(metadata.capture(), any());
         assertThat(metadata.getValue().accountGroupId()).isEqualTo(11L);
@@ -103,7 +104,7 @@ class DeviceImportServiceTest {
 
     @Test
     void pendingDetailBlocksReimportBeforeBulkImport() {
-        when(details.existsPendingByPhone("999000000001", 1, 1, 2)).thenReturn(true);
+        when(details.existsPendingByPhone("999000000001", 1, 1, 2, 4)).thenReturn(true);
         assertThatThrownBy(() -> service.importAccount(
                 new DeviceImportDTO(11L, "999000000001", DeviceImportTestData.payload("999000000001")), defaults))
                 .isInstanceOfSatisfying(BusinessException.class,

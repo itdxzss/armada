@@ -5,6 +5,7 @@ import com.armada.account.mapper.AccountMapper;
 import com.armada.account.mapper.AccountStateMapper;
 import com.armada.account.model.command.AccountLifecycleCommandItem;
 import com.armada.account.model.entity.Account;
+import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.AccountCredential;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
@@ -161,6 +162,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     public AccountBatchOnlineVO takeoverBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         loadAccounts(ids);
+        requireDeviceLogoutConfirmed(ids);
         validateTakeoverStates(ids);
         long now = System.currentTimeMillis();
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, now);
@@ -215,6 +217,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
         Account account = loadAccount(accountId);
+        requireDeviceLogoutConfirmed(List.of(account.getId()));
         if (SOURCE_MANUAL_ONLINE.equals(source)) {
             updateDesiredLoginStateOrThrow(
                     List.of(account.getId()), AccountLoginStateCode.ONLINE, System.currentTimeMillis());
@@ -292,6 +295,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     public AccountBatchOnlineVO onlineBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
         log.info("账号批量上线开始 requested={}", ids.size());
+        requireDeviceLogoutConfirmed(ids);
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
 
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
@@ -312,6 +316,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         List<Long> ids = items.stream().map(AccountLifecycleCommandItem::accountId).toList();
         Map<Long, ProtocolBackend> protocolBackendByAccountId = protocolBackendByAccountId(items);
         log.info("账号批量上线开始 requested={} protocolBackendFromRequest=true", ids.size());
+        requireDeviceLogoutConfirmed(ids);
         updateDesiredLoginStateOrThrow(ids, AccountLoginStateCode.ONLINE, System.currentTimeMillis());
 
         AccountBatchOnlineVO vo = enqueueOnlineBatch(
@@ -411,9 +416,15 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return vo;
     }
 
-    /**
-     * 加载未软删账号;账号不存在、已软删或入参为空时直接中断上线编排。
-     */
+    /** 手机未退出时阻断任何提前上线，不读取凭据、不分配代理。 */
+    private void requireDeviceLogoutConfirmed(List<Long> accountIds) {
+        if (accountMapper.existsWaitingLogoutByAccounts(accountIds,
+                AccountImportOnlinePhase.WAITING_LOGOUT)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "手机尚未确认退出，请先在手机完成账号交接");
+        }
+    }
+
+    /** 加载未软删账号，非法输入直接中断编排。 */
     private Account loadAccount(Long accountId) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
@@ -718,6 +729,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         // 先批量加载账号和凭据,在分配代理前完成本地前置校验。
         // 手工上线会在代理分配前用条件 UPDATE 抢占 PENDING 状态，避免重复请求释放并重新分配代理。
         Map<Long, Account> accountsById = loadAccounts(ids);
+        requireDeviceLogoutConfirmed(ids);
         validateBatchOnlineStates(ids, source);
         Map<Long, AccountCredential> credentialsByAccountId = loadCredentials(ids);
         claimManualOnline(ids, source);

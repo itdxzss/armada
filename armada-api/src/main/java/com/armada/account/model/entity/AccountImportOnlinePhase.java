@@ -19,6 +19,9 @@ public final class AccountImportOnlinePhase {
     /** 本次导入登录结果已冻结。 */
     public static final int SETTLED = 3;
 
+    /** 手机已上传，尚未确认官方退出；调度和手工上线均不能提前接管。 */
+    public static final int WAITING_LOGOUT = 4;
+
     private AccountImportOnlinePhase() {
     }
 }

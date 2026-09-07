@@ -87,7 +87,7 @@ class DeviceImportControllerTest {
         mvc = MockMvcBuilders.webAppContextSetup(context)
                 .addFilters(context.getBean(TokenAuthenticationFilter.class), context.getBean(FilterChainProxy.class))
                 .build();
-        when(service.importAccount(any(), any())).thenReturn(new DeviceImportVO(123L, "QUEUED"));
+        when(service.importAccount(any(), any())).thenReturn(new DeviceImportVO(123L, "WAITING_LOGOUT"));
     }
 
     @Test
@@ -151,14 +151,14 @@ class DeviceImportControllerTest {
             assertThat(TenantContext.get()).isEqualTo(7L);
             DeviceImportDTO body = call.getArgument(0);
             assertThat(body.accountGroupId()).isEqualTo(11L);
-            return new DeviceImportVO(123L, "QUEUED");
+            return new DeviceImportVO(123L, "WAITING_LOGOUT");
         }).when(service).importAccount(any(), any());
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON)
                         .header("X-Ingest-Token", TOKEN).header("Authorization", "Bearer " + DeviceImportTestData.token())
                         .header("X-Tenant-Code", "other-tenant")
                         .content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.batchId").value(123))
-                .andExpect(jsonPath("$.onlinePhase").value("QUEUED"))
+                .andExpect(jsonPath("$.onlinePhase").value("WAITING_LOGOUT"))
                 .andExpect(jsonPath("$.code").doesNotExist()).andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(header().string("Cache-Control", "no-store"));
         verifyNoInteractions(sessions);
@@ -194,7 +194,7 @@ class DeviceImportControllerTest {
         var result = mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN).contentType(MediaType.APPLICATION_JSON)
                         .content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("所选分组不可用，请刷新分组列表后重试"))
+                .andExpect(jsonPath("$.message").value("分组或交接批次不可用，请在控端核对"))
                 .andReturn().getResponse();
         assertThat(result.getContentAsString().contains(sentinel)).isFalse();
     }

@@ -23,10 +23,25 @@ public interface AccountImportDetailMapper {
      * @param successResult 成功解析结果编码
      * @param queuedPhase 待派发阶段
      * @param dispatchedPhase 等待回写阶段
+     * @param waitingLogoutPhase 等待手机退出阶段
      * @return 是否存在；由租户拦截器注入当前 tenant_id
      */
     boolean existsPendingByPhone(@Param("phone") String phone, @Param("successResult") int successResult,
-                                 @Param("queuedPhase") int queuedPhase, @Param("dispatchedPhase") int dispatchedPhase);
+                                 @Param("queuedPhase") int queuedPhase, @Param("dispatchedPhase") int dispatchedPhase,
+                                 @Param("waitingLogoutPhase") int waitingLogoutPhase);
+
+    /** 在手机导入事务提交前挂起刚写入的单行，避免调度看见未退出的账号。 */
+    int holdDeviceImport(@Param("batchId") Long batchId, @Param("queuedPhase") int queuedPhase,
+                         @Param("waitingPhase") int waitingPhase);
+
+    /** 锁定当前租户手机批次的成功明细；只返回阶段，不读取原始凭据。 */
+    List<Integer> selectDeviceHandoffPhasesForUpdate(@Param("batchId") Long batchId,
+                                                    @Param("source") String source,
+                                                    @Param("successResult") int successResult);
+
+    /** 手机确认退出后推进原队列；条件更新使重复确认不增加派发次数。 */
+    int releaseDeviceImport(@Param("batchId") Long batchId, @Param("waitingPhase") int waitingPhase,
+                            @Param("queuedPhase") int queuedPhase);
 
     /**
      * 批量插入明细行(&lt;foreach&gt; 多值 INSERT)。

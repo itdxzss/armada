@@ -27,6 +27,8 @@ public class DeviceImportServiceImpl implements DeviceImportService {
     private static final Pattern PHONE = Pattern.compile("[0-9]{7,15}");
     private static final Pattern LINE_BREAK = Pattern.compile("\\R");
     private static final String QUEUED = "QUEUED";
+    private static final String WAITING_LOGOUT = "WAITING_LOGOUT";
+    private static final String DEVICE_SOURCE = "device-import";
     private static final int SINGLE_ROW = 1;
 
     private final AccountImportParser parser;
@@ -50,7 +52,8 @@ public class DeviceImportServiceImpl implements DeviceImportService {
         }
         ParsedEntry entry = validate(request);
         if (details.existsPendingByPhone(request.phone(), ImportResult.SUCCESS.getCode(),
-                AccountImportOnlinePhase.QUEUED, AccountImportOnlinePhase.DISPATCHED)) {
+                AccountImportOnlinePhase.QUEUED, AccountImportOnlinePhase.DISPATCHED,
+                AccountImportOnlinePhase.WAITING_LOGOUT)) {
             throw new BusinessException(ErrorCode.CONFLICT);
         }
         AccountImportDTO configured = defaults.metadata();
@@ -67,7 +70,37 @@ public class DeviceImportServiceImpl implements DeviceImportService {
                 || batch.formatErrorRows() != 0) {
             throw new BusinessException(ErrorCode.VALIDATION);
         }
-        return new DeviceImportVO(batch.id(), QUEUED);
+        // 外层事务提交前完成挂起；调度器不会读到短暂的 QUEUED。
+        if (details.holdDeviceImport(batch.id(), AccountImportOnlinePhase.QUEUED,
+                AccountImportOnlinePhase.WAITING_LOGOUT) != SINGLE_ROW) {
+            throw new BusinessException(ErrorCode.CONFLICT);
+        }
+        return new DeviceImportVO(batch.id(), WAITING_LOGOUT);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class, timeout = 10)
+    public DeviceImportVO confirmLogout(Long batchId) {
+        if (TenantContext.get() == null || batchId == null || batchId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION);
+        }
+        var phases = details.selectDeviceHandoffPhasesForUpdate(batchId, DEVICE_SOURCE,
+                ImportResult.SUCCESS.getCode());
+        if (phases.size() != SINGLE_ROW) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
+        int phase = phases.get(0);
+        if (phase == AccountImportOnlinePhase.WAITING_LOGOUT) {
+            if (details.releaseDeviceImport(batchId, AccountImportOnlinePhase.WAITING_LOGOUT,
+                    AccountImportOnlinePhase.QUEUED) != SINGLE_ROW) {
+                throw new BusinessException(ErrorCode.CONFLICT);
+            }
+        } else if (phase != AccountImportOnlinePhase.QUEUED && phase != AccountImportOnlinePhase.DISPATCHED
+                && phase != AccountImportOnlinePhase.SETTLED) {
+            throw new BusinessException(ErrorCode.CONFLICT);
+        }
+        return new DeviceImportVO(batchId, QUEUED);
     }
 
     private ParsedEntry validate(DeviceImportDTO request) {

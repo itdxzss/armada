@@ -76,6 +76,7 @@ class DeviceImportTransactionTest {
     @Autowired private AccountGroupService groups;
     @Autowired private AccountImportService imports;
     @Autowired private AccountImportDetailMapper details;
+    @Autowired private AccountMapper accountMapper;
     @Autowired private AccountImportOnlineDispatcher dispatcher;
     @Autowired private AccountOnlineCommandService online;
     @Autowired private JdbcTemplate jdbc;
@@ -149,10 +150,10 @@ class DeviceImportTransactionTest {
     }
 
     @Test
-    void commitsOriginalPayloadAndSixCredentialIntoExistingQueue() throws Exception {
+    void commitsOriginalPayloadAndSixCredentialWaitingForLogout() throws Exception {
         String payload = DeviceImportTestData.payload(PHONE);
         var accepted = service.importAccount(new DeviceImportDTO(11L, PHONE, payload), defaults);
-        assertThat(accepted.onlinePhase()).isEqualTo("QUEUED");
+        assertThat(accepted.onlinePhase()).isEqualTo("WAITING_LOGOUT");
         assertRowCounts(1);
         assertThat(jdbc.queryForObject("SELECT tenant_id FROM account", Long.class)).isEqualTo(7);
         assertThat(jdbc.queryForObject("SELECT protocol_id FROM account", String.class)).isEqualTo("ANDROID");
@@ -163,7 +164,7 @@ class DeviceImportTransactionTest {
         assertThat(jdbc.queryForObject("SELECT import_format FROM account_import_batch", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT ip_allocation_mode FROM account_import_batch", String.class)).isEqualTo("mixed");
         assertThat(jdbc.queryForObject("SELECT cred_format FROM account_credential", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
         String raw = jdbc.queryForObject("SELECT raw_payload FROM account_import_detail", String.class);
         assertThat(sameContent(raw, payload)).isTrue();
         var runtime = new ObjectMapper().readTree(jdbc.queryForObject("SELECT creds_json FROM account_credential", String.class));
@@ -206,6 +207,7 @@ class DeviceImportTransactionTest {
         assertThat(jdbc.queryForObject("SELECT cred_format FROM account_credential", Integer.class)).isEqualTo(4);
         assertThat(sameContent(jdbc.queryForObject("SELECT raw_payload FROM account_import_detail", String.class), payload)).isTrue();
         var runtime = json.readTree(jdbc.queryForObject("SELECT creds_json FROM account_credential", String.class));
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(1);
         assertThat(runtime.has("signPreKeyPrivateKey")).isTrue();
         assertThat(runtime.has("static_pri_key")).isFalse();
     }
@@ -229,7 +231,7 @@ class DeviceImportTransactionTest {
     void pendingDetailBlocksDeletedAccountButSettledDeletedAccountCanBeReimported() {
         service.importAccount(request(), defaults);
         jdbc.update("UPDATE account SET deleted_at = 100");
-        for (int phase : new int[]{1, 2}) {
+        for (int phase : new int[]{1, 2, 4}) {
             jdbc.update("UPDATE account_import_detail SET online_phase = ?", phase);
             assertThatThrownBy(() -> service.importAccount(request(), defaults)).isInstanceOf(BusinessException.class);
             assertRowCounts(1);
@@ -245,7 +247,7 @@ class DeviceImportTransactionTest {
         assertRowCounts(0);
         service.importAccount(request(), defaults);
         TenantContext.set(8L);
-        assertThat(details.existsPendingByPhone(PHONE, 1, 1, 2)).isFalse();
+        assertThat(details.existsPendingByPhone(PHONE, 1, 1, 2, 4)).isFalse();
         service.importAccount(new DeviceImportDTO(12L, PHONE, DeviceImportTestData.payload(PHONE)), defaults(8));
         assertThat(jdbc.queryForObject("SELECT COUNT(DISTINCT tenant_id) FROM account", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account WHERE tenant_id=8 AND account_group_id=12", Integer.class)).isEqualTo(1);
@@ -295,8 +297,30 @@ class DeviceImportTransactionTest {
     }
 
     @Test
-    void existingDispatcherUsesRealTenantLockAndOnlyAdvancesAcceptedRows() {
+    void phaseMigrationPreservesWaitingRowsAndRunsAgain() {
         service.importAccount(request(), defaults);
+        var migration = new ResourceDatabasePopulator(new ClassPathResource("db/migration/V179_1__device_import_logout_phase.sql"));
+        migration.execute(dataSource);
+        migration.execute(dataSource);
+        assertRowCounts(1);
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
+        assertThat(dispatcher.dispatchOnce()).isZero();
+    }
+
+    @Test
+    void phoneUploadWaitsForLogoutAndCannotBeDispatched() {
+        var accepted = service.importAccount(request(), defaults);
+        assertThat(accepted.onlinePhase()).isEqualTo("WAITING_LOGOUT");
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
+        assertThat(dispatcher.dispatchOnce()).isZero();
+        org.mockito.Mockito.verifyNoInteractions(online);
+        assertThat(jdbc.queryForObject("SELECT dispatch_attempts FROM account_import_detail", Integer.class)).isZero();
+    }
+
+    @Test
+    void existingDispatcherUsesRealTenantLockAndOnlyAdvancesAcceptedRows() {
+        var accepted = service.importAccount(request(), defaults);
+        service.confirmLogout(accepted.batchId());
         when(online.onlineBatch(anyList())).thenReturn(new AccountBatchOnlineVO(1, 1, 1, 0, 0, 0, 0, 0, List.of(), List.of()));
         assertThat(dispatcher.dispatchOnce()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(2);
@@ -306,6 +330,98 @@ class DeviceImportTransactionTest {
         when(online.onlineBatch(anyList())).thenReturn(new AccountBatchOnlineVO(1, 0, 0, 0, 0, 0, 0, 0, List.of(), List.of()));
         assertThat(dispatcher.dispatchOnce()).isZero();
         assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void logoutConfirmationIsTenantScopedAndIdempotentAfterDispatch() {
+        var accepted = service.importAccount(request(), defaults);
+        TenantContext.set(8L);
+        assertThatThrownBy(() -> service.confirmLogout(accepted.batchId())).isInstanceOf(BusinessException.class);
+        TenantContext.set(7L);
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
+        assertThat(service.confirmLogout(accepted.batchId()).onlinePhase()).isEqualTo("QUEUED");
+        service.confirmLogout(accepted.batchId());
+        when(online.onlineBatch(anyList())).thenReturn(new AccountBatchOnlineVO(1, 1, 1, 0, 0, 0, 0, 0, List.of(), List.of()));
+        assertThat(dispatcher.dispatchOnce()).isEqualTo(1);
+        service.confirmLogout(accepted.batchId());
+        assertThat(dispatcher.dispatchOnce()).isZero();
+        assertThat(jdbc.queryForObject("SELECT dispatch_attempts FROM account_import_detail", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentConfirmationsWaitForCommitAndDispatchOnlyOnce() throws Exception {
+        var accepted = service.importAccount(request(), defaults);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch releasedInTransaction = new CountDownLatch(1);
+        CountDownLatch commit = new CountDownLatch(1);
+        try {
+            Future<?> first = pool.submit(() -> {
+                TenantContext.set(7L);
+                try {
+                    transaction.executeWithoutResult(status -> {
+                        service.confirmLogout(accepted.batchId());
+                        releasedInTransaction.countDown();
+                        await(commit);
+                    });
+                } finally { TenantContext.clear(); }
+            });
+            assertThat(releasedInTransaction.await(5, TimeUnit.SECONDS)).isTrue();
+            // 未提交的确认不能被调度器读取，也不能让第二次确认提前成功。
+            assertThat(dispatcher.dispatchOnce()).isZero();
+            Future<String> second = pool.submit(() -> {
+                TenantContext.set(7L);
+                try { return service.confirmLogout(accepted.batchId()).onlinePhase(); }
+                finally { TenantContext.clear(); }
+            });
+            awaitDatabaseLock();
+            assertThatThrownBy(() -> second.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            commit.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            assertThat(second.get(5, TimeUnit.SECONDS)).isEqualTo("QUEUED");
+            when(online.onlineBatch(anyList())).thenReturn(new AccountBatchOnlineVO(1, 1, 1, 0, 0, 0, 0, 0, List.of(), List.of()));
+            assertThat(dispatcher.dispatchOnce()).isEqualTo(1);
+            assertThat(dispatcher.dispatchOnce()).isZero();
+            org.mockito.Mockito.verify(online).onlineBatch(anyList());
+            assertThat(jdbc.queryForObject("SELECT dispatch_attempts FROM account_import_detail", Integer.class)).isEqualTo(1);
+        } finally {
+            commit.countDown();
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void waitingAccountGuardUsesRealSqlAndTenantScope() {
+        var accepted = service.importAccount(request(), defaults);
+        Long id = jdbc.queryForObject("SELECT id FROM account", Long.class);
+        assertThat(accountMapper.existsWaitingLogoutByAccounts(List.of(id), 4)).isTrue();
+        TenantContext.set(8L);
+        assertThat(accountMapper.existsWaitingLogoutByAccounts(List.of(id), 4)).isFalse();
+        TenantContext.set(7L);
+        service.confirmLogout(accepted.batchId());
+        assertThat(accountMapper.existsWaitingLogoutByAccounts(List.of(id), 4)).isFalse();
+    }
+
+    @Test
+    void confirmationRollbackLeavesAccountWaiting() {
+        var accepted = service.importAccount(request(), defaults);
+        transaction.executeWithoutResult(status -> {
+            service.confirmLogout(accepted.batchId());
+            status.setRollbackOnly();
+        });
+        assertThat(dispatcher.dispatchOnce()).isZero();
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
+    }
+
+    @Test
+    void deletedAccountAndNonDeviceBatchCannotBeReleased() {
+        var accepted = service.importAccount(request(), defaults);
+        jdbc.update("UPDATE account_import_batch SET source_file_name='admin-import'");
+        assertThatThrownBy(() -> service.confirmLogout(accepted.batchId())).isInstanceOf(BusinessException.class);
+        jdbc.update("UPDATE account_import_batch SET source_file_name='device-import'");
+        jdbc.update("UPDATE account SET deleted_at=100");
+        assertThatThrownBy(() -> service.confirmLogout(accepted.batchId())).isInstanceOf(BusinessException.class);
+        assertThat(jdbc.queryForObject("SELECT online_phase FROM account_import_detail", Integer.class)).isEqualTo(4);
     }
 
     private void awaitDatabaseLock() throws InterruptedException {

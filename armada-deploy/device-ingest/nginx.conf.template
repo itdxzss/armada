@@ -89,6 +89,18 @@ server {
         proxy_pass http://backend:8080;
     }
 
+    location = /api/device-imports/logout-confirmed {
+        if ($is_args != "") { return 400; }
+        if ($request_uri != "/api/device-imports/logout-confirmed") { return 404; }
+        if ($request_method !~ ^(POST|OPTIONS)$) { return 405; }
+        if ($request_method = OPTIONS) {
+            add_header Allow $device_ingest_allow always;
+            add_header Cache-Control "no-store" always;
+            return 204;
+        }
+        proxy_pass http://backend:8080;
+    }
+
     location / { return 404; }
     location @bad_request { return 400 '{"message":"请求格式或路径不正确"}'; }
     location @unauthorized { return 401 '{"message":"导入令牌无效"}'; }

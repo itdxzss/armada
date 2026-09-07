@@ -66,10 +66,9 @@ for expected_contract in \
     exit 67
   }
 done
-port="$(env_value ARMADA_HTTP_PORT)"
-port="${port:-18080}"
-curl -fsS -m 8 "http://127.0.0.1:${port}/" >/dev/null
-body="$(curl -sS -m 8 "http://127.0.0.1:${port}/api/account-groups" || true)"
+'"${ARMADA_HTTP_PROBE_SETUP}"'
+curl -fsS -m 8 "${base_url}/" >/dev/null
+body="$(curl -sS -m 8 "${base_url}/api/account-groups" || true)"
 printf "%s" "${body}" | grep -Eq "\"code\"[[:space:]]*:[[:space:]]*(40101|40104|0|40001)"
 '
 
@@ -238,7 +237,7 @@ deep_check_cross_component() {
   public_host="${public_host%%/*}"
   public_host_quoted="$(shell_single_quote "${public_host}")"
   # EC2 访问自身公网地址可能不支持 hairpin；从目标机经本机 Nginx 并带真实 Host 头验证同一站点路由。
-  ssh_run "curl -fsS -m 8 -H 'Host: ${public_host_quoted}' http://127.0.0.1/ >/dev/null"
+  ssh_run "${ARMADA_HTTP_PROBE_SETUP}; curl -fsS -m 8 -H 'Host: ${public_host_quoted}' \"\${base_url}/\" >/dev/null"
   ok "[check] Cross-component"
 }
 

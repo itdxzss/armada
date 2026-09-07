@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+# 从运行中的 Nginx 读取探测地址，兼容仅绑定内网 IP 和带引号的 .env 端口。
+ARMADA_HTTP_PROBE_SETUP='
+endpoint="$(docker port armada-nginx 80/tcp | head -n 1)"
+[ -n "${endpoint}" ] || { echo "Armada Nginx 未发布 HTTP 端口" >&2; exit 1; }
+case "${endpoint}" in
+  0.0.0.0:*) endpoint="127.0.0.1:${endpoint##*:}" ;;
+  "[::]:"*) endpoint="[::1]:${endpoint##*:}" ;;
+esac
+base_url="http://${endpoint}"'
+
 armada_init_colors() {
   if [ -t 1 ]; then
     C_B=$'\033[1m'

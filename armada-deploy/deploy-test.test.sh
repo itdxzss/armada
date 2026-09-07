@@ -1465,11 +1465,12 @@ PROTOCOL_ANDROID_BASE_URL=http://android:8001
 PROTOCOL_ANDROID_LIFECYCLE_COMMANDS_TOPIC=armada.perf.protocol.android.lifecycle.commands.v1
 PROTOCOL_ANDROID_MESSAGE_COMMANDS_TOPIC=armada.perf.protocol.android.message.commands.v1
 PROTOCOL_ANDROID_GROUP_JOIN_COMMANDS_TOPIC=armada.perf.protocol.android.group-join.commands.v1
-ARMADA_HTTP_PORT=18080
+ARMADA_HTTP_PORT='80'
 ENV
   cat >"${fake_bin}/docker" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
+  'port armada-nginx 80/tcp') printf '172.31.13.65:80\n' ;;
   *State.Status*) printf 'running\n' ;;
   *Config.Env*)
     cat <<'ENV'
@@ -1487,6 +1488,7 @@ esac
 STUB
   cat >"${fake_bin}/curl" <<'STUB'
 #!/usr/bin/env bash
+case "${!#}" in http://172.31.13.65:80/*) ;; *) exit 3 ;; esac
 case "$*" in
   *api/account-groups*)
     case " $* " in *' -f '*) exit 22 ;; esac
@@ -1509,6 +1511,16 @@ STUB
     armada.perf.protocol.normal-group.events.v1 \
     armada-perf-api-normal-group-results \
     <<<"${deep_armada_check_payload}"
+  (
+    . "${SCRIPT_DIR}/lib/armada.sh"
+    REMOTE_DIR="${remote_dir}"
+    APP_TITLE_REMOTE='<!doctype html>'
+    export PATH="${fake_bin}:${PATH}"
+    ssh_run() { bash -e -c "$1"; }
+    armada_verify_api_proxy
+    armada_verify_frontend
+    armada_wait_backend_ready
+  )
   rm -rf "${fixture_root}"
 }
 

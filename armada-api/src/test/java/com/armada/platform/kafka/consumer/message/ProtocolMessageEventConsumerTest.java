@@ -48,6 +48,20 @@ class ProtocolMessageEventConsumerTest {
     }
 
     @Test
+    void scriptResultUsesOriginalCommandWithoutLegacyAttempt() {
+        onMessage("""
+                {"event":"message.send_result_reported","eventId":"script-event","data":{
+                "tenantId":7,"protocolAccountId":"account","source":"script_marketing",
+                "groupJid":"120001@g.us","commandId":"cmd_script_1","success":false}}
+                """);
+        var captor = ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        assertThat(captor.getValue().commandId()).isEqualTo("cmd_script_1");
+        assertThat(captor.getValue().source()).isEqualTo("script_marketing");
+        assertThat(captor.getValue().attemptId()).isNull();
+    }
+
+    @Test
     void onMessage_forwardsSemanticRiskCodeBeforeBusinessSink() {
         onMessage("""
                 {"eventId":"evt-risk-message","event":"message.send_result_reported",

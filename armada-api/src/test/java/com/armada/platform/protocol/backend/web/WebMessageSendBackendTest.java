@@ -197,7 +197,7 @@ class WebMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
-                        null),
+                        null, null),
                 "cmd_contact_web",
                 800,
                 0L);

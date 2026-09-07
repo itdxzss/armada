@@ -1196,6 +1196,29 @@ class ProtocolCommandOutboxServiceImplTest {
     }
 
     @Test
+    void scriptMessageUsesIndependentAggregateAndPreservesOriginalCommandId() {
+        TenantContext.set(1L);
+        try {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        MessageSendCommand command = new MessageSendCommand(
+                new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
+                new MessageSendCommand.MessageTarget("120363script@g.us"),
+                new MessageSendCommand.MessagePayload(MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("hello", null, null, null), false),
+                new MessageSendCommand.MessageCorrelation(1L, "script_marketing", null, null,
+                        null, null, null, 77L), "cmd_script", 500, 0L);
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        service.enqueueMessageCommands(List.of(new ProtocolMessageOutboxCommand(command,
+                ProtocolBackend.WEB, "protocol.master.commands.v1", "acc_web",
+                Map.of("tenantId", 1L, "source", "script_marketing"))));
+        var row = capturedRows().get(0);
+        assertThat(row.getAggregateType()).isEqualTo("SCRIPT_MARKETING_SEND_RECORD");
+        assertThat(row.getAggregateId()).isEqualTo(77L);
+        assertThat(row.getCommandId()).isEqualTo("cmd_script");
+        } finally { TenantContext.clear(); }
+    }
+
+    @Test
     void enqueueOnlineCommands_duplicateGeneratedCommandId_throwsConflictBeforeMapperInsert() {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-dupe", "cmd-dupe"), List.of("batch-1"));
         List<ProtocolOnlineCommandRequest> commands = List.of(

@@ -148,7 +148,8 @@ public class MarketingMessageCommandFactory {
                 || (message.buttonCard() != null && message.buttonCard().thumbnail() != null);
     }
 
-    private static MessageSendCommand.MessagePayload payload(
+    /** 将已组合的营销内容转换为通用消息 payload，供独立任务复用。 */
+    public static MessageSendCommand.MessagePayload payload(
             MarketingMessageComposer.ComposedMessage message) {
         return new MessageSendCommand.MessagePayload(
                 MessageType.valueOf(message.messageType()),

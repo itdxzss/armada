@@ -39,7 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         inheritListeners = false)
-class ResourceAssetMapperH2Test {
+public class ResourceAssetMapperH2Test {
 
     private static final long TENANT_ID = 7L;
     private static final long OTHER_TENANT_ID = 8L;
@@ -65,6 +65,28 @@ class ResourceAssetMapperH2Test {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void scriptStepAssetReferenceIsCountedOncePerTaskAndNeverAcrossTenants() throws SQLException {
+        var file = insertFile("script image", 100L, new byte[] {1});
+        String steps = "[{\"message\":{\"imageFileId\":" + file.getId() + "}},"
+                + "{\"message\":{\"imageFileId\":" + file.getId() + "}}]";
+        execute("INSERT INTO script_marketing_task VALUES (1, 7, '" + steps + "')");
+        execute("INSERT INTO script_marketing_task VALUES (2, 8, '" + steps + "')");
+        assertThat(fileMapper.countReferences(7L, file.getId())).isEqualTo(1);
+        assertThat(fileMapper.selectReferenceCounts(7L, List.of(file.getId())))
+                .singleElement().satisfies(row -> assertThat(row.referenceCount()).isEqualTo(1));
+    }
+
+    /** H2 方言适配：本查询只使用数组中 message.imageFileId 的包含条件。 */
+    public static int scriptJsonContains(String document, String candidate) throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var expected = json.readTree(candidate).path("message").path("imageFileId");
+        for (var step : json.readTree(document)) {
+            if (step.path("message").path("imageFileId").equals(expected)) return 1;
+        }
+        return 0;
     }
 
     @Test
@@ -217,6 +239,8 @@ class ResourceAssetMapperH2Test {
 
     private void resetSchema() throws SQLException {
         execute("DROP ALL OBJECTS");
+        execute("CREATE TABLE script_marketing_task (id BIGINT PRIMARY KEY, tenant_id BIGINT, steps_json LONGTEXT)");
+        execute("CREATE ALIAS JSON_CONTAINS FOR '" + ResourceAssetMapperH2Test.class.getName() + ".scriptJsonContains'");
         execute("""
                 CREATE TABLE marketing_template_file (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,

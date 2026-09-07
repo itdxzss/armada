@@ -36,6 +36,7 @@ public class ProtocolMessageEventConsumer {
     public static final String EVENT_MESSAGE_ACK = "message.ack";
     private static final String SOURCE_GROUP_CREATION_MARKETING = "group_creation_marketing";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
+    private static final String SOURCE_SCRIPT_MARKETING = "script_marketing";
     private static final String SOURCE_CONTACT_TASK = "contact_task";
     private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
 
@@ -208,29 +209,30 @@ public class ProtocolMessageEventConsumer {
         boolean hyperlinkTask = SOURCE_HYPERLINK_TASK.equals(source);
         // 通讯录任务同样没有普通营销三字段关联，按上游既有口径追加一个来源
         boolean contactTask = SOURCE_CONTACT_TASK.equals(source);
+        boolean scriptTask = SOURCE_SCRIPT_MARKETING.equals(source);
         return new ProtocolMessageSendResultReportedEvent(
                 text(envelope, "eventId"),
                 requiredLong(data, "tenantId", "协议消息发送结果事件缺少 data.tenantId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask
+                        || contactTask || scriptTask
                         ? longValue(data, "marketingTaskId")
                         : requiredLong(data, "marketingTaskId", "协议消息发送结果事件缺少 data.marketingTaskId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask
+                        || contactTask || scriptTask
                         ? longValue(data, "targetId")
                         : requiredLong(data, "targetId", "协议消息发送结果事件缺少 data.targetId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask
+                        || contactTask || scriptTask
                         ? longValue(data, "attemptId")
                         : requiredLong(data, "attemptId", "协议消息发送结果事件缺少 data.attemptId"),
                 groupCreationMarketing || historicalGroupPull || hyperlinkTask
-                        || contactTask
+                        || contactTask || scriptTask
                         ? longValue(data, "roundNo")
                         : requiredLong(data, "roundNo", "协议消息发送结果事件缺少 data.roundNo"),
                 requiredText(data, "protocolAccountId", "协议消息发送结果事件缺少 data.protocolAccountId"),
                 hyperlinkTask || contactTask ? null
                         : requiredText(data, "groupJid", "协议消息发送结果事件缺少 data.groupJid"),
-                text(data, "commandId"),
+                scriptTask ? requiredText(data, "commandId", "剧本结果缺少原 commandId") : text(data, "commandId"),
                 requiredBoolean(data, "success", "协议消息发送结果事件缺少 data.success"),
                 text(data, "messageId"),
                 text(data, "reasonCode"),

@@ -141,6 +141,7 @@ public record MessageSendCommand(
      * @param historicalGroup 历史群拉人营销关联
      * @param contactTask 通讯录营销关联
      * @param hyperlink 超链任务唯一 recipient 关联
+     * @param scriptRecordId 剧本单项发送事实 ID，仅 Armada outbox 使用
      */
     public record MessageCorrelation(
             Long tenantId,
@@ -149,19 +150,20 @@ public record MessageSendCommand(
             GroupCreationCorrelation groupCreation,
             HistoricalGroupCorrelation historicalGroup,
             ContactTaskCorrelation contactTask,
-            HyperlinkCorrelation hyperlink
+            HyperlinkCorrelation hyperlink,
+            Long scriptRecordId
     ) {
         /** 上游 6 参构造兼容：不触碰上游既有调用点，contactTask 默认为空。 */
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup,
                 HyperlinkCorrelation hyperlink) {
-            this(tenantId, source, marketing, groupCreation, historicalGroup, null, hyperlink);
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, hyperlink, null);
         }
 
         /** 存量群营销 Java 构造兼容，contactTask 与 hyperlink 默认为空。 */
         public MessageCorrelation(Long tenantId, String source, MarketingCorrelation marketing,
                 GroupCreationCorrelation groupCreation, HistoricalGroupCorrelation historicalGroup) {
-            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null);
+            this(tenantId, source, marketing, groupCreation, historicalGroup, null, null, null);
         }
     }
 

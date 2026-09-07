@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.ScriptMarketingTaskMapper">
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+ INSERT INTO script_marketing_task (tenant_id, created_by, task_name, steps_json, status, interval_seconds, start_at, end_at, created_at, updated_at)
+ VALUES (#{tenantId}, #{createdBy}, #{taskName}, #{stepsJson}, #{status}, #{intervalSeconds}, #{startAt}, #{endAt}, #{createdAt}, #{updatedAt})
+ </insert>
+ <select id="lock" resultType="com.armada.marketing.model.entity.ScriptMarketingTask">SELECT * FROM script_marketing_task WHERE id=#{id} FOR UPDATE</select>
+ <select id="find" resultType="com.armada.marketing.model.entity.ScriptMarketingTask">SELECT * FROM script_marketing_task WHERE id=#{id}</select>
+ <update id="updateDraft">UPDATE script_marketing_task SET task_name=#{taskName}, steps_json=#{stepsJson}, interval_seconds=#{intervalSeconds}, start_at=#{startAt}, end_at=#{endAt}, updated_at=#{updatedAt} WHERE id=#{id} AND status=0</update>
+ <update id="updateState">UPDATE script_marketing_task SET status=#{status}, updated_at=#{updatedAt} WHERE id=#{id}</update>
+ <sql id="filter">created_by=#{owner}
+ <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
+ <if test="q.status != null">AND status=#{q.status}</if>
+ </sql>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM script_marketing_task WHERE <include refid="filter"/></select>
+ <sql id="summaryColumns">
+ t.id, t.task_name, t.status, t.interval_seconds, t.start_at, t.end_at, t.created_at,
+ (SELECT COUNT(*) FROM script_marketing_group g WHERE g.task_id=t.id) AS group_count,
+ (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=2) AS success_count,
+ (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=3) AS failed_count,
+ (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=4) AS unknown_count,
+ (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=1) AS in_flight_count
+ </sql>
+ <select id="page" resultType="com.armada.marketing.model.vo.ScriptMarketingTaskVO">
+ SELECT <include refid="summaryColumns"/> FROM script_marketing_task t WHERE <include refid="filter"/> ORDER BY t.id DESC LIMIT #{q.pageSize} OFFSET #{q.offset}
+ </select>
+ <select id="summary" resultType="com.armada.marketing.model.vo.ScriptMarketingTaskVO">
+ SELECT <include refid="summaryColumns"/> FROM script_marketing_task t WHERE t.id=#{id}
+ </select>
+</mapper>

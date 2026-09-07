@@ -158,6 +158,8 @@ public class ProtocolCommandOutboxServiceImpl
     private static final long IMMEDIATE_RETRY_AT = 0L;
     private static final String COMMAND_ID_PREFIX = "cmd_";
     private static final String BATCH_ID_PREFIX = "batch_";
+    private static final String SOURCE_SCRIPT_MARKETING = "script_marketing";
+    private static final String AGGREGATE_TYPE_SCRIPT_MARKETING_SEND_RECORD = "SCRIPT_MARKETING_SEND_RECORD";
     private static final String SOURCE_HISTORICAL_GROUP_PULL = "historical_group_pull";
     private static final String SOURCE_HYPERLINK_TASK = "hyperlink_task";
 
@@ -1252,7 +1254,10 @@ public class ProtocolCommandOutboxServiceImpl
         row.setCommandId(command.commandId());
         row.setBatchId(batchId);
         row.setCommandType(COMMAND_TYPE_MESSAGE_SEND_REQUESTED);
-        if (command.correlation().groupCreation() != null) {
+        if (command.correlation().scriptRecordId() != null) {
+            row.setAggregateType(AGGREGATE_TYPE_SCRIPT_MARKETING_SEND_RECORD);
+            row.setAggregateId(command.correlation().scriptRecordId());
+        } else if (command.correlation().groupCreation() != null) {
             row.setAggregateType(AGGREGATE_TYPE_GROUP_CREATION_MARKETING_ITEM);
             row.setAggregateId(command.correlation().groupCreation().itemId());
         } else if (command.correlation().historicalGroup() != null) {
@@ -1949,6 +1954,17 @@ public class ProtocolCommandOutboxServiceImpl
                 outboxCommand.command().correlation();
         if (correlation.tenantId() == null || isBlank(correlation.source())) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销消息发送命令缺少关联字段");
+        }
+        if (SOURCE_SCRIPT_MARKETING.equals(correlation.source()) || correlation.scriptRecordId() != null) {
+            if (!SOURCE_SCRIPT_MARKETING.equals(correlation.source()) || correlation.scriptRecordId() == null
+                    || correlation.scriptRecordId() <= 0 || correlation.marketing() != null
+                    || correlation.groupCreation() != null || correlation.historicalGroup() != null
+                    || correlation.contactTask() != null || correlation.hyperlink() != null
+                    || outboxCommand.command().target().kind() != MessageSendCommand.TargetKind.GROUP
+                    || !correlation.tenantId().equals(TenantContext.get())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "剧本消息缺少唯一发送事实或租户不匹配");
+            }
+            return;
         }
         if (correlation.groupCreation() != null) {
             if (correlation.groupCreation().taskId() == null

@@ -148,6 +148,13 @@
                 FROM hyperlink_task_content
                 WHERE tenant_id = #{tenantId} AND body_main_asset_id IN
                 <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+                UNION ALL
+                SELECT f.id, 'script_marketing_task', t.id
+                FROM script_marketing_task t
+                INNER JOIN marketing_template_file f ON f.tenant_id = t.tenant_id
+                  AND JSON_CONTAINS(t.steps_json, CONCAT('{"message":{"imageFileId":', f.id, '}}')) = 1
+                WHERE t.tenant_id = #{tenantId} AND f.id IN
+                <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
             ) raw_references
             GROUP BY asset_id, source_type, source_id
         ) distinct_references
@@ -178,6 +185,11 @@
                 SELECT 'hyperlink_task', hyperlink_task_id
                 FROM hyperlink_task_content
                 WHERE tenant_id = #{tenantId} AND body_main_asset_id = #{id}
+                UNION ALL
+                SELECT 'script_marketing_task', id
+                FROM script_marketing_task
+                WHERE tenant_id = #{tenantId}
+                  AND JSON_CONTAINS(steps_json, CONCAT('{"message":{"imageFileId":', #{id}, '}}')) = 1
             ) raw_references
             GROUP BY source_type, source_id
         ) distinct_references

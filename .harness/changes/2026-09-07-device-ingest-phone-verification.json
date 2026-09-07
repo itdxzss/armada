@@ -1,0 +1,291 @@
+{
+  "environment": "test1",
+  "checkedAtUTC": "2026-09-07T03:45:05Z",
+  "tenantId": 1,
+  "batchId": 73,
+  "accountId": 1717,
+  "maskedPhone": "***9821",
+  "group": {
+    "id": 158,
+    "name": "测试全参号"
+  },
+  "phone": {
+    "bundleId": "net.whatsapp.WhatsAppSMB.codextest263472",
+    "groupQueryCount": 47,
+    "uploadAccepted": true,
+    "officialLogoutVerified": true,
+    "finalUI": "WhatsApp Business welcome / 同意并继续",
+    "connectionStoredIn": "iOS Keychain"
+  },
+  "initialAutomaticImport": {
+    "tenantId": 1,
+    "selectedGroupId": 158,
+    "observations": [
+      {
+        "ipMode": "mixed",
+        "batchId": 73,
+        "deviceOs": 2,
+        "accountId": 1717,
+        "settledAt": null,
+        "loginState": null,
+        "protocolId": "ANDROID",
+        "loginResult": null,
+        "maskedPhone": "***9821",
+        "onlinePhase": 1,
+        "parseResult": 1,
+        "stateSource": null,
+        "batchGroupId": 158,
+        "declaredType": 2,
+        "dispatchedAt": null,
+        "importedRows": 1,
+        "sourceFormat": 3,
+        "accountGroupId": 158,
+        "stateUpdatedAt": 1788751912457,
+        "rawPayloadBytes": 1065,
+        "dispatchAttempts": 0,
+        "observedAtUTC": "2026-09-07T03:31:54Z",
+        "protocolHttp": 200,
+        "protocolCode": 1003,
+        "protocolOnline": false
+      },
+      {
+        "ipMode": "mixed",
+        "batchId": 73,
+        "deviceOs": 2,
+        "accountId": 1717,
+        "settledAt": null,
+        "loginState": 3,
+        "protocolId": "ANDROID",
+        "loginResult": null,
+        "maskedPhone": "***9821",
+        "onlinePhase": 2,
+        "parseResult": 1,
+        "stateSource": "OUTBOX",
+        "batchGroupId": 158,
+        "declaredType": 2,
+        "dispatchedAt": 1788751922471,
+        "importedRows": 1,
+        "sourceFormat": 3,
+        "accountGroupId": 158,
+        "stateUpdatedAt": 1788751922420,
+        "rawPayloadBytes": 1065,
+        "dispatchAttempts": 1,
+        "observedAtUTC": "2026-09-07T03:32:04Z",
+        "protocolHttp": 200,
+        "protocolCode": 1003,
+        "protocolOnline": false
+      },
+      {
+        "ipMode": "mixed",
+        "batchId": 73,
+        "deviceOs": 2,
+        "accountId": 1717,
+        "settledAt": 1788751924763,
+        "loginState": 1,
+        "protocolId": "ANDROID",
+        "loginResult": 1,
+        "maskedPhone": "***9821",
+        "onlinePhase": 3,
+        "parseResult": 1,
+        "stateSource": "STATE_CHANGED",
+        "batchGroupId": 158,
+        "declaredType": 2,
+        "dispatchedAt": 1788751922471,
+        "importedRows": 1,
+        "sourceFormat": 3,
+        "accountGroupId": 158,
+        "stateUpdatedAt": 1788751925785,
+        "rawPayloadBytes": 1065,
+        "dispatchAttempts": 1,
+        "observedAtUTC": "2026-09-07T03:32:06Z",
+        "protocolHttp": 200,
+        "protocolCode": 0,
+        "protocolOnline": true
+      },
+      {
+        "ipMode": "mixed",
+        "batchId": 73,
+        "deviceOs": 2,
+        "accountId": 1717,
+        "settledAt": 1788751924763,
+        "loginState": 2,
+        "protocolId": "ANDROID",
+        "loginResult": 1,
+        "maskedPhone": "***9821",
+        "onlinePhase": 3,
+        "parseResult": 1,
+        "stateSource": "LOGIN_REPLACED",
+        "batchGroupId": 158,
+        "declaredType": 2,
+        "dispatchedAt": 1788751922471,
+        "importedRows": 1,
+        "sourceFormat": 3,
+        "accountGroupId": 158,
+        "stateUpdatedAt": 1788751928546,
+        "rawPayloadBytes": 1065,
+        "dispatchAttempts": 1,
+        "observedAtUTC": "2026-09-07T03:32:08Z",
+        "protocolHttp": 200,
+        "protocolCode": 1003,
+        "protocolOnline": false
+      }
+    ],
+    "protocolAndDatabaseOnline": false,
+    "phoneLogoutVerified": false
+  },
+  "recovery": {
+    "tenantId": 1,
+    "selectedGroupId": 158,
+    "observations": [
+      {
+        "ipMode": "mixed",
+        "batchId": 73,
+        "deviceOs": 2,
+        "accountId": 1717,
+        "settledAt": 1788751924763,
+        "loginState": 1,
+        "protocolId": "ANDROID",
+        "loginResult": 1,
+        "maskedPhone": "***9821",
+        "onlinePhase": 3,
+        "parseResult": 1,
+        "stateSource": "STATE_CHANGED",
+        "batchGroupId": 158,
+        "declaredType": 2,
+        "dispatchedAt": 1788751922471,
+        "importedRows": 1,
+        "sourceFormat": 3,
+        "accountGroupId": 158,
+        "stateUpdatedAt": 1788752411236,
+        "rawPayloadBytes": 1065,
+        "dispatchAttempts": 1,
+        "observedAtUTC": "2026-09-07T03:41:05Z",
+        "protocolHttp": 200,
+        "protocolCode": 0,
+        "protocolOnline": true
+      }
+    ],
+    "protocolAndDatabaseOnline": true,
+    "phoneLogoutVerified": true
+  },
+  "manualOnlineAfterPhoneLogout": true,
+  "stableOnlineMinimumSeconds": 60,
+  "finalProtocolOnline": true,
+  "finalDatabaseState": {
+    "updatedAt": 1788752411236,
+    "loginState": 1,
+    "stateSource": "STATE_CHANGED",
+    "accountState": 6
+  },
+  "audit": {
+    "tenantId": 1,
+    "accountId": 1717,
+    "credentialMetadata": {
+      "credFormat": 1,
+      "credentialBytes": 321
+    },
+    "outbox": [
+      {
+        "id": 2995648,
+        "sentAt": 1788751922627,
+        "source": "batch_online",
+        "status": 2,
+        "createdAt": 1788751922428,
+        "retryCount": 0,
+        "commandType": "account.online.requested"
+      },
+      {
+        "id": 2995649,
+        "sentAt": 1788751925821,
+        "source": "initial_online_group_baseline",
+        "status": 2,
+        "createdAt": 1788751925789,
+        "retryCount": 0,
+        "commandType": "account.groups_sync.requested"
+      },
+      {
+        "id": 2995650,
+        "sentAt": 1788752408509,
+        "source": "manual_online",
+        "status": 2,
+        "createdAt": 1788752408484,
+        "retryCount": 0,
+        "commandType": "account.online.requested"
+      }
+    ],
+    "backendStateEvents": [
+      {
+        "observedLogUTC": "2026-09-07T03:32:05.783693412Z",
+        "kind": "consumer",
+        "from": "null",
+        "to": "ONLINE",
+        "semantic": "null",
+        "rawCode": "200"
+      },
+      {
+        "observedLogUTC": "2026-09-07T03:32:05.797182137Z",
+        "kind": "applied",
+        "from": "null",
+        "to": "ONLINE",
+        "semantic": "null",
+        "rawCode": "200",
+        "occurredAt": "1788751924763"
+      },
+      {
+        "observedLogUTC": "2026-09-07T03:32:08.534748734Z",
+        "kind": "consumer",
+        "from": "null",
+        "to": "LOGIN_REPLACED",
+        "semantic": "LOGIN_REPLACED",
+        "rawCode": "303"
+      },
+      {
+        "observedLogUTC": "2026-09-07T03:32:08.563281631Z",
+        "kind": "applied",
+        "from": "null",
+        "to": "LOGIN_REPLACED",
+        "semantic": "LOGIN_REPLACED",
+        "rawCode": "303",
+        "occurredAt": "1788751927526"
+      },
+      {
+        "observedLogUTC": "2026-09-07T03:40:11.221143555Z",
+        "kind": "consumer",
+        "from": "null",
+        "to": "ONLINE",
+        "semantic": "null",
+        "rawCode": "200"
+      },
+      {
+        "observedLogUTC": "2026-09-07T03:40:11.227604639Z",
+        "kind": "applied",
+        "from": "null",
+        "to": "ONLINE",
+        "semantic": "null",
+        "rawCode": "200",
+        "occurredAt": "1788752410206"
+      }
+    ],
+    "logPrivacy": [
+      {
+        "container": "armada-backend",
+        "tokenPresent": false,
+        "rawPayloadPresent": false
+      },
+      {
+        "container": "armada-deploy-device-ingest-nginx-1",
+        "tokenPresent": false,
+        "rawPayloadPresent": false
+      }
+    ],
+    "checkedAtUTC": "2026-09-07T03:43:42Z"
+  },
+  "result": "PASS_WITH_MANUAL_REONLINE",
+  "limitation": "First automatic online was LOGIN_REPLACED before phone logout; one manual online after phone logout restored the account. No phone logout acknowledgement in current server contract.",
+  "localPrivacy": {
+    "currentRunFilesScanned": 27,
+    "tokenFoundInFiles": [],
+    "tokenFoundInPhoneGitDiff": false
+  },
+  "accountLifecycleNote": "account_state remains LOGIN_REPLACED (6); current login_state is ONLINE (1). The current online transition preserves that lifecycle label."
+}

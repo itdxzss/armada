@@ -1,0 +1,15 @@
+{
+  "environment": "test1",
+  "commit": "e603a129",
+  "image": "sha256:3053a4e9cbf5b318bcf5ac88be5db408d3539081aaae7e2cc2e44f204139f337",
+  "jarSHA256": "9d283fde8ef32ea90b42b8410dbeb3c5baa83de9b901f3f3a92a9feea9f43290",
+  "runtimeValuesPreserved": 76,
+  "frontendUnchanged": true,
+  "groupsHTTP": 200,
+  "groupCount": 47,
+  "confirmationWithoutTokenHTTP": 401,
+  "confirmationUnknownBatchHTTP": 400,
+  "migration": "179.1 success",
+  "backendRestarts": 0,
+  "deployedAtUTC": "2026-09-07T04:37:46Z"
+}

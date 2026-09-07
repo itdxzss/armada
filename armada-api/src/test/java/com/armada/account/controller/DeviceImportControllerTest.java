@@ -91,6 +91,46 @@ class DeviceImportControllerTest {
     }
 
     @Test
+    void logoutConfirmationUsesOnlyTokenTenantAndReturnsExactReceipt() throws Exception {
+        when(service.confirmLogout(123L)).thenAnswer(call -> {
+            assertThat(TenantContext.get()).isEqualTo(7L);
+            return new DeviceImportVO(123L, "QUEUED");
+        });
+        mvc.perform(post(PATH + "/logout-confirmed").header("X-Ingest-Token", TOKEN)
+                        .header("Authorization", "Bearer " + DeviceImportTestData.token())
+                        .header("X-Tenant-Code", "other-tenant")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"batchId\":123}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$.batchId").value(123))
+                .andExpect(jsonPath("$.onlinePhase").value("QUEUED"))
+                .andExpect(header().string("Cache-Control", "no-store"));
+        org.mockito.Mockito.verify(service).confirmLogout(123L);
+        verifyNoInteractions(sessions, groups);
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
+    void logoutConfirmationRejectsMissingTokenStrictBodyAndMethods() throws Exception {
+        String path = PATH + "/logout-confirmed";
+        mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{\"batchId\":123}"))
+                .andExpect(status().isUnauthorized());
+        for (String body : List.of("{}", "[]", "null", "{\"batchId\":null}", "{\"batchId\":0}",
+                "{\"batchId\":-1}", "{\"batchId\":1.0}", "{\"batchId\":true}", "{\"batchId\":\"123\"}",
+                "{\"batchId\":9223372036854775808}", "{\"batchId\":123,\"tenantId\":7}",
+                "{\"batchId\":123,\"batchId\":123}", "{\"batchId\":123} {}")) {
+            mvc.perform(post(path).header("X-Ingest-Token", TOKEN).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").isString());
+        }
+        mvc.perform(get(path).header("X-Ingest-Token", TOKEN)).andExpect(status().isMethodNotAllowed())
+                .andExpect(header().string("Allow", "POST, OPTIONS"));
+        mvc.perform(options(path)).andExpect(status().isNoContent())
+                .andExpect(header().string("Allow", "POST, OPTIONS"));
+        mvc.perform(post(path + "?batchId=123").header("X-Ingest-Token", TOKEN))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(service, groups, sessions);
+    }
+
+    @Test
     void groupOptionsUseTokenTenantWithoutAdminIdentityOrRequestBody() throws Exception {
         when(groups.options()).thenAnswer(call -> {
             assertThat(TenantContext.get()).isEqualTo(7L);

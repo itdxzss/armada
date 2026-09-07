@@ -1,0 +1,38 @@
+[
+  {
+    "path": "/api/device-imports/groups",
+    "authenticated": true,
+    "status": 200,
+    "validResponseShape": true
+  },
+  {
+    "path": "/api/device-imports/logout-confirmed",
+    "authenticated": true,
+    "status": 400,
+    "validResponseShape": true
+  },
+  {
+    "path": "/api/device-imports/logout-confirmed",
+    "authenticated": false,
+    "status": 401,
+    "validResponseShape": true
+  },
+  {
+    "path": "/api/device-imports/logout-confirmed/",
+    "authenticated": true,
+    "status": 404,
+    "validResponseShape": true
+  },
+  {
+    "path": "/api/device-imports/logout-confirmed?batchId=1",
+    "authenticated": true,
+    "status": 400,
+    "validResponseShape": true
+  },
+  {
+    "path": "/",
+    "authenticated": false,
+    "status": 404,
+    "validResponseShape": true
+  }
+]

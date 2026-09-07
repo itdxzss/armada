@@ -2,7 +2,7 @@
 
 本目录提供独立 TLS 网关，公网业务精确路径为 `GET /api/device-imports/groups`、`POST /api/device-imports`、`POST /api/device-imports/logout-confirmed`，均使用 `X-Ingest-Token`。上传 `{accountGroupId,phone,payload}` 返回 `200 {"batchId":123,"onlinePhase":"WAITING_LOGOUT"}`；手机核验官方退出后提交 `{batchId}`，返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}` 才放行既有调度。错误为真实 4xx/5xx JSON message；三个路径各自支持 OPTIONS，无 CORS。
 
-**当前状态：test1 新后端与正式 443 网关已启用，可信证书和自动续期正常；租户 A 的公网分组查询返回 200、47 项，鉴权和路径限制已验证。手机新版已安装，真实账号上传及控端上线仍待手机登录后验收。** 当前契约见 [手机联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)，证书进度见 [证书验收记录](../../.harness/changes/2026-09-07-device-ingest-certificate.md)。
+**当前状态：test1 已部署 e603a129 交接门，可信 443 的分组查询和退出确认路由已验证。新版手机签名与真机交接验收进度见 [交接修复记录](../../.harness/changes/2026-09-07-device-ingest-handoff.md)。**
 
 ## 1. 上线前输入
 

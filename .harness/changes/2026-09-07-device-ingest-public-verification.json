@@ -1,0 +1,82 @@
+{
+  "host": "ingest.65.2.123.53.nip.io",
+  "tlsTrusted": true,
+  "unauthenticatedRouteChecks": [
+    {
+      "method": "GET",
+      "path": "/api/device-imports/groups",
+      "status": 401
+    },
+    {
+      "method": "POST",
+      "path": "/api/device-imports",
+      "status": 401
+    },
+    {
+      "method": "GET",
+      "path": "/api/device-imports",
+      "status": 405
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/actuator/health",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/login",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/account-imports",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/device-imports/groups?x=1",
+      "status": 400
+    },
+    {
+      "method": "GET",
+      "path": "/api/device-imports/groups/",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api//device-imports/groups",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/%64evice-imports/groups",
+      "status": 404
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/device-imports/groups",
+      "status": 204
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/device-imports",
+      "status": 204
+    }
+  ],
+  "authenticatedGroupsStatus": 200,
+  "groupCount": 47,
+  "groupFields": [
+    "id",
+    "name"
+  ],
+  "invalidBodyStatus": 400,
+  "realAccountUploaded": false,
+  "verifiedAfterFinalActivation": true,
+  "deployedCommit": "f173d13d",
+  "tenantId": 1
+}

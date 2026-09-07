@@ -1,0 +1,13 @@
+[Unit]
+Description=Renew Armada device ingest TLS certificate
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/armada-ingest/renew-tls.py renew
+ExecStopPost=/usr/bin/python3 /opt/armada-ingest/renew-tls.py restore
+TimeoutStartSec=8min
+TimeoutStopSec=2min

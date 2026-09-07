@@ -2,7 +2,7 @@
 
 本目录提供独立 TLS 网关，公网业务路径仅为 `GET /api/device-imports/groups` 和 `POST /api/device-imports`。分组查询返回仅含 id/name 的数组，上传请求为 `{accountGroupId,phone,payload}`。入口使用静态 `X-Ingest-Token`，成功返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}`，失败返回真实 4xx/5xx 和 `{ "message": "可读原因" }`。两个精确路径各自 OPTIONS 返回 204，无 CORS。
 
-**当前状态：手机选组接口已完成本地验证，test1 的 TCP 443 安全组已放行，可信证书与新服务尚未启用。** 当前契约见 [手机联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)，验证及部署进度见 [选组变更记录](../../.harness/changes/2026-09-07-device-import-group-selection.md)。
+**当前状态：手机选组接口已完成本地验证，test1 的 TCP 443 安全组已放行，可信证书已申请、安装并验证，自动续期已启用；新后端和正式网关仍待启用。** 当前契约见 [手机联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)，证书进度见 [证书验收记录](../../.harness/changes/2026-09-07-device-ingest-certificate.md)。
 
 ## 1. 上线前输入
 
@@ -109,3 +109,20 @@ H2 不等于 MySQL InnoDB；指定测试 MySQL、远程部署、公网封闭和�
 先关闭专用网关或撤销其 443 放行，阻止新上传；保留私网管理员访问。再回滚到部署前**当前发布基线**的镜像和配置，不使用本分支的七月基点替代线上版本。
 
 本任务无 schema 迁移，不删除任何导入数据或凭据。已经受理的 QUEUED 仍可能继续由既有调度处理；关闭公网入口不等于取消队列，取消任务需要通过现有管理能力另行明确处理。移除运行环境变量不会即时撤销进程内令牌；轮换后必须重启。
+
+## 7. test1 证书与续期
+
+`ingest.65.2.123.53.nip.io` 已通过 Let’s Encrypt TLS-ALPN-01 正式签发。服务器设置 `INGEST_TLS_DIR=/etc/armada-ingest/tls`，目录内为 `fullchain.pem` 和 `privkey.pem`；目录 0700、文件 0600，均由 root 持有。证书及 ACME 账户私钥不得下载进工作区或提交 Git。手机使用系统 TLS 验证，无须额外安装证书。
+
+- 客户端：官方 lego 5.4.1，下载 SHA-256 已核对；服务器路径 `/opt/armada-ingest/lego-5.4.1/lego`。
+- ACME 存储：`/var/lib/armada-ingest-acme`；测试 CA 使用另一目录，绝不部署测试证书。
+- 配置：root 专属 `/etc/armada-ingest/acme.json`，仅配置域名、路径、Compose 项目名和本地 ACME account ID，不含设备上传令牌。
+- 续期脚本：本目录 `renew-tls.py` 安装至 `/opt/armada-ingest/renew-tls.py`；systemd service/timer 同名文件安装至 `/etc/systemd/system/`。
+- 每天 UTC 03:00 加最多一小时随机延迟检查；有效期剩余 30 天内才申请续期。首次 service 实跑成功，新证书不触发网关暂停。
+- 真正续期时，脚本只暂停 `com.docker.compose.project=armada-deploy` 且 `com.docker.compose.service=device-ingest-nginx` 的运行中容器。预先保存恢复清单，成功、失败和 systemd 终止均恢复原先暂停的容器。管理员 nginx、后端及其他服务不在操作范围内。
+- TLS-ALPN-01 续期期间，专用 443 上传入口会短暂不可用。失败时保留当前安装证书；journal 只记录脱敏结果，ACME 详细日志留在 root 专属目录。
+- 正式网关使用目录只读挂载 `/etc/nginx/tls`，避免单文件 bind mount 在续期替换文件后仍引用旧 inode。首次启用正式网关必须使用更新后的 Compose。
+
+查看 `systemctl status armada-ingest-certificate.timer` 和 `systemctl show armada-ingest-certificate.service -p Result -p ExecMainStatus`；手动检查使用 `systemctl start armada-ingest-certificate.service`。停止续期使用 `systemctl disable --now armada-ingest-certificate.timer`，并等待正在运行的 service 恢复网关；不要删除仍被网关引用的证书。
+
+证书就绪不代表业务入口已启用。本次公网验证使用有 180 秒上限、结束必清理的临时 nginx，未连接业务后端；正式启用仍须完成第 1–4 节的令牌配置与业务验收。

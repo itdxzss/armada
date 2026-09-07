@@ -248,6 +248,11 @@ class DeviceIngestComposeTest(unittest.TestCase):
             self.assertEqual(ports[0]["host_ip"], "127.0.0.1")
             self.assertNotIn("ports", model["services"]["backend"])
             self.assertEqual(model["services"]["device-ingest-nginx"]["ports"][0]["target"], 443)
+            tls_mounts = [mount for mount in model["services"]["device-ingest-nginx"]["volumes"]
+                          if mount["target"].startswith("/etc/nginx/tls")]
+            self.assertEqual(len(tls_mounts), 1)
+            self.assertEqual(tls_mounts[0]["target"], "/etc/nginx/tls")
+            self.assertTrue(tls_mounts[0]["read_only"])
             # 日常 --be/--fe 发布只显式加载基础 Compose，也必须保留令牌和私网绑定。
             base_arguments = arguments[:6] + arguments[8:]
             base_model = json.loads(run(*base_arguments, env=env))

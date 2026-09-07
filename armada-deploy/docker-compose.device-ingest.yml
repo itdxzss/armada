@@ -24,8 +24,7 @@ services:
       - "443:443"
     volumes:
       - ./device-ingest/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ${INGEST_TLS_DIR:?external TLS certificate directory is required}/fullchain.pem:/etc/nginx/tls/fullchain.pem:ro
-      - ${INGEST_TLS_DIR:?external TLS certificate directory is required}/privkey.pem:/etc/nginx/tls/privkey.pem:ro
+      - ${INGEST_TLS_DIR:?external TLS certificate directory is required}:/etc/nginx/tls:ro
     read_only: true
     tmpfs:
       - /etc/nginx/conf.d

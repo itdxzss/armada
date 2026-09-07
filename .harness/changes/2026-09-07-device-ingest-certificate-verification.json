@@ -1,0 +1,31 @@
+{
+  "publicTlsTrusted": true,
+  "hostnameVerified": true,
+  "hostname": "ingest.65.2.123.53.nip.io",
+  "tlsVersion": "TLSv1.3",
+  "issuer": {
+    "countryName": "US",
+    "organizationName": "Let's Encrypt",
+    "commonName": "YE1"
+  },
+  "notAfter": "Dec  6 00:41:38 2026 GMT",
+  "certificateSha256": "2f46c894748c6d8b01beaa0d36e09fd9bb66eb5e56abcaabdf613fdd4dec0d57",
+  "rootHttpStatus": 404,
+  "environment": "test1",
+  "certificateInstalled": true,
+  "tlsDirectory": "/etc/armada-ingest/tls",
+  "privateKeyMode": "0600",
+  "directoryMode": "0700",
+  "renewalTimerActive": true,
+  "renewalServiceResult": "success",
+  "renewalServiceExitCode": 0,
+  "temporaryVerifierRemoved": true,
+  "businessGatewayActivated": false,
+  "backendActivated": false,
+  "tests": {
+    "certificateLifecycle": 6,
+    "nginxAndCompose": 10
+  },
+  "legoVersion": "5.4.1",
+  "legoArchiveSha256": "ebb33f1bead5a7c99dd46f1c5734b44cf1eab5b5c12faf397cd14d50a5916419"
+}

@@ -10,7 +10,7 @@
 
 自己的域名：在 DNS 服务商添加 A 记录，主机名 `ingest` 指向 test1 公网 IP `65.2.123.53`；服务器安装覆盖该子域名的可信 TLS 证书，再启用专用 nginx。不要为设备入口向公网增加 80、8080 或管理端口。
 
-联调候选域名：`ingest.65.2.123.53.nip.io`。它使用 [nip.io 的 IP 域名解析服务](https://nip.io/)，仍须部署可信证书和 HTTPS 服务，不能仅凭域名可解析就视为接口可用。证书可通过 DNS 验证或 [TLS-ALPN-01 的 443 验证](https://go-acme.github.io/lego/obtain/tlsalpn01/index.html)申请。
+联调域名：`ingest.65.2.123.53.nip.io`。它使用 [nip.io 的 IP 域名解析服务](https://nip.io/)；2026-09-07 已通过 [TLS-ALPN-01 的 443 验证](https://go-acme.github.io/lego/obtain/tlsalpn01/index.html)申请、安装 Let’s Encrypt 正式证书并配置续期。公网证书校验通过，但临时验证服务已清理，正式 HTTPS 网关和新后端仍待令牌配置后启用，不能仅凭证书就绪视为业务可用。详见 [证书验收记录](../.harness/changes/2026-09-07-device-ingest-certificate.md)。
 
 当前状态及提交以本次 [变更记录](../.harness/changes/2026-09-07-device-import-group-selection.md) 为准；文中的候选地址不表示已启用。
 

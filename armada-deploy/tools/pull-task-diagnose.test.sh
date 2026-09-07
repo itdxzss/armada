@@ -48,6 +48,7 @@ CONF
 set -euo pipefail
 cat >"${MOCK_SQL_CAPTURE}"
 printf '%s\n' "${MOCK_SSH_OUTPUT}"
+exit "${MOCK_SSH_STATUS:-0}"
 STUB
   chmod +x "${FIXTURE_BIN}/ssh"
 }
@@ -62,6 +63,7 @@ run_cli() {
   ARMADA_DIAG_BACKEND_KEY="${FIXTURE_KEY}" \
   MOCK_SQL_CAPTURE="${FIXTURE_SQL}" \
   MOCK_SSH_OUTPUT="${MOCK_SSH_OUTPUT}" \
+  MOCK_SSH_STATUS="${MOCK_SSH_STATUS:-0}" \
     bash "${SCRIPT}" "$@"
 }
 
@@ -72,6 +74,7 @@ record_type	task_id	task_type	mode	status	primary_stage	group_count	expected_pul
 TASK	123	STANDARD	NORMAL_LINK	EXECUTING	PULL_EXECUTION	3	90	12
 record_type	total_count	active_count	wait_resource_count	terminal_count	due_count	not_due_count
 EXECUTIONS	3	2	1	0	2	0
+FACTS	6	5	4	3	20	2	ANDROID,WEB
 record_type	reconcile_overdue_seconds
 THRESHOLDS	180
 record_type	target_group_count	transfer_waiting_count	transfer_running_count	transfer_failed_count	remaining_target_count	message_failed_count	message_unknown_count
@@ -109,6 +112,7 @@ test_standard_task_accepts_page_hash_id_and_summarizes_anomalies() {
   assert_contains "${out}" "WAIT_RESOURCE executionId=457 (正常重试中)"
   assert_contains "${out}" "UNKNOWN_RESULT executionId=458 commandId=cmd_pending (结果收敛中)"
   assert_contains "${out}" "现象: 页面一直执行中"
+  assert_contains "${out}" "事实统计: 动作=6 动作命令=5 拉人调用=4 拉人命令=3 料子=20 未释放拉手=2 后端=ANDROID,WEB"
 }
 
 test_group_marketing_task_is_routed_without_standard_state_machine() {
@@ -139,6 +143,9 @@ test_generated_sql_is_read_only_and_excludes_sensitive_columns() {
   local out
   MOCK_SSH_OUTPUT="$(standard_fixture)"
   out="$(run_cli --env test1 --task-id 123 --execution-id 456)"
+  assert_contains "$(cat "${FIXTURE_SQL}")" "SET SESSION MAX_EXECUTION_TIME = 5000;"
+  assert_contains "$(cat "${FIXTURE_SQL}")" "SET SESSION TRANSACTION READ ONLY;"
+  assert_contains "$(cat "${FIXTURE_SQL}")" "'FACTS' AS record_type"
   : "${out}"
 
   grep -Fq 'SET @task_id := 123;' "${FIXTURE_SQL}" \
@@ -179,6 +186,20 @@ test_missing_task_returns_a_clear_error() {
   assert_contains "${out}" "在 test1 的 pull_task 中找不到 #999"
 }
 
+test_query_failure_does_not_print_a_successful_diagnosis() {
+  local out status
+  MOCK_SSH_OUTPUT="$(standard_fixture)"
+  set +e
+  out="$(MOCK_SSH_STATUS=1 run_cli --env test1 --task-id 123 2>&1)"
+  status=$?
+  set -e
+
+  [ "${status}" -ne 0 ] || fail "query failure should fail the diagnosis"
+  assert_contains "${out}" "诊断查询失败"
+  assert_not_contains "${out}" "事实统计:"
+  assert_not_contains "${out}" "结论:"
+}
+
 main() {
   [ -f "${SCRIPT}" ] || fail "expected diagnosis CLI: ${SCRIPT}"
   setup_fixture
@@ -193,6 +214,7 @@ main() {
   rm -f "${FIXTURE_SQL}"
   test_remote_env_file_is_not_executed_as_shell_code
   test_missing_task_returns_a_clear_error
+  test_query_failure_does_not_print_a_successful_diagnosis
   printf 'PASS pull-task-diagnose tests\n'
 }
 

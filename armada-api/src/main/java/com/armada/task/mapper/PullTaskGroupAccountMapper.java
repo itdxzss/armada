@@ -288,8 +288,8 @@ public interface PullTaskGroupAccountMapper {
     int promoteMembershipSuccess(
             @Param("transition") PullTaskParticipantAggregateTransition transition);
 
-    /** 统计一次拉人调用中仍处于指定在群状态的站台数量。 */
-    int countByPullCallAndMembershipStatuses(
+    /** 判断本执行行的一次拉人调用是否仍有指定在群状态的站台。 */
+    boolean existsByPullCallAndMembershipStatuses(
             @Param("criteria") PullTaskFactStatusCriteria criteria);
 
     /** 任务结束时释放尚未提交协议命令的计划站台。 */

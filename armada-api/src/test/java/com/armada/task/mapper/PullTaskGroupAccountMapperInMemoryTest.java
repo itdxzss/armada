@@ -29,6 +29,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -250,7 +251,7 @@ class PullTaskGroupAccountMapperInMemoryTest {
     }
 
     @Test
-    void stationMembershipUsesCasAndCountsUnknownByPullCall() throws SQLException {
+    void stationMembershipUsesCasAndResolvesUnknownByPullCall() throws SQLException {
         PullTaskGroupAccount station =
                 role(100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
         mapper.insert(station);
@@ -264,14 +265,14 @@ class PullTaskGroupAccountMapperInMemoryTest {
         List<Integer> open = List.of(
                 PullTaskGroupAccountMembershipStatus.JOINING.code(),
                 PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
-        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(77L, open);
-        assertThat(mapper.countByPullCallAndMembershipStatuses(criteria)).isEqualTo(1);
+        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(EXEC_A, 77L, open);
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(criteria)).isTrue();
 
         assertThat(mapper.transitionMembership(new PullTaskFactTransition(
                 station.getId(), open,
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
                 PullTaskFactResult.success(null, 600L), 610L))).isEqualTo(1);
-        assertThat(mapper.countByPullCallAndMembershipStatuses(criteria)).isZero();
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(criteria)).isFalse();
         assertThat(mapper.selectById(station.getId()).getJoinedAt()).isEqualTo(600L);
     }
 
@@ -313,6 +314,31 @@ class PullTaskGroupAccountMapperInMemoryTest {
         assertThat(saved.getMembershipStatus())
                 .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
         assertThat(saved.getMembershipResultAt()).isNull();
+    }
+
+    @Test
+    void openMembershipFactsAreScopedByExecutionCallStatusAndTenant() {
+        PullTaskGroupAccount station =
+                role(100L, EXEC_A, 920L, PullTaskGroupAccountRole.STATION, 1);
+        station.setPullCallId(77L);
+        mapper.insert(station);
+        mapper.updateMembership(station.getId(),
+                PullTaskGroupAccountMembershipStatus.UNKNOWN.code(), null, 500L);
+        List<Integer> open = List.of(PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(
+                new PullTaskFactStatusCriteria(EXEC_A, 77L, open))).isTrue();
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(
+                new PullTaskFactStatusCriteria(EXEC_B, 77L, open))).isFalse();
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(
+                new PullTaskFactStatusCriteria(EXEC_A, 78L, open))).isFalse();
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(new PullTaskFactStatusCriteria(
+                EXEC_A, 77L, List.of(PullTaskGroupAccountMembershipStatus.IN_GROUP.code())))).isFalse();
+
+        TenantContext.set(8L);
+        assertThat(mapper.existsByPullCallAndMembershipStatuses(
+                new PullTaskFactStatusCriteria(EXEC_A, 77L, open))).isFalse();
     }
 
     @Test
@@ -557,6 +583,11 @@ class PullTaskGroupAccountMapperInMemoryTest {
         @Bean
         DataSource dataSource() {
             return PullTaskNormalLinkH2Support.dataSource("pull_task_group_account_test");
+        }
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
         }
 
         @Bean

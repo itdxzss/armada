@@ -1,0 +1,192 @@
+{
+  "date": "2026-09-07",
+  "environment": "test1 / armada",
+  "schema_changes": false,
+  "material": {
+    "command": "6356340d-fa88-440b-b14e-528b0e6460a4",
+    "instance": "i-06cf0d5fb86263860",
+    "status": "Success",
+    "start": "2026-09-07T06:48:22.318Z",
+    "end": "2026-09-07T06:48:26.318Z",
+    "result": {
+      "time": "2026-09-07T06:48:22.363527+00:00",
+      "calls_sampled": 22,
+      "plans": {
+        "old_count": {
+          "rc": 0,
+          "elapsed_seconds": 0.213,
+          "tables": [
+            {
+              "table_name": "pull_task_material_member",
+              "access_type": "ref",
+              "key": "uq_pull_task_material_seq",
+              "used_key_parts": [
+                "tenant_id"
+              ],
+              "rows_examined_per_scan": 43719,
+              "rows_produced_per_join": 874
+            }
+          ]
+        },
+        "scoped_exists": {
+          "rc": 0,
+          "elapsed_seconds": 0.1033,
+          "tables": [
+            {
+              "table_name": "pull_task_material_member",
+              "access_type": "range",
+              "key": "idx_pull_task_material_pending",
+              "used_key_parts": [
+                "tenant_id",
+                "group_execution_id",
+                "pull_status"
+              ],
+              "rows_examined_per_scan": 2,
+              "rows_produced_per_join": 0
+            }
+          ]
+        }
+      },
+      "equivalence": {
+        "rc": 0,
+        "checked": 22,
+        "matches": 22,
+        "mismatches": [],
+        "client_elapsed_seconds": 3.7331
+      }
+    }
+  },
+  "group_account": {
+    "command": "7693f8ce-e79d-4ebf-815b-399998790ca8",
+    "instance": "i-06cf0d5fb86263860",
+    "status": "Success",
+    "start": "2026-09-07T07:01:01.389Z",
+    "end": "2026-09-07T07:01:01.389Z",
+    "result": {
+      "time": "2026-09-07T07:01:01.441196+00:00",
+      "calls_sampled": 22,
+      "plans": {
+        "old_count": {
+          "rc": 0,
+          "elapsed_seconds": 0.0974,
+          "tables": [
+            {
+              "table_name": "pull_task_group_account",
+              "access_type": "ALL",
+              "rows_examined_per_scan": 1687,
+              "rows_produced_per_join": 33
+            }
+          ]
+        },
+        "scoped_exists": {
+          "rc": 0,
+          "elapsed_seconds": 0.095,
+          "tables": [
+            {
+              "table_name": "pull_task_group_account",
+              "access_type": "ref",
+              "key": "uq_pull_task_group_account_role",
+              "used_key_parts": [
+                "tenant_id",
+                "group_execution_id"
+              ],
+              "rows_examined_per_scan": 8,
+              "rows_produced_per_join": 0
+            }
+          ]
+        }
+      },
+      "equivalence": {
+        "rc": 0,
+        "checked": 22,
+        "matches": 22,
+        "mismatches": [],
+        "client_elapsed_seconds": 0.0886
+      }
+    }
+  },
+  "repository_statistics": {
+    "command": "cc15923a-3cf6-477d-bc3a-55577b448a09",
+    "instance": "i-06cf0d5fb86263860",
+    "status": "Success",
+    "start": "2026-09-07T07:07:33.636Z",
+    "end": "2026-09-07T07:07:33.636Z",
+    "result": {
+      "time": "2026-09-07T07:07:33.668311+00:00",
+      "tasks": [
+        {
+          "task_id": 197,
+          "explain_rc": 0,
+          "rc": 0,
+          "client_elapsed_seconds": 0.0501,
+          "statistics_tsv": "FACTS\t40\t40\t37\t13\t427\t0\tANDROID,WEB",
+          "outbox_plans": [
+            {
+              "table_name": "o",
+              "access_type": "eq_ref",
+              "key": "uk_command_id",
+              "used_key_parts": [
+                "command_id"
+              ],
+              "rows_examined_per_scan": 1
+            }
+          ]
+        },
+        {
+          "task_id": 198,
+          "explain_rc": 0,
+          "rc": 0,
+          "client_elapsed_seconds": 0.0538,
+          "statistics_tsv": "FACTS\t40\t40\t32\t14\t427\t0\tANDROID,WEB",
+          "outbox_plans": [
+            {
+              "table_name": "o",
+              "access_type": "eq_ref",
+              "key": "uk_command_id",
+              "used_key_parts": [
+                "command_id"
+              ],
+              "rows_examined_per_scan": 1
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "both_test_schema_indexes": {
+    "command": "b7bbc86c-316c-44d1-9ae4-85cdf747464d",
+    "instance": "i-06cf0d5fb86263860",
+    "status": "Success",
+    "start": "2026-09-07T07:14:42.988Z",
+    "end": "2026-09-07T07:14:42.988Z",
+    "result": {
+      "rc": 0,
+      "indexes": [
+        {
+          "index": "uq_pull_task_group_account_role",
+          "table": "pull_task_group_account",
+          "schema": "armada",
+          "columns": "tenant_id,group_execution_id,role_type,account_id"
+        },
+        {
+          "index": "idx_pull_task_material_pending",
+          "table": "pull_task_material_member",
+          "schema": "armada",
+          "columns": "tenant_id,group_execution_id,pull_status,member_seq"
+        },
+        {
+          "index": "uq_pull_task_group_account_role",
+          "table": "pull_task_group_account",
+          "schema": "armada_perf",
+          "columns": "tenant_id,group_execution_id,role_type,account_id"
+        },
+        {
+          "index": "idx_pull_task_material_pending",
+          "table": "pull_task_material_member",
+          "schema": "armada_perf",
+          "columns": "tenant_id,group_execution_id,pull_status,member_seq"
+        }
+      ]
+    }
+  }
+}

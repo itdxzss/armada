@@ -230,7 +230,7 @@ public class PullTaskUnknownResultReconciliationService {
                     PullTaskPullCallStatus.SUBMITTED.code());
             reconcileMaterials(call, materials, stale, context);
             reconcileStations(call, accounts, stale, context);
-            boolean unresolved = unresolved(call.getId());
+            boolean unresolved = unresolved(execution.getId(), call.getId());
             if (!unresolved) {
                 int changed = resources.callMapper().transitionResult(transition(
                         call.getId(), CALL_OPEN, PullTaskPullCallStatus.WRITTEN_BACK.code(),
@@ -398,13 +398,13 @@ public class PullTaskUnknownResultReconciliationService {
         }
     }
 
-    private boolean unresolved(long callId) {
-        PullTaskFactStatusCriteria pull = new PullTaskFactStatusCriteria(callId, PULL_OPEN);
+    private boolean unresolved(long executionId, long callId) {
+        PullTaskFactStatusCriteria pull = new PullTaskFactStatusCriteria(executionId, callId, PULL_OPEN);
         PullTaskFactStatusCriteria station = new PullTaskFactStatusCriteria(
-                callId, MEMBERSHIP_OPEN);
-        return resources.materialMapper().countByPullCallAndStatuses(pull) > 0
+                executionId, callId, MEMBERSHIP_OPEN);
+        return resources.materialMapper().existsByPullCallAndStatuses(pull)
                 || resources.accountMapper()
-                .countByPullCallAndMembershipStatuses(station) > 0;
+                .existsByPullCallAndMembershipStatuses(station);
     }
 
     private MemberSnapshot queryMembers(

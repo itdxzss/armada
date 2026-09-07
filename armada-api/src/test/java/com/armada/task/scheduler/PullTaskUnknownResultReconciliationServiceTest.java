@@ -22,6 +22,7 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskMemberFact;
 import com.armada.task.model.dto.PullTaskMemberQueryRequest;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
@@ -43,6 +44,8 @@ import com.armada.task.model.enums.PullTaskPullCallStatus;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 
 class PullTaskUnknownResultReconciliationServiceTest {
@@ -105,8 +108,8 @@ class PullTaskUnknownResultReconciliationServiceTest {
                 .thenReturn(List.of(protocol(101L, manager.getAccountPhone())));
         queryReturns(member("8613800000099", false));
         when(materialMapper.transitionPullResult(any())).thenReturn(1);
-        when(materialMapper.countByPullCallAndStatuses(any())).thenReturn(0);
-        when(accountMapper.countByPullCallAndMembershipStatuses(any())).thenReturn(0);
+        when(materialMapper.existsByPullCallAndStatuses(any())).thenReturn(false);
+        when(accountMapper.existsByPullCallAndMembershipStatuses(any())).thenReturn(false);
         when(callMapper.transitionResult(any())).thenReturn(1);
 
         PullTaskUnknownResultReconciliationStats stats =
@@ -125,6 +128,37 @@ class PullTaskUnknownResultReconciliationServiceTest {
         verify(waveProgress).wakeCollecting(7L, execution.getId(), 71L, NOW);
         verify(executionMapper, never()).transitionProtocolResult(any());
         assertThat(stats.confirmed()).isEqualTo(2);
+        verify(materialMapper).existsByPullCallAndStatuses(new PullTaskFactStatusCriteria(
+                execution.getId(), call.getId(), List.of(
+                        PullTaskMaterialPullStatus.SUBMITTED.code(),
+                        PullTaskMaterialPullStatus.UNKNOWN.code())));
+        verify(accountMapper).existsByPullCallAndMembershipStatuses(new PullTaskFactStatusCriteria(
+                execution.getId(), call.getId(), List.of(
+                        PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                        PullTaskGroupAccountMembershipStatus.UNKNOWN.code())));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "false,true"})
+    void unknownCallRemainsOpenWhileEitherFactSourceIsUnresolved(
+            boolean unresolvedMaterial, boolean unresolvedStation) {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        PullTaskPullCall call = call(31L, PullTaskPullCallStatus.UNKNOWN.code(), 20_000L);
+        stubRows(execution.getId(), List.of(), List.of(), List.of(call));
+        when(materialMapper.existsByPullCallAndStatuses(any())).thenReturn(unresolvedMaterial);
+        when(accountMapper.existsByPullCallAndMembershipStatuses(any())).thenReturn(unresolvedStation);
+
+        PullTaskUnknownResultReconciliationStats stats = service.reconcile(execution, CUTOFF, NOW);
+
+        verify(callMapper, never()).transitionResult(any());
+        verify(materialMapper).existsByPullCallAndStatuses(new PullTaskFactStatusCriteria(
+                execution.getId(), call.getId(), List.of(
+                        PullTaskMaterialPullStatus.SUBMITTED.code(),
+                        PullTaskMaterialPullStatus.UNKNOWN.code())));
+        verify(accountMapper, times(unresolvedMaterial ? 0 : 1))
+                .existsByPullCallAndMembershipStatuses(any());
+        assertThat(stats.confirmed()).isZero();
+        assertThat(stats.markedUnknown()).isZero();
     }
 
     @Test

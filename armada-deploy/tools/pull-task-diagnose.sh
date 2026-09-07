@@ -10,6 +10,7 @@ REPO_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${REPO_ROOT}/.." && pwd)"
 PROFILE_DIR="${ARMADA_DIAG_PROFILE_DIR:-${DEPLOY_DIR}/envs}"
 DIAGNOSIS_SQL="${REPO_ROOT}/docs/operations/pull-task-normal-link-diagnosis.sql"
+STATISTICS_SQL="${REPO_ROOT}/docs/operations/pull-task-fact-statistics.sql"
 SSH_BIN="${ARMADA_DIAG_SSH_BIN:-ssh}"
 
 # shellcheck source=../lib/common.sh
@@ -34,6 +35,7 @@ pull-task-diagnose.sh - 拉群任务测试环境只读快速诊断。
   -h, --help        显示帮助。
 
 安全边界:
+  单条查询最多执行 5 秒，超时立即退出。
   只执行 SET / SELECT / WITH 诊断 SQL；不重试、不修改状态、不释放资源、不重启服务。
 EOF
 }
@@ -153,6 +155,7 @@ case "${EXPECTED_DB_SCHEMA}" in
   ''|*[!A-Za-z0-9_]*) die "预期数据库 schema 不合法: ${EXPECTED_DB_SCHEMA}" ;;
 esac
 [ -f "${DIAGNOSIS_SQL}" ] || die "缺少诊断 SQL: ${DIAGNOSIS_SQL}"
+[ -f "${STATISTICS_SQL}" ] || die "缺少统计 SQL: ${STATISTICS_SQL}"
 command -v "${SSH_BIN}" >/dev/null 2>&1 || die "找不到 SSH 命令: ${SSH_BIN}"
 
 render_parameter_block() {
@@ -242,6 +245,7 @@ render_sql() {
     printf 'SET @execution_id := NULL;\n'
   fi
   render_summary_queries
+  cat "${STATISTICS_SQL}"
   render_anomaly_query
 }
 
@@ -330,6 +334,13 @@ EXECUTION_WAIT_RESOURCE=0
 EXECUTION_TERMINAL=0
 EXECUTION_DUE=0
 EXECUTION_NOT_DUE=0
+FACT_ACTIONS=0
+FACT_ACTION_COMMANDS=0
+FACT_CALLS=0
+FACT_CALL_COMMANDS=0
+FACT_MATERIALS=0
+FACT_UNRELEASED_PULLERS=0
+FACT_BACKENDS="-"
 RECONCILE_OVERDUE_SECONDS=180
 MARKETING_TARGET=""
 MARKETING_WAITING=0
@@ -368,6 +379,15 @@ while IFS=$'\t' read -r column1 column2 column3 column4 column5 column6 column7 
       ;;
     THRESHOLDS)
       RECONCILE_OVERDUE_SECONDS="${column2}"
+      ;;
+    FACTS)
+      FACT_ACTIONS="${column2}"
+      FACT_ACTION_COMMANDS="${column3}"
+      FACT_CALLS="${column4}"
+      FACT_CALL_COMMANDS="${column5}"
+      FACT_MATERIALS="${column6}"
+      FACT_UNRELEASED_PULLERS="${column7}"
+      FACT_BACKENDS="${column8}"
       ;;
     MARKETING)
       MARKETING_TARGET="${column2}"
@@ -439,6 +459,9 @@ case "${TASK_TYPE}/${TASK_MODE}" in
     printf '  执行行: 总数=%s 活动=%s 等资源=%s 终态=%s 已到期=%s 未到期=%s\n' \
       "${EXECUTION_TOTAL}" "${EXECUTION_ACTIVE}" "${EXECUTION_WAIT_RESOURCE}" \
       "${EXECUTION_TERMINAL}" "${EXECUTION_DUE}" "${EXECUTION_NOT_DUE}"
+    printf '  事实统计: 动作=%s 动作命令=%s 拉人调用=%s 拉人命令=%s 料子=%s 未释放拉手=%s 后端=%s\n' \
+      "${FACT_ACTIONS}" "${FACT_ACTION_COMMANDS}" "${FACT_CALLS}" "${FACT_CALL_COMMANDS}" \
+      "${FACT_MATERIALS}" "${FACT_UNRELEASED_PULLERS}" "${FACT_BACKENDS}"
     if [ "${ANOMALY_COUNT}" -eq 0 ]; then
       printf '  结论: 未发现超过宽限期的异常候选\n'
     elif [ "${ACTIONABLE_COUNT}" -eq 0 ]; then

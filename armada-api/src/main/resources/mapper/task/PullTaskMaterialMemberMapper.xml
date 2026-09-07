@@ -163,13 +163,16 @@
                open="(" separator="," close=")">#{status}</foreach>
   </update>
 
-  <select id="countByPullCallAndStatuses" resultType="java.lang.Integer">
-    SELECT COUNT(*)
-    FROM pull_task_material_member
-    WHERE pull_call_id = #{criteria.ownerId}
-      AND pull_status IN
-      <foreach collection="criteria.statuses" item="status"
-               open="(" separator="," close=")">#{status}</foreach>
+  <select id="existsByPullCallAndStatuses" resultType="java.lang.Boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM pull_task_material_member
+      WHERE group_execution_id = #{criteria.groupExecutionId}
+        AND pull_call_id = #{criteria.pullCallId}
+        AND pull_status IN
+        <foreach collection="criteria.statuses" item="status"
+                 open="(" separator="," close=")">#{status}</foreach>
+    )
   </select>
 
   <!-- 入群失败或结果未知的标记料子不提权(pull_status = 2 才进)。 -->

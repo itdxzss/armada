@@ -279,13 +279,16 @@
       AND membership_status &lt;&gt; #{transition.target.status}
   </update>
 
-  <select id="countByPullCallAndMembershipStatuses" resultType="java.lang.Integer">
-    SELECT COUNT(*)
-    FROM pull_task_group_account
-    WHERE pull_call_id = #{criteria.ownerId}
-      AND membership_status IN
-      <foreach collection="criteria.statuses" item="status"
-               open="(" separator="," close=")">#{status}</foreach>
+  <select id="existsByPullCallAndMembershipStatuses" resultType="java.lang.Boolean">
+    SELECT EXISTS (
+      SELECT 1
+      FROM pull_task_group_account
+      WHERE group_execution_id = #{criteria.groupExecutionId}
+        AND pull_call_id = #{criteria.pullCallId}
+        AND membership_status IN
+        <foreach collection="criteria.statuses" item="status"
+                 open="(" separator="," close=")">#{status}</foreach>
+    )
   </select>
 
   <update id="cancelPlannedStationMembershipByTask">

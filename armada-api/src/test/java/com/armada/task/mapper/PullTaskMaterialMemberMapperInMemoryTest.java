@@ -28,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -218,14 +219,14 @@ class PullTaskMaterialMemberMapperInMemoryTest {
     }
 
     @Test
-    void submittedAndUnknownPullFactsConvergeByCasAndAreCountedPerCall() {
+    void submittedAndUnknownPullFactsConvergeByCasAndResolveTheCall() {
         mapper.batchInsert(List.of(member(1, "8613800000001", 1)));
         Long id = mapper.selectUnconsumed(EXECUTION, 1).get(0).getId();
         mapper.assignToCall(List.of(id), 900L, 900L);
         List<Integer> open = List.of(PullTaskMaterialPullStatus.SUBMITTED.code(),
                 PullTaskMaterialPullStatus.UNKNOWN.code());
-        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(900L, open);
-        assertThat(mapper.countByPullCallAndStatuses(criteria)).isEqualTo(1);
+        PullTaskFactStatusCriteria criteria = new PullTaskFactStatusCriteria(EXECUTION, 900L, open);
+        assertThat(mapper.existsByPullCallAndStatuses(criteria)).isTrue();
 
         assertThat(mapper.transitionPullResult(new PullTaskFactTransition(
                 id, List.of(PullTaskMaterialPullStatus.SUBMITTED.code()),
@@ -236,7 +237,7 @@ class PullTaskMaterialMemberMapperInMemoryTest {
                 PullTaskFactResult.success(
                         "8613800000001@s.whatsapp.net", 980L), 980L)))
                 .isEqualTo(1);
-        assertThat(mapper.countByPullCallAndStatuses(criteria)).isZero();
+        assertThat(mapper.existsByPullCallAndStatuses(criteria)).isFalse();
         PullTaskMaterialMember saved = mapper.selectByExecution(EXECUTION).get(0);
         assertThat(saved.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
         assertThat(saved.getWaJid()).isEqualTo("8613800000001@s.whatsapp.net");
@@ -251,6 +252,28 @@ class PullTaskMaterialMemberMapperInMemoryTest {
                 .isEqualTo(1);
         assertThat(mapper.selectByExecution(EXECUTION).get(0).getAdminStatus())
                 .isEqualTo(PullTaskMaterialAdminStatus.SUCCESS.code());
+    }
+
+    @Test
+    void openPullFactsAreScopedByExecutionCallStatusAndTenant() {
+        mapper.batchInsert(List.of(member(1, "8613800000001", 0)));
+        Long id = mapper.selectUnconsumed(EXECUTION, 1).get(0).getId();
+        mapper.assignToCall(List.of(id), 900L, 900L);
+        List<Integer> open = List.of(PullTaskMaterialPullStatus.SUBMITTED.code(),
+                PullTaskMaterialPullStatus.UNKNOWN.code());
+
+        assertThat(mapper.existsByPullCallAndStatuses(
+                new PullTaskFactStatusCriteria(EXECUTION, 900L, open))).isTrue();
+        assertThat(mapper.existsByPullCallAndStatuses(
+                new PullTaskFactStatusCriteria(EXECUTION + 1, 900L, open))).isFalse();
+        assertThat(mapper.existsByPullCallAndStatuses(
+                new PullTaskFactStatusCriteria(EXECUTION, 901L, open))).isFalse();
+        assertThat(mapper.existsByPullCallAndStatuses(new PullTaskFactStatusCriteria(
+                EXECUTION, 900L, List.of(PullTaskMaterialPullStatus.SUCCESS.code())))).isFalse();
+
+        TenantContext.set(8L);
+        assertThat(mapper.existsByPullCallAndStatuses(
+                new PullTaskFactStatusCriteria(EXECUTION, 900L, open))).isFalse();
     }
 
     @Test
@@ -433,6 +456,11 @@ class PullTaskMaterialMemberMapperInMemoryTest {
         @Bean
         DataSource dataSource() {
             return PullTaskNormalLinkH2Support.dataSource("pull_task_material_member_test");
+        }
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
         }
 
         @Bean

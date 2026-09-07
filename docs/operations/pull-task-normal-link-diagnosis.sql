@@ -11,6 +11,10 @@
 -- 参数块：每次排查前整块执行一次，保证结果 0 到结果 9 使用同一时间基准。
 -- ---------------------------------------------------------------------------
 
+-- 仅用于独立诊断连接；连接超时不能代替查询执行超时。
+SET SESSION MAX_EXECUTION_TIME = 5000;
+SET SESSION TRANSACTION READ ONLY;
+
 -- 统一时间基准；用 SIGNED 保证与未来时间(next_run_at)相减不会触发无符号溢出。
 SET @now := CAST(FLOOR(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) AS SIGNED);
 

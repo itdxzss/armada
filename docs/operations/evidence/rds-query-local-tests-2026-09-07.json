@@ -1,0 +1,194 @@
+{
+  "base_commit": "3a5e298b",
+  "local_suite": {
+    "tests": 3786,
+    "failures": 9,
+    "errors": 16,
+    "skipped": 4
+  },
+  "baseline_reproduction": {
+    "tests": 104,
+    "failures": 9,
+    "errors": 16,
+    "skipped": 0
+  },
+  "failure_cases_and_types_match": true,
+  "failure_first_messages_match": true,
+  "failures": [
+    {
+      "class": "com.armada.group.HistoricalGroupPreviewSchemaSqlTest",
+      "test": "previewUpsertPersistsCreatedAtWithoutErasingKnownValueWithNull",
+      "kind": "failure",
+      "type": "java.lang.AssertionError",
+      "message": "Expecting actual:"
+    },
+    {
+      "class": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test",
+      "test": "accountListReadsCurrentBindingWhileMarketingTreeKeepsItsOwnCountSemantics",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"a.declared_account_type\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.group.service.impl.AccountGroupCurrentSnapshotPersistenceMySqlTest",
+      "test": "completeSnapshotOf400GroupsUsesAtMostElevenStatementsAndClassifiesBaselineSafely",
+      "kind": "failure",
+      "type": "org.opentest4j.AssertionFailedError",
+      "message": "expected: 200"
+    },
+    {
+      "class": "com.armada.group.service.impl.AccountGroupCurrentSnapshotPersistenceMySqlTest",
+      "test": "preciseSelfMembershipDualWriteKeepsClassificationAndExitMeaning",
+      "kind": "failure",
+      "type": "java.lang.AssertionError",
+      "message": "Expecting map:"
+    },
+    {
+      "class": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest",
+      "test": "addBatchExceptionFailsThatBatchAndContinuesNextBatchWithoutRetry",
+      "kind": "failure",
+      "type": "Argument(s) are different! Wanted",
+      "message": "Argument(s) are different! Wanted:"
+    },
+    {
+      "class": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest",
+      "test": "usesOneRandomPullerPersistedLinkMarketingFirstBatchesAndAddBasedStatistics",
+      "kind": "failure",
+      "type": "Argument(s) are different! Wanted",
+      "message": "Argument(s) are different! Wanted:"
+    },
+    {
+      "class": "com.armada.marketing.mapper.GroupCreationMarketingTaskMapperSqlShapeTest",
+      "test": "accountRetryMapperStatementsKeepItemRetryScopedToOneItem",
+      "kind": "failure",
+      "type": "java.lang.AssertionError",
+      "message": "Expecting actual:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "concurrentServicesAllowExactlyOnePoolToOccupyTheSameGroup",
+      "kind": "error",
+      "type": "java.util.concurrent.ExecutionException",
+      "message": "org.springframework.jdbc.BadSqlGrammarException: "
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "currentBindingsOverrideStaleLegacyMembershipForCandidateEligibility",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "deduplicatesGroupAndAggregatesEligibleManagersAcrossAccounts",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "filtersBySourceAndKeepsOtherTenantsOut",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "managerPhoneFilterDoesNotMatchOrdinaryMemberRelations",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "rollsBackInsertedWaitingWhenExternalCountryAssemblyFails",
+      "kind": "failure",
+      "type": "java.lang.AssertionError",
+      "message": "Expecting actual throwable to be an instance of:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "serviceRoundTripUsesRealTransactionsAndMockedCountryReference",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+      "test": "showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperBusinessConditionTest",
+      "test": "businessStatusConditionsMustComeFromJavaParameters",
+      "kind": "failure",
+      "type": "org.opentest4j.AssertionFailedError",
+      "message": "[PullTaskGroupExecutionMapper.xml contains a hardcoded equality status condition] "
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperInMemoryTest",
+      "test": "filtersMarketingTasksAndKeepsTenantRowsIsolated",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"task_row.creation_mode\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperInMemoryTest",
+      "test": "softDeletesOnlyStatusesAllowedForEachTaskType",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"task_row.creation_mode\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperInMemoryTest",
+      "test": "standardNormalLinkListUsesNormalizedGroupSettingName",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"task_row.creation_mode\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperInMemoryTest",
+      "test": "supportsExactFieldsLimitAndDescendingIdOrder",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"task_row.creation_mode\" not found; SQL statement:"
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStationSupplementServiceTest",
+      "test": "automaticSupplementFreezesTheRequestedNumberOfCandidates",
+      "kind": "error",
+      "type": "com.armada.shared.exception.BusinessException",
+      "message": "执行行当前不处于等待站台状态"
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStationSupplementServiceTest",
+      "test": "manualSupplementLocksOnlyTheStationAndPreservesManualPause",
+      "kind": "error",
+      "type": "com.armada.shared.exception.BusinessException",
+      "message": "执行行当前不处于等待站台状态"
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStationSupplementServiceTest",
+      "test": "rejectsOverfillAndManualAccountsOutsideCurrentCandidates",
+      "kind": "failure",
+      "type": "java.lang.AssertionError",
+      "message": "Expecting throwable message:"
+    },
+    {
+      "class": "com.armada.testsupport.MysqlModeMapperInMemoryTest",
+      "test": "groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement \"SELECT *\\000a    FROM group_link FORCE [*]INDEX (PRIMARY)\\000a    WHERE tenant_id = ?\\000a      AND deleted_at IS NULL\\000a      AND id IN\\000a     (  ? , ? ) \\000a    ORDER BY id\\000a    FOR UPDATE\"; SQL statement:"
+    },
+    {
+      "class": "com.armada.testsupport.MysqlModeMapperInMemoryTest",
+      "test": "groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary",
+      "kind": "error",
+      "type": "org.springframework.jdbc.BadSqlGrammarException",
+      "message": "### Error querying database.  Cause: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"f.system_builtin\" not found; SQL statement:"
+    }
+  ]
+}

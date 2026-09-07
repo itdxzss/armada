@@ -49,8 +49,10 @@ bash armada-deploy/tools/pull-task-diagnose.sh \
 - 要求显式选择 `test1` 或 `perf2`，不提供生产环境入口。
 - 先读取后端运行时和 `pull_task.task_type/mode`，避免拿本地新代码或错误状态机解释环境数据。
 - 对 `STANDARD/NORMAL_LINK` 先输出任务/执行行摘要，再复用本手册结果 9 定点输出异常 `executionId/commandId`。
+- 同时输出账号动作、动作命令、拉人调用、拉人命令、料子、未释放拉手及协议后端统计。各明细独立聚合后再关联，避免数量被多表连接重复放大；`--execution-id` 对这些统计共同生效。
 - 对 `GROUP_MARKETING` 自动转到任务级聚合摘要，不套用普通拉群的七阶段状态机。
 - 只执行 `SET` / `SELECT` / `WITH`；不会重试、恢复、释放资源、修改状态或重启服务。
+- 独立诊断连接启用会话只读和 `MAX_EXECUTION_TIME=5000`；单条 SELECT 超过 5 秒即终止并报错。大任务优先用 `--execution-id` 收窄。
 - 不查询或输出完整号码、群链接、WhatsApp JID 和命令 payload。MySQL 密码只在远端进程环境中使用。
 
 该入口输出的“异常候选”仍不等于最终故障结论；有 `commandId` 时再进入 Armada / Outbox / 协议日志核对，无候选时不盲查协议层。

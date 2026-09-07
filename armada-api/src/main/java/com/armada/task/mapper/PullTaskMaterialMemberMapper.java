@@ -202,8 +202,8 @@ public interface PullTaskMaterialMemberMapper {
     /** 从已提交/未知等允许状态 CAS 收敛单个号码的入群结果。 */
     int transitionPullResult(@Param("transition") PullTaskFactTransition transition);
 
-    /** 统计一次拉人调用中仍处于指定状态的料子数量。 */
-    int countByPullCallAndStatuses(
+    /** 判断本执行行的一次拉人调用是否仍有指定状态的料子。 */
+    boolean existsByPullCallAndStatuses(
             @Param("criteria") PullTaskFactStatusCriteria criteria);
 
     /**

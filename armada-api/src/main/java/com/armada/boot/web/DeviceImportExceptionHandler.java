@@ -35,7 +35,7 @@ public class DeviceImportExceptionHandler {
         }
         if (error instanceof HttpMessageNotReadableException) {
             status = HttpStatus.BAD_REQUEST;
-            message = "请求必须包含合法的 phone 和 payload";
+            message = "请求必须包含合法的 accountGroupId、phone 和 payload";
         } else if (error instanceof MaxUploadSizeExceededException) {
             status = HttpStatus.PAYLOAD_TOO_LARGE;
             message = "请求内容过大";
@@ -50,7 +50,10 @@ public class DeviceImportExceptionHandler {
             return response(HttpStatus.CONFLICT, "账号已导入或正在上线，请在控端查看并处理");
         }
         if (code == ErrorCode.VALIDATION.code()) {
-            return response(HttpStatus.BAD_REQUEST, "phone 或 payload 不合法，请检查全参内容与号码");
+            return response(HttpStatus.BAD_REQUEST, "分组、phone 或 payload 不合法，请检查上传内容");
+        }
+        if (code == ErrorCode.NOT_FOUND.code()) {
+            return response(HttpStatus.BAD_REQUEST, "所选分组不可用，请刷新分组列表后重试");
         }
         if (code == ErrorCode.TENANT_MISSING.code()) {
             return response(HttpStatus.UNAUTHORIZED, "导入令牌无效");

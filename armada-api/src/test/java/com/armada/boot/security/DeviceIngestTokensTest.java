@@ -21,10 +21,10 @@ class DeviceIngestTokensTest {
     @Test
     void resolvesOnlyExactTokenAndServerDefaults() {
         String token = DeviceImportTestData.token();
-        DeviceIngestTokens tokens = new DeviceIngestTokens(DeviceImportTestData.clients(token, 7, 11));
+        DeviceIngestTokens tokens = new DeviceIngestTokens(DeviceImportTestData.clients(token, 7));
         var defaults = tokens.resolve(token).orElseThrow();
         assertThat(defaults.tenantId()).isEqualTo(7);
-        assertThat(defaults.metadata().accountGroupId()).isEqualTo(11);
+        assertThat(defaults.metadata().accountGroupId()).isNull();
         assertThat(defaults.metadata().importFormat()).isEqualTo(3);
         assertThat(defaults.metadata().deviceOs()).isEqualTo(2);
         assertThat(defaults.metadata().accountType()).isEqualTo(2);
@@ -52,12 +52,12 @@ class DeviceIngestTokensTest {
     @Test
     void invalidAndDuplicateMappingsFailClosed() {
         String token = DeviceImportTestData.token();
-        String valid = DeviceImportTestData.clients(token, 7, 11);
+        String valid = DeviceImportTestData.clients(token, 7);
         for (String invalid : new String[]{"", "[]", "{}", valid + " {}",
                 valid.replace("\"tenantId\":7", "\"tenantId\":0"),
                 valid.replace("\"deviceOs\":2", "\"deviceOs\":3"),
                 valid.replace("\"accountType\":2", "\"accountType\":null"),
-                valid.replace("\"accountGroupId\":11", "\"accountGroupId\":\"11\""),
+                valid.replace("\"tenantId\":7", "\"tenantId\":7,\"accountGroupId\":11"),
                 valid.replace("mixed", "invalid"), valid.replace(token, "too-short"),
                 valid.substring(0, valid.length() - 1) + "," + valid.substring(1)}) {
             assertThatThrownBy(() -> new DeviceIngestTokens(invalid))

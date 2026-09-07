@@ -83,18 +83,21 @@ public final class DeviceIngestAuthenticationFilter extends OncePerRequestFilter
     }
 
     private boolean validRoute(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (!DeviceImportController.PATH.equals(request.getRequestURI()) || request.getQueryString() != null) {
+        if (!DeviceImportController.PATHS.contains(request.getRequestURI()) || request.getQueryString() != null) {
             reject(response, HttpStatus.BAD_REQUEST, "请求路径不正确");
             return false;
         }
+        HttpMethod method = DeviceImportController.GROUPS_PATH.equals(request.getRequestURI())
+                ? HttpMethod.GET : HttpMethod.POST;
+        String allowed = method.name() + ", OPTIONS";
         if (HttpMethod.OPTIONS.matches(request.getMethod())) {
-            response.setHeader(HttpHeaders.ALLOW, "POST, OPTIONS");
+            response.setHeader(HttpHeaders.ALLOW, allowed);
             response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
             response.setStatus(HttpStatus.NO_CONTENT.value());
             return false;
         }
-        if (!HttpMethod.POST.matches(request.getMethod())) {
-            response.setHeader(HttpHeaders.ALLOW, "POST, OPTIONS");
+        if (!method.matches(request.getMethod())) {
+            response.setHeader(HttpHeaders.ALLOW, allowed);
             reject(response, HttpStatus.METHOD_NOT_ALLOWED, "请求方法不支持");
             return false;
         }
@@ -102,6 +105,14 @@ public final class DeviceIngestAuthenticationFilter extends OncePerRequestFilter
     }
 
     private boolean validContent(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (HttpMethod.GET.matches(request.getMethod())) {
+            // 分组查询不接收凭据或筛选参数，未知长度的请求体同样拒绝。
+            if (request.getInputStream().read() != -1) {
+                reject(response, HttpStatus.BAD_REQUEST, "分组查询不能包含请求体");
+                return false;
+            }
+            return true;
+        }
         try {
             MediaType type = MediaType.parseMediaType(request.getContentType() == null ? "" : request.getContentType());
             if (!"application".equalsIgnoreCase(type.getType()) || !"json".equalsIgnoreCase(type.getSubtype())) {

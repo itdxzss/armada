@@ -1,5 +1,7 @@
 # 变更记录：手机直传凭据控端入口
 
+> 后续变更：用户已要求手机查询并选择分组。当前契约见 [选组联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)；本文的固定分组、两字段请求和单路径约束仅保留为原始实施记录，不再作为当前接口要求。
+
 - 日期 / 分支：2026-09-07 / `codex/device-import-ingest-integration`。
 - worktree：`/Users/daishuaishuai/IdeaProjects/armada/.worktrees/device-import-ingest-main`。
 - 来源：用户要求执行 `wa-biz-compat-v8-extension/docs/2026-09-07-control-side-ingest-agent-prompt.md`。

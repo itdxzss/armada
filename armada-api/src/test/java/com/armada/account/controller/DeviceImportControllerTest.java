@@ -16,7 +16,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.armada.account.model.dto.DeviceImportDTO;
+import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.model.vo.DeviceImportVO;
+import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.DeviceImportService;
 import com.armada.admin.service.CurrentIdentityService;
 import com.armada.boot.config.DeviceIngestConfig;
@@ -34,6 +37,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.testsupport.DeviceImportTestData;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,18 +65,19 @@ class DeviceImportControllerTest {
     private static final String PATH = "/api/device-imports";
     @Autowired private WebApplicationContext context;
     @Autowired private DeviceImportService service;
+    @Autowired private AccountGroupService groups;
     @Autowired private SessionService sessions;
     @Autowired private TenantMapper tenants;
     private MockMvc mvc;
 
     @DynamicPropertySource
     static void configuration(DynamicPropertyRegistry registry) {
-        registry.add("ARMADA_DEVICE_INGEST_CLIENTS_JSON", () -> DeviceImportTestData.clients(TOKEN, 7, 11));
+        registry.add("ARMADA_DEVICE_INGEST_CLIENTS_JSON", () -> DeviceImportTestData.clients(TOKEN, 7));
     }
 
     @BeforeEach
     void setUp() {
-        reset(service, sessions, tenants);
+        reset(service, groups, sessions, tenants);
         TenantContext.clear();
         SecurityContextHolder.clearContext();
         Tenant tenant = new Tenant();
@@ -86,15 +91,72 @@ class DeviceImportControllerTest {
     }
 
     @Test
+    void groupOptionsUseTokenTenantWithoutAdminIdentityOrRequestBody() throws Exception {
+        when(groups.options()).thenAnswer(call -> {
+            assertThat(TenantContext.get()).isEqualTo(7L);
+            return List.of(new AccountGroupOptionVO(11L, "手机上传组"));
+        });
+        mvc.perform(get(PATH + "/groups").header("X-Ingest-Token", TOKEN)
+                        .header("Authorization", "Bearer " + DeviceImportTestData.token())
+                        .header("X-Tenant-Code", "other-tenant"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(11))
+                .andExpect(jsonPath("$[0].name").value("手机上传组"))
+                .andExpect(jsonPath("$[0].tenantId").doesNotExist())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        verifyNoInteractions(sessions, service);
+        assertThat(TenantContext.get()).isNull();
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    }
+
+    @Test
+    void groupOptionsRejectMissingTokenAndDoNotExposeAdminGroupApi() throws Exception {
+        mvc.perform(get(PATH + "/groups")).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").isString()).andExpect(jsonPath("$.code").doesNotExist());
+        mvc.perform(get(PATH + "/groups").header("X-Ingest-Token", TOKEN, TOKEN))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/account-groups").header("X-Ingest-Token", TOKEN))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(groups, service, tenants);
+    }
+
+    @Test
+    void groupOptionsEnforceReadOnlyRouteAndSafeErrors() throws Exception {
+        String path = PATH + "/groups";
+        mvc.perform(post(path).header("X-Ingest-Token", TOKEN))
+                .andExpect(status().isMethodNotAllowed()).andExpect(header().string("Allow", "GET, OPTIONS"));
+        mvc.perform(options(path)).andExpect(status().isNoContent())
+                .andExpect(header().string("Allow", "GET, OPTIONS"))
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+        mvc.perform(get(path + "?tenantId=8").header("X-Ingest-Token", TOKEN))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get(path).header("X-Ingest-Token", TOKEN).accept(MediaType.TEXT_PLAIN))
+                .andExpect(status().isNotAcceptable());
+        mvc.perform(get(path).header("X-Ingest-Token", TOKEN).content("{}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(groups);
+        when(groups.options()).thenReturn(List.of());
+        mvc.perform(get(path).header("X-Ingest-Token", TOKEN)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException(DeviceImportTestData.token()))
+                .when(groups).options();
+        mvc.perform(get(path).header("X-Ingest-Token", TOKEN)).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.message").isString()).andExpect(jsonPath("$.code").doesNotExist());
+        assertThat(TenantContext.get()).isNull();
+    }
+
+    @Test
     void exactSuccessContractUsesTokenTenantEvenWithBearer() throws Exception {
         doAnswer(call -> {
             assertThat(TenantContext.get()).isEqualTo(7L);
+            DeviceImportDTO body = call.getArgument(0);
+            assertThat(body.accountGroupId()).isEqualTo(11L);
             return new DeviceImportVO(123L, "QUEUED");
         }).when(service).importAccount(any(), any());
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON)
                         .header("X-Ingest-Token", TOKEN).header("Authorization", "Bearer " + DeviceImportTestData.token())
                         .header("X-Tenant-Code", "other-tenant")
-                        .content(DeviceImportTestData.body("999000000001", "{}")))
+                        .content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.batchId").value(123))
                 .andExpect(jsonPath("$.onlinePhase").value("QUEUED"))
                 .andExpect(jsonPath("$.code").doesNotExist()).andExpect(jsonPath("$.data").doesNotExist())
@@ -121,8 +183,20 @@ class DeviceImportControllerTest {
         mvc.perform(get("/api/account-imports").header("X-Ingest-Token", TOKEN))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).header("X-Ingest-Token", TOKEN)
-                        .content(DeviceImportTestData.body("999000000001", "{}")))
+                        .content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void unavailableSelectedGroupReturnsActionable400WithoutLeakingGroupIdentity() throws Exception {
+        String sentinel = DeviceImportTestData.token();
+        doThrow(new BusinessException(ErrorCode.NOT_FOUND, sentinel)).when(service).importAccount(any(), any());
+        var result = mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN).contentType(MediaType.APPLICATION_JSON)
+                        .content(DeviceImportTestData.body(11L, "999000000001", "{}")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("所选分组不可用，请刷新分组列表后重试"))
+                .andReturn().getResponse();
+        assertThat(result.getContentAsString().contains(sentinel)).isFalse();
     }
 
     @Test
@@ -133,7 +207,9 @@ class DeviceImportControllerTest {
                 "{\"phone\":\"999000000001\",\"payload\":{}}",
                 "{\"phone\":\"999000000001\",\"payload\":\"{}\",\"tenantId\":8}",
                 "{\"phone\":\"999000000001\",\"phone\":\"999000000002\",\"payload\":\"{}\"}",
-                DeviceImportTestData.body("999000000001", "{}") + "{}"}) {
+                "{\"phone\":\"999000000001\",\"payload\":\"{}\"}",
+                DeviceImportTestData.body(11L, "999000000001", "{}").replaceFirst("\\{", "{\"tenantId\":8,"),
+                DeviceImportTestData.body(11L, "999000000001", "{}") + "{}"}) {
             var response = mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON)
                             .header("X-Ingest-Token", TOKEN).content(body))
                     .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").isString())
@@ -172,7 +248,7 @@ class DeviceImportControllerTest {
     @Test
     void unsupportedAcceptMustNotFallThroughToAdminErrorEnvelope() throws Exception {
         mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN).accept(MediaType.TEXT_PLAIN)
-                        .contentType(MediaType.APPLICATION_JSON).content(DeviceImportTestData.body("999000000001", "{}")))
+                        .contentType(MediaType.APPLICATION_JSON).content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                 .andExpect(status().isNotAcceptable()).andExpect(jsonPath("$.message").isString())
                 .andExpect(jsonPath("$.code").doesNotExist());
         verifyNoInteractions(service);
@@ -188,7 +264,7 @@ class DeviceImportControllerTest {
         try {
             doThrow(new BusinessException(ErrorCode.CONFLICT, sentinel)).when(service).importAccount(any(), any());
             mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN).contentType(MediaType.APPLICATION_JSON)
-                            .content(DeviceImportTestData.body("999000000001", sentinel)))
+                            .content(DeviceImportTestData.body(11L, "999000000001", sentinel)))
                     .andExpect(status().isConflict());
             mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN).contentType(MediaType.APPLICATION_JSON)
                             .content("{\"payload\":\"" + sentinel))
@@ -220,7 +296,7 @@ class DeviceImportControllerTest {
                 new IllegalStateException(sentinel)}) {
             doThrow(error).when(service).importAccount(any(), any());
             var response = mvc.perform(post(PATH).header("X-Ingest-Token", TOKEN)
-                            .contentType(MediaType.APPLICATION_JSON).content(DeviceImportTestData.body("999000000001", "{}")))
+                            .contentType(MediaType.APPLICATION_JSON).content(DeviceImportTestData.body(11L, "999000000001", "{}")))
                     .andExpect(status().is(error instanceof BusinessException ? 409 : 500))
                     .andExpect(jsonPath("$.message").isString()).andExpect(jsonPath("$.code").doesNotExist())
                     .andReturn().getResponse();
@@ -240,6 +316,7 @@ class DeviceImportControllerTest {
             return new com.fasterxml.jackson.databind.ObjectMapper();
         }
         @Bean DeviceImportService deviceImportService() { return mock(DeviceImportService.class); }
+        @Bean AccountGroupService accountGroupService() { return mock(AccountGroupService.class); }
         @Bean SessionService sessionService() { return mock(SessionService.class); }
         @Bean CurrentIdentityService currentIdentityService() { return mock(CurrentIdentityService.class); }
         @Bean TenantMapper tenantMapper() { return mock(TenantMapper.class); }

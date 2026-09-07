@@ -9,7 +9,7 @@ public interface DeviceImportService {
 
     /**
      * 将一个手机账号原子导入既有 QUEUED 链路。
-     * @param request 手机号码和全参原文
+     * @param request 选择的账号分组、手机号码和全参原文
      * @param defaults 服务端认证产生的租户和默认值
      * @return 事务提交后可返回手机的受理结果
      * @throws com.armada.shared.exception.BusinessException 非法输入、租户不匹配或重复账号

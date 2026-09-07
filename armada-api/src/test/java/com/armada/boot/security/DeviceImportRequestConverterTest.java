@@ -22,11 +22,25 @@ class DeviceImportRequestConverterTest {
     }
 
     @Test
+    void selectedGroupIsRequiredAndCannotBeCoerced() throws Exception {
+        String envelope = "{\"accountGroupId\":27,\"phone\":\"999000000001\",\"payload\":\"{}\"}";
+        new DeviceImportRequestConverter().read(DeviceImportDTO.class,
+                new MockHttpInputMessage(envelope.getBytes(StandardCharsets.UTF_8)));
+        for (String value : new String[]{"null", "0", "-1", "\"27\"", "27.5", "true", "9223372036854775808"}) {
+            var input = new MockHttpInputMessage(envelope.replace(":27,", ":" + value + ",")
+                    .getBytes(StandardCharsets.UTF_8));
+            assertThatThrownBy(() -> new DeviceImportRequestConverter().read(DeviceImportDTO.class, input))
+                    .isInstanceOf(org.springframework.http.converter.HttpMessageNotReadableException.class);
+        }
+    }
+
+    @Test
     void preservesPayloadWithoutDtoStringDisclosure() throws Exception {
         String sentinel = DeviceImportTestData.payload("999000000001");
-        MockHttpInputMessage input = new MockHttpInputMessage(DeviceImportTestData.body("999000000001", sentinel)
+        MockHttpInputMessage input = new MockHttpInputMessage(DeviceImportTestData.body(11L, "999000000001", sentinel)
                 .getBytes(StandardCharsets.UTF_8));
         DeviceImportDTO result = new DeviceImportRequestConverter().read(DeviceImportDTO.class, input);
+        assertThat(result.accountGroupId()).isEqualTo(11L);
         assertThat(result.payload().equals(sentinel)).isTrue();
         assertThat(result.toString().contains(sentinel)).isFalse();
     }

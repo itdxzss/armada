@@ -48,7 +48,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return request.getRequestURI().startsWith("/api/public/")
-                || DeviceImportController.PATH.equals(request.getRequestURI());
+                || DeviceImportController.PATHS.contains(request.getRequestURI());
     }
 
     @Override

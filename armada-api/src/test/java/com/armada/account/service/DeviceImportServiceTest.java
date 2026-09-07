@@ -3,12 +3,13 @@ package com.armada.account.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.mapper.AccountImportDetailMapper;
+import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.DeviceImportDTO;
 import com.armada.account.model.dto.DeviceImportDefaults;
 import com.armada.account.model.vo.AccountImportBatchVO;
@@ -33,7 +34,7 @@ class DeviceImportServiceTest {
     @BeforeEach
     void setUp() {
         String token = DeviceImportTestData.token();
-        defaults = new DeviceIngestTokens(DeviceImportTestData.clients(token, 7, 11)).resolve(token).orElseThrow();
+        defaults = new DeviceIngestTokens(DeviceImportTestData.clients(token, 7)).resolve(token).orElseThrow();
         TenantContext.set(7L);
     }
 
@@ -45,10 +46,28 @@ class DeviceImportServiceTest {
     @Test
     void validPayloadUsesExistingImportAndReturnsQueued() {
         String payload = DeviceImportTestData.payload("999000000001");
-        when(imports.importDeviceAccount(eq(defaults.metadata()), any())).thenReturn(batch(1, 0));
-        var result = service.importAccount(new DeviceImportDTO("999000000001", payload), defaults);
+        when(imports.importDeviceAccount(any(), any())).thenReturn(batch(1, 0));
+        var result = service.importAccount(new DeviceImportDTO(11L, "999000000001", payload), defaults);
         assertThat(result.batchId()).isEqualTo(123);
         assertThat(result.onlinePhase()).isEqualTo("QUEUED");
+        var metadata = org.mockito.ArgumentCaptor.forClass(AccountImportDTO.class);
+        verify(imports).importDeviceAccount(metadata.capture(), any());
+        assertThat(metadata.getValue().accountGroupId()).isEqualTo(11L);
+        assertThat(metadata.getValue().deviceOs()).isEqualTo(defaults.metadata().deviceOs());
+        assertThat(metadata.getValue().accountType()).isEqualTo(defaults.metadata().accountType());
+        assertThat(metadata.getValue().ipAllocationMode()).isEqualTo(defaults.metadata().ipAllocationMode());
+        assertThat(defaults.metadata().accountGroupId()).isNull();
+    }
+
+    @Test
+    void missingOrNonPositiveGroupCannotFallBackToServerDefault() {
+        for (Long groupId : new Long[]{null, 0L, -1L}) {
+            assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO(groupId, "999000000001",
+                    DeviceImportTestData.payload("999000000001")), defaults))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.VALIDATION.code()));
+        }
+        verifyNoInteractions(imports, details);
     }
 
     @Test
@@ -58,7 +77,7 @@ class DeviceImportServiceTest {
         for (String payload : new String[]{"", "[]", "{}", valid + "\n", valid + "\u2028",
                 valid + " {}", valid.replace("\"jid\":", "\"jid\":\"999000000002\",\"jid\":"),
                 DeviceImportTestData.payload("999000000002")}) {
-            assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO(phone, payload), defaults))
+            assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO(11L, phone, payload), defaults))
                     .isInstanceOf(BusinessException.class);
         }
         verifyNoInteractions(imports);
@@ -68,7 +87,7 @@ class DeviceImportServiceTest {
     void wrongTenantCannotUseDefaults() {
         TenantContext.set(8L);
         assertThatThrownBy(() -> service.importAccount(
-                new DeviceImportDTO("999000000001", DeviceImportTestData.payload("999000000001")), defaults))
+                new DeviceImportDTO(11L, "999000000001", DeviceImportTestData.payload("999000000001")), defaults))
                 .isInstanceOf(BusinessException.class);
         verifyNoInteractions(imports, details);
     }
@@ -77,7 +96,7 @@ class DeviceImportServiceTest {
     void existingImportIsConflictEvenWhenBulkImportWouldReturnNormally() {
         when(imports.importDeviceAccount(any(), any())).thenReturn(batch(0, 1));
         assertThatThrownBy(() -> service.importAccount(
-                new DeviceImportDTO("999000000001", DeviceImportTestData.payload("999000000001")), defaults))
+                new DeviceImportDTO(11L, "999000000001", DeviceImportTestData.payload("999000000001")), defaults))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code()));
     }
@@ -86,7 +105,7 @@ class DeviceImportServiceTest {
     void pendingDetailBlocksReimportBeforeBulkImport() {
         when(details.existsPendingByPhone("999000000001", 1, 1, 2)).thenReturn(true);
         assertThatThrownBy(() -> service.importAccount(
-                new DeviceImportDTO("999000000001", DeviceImportTestData.payload("999000000001")), defaults))
+                new DeviceImportDTO(11L, "999000000001", DeviceImportTestData.payload("999000000001")), defaults))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.CONFLICT.code()));
         verifyNoInteractions(imports);

@@ -41,11 +41,14 @@ public final class DeviceImportRequestConverter extends AbstractHttpMessageConve
                 throw new MaxUploadSizeExceededException(MAX_BODY_BYTES);
             }
             JsonNode root = reader.readTree(body);
-            if (root == null || !root.isObject() || root.size() != 2
+            if (root == null || !root.isObject() || root.size() != 3
+                    || !root.path("accountGroupId").isIntegralNumber()
+                    || !root.path("accountGroupId").canConvertToLong() || root.path("accountGroupId").longValue() <= 0
                     || !root.path("phone").isTextual() || !root.path("payload").isTextual()) {
-                throw new HttpMessageNotReadableException("请求必须包含 phone 和 payload 字符串", input);
+                throw new HttpMessageNotReadableException("请求必须包含正整数 accountGroupId 及 phone 和 payload 字符串", input);
             }
-            return new DeviceImportDTO(root.path("phone").textValue(), root.path("payload").textValue());
+            return new DeviceImportDTO(root.path("accountGroupId").longValue(),
+                    root.path("phone").textValue(), root.path("payload").textValue());
         } catch (IOException ex) {
             throw new HttpMessageNotReadableException("请求 JSON 格式不正确", input);
         }

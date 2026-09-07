@@ -1,4 +1,9 @@
 # 由官方镜像 envsubst 仅替换 INGEST_HOSTNAME；禁止在此放置令牌或实际业务默认值。
+map $uri $device_ingest_allow {
+    default "POST, OPTIONS";
+    /api/device-imports/groups "GET, OPTIONS";
+}
+
 server {
     listen 443 ssl default_server;
     listen [::]:443 ssl default_server;
@@ -37,6 +42,25 @@ server {
     error_page 503 =503 @unavailable;
     error_page 504 =504 @gateway_timeout;
 
+    proxy_http_version 1.1;
+    proxy_pass_request_headers off;
+    proxy_set_header Host $host;
+    proxy_set_header X-Ingest-Token $http_x_ingest_token;
+    proxy_set_header Content-Type $http_content_type;
+    proxy_set_header Accept application/json;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Connection "";
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_intercept_errors on;
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 12s;
+    proxy_send_timeout 12s;
+
     if ($host != "${INGEST_HOSTNAME}") { return 404; }
 
     location = /api/device-imports {
@@ -45,30 +69,24 @@ server {
         if ($request_uri != "/api/device-imports") { return 404; }
         if ($request_method !~ ^(POST|OPTIONS)$) { return 405; }
         if ($request_method = OPTIONS) {
-            add_header Allow "POST, OPTIONS" always;
+            add_header Allow $device_ingest_allow always;
             add_header Cache-Control "no-store" always;
             return 204;
         }
 
         proxy_pass http://backend:8080;
-        proxy_http_version 1.1;
-        proxy_pass_request_headers off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Ingest-Token $http_x_ingest_token;
-        proxy_set_header Content-Type $http_content_type;
-        proxy_set_header Accept application/json;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header Connection "";
-        proxy_request_buffering off;
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_intercept_errors on;
-        proxy_connect_timeout 3s;
-        proxy_read_timeout 12s;
-        proxy_send_timeout 12s;
+    }
+
+    location = /api/device-imports/groups {
+        if ($is_args != "") { return 400; }
+        if ($request_uri != "/api/device-imports/groups") { return 404; }
+        if ($request_method !~ ^(GET|OPTIONS)$) { return 405; }
+        if ($request_method = OPTIONS) {
+            add_header Allow $device_ingest_allow always;
+            add_header Cache-Control "no-store" always;
+            return 204;
+        }
+        proxy_pass http://backend:8080;
     }
 
     location / { return 404; }
@@ -77,7 +95,7 @@ server {
     location @forbidden { return 403 '{"message":"导入请求被拒绝"}'; }
     location @not_found { return 404 '{"message":"接口不存在"}'; }
     location @method_not_allowed {
-        add_header Allow "POST, OPTIONS" always;
+        add_header Allow $device_ingest_allow always;
         add_header Cache-Control "no-store" always;
         return 405 '{"message":"请求方法不支持"}';
     }

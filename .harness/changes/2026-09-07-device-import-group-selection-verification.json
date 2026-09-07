@@ -1,0 +1,130 @@
+{
+  "baseCommit": "0d46f9390f0fb39bb9924f951870a0dc608387f9",
+  "java": {
+    "tests": 138,
+    "exitCode": 0,
+    "suites": [
+      {
+        "name": "com.armada.account.converter.FullParamsToSixConverterTest",
+        "tests": "8",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.boot.security.DeviceImportRequestConverterTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.AccountImportParserTest",
+        "tests": "43",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.state.AccountImportLoginResultSettlerTest",
+        "tests": "1",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.impl.AccountImportRowWriterTest",
+        "tests": "4",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.controller.AccountPairingControllerTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.controller.DeviceImportControllerTest",
+        "tests": "13",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.boot.security.DeviceIngestTokensTest",
+        "tests": "4",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.DeviceImportTransactionTest",
+        "tests": "13",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.DeviceImportServiceTest",
+        "tests": "6",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.impl.AccountImportExportFilenameTest",
+        "tests": "3",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.account.service.impl.AccountOnlineCommandServiceImplTest",
+        "tests": "36",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      },
+      {
+        "name": "com.armada.boot.security.TokenAuthenticationFilterTest",
+        "tests": "1",
+        "failures": "0",
+        "errors": "0",
+        "skipped": "0"
+      }
+    ]
+  },
+  "gateway": {
+    "tests": 10,
+    "exitCode": 0
+  },
+  "apiDocs": {
+    "tests": 1,
+    "exitCode": 0,
+    "controllers": 54,
+    "endpoints": 292
+  },
+  "jar": {
+    "sha256": "35af37e1d6f7f6fafb1a3d7804a6fa581453f1e17f740233362643fc2b650fc9",
+    "bytes": 90633587
+  },
+  "review": "no blocking findings; live protocol and phone UI acceptance pending",
+  "test1": {
+    "candidateHostname": "ingest.65.2.123.53.nip.io",
+    "resolvedIPv4": [
+      "65.2.123.53"
+    ],
+    "tcp443Listening": false,
+    "newBackendActivated": false,
+    "adminAnonymousStatus": 401,
+    "pending": [
+      "trusted TLS certificate",
+      "token tenant selection and protected runtime configuration",
+      "new artifact deployment",
+      "public API and real-device acceptance"
+    ]
+  }
+}

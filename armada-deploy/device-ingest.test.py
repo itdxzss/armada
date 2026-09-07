@@ -34,7 +34,7 @@ class DeviceIngestGatewayTest(unittest.TestCase):
         cls.marker = secrets.token_urlsafe(32)
         cls.failure = secrets.token_urlsafe(32)
         cls.gateway_error = secrets.token_urlsafe(32)
-        cls.upload = json.dumps({"phone": "999000000001", "payload": json.dumps({"jid": "999000000001",
+        cls.upload = json.dumps({"accountGroupId": 11, "phone": "999000000001", "payload": json.dumps({"jid": "999000000001",
                                 "clientStaticPrivateKey": "test-only-invalid-" + cls.marker})}, separators=(",", ":"))
         run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
             "-subj", "/CN=ingest.test", "-addext", "subjectAltName=DNS:ingest.test,IP:127.0.0.1",
@@ -53,6 +53,7 @@ server {
         proxy_set_header X-Test-Body $request_body;
     }
     location = /read-test-body { internal; return 204; }
+    location = /api/device-imports/groups { proxy_pass http://127.0.0.1:8081; }
     location / { return 500; }
 }
 server {
@@ -60,6 +61,13 @@ server {
     access_log off;
     error_log /dev/null crit;
     default_type application/json;
+    location = /api/device-imports/groups {
+        if ($http_authorization != "") { return 500; }
+        if ($http_cookie != "") { return 500; }
+        if ($http_x_tenant_code != "") { return 500; }
+        if ($http_x_ingest_token != "MARKER") { return 401; }
+        return 200 '[{"id":11,"name":"mobile-group"}]';
+    }
     location = /api/device-imports {
         if ($http_authorization != "") { return 500; }
         if ($http_cookie != "") { return 500; }
@@ -102,7 +110,8 @@ server {
         values = {"Host": "ingest.test", "Content-Type": "application/json", "X-Ingest-Token": cls.marker}
         values.update(headers or {})
         try:
-            conn.request(method, path, body=cls.upload.encode() if body is None else body, headers=values)
+            default_body = cls.upload.encode() if method == "POST" else b""
+            conn.request(method, path, body=default_body if body is None else body, headers=values)
             response = conn.getresponse()
             return response.status, dict(response.getheaders()), response.read()
         finally:
@@ -115,6 +124,25 @@ server {
         self.assertEqual(json.loads(body), {"batchId": 123, "onlinePhase": "QUEUED"})
         self.assertIn("no-store", headers.get("Cache-Control", ""))
 
+    def test_group_list_is_authenticated_get_with_only_expected_fields(self):
+        path = "/api/device-imports/groups"
+        status, headers, body = self.request("GET", path, headers={"Authorization": self.marker,
+                                             "Cookie": self.marker, "X-Tenant-Code": self.marker})
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), [{"id": 11, "name": "mobile-group"}])
+        self.assertIn("no-store", headers.get("Cache-Control", ""))
+        self.assertEqual(self.request("GET", path, headers={"X-Ingest-Token": ""})[0], 401)
+        self.assertEqual(self.request("GET", path + "?tenantId=8")[0], 400)
+        for method in ["POST", "PUT", "DELETE", "HEAD"]:
+            status, headers, _ = self.request(method, path)
+            self.assertEqual(status, 405)
+            self.assertEqual(headers.get("Allow"), "GET, OPTIONS")
+        status, headers, body = self.request("OPTIONS", path)
+        self.assertEqual(status, 204)
+        self.assertEqual(body, b"")
+        self.assertEqual(headers.get("Allow"), "GET, OPTIONS")
+        self.assertFalse(any(key.lower().startswith("access-control-") for key in headers))
+
     def test_upstream_receives_exact_original_phone_and_payload_bytes(self):
         self.assertEqual(self.request("POST")[0], 200)
         self.assertEqual(self.request("POST", body=b"{}")[0], 422)
@@ -122,7 +150,8 @@ server {
     def test_other_paths_and_normalized_aliases_never_reach_backend(self):
         for path in ["/", "/api/account-imports", "/api/public/login", "/actuator/health", "/index.html",
                      "/api/device-imports/", "/api/device-imports/export", "/api/%64evice-imports",
-                     "/api/a/../device-imports", "//api/device-imports"]:
+                     "/api/a/../device-imports", "//api/device-imports", "/api/device-imports/groups/",
+                     "/api/device-imports/%67roups", "/api/device-imports/a/../groups"]:
             with self.subTest(path=path):
                 status, _, body = self.request("POST", path)
                 self.assertEqual(status, 404)

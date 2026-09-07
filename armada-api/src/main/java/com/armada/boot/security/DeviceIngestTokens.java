@@ -23,7 +23,7 @@ public final class DeviceIngestTokens {
     /** 唯一运行环境输入；真实映射禁止进入源码或镜像。 */
     public static final String ENVIRONMENT_VARIABLE = "ARMADA_DEVICE_INGEST_CLIENTS_JSON";
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]{43,256}");
-    private static final Set<String> FIELDS = Set.of("token", "tenantId", "accountGroupId", "deviceOs",
+    private static final Set<String> FIELDS = Set.of("token", "tenantId", "deviceOs",
             "accountType", "ipRegion", "ipAllocationMode");
     private static final int MAX_CONFIG_LENGTH = 262144;
     private static final int MAX_CLIENTS = 128;
@@ -96,7 +96,6 @@ public final class DeviceIngestTokens {
             throw invalid("invalid_token_shape");
         }
         long tenantId = positiveLong(row, "tenantId");
-        long groupId = positiveLong(row, "accountGroupId");
         int deviceOs = binaryChoice(row, "deviceOs");
         int accountType = binaryChoice(row, "accountType");
         String mode = optionalText(row, "ipAllocationMode");
@@ -107,7 +106,7 @@ public final class DeviceIngestTokens {
         if ((mode.isEmpty() && region.isEmpty()) || region.length() > 64) {
             throw invalid("invalid_ip_region");
         }
-        AccountImportDTO metadata = new AccountImportDTO(groupId, ImportFormat.PARAMS.getCode(), deviceOs,
+        AccountImportDTO metadata = new AccountImportDTO(null, ImportFormat.PARAMS.getCode(), deviceOs,
                 accountType, region.isEmpty() ? null : region, mode.isEmpty() ? null : mode, null, SOURCE);
         return new Entry(digest(token), new DeviceImportDefaults(tenantId, metadata));
     }

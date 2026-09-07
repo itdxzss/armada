@@ -28,7 +28,7 @@ public class SecurityConfig {
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
     public SecurityFilterChain deviceIngestSecurityFilterChain(HttpSecurity http, DeviceIngestTokens tokens,
                                                                TenantMapper tenants) throws Exception {
-        http.securityMatcher(request -> DeviceImportController.PATH.equals(request.getRequestURI()))
+        http.securityMatcher(request -> DeviceImportController.PATHS.contains(request.getRequestURI()))
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.disable())
                 .requestCache(cache -> cache.disable())

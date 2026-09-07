@@ -34,18 +34,17 @@ public final class DeviceImportTestData {
         return node.toString();
     }
 
-    public static String clients(String token, long tenantId, long groupId) {
+    public static String clients(String token, long tenantId) {
         ObjectNode row = JSON.createObjectNode();
         row.put("token", token);
         row.put("tenantId", tenantId);
-        row.put("accountGroupId", groupId);
         row.put("deviceOs", 2);
         row.put("accountType", 2);
         row.put("ipAllocationMode", "mixed");
         return JSON.createArrayNode().add(row).toString();
     }
 
-    public static String body(String phone, String payload) {
-        return JSON.createObjectNode().put("phone", phone).put("payload", payload).toString();
+    public static String body(Long groupId, String phone, String payload) {
+        return JSON.createObjectNode().put("accountGroupId", groupId).put("phone", phone).put("payload", payload).toString();
     }
 }

@@ -1,6 +1,7 @@
 package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountImportDetailMapper;
+import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.DeviceImportDTO;
 import com.armada.account.model.dto.DeviceImportDefaults;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
@@ -52,7 +53,12 @@ public class DeviceImportServiceImpl implements DeviceImportService {
                 AccountImportOnlinePhase.QUEUED, AccountImportOnlinePhase.DISPATCHED)) {
             throw new BusinessException(ErrorCode.CONFLICT);
         }
-        AccountImportBatchVO batch = imports.importDeviceAccount(defaults.metadata(), entry);
+        AccountImportDTO configured = defaults.metadata();
+        AccountImportDTO metadata = new AccountImportDTO(request.accountGroupId(), configured.importFormat(),
+                configured.deviceOs(), configured.accountType(), configured.ipRegion(), configured.ipAllocationMode(),
+                configured.remark(), configured.sourceFileName());
+        // 共用导入服务在写批次前通过租户插件复核目标分组，不退回系统默认分组。
+        AccountImportBatchVO batch = imports.importDeviceAccount(metadata, entry);
         // RowWriter 冲突会标记参与事务 rollback-only，必须抛业务异常退出，不能正常返回再提交。
         if (batch.duplicateRows() > 0) {
             throw new BusinessException(ErrorCode.CONFLICT);
@@ -65,7 +71,8 @@ public class DeviceImportServiceImpl implements DeviceImportService {
     }
 
     private ParsedEntry validate(DeviceImportDTO request) {
-        if (request == null || request.phone() == null || !PHONE.matcher(request.phone()).matches()
+        if (request == null || request.accountGroupId() == null || request.accountGroupId() <= 0
+                || request.phone() == null || !PHONE.matcher(request.phone()).matches()
                 || request.payload() == null || request.payload().isBlank()
                 || LINE_BREAK.matcher(request.payload()).find()) {
             throw new BusinessException(ErrorCode.VALIDATION);

@@ -1,8 +1,8 @@
 # 手机凭据导入：部署、验收与回滚
 
-本目录提供独立 TLS 网关，唯一公网业务路径是 `POST /api/device-imports`。入口使用静态 `X-Ingest-Token`，成功返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}`，失败返回真实 4xx/5xx 和 `{ "message": "可读原因" }`。仅同一路径 OPTIONS 返回 204，无 CORS。
+本目录提供独立 TLS 网关，公网业务路径仅为 `GET /api/device-imports/groups` 和 `POST /api/device-imports`。分组查询返回仅含 id/name 的数组，上传请求为 `{accountGroupId,phone,payload}`。入口使用静态 `X-Ingest-Token`，成功返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}`，失败返回真实 4xx/5xx 和 `{ "message": "可读原因" }`。两个精确路径各自 OPTIONS 返回 204，无 CORS。
 
-**当前状态：已移植到当前主线 b68890ed，本地 Java 130 项、网关 9 项和打包通过；尚未部署或完成真实账号交接。** 初始七月工作树仅保留依赖与验证历史，不用于发布。当前验证及依赖关系见 [交付记录](../../.harness/changes/2026-09-07-device-import-ingest/delivery.md)。
+**当前状态：手机选组接口已完成本地验证，test1 的 TCP 443 安全组已放行，可信证书与新服务尚未启用。** 当前契约见 [手机联调提示词](../../docs/2026-09-07-control-side-ingest-agent-prompt.md)，验证及部署进度见 [选组变更记录](../../.harness/changes/2026-09-07-device-import-group-selection.md)。
 
 ## 1. 上线前输入
 
@@ -35,19 +35,18 @@ device-ingest/preflight.py
 | --- | --- |
 | `token` | 至少 32 个随机字节生成的 base64url 无填充字符串；允许 43–256 个字母、数字、`-`、`_`，区分大小写，不 trim |
 | `tenantId` | 启用租户的正整数 ID；请求时会查租户注册表确认仍启用 |
-| `accountGroupId` | 该租户现有未删除分组的正整数 ID，失效返回 503 |
 | `deviceOs` | 整数 1=安卓、2=苹果，只决定展示；全参运行协议固定 ANDROID |
 | `accountType` | 整数 1=个人、2=商业，作为主线申报类型保存；WA Business 配置为 2，有效类型仍由现有协议校验 |
 | `ipAllocationMode` | `smart` 或 `mixed`；省略/null 表示现有指定地区分配语义 |
 | `ipRegion` | 现有代理池地区名；指定地区模式必填，smart/mixed 可省略 |
 
-不得把手机发来的字段用作分组、租户、账号类型或 IP 默认值。IP 参数指分配策略/地区，实际代理仍由现有上线服务选择。不记录令牌值或摘要；轮换需更新环境并重启后端，可暂时配置两个不同令牌映射到同一默认值。
+分组改由手机在上传请求中必填提供，令牌配置须删除旧 accountGroupId 字段；旧的两字段上传返回 400。所选分组必须属于令牌租户且未删除，服务端重新验证后使用，不回退系统默认组。手机不能覆盖租户、机型、账号类型或 IP 默认值。IP 参数指分配策略/地区，实际代理仍由现有上线服务选择。不记录令牌值或摘要；轮换需更新环境并重启后端，可暂时配置两个不同令牌映射到同一默认值。
 
 ## 2. 部署次序
 
 1. 在独立集成工作树基于当前发布提交完成集成、后端评审及构建。旧工作树的打包结果只用于本地验证。此次未验证通过的旧部署脚本不能直接当作一键发布入口。
-2. 为确认的域名准备受手机信任的 TLS 完整证书链。证书通过 DNS 验证或既有证书流程提供；本入口不开 80 或 HTTP-01 验证路径。
-3. 将上述无秘密配置文件部署到目标的现有 Compose 目录，并通过服务器配置系统注入环境。令牌必须同时安全配置到对应手机包。
+2. 为确认的域名准备受手机信任的 TLS 完整证书链。证书通过 DNS 验证、TLS-ALPN-01 的 443 验证或既有证书流程提供；本入口不开 80 或 HTTP-01 验证路径。
+3. 将上述无秘密配置文件部署到目标的现有 Compose 目录，并通过服务器配置系统注入环境。令牌必须同时通过受保护的运行配置安全交付手机，不能固化到源码或 IPA 常量。
 4. 在该服务器的部署目录执行下列命令。所有变量已由受保护的运行环境提供；如使用 `--env-file`，需使用部署目录外的受保护文件，并让 preflight 读取同一组已注入的非输出环境。
 
 ```bash
@@ -71,8 +70,9 @@ Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理�
 
 - TLS 链可信、域名匹配；明文 HTTP 不能导入，不开放 80。
 - `POST /api/device-imports` 无令牌、错令牌均为 401；正确令牌和非法 body 为 400。
-- 同路径 OPTIONS 为 204、`Allow: POST, OPTIONS`，没有任何 `Access-Control-Allow-*` 头。
-- GET/PUT/DELETE 为 405；其他路径、尾斜杠、编码别名、子路径为 404；query 被拒绝。
+- 分组 GET 无令牌为 401；合法令牌返回仅 id/name 数组，无分组为 []。
+- 上传路径 OPTIONS 为 204、`Allow: POST, OPTIONS`；分组路径为 `Allow: GET, OPTIONS`，没有任何 `Access-Control-Allow-*` 头。
+- 上传路径 GET/PUT/DELETE 为 405；分组路径 POST/PUT/DELETE/HEAD 为 405。其他路径、尾斜杠、编码别名、额外子路径为 404；query 被拒绝。
 - `/`、`/api/account-imports`、`/api/public/login`、`/actuator/health`、导出和后台页面均不能通过公网网关访问。
 - 错误响应都是 JSON message，不能将 4xx/5xx 改写成 200 或 HTML。
 - 18080/8080/数据库/Kafka/协议端口不能从公网直达。
@@ -81,8 +81,8 @@ Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理�
 
 使用指定测试租户和明确授权的测试手机账号，手机按冻结接口发送完整单行全参；禁止把 body/token 写到终端参数、日志、截图、测试断言或 Git。
 
-1. 手机收到 200 且只包含 `batchId`、`onlinePhase=QUEUED`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
-2. 控端内网按 batchId 验证：来源 PARAMS=3、运行凭据 SIX=1、协议 ANDROID、令牌分组/机型/账号类型/IP 策略正确，原文保留。检查仅输出字段存在性、长度或哈希，不输出密钥。
+1. 手机先查询、选择分组，再上传 accountGroupId/phone/payload；收到 200 且只包含 `batchId`、`onlinePhase=QUEUED`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
+2. 控端内网按 batchId 验证：来源 PARAMS=3、运行凭据 SIX=1、协议 ANDROID、账号和批次分组均为手机所选分组、令牌机型/账号类型/IP 策略正确，原文保留。检查仅输出字段存在性、长度或哈希，不输出密钥。
 3. 观察既有 10 秒调度从 QUEUED 派发，确认 outbox/协议受理和当前轮次 ONLINE 回调；没有代理资源、Kafka/协议故障时可能保持队列，不能将 HTTP 200 当作在线验收。
 4. 手机成功提示后执行官方登出，确认当前账号交给控端。现有契约没有手机退出回执，因此调度可能先于用户确认登出；不得声称零抢登交接。
 5. 同号再次提交返回 409，不覆盖已有凭据、不增加批次、不再次派发。在线、离线或失败但未删除的账号均属于已存在账号；删除账号后旧明细仍 QUEUED/DISPATCHED 也会拒绝。

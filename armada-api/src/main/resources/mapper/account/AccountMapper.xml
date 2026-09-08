@@ -15,6 +15,10 @@
     Mapper 关闭租户插件，所有租户级表均显式同 tenant_id 连接；号码国家按最长国际区号匹配。
   -->
   <sql id="hyperlinkCandidateDerivedTable">
+    <bind name="hyperlinkAccountStates"
+          value="{@com.armada.account.model.entity.AccountStateCode@NORMAL,
+                  @com.armada.account.model.entity.AccountStateCode@LOGIN_REPLACED,
+                  @com.armada.account.model.entity.AccountStateCode@TAKING_OVER}"/>
     (
       SELECT a.id AS accountId,
              a.ws_phone AS wsPhone,
@@ -112,7 +116,10 @@
         AND (c.tenant_id = #{tenantId} OR c.tenant_id IS NULL)
         AND (p.tenant_id = #{tenantId} OR p.tenant_id IS NULL)
         AND a.deleted_at IS NULL
-        AND s.account_state = 2
+        <!-- 被抢登、抢登中仍纳入账号范围；在线条件由用户筛选单独决定。 -->
+        AND s.account_state IN
+        <foreach collection="hyperlinkAccountStates" item="state"
+                 open="(" separator="," close=")">#{state}</foreach>
         AND (s.mute_status IS NULL OR s.mute_status = 2)
         AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
         AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
@@ -306,6 +313,10 @@
   </select>
 
   <select id="selectHyperlinkProtocolIds" resultType="string">
+    <bind name="hyperlinkAccountStates"
+          value="{@com.armada.account.model.entity.AccountStateCode@NORMAL,
+                  @com.armada.account.model.entity.AccountStateCode@LOGIN_REPLACED,
+                  @com.armada.account.model.entity.AccountStateCode@TAKING_OVER}"/>
     SELECT DISTINCT UPPER(TRIM(a.protocol_id)) AS protocolId
     FROM account a
     INNER JOIN account_state s
@@ -315,7 +326,9 @@
     WHERE a.tenant_id = #{tenantId}
       AND s.tenant_id = #{tenantId}
       AND a.deleted_at IS NULL
-      AND s.account_state = 2
+      AND s.account_state IN
+      <foreach collection="hyperlinkAccountStates" item="state"
+               open="(" separator="," close=")">#{state}</foreach>
       AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
       AND <include refid="protocolBackendCase"/> IN
       <foreach collection="privateCapableBackends" item="backend"

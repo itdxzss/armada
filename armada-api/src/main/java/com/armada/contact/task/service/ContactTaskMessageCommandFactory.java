@@ -117,7 +117,7 @@ public class ContactTaskMessageCommandFactory {
                         null,
                         new MessageSendCommand.ContactTaskCorrelation(
                                 task.getId(), accountRow.getId(), recipient.getId(), roundNo),
-                        null, null),
+                        null, null, null),
                 recipient.getCommandId() == null ? newCommandId() : recipient.getCommandId(),
                 ContactSendIntervalPicker.pickMs(
                         task.getMsgIntervalMinSec(), task.getMsgIntervalMaxSec(), random),

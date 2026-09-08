@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.feed.task.mapper.FeedTaskMapper">
+
+  <sql id="taskColumns">
+    id, tenant_id, name, account_filter, title, description, content, promotion_link,
+    link_preview_image_file_id, text_color, background_color, concurrency, retry_max,
+    start_mode, task_delay_minutes, task_start_at, task_mode, task_planned_end_at,
+    status, task_status, current_round_no, next_run_at, total_account_num,
+    success_account_num, failed_account_num, created_by, created_at, updated_at, deleted_at
+  </sql>
+
+  <sql id="listConditions">
+    AND deleted_at IS NULL
+    <if test="query.name != null and query.name != ''">
+      AND name LIKE CONCAT('%', #{query.name}, '%')
+    </if>
+    <if test="query.taskStatus != null">
+      AND task_status = #{query.taskStatus}
+    </if>
+    <if test="query.createdAtStartMillis != null">
+      AND created_at &gt;= #{query.createdAtStartMillis}
+    </if>
+    <if test="query.createdAtEndMillis != null">
+      AND created_at &lt;= #{query.createdAtEndMillis}
+    </if>
+  </sql>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO feed_task (
+      tenant_id, name, account_filter, title, description, content, promotion_link,
+      link_preview_image_file_id, text_color, background_color, concurrency, retry_max,
+      start_mode, task_delay_minutes, task_start_at, task_mode, task_planned_end_at,
+      status, task_status, current_round_no, total_account_num, success_account_num,
+      failed_account_num, created_by, created_at, updated_at
+    ) VALUES (
+      #{tenantId}, #{name}, #{accountFilter}, #{title}, #{description}, #{content}, #{promotionLink},
+      #{linkPreviewImageFileId}, #{textColor}, #{backgroundColor}, #{concurrency}, #{retryMax},
+      #{startMode}, #{taskDelayMinutes}, #{taskStartAt}, #{taskMode}, #{taskPlannedEndAt},
+      #{status}, #{taskStatus}, #{currentRoundNo}, #{totalAccountNum}, #{successAccountNum},
+      #{failedAccountNum}, #{createdBy}, #{createdAt}, #{updatedAt}
+    )
+  </insert>
+
+  <select id="selectById" resultType="com.armada.feed.task.model.entity.FeedTask">
+    SELECT <include refid="taskColumns"/>
+      FROM feed_task
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </select>
+
+  <select id="selectPage" resultType="com.armada.feed.task.model.entity.FeedTask">
+    SELECT <include refid="taskColumns"/>
+      FROM feed_task
+     WHERE 1 = 1
+     <include refid="listConditions"/>
+     ORDER BY created_at DESC, id DESC
+     LIMIT #{query.offset}, #{query.pageSize}
+  </select>
+
+  <select id="countPage" resultType="long">
+    SELECT COUNT(*)
+      FROM feed_task
+     WHERE 1 = 1
+     <include refid="listConditions"/>
+  </select>
+
+  <update id="updateForm">
+    UPDATE feed_task
+       SET name = #{name},
+           account_filter = #{accountFilter},
+           title = #{title},
+           description = #{description},
+           content = #{content},
+           promotion_link = #{promotionLink},
+           link_preview_image_file_id = #{linkPreviewImageFileId},
+           text_color = #{textColor},
+           background_color = #{backgroundColor},
+           concurrency = #{concurrency},
+           retry_max = #{retryMax},
+           start_mode = #{startMode},
+           task_delay_minutes = #{taskDelayMinutes},
+           task_start_at = #{taskStartAt},
+           task_mode = #{taskMode},
+           task_planned_end_at = #{taskPlannedEndAt},
+           status = #{status},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <update id="updateRunStatus">
+    UPDATE feed_task
+       SET task_status = #{nextStatus},
+           next_run_at = #{nextRunAt},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND task_status = #{expectedStatus}
+  </update>
+
+  <select id="selectDueScheduledTasks"
+          resultType="com.armada.feed.task.model.entity.FeedTask">
+    SELECT <include refid="taskColumns"/>
+      FROM feed_task
+     WHERE deleted_at IS NULL
+       AND status = 1
+       AND task_status = 0
+       AND task_start_at IS NOT NULL
+       AND task_start_at &lt;= #{now}
+     ORDER BY task_start_at ASC, id ASC
+     LIMIT #{limit}
+  </select>
+
+  <select id="selectDueRunningTasks"
+          resultType="com.armada.feed.task.model.entity.FeedTask">
+    SELECT <include refid="taskColumns"/>
+      FROM feed_task
+     WHERE deleted_at IS NULL
+       AND status = 1
+       AND task_status = 1
+       AND next_run_at IS NOT NULL
+       AND next_run_at &lt;= #{now}
+     ORDER BY next_run_at ASC, id ASC
+     LIMIT #{limit}
+  </select>
+
+  <update id="startDueScheduledTask">
+    UPDATE feed_task
+       SET task_status = 1,
+           next_run_at = #{startedAt},
+           updated_at = #{startedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND status = 1
+       AND task_status = 0
+  </update>
+
+  <update id="claimDueRound">
+    UPDATE feed_task
+       SET current_round_no = current_round_no + 1,
+           next_run_at = #{nextRunAt},
+           updated_at = #{now}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND status = 1
+       AND task_status = 1
+       AND next_run_at IS NOT NULL
+       AND next_run_at &lt;= #{now}
+  </update>
+
+  <update id="postpone">
+    UPDATE feed_task
+       SET next_run_at = #{nextRunAt},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND task_status = 1
+  </update>
+
+  <update id="incrementTotalAccountNum">
+    UPDATE feed_task
+       SET total_account_num = total_account_num + #{delta},
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <update id="incrementSuccessAccountNum">
+    UPDATE feed_task
+       SET success_account_num = success_account_num + 1,
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <update id="incrementFailedAccountNum">
+    UPDATE feed_task
+       SET failed_account_num = failed_account_num + 1,
+           updated_at = #{updatedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+  </update>
+
+  <update id="complete">
+    UPDATE feed_task
+       SET task_status = 2,
+           next_run_at = NULL,
+           updated_at = #{finishedAt}
+     WHERE id = #{id}
+       AND deleted_at IS NULL
+       AND task_status = 1
+  </update>
+
+</mapper>

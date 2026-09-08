@@ -63,7 +63,7 @@ public interface AccountMapper {
             @Param("tenantId") long tenantId,
             @Param("privateCapableBackends") List<String> privateCapableBackends);
 
-    /** 当前租户正常账号真实协议 ID 去重选项，排除空值并稳定排序。 */
+    /** 当前租户正常、被抢登、抢登中账号的真实协议 ID 去重选项，排除空值并稳定排序。 */
     @InterceptorIgnore(tenantLine = "true")
     List<String> selectHyperlinkProtocolIds(
             @Param("tenantId") long tenantId,

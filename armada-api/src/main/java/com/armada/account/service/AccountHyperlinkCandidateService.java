@@ -8,7 +8,7 @@ import java.util.List;
 public interface AccountHyperlinkCandidateService {
 
     /**
-     * 在当前租户内按完整、已支持的筛选条件查询发信候选。
+     * 在当前租户内按完整、已支持的筛选条件查询正常、被抢登、抢登中的发信候选。
      *
      * @param query 已由任务域白名单归一化的查询条件
      * @param afterPriority 上一页末行的账号优先级；首页为空
@@ -36,7 +36,7 @@ public interface AccountHyperlinkCandidateService {
      */
     int countProtocols(List<String> privateCapableBackends);
 
-    /** 当前租户正常账号真实协议 ID 选项；去重并稳定排序。 */
+    /** 当前租户正常、被抢登、抢登中账号的真实协议 ID 选项；去重并稳定排序。 */
     List<String> listProtocolIds(List<String> privateCapableBackends);
 
     /**

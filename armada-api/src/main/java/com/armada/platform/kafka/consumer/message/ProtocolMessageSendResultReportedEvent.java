@@ -71,6 +71,8 @@ public record ProtocolMessageSendResultReportedEvent(
         String targetKind,
         Long hyperlinkTaskId,
         Long hyperlinkRecipientId,
+        Long feedTaskId,
+        Long feedTaskAccountId,
         String outcome,
         Boolean terminal
 ) {
@@ -88,7 +90,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
-                outcome, terminal);
+                null, null, outcome, terminal);
     }
 
     /** 通讯录营销事件构造兼容：超链与 outcome 字段默认为空。 */
@@ -104,7 +106,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 contactTaskId, taskAccountId, recipientId, groupJid,
-                groupJid == null ? null : "GROUP", null, null, null, null);
+                groupJid == null ? null : "GROUP", null, null, null, null, null, null);
     }
 
     /** 已扩展通用 target/correlation、但尚无 outcome 的事件构造兼容。 */
@@ -121,7 +123,7 @@ public record ProtocolMessageSendResultReportedEvent(
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
                 null, null, null, jid, targetKind, hyperlinkTaskId, hyperlinkRecipientId,
-                null, null);
+                null, null, null, null);
     }
 
     /** 存量群营销事件构造兼容；通用 target 与 hyperlink 关联默认为空。 */
@@ -136,6 +138,6 @@ public record ProtocolMessageSendResultReportedEvent(
                 groupJid, commandId, success, messageId, reasonCode, reasonMessage, timestamp,
                 workerId, groupCreationTaskId, groupCreationItemId, source, groupStatus,
                 groupStatusReason, groupStatusCheckedAt, historicalExecutionId, historicalMemberId,
-                null, null, null, groupJid, "GROUP", null, null, null, null);
+                null, null, null, groupJid, "GROUP", null, null, null, null, null, null);
     }
 }

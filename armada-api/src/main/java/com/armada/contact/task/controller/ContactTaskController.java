@@ -2,10 +2,12 @@ package com.armada.contact.task.controller;
 
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.dto.ContactTaskQuery;
+import com.armada.contact.task.model.vo.ContactAccountOptionsVO;
 import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
 import com.armada.contact.task.model.vo.ContactTaskDetailVO;
 import com.armada.contact.task.model.vo.ContactTaskListItemVO;
 import com.armada.contact.task.service.ContactTaskService;
+import com.armada.contact.task.service.ContactAccountOptionsService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.security.AuthPrincipal;
@@ -38,13 +40,29 @@ public class ContactTaskController {
     /** 通讯录营销任务业务服务。 */
     private final ContactTaskService service;
 
+    /** 通讯录任务专用的账号筛选选项查询。 */
+    private final ContactAccountOptionsService accountOptionsService;
+
     /**
      * 创建通讯录营销任务控制器。
      *
      * @param service 通讯录营销任务业务服务
+     * @param accountOptionsService 当前租户账号筛选选项服务
      */
-    public ContactTaskController(ContactTaskService service) {
+    public ContactTaskController(
+            ContactTaskService service, ContactAccountOptionsService accountOptionsService) {
         this.service = service;
+        this.accountOptionsService = accountOptionsService;
+    }
+
+    /**
+     * 按通讯录任务查看权限返回分组与渠道，不要求其他菜单权限。
+     *
+     * @return 当前租户的分组与推广渠道选项
+     */
+    @GetMapping("/account-options")
+    public ApiResponse<ContactAccountOptionsVO> accountOptions() {
+        return ApiResponse.ok(accountOptionsService.options());
     }
 
     /**

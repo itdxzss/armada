@@ -278,7 +278,8 @@ class ScriptMarketingExecutionTest {
         return new ProtocolMessageSendResultReportedEvent("event", 7L, null, null, null, null,
                 "account", "120000@g.us", command, success, success ? "wamid.ok" : null, success ? null : "SEND_FAILED",
                 null, now, "worker", null, null, "script_marketing", null, null, null,
-                null, null, null, null, null, "120000@g.us", "GROUP", null, null, null, true);
+                null, null, null, null, null, "120000@g.us", "GROUP",
+                null, null, null, null, null, true);
     }
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement

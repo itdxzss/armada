@@ -25,6 +25,8 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -140,6 +142,73 @@ class AccountHyperlinkCandidateMapperH2Test {
                 .extracting(candidate -> candidate.accountId())
                 .containsExactly(5L);
         assertThat(mapper.countHyperlinkCandidates(7L, androidOnly)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {2, 6, 7})
+    void includesNormalReplacedAndTakingOverAccountsWithinSelectedGroup(int accountState)
+            throws SQLException {
+        insertAccount(7, 7, "551240", 2, 1, 10, 20, "STATE-WEB", NOW - DAY, null);
+        credential(7, 7, 3);
+        state(7, 7, accountState, 2, null);
+        insertAccount(8, 7, "551241", 2, 1, 11, 20, "STATE-WEB", NOW - DAY, null);
+        credential(8, 7, 3);
+        state(8, 7, accountState, 2, null);
+        insertAccount(9, 8, "551242", 2, 1, 10, 20, "FOREIGN-WEB", NOW - DAY, null);
+        credential(9, 8, 3);
+        state(9, 8, accountState, 2, null);
+
+        AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(10L), List.of(), null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
+                .extracting(AccountHyperlinkCandidateVO::accountId)
+                .containsExactly(1L, 7L);
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(2);
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, 0, 1L, 1))
+                .extracting(AccountHyperlinkCandidateVO::accountId).containsExactly(7L);
+        assertThat(mapper.selectHyperlinkProtocolIds(7L, List.of("WEB")))
+                .containsExactly("STATE-WEB", "WEB");
+
+        AccountHyperlinkCandidateQuery offline = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(10L), List.of(), "STATE-WEB",
+                "OFFLINE", null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
+        assertThat(mapper.selectHyperlinkCandidates(7L, offline, null, null, 20))
+                .extracting(AccountHyperlinkCandidateVO::accountId).containsExactly(7L);
+        assertThat(mapper.countHyperlinkCandidates(7L, offline)).isEqualTo(1);
+
+        execute("UPDATE account_state SET mute_status=3 WHERE account_id=7 AND tenant_id=7");
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);
+        execute("UPDATE account_state SET mute_status=NULL WHERE account_id=7 AND tenant_id=7");
+        execute("UPDATE account SET deleted_at=9 WHERE id=7");
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {1, 3, 4, 5, 8})
+    void excludesOtherLifecycleStatesFromCandidatesAndProtocolOptions(int accountState)
+            throws SQLException {
+        insertAccount(7, 7, "551240", 2, 1, 10, 20, "EXCLUDED-WEB", NOW - DAY, null);
+        credential(7, 7, 3);
+        state(7, 7, accountState, 2, null);
+        AccountHyperlinkCandidateQuery query = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(10L), List.of(), null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("WEB"), NOW);
+
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
+                .extracting(AccountHyperlinkCandidateVO::accountId).containsExactly(1L);
+        assertThat(mapper.countHyperlinkCandidates(7L, query)).isEqualTo(1);
+        assertThat(mapper.selectHyperlinkProtocolIds(7L, List.of("WEB")))
+                .containsExactly("WEB");
     }
 
     @Test

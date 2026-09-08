@@ -1204,9 +1204,9 @@ class ProtocolCommandOutboxServiceImplTest {
                 new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
                 new MessageSendCommand.MessageTarget("120363script@g.us"),
                 new MessageSendCommand.MessagePayload(MessageType.TEXT,
-                        new MessageSendCommand.MessageContent("hello", null, null, null), false),
+                new MessageSendCommand.MessageContent("hello", null, null, null), false),
                 new MessageSendCommand.MessageCorrelation(1L, "script_marketing", null, null,
-                        null, null, null, 77L), "cmd_script", 500, 0L);
+                        null, null, null, null, 77L), "cmd_script", 500, 0L);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
         service.enqueueMessageCommands(List.of(new ProtocolMessageOutboxCommand(command,
                 ProtocolBackend.WEB, "protocol.master.commands.v1", "acc_web",
@@ -1216,6 +1216,71 @@ class ProtocolCommandOutboxServiceImplTest {
         assertThat(row.getAggregateId()).isEqualTo(77L);
         assertThat(row.getCommandId()).isEqualTo("cmd_script");
         } finally { TenantContext.clear(); }
+    }
+
+    @Test
+    void feedStatusMessageUsesStatusCommandAndTaskAccountAggregate() throws Exception {
+        TenantContext.set(1L);
+        try {
+            TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+            MessageSendCommand command = new MessageSendCommand(
+                    new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
+                    new MessageSendCommand.MessageTarget(
+                            "status@broadcast",
+                            MessageSendCommand.TargetKind.STATUS,
+                            List.of("919000000002@s.whatsapp.net")),
+                    new MessageSendCommand.MessagePayload(
+                            MessageType.STATUS,
+                            new MessageSendCommand.MessageContent(
+                                    "活动正文", null, null, null, "#075E54", "#FFFFFF"),
+                            false),
+                    new MessageSendCommand.MessageCorrelation(
+                            1L,
+                            "feed_task",
+                            null,
+                            null,
+                            null,
+                            null,
+                            new MessageSendCommand.FeedTaskCorrelation(42L, 7001L, 3L),
+                            null,
+                            null),
+                    "cmd_feed",
+                    500,
+                    0L);
+            when(mapper.batchInsertPending(anyList())).thenReturn(1);
+
+            service.enqueueMessageCommands(List.of(new ProtocolMessageOutboxCommand(
+                    command,
+                    ProtocolBackend.WEB,
+                    "protocol.master.commands.v1",
+                    "acc_web",
+                    Map.ofEntries(
+                            Map.entry("tenantId", 1L),
+                            Map.entry("source", "feed_task"),
+                            Map.entry("feedTaskId", 42L),
+                            Map.entry("feedTaskAccountId", 7001L),
+                            Map.entry("roundNo", 3L),
+                            Map.entry("messageType", "STATUS"),
+                            Map.entry("targetKind", "STATUS"),
+                            Map.entry("jid", "status@broadcast"),
+                            Map.entry("statusJidList", List.of("919000000002@s.whatsapp.net"))))));
+
+            ProtocolCommandOutbox row = capturedRows().get(0);
+            assertThat(row.getCommandType()).isEqualTo("status.publish.requested");
+            assertThat(row.getAggregateType()).isEqualTo("FEED_TASK_ACCOUNT");
+            assertThat(row.getAggregateId()).isEqualTo(7001L);
+            assertThat(row.getCommandId()).isEqualTo("cmd_feed");
+            Map<String, Object> payload = objectMapper.readValue(
+                    row.getPayloadJson(), new TypeReference<>() {
+                    });
+            assertThat(payload)
+                    .containsEntry("messageType", "STATUS")
+                    .containsEntry("targetKind", "STATUS")
+                    .containsEntry("feedTaskId", 42)
+                    .containsEntry("feedTaskAccountId", 7001);
+        } finally {
+            TenantContext.clear();
+        }
     }
 
     @Test

@@ -221,6 +221,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
         MessageSendCommand.GroupCreationCorrelation groupCreation = correlation.groupCreation();
         MessageSendCommand.HistoricalGroupCorrelation historicalGroup = correlation.historicalGroup();
         MessageSendCommand.ContactTaskCorrelation contactTask = correlation.contactTask();
+        MessageSendCommand.FeedTaskCorrelation feedTask = correlation.feedTask();
         MessageSendCommand.HyperlinkCorrelation hyperlink = correlation.hyperlink();
         MessageSendCommand.MessageContent content = command.payload().content();
         AndroidMessagePayload payload = new AndroidMessagePayload(
@@ -237,6 +238,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 media(correlation.tenantId(), content.image(), mediaRegistry),
                 linkCard(correlation.tenantId(), content.linkCard(), mediaRegistry),
                 buttonCard(correlation.tenantId(), content.buttonCard(), mediaRegistry),
+                command.target().statusJidList(),
+                content.backgroundColor(),
+                content.textColor(),
                 command.payload().mentionAll(),
                 command.sendIntervalMs(),
                 correlation.source(),
@@ -246,7 +250,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 // 轮次号是普通营销和通讯录营销共用的 wire 字段，两种来源都要能填上
                 marketing != null
                         ? marketing.roundNo()
-                        : contactTask == null ? null : contactTask.roundNo(),
+                        : contactTask != null ? contactTask.roundNo()
+                        : feedTask == null ? null : feedTask.roundNo(),
                 groupCreation == null ? null : groupCreation.taskId(),
                 groupCreation == null ? null : groupCreation.itemId(),
                 historicalGroup == null ? null : historicalGroup.executionId(),
@@ -254,6 +259,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 contactTask == null ? null : contactTask.taskId(),
                 contactTask == null ? null : contactTask.taskAccountId(),
                 contactTask == null ? null : contactTask.recipientId(),
+                feedTask == null ? null : feedTask.taskId(),
+                feedTask == null ? null : feedTask.taskAccountId(),
                 hyperlink == null ? null : hyperlink.taskId(),
                 hyperlink == null ? null : hyperlink.recipientId());
         return new ProtocolMessageOutboxCommand(
@@ -326,6 +333,9 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             AndroidMediaPayload image,
             AndroidLinkCardPayload linkCard,
             AndroidButtonCardPayload buttonCard,
+            List<String> statusJidList,
+            String backgroundColor,
+            String textColor,
             boolean mentionAll,
             int sendIntervalMs,
             String source,
@@ -340,6 +350,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long contactTaskId,
             Long taskAccountId,
             Long recipientId,
+            Long feedTaskId,
+            Long feedTaskAccountId,
             Long hyperlinkTaskId,
             Long hyperlinkRecipientId
     ) {

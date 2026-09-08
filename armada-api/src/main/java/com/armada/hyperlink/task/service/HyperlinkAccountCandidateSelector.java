@@ -70,7 +70,7 @@ public class HyperlinkAccountCandidateSelector {
         return capableBackends.isEmpty() ? 0 : accountService.countProtocols(capableBackends);
     }
 
-    /** 当前租户正常账号真实协议 ID；仅保留已通过 PRIVATE 能力门禁的后端。 */
+    /** 当前租户正常、被抢登、抢登中账号的真实协议 ID；仅保留已通过 PRIVATE 能力门禁的后端。 */
     public List<String> protocolIds() {
         List<String> capableBackends = capableBackends();
         return capableBackends.isEmpty() ? List.of() : accountService.listProtocolIds(capableBackends);

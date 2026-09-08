@@ -139,7 +139,7 @@ public class ScriptMarketingExecutionService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION, "固定账号不在线或不可用"));
             command = new MessageSendCommand(account, new MessageSendCommand.MessageTarget(group.getGroupJid()),
                     content.payload(step), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
-                    null, null, null, null, null, row.getId()), row.getCommandId(),
+                    null, null, null, null, null, null, row.getId()), row.getCommandId(),
                     MessageSendCommand.DEFAULT_SEND_INTERVAL_MS, 0L);
         } catch (BusinessException ex) {
             finish(row, FAILED, ex.getMessage(), null, now);

@@ -209,7 +209,7 @@ class AndroidMessageSendBackendTest {
                         null,
                         null,
                         new MessageSendCommand.ContactTaskCorrelation(77L, 88L, 99L, 5L),
-                        null, null),
+                        null, null, null),
                 "cmd_contact_android",
                 800,
                 0L);

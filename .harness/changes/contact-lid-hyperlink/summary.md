@@ -4,7 +4,7 @@
 
 ## 当前实现
 
-- [x] 复用五张现有表，联系人/收件人手机号可空，JID 唯一，新增 delivered_at/read_at 与账号 stop_reason。Flyway V181。
+- [x] 复用五张现有表，联系人/收件人手机号可空，JID 唯一，新增 delivered_at/read_at 与账号 stop_reason。Flyway V183。
 - [x] Kafka 命令接受 LID；协议查询完整 LID/自身 PN 设备，强制最新 pre-key 建会话；目标主设备必须成功。LINK_CARD 组装复用原链路。
 - [x] 页面可配 0.1–60 秒，暂默认 5–10 秒；writer 实际写出时计时。Armada 立即写 outbox，不按发送间隔延后 Kafka 投递。
 - [x] 接通 contact_task 的 ACK 索引/转发、后端幂等回写、现有页面发送明细。

@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** MySQL 专有迁移结构检查；实际读写与租户约束由 H2 Mapper 测试覆盖。 */
 class ContactTaskLidMigrationSqlTest {
     @Test void extendsExistingAggregatesWithoutDroppingContactData() throws Exception {
-        String sql = Files.readString(Path.of("src/main/resources/db/migration/V181__contact_lid_hyperlink.sql"));
+        String sql = Files.readString(Path.of("src/main/resources/db/migration/V183__contact_lid_hyperlink.sql"));
         assertThat(sql).doesNotContain("CREATE TABLE", "DELETE FROM", "DROP TABLE");
         assertThat(sql).contains("MODIFY contact_phone VARCHAR(32) NULL",
                 "(tenant_id, account_id, contact_jid)",

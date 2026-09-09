@@ -100,6 +100,14 @@ category	task_id	execution_id	fact_id	command_id	diagnosis	stall_seconds	fact_up
 TSV
 }
 
+canary_line_fixture() {
+  cat <<'TSV'
+RUNTIME	running	2026-09-03T11:03:00Z	sha256:backend
+record_type	summary
+CANARY_SUMMARY	observedAt=2026-09-03T11:03:01.000000Z taskId=321 task=EXECUTING executionId=654 executions=1 exec=2 stage=4 wait=- reason=- groupBanned=0 roles=M1/P1/S0/R1/C0 backend=A3/W0/O0 healthBad=0 actions=5/open1/bad0/retry0/unexpected0 calls=0/open0/bad0 queries=0/open0/bad0/retry0 materials=1/bad0/admin0 outbox=5/sideFx5/open1/dead0/retry0/nonAndroid0 duplicates=0 attemptRetry=0 unreleasedPuller=1 groupOccupied=1 configBad=0 terminalMissing=0 terminalExcess=0 terminalShapeBad=0 anomalies=0
+TSV
+}
+
 test_standard_task_accepts_page_hash_id_and_summarizes_anomalies() {
   local out
   MOCK_SSH_OUTPUT="$(standard_fixture)"
@@ -162,6 +170,78 @@ test_generated_sql_is_read_only_and_excludes_sensitive_columns() {
   fi
 }
 
+test_canary_line_is_single_line_task_scoped_and_safe() {
+  local line_count out
+  MOCK_SSH_OUTPUT="$(canary_line_fixture)"
+  out="$(run_cli --env test1 --task-id '#321' --canary-line)"
+
+  assert_contains "${out}" "env=test1 runtime=running runtimeBad=0 observedAt="
+  assert_contains "${out}" "taskId=321 task=EXECUTING executionId=654"
+  assert_contains "${out}" "backend=A3/W0/O0"
+  assert_contains "${out}" "duplicates=0"
+  assert_contains "${out}" "unreleasedPuller=1 groupOccupied=1"
+  assert_contains "${out}" "groupBanned=0"
+  assert_contains "${out}" "terminalMissing=0 terminalExcess=0 terminalShapeBad=0"
+  assert_contains "${out}" "anomalies=0"
+  line_count="$(printf '%s\n' "${out}" | wc -l | tr -d ' ')"
+  [ "${line_count}" = 1 ] || fail "canary summary must contain exactly one line"
+  assert_not_contains "${out}" "RUNTIME"
+  assert_not_contains "${out}" "sha256:backend"
+
+  grep -Fq "WHERE id = @task_id" "${FIXTURE_SQL}" \
+    || fail "canary SQL must start from the requested task id"
+  grep -Fq "task_type = 'STANDARD'" "${FIXTURE_SQL}" \
+    || fail "canary SQL must reject unrelated task types"
+  grep -Fq "mode = 'NORMAL_LINK'" "${FIXTURE_SQL}" \
+    || fail "canary SQL must reject unrelated task modes"
+  grep -Fq "o.aggregate_type = f.aggregate_type" "${FIXTURE_SQL}" \
+    || fail "outbox rows must be attributed through task-scoped facts"
+  grep -Fq 'SET SESSION TRANSACTION READ ONLY;' "${FIXTURE_SQL}" \
+    || fail "canary SQL must set the session transaction read-only"
+  grep -Fq 'START TRANSACTION READ ONLY;' "${FIXTURE_SQL}" \
+    || fail "canary SQL must run inside an explicit read-only transaction"
+  grep -Fq 'COMMIT;' "${FIXTURE_SQL}" \
+    || fail "canary read-only transaction must close cleanly"
+  grep -Fq 's.pull_interval_seconds = 30' "${FIXTURE_SQL}" \
+    || fail "canary config must enforce the documented 30 second interval"
+  grep -Fq 'account_state NOT IN (2, 6, 7)' "${FIXTURE_SQL}" \
+    || fail "canary health must use the ordinary-pull executable account states"
+  grep -Fq "= 'GROUP_BANNED'" "${FIXTURE_SQL}" \
+    || fail "GROUP_BANNED must remain an explicit canary anomaly"
+  grep -Fq 'GREATEST(7 - ast.total_count, 0)' "${FIXTURE_SQL}" \
+    || fail "terminal shape must detect missing expected actions"
+  grep -Fq 'GREATEST(ast.total_count - 7, 0)' "${FIXTURE_SQL}" \
+    || fail "terminal shape must detect excess actions"
+  if grep -Eiq '^[[:space:]]*(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|REPLACE|CALL)[[:space:]]' "${FIXTURE_SQL}"; then
+    fail "canary SQL must be read-only"
+  fi
+  if grep -Eiq '(^|[^A-Za-z0-9_])(account_phone|normalized_phone|payload_json|normalized_link|invite_code|wa_jid|group_jid)([^A-Za-z0-9_]|$)' "${FIXTURE_SQL}"; then
+    fail "canary SQL must not reference sensitive columns"
+  fi
+}
+
+test_canary_line_runtime_failure_is_an_anomaly() {
+  local out
+  MOCK_SSH_OUTPUT="$(canary_line_fixture | sed $'s/^RUNTIME\trunning\t/RUNTIME\texited\t/')"
+  out="$(run_cli --env test1 --task-id 321 --canary-line)"
+
+  assert_contains "${out}" "env=test1 runtime=exited runtimeBad=1"
+  assert_contains "${out}" "anomalies=1"
+}
+
+test_canary_line_rejects_execution_filter_before_ssh() {
+  local out status
+  MOCK_SSH_OUTPUT="$(canary_line_fixture)"
+  set +e
+  out="$(run_cli --env test1 --task-id 321 --execution-id 654 --canary-line 2>&1)"
+  status=$?
+  set -e
+
+  [ "${status}" -ne 0 ] || fail "canary line must reject an execution filter"
+  assert_contains "${out}" "不允许 --execution-id"
+  [ ! -f "${FIXTURE_SQL}" ] || fail "ssh should not run for a filtered canary summary"
+}
+
 test_remote_env_file_is_not_executed_as_shell_code() {
   if grep -Fq '. ./.env' "${SCRIPT}"; then
     fail "remote .env must be parsed by explicit keys instead of sourced"
@@ -211,6 +291,12 @@ main() {
   test_invalid_task_id_is_rejected_before_ssh
   rm -f "${FIXTURE_SQL}"
   test_generated_sql_is_read_only_and_excludes_sensitive_columns
+  rm -f "${FIXTURE_SQL}"
+  test_canary_line_is_single_line_task_scoped_and_safe
+  rm -f "${FIXTURE_SQL}"
+  test_canary_line_runtime_failure_is_an_anomaly
+  rm -f "${FIXTURE_SQL}"
+  test_canary_line_rejects_execution_filter_before_ssh
   rm -f "${FIXTURE_SQL}"
   test_remote_env_file_is_not_executed_as_shell_code
   test_missing_task_returns_a_clear_error

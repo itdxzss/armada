@@ -9,6 +9,8 @@ import static org.mockito.Mockito.verify;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupFolderService;
+import com.armada.group.service.impl.GroupLinkHealthReportedSinkAdapter;
+import com.armada.platform.kafka.consumer.group.ProtocolGroupHealthReportedEvent;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
@@ -30,6 +32,7 @@ import com.armada.task.service.impl.PullTaskStandardExecutionLifecycleServiceImp
 import com.armada.task.service.impl.PullTaskLifecyclePullResources;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.sql.SQLException;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
@@ -245,6 +248,54 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     @Test
+    void repeatedBanCallbacksAfterSuccessfulPullTerminateOnceAndPreserveFacts()
+            throws SQLException {
+        insertSuccessfulPullFactsForManualLink();
+        GroupLinkHealthReportedSinkAdapter adapter =
+                new GroupLinkHealthReportedSinkAdapter(
+                        event -> Optional.of(9061L), banTerminationService);
+
+        adapter.handleHealthReported(bannedEvent("evt-ban-1", 910L));
+        int terminalVersion = intColumn("version", "pull_task_group_execution", 61L);
+        int commandCountAfterTerminal = commandCount();
+        for (int delivery = 2; delivery <= 5; delivery++) {
+            adapter.handleHealthReported(bannedEvent(
+                    "evt-ban-" + delivery, 909L + delivery));
+        }
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 61L))
+                .isEqualTo(5);
+        assertThat(stringColumn("reason_code", 61L)).isEqualTo("GROUP_BANNED");
+        assertThat(intColumn("version", "pull_task_group_execution", 61L))
+                .isEqualTo(terminalVersion);
+        assertThat(intColumn("pull_status", "pull_task_material_member", 601L))
+                .isEqualTo(2);
+        assertThat(stringColumn("protocol_outcome",
+                "pull_task_pull_call_member_attempt", 801L)).isEqualTo("SUCCESS");
+        assertThat(intColumn("lifecycle_status",
+                "pull_task_pull_call_member_attempt", 801L)).isEqualTo(3);
+        assertThat(longColumn("released_at", "pull_task_group_account", 601L))
+                .isEqualTo(900L);
+        assertThat(taskMapper.selectLifecycle(6L).getStatus()).isEqualTo("COMPLETED");
+        assertThat(taskMapper.selectLifecycle(6L).getFinishedAt()).isEqualTo(900L);
+        assertThat(commandCountAfterTerminal).isEqualTo(8);
+        assertThat(commandCount()).isEqualTo(8);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(DISTINCT command_id) FROM protocol_command_outbox",
+                Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM protocol_command_outbox WHERE status = 2",
+                Integer.class)).isEqualTo(8);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_execution "
+                        + "WHERE task_id = 6 AND attempt_no = 2",
+                Integer.class)).isZero();
+        verify(outboxService, times(1)).cancelPendingPullTaskCommands(6L, 61L, 900L);
+        verify(groupFolderService, times(0)).moveToUngrouped(9061L);
+        verify(dispatchTrigger, times(0)).dispatchAfterCommit();
+    }
+
+    @Test
     void groupBanFailsLastPausedExecutionButKeepsParentPaused() {
         banTerminationService.terminateBannedGroup(7L, 9051L);
 
@@ -315,6 +366,60 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         execute("UPDATE pull_task_group_execution SET active_pull_wave_id=801 WHERE id=11");
     }
 
+    private void insertSuccessfulPullFactsForManualLink() throws SQLException {
+        execute("INSERT INTO pull_task_group_account "
+                + "(id, tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, membership_status, availability_status, "
+                + "occupied_at, created_at, updated_at) VALUES "
+                + "(601, 7, 6, 61, 1601, '861601', 2, 1, 1, 2, 100, 100, 100)");
+        execute("INSERT INTO pull_task_pull_call "
+                + "(id, tenant_id, task_id, group_execution_id, call_seq, "
+                + "puller_group_account_id, puller_account_id, planned_material_count, "
+                + "planned_station_count, call_status, command_id, idempotency_key, "
+                + "submitted_at, result_at, created_at, updated_at) VALUES "
+                + "(601, 7, 6, 61, 1, 601, 1601, 1, 0, 3, 'cmd-199-08', "
+                + "'op-199-pull', 200, 300, 100, 300)");
+        execute("INSERT INTO pull_task_material_member "
+                + "(id, tenant_id, group_execution_id, member_seq, source_line_no, "
+                + "normalized_phone, admin_required, pull_call_id, pull_status, "
+                + "pull_failure_count, wa_jid, pull_result_at, admin_status, "
+                + "created_at, updated_at) VALUES "
+                + "(601, 7, 61, 1, 1, '8619900000001', 0, 601, 2, 0, "
+                + "'8619900000001@s.whatsapp.net', 300, 0, 100, 300)");
+        execute("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(id, tenant_id, task_id, group_execution_id, pull_call_id, "
+                + "participant_type, participant_ref_id, target_phone, target_jid, "
+                + "puller_group_account_id, attempt_no, lifecycle_status, active_slot, "
+                + "protocol_outcome, execution_state, submitted_at, result_at, "
+                + "created_at, updated_at) VALUES "
+                + "(801, 7, 6, 61, 601, 1, 601, '8619900000001', "
+                + "'8619900000001@s.whatsapp.net', 601, 1, 3, NULL, "
+                + "'SUCCESS', 'STARTED', 200, 300, 100, 300)");
+        execute("INSERT INTO protocol_command_outbox "
+                + "(tenant_id, command_id, aggregate_type, aggregate_id, status, "
+                + "sent_at, updated_at) VALUES "
+                + "(7, 'cmd-199-01', 'PULL_TASK_ACCOUNT_ACTION', 1, 2, 201, 201), "
+                + "(7, 'cmd-199-02', 'PULL_TASK_ACCOUNT_ACTION', 2, 2, 202, 202), "
+                + "(7, 'cmd-199-03', 'PULL_TASK_ACCOUNT_ACTION', 3, 2, 203, 203), "
+                + "(7, 'cmd-199-04', 'PULL_TASK_ACCOUNT_ACTION', 4, 2, 204, 204), "
+                + "(7, 'cmd-199-05', 'PULL_TASK_ACCOUNT_ACTION', 5, 2, 205, 205), "
+                + "(7, 'cmd-199-06', 'PULL_TASK_ACCOUNT_ACTION', 6, 2, 206, 206), "
+                + "(7, 'cmd-199-07', 'PULL_TASK_ACCOUNT_ACTION', 7, 2, 207, 207), "
+                + "(7, 'cmd-199-08', 'PULL_TASK_PULL_CALL', 601, 2, 208, 208)");
+    }
+
+    private int commandCount() {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM protocol_command_outbox", Integer.class);
+    }
+
+    private static ProtocolGroupHealthReportedEvent bannedEvent(
+            String eventId, long checkedAt) {
+        return new ProtocolGroupHealthReportedEvent(
+                eventId, 7L, 9061L, "1203630synthetic@g.us", "BANNED", null,
+                checkedAt, "CHAT_SUSPENDED", null, "acc_android_01", "worker-test");
+    }
+
     private int intColumn(String column, String table, long id) {
         return jdbc.queryForObject(
                 "SELECT " + column + " FROM " + table + " WHERE id = ?", Integer.class, id);
@@ -329,6 +434,12 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         return jdbc.queryForObject(
                 "SELECT " + column + " FROM pull_task_group_execution WHERE id = ?",
                 String.class, executionId);
+    }
+
+    private String stringColumn(String column, String table, long id) {
+        return jdbc.queryForObject(
+                "SELECT " + column + " FROM " + table + " WHERE id = ?",
+                String.class, id);
     }
 
     private static String task(long id, long tenantId, String status) {

@@ -26,12 +26,16 @@ pull-task-diagnose.sh - 拉群任务测试环境只读快速诊断。
     --env test1 --task-id '#123' \
     [--execution-id 456] [--observed-at '14:20'] [--symptom '页面一直执行中']
 
+  bash armada-deploy/tools/pull-task-diagnose.sh \
+    --env test1 --task-id '#123' --canary-line
+
 参数:
   --env             必填，只允许 test1 或 perf2；该参数就是目标环境确认。
   --task-id         必填，页面列表显示的 #任务号，即 pull_task.id。
   --execution-id    可选，只收窄普通链接拉群的群执行行。
   --observed-at     可选，测试现象的时间，仅在本次摘要中回显。
   --symptom         可选，页面现象，仅在本次摘要中回显。
+  --canary-line     只输出一行普通拉群金丝雀安全摘要；不输出号码、链接、JID 或 payload。
   -h, --help        显示帮助。
 
 安全边界:
@@ -61,6 +65,7 @@ TASK_ID=""
 EXECUTION_ID=""
 OBSERVED_AT=""
 SYMPTOM=""
+CANARY_LINE=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -109,6 +114,10 @@ while [ "$#" -gt 0 ]; do
       SYMPTOM="${1#*=}"
       shift
       ;;
+    --canary-line)
+      CANARY_LINE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -124,6 +133,12 @@ case "${SELECTED_ENV}" in
 esac
 [ -n "${TASK_ID}" ] || die "缺少 --task-id（页面 #任务号）"
 TASK_ID="$(normalize_positive_id "任务" "${TASK_ID}")"
+if [ "${CANARY_LINE}" -eq 1 ]; then
+  [ "${SELECTED_ENV}" = "test1" ] \
+    || die "--canary-line 只允许 test1，避免误查其他环境"
+  [ -z "${EXECUTION_ID}" ] \
+    || die "--canary-line 只接受 taskId，不允许 --execution-id，以免隐藏同任务的额外执行行"
+fi
 if [ -n "${EXECUTION_ID}" ]; then
   EXECUTION_ID="$(normalize_positive_id "执行行" "${EXECUTION_ID}")"
 fi
@@ -236,14 +251,457 @@ WHERE t.id = @task_id
 SQL
 }
 
+render_canary_summary_query() {
+  cat <<'SQL'
+SET SESSION TRANSACTION READ ONLY;
+START TRANSACTION READ ONLY;
+SET @now := CAST(FLOOR(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) AS SIGNED);
+
+WITH target_task AS (
+    SELECT id, tenant_id, status
+    FROM pull_task
+    WHERE id = @task_id
+      AND task_type = 'STANDARD'
+      AND mode = 'NORMAL_LINK'
+      AND deleted_at IS NULL
+), scoped_execution AS (
+    SELECT e.id, e.tenant_id, e.task_id, e.execution_status, e.stage,
+           e.wait_resource_type, e.reason_code, e.link_occupancy_key,
+           e.valid_member_count, e.invalid_line_count, e.duplicate_line_count
+    FROM pull_task_group_execution e
+    JOIN target_task t
+      ON t.id = e.task_id
+     AND t.tenant_id = e.tenant_id
+), execution_stats AS (
+    SELECT
+        COUNT(*) AS execution_count,
+        COALESCE(SUM(execution_status = 4), 0) AS completed_count,
+        CASE
+          WHEN COUNT(*) = 1 THEN CAST(MAX(id) AS CHAR)
+          WHEN COUNT(*) = 0 THEN '-'
+          ELSE CONCAT('MULTI:', COUNT(*))
+        END AS execution_id_label,
+        CASE
+          WHEN COUNT(*) = 1 THEN CAST(MAX(execution_status) AS CHAR)
+          WHEN COUNT(*) = 0 THEN '-'
+          ELSE 'MIXED'
+        END AS execution_status_label,
+        CASE
+          WHEN COUNT(*) = 1 THEN CAST(MAX(stage) AS CHAR)
+          WHEN COUNT(*) = 0 THEN '-'
+          ELSE 'MIXED'
+        END AS stage_label,
+        CASE
+          WHEN COUNT(*) = 1 THEN COALESCE(CAST(MAX(wait_resource_type) AS CHAR), '-')
+          WHEN COUNT(*) = 0 THEN '-'
+          ELSE 'MIXED'
+        END AS wait_label,
+        COALESCE(
+          REPLACE(REPLACE(REPLACE(REPLACE(MAX(NULLIF(reason_code, '')), ' ', '_'),
+                  CHAR(9), '_'), CHAR(10), '_'), CHAR(13), '_'),
+          '-'
+        ) AS reason_label,
+        COALESCE(SUM(execution_status = 3 OR wait_resource_type IS NOT NULL), 0) AS wait_count,
+        COALESCE(SUM(execution_status = 5), 0) AS failed_count,
+        COALESCE(SUM(UPPER(TRIM(COALESCE(reason_code, ''))) = 'GROUP_BANNED'), 0)
+          AS group_banned_count,
+        COALESCE(SUM(execution_status = 5
+                     OR UPPER(TRIM(COALESCE(reason_code, ''))) = 'GROUP_BANNED'), 0)
+          AS failed_or_group_banned_count,
+        COALESCE(SUM(link_occupancy_key IS NOT NULL), 0) AS occupied_group_count,
+        COALESCE(SUM(valid_member_count), 0) AS valid_member_count,
+        COALESCE(SUM(invalid_line_count), 0) AS invalid_line_count,
+        COALESCE(SUM(duplicate_line_count), 0) AS duplicate_line_count
+    FROM scoped_execution
+), setting_stats AS (
+    SELECT CASE
+      WHEN COUNT(s.task_id) = 1
+       AND MAX(
+         s.auto_start = 0
+         AND s.puller_sync_mode = 1
+         AND s.material_admin_timing = 2
+         AND s.is_clear_existing_members = 0
+         AND s.is_puller_join_by_link = 0
+         AND s.early_pull_count = 1
+         AND s.early_pull_call_count = 1
+         AND s.pull_count_min = 1
+         AND s.pull_count_max = 1
+         AND s.pull_interval_seconds = 30
+         AND s.puller_count_per_group = 1
+         AND s.station_count_per_call = 0
+         AND s.concurrent_group_count = 1
+         AND s.is_creator_leave_after_pull = 0
+         AND s.required_manager_count = 1
+       ) = 1
+       AND COUNT(gs.task_id) = 1
+       AND MAX(
+         gs.is_group_setting_enabled = 0
+         AND gs.is_auto_unmute_after_task = 0
+         AND gs.is_auto_close_invite_after_task = 0
+       ) = 1
+      THEN 0 ELSE 1 END AS config_bad
+    FROM target_task t
+    LEFT JOIN pull_task_standard_setting s
+      ON s.task_id = t.id
+     AND s.tenant_id = t.tenant_id
+    LEFT JOIN pull_task_standard_group_setting gs
+      ON gs.task_id = t.id
+     AND gs.tenant_id = t.tenant_id
+), role_scope AS (
+    SELECT r.role_type, r.availability_status, r.released_at,
+           a.id AS joined_account_id, a.protocol_id,
+           s.id AS state_row_id, s.account_state, s.login_state,
+           s.risk_status, s.mute_status, s.pulling_restriction_until
+    FROM pull_task_group_account r
+    JOIN scoped_execution e
+      ON e.id = r.group_execution_id
+     AND e.tenant_id = r.tenant_id
+    LEFT JOIN account a
+      ON a.id = r.account_id
+     AND a.tenant_id = r.tenant_id
+     AND a.deleted_at IS NULL
+    LEFT JOIN account_state s
+      ON s.account_id = a.id
+     AND s.tenant_id = a.tenant_id
+), role_stats AS (
+    SELECT
+        COALESCE(SUM(role_type = 1), 0) AS manager_count,
+        COALESCE(SUM(role_type = 2), 0) AS puller_count,
+        COALESCE(SUM(role_type = 3), 0) AS station_count,
+        COALESCE(SUM(role_type = 4), 0) AS promoter_count,
+        COALESCE(SUM(role_type = 5), 0) AS controller_count,
+        COALESCE(SUM(UPPER(TRIM(protocol_id)) = 'ANDROID'), 0) AS android_count,
+        COALESCE(SUM(UPPER(TRIM(protocol_id)) = 'WEB'), 0) AS web_count,
+        COALESCE(SUM(
+          protocol_id IS NULL OR UPPER(TRIM(protocol_id)) NOT IN ('ANDROID', 'WEB')
+        ), 0) AS other_backend_count,
+        COALESCE(SUM(
+          joined_account_id IS NULL
+          OR state_row_id IS NULL
+          OR availability_status <> 1
+          OR account_state IS NULL
+          OR account_state NOT IN (2, 6, 7)
+          OR login_state IS NULL
+          OR login_state <> 1
+          OR (risk_status IS NOT NULL AND risk_status <> 1)
+          OR mute_status IN (2, 3)
+          OR (pulling_restriction_until IS NOT NULL AND pulling_restriction_until > @now)
+        ), 0) AS health_bad,
+        COALESCE(SUM(role_type = 2 AND released_at IS NULL), 0) AS unreleased_puller_count
+    FROM role_scope
+), action_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(a.action_status = 3), 0) AS success_count,
+        COALESCE(SUM(a.action_type = 1), 0) AS save_contact_count,
+        COALESCE(SUM(a.action_type = 2), 0) AS invite_count,
+        COALESCE(SUM(a.action_type = 3), 0) AS join_count,
+        COALESCE(SUM(a.action_type = 4), 0) AS promote_count,
+        COALESCE(SUM(a.action_type = 5), 0) AS open_member_add_count,
+        COALESCE(SUM(a.action_type = 6), 0) AS close_approval_count,
+        COALESCE(SUM(a.action_status IN (1, 2)), 0) AS open_count,
+        COALESCE(SUM(a.action_status IN (4, 5, 7)), 0) AS bad_count,
+        COALESCE(SUM(a.attempt_no > 1), 0) AS retry_count,
+        COALESCE(SUM(a.action_type NOT IN (1, 2, 3, 4, 5, 6)), 0) AS unexpected_count
+    FROM pull_task_account_action a
+    JOIN scoped_execution e
+      ON e.id = a.group_execution_id
+     AND e.tenant_id = a.tenant_id
+), call_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(c.call_status = 3), 0) AS success_count,
+        COALESCE(SUM(c.call_status IN (1, 2)), 0) AS open_count,
+        COALESCE(SUM(c.call_status = 4), 0) AS bad_count
+    FROM pull_task_pull_call c
+    JOIN scoped_execution e
+      ON e.id = c.group_execution_id
+     AND e.tenant_id = c.tenant_id
+), query_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(q.query_status <> 2), 0) AS non_success_count,
+        COALESCE(SUM(q.query_status = 1), 0) AS open_count,
+        COALESCE(SUM(q.query_status IN (3, 4)), 0) AS bad_count,
+        COALESCE(SUM(q.attempt_no > 1), 0) AS retry_count
+    FROM pull_task_member_query q
+    JOIN scoped_execution e
+      ON e.id = q.group_execution_id
+     AND e.tenant_id = q.tenant_id
+), material_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(m.pull_status <> 2
+                     OR m.admin_required <> 0
+                     OR m.admin_status <> 0), 0) AS non_success_count,
+        COALESCE(SUM(m.pull_status IN (3, 4) OR m.admin_status IN (4, 5)), 0) AS bad_count,
+        COALESCE(SUM(m.admin_required = 1), 0) AS admin_required_count
+    FROM pull_task_material_member m
+    JOIN scoped_execution e
+      ON e.id = m.group_execution_id
+     AND e.tenant_id = m.tenant_id
+), attempt_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(a.lifecycle_status <> 3
+                     OR a.protocol_outcome <> 'SUCCESS'), 0) AS non_success_count,
+        COALESCE(SUM(a.attempt_no > 1), 0) AS retry_count,
+        COALESCE(SUM(a.protocol_outcome IN ('FAILED', 'UNKNOWN')
+                     OR a.execution_state = 'UNCERTAIN'), 0) AS bad_count,
+        COALESCE(SUM(a.lifecycle_status IN (1, 2)), 0) AS open_count
+    FROM pull_task_pull_call_member_attempt a
+    JOIN scoped_execution e
+      ON e.id = a.group_execution_id
+     AND e.tenant_id = a.tenant_id
+), wave_stats AS (
+    SELECT COUNT(*) AS total_count,
+           COALESCE(SUM(w.wave_status = 3), 0) AS settled_count,
+           COALESCE(SUM(w.wave_status IN (1, 2)), 0) AS active_count
+    FROM pull_task_pull_wave w
+    JOIN scoped_execution e
+      ON e.id = w.group_execution_id
+     AND e.tenant_id = w.tenant_id
+), fact_scope AS (
+    SELECT a.tenant_id, 'PULL_TASK_ACCOUNT_ACTION' AS aggregate_type,
+           a.id AS aggregate_id, 1 AS is_side_effect
+    FROM pull_task_account_action a
+    JOIN scoped_execution e
+      ON e.id = a.group_execution_id
+     AND e.tenant_id = a.tenant_id
+    UNION ALL
+    SELECT c.tenant_id, 'PULL_TASK_PULL_CALL', c.id, 1
+    FROM pull_task_pull_call c
+    JOIN scoped_execution e
+      ON e.id = c.group_execution_id
+     AND e.tenant_id = c.tenant_id
+    UNION ALL
+    SELECT m.tenant_id, 'PULL_TASK_MATERIAL_MEMBER', m.id, 1
+    FROM pull_task_material_member m
+    JOIN scoped_execution e
+      ON e.id = m.group_execution_id
+     AND e.tenant_id = m.tenant_id
+    WHERE m.admin_required = 1 OR m.admin_command_id IS NOT NULL
+    UNION ALL
+    SELECT q.tenant_id, 'PULL_TASK_MEMBER_QUERY', q.id, 0
+    FROM pull_task_member_query q
+    JOIN scoped_execution e
+      ON e.id = q.group_execution_id
+     AND e.tenant_id = q.tenant_id
+), command_scope AS (
+    SELECT o.id, o.command_id, o.aggregate_type, o.aggregate_id,
+           o.protocol_backend, o.status, o.retry_count, f.is_side_effect
+    FROM fact_scope f
+    JOIN protocol_command_outbox o
+      ON o.tenant_id = f.tenant_id
+     AND o.aggregate_type = f.aggregate_type
+     AND o.aggregate_id = f.aggregate_id
+     AND o.deleted_at IS NULL
+), outbox_stats AS (
+    SELECT
+        COUNT(*) AS total_count,
+        COALESCE(SUM(is_side_effect = 1), 0) AS side_effect_count,
+        COALESCE(SUM(status IN (0, 1, 5, 6)), 0) AS open_count,
+        COALESCE(SUM(status = 3), 0) AS dead_count,
+        COALESCE(SUM(status <> 2), 0) AS non_sent_count,
+        COALESCE(SUM(retry_count > 0), 0) AS retry_count,
+        COALESCE(SUM(protocol_backend IS NULL
+                     OR UPPER(TRIM(protocol_backend)) <> 'ANDROID'), 0)
+          AS non_android_count
+    FROM command_scope
+), duplicate_side_effect AS (
+    SELECT COUNT(*) AS aggregate_count
+    FROM (
+        SELECT aggregate_type, aggregate_id
+        FROM command_scope
+        WHERE is_side_effect = 1
+        GROUP BY aggregate_type, aggregate_id
+        HAVING COUNT(DISTINCT command_id) > 1
+    ) duplicated
+), terminal_deltas AS (
+    SELECT
+      CASE
+        WHEN t.status = 'COMPLETED'
+         AND es.execution_count = 1
+         AND es.completed_count = 1
+        THEN GREATEST(7 - ast.total_count, 0)
+           + GREATEST(1 - cs.total_count, 0)
+           + GREATEST(1 - ms.total_count, 0)
+           + GREATEST(1 - ats.total_count, 0)
+           + GREATEST(1 - ws.total_count, 0)
+           + GREATEST(8 - os.side_effect_count, 0)
+           + GREATEST(8 + qs.total_count - os.total_count, 0)
+        ELSE 0
+      END AS missing_count,
+      CASE
+        WHEN t.status = 'COMPLETED'
+         AND es.execution_count = 1
+         AND es.completed_count = 1
+        THEN GREATEST(ast.total_count - 7, 0)
+           + GREATEST(cs.total_count - 1, 0)
+           + GREATEST(ms.total_count - 1, 0)
+           + GREATEST(ats.total_count - 1, 0)
+           + GREATEST(ws.total_count - 1, 0)
+           + GREATEST(qs.total_count - 1, 0)
+           + GREATEST(os.side_effect_count - 8, 0)
+           + GREATEST(os.total_count - (8 + qs.total_count), 0)
+        ELSE 0
+      END AS excess_count
+    FROM target_task t
+    CROSS JOIN execution_stats es
+    CROSS JOIN action_stats ast
+    CROSS JOIN call_stats cs
+    CROSS JOIN query_stats qs
+    CROSS JOIN material_stats ms
+    CROSS JOIN attempt_stats ats
+    CROSS JOIN wave_stats ws
+    CROSS JOIN outbox_stats os
+), terminal_stats AS (
+    SELECT CASE
+      WHEN t.status <> 'COMPLETED' THEN 0
+      WHEN es.execution_count = 1
+       AND es.completed_count = 1
+       AND td.missing_count = 0
+       AND td.excess_count = 0
+       AND rs.manager_count = 1
+       AND rs.puller_count = 1
+       AND rs.station_count = 0
+       AND rs.promoter_count = 1
+       AND rs.controller_count = 0
+       AND rs.android_count = 3
+       AND rs.web_count = 0
+       AND rs.other_backend_count = 0
+       AND rs.health_bad = 0
+       AND ast.success_count = 7
+       AND ast.save_contact_count = 2
+       AND ast.invite_count = 1
+       AND ast.join_count = 1
+       AND ast.promote_count = 1
+       AND ast.open_member_add_count = 1
+       AND ast.close_approval_count = 1
+       AND cs.success_count = 1
+       AND qs.total_count <= 1
+       AND qs.non_success_count = 0
+       AND ms.non_success_count = 0
+       AND ats.non_success_count = 0
+       AND ws.settled_count = 1
+       AND os.non_sent_count = 0
+       AND ds.aggregate_count = 0
+       AND rs.unreleased_puller_count = 0
+       AND es.occupied_group_count = 0
+      THEN 0 ELSE 1 END AS terminal_shape_bad
+    FROM target_task t
+    CROSS JOIN execution_stats es
+    CROSS JOIN role_stats rs
+    CROSS JOIN action_stats ast
+    CROSS JOIN call_stats cs
+    CROSS JOIN query_stats qs
+    CROSS JOIN material_stats ms
+    CROSS JOIN attempt_stats ats
+    CROSS JOIN wave_stats ws
+    CROSS JOIN outbox_stats os
+    CROSS JOIN duplicate_side_effect ds
+    CROSS JOIN terminal_deltas td
+)
+SELECT
+    'CANARY_SUMMARY' AS record_type,
+    CONCAT_WS(' ',
+      CONCAT('observedAt=', DATE_FORMAT(UTC_TIMESTAMP(3), '%Y-%m-%dT%H:%i:%s.%fZ')),
+      CONCAT('taskId=', t.id),
+      CONCAT('task=', t.status),
+      CONCAT('executionId=', es.execution_id_label),
+      CONCAT('executions=', es.execution_count),
+      CONCAT('exec=', es.execution_status_label),
+      CONCAT('stage=', es.stage_label),
+      CONCAT('wait=', es.wait_label),
+      CONCAT('reason=', es.reason_label),
+      CONCAT('groupBanned=', es.group_banned_count),
+      CONCAT('roles=M', rs.manager_count, '/P', rs.puller_count,
+             '/S', rs.station_count, '/R', rs.promoter_count,
+             '/C', rs.controller_count),
+      CONCAT('backend=A', rs.android_count, '/W', rs.web_count,
+             '/O', rs.other_backend_count),
+      CONCAT('healthBad=', rs.health_bad),
+      CONCAT('actions=', ast.total_count, '/open', ast.open_count,
+             '/bad', ast.bad_count, '/retry', ast.retry_count,
+             '/unexpected', ast.unexpected_count),
+      CONCAT('calls=', cs.total_count, '/open', cs.open_count, '/bad', cs.bad_count),
+      CONCAT('queries=', qs.total_count, '/open', qs.open_count,
+             '/bad', qs.bad_count, '/retry', qs.retry_count),
+      CONCAT('materials=', ms.total_count, '/bad', ms.bad_count,
+             '/admin', ms.admin_required_count),
+      CONCAT('outbox=', os.total_count, '/sideFx', os.side_effect_count,
+             '/open', os.open_count, '/dead', os.dead_count,
+             '/retry', os.retry_count, '/nonAndroid', os.non_android_count),
+      CONCAT('duplicates=', ds.aggregate_count),
+      CONCAT('attemptRetry=', ats.retry_count),
+      CONCAT('unreleasedPuller=', rs.unreleased_puller_count),
+      CONCAT('groupOccupied=', es.occupied_group_count),
+      CONCAT('configBad=', ss.config_bad),
+      CONCAT('terminalMissing=', td.missing_count),
+      CONCAT('terminalExcess=', td.excess_count),
+      CONCAT('terminalShapeBad=', ts.terminal_shape_bad),
+      CONCAT('anomalies=',
+        ss.config_bad
+        + ts.terminal_shape_bad
+        + IF(es.execution_count = 1, 0, 1)
+        + es.wait_count + es.failed_or_group_banned_count
+        + es.invalid_line_count + es.duplicate_line_count
+        + IF(es.valid_member_count = 1, 0, 1)
+        + rs.web_count + rs.other_backend_count + rs.health_bad
+        + GREATEST(rs.manager_count - 1, 0)
+        + GREATEST(rs.puller_count - 1, 0)
+        + rs.station_count + GREATEST(rs.promoter_count - 1, 0) + rs.controller_count
+        + ast.bad_count + ast.retry_count + ast.unexpected_count
+        + GREATEST(ast.total_count - 7, 0)
+        + cs.bad_count + GREATEST(cs.total_count - 1, 0)
+        + qs.bad_count + qs.retry_count
+        + ms.bad_count + ms.admin_required_count
+        + ats.bad_count + ats.retry_count
+        + os.dead_count + os.retry_count + os.non_android_count
+        + GREATEST(os.side_effect_count - 8, 0)
+        + ds.aggregate_count
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND ast.open_count > 0, ast.open_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND cs.open_count > 0, cs.open_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND qs.open_count > 0, qs.open_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND ats.open_count > 0, ats.open_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND ws.active_count > 0, ws.active_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND os.open_count > 0, os.open_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND rs.unreleased_puller_count > 0,
+             rs.unreleased_puller_count, 0)
+        + IF(t.status IN ('COMPLETED', 'ENDED') AND es.occupied_group_count > 0,
+             es.occupied_group_count, 0)
+      )
+    ) AS summary
+FROM target_task t
+CROSS JOIN execution_stats es
+CROSS JOIN setting_stats ss
+CROSS JOIN role_stats rs
+CROSS JOIN action_stats ast
+CROSS JOIN call_stats cs
+CROSS JOIN query_stats qs
+CROSS JOIN material_stats ms
+CROSS JOIN attempt_stats ats
+CROSS JOIN wave_stats ws
+CROSS JOIN outbox_stats os
+CROSS JOIN duplicate_side_effect ds
+CROSS JOIN terminal_deltas td
+CROSS JOIN terminal_stats ts;
+COMMIT;
+SQL
+}
+
 render_sql() {
   printf 'SET @task_id := %s;\n' "${TASK_ID}"
-  render_parameter_block
   if [ -n "${EXECUTION_ID}" ]; then
     printf 'SET @execution_id := %s;\n' "${EXECUTION_ID}"
   else
     printf 'SET @execution_id := NULL;\n'
   fi
+  if [ "${CANARY_LINE}" -eq 1 ]; then
+    render_canary_summary_query
+    return
+  fi
+  render_parameter_block
   render_summary_queries
   cat "${STATISTICS_SQL}"
   render_anomaly_query
@@ -295,7 +753,7 @@ fi
 printf 'RUNTIME\\t%s\\t%s\\t%s\\n' \
   \"\${runtime_status:-unknown}\" \"\${runtime_created:-unknown}\" \"\${runtime_image:-unknown}\"
 MYSQL_PWD=\"\${DB_PASSWORD:?DB_PASSWORD is required}\" \
-  mysql --connect-timeout=8 --default-character-set=utf8mb4 --batch --raw \
+  mysql --no-defaults --connect-timeout=8 --default-character-set=utf8mb4 --batch --raw \
   -h \"\${db_host}\" -P \"\${db_port}\" -u \"\${DB_USER:?DB_USER is required}\" \"\${db_name}\""
 
 RESULT_FILE="$(mktemp "${TMPDIR:-/tmp}/armada-pull-task-diagnosis.XXXXXX")"
@@ -316,6 +774,42 @@ SSH_ARGS=(
 if ! render_sql | "${SSH_BIN}" "${SSH_ARGS[@]}" \
   "${SSH_USER}@${SSH_HOST}" "${REMOTE_COMMAND}" >"${RESULT_FILE}"; then
   die "诊断查询失败；未执行任何修改或恢复操作"
+fi
+
+if [ "${CANARY_LINE}" -eq 1 ]; then
+  RUNTIME_STATUS="$(awk -F '\t' '
+    $1 == "RUNTIME" {
+      print $2
+      exit
+    }
+  ' "${RESULT_FILE}")"
+  case "${RUNTIME_STATUS}" in
+    running) RUNTIME_BAD=0 ;;
+    ''|*[!A-Za-z0-9_.-]*) RUNTIME_STATUS=unknown; RUNTIME_BAD=1 ;;
+    *) RUNTIME_BAD=1 ;;
+  esac
+  CANARY_SUMMARY="$(awk -F '\t' '
+    $1 == "CANARY_SUMMARY" {
+      sub(/^[^\t]*\t/, "")
+      print
+      exit
+    }
+  ' "${RESULT_FILE}")"
+  [ -n "${CANARY_SUMMARY}" ] \
+    || die "在 ${SELECTED_ENV} 中找不到可归因的普通链接拉群任务 #${TASK_ID}"
+  case "${CANARY_SUMMARY}" in
+    *' anomalies='*) ;;
+    *) die "金丝雀摘要缺少 anomalies 计数" ;;
+  esac
+  CANARY_PREFIX="${CANARY_SUMMARY% anomalies=*}"
+  CANARY_ANOMALIES="${CANARY_SUMMARY##* anomalies=}"
+  case "${CANARY_ANOMALIES}" in
+    ''|*[!0-9]*) die "金丝雀摘要 anomalies 计数不合法" ;;
+  esac
+  printf 'env=%s runtime=%s runtimeBad=%s %s anomalies=%s\n' \
+    "${SELECTED_ENV}" "${RUNTIME_STATUS}" "${RUNTIME_BAD}" \
+    "${CANARY_PREFIX}" "$((CANARY_ANOMALIES + RUNTIME_BAD))"
+  exit 0
 fi
 
 RUNTIME_STATUS=unknown

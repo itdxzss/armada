@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "PL-S01C-TASK-199",
+  "seed": 199449,
+  "endpoint": "sim://local",
+  "task": {
+    "taskId": "199",
+    "executionId": "449",
+    "backend": "ANDROID",
+    "groupId": "synthetic-group-199",
+    "targetIds": ["target"]
+  },
+  "world": {
+    "group": {
+      "groupId": "synthetic-group-199",
+      "currentInvite": "synthetic-invite-v1",
+      "members": ["promoter"],
+      "admins": ["promoter"],
+      "memberAddEnabled": false,
+      "approvalRequired": true
+    }
+  },
+  "steps": [
+    {
+      "kind": "command",
+      "operationId": "sim-199-contact-manager-puller",
+      "commandId": "sim-199-cmd-01",
+      "attemptNo": 1,
+      "action": "SAVE_CONTACT",
+      "actorId": "manager",
+      "subjectId": "puller"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-contact-puller-manager",
+      "commandId": "sim-199-cmd-02",
+      "attemptNo": 1,
+      "action": "SAVE_CONTACT",
+      "actorId": "puller",
+      "subjectId": "manager"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-manager-join",
+      "commandId": "sim-199-cmd-03",
+      "attemptNo": 1,
+      "action": "JOIN_GROUP",
+      "actorId": "manager",
+      "subjectId": "manager"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-manager-promote",
+      "commandId": "sim-199-cmd-04",
+      "attemptNo": 1,
+      "action": "PROMOTE_MEMBER",
+      "actorId": "promoter",
+      "subjectId": "manager"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-enable-member-add",
+      "commandId": "sim-199-cmd-05",
+      "attemptNo": 1,
+      "action": "ENABLE_MEMBER_ADD",
+      "actorId": "manager",
+      "subjectId": "synthetic-group-199"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-disable-approval",
+      "commandId": "sim-199-cmd-06",
+      "attemptNo": 1,
+      "action": "DISABLE_JOIN_APPROVAL",
+      "actorId": "manager",
+      "subjectId": "synthetic-group-199"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-invite-puller",
+      "commandId": "sim-199-cmd-07",
+      "attemptNo": 1,
+      "action": "INVITE_MEMBER",
+      "actorId": "manager",
+      "subjectId": "puller"
+    },
+    {
+      "kind": "command",
+      "operationId": "sim-199-add-target",
+      "commandId": "sim-199-cmd-08",
+      "attemptNo": 1,
+      "action": "BATCH_ADD_MEMBER",
+      "actorId": "puller",
+      "subjectId": "target"
+    },
+    {
+      "kind": "risk",
+      "sourceEventId": "sim-199-risk-01",
+      "signal": "CHAT_SUSPENDED",
+      "occurredAt": "2026-09-03T19:29:16.773+08:00",
+      "deliveredAt": "2026-09-03T19:29:17.793+08:00"
+    },
+    {
+      "kind": "risk",
+      "sourceEventId": "sim-199-risk-02",
+      "signal": "CHAT_SUSPENDED",
+      "occurredAt": "2026-09-03T19:29:16.900+08:00",
+      "deliveredAt": "2026-09-03T19:29:18.100+08:00"
+    },
+    {
+      "kind": "risk",
+      "sourceEventId": "sim-199-risk-03",
+      "signal": "CHAT_SUSPENDED",
+      "occurredAt": "2026-09-03T19:29:17.100+08:00",
+      "deliveredAt": "2026-09-03T19:29:18.400+08:00"
+    },
+    {
+      "kind": "risk",
+      "sourceEventId": "sim-199-risk-04",
+      "signal": "CHAT_SUSPENDED",
+      "occurredAt": "2026-09-03T19:29:18.000+08:00",
+      "deliveredAt": "2026-09-03T19:29:20.000+08:00"
+    },
+    {
+      "kind": "risk",
+      "sourceEventId": "sim-199-risk-05",
+      "signal": "CHAT_SUSPENDED",
+      "occurredAt": "2026-09-03T19:29:18.500+08:00",
+      "deliveredAt": "2026-09-03T19:29:21.000+08:00"
+    }
+  ],
+  "expected": {
+    "taskId": "199",
+    "executionId": "449",
+    "backend": "ANDROID",
+    "commandCount": 8,
+    "uniqueCommandCount": 8,
+    "totalMutationCount": 8,
+    "duplicateMutations": 0,
+    "riskEventDeliveries": 5,
+    "riskTransitions": 1,
+    "newCommandsAfterTerminal": 0,
+    "groupStatus": "BANNED",
+    "inviteStatus": "QUARANTINED",
+    "targetMember": true,
+    "targetProtocolSuccess": 1,
+    "executionStatus": "FAILED",
+    "failureReason": "GROUP_BANNED",
+    "parentLifecycle": "COMPLETED",
+    "parentOutcome": "FAILED",
+    "processed": 1,
+    "success": 0,
+    "abnormal": 1
+  }
+}

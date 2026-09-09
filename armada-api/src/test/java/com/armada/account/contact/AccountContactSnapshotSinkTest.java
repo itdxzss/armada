@@ -9,6 +9,7 @@ import com.armada.account.contact.service.impl.AccountContactSnapshotSink;
 import com.armada.account.service.AccountProfileService;
 import com.armada.platform.kafka.consumer.contact.AccountContactsReportedEvent;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -41,6 +42,9 @@ class AccountContactSnapshotSinkTest {
     private AccountContactSyncMapper syncMapper;
     @Mock
     private AccountProfileService accountProfileService;
+
+    @BeforeEach
+    void setUp() { when(syncMapper.lockAccount(11L)).thenReturn(11L); }
 
     private AccountContactSnapshotSink sink() {
         return new AccountContactSnapshotSink(

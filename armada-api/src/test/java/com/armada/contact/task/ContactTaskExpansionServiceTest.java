@@ -83,6 +83,7 @@ class ContactTaskExpansionServiceTest {
         AccountContactSync row = new AccountContactSync();
         row.setAccountId(11L);
         row.setLastSyncedAt(lastSyncedAt);
+        row.setSyncStatus("SUCCESS");
         row.setSyncStatus(status);
         return row;
     }
@@ -123,7 +124,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
+        when(contactMapper.selectSendableByAccount(eq(11L), anyInt()))
                 .thenReturn(List.of(contact("8613900000001"), contact("8613900000002")));
         givenGeneratedAccountIds(101L);
 
@@ -149,14 +150,14 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(eq(11L), eq(3)))
+        when(contactMapper.selectSendableByAccount(eq(11L), eq(3)))
                 .thenReturn(List.of(contact("1"), contact("2"), contact("3")));
         givenGeneratedAccountIds(101L);
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 3));
 
         assertThat(result.recipientCount()).isEqualTo(3);
-        verify(contactMapper).selectNamedByAccount(11L, 3);
+        verify(contactMapper).selectSendableByAccount(11L, 3);
     }
 
     @Test
@@ -188,23 +189,24 @@ class ContactTaskExpansionServiceTest {
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
 
         assertThat(result.recipientCount()).isZero();
-        verify(contactMapper, never()).selectNamedByAccount(anyLong(), anyInt());
+        verify(contactMapper, never()).selectSendableByAccount(anyLong(), anyInt());
     }
 
     @Test
-    void usesPartialSnapshot() {
-        // PARTIAL 的数据是全的，只是可能多几条已删的，可以用
+    void skipsPartialSnapshot() {
+        // 不完整快照可能混有已删除联系人，不能用于生成发送目标。
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(
                 snapshot(900L, AccountContactSync.STATUS_PARTIAL));
-        when(contactMapper.selectNamedByAccount(eq(11L), anyInt()))
+        when(contactMapper.selectSendableByAccount(eq(11L), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
         givenGeneratedAccountIds(101L);
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
 
-        assertThat(result.recipientCount()).isEqualTo(1);
+        assertThat(result.recipientCount()).isZero();
+        verify(recipientMapper, never()).insertBatch(any());
     }
 
     @Test
@@ -213,7 +215,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
+        when(contactMapper.selectSendableByAccount(anyLong(), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
         givenGeneratedAccountIds(101L);
 
@@ -229,7 +231,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(11L)).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(anyLong(), anyInt()))
+        when(contactMapper.selectSendableByAccount(anyLong(), anyInt()))
                 .thenReturn(List.of(contact("8613900000001")));
         givenGeneratedAccountIds(101L);
 
@@ -246,7 +248,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(List.of());
+        when(contactMapper.selectSendableByAccount(anyLong(), anyInt())).thenReturn(List.of());
 
         ContactTaskExpansionService.ExpansionResult result = service().expand(task(10, 0));
 
@@ -260,7 +262,7 @@ class ContactTaskExpansionServiceTest {
         when(selector.select(any(), anyInt())).thenReturn(
                 List.of(candidate(11L, "8613800000000", "web", "acc_1")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(anyLong(), anyInt())).thenReturn(null);
+        when(contactMapper.selectSendableByAccount(anyLong(), anyInt())).thenReturn(null);
 
         service().expand(task(10, 0));
 
@@ -273,8 +275,8 @@ class ContactTaskExpansionServiceTest {
                 candidate(11L, "p1", "web", "acc_1"),
                 candidate(12L, "p2", "web", "acc_2")));
         when(syncMapper.selectByAccountId(anyLong())).thenReturn(fresh());
-        when(contactMapper.selectNamedByAccount(eq(11L), anyInt())).thenReturn(List.of(contact("1")));
-        when(contactMapper.selectNamedByAccount(eq(12L), anyInt()))
+        when(contactMapper.selectSendableByAccount(eq(11L), anyInt())).thenReturn(List.of(contact("1")));
+        when(contactMapper.selectSendableByAccount(eq(12L), anyInt()))
                 .thenReturn(List.of(contact("2"), contact("3")));
         givenGeneratedAccountIds(101L, 102L);
 

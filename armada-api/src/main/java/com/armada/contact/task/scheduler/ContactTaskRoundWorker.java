@@ -19,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,14 +39,6 @@ import java.util.Random;
 public class ContactTaskRoundWorker {
 
     private static final Logger log = LoggerFactory.getLogger(ContactTaskRoundWorker.class);
-
-    /** 间隔配置非法时的节奏兜底，避免轮次紧循环。 */
-    private static final int FALLBACK_INTERVAL_MS = 1000;
-
-    /** 允许的最小节奏间隔。 */
-    private static final int MIN_INTERVAL_MS = 100;
-
-    private static final BigDecimal MILLIS_PER_SECOND = new BigDecimal("1000");
 
     /** 入队结果缺失时使用的稳定原因码。 */
     private static final String REASON_ENQUEUE_UNKNOWN = "ENQUEUE_UNKNOWN";
@@ -148,8 +139,9 @@ public class ContactTaskRoundWorker {
             return;
         }
         long now = clock.millis();
-        int perAccount = Math.max(1, properties.getRecipientsPerAccountPerRound());
-        long nextRoundAt = now + (long) perAccount * intervalCeilingMs(task);
+        // 每个任务账号最多一条在途，异常结果落库后才允许取下一条。
+        int perAccount = 1;
+        long nextRoundAt = now + 1000L;
         // 历史数据或并发操作可能把任务提前置为进行中，worker 不能越过计划开始时间发消息
         if (task.getTaskStartAt() != null && task.getTaskStartAt() > now) {
             taskMapper.postponeDueRound(taskId, now, task.getTaskStartAt());
@@ -215,13 +207,13 @@ public class ContactTaskRoundWorker {
         for (ContactFriendTaskAccount accountRow : accountRows) {
             SelectedAccount protocolFact = facts.get(accountRow.getAccountId());
             if (protocolFact == null) {
-                // 圈号后账号被封或导出，本轮跳过；收件人保持 PENDING 等下一轮
+                accountMapper.stopAccount(accountRow.getId(), "ACCOUNT_UNAVAILABLE", now);
+                recipientMapper.skipPendingByAccount(accountRow.getId(), "ACCOUNT_UNAVAILABLE", now);
                 log.info("通讯录任务轮次跳过不可发送账号 tenantId={} taskId={} accountId={}",
                         tenantId, task.getId(), accountRow.getAccountId());
                 continue;
             }
             accountMapper.markRunning(accountRow.getId(), now);
-            int position = 0;
             for (ContactFriendTaskRecipient recipient
                     : recipientMapper.selectPendingByAccount(accountRow.getId(), perAccount)) {
                 String commandId = commandFactory.newCommandId();
@@ -229,12 +221,10 @@ public class ContactTaskRoundWorker {
                     continue;
                 }
                 recipient.setCommandId(commandId);
-                long notBeforeAt = now + (long) position * intervalCeilingMs(task);
                 commands.add(commandFactory.toCommand(
                         task, accountRow, recipient, protocolFact, content,
-                        roundNo, notBeforeAt, random));
+                        roundNo, 0L, random));
                 claimed.add(recipient);
-                position++;
             }
         }
         if (commands.isEmpty()) {
@@ -289,6 +279,8 @@ public class ContactTaskRoundWorker {
                 if (recipientMapper.markFailed(
                         recipient.getId(), reasonCode, reasonMessage, now) > 0) {
                     accountMapper.incrementFailNum(recipient.getTaskAccountId(), now);
+                    accountMapper.stopAccount(recipient.getTaskAccountId(), reasonCode, now);
+                    recipientMapper.skipPendingByAccount(recipient.getTaskAccountId(), reasonCode, now);
                     rejectedCount++;
                 }
             }
@@ -296,12 +288,4 @@ public class ContactTaskRoundWorker {
         return rejectedCount;
     }
 
-    /** 用配置区间上界作为轮次节奏基准；无效配置兜底 1 秒，避免紧循环。 */
-    private static int intervalCeilingMs(ContactFriendTask task) {
-        if (task.getMsgIntervalMaxSec() == null) {
-            return FALLBACK_INTERVAL_MS;
-        }
-        int ms = task.getMsgIntervalMaxSec().multiply(MILLIS_PER_SECOND).intValue();
-        return Math.max(MIN_INTERVAL_MS, ms);
-    }
 }

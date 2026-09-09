@@ -12,10 +12,22 @@ public class ContactFriendTaskRecipient {
     public static final String STATUS_PENDING = "PENDING";
     /** 发送状态：已投递协议层，等待回执。 */
     public static final String STATUS_SENDING = "SENDING";
-    /** 发送状态：成功送达。 */
+    /** 发送状态：协议确认已发送。 */
     public static final String STATUS_SUCCESS = "SUCCESS";
     /** 发送状态：终态失败。 */
     public static final String STATUS_FAILED = "FAILED";
+
+    /** 发送后未取得确定结果，不自动重发。 */
+    public static final String STATUS_UNKNOWN = "UNKNOWN";
+    /** 因账号异常跳过。 */
+    public static final String STATUS_SKIPPED = "SKIPPED";
+    private Long deliveredAt;
+    private Long readAt;
+
+    public Long getDeliveredAt() { return deliveredAt; }
+    public void setDeliveredAt(Long value) { deliveredAt = value; }
+    public Long getReadAt() { return readAt; }
+    public void setReadAt(Long value) { readAt = value; }
 
     /** 主键。 */
     private Long id;

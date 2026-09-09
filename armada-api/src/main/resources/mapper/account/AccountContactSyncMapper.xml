@@ -26,6 +26,10 @@
      LIMIT 1
   </select>
 
+  <select id="lockAccount" resultType="long">
+    SELECT id FROM account WHERE id = #{accountId} FOR UPDATE
+  </select>
+
   <insert id="upsert">
     INSERT INTO account_contact_sync (
       tenant_id, account_id, last_synced_at, last_sync_source,

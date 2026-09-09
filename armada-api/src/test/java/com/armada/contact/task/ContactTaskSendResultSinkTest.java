@@ -8,6 +8,7 @@ import com.armada.contact.task.model.entity.ContactFriendTaskRecipient;
 import com.armada.contact.task.service.ContactTaskSendResultSink;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -37,6 +38,9 @@ class ContactTaskSendResultSinkTest {
     @Mock
     private ContactFriendTaskRecipientMapper recipientMapper;
 
+    @BeforeEach
+    void setUp() { when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(recipient(1)); }
+
     private ContactTaskSendResultSink sink() {
         return new ContactTaskSendResultSink(
                 taskMapper, accountMapper, recipientMapper, () -> NOW);
@@ -59,6 +63,7 @@ class ContactTaskSendResultSinkTest {
     private static ContactFriendTaskRecipient recipient(int attemptCount) {
         ContactFriendTaskRecipient row = new ContactFriendTaskRecipient();
         row.setId(999L);
+        row.setContactJid("8613900000001@s.whatsapp.net");
         row.setTaskId(1L);
         row.setTaskAccountId(101L);
         row.setAttemptCount(attemptCount);
@@ -77,7 +82,7 @@ class ContactTaskSendResultSinkTest {
         assertThat(sink().supports(event(true, "contact_task"))).isTrue();
         assertThat(sink().supports(event(true, "marketing_task"))).isFalse();
         assertThat(sink().supports(event(true, "group_creation_marketing"))).isFalse();
-        assertThat(sink().supports(null)).isFalse();
+        assertThat(sink().supports((ProtocolMessageSendResultReportedEvent) null)).isFalse();
     }
 
     @Test
@@ -86,7 +91,7 @@ class ContactTaskSendResultSinkTest {
 
         sink().handleSendResultReported(event(true, "contact_task"));
 
-        verify(recipientMapper).markSuccess(999L, "wamid.ABC", NOW);
+        verify(recipientMapper).markSuccess(999L, "wamid.ABC", 1_999L);
         verify(accountMapper).incrementSentNum(eq(101L), anyLong());
         verify(taskMapper).incrementSuccessMessageNum(eq(1L), eq(1), anyLong());
     }
@@ -103,20 +108,18 @@ class ContactTaskSendResultSinkTest {
     }
 
     @Test
-    void requeuesFailureWhileRetriesRemain() {
-        when(recipientMapper.selectById(999L)).thenReturn(recipient(1));
+    void stopsAccountWithoutRetryEvenWhenLegacyRetryBudgetRemains() {
         when(taskMapper.selectById(1L)).thenReturn(taskWithRetryMax(3));
-
+        when(recipientMapper.markFailed(eq(999L), anyString(), anyString(), anyLong())).thenReturn(1);
         sink().handleSendResultReported(event(false, "contact_task"));
-
-        verify(recipientMapper).markRetry(eq(999L), eq("TIMEOUT"), anyString(), anyLong());
-        verify(recipientMapper, never()).markFailed(anyLong(), anyString(), anyString(), anyLong());
-        verify(accountMapper, never()).incrementFailNum(anyLong(), anyLong());
+        verify(recipientMapper, never()).markRetry(anyLong(), anyString(), anyString(), anyLong());
+        verify(accountMapper).stopAccount(eq(101L), anyString(), anyLong());
+        verify(recipientMapper).skipPendingByAccount(eq(101L), anyString(), anyLong());
     }
 
     @Test
     void terminatesFailureWhenRetryBudgetIsSpent() {
-        when(recipientMapper.selectById(999L)).thenReturn(recipient(3));
+        when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(recipient(3));
         when(taskMapper.selectById(1L)).thenReturn(taskWithRetryMax(3));
         when(recipientMapper.markFailed(eq(999L), anyString(), anyString(), anyLong())).thenReturn(1);
 
@@ -128,7 +131,7 @@ class ContactTaskSendResultSinkTest {
 
     @Test
     void treatsZeroRetryMaxAsNoRetry() {
-        when(recipientMapper.selectById(999L)).thenReturn(recipient(1));
+        when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(recipient(1));
         when(taskMapper.selectById(1L)).thenReturn(taskWithRetryMax(0));
         when(recipientMapper.markFailed(anyLong(), anyString(), anyString(), anyLong())).thenReturn(1);
 
@@ -140,7 +143,7 @@ class ContactTaskSendResultSinkTest {
 
     @Test
     void ignoresDuplicateFailureReport() {
-        when(recipientMapper.selectById(999L)).thenReturn(recipient(3));
+        when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(recipient(3));
         when(taskMapper.selectById(1L)).thenReturn(taskWithRetryMax(3));
         when(recipientMapper.markFailed(anyLong(), anyString(), anyString(), anyLong())).thenReturn(0);
 
@@ -151,7 +154,7 @@ class ContactTaskSendResultSinkTest {
 
     @Test
     void ignoresEventForUnknownRecipient() {
-        when(recipientMapper.selectById(999L)).thenReturn(null);
+        when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(null);
 
         sink().handleSendResultReported(event(false, "contact_task"));
 
@@ -162,7 +165,7 @@ class ContactTaskSendResultSinkTest {
     @Test
     void truncatesOverlongFailureDescription() {
         // error_desc 是 VARCHAR(255)，协议层长文案不截断会写爆列宽
-        when(recipientMapper.selectById(999L)).thenReturn(recipient(3));
+        when(recipientMapper.selectByCommandId("cmd_1")).thenReturn(recipient(3));
         when(taskMapper.selectById(1L)).thenReturn(taskWithRetryMax(0));
         ProtocolMessageSendResultReportedEvent longReason =
                 new ProtocolMessageSendResultReportedEvent(

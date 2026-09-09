@@ -9,6 +9,28 @@ import java.util.List;
 /** 通讯录营销任务收件人明细的数据访问。 */
 @Mapper
 public interface ContactFriendTaskRecipientMapper {
+    /** 按稳定命令 ID 锁定明细，避免乱序回执覆盖其他发送。 */
+    ContactFriendTaskRecipient selectByCommandId(@Param("commandId") String commandId);
+
+    /** 未知结果是终态，不回到待发送。 */
+    int markUnknown(@Param("id") Long id, @Param("protocolMessageId") String protocolMessageId,
+                    @Param("errorCode") String errorCode, @Param("errorDesc") String errorDesc,
+                    @Param("resultAt") long resultAt);
+
+    /** 仅记录同一消息的送达/已读事实；已读也能证明送达。 */
+    int markAck(@Param("id") Long id, @Param("messageId") String messageId,
+                @Param("read") boolean read, @Param("resultAt") long resultAt);
+
+    /** 账号异常后跳过尚未下发的收件人。 */
+    int skipPendingByAccount(@Param("taskAccountId") Long taskAccountId,
+                             @Param("reason") String reason, @Param("resultAt") long resultAt);
+
+    /** 按任务与账号分页读取真实明细。 */
+    List<ContactFriendTaskRecipient> selectPage(@Param("taskId") Long taskId,
+            @Param("taskAccountId") Long taskAccountId, @Param("offset") long offset,
+            @Param("limit") int limit);
+    long countByAccount(@Param("taskId") Long taskId, @Param("taskAccountId") Long taskAccountId);
+
 
     /**
      * 批量写入收件人。幂等键冲突时忽略，重复展开不会产生重复行。

@@ -16,6 +16,9 @@ public interface AccountContactSyncMapper {
      */
     AccountContactSync selectByAccountId(@Param("accountId") Long accountId);
 
+    /** 锁定所属账号，串行化快照写入与任务展开。 */
+    Long lockAccount(@Param("accountId") Long accountId);
+
     /**
      * 写入或更新账号同步状态。
      *

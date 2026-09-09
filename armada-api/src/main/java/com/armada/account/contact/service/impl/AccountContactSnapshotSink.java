@@ -76,13 +76,23 @@ public class AccountContactSnapshotSink implements AccountContactsReportedSink {
         // 事件从 Kafka 线程进来，没有 HTTP 请求带过来的租户，必须由事件自己声明。
         TenantContext.set(event.tenantId());
         try {
+            if (syncMapper.lockAccount(event.accountId()) == null) {
+                return;
+            }
             long syncedAt = event.snapshotCutoff();
+            AccountContactSync current = syncMapper.selectByAccountId(event.accountId());
+            if (current != null && current.getLastSyncedAt() != null
+                    && (current.getLastSyncedAt() > syncedAt
+                    || (current.getLastSyncedAt() == syncedAt
+                    && AccountContactSync.STATUS_SUCCESS.equals(current.getSyncStatus())))) {
+                return;
+            }
             NormalizedContacts normalized = normalizer.normalize(toSnapshot(event));
             if (!normalized.rows().isEmpty()) {
                 upsertInBatches(event, syncedAt, normalized);
             }
             int landed = contactMapper.countBySyncedAt(event.accountId(), syncedAt);
-            if (landed < event.totalCount()) {
+            if (landed != event.totalCount()) {
                 // 分片没收齐：入库但不删残留、不回写计数。半路回写会让账号筛选读到偏小的好友数。
                 saveSyncState(event, landed, 0, AccountContactSync.STATUS_SYNCING, null);
                 return;

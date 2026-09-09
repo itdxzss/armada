@@ -14,6 +14,10 @@ public class ContactFriendTaskAccount {
     /** 账号执行态：跳过。 */
     public static final String STATE_SKIPPED = "SKIPPED";
 
+    private String stopReason;
+    public String getStopReason() { return stopReason; }
+    public void setStopReason(String value) { stopReason = value; }
+
     /** 主键。 */
     private Long id;
     /** 租户 ID。 */

@@ -16,6 +16,9 @@ public record ContactTaskAccountItemVO(
         String accountStatus,
         Integer needSendNum,
         Integer sentNum,
-        Integer failNum
+        Integer failNum,
+        Long taskAccountId,
+        String state,
+        String stopReason
 ) {
 }

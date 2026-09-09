@@ -131,9 +131,10 @@ public class ContactTaskExpansionService {
                                  AccountHyperlinkCandidateVO account,
                                  long now) {
         // 通讯录由协议层周期推送，armada 不再主动拉；这里只读当前快照的新鲜度。
+        syncMapper.lockAccount(account.accountId());
         AccountContactSync sync = syncMapper.selectByAccountId(account.accountId());
         Long lastSyncedAt = sync == null ? null : sync.getLastSyncedAt();
-        if (ContactSnapshotFreshness.isStale(
+        if (sync == null || !"SUCCESS".equals(sync.getSyncStatus()) || ContactSnapshotFreshness.isStale(
                 lastSyncedAt, now, properties.snapshotTtlHoursOrDefault())) {
             // 快照缺失或过期：宁可少发，也不拿陈数据发。
             // 号下次上线协议会自动推，下一个任务就能用。isStale(null, ..) 已返回 true，
@@ -149,7 +150,7 @@ public class ContactTaskExpansionService {
                 ? NO_CAP_LIMIT
                 : task.getMaxSendsPerAccount();
         List<AccountContact> contacts =
-                contactMapper.selectNamedByAccount(account.accountId(), cap);
+                contactMapper.selectSendableByAccount(account.accountId(), cap);
         if (contacts == null || contacts.isEmpty()) {
             insertAccountRow(task, account, 0, lastSyncedAt,
                     ContactFriendTaskAccount.STATE_SKIPPED, now);

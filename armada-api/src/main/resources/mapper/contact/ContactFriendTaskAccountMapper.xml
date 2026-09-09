@@ -6,7 +6,7 @@
           resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
     SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
            account_status_snapshot, need_send_num, sent_num, fail_num, state,
-           contact_synced_at, created_at, updated_at
+           stop_reason, contact_synced_at, created_at, updated_at
       FROM contact_friend_task_account
      WHERE task_id = #{taskId}
      ORDER BY
@@ -52,7 +52,7 @@
           resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
     SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
            account_status_snapshot, need_send_num, sent_num, fail_num, state,
-           contact_synced_at, created_at, updated_at
+           stop_reason, contact_synced_at, created_at, updated_at
       FROM contact_friend_task_account
      WHERE id = #{id}
   </select>
@@ -67,6 +67,12 @@
     UPDATE contact_friend_task_account
        SET fail_num = fail_num + 1, updated_at = #{updatedAt}
      WHERE id = #{id}
+  </update>
+
+  <update id="stopAccount">
+    UPDATE contact_friend_task_account
+    SET state = 'FAILED', stop_reason = #{reason}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND state IN ('PENDING', 'RUNNING')
   </update>
 
   <update id="markRunning">

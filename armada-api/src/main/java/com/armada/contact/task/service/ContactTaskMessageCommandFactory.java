@@ -87,7 +87,7 @@ public class ContactTaskMessageCommandFactory {
      * @param protocolFacts 账号协议事实
      * @param content 已组合内容
      * @param roundNo 本轮轮次号
-     * @param notBeforeAt Armada 内部最早投递时间（epoch 毫秒），0 表示立即
+     * @param notBeforeAt 保留调用兼容；通讯录命令始终立即入队，由协议控制间隔
      * @param random 随机源，用于逐条取发送间隔
      * @return 协议无关消息命令
      */
@@ -121,7 +121,7 @@ public class ContactTaskMessageCommandFactory {
                 recipient.getCommandId() == null ? newCommandId() : recipient.getCommandId(),
                 ContactSendIntervalPicker.pickMs(
                         task.getMsgIntervalMinSec(), task.getMsgIntervalMaxSec(), random),
-                notBeforeAt);
+                0L);
     }
 
     /**

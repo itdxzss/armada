@@ -13,6 +13,29 @@ class AccountContactNormalizerTest {
 
     private final AccountContactNormalizer normalizer = new AccountContactNormalizer();
 
+    @Test
+    void retainsUnnamedLidWithoutInventingPhoneAndDeduplicatesByJid() {
+        NormalizedContacts result = normalizer.normalize(new AccountContactSnapshot(List.of(
+                new AccountContactSnapshot.Contact(null, "123456789@lid", null, null, null, null),
+                new AccountContactSnapshot.Contact(null, "123456789@lid", null, null, "display", null),
+                contact("123456789", "PN", null, null, null))));
+
+        assertThat(result.contactNum()).isEqualTo(2);
+        assertThat(result.rows().get(0).phone()).isNull();
+        assertThat(result.rows().get(0).jid()).isEqualTo("123456789@lid");
+        assertThat(result.rows().get(0).pushName()).isEqualTo("display");
+        assertThat(result.rows().get(0).named()).isFalse();
+    }
+
+    @Test
+    void rejectsNonUserAndMalformedJidsEvenWithPhone() {
+        NormalizedContacts result = normalizer.normalize(new AccountContactSnapshot(List.of(
+                new AccountContactSnapshot.Contact("123", "123@g.us", null, null, null, null),
+                new AccountContactSnapshot.Contact(null, "abc@lid", null, null, null, null),
+                new AccountContactSnapshot.Contact(null, "123:2@lid", null, null, null, null))));
+        assertThat(result.contactNum()).isZero();
+    }
+
     private static AccountContactSnapshot.Contact contact(
             String phone, String fullName, String firstName, String pushName, String businessName) {
         return new AccountContactSnapshot.Contact(

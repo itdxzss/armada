@@ -78,7 +78,7 @@ class AccountContactMapperXmlTest {
         String sql = xml("AccountContactMapper.xml");
 
         assertThat(sql)
-                .contains("id=\"selectNamedByAccount\"")
+                .contains("id=\"selectSendableByAccount\"")
                 .contains("is_named = 1")
                 .contains("LIMIT #{limit}");
     }

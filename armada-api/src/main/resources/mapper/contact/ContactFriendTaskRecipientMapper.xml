@@ -19,6 +19,8 @@
     <result column="error_desc" property="errorDesc"/>
     <result column="first_sent_at" property="firstSentAt"/>
     <result column="last_attempt_at" property="lastAttemptAt"/>
+    <result column="delivered_at" property="deliveredAt"/>
+    <result column="read_at" property="readAt"/>
     <result column="round_no" property="roundNo"/>
     <result column="command_id" property="commandId"/>
     <result column="created_at" property="createdAt"/>
@@ -29,10 +31,10 @@
     id, tenant_id, task_id, task_account_id, contact_phone, contact_jid,
     contact_named, send_status, attempt_count, protocol_message_id,
     error_code, error_desc, first_sent_at, last_attempt_at,
-    round_no, command_id, created_at, updated_at
+    delivered_at, read_at, round_no, command_id, created_at, updated_at
   </sql>
 
-  <!-- 幂等键 (task_id, task_account_id, contact_phone) 冲突时忽略：重复展开不产生重复收件人 -->
+  <!-- 幂等键 (tenant_id, task_id, task_account_id, contact_jid) 冲突时忽略：重复展开不产生重复收件人 -->
   <insert id="insertBatch">
     INSERT IGNORE INTO contact_friend_task_recipient
       (tenant_id, task_id, task_account_id, contact_phone, contact_jid,
@@ -55,12 +57,16 @@
   </select>
 
   <select id="selectAccountIdsWithPending" resultType="java.lang.Long">
-    SELECT task_account_id
-    FROM contact_friend_task_recipient
-    WHERE task_id = #{taskId}
-      AND send_status = 'PENDING'
-    GROUP BY task_account_id
-    ORDER BY task_account_id
+    SELECT r.task_account_id
+    FROM contact_friend_task_recipient r
+    JOIN contact_friend_task_account a ON a.id = r.task_account_id
+    WHERE r.task_id = #{taskId}
+      AND r.send_status = 'PENDING'
+      AND a.state IN ('PENDING', 'RUNNING')
+      AND NOT EXISTS (SELECT 1 FROM contact_friend_task_recipient active
+          WHERE active.task_account_id = r.task_account_id AND active.send_status = 'SENDING')
+    GROUP BY r.task_account_id
+    ORDER BY r.task_account_id
     LIMIT #{limit}
   </select>
 
@@ -85,7 +91,7 @@
         first_sent_at = COALESCE(first_sent_at, #{resultAt}),
         updated_at = #{resultAt}
     WHERE id = #{id}
-      AND send_status = 'SENDING'
+      AND send_status IN ('SENDING', 'UNKNOWN')
   </update>
 
   <update id="markFailed">
@@ -128,6 +134,45 @@
     SELECT <include refid="recipientColumns"/>
     FROM contact_friend_task_recipient
     WHERE id = #{id}
+    FOR UPDATE
   </select>
 
+  <select id="selectByCommandId" resultMap="recipientMap">
+    SELECT <include refid="recipientColumns"/> FROM contact_friend_task_recipient
+    WHERE command_id = #{commandId} FOR UPDATE
+  </select>
+
+  <update id="markUnknown">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'UNKNOWN', protocol_message_id = COALESCE(#{protocolMessageId}, protocol_message_id),
+        error_code = #{errorCode}, error_desc = #{errorDesc}, updated_at = #{resultAt}
+    WHERE id = #{id} AND send_status = 'SENDING'
+  </update>
+
+  <update id="markAck">
+    UPDATE contact_friend_task_recipient
+    SET protocol_message_id = #{messageId},
+        delivered_at = COALESCE(delivered_at, #{resultAt}),
+        read_at = CASE WHEN #{read} THEN COALESCE(read_at, #{resultAt}) ELSE read_at END,
+        updated_at = GREATEST(updated_at, #{resultAt})
+    WHERE id = #{id} AND send_status IN ('SENDING', 'UNKNOWN', 'SUCCESS')
+      AND (protocol_message_id IS NULL OR protocol_message_id = #{messageId})
+  </update>
+
+  <update id="skipPendingByAccount">
+    UPDATE contact_friend_task_recipient
+    SET send_status = 'SKIPPED', error_code = 'ACCOUNT_STOPPED', error_desc = #{reason},
+        updated_at = #{resultAt}
+    WHERE task_account_id = #{taskAccountId} AND send_status = 'PENDING'
+  </update>
+
+  <select id="selectPage" resultMap="recipientMap">
+    SELECT <include refid="recipientColumns"/> FROM contact_friend_task_recipient
+    WHERE task_id = #{taskId} AND task_account_id = #{taskAccountId}
+    ORDER BY id LIMIT #{limit} OFFSET #{offset}
+  </select>
+  <select id="countByAccount" resultType="long">
+    SELECT COUNT(*) FROM contact_friend_task_recipient
+    WHERE task_id = #{taskId} AND task_account_id = #{taskAccountId}
+  </select>
 </mapper>

@@ -117,7 +117,7 @@ public class ContactTaskFormValidator {
         return new ContactTaskFormDTO(
                 name, messageType, title, description, promotionLink, content,
                 form.previewImageFileId(),
-                min, max, concurrency, maxSends, retryMax, startMode, delay, enabled,
+                min, max, concurrency, maxSends, 0, startMode, delay, enabled,
                 form.accountFilterJson());
     }
 

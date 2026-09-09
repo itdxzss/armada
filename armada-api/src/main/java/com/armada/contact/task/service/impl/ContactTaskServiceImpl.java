@@ -276,7 +276,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
                 row.getAccountStatusSnapshot(),
                 zeroIfNull(row.getNeedSendNum()),
                 zeroIfNull(row.getSentNum()),
-                zeroIfNull(row.getFailNum()));
+                zeroIfNull(row.getFailNum()), row.getId(), row.getState(), row.getStopReason());
     }
 
     /** 只有 is_enabled=1 才算启用；null 与 0 都是草稿。 */

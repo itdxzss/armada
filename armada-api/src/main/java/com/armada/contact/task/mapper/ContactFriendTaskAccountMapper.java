@@ -9,6 +9,10 @@ import java.util.List;
 /** 通讯录营销任务账号维度读模型的数据访问。 */
 @Mapper
 public interface ContactFriendTaskAccountMapper {
+    /** 异常时停止该任务账号后续发送。 */
+    int stopAccount(@Param("id") Long id, @Param("reason") String reason,
+                    @Param("updatedAt") long updatedAt);
+
 
     /**
      * 分页查询任务的账号发送数据。

@@ -73,6 +73,10 @@ public interface AccountContactMapper {
      * @param limit 条数上限
      * @return 联系人快照，按 id 升序
      */
+    List<AccountContact> selectSendableByAccount(@Param("accountId") Long accountId,
+                                              @Param("limit") int limit);
+
+    /** 其他业务沿用有名字的联系人口径。 */
     List<AccountContact> selectNamedByAccount(@Param("accountId") Long accountId,
                                               @Param("limit") int limit);
 }

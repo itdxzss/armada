@@ -111,7 +111,7 @@ public class ProtocolAccountContactEventConsumer {
                 new ArrayList<>(contactsNode.size());
         for (JsonNode node : contactsNode) {
             contacts.add(new AccountContactsReportedEvent.ReportedContact(
-                    requiredText(node, "phone", "通讯录快照事件缺少 contacts[].phone"),
+                    text(node, "phone"),
                     requiredText(node, "jid", "通讯录快照事件缺少 contacts[].jid"),
                     text(node, "fullName"),
                     text(node, "firstName"),

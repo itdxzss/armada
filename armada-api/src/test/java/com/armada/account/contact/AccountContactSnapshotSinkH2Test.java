@@ -78,7 +78,7 @@ class AccountContactSnapshotSinkH2Test {
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,
                   tenant_id BIGINT NOT NULL,
                   account_id BIGINT NOT NULL,
-                  contact_phone VARCHAR(32) NOT NULL,
+                  contact_phone VARCHAR(32),
                   contact_jid VARCHAR(64) NOT NULL,
                   full_name VARCHAR(128),
                   first_name VARCHAR(128),
@@ -89,7 +89,7 @@ class AccountContactSnapshotSinkH2Test {
                   synced_at BIGINT NOT NULL,
                   created_at BIGINT NOT NULL,
                   updated_at BIGINT NOT NULL,
-                  CONSTRAINT uq_account_contact UNIQUE (tenant_id, account_id, contact_phone)
+                  CONSTRAINT uq_account_contact UNIQUE (tenant_id, account_id, contact_jid)
                 )
                 """);
         execute("""
@@ -142,6 +142,45 @@ class AccountContactSnapshotSinkH2Test {
         TenantContext.clear();
     }
 
+    private void apply(AccountContactsReportedEvent event) {
+        new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource))
+                .executeWithoutResult(status -> sink.handle(event));
+    }
+
+    @Test
+    void keepsLidOnlyDistinctFromEqualDigitsPhone() throws SQLException {
+        AccountContactsReportedEvent original = chunk(0, 1, 2, true, List.of());
+        apply(new AccountContactsReportedEvent(original.eventId(), original.tenantId(), original.accountId(),
+                original.protocolAccountId(), original.snapshotId(), original.queryStartedAt(),
+                original.snapshotCutoff(), true, 0, 1, 2, List.of(
+                    new AccountContactsReportedEvent.ReportedContact(null, "123456@lid", null, null, null, null),
+                    new AccountContactsReportedEvent.ReportedContact("123456", "123456@s.whatsapp.net", "PN", null, null, null))));
+        assertThat(contactMapper.selectSendableByAccount(ACCOUNT_ID, 10)).hasSize(2);
+        assertThat(singleLong("SELECT COUNT(*) FROM account_contact WHERE contact_phone IS NULL")).isOne();
+        assertThat(contactMapper.selectNamedByAccount(ACCOUNT_ID, 10)).hasSize(1);
+    }
+
+    @Test
+    void rejectsOlderSnapshotWithoutRestoringRemovedContacts() throws SQLException {
+        apply(chunk(0, 1, 1, true, List.of("111111")));
+        AccountContactsReportedEvent old = chunk(0, 1, 1, true, List.of("222222"));
+        apply(new AccountContactsReportedEvent(old.eventId(), old.tenantId(), old.accountId(),
+                old.protocolAccountId(), "old", OLD_CUTOFF - 1, OLD_CUTOFF, true,
+                old.chunkSeq(), old.chunkCount(), old.totalCount(), old.contacts()));
+        assertThat(singleLong("SELECT COUNT(*) FROM account_contact WHERE contact_phone = '222222'")).isZero();
+        assertThat(syncMapper.selectByAccountId(ACCOUNT_ID).getLastSyncedAt()).isEqualTo(CUTOFF);
+    }
+
+    @Test
+    void rejectsSnapshotForAccountOwnedByAnotherTenant() {
+        var original = chunk(0, 1, 1, true, List.of("111111"));
+        apply(new AccountContactsReportedEvent(original.eventId(), 99L, original.accountId(),
+                original.protocolAccountId(), original.snapshotId(), original.queryStartedAt(),
+                original.snapshotCutoff(), true, 0, 1, 1, original.contacts()));
+        assertThat(contactMapper.countBySyncedAt(ACCOUNT_ID, CUTOFF)).isZero();
+    }
+
     // ---------- 用例 ----------
 
     @Test
@@ -150,7 +189,7 @@ class AccountContactSnapshotSinkH2Test {
         givenExistingContact("8613800000001", OLD_CUTOFF);
         givenExistingContact("8613800000002", OLD_CUTOFF);
 
-        sink.handle(chunk(0, 1, 1, true, List.of("8613800000001")));
+        apply(chunk(0, 1, 1, true, List.of("8613800000001")));
 
         assertThat(phones()).containsExactly("8613800000001");
     }
@@ -160,7 +199,7 @@ class AccountContactSnapshotSinkH2Test {
         // 「这个号一个联系人都没有」也必须能收敛
         givenExistingContact("8613800000001", OLD_CUTOFF);
 
-        sink.handle(chunk(0, 1, 0, true, List.of()));
+        apply(chunk(0, 1, 0, true, List.of()));
 
         assertThat(phones()).isEmpty();
     }
@@ -171,8 +210,8 @@ class AccountContactSnapshotSinkH2Test {
         AccountContactsReportedEvent event =
                 chunk(0, 1, 1, true, List.of("8613800000001"));
 
-        sink.handle(event);
-        sink.handle(event);
+        apply(event);
+        apply(event);
 
         assertThat(phones()).containsExactly("8613800000001");
     }
@@ -180,9 +219,9 @@ class AccountContactSnapshotSinkH2Test {
     @Test
     void reDeliveryDoesNotWipeTheSnapshot() throws SQLException {
         // 重投时 deleteStale 用的是同一个 cutoff，不能把本批自己删掉
-        sink.handle(chunk(0, 2, 2, true, List.of("8613800000001", "8613800000002")));
+        apply(chunk(0, 2, 2, true, List.of("8613800000001", "8613800000002")));
 
-        sink.handle(chunk(0, 2, 2, true, List.of("8613800000001", "8613800000002")));
+        apply(chunk(0, 2, 2, true, List.of("8613800000001", "8613800000002")));
 
         assertThat(phones()).containsExactly("8613800000001", "8613800000002");
     }
@@ -193,7 +232,7 @@ class AccountContactSnapshotSinkH2Test {
         givenExistingContact("8613800000009", OLD_CUTOFF);
 
         // 本快照共 5 条，这一片只带来 1 条 —— 还差 4 条没到
-        sink.handle(chunk(0, 5, 5, true, List.of("8613800000001")));
+        apply(chunk(0, 5, 5, true, List.of("8613800000001")));
 
         assertThat(phones()).contains("8613800000009");
         assertThat(status()).isEqualTo(AccountContactSync.STATUS_SYNCING);
@@ -204,10 +243,10 @@ class AccountContactSnapshotSinkH2Test {
         // 收齐判据靠计数而不是「收到最后一片」：末片先到也必须能收敛
         givenExistingContact("8613800000009", OLD_CUTOFF);
 
-        sink.handle(chunk(1, 2, 2, true, List.of("8613800000002")));
+        apply(chunk(1, 2, 2, true, List.of("8613800000002")));
         assertThat(phones()).contains("8613800000009");
 
-        sink.handle(chunk(0, 2, 2, true, List.of("8613800000001")));
+        apply(chunk(0, 2, 2, true, List.of("8613800000001")));
 
         assertThat(phones()).containsExactly("8613800000001", "8613800000002");
         assertThat(status()).isEqualTo(AccountContactSync.STATUS_SUCCESS);
@@ -217,7 +256,7 @@ class AccountContactSnapshotSinkH2Test {
     void partialSnapshotKeepsLeftovers() throws SQLException {
         givenExistingContact("8613800000009", OLD_CUTOFF);
 
-        sink.handle(chunk(0, 1, 1, false, List.of("8613800000001")));
+        apply(chunk(0, 1, 1, false, List.of("8613800000001")));
 
         assertThat(phones()).contains("8613800000009");
         assertThat(status()).isEqualTo(AccountContactSync.STATUS_PARTIAL);
@@ -226,9 +265,9 @@ class AccountContactSnapshotSinkH2Test {
     @Test
     void countsWrittenBackAreTheWholeSnapshotNotTheLastChunk() throws SQLException {
         // 用本片的归一化计数会把 1200 人的快照写成个位数
-        sink.handle(chunk(0, 3, 3, true,
+        apply(chunk(0, 3, 3, true,
                 List.of("8613800000001", "8613800000002")));
-        sink.handle(chunk(1, 3, 3, true, List.of("8613800000003")));
+        apply(chunk(1, 3, 3, true, List.of("8613800000003")));
 
         assertThat(namedNumOnAccountProfile()).isEqualTo(3);
         AccountContactSync state = syncMapper.selectByAccountId(ACCOUNT_ID);
@@ -238,7 +277,7 @@ class AccountContactSnapshotSinkH2Test {
 
     @Test
     void syncedAtIsTheProtocolCutoffNotTheLocalClock() throws SQLException {
-        sink.handle(chunk(0, 1, 1, true, List.of("8613800000001")));
+        apply(chunk(0, 1, 1, true, List.of("8613800000001")));
 
         assertThat(singleLong("SELECT synced_at FROM account_contact")).isEqualTo(CUTOFF);
         assertThat(syncMapper.selectByAccountId(ACCOUNT_ID).getLastSyncedAt()).isEqualTo(CUTOFF);
@@ -247,7 +286,7 @@ class AccountContactSnapshotSinkH2Test {
     @Test
     void tenantInterceptorStampsTenantIdOnTheNewTables() throws SQLException {
         // 事件从 Kafka 线程进来，没有 HTTP 请求带租户；租户必须由事件自己声明并被拦截器写进去
-        sink.handle(chunk(0, 1, 1, true, List.of("8613800000001")));
+        apply(chunk(0, 1, 1, true, List.of("8613800000001")));
 
         assertThat(singleLong("SELECT tenant_id FROM account_contact")).isEqualTo(TENANT_ID);
         assertThat(singleLong("SELECT tenant_id FROM account_contact_sync")).isEqualTo(TENANT_ID);
@@ -264,7 +303,7 @@ class AccountContactSnapshotSinkH2Test {
                         1, 0, %d, 0, 0)
                 """.formatted(OLD_CUTOFF));
 
-        sink.handle(chunk(0, 1, 1, true, List.of("8613800000001")));
+        apply(chunk(0, 1, 1, true, List.of("8613800000001")));
 
         assertThat(singleLong(
                 "SELECT COUNT(*) FROM account_contact WHERE tenant_id = 99")).isEqualTo(1L);
@@ -272,7 +311,7 @@ class AccountContactSnapshotSinkH2Test {
 
     @Test
     void namedCountOnlyCountsContactsWithAName() throws SQLException {
-        sink.handle(chunkWithUnnamed(List.of("8613800000001"), List.of("8613800000002")));
+        apply(chunkWithUnnamed(List.of("8613800000001"), List.of("8613800000002")));
 
         assertThat(contactMapper.countBySyncedAt(ACCOUNT_ID, CUTOFF)).isEqualTo(2);
         assertThat(contactMapper.countNamedBySyncedAt(ACCOUNT_ID, CUTOFF)).isEqualTo(1);
@@ -284,7 +323,7 @@ class AccountContactSnapshotSinkH2Test {
         // 写成 >= 会把上一轮的行也算进来，收齐判据会提前成立并误删
         givenExistingContact("8613800000009", OLD_CUTOFF);
 
-        sink.handle(chunk(0, 2, 2, true, List.of("8613800000001")));
+        apply(chunk(0, 2, 2, true, List.of("8613800000001")));
 
         assertThat(contactMapper.countBySyncedAt(ACCOUNT_ID, OLD_CUTOFF)).isEqualTo(1);
         assertThat(contactMapper.countBySyncedAt(ACCOUNT_ID, CUTOFF)).isEqualTo(1);
@@ -295,10 +334,10 @@ class AccountContactSnapshotSinkH2Test {
         // 快照落库后，任务展开读的是同一份数据；上一轮已删的号不能再被发出去
         givenExistingContact("8613800000009", OLD_CUTOFF);
 
-        sink.handle(chunk(0, 1, 2, true,
+        apply(chunk(0, 1, 2, true,
                 List.of("8613800000001", "8613800000002")));
 
-        assertThat(contactMapper.selectNamedByAccount(ACCOUNT_ID, 100))
+        assertThat(contactMapper.selectSendableByAccount(ACCOUNT_ID, 100))
                 .extracting(com.armada.account.contact.model.entity.AccountContact::getContactPhone)
                 .containsExactly("8613800000001", "8613800000002");
     }
@@ -306,18 +345,18 @@ class AccountContactSnapshotSinkH2Test {
     @Test
     void perAccountSendCapIsAppliedBySql() throws SQLException {
         // 每号发送上限靠 LIMIT 下推，不是查全量再截断
-        sink.handle(chunk(0, 1, 3, true,
+        apply(chunk(0, 1, 3, true,
                 List.of("8613800000001", "8613800000002", "8613800000003")));
 
-        assertThat(contactMapper.selectNamedByAccount(ACCOUNT_ID, 2)).hasSize(2);
+        assertThat(contactMapper.selectSendableByAccount(ACCOUNT_ID, 2)).hasSize(2);
     }
 
     @Test
     void contactsWithoutANameAreNotSendTargets() throws SQLException {
         // 发送目标集口径是「通讯录里有名字」，只有对方昵称的号不算
-        sink.handle(chunkWithUnnamed(List.of("8613800000001"), List.of("8613800000002")));
+        apply(chunkWithUnnamed(List.of("8613800000001"), List.of("8613800000002")));
 
-        assertThat(contactMapper.selectNamedByAccount(ACCOUNT_ID, 100))
+        assertThat(contactMapper.selectSendableByAccount(ACCOUNT_ID, 100))
                 .extracting(com.armada.account.contact.model.entity.AccountContact::getContactPhone)
                 .containsExactly("8613800000001");
     }

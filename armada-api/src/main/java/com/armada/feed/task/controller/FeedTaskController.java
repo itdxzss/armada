@@ -85,4 +85,12 @@ public class FeedTaskController {
             @RequestParam(required = false) Integer pageSize) {
         return ApiResponse.ok(service.accountData(id, accountPhone, page, pageSize));
     }
+
+    /** 准备当前任务账号的候选受众，不重发已终态的消息。 */
+    @PostMapping("/{id}/data/{accountRowId}/audience/refresh")
+    @PreAuthorize("hasAuthority('tenant:feed_task:operate')")
+    public ApiResponse<com.armada.account.contact.model.StatusAudienceView> refreshAudience(
+            @PathVariable Long id, @PathVariable Long accountRowId) {
+        return ApiResponse.ok(service.refreshAudience(id, accountRowId));
+    }
 }

@@ -69,4 +69,10 @@
      LIMIT #{limit}
   </select>
 
+  <select id="countNamedByAccounts" resultType="com.armada.account.contact.model.NamedContactCount">
+    SELECT account_id, COUNT(*) AS contact_num FROM account_contact
+    WHERE is_named = 1 AND contact_jid IS NOT NULL AND contact_jid != '' AND account_id IN
+    <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    GROUP BY account_id
+  </select>
 </mapper>

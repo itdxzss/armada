@@ -113,6 +113,15 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
      * @return Android 原生响应包
      */
     @Override
+    public AndroidResponseEnvelope cloudContacts(String wsPhone, String cursor) {
+        if (cursor != null && cursor.length() > 4096) {
+            throw new IllegalArgumentException("云端联系人游标过长");
+        }
+        return httpExecutor.postTyped("/ws/v1/contacts/cloud/" + requireDigits(wsPhone),
+                java.util.Map.of("cursor", cursor == null ? "" : cursor), AndroidResponseEnvelope.class);
+    }
+
+    @Override
     public AndroidResponseEnvelope saveContacts(String wsPhone, List<String> numbers) {
         return httpExecutor.postTyped(
                 CONTACTS_ADD_URI_PREFIX + requireDigits(wsPhone),

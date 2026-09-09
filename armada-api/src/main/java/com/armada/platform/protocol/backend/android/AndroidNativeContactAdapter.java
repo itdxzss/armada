@@ -2,7 +2,11 @@ package com.armada.platform.protocol.backend.android;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.CloudContactsQuery;
+import com.armada.platform.protocol.model.result.CloudContactsPage;
 import com.armada.platform.protocol.model.command.ContactSaveCommand;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
 import com.armada.platform.protocol.util.WhatsappJids;
@@ -69,6 +73,28 @@ public final class AndroidNativeContactAdapter implements ContactBackend {
                     SAVE_OPERATION,
                     command.operationId());
         }
+    }
+
+    @Override
+    public CloudContactsPage cloudPage(CloudContactsQuery query) {
+        AndroidDecodedResponse response = decoder.decode(client.cloudContacts(query.account().wsPhone(), query.cursor()));
+        if (!response.success()) {
+            throw errorMapper.toException(response, query.account(), "contact.cloud", null);
+        }
+        JsonNode data = response.data();
+        if (data == null || !data.path("jids").isArray() || !data.path("version").isTextual()
+                || !data.path("nextCursor").isTextual() || !data.path("hasNextPage").isBoolean()) {
+            throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "云端联系人响应不完整");
+        }
+        List<String> jids = new ArrayList<>();
+        for (JsonNode jid : data.path("jids")) {
+            if (!jid.isTextual() || !jid.asText().matches("[1-9][0-9]{0,19}@lid")) {
+                throw new ProtocolException(ProtocolErrorCode.UNKNOWN, "云端联系人标识无效");
+            }
+            jids.add(jid.asText());
+        }
+        return new CloudContactsPage(jids, data.path("version").asText(),
+                data.path("nextCursor").asText(), data.path("hasNextPage").asBoolean());
     }
 
     private static String normalizePhone(String value) {

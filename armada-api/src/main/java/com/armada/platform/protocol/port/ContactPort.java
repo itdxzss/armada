@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.port;
 
+import com.armada.platform.protocol.model.command.CloudContactsQuery;
+import com.armada.platform.protocol.model.result.CloudContactsPage;
 import com.armada.platform.protocol.model.command.ContactSaveCommand;
 
 /**
@@ -13,4 +15,7 @@ public interface ContactPort {
      * @param command 统一联系人保存命令
      */
     void save(ContactSaveCommand command);
+
+    /** 读取自身云端通讯录，不支持的后端明确拒绝。 */
+    CloudContactsPage cloudPage(CloudContactsQuery query);
 }

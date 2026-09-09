@@ -8,6 +8,9 @@ import java.util.List;
  * <p>本接口保留原生响应包，具体状态、进群和成员语义由对应 adapter 解码。</p>
  */
 public interface AndroidNativeClient {
+    /** 读取当前账号的云端联系人单页。 */
+    AndroidResponseEnvelope cloudContacts(String wsPhone, String cursor);
+
 
     /**
      * 查询 Android 协议账号原生运行态。

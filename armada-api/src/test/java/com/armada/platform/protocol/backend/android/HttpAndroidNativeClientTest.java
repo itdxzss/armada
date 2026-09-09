@@ -17,6 +17,18 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class HttpAndroidNativeClientTest {
+    @Test
+    void cloudPageUsesCamelCaseCursorAndOwnPhoneRoute() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://android.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        AndroidNativeClient client = new HttpAndroidNativeClient(new ProtocolHttpExecutor(builder.build()));
+        server.expect(requestTo("http://android.internal/ws/v1/contacts/cloud/12025550101"))
+                .andExpect(method(HttpMethod.POST)).andExpect(content().json("{\"cursor\":\"page-2\"}"))
+                .andRespond(withSuccess("{\"Code\":0,\"Data\":{\"jids\":[],\"version\":\"v1\",\"nextCursor\":\"\",\"hasNextPage\":false}}", MediaType.APPLICATION_JSON));
+        assertThat(client.cloudContacts("12025550101", "page-2").data().path("jids").isArray()).isTrue();
+        server.verify();
+    }
+
 
     @Test
     void sendsExistingAndroidNativeRequestShapes() {

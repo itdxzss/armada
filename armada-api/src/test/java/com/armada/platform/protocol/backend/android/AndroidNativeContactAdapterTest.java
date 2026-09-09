@@ -56,6 +56,25 @@ class AndroidNativeContactAdapterTest {
                 ProtocolErrorCode.TIMEOUT);
     }
 
+    @Test
+    void decodesCloudPageWithoutRemovingLidDomain() throws Exception {
+        when(client.cloudContacts("919000000001", "c1")).thenReturn(envelope(
+                "{\"Code\":0,\"Data\":{\"jids\":[\"10001@lid\"],\"version\":\"v1\",\"nextCursor\":\"c2\",\"hasNextPage\":true}}"));
+        var page = adapter().cloudPage(new com.armada.platform.protocol.model.command.CloudContactsQuery(account(), "c1"));
+        assertThat(page.jids()).containsExactly("10001@lid");
+        assertThat(page.hasNextPage()).isTrue();
+        assertThat(page.nextCursor()).isEqualTo("c2");
+    }
+
+    @Test
+    void rejectsCloudEnvelopeFailureAndMissingPaginationInsteadOfEmptySuccess() throws Exception {
+        var query = new com.armada.platform.protocol.model.command.CloudContactsQuery(account(), "");
+        when(client.cloudContacts("919000000001", "")).thenReturn(envelope("{\"Code\":1004,\"Data\":null,\"Msg\":\"cloud contacts account offline\"}"));
+        assertThatThrownBy(() -> adapter().cloudPage(query)).isInstanceOf(ProtocolException.class);
+        when(client.cloudContacts("919000000001", "")).thenReturn(envelope("{\"Code\":0,\"Data\":{\"jids\":[],\"version\":\"v\"}}"));
+        assertThatThrownBy(() -> adapter().cloudPage(query)).isInstanceOf(ProtocolException.class);
+    }
+
     private void assertContext(Runnable call, ProtocolErrorCode errorCode) {
         assertThatThrownBy(call::run)
                 .isInstanceOfSatisfying(ProtocolException.class, ex -> {

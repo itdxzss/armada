@@ -33,7 +33,6 @@ public class FeedTaskWorker {
     private static final Logger log = LoggerFactory.getLogger(FeedTaskWorker.class);
     private static final String REASON_ENQUEUE_UNKNOWN = "ENQUEUE_UNKNOWN";
     private static final String REASON_ACCOUNT_NOT_SENDABLE = "ACCOUNT_NOT_SENDABLE";
-    private static final String REASON_NO_STATUS_RECIPIENTS = "NO_STATUS_RECIPIENTS";
 
     private final FeedTaskMapper taskMapper;
     private final FeedTaskAccountMapper accountMapper;
@@ -127,10 +126,13 @@ public class FeedTaskWorker {
                         "账号当前不可发送", now);
                 continue;
             }
-            List<String> statusJids = statusJids(account.getAccountId());
+            var audience = audienceService.resolveStatusAudience(fact, Math.max(1, properties.getStatusRecipientLimit()));
+            if ("PENDING".equals(audience.view().status()) || "SYNCING".equals(audience.view().status())) {
+                continue;
+            }
+            List<String> statusJids = audience.jids();
             if (statusJids.isEmpty()) {
-                failAccount(task.getId(), account.getId(), REASON_NO_STATUS_RECIPIENTS,
-                        "账号没有可见动态的通讯录联系人", now);
+                failAccount(task.getId(), account.getId(), audience.view().failCode(), audience.view().failReason(), now);
                 continue;
             }
             String commandId = commandFactory.newCommandId();
@@ -159,11 +161,6 @@ public class FeedTaskWorker {
             }
         }
         return facts;
-    }
-
-    private List<String> statusJids(Long accountId) {
-        int limit = Math.max(1, properties.getStatusRecipientLimit());
-        return audienceService.selectStatusAudienceJids(accountId, limit);
     }
 
     private int enqueueInBatches(List<MessageSendCommand> commands,

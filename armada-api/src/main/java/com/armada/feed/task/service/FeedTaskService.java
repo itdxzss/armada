@@ -27,4 +27,6 @@ public interface FeedTaskService {
 
     /** 分页查询账号发布明细。 */
     PageResult<FeedTaskAccountVO> accountData(Long id, String accountPhone, Integer page, Integer pageSize);
+    /** 校验任务账号归属后重新准备受众。 */
+    com.armada.account.contact.model.StatusAudienceView refreshAudience(Long taskId, Long accountRowId);
 }

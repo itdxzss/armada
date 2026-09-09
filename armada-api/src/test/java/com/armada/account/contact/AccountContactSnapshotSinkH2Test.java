@@ -354,6 +354,17 @@ class AccountContactSnapshotSinkH2Test {
                 0, 1, named.size() + unnamed.size(), contacts);
     }
 
+    @Test
+    void audienceSummaryCountsAreBatchedAndTenantScoped() throws SQLException {
+        givenExistingContact("12025550101", CUTOFF);
+        var counts = contactMapper.countNamedByAccounts(List.of(ACCOUNT_ID));
+        assertThat(counts).hasSize(1);
+        assertThat(counts.get(0).accountId()).isEqualTo(ACCOUNT_ID);
+        assertThat(counts.get(0).contactNum()).isEqualTo(1);
+        TenantContext.set(99L);
+        assertThat(contactMapper.countNamedByAccounts(List.of(ACCOUNT_ID))).isEmpty();
+    }
+
     private void givenExistingContact(String phone, long syncedAt) throws SQLException {
         execute("""
                 INSERT INTO account_contact

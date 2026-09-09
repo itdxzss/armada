@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.contact.mapper.AccountStatusAudienceMapper">
+  <select id="selectByAccountId" resultType="com.armada.account.contact.model.entity.AccountStatusAudience">
+    SELECT id, tenant_id, account_id, sync_status, request_token, lease_until, jids_json, contact_num, snapshot_version, synced_at, expires_at, fail_code, fail_reason, created_at, updated_at FROM account_status_audience WHERE account_id = #{accountId}
+  </select>
+  <select id="selectSummaries" resultType="com.armada.account.contact.model.entity.AccountStatusAudience">
+    SELECT id, tenant_id, account_id, sync_status, request_token, lease_until, contact_num, snapshot_version, synced_at, expires_at, fail_code, fail_reason, created_at, updated_at FROM account_status_audience
+    WHERE account_id IN <foreach collection="accountIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+  <insert id="ensure">
+    INSERT INTO account_status_audience (tenant_id, account_id, sync_status, contact_num, created_at, updated_at)
+    VALUES (#{tenantId}, #{accountId}, 0, 0, #{updatedAt}, #{updatedAt})
+    ON DUPLICATE KEY UPDATE account_id = account_id
+  </insert>
+  <update id="claim">
+    UPDATE account_status_audience SET sync_status = 1, request_token = #{row.requestToken},
+      lease_until = #{row.leaseUntil}, fail_code = NULL, fail_reason = NULL, updated_at = #{row.updatedAt}
+    WHERE account_id = #{row.accountId} AND updated_at = #{expectedUpdatedAt} AND (sync_status != 1 OR lease_until &lt;= #{row.updatedAt})
+  </update>
+  <update id="finish">
+    UPDATE account_status_audience SET sync_status = #{syncStatus}, jids_json = #{jidsJson},
+      contact_num = #{contactNum}, snapshot_version = #{snapshotVersion}, synced_at = #{syncedAt},
+      expires_at = #{expiresAt}, fail_code = #{failCode}, fail_reason = #{failReason}, updated_at = #{updatedAt}
+    WHERE account_id = #{accountId} AND sync_status = 1 AND request_token = #{requestToken}
+      AND lease_until &gt; #{updatedAt}
+  </update>
+</mapper>

@@ -12,5 +12,6 @@ public record FeedTaskAccountVO(
         String successAt,
         String failedAt,
         String failCode,
-        String failReason) {
+        String failReason,
+        com.armada.account.contact.model.StatusAudienceView audience) {
 }

@@ -3,6 +3,8 @@ package com.armada.platform.protocol.http.contact;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.http.ProtocolHttpExecutor;
+import com.armada.platform.protocol.model.command.CloudContactsQuery;
+import com.armada.platform.protocol.model.result.CloudContactsPage;
 import com.armada.platform.protocol.model.command.ContactSaveCommand;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.routing.ContactBackend;
@@ -34,6 +36,11 @@ public class HttpContactAdapter implements ContactBackend {
     @Override
     public ProtocolBackend backend() {
         return ProtocolBackend.WEB;
+    }
+
+    @Override
+    public CloudContactsPage cloudPage(CloudContactsQuery query) {
+        throw new ProtocolException(ProtocolErrorCode.UNSUPPORTED_BACKEND, "Web 账号暂不支持云端 LID 通讯录查询");
     }
 
     @Override

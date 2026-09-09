@@ -9,6 +9,10 @@ import java.util.List;
 /** 账号通讯录联系人快照的数据访问。 */
 @Mapper
 public interface AccountContactMapper {
+    /** 批量统计有效具名受众，避免明细页逐账号查询。 */
+    List<com.armada.account.contact.model.NamedContactCount> countNamedByAccounts(
+            @Param("accountIds") List<Long> accountIds);
+
 
     /**
      * 批量写入或更新本批联系人。

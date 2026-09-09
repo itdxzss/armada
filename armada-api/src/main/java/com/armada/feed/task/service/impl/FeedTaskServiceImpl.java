@@ -1,6 +1,8 @@
 package com.armada.feed.task.service.impl;
 
 import com.armada.feed.task.mapper.FeedTaskAccountMapper;
+import com.armada.account.service.AccountMessagingAudienceService;
+import com.armada.account.contact.model.StatusAudienceView;
 import com.armada.feed.task.mapper.FeedTaskMapper;
 import com.armada.feed.task.model.dto.FeedTaskFormDTO;
 import com.armada.feed.task.model.dto.FeedTaskQuery;
@@ -48,17 +50,20 @@ public class FeedTaskServiceImpl implements FeedTaskService {
     private final FeedTaskAccountSelector accountSelector;
     private final FeedTaskExpansionService expansionService;
     private final MarketingTemplateFileService fileService;
+    private final AccountMessagingAudienceService audienceService;
 
     public FeedTaskServiceImpl(FeedTaskMapper taskMapper,
                                FeedTaskAccountMapper accountMapper,
                                FeedTaskAccountSelector accountSelector,
                                FeedTaskExpansionService expansionService,
-                               MarketingTemplateFileService fileService) {
+                               MarketingTemplateFileService fileService,
+                               AccountMessagingAudienceService audienceService) {
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
         this.accountSelector = accountSelector;
         this.expansionService = expansionService;
         this.fileService = fileService;
+        this.audienceService = audienceService;
     }
 
     @Override
@@ -153,11 +158,23 @@ public class FeedTaskServiceImpl implements FeedTaskService {
                 : Math.min(pageSize, ACCOUNT_PAGE_SIZE_MAX);
         String phone = accountPhone == null || accountPhone.isBlank() ? null : accountPhone.trim();
         long total = accountMapper.countPage(id, phone);
-        List<FeedTaskAccountVO> rows = total == 0 ? List.of() : accountMapper.selectPage(
-                        id, phone, (effectivePage - 1) * effectiveSize, effectiveSize).stream()
-                .map(FeedTaskServiceImpl::toAccountVO)
+        List<FeedTaskAccount> accounts = total == 0 ? List.of() : accountMapper.selectPage(
+                id, phone, (effectivePage - 1) * effectiveSize, effectiveSize);
+        var audiences = audienceService.statusAudienceViews(accounts.stream().map(FeedTaskAccount::getAccountId).toList());
+        List<FeedTaskAccountVO> rows = accounts.stream()
+                .map(row -> toAccountVO(row, audiences.get(row.getAccountId())))
                 .toList();
         return PageResult.of(rows, effectivePage, effectiveSize, total);
+    }
+
+    @Override
+    public StatusAudienceView refreshAudience(Long taskId, Long accountRowId) {
+        requireTask(taskId);
+        FeedTaskAccount row = accountMapper.selectById(accountRowId);
+        if (row == null || !taskId.equals(row.getTaskId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "任务账号不存在");
+        }
+        return audienceService.refreshStatusAudience(row.getAccountId());
     }
 
     private FeedTask requireTask(Long id) {
@@ -266,7 +283,7 @@ public class FeedTaskServiceImpl implements FeedTaskService {
                 iso(row.getCreatedAt()));
     }
 
-    private static FeedTaskAccountVO toAccountVO(FeedTaskAccount row) {
+    private static FeedTaskAccountVO toAccountVO(FeedTaskAccount row, StatusAudienceView audience) {
         return new FeedTaskAccountVO(
                 row.getId(),
                 row.getAccountId(),
@@ -278,7 +295,7 @@ public class FeedTaskServiceImpl implements FeedTaskService {
                 iso(row.getSuccessAt()),
                 iso(row.getFailedAt()),
                 row.getFailCode(),
-                row.getFailReason());
+                row.getFailReason(), audience);
     }
 
     private static String required(String value, String message) {

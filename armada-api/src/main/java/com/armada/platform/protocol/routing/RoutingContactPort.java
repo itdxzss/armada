@@ -2,6 +2,8 @@ package com.armada.platform.protocol.routing;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.model.command.CloudContactsQuery;
+import com.armada.platform.protocol.model.result.CloudContactsPage;
 import com.armada.platform.protocol.model.command.ContactSaveCommand;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.port.ContactPort;
@@ -41,6 +43,15 @@ public final class RoutingContactPort implements ContactPort {
             }
         }
         this.backends = Map.copyOf(resolved);
+    }
+
+    @Override
+    public CloudContactsPage cloudPage(CloudContactsQuery query) {
+        ContactBackend implementation = backends.get(query.account().backend());
+        if (implementation == null) {
+            throw new ProtocolException(ProtocolErrorCode.UNSUPPORTED_BACKEND, "云端联系人后端未注册");
+        }
+        return implementation.cloudPage(query);
     }
 
     @Override

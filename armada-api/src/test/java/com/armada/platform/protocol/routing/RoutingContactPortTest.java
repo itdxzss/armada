@@ -53,6 +53,12 @@ class RoutingContactPortTest {
     }
 
     private static final class RecordingBackend implements ContactBackend {
+        @Override
+        public com.armada.platform.protocol.model.result.CloudContactsPage cloudPage(
+                com.armada.platform.protocol.model.command.CloudContactsQuery query) {
+            return new com.armada.platform.protocol.model.result.CloudContactsPage(java.util.List.of(), "v", "", false);
+        }
+
         private final ProtocolBackend backend;
         private ContactSaveCommand lastCommand;
 

@@ -136,6 +136,47 @@ class FeedTaskMapperH2Test {
         assertThat(accountMapper.countPage(task.getId(), null)).isEqualTo(1);
     }
 
+    @Test
+    void workerWaitsWithoutRetryThenEnqueuesFullLidAudience() throws SQLException {
+        var audience = org.mockito.Mockito.mock(com.armada.account.service.AccountMessagingAudienceService.class);
+        var port = org.mockito.Mockito.mock(com.armada.platform.protocol.port.MessageSendPort.class);
+        var expansion = org.mockito.Mockito.mock(com.armada.feed.task.service.FeedTaskExpansionService.class);
+        var lifecycle = org.mockito.Mockito.mock(com.armada.feed.task.scheduler.FeedTaskLifecycleWorker.class);
+        var files = org.mockito.Mockito.mock(com.armada.marketing.service.MarketingTemplateFileService.class);
+        var worker = new com.armada.feed.task.scheduler.FeedTaskWorker(taskMapper, accountMapper, audience, expansion,
+                new com.armada.feed.task.service.FeedTaskMessageCommandFactory(files), port,
+                new com.armada.feed.task.scheduler.FeedTaskSchedulerProperties(), lifecycle);
+        FeedTask task = task("LID任务", 100L);
+        task.setTaskStatus(1); task.setNextRunAt(100L);
+        taskMapper.insert(task);
+        FeedTaskAccount row = account(task.getId(), 501L, "12025550101", 100L);
+        accountMapper.insert(row);
+        var fact = new com.armada.account.selection.model.SelectedAccount(501L,"12025550101","ANDROID","owned");
+        org.mockito.Mockito.when(audience.selectSendableByIds(java.util.List.of(501L))).thenReturn(java.util.List.of(fact));
+        var pending = new com.armada.account.contact.model.StatusAudienceResolution(
+                new com.armada.account.contact.model.StatusAudienceView("SYNCING","CLOUD_LID",0,null,null,null), java.util.List.of());
+        org.mockito.Mockito.when(audience.resolveStatusAudience(org.mockito.ArgumentMatchers.eq(fact), org.mockito.ArgumentMatchers.anyInt())).thenReturn(pending);
+        worker.runRound(7L, task.getId());
+        assertThat(accountMapper.selectById(row.getId()).getRetryNum()).isZero();
+        assertThat(accountMapper.selectById(row.getId()).getSendStatus()).isEqualTo("pending");
+        org.mockito.Mockito.verifyNoInteractions(port);
+        execute("UPDATE feed_task SET next_run_at = 0 WHERE id = " + task.getId());
+        var ready = new com.armada.account.contact.model.StatusAudienceResolution(
+                new com.armada.account.contact.model.StatusAudienceView("READY","CLOUD_LID",1,null,null,null), java.util.List.of("10001@lid"));
+        org.mockito.Mockito.when(audience.resolveStatusAudience(org.mockito.ArgumentMatchers.eq(fact), org.mockito.ArgumentMatchers.anyInt())).thenReturn(ready);
+        org.mockito.Mockito.when(port.enqueue(org.mockito.ArgumentMatchers.anyList())).thenAnswer(invocation -> {
+            java.util.List<com.armada.platform.protocol.model.command.MessageSendCommand> commands = invocation.getArgument(0);
+            assertThat(commands).hasSize(1);
+            assertThat(commands.get(0).target().jid()).isEqualTo("status@broadcast");
+            assertThat(commands.get(0).target().statusJidList()).containsExactly("10001@lid");
+            return new com.armada.platform.protocol.model.result.MessageSendEnqueueResult(java.util.List.of(
+                com.armada.platform.protocol.model.result.MessageSendEnqueueItem.accepted(commands.get(0).commandId())));
+        });
+        worker.runRound(7L, task.getId());
+        assertThat(accountMapper.selectById(row.getId()).getSendStatus()).isEqualTo("sending");
+        assertThat(accountMapper.selectById(row.getId()).getRetryNum()).isEqualTo(1);
+    }
+
     private static FeedTask task(String name, long timestamp) {
         FeedTask row = new FeedTask();
         row.setTenantId(7L);

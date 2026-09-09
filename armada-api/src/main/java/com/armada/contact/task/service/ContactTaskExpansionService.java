@@ -146,7 +146,7 @@ public class ContactTaskExpansionService {
             // 因此缺失与过期是同一条分支。
             insertAccountRow(task, account, 0, lastSyncedAt,
                     ContactFriendTaskAccount.STATE_SKIPPED, now);
-            log.info("通讯录任务跳过快照不可用账号 taskId={} accountId={} lastSyncedAt={} status={}",
+            log.info("通讯录任务跳过 Web 通讯录快照不可用账号 taskId={} accountId={} lastSyncedAt={} status={}",
                     task.getId(), account.accountId(), lastSyncedAt,
                     sync == null ? "NONE" : sync.getSyncStatus());
             return 0;

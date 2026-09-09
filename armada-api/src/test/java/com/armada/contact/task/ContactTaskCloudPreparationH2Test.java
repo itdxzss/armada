@@ -111,6 +111,20 @@ class ContactTaskCloudPreparationH2Test {
     @AfterEach
     void clearTenant() { TenantContext.clear(); }
 
+    @Test
+    void backgroundScanFindsDueTenantsWhileTaskExecutionRemainsIsolated() {
+        jdbc.update("UPDATE contact_friend_task SET next_round_at=10 WHERE id=1");
+        jdbc.update("INSERT INTO contact_friend_task(id,tenant_id,name,message_type,content,created_at,updated_at,run_status,next_round_at,is_enabled,task_start_at) VALUES(2,8,'scheduled',1,'hi',1,1,0,10,1,10)");
+        TenantContext.clear();
+        assertThat(tasks.selectDueRunningTasks(100L, 20)).extracting(ContactFriendTask::getTenantId).containsExactly(7L);
+        assertThat(tasks.selectDueScheduledTasks(100L, 20)).extracting(ContactFriendTask::getTenantId).containsExactly(8L);
+        assertThat(tasks.selectById(1L)).isNull();
+        TenantContext.set(7L);
+        assertThat(tasks.selectById(1L)).isNotNull();
+        assertThat(tasks.selectById(2L)).isNull();
+        assertThat(tasks.updateRunStatus(2L, 0, 1, 100L, 100L)).isZero();
+    }
+
     private void prepare() {
         tx.executeWithoutResult(status -> service.prepare(tasks.selectByIdForUpdate(1L), 1000L));
     }

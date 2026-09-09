@@ -2,6 +2,7 @@ package com.armada.contact.task.mapper;
 
 import com.armada.contact.task.model.dto.ContactTaskQuery;
 import com.armada.contact.task.model.entity.ContactFriendTask;
+import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -74,21 +75,23 @@ public interface ContactFriendTaskMapper {
                         @Param("updatedAt") long updatedAt);
 
     /**
-     * 扫描到期的进行中任务。
+     * 跨租户扫描到期的进行中任务；后台无租户上下文，执行器按返回的 tenantId 隔离处理。
      *
      * @param now 当前时间（epoch 毫秒）
      * @param limit 单次扫描上限
      * @return 到期任务
      */
+    @InterceptorIgnore(tenantLine = "true")
     List<ContactFriendTask> selectDueRunningTasks(@Param("now") long now, @Param("limit") int limit);
 
     /**
-     * 扫描已到计划开始时间、仍未开始的已启用任务。
+     * 跨租户扫描已到计划开始时间、仍未开始的已启用任务；执行器按返回的 tenantId 隔离处理。
      *
      * @param now 当前时间（epoch 毫秒）
      * @param limit 单次扫描上限
      * @return 到期待启动任务
      */
+    @InterceptorIgnore(tenantLine = "true")
     List<ContactFriendTask> selectDueScheduledTasks(@Param("now") long now, @Param("limit") int limit);
 
     /**

@@ -1,0 +1,2 @@
+-- 正向迁移由 Flyway 执行：
+-- armada-api/src/main/resources/db/migration/V184__promote_feed_marketing_menu.sql

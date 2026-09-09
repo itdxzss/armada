@@ -2,7 +2,7 @@
 
 - 日期：2026-09-09；主仓库 armada、wheel-saas-pure-web；分支 1.0.3-snapshot。
 - 需求：用户确认列表增加 ID、任务名称、本页批量删除，并明确在主仓库实施。
-- 状态：本地实现及验证完成，未部署；保留既有协议诊断及并发会话的云端联系人相关修改。
+- 状态：已提交、推送并部署到 test1；保留既有协议诊断及并发会话的云端联系人相关修改。
 
 ## 设计与影响
 - 列表字段复用 id/name；增加选择列、确认框、已选数量及删除后分页回退。
@@ -39,4 +39,18 @@
 - 按 expert-reviewer 检查本次完整 diff、调用方、真实事务/租户测试及权限迁移，无阻断项。
 - 批量删除锁顺序固定，状态校验在行锁后执行；软删条件及租户插件阻止越权更新。
 - 现有主仓库的云端联系人修复属于其他会话，不纳入本次提交；部署从已提交源码构建。
-- 剩余验证：发布后检查 Flyway V185、运行制品哈希、权限节点和实际页面；不删除已有业务任务作为验收。
+- 发布验收见下；未删除已有业务任务作为验收。
+
+## test1 发布结果（2026-09-09）
+- 用户授权后提交并推送：后端 c77803a26b02478026bdc276af9e6b9f82426dfc；前端 cefce957b58928d120599652966c64f1870a7a50；均位于 origin/1.0.3-snapshot。
+- 两仓独立 detached worktree 固定到以上 commit；后端真实 JDK 17 重跑 151 测试，0 失败/错误/跳过；独立前端按锁文件安装依赖并通过 typecheck。
+- 发布前 `deploy-test.test.sh` 通过。`package-prod.test.sh` 因仓库缺少 armada-deploy/prod/protocol/.env.example 未通过；本次不使用生产离线包。
+- 使用已提交的 deploy-test.sh，`--env test1 --all --yes`；ARMADA_FRONTEND_DIR 指向干净的前端提交目录，显式使用 test1 的 SSH 身份。后端/前端 SUCCESS，退出码 0；未发布协议层。
+- 2026-09-09 13:56 UTC 后端和 nginx 完成启动，后续复核均 running、RestartCount=0。
+- 后端 jar SHA-256：f7d0a7517fc0af90d01147526feeda8ba6f23964811aebaad7798486b532ba46；本地、远端文件、运行容器三者一致。
+- Flyway 从 184 升级到 185 成功；flyway_schema_history version=185 success=1；删除权限节点 2，缺失节点 0。
+- 实际 HTTP 前端首页和 contact-task-Dorr8QW3.js 均与本地构建哈希一致；通讯录任务 API 未登录鉴权响应正常。
+- browser-skill 独立会话打开目标环境后停在登录页；未取得已登录页面业务验收，不读取 Cookie/token，不删除真实任务；会话已关闭。
+- 发现超链统计定时任务报 Unknown column task.task_type，位于 HyperlinkMarketingStatMapper.xml；该文件及相关表结构不在本次提交范围。容器与本次接口保持正常；未顺带修改该统计问题。
+- 部署前保留镜像回滚标签：armada-backend:before-contact-delete-20260909T135359Z、armada-nginx:before-contact-delete-20260909T135359Z。回滚不自动恢复软删任务，也不删除新增权限节点。
+- 部署日志：/tmp/contact-task-test1-deploy.log；发布仍保留其他会话全部未提交改动。

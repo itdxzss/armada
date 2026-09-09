@@ -83,7 +83,7 @@ public class ContactTaskLifecycleWorker {
             long now = clock.millis();
             // 先收敛账号终态，再算任务汇总：invalid_account_num 读的就是收敛后的 FAILED 行
             accountMapper.settleDrainedAccounts(taskId, now);
-            if (recipientMapper.countUnfinished(taskId) > 0) {
+            if (recipientMapper.countUnfinished(taskId) > 0 || accountMapper.countPreparing(taskId) > 0) {
                 return;
             }
             int completed = taskMapper.completeDrainedTask(taskId, now);

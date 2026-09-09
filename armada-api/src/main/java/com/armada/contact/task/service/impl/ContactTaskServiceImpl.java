@@ -31,8 +31,7 @@ import java.util.function.Supplier;
 /**
  * 通讯录营销任务业务实现。
  *
- * <p>本期只负责任务本身的增查改与状态机；账号圈选、收件人展开和真实发送属于发送引擎，
- * 因此 {@code accountData} 在引擎落地前一直返回空页。</p>
+ * <p>启用时固定账号范围；Android 名单由后台轮次异步准备，账号数据展示准备和发送状态。</p>
  *
  * <p><b>本类刻意不标注 {@code @Service}</b>：构造参数里有 Supplier，Spring 无法自动装配，
  * 由 {@code ContactTaskConfiguration} 显式构造。这样本类能用纯 Mockito 测试，

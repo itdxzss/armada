@@ -2,6 +2,26 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskAccountMapper">
 
+  <select id="selectPreparing" resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
+    SELECT id, tenant_id, task_id, account_id, created_at
+      FROM contact_friend_task_account
+     WHERE task_id = #{taskId} AND state = 'PREPARING'
+     ORDER BY id
+  </select>
+
+  <select id="countPreparing" resultType="long">
+    SELECT COUNT(*) FROM contact_friend_task_account
+     WHERE task_id = #{taskId} AND state = 'PREPARING'
+  </select>
+
+  <update id="finishPreparation">
+    UPDATE contact_friend_task_account
+       SET state = #{state}, need_send_num = #{needSendNum},
+           account_status_snapshot = #{accountStatusSnapshot},
+           contact_synced_at = #{contactSyncedAt}, stop_reason = #{stopReason}, updated_at = #{updatedAt}
+     WHERE id = #{id} AND task_id = #{taskId} AND state = 'PREPARING'
+  </update>
+
   <select id="selectPage"
           resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
     SELECT id, tenant_id, task_id, account_id, account_phone_snapshot,
@@ -84,8 +104,8 @@
   <!-- 一条都没发成功的账号收敛为 FAILED，这就是 invalid_account_num 的口径 -->
   <update id="settleDrainedAccounts">
     UPDATE contact_friend_task_account a
-       SET a.state = IF(a.sent_num &gt; 0, 'DONE', 'FAILED'),
-           a.account_status_snapshot = IF(a.sent_num &gt; 0, 'valid', 'invalid'),
+       SET a.state = CASE WHEN a.sent_num &gt; 0 THEN 'DONE' ELSE 'FAILED' END,
+           a.account_status_snapshot = CASE WHEN a.sent_num &gt; 0 THEN 'valid' ELSE 'invalid' END,
            a.updated_at = #{updatedAt}
      WHERE a.task_id = #{taskId}
        AND a.state IN ('PENDING', 'RUNNING')

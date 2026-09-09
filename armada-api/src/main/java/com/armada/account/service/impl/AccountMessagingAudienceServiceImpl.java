@@ -83,6 +83,19 @@ public class AccountMessagingAudienceServiceImpl implements AccountMessagingAudi
     }
 
     @Override
+    public StatusAudienceResolution resolveContactAudience(SelectedAccount account, long requestedAfter) {
+        if (ProtocolBackend.fromProtocolId(account.protocolId()) != ProtocolBackend.ANDROID) {
+            return new StatusAudienceResolution(new StatusAudienceView("FAILED", "CLOUD_LID", 0, null,
+                    "CLOUD_BACKEND_UNSUPPORTED", "账号协议不支持云端 LID 名单"), List.of());
+        }
+        var current = cloudMapper.selectByAccountId(account.accountId());
+        var currentView = CloudStatusAudienceService.view(current, System.currentTimeMillis());
+        boolean refresh = "FAILED".equals(currentView.status()) && currentView.updatedAt() != null
+                && currentView.updatedAt() < requestedAfter;
+        return cloudService.resolve(account, refresh);
+    }
+
+    @Override
     public Map<Long, StatusAudienceView> statusAudienceViews(List<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) { return Map.of(); }
         Map<Long, StatusAudienceView> views = new HashMap<>();

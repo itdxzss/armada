@@ -9,6 +9,15 @@ import java.util.List;
 /** 通讯录营销任务账号维度读模型的数据访问。 */
 @Mapper
 public interface ContactFriendTaskAccountMapper {
+
+    /** 读取本任务尚未固定收件人的账号；调用方须先锁定任务行。 */
+    List<ContactFriendTaskAccount> selectPreparing(@Param("taskId") Long taskId);
+
+    /** 统计仍在准备名单的账号，防止零收件人任务提前完成。 */
+    long countPreparing(@Param("taskId") Long taskId);
+
+    /** 把准备中的账号固化为待发送、失败或空名单，和收件人插入使用同一事务。 */
+    int finishPreparation(ContactFriendTaskAccount row);
     /** 异常时停止该任务账号后续发送。 */
     int stopAccount(@Param("id") Long id, @Param("reason") String reason,
                     @Param("updatedAt") long updatedAt);

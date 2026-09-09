@@ -3,6 +3,9 @@ package com.armada.contact.task.model.entity;
 /** 通讯录营销任务账号维度读模型行，对应 contact_friend_task_account 表。 */
 public class ContactFriendTaskAccount {
 
+    /** 账号执行态：等待取得完整云端 LID 名单，尚未产生收件人。 */
+    public static final String STATE_PREPARING = "PREPARING";
+
     /** 账号执行态：待执行。 */
     public static final String STATE_PENDING = "PENDING";
     /** 账号执行态：执行中。 */

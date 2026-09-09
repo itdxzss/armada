@@ -10,6 +10,7 @@ import com.armada.contact.task.model.entity.ContactFriendTaskAccount;
 import com.armada.contact.task.model.entity.ContactFriendTaskRecipient;
 import com.armada.contact.task.model.enums.ContactTaskRunStatus;
 import com.armada.contact.task.service.ContactTaskMessageCommandFactory;
+import com.armada.contact.task.service.ContactTaskCloudPreparationService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
@@ -53,6 +54,7 @@ public class ContactTaskRoundWorker {
     private final Clock clock;
     private final Random random;
     private final DrainedTaskSettler settler;
+    private final ContactTaskCloudPreparationService preparationService;
 
     /** 收件人排干后的收尾回调；生产装配传 {@code ContactTaskLifecycleWorker::completeDrainedTask}。 */
     @FunctionalInterface
@@ -80,6 +82,7 @@ public class ContactTaskRoundWorker {
      * @param clock 系统时钟
      * @param random 发送间隔随机源
      * @param settler 排干后的收尾回调
+     * @param preparationService Android 云端 LID 名单准备器
      */
     public ContactTaskRoundWorker(ContactFriendTaskMapper taskMapper,
                                   ContactFriendTaskAccountMapper accountMapper,
@@ -90,7 +93,8 @@ public class ContactTaskRoundWorker {
                                   ContactTaskSchedulerProperties properties,
                                   Clock clock,
                                   Random random,
-                                  DrainedTaskSettler settler) {
+                                  DrainedTaskSettler settler,
+                                  ContactTaskCloudPreparationService preparationService) {
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
         this.recipientMapper = recipientMapper;
@@ -101,6 +105,7 @@ public class ContactTaskRoundWorker {
         this.clock = clock;
         this.random = random;
         this.settler = settler;
+        this.preparationService = preparationService;
     }
 
     /**
@@ -128,7 +133,7 @@ public class ContactTaskRoundWorker {
     }
 
     private void doRunRound(Long tenantId, Long taskId) {
-        ContactFriendTask task = taskMapper.selectById(taskId);
+        ContactFriendTask task = taskMapper.selectByIdForUpdate(taskId);
         if (task == null) {
             log.warn("通讯录任务轮次跳过:任务不存在 taskId={}", taskId);
             return;
@@ -149,16 +154,17 @@ public class ContactTaskRoundWorker {
                     tenantId, taskId, task.getTaskStartAt());
             return;
         }
+        preparationService.prepare(task, now);
         int accountLimit = task.getConcurrency() == null || task.getConcurrency() < 1
                 ? 1
                 : task.getConcurrency();
         List<Long> taskAccountIds =
                 recipientMapper.selectAccountIdsWithPending(taskId, accountLimit);
         if (taskAccountIds.isEmpty()) {
-            if (recipientMapper.countUnfinished(taskId) == 0L) {
+            if (recipientMapper.countUnfinished(taskId) == 0L && accountMapper.countPreparing(taskId) == 0L) {
                 settler.settle(tenantId, taskId);
             } else {
-                // 还有在途未回执，只推迟下一轮，等回执落终态
+                // 仍在采集名单或等待回执时保留任务，不能把零收件人误判为排干。
                 taskMapper.postponeDueRound(taskId, now, nextRoundAt);
             }
             return;

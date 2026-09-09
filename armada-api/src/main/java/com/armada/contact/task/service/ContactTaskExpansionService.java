@@ -27,7 +27,8 @@ import java.util.function.Supplier;
 /**
  * 通讯录营销任务启用时的圈号与收件人展开。
  *
- * <p>展开是<b>一次性</b>的：启用时把每个命中账号当前通讯录里有名字的联系人固化成
+ * <p>展开是<b>一次性</b>的：Web 启用时固化已有通讯录；Android 先固定账号范围，
+ * 再由轮次执行器取得完整云端 LID 名单并固化成
  * {@code contact_friend_task_recipient} 快照，之后每一轮只是把 PENDING 排干。
  * 通讯录后续变化不回灌已展开的任务——任务事实不跟着主数据漂（超链一期 §6.6）。</p>
  *
@@ -130,7 +131,11 @@ public class ContactTaskExpansionService {
     private int expandOneAccount(ContactFriendTask task,
                                  AccountHyperlinkCandidateVO account,
                                  long now) {
-        // 通讯录由协议层周期推送，armada 不再主动拉；这里只读当前快照的新鲜度。
+        if ("ANDROID".equals(account.protocolBackend())) {
+            insertAccountRow(task, account, 0, null, ContactFriendTaskAccount.STATE_PREPARING, now);
+            return 0;
+        }
+        // Web 仍使用协议推送的通讯录；Android 的 LID 名单不依赖此同步状态。
         syncMapper.lockAccount(account.accountId());
         AccountContactSync sync = syncMapper.selectByAccountId(account.accountId());
         Long lastSyncedAt = sync == null ? null : sync.getLastSyncedAt();

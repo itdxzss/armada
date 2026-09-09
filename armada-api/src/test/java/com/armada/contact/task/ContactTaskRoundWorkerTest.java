@@ -11,6 +11,7 @@ import com.armada.contact.task.model.entity.ContactFriendTaskRecipient;
 import com.armada.contact.task.scheduler.ContactTaskRoundWorker;
 import com.armada.contact.task.scheduler.ContactTaskSchedulerProperties;
 import com.armada.contact.task.service.ContactTaskMessageCommandFactory;
+import com.armada.contact.task.service.ContactTaskCloudPreparationService;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
@@ -63,6 +64,9 @@ class ContactTaskRoundWorkerTest {
     @Mock
     private ContactTaskRoundWorker.DrainedTaskSettler settler;
 
+    @Mock
+    private ContactTaskCloudPreparationService preparationService;
+
     private ContactTaskRoundWorker worker() {
         return new ContactTaskRoundWorker(
                 taskMapper, accountMapper, recipientMapper, selectionMapper,
@@ -71,7 +75,21 @@ class ContactTaskRoundWorkerTest {
                 new ContactTaskSchedulerProperties(),
                 Clock.fixed(Instant.ofEpochMilli(NOW), ZoneOffset.UTC),
                 new Random(1L),
-                settler);
+                settler, preparationService);
+    }
+
+    @Test
+    void waitsForCloudPreparationWithoutSendingOrCompleting() {
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(runningTask());
+        when(accountMapper.countPreparing(1L)).thenReturn(1L);
+
+        worker().runRound(5L, 1L);
+
+        verify(preparationService).prepare(any(), eq(NOW));
+        verify(taskMapper).postponeDueRound(1L, NOW, NOW + 1000);
+        verify(settler, never()).settle(anyLong(), anyLong());
+        verify(taskMapper, never()).claimDueRound(anyLong(), anyLong(), anyLong());
+        org.mockito.Mockito.verifyNoInteractions(messageSendPort);
     }
 
     private static ContactFriendTask runningTask() {
@@ -109,7 +127,7 @@ class ContactTaskRoundWorkerTest {
     }
 
     private void givenOneAccountWithOneRecipient() {
-        when(taskMapper.selectById(1L)).thenReturn(runningTask());
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(runningTask());
         when(recipientMapper.selectAccountIdsWithPending(eq(1L), anyInt())).thenReturn(List.of(101L));
         when(accountMapper.selectById(101L)).thenReturn(accountRow(101L, 11L));
         when(selectionMapper.selectSendableByIds(any(), anyInt(), anyInt())).thenReturn(
@@ -133,7 +151,7 @@ class ContactTaskRoundWorkerTest {
     void skipsTaskThatIsNoLongerRunning() {
         ContactFriendTask paused = runningTask();
         paused.setRunStatus(3);
-        when(taskMapper.selectById(1L)).thenReturn(paused);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(paused);
 
         worker().runRound(5L, 1L);
 
@@ -143,7 +161,7 @@ class ContactTaskRoundWorkerTest {
 
     @Test
     void skipsMissingTask() {
-        when(taskMapper.selectById(1L)).thenReturn(null);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(null);
 
         worker().runRound(5L, 1L);
 
@@ -154,7 +172,7 @@ class ContactTaskRoundWorkerTest {
     void postponesWhenScheduledStartTimeHasNotArrived() {
         ContactFriendTask task = runningTask();
         task.setTaskStartAt(NOW + 60_000L);
-        when(taskMapper.selectById(1L)).thenReturn(task);
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(task);
 
         worker().runRound(5L, 1L);
 
@@ -164,7 +182,7 @@ class ContactTaskRoundWorkerTest {
 
     @Test
     void completesTaskWhenNothingLeftToSend() {
-        when(taskMapper.selectById(1L)).thenReturn(runningTask());
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(runningTask());
         when(recipientMapper.selectAccountIdsWithPending(eq(1L), anyInt())).thenReturn(List.of());
         when(recipientMapper.countUnfinished(1L)).thenReturn(0L);
 
@@ -176,7 +194,7 @@ class ContactTaskRoundWorkerTest {
 
     @Test
     void onlyPostponesWhileSendsAreStillInFlight() {
-        when(taskMapper.selectById(1L)).thenReturn(runningTask());
+        when(taskMapper.selectByIdForUpdate(1L)).thenReturn(runningTask());
         when(recipientMapper.selectAccountIdsWithPending(eq(1L), anyInt())).thenReturn(List.of());
         when(recipientMapper.countUnfinished(1L)).thenReturn(3L);
 

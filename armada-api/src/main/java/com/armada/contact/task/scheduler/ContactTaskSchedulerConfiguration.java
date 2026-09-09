@@ -5,6 +5,7 @@ import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
 import com.armada.contact.task.service.ContactTaskMessageCommandFactory;
+import com.armada.contact.task.service.ContactTaskCloudPreparationService;
 import com.armada.platform.protocol.port.MessageSendPort;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -36,6 +37,7 @@ public class ContactTaskSchedulerConfiguration {
      * @param messageSendPort 协议 outbox 端口
      * @param properties 调度参数
      * @param lifecycleWorker 生命周期推进器
+     * @param preparationService 云端 LID 名单准备器
      * @return 轮次执行器
      */
     @Bean
@@ -48,7 +50,8 @@ public class ContactTaskSchedulerConfiguration {
             ContactTaskMessageCommandFactory commandFactory,
             MessageSendPort messageSendPort,
             ContactTaskSchedulerProperties properties,
-            ContactTaskLifecycleWorker lifecycleWorker) {
+            ContactTaskLifecycleWorker lifecycleWorker,
+            ContactTaskCloudPreparationService preparationService) {
         return new ContactTaskRoundWorker(
                 taskMapper,
                 accountMapper,
@@ -59,6 +62,7 @@ public class ContactTaskSchedulerConfiguration {
                 properties,
                 Clock.systemUTC(),
                 new Random(),
-                lifecycleWorker::completeDrainedTask);
+                lifecycleWorker::completeDrainedTask,
+                preparationService);
     }
 }

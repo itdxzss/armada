@@ -48,6 +48,22 @@
        AND deleted_at IS NULL
   </select>
 
+  <select id="selectByIdForUpdate" resultType="com.armada.contact.task.model.entity.ContactFriendTask">
+    SELECT <include refid="taskColumns"/> FROM contact_friend_task
+     WHERE id = #{id} AND deleted_at IS NULL
+     FOR UPDATE
+  </select>
+
+  <update id="refreshExpansionTotals">
+    UPDATE contact_friend_task t
+       SET t.total_send_num = (SELECT COALESCE(SUM(a.need_send_num), 0)
+                                FROM contact_friend_task_account a WHERE a.task_id = t.id),
+           t.used_account_count = (SELECT COUNT(*) FROM contact_friend_task_account a
+                                   WHERE a.task_id = t.id AND a.need_send_num &gt; 0),
+           t.updated_at = #{updatedAt}
+     WHERE t.id = #{id} AND t.deleted_at IS NULL
+  </update>
+
   <select id="selectPage" resultType="com.armada.contact.task.model.entity.ContactFriendTask">
     SELECT <include refid="taskColumns"/>
       FROM contact_friend_task

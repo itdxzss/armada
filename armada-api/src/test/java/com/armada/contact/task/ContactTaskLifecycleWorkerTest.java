@@ -35,6 +35,15 @@ class ContactTaskLifecycleWorkerTest {
     @Mock
     private ContactFriendTaskRecipientMapper recipientMapper;
 
+    @Test
+    void doesNotCompleteTaskWhileCloudListIsPreparing() {
+        when(accountMapper.countPreparing(1L)).thenReturn(1L);
+
+        worker().completeDrainedTask(5L, 1L);
+
+        verify(taskMapper, never()).completeDrainedTask(anyLong(), anyLong());
+    }
+
     private ContactTaskLifecycleWorker worker() {
         return new ContactTaskLifecycleWorker(
                 taskMapper, accountMapper, recipientMapper,

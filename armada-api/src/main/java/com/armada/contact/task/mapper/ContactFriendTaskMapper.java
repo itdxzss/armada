@@ -27,6 +27,12 @@ public interface ContactFriendTaskMapper {
      */
     ContactFriendTask selectById(@Param("id") Long id);
 
+    /** 锁定任务行，串行化名单固化、轮次发送与用户启停。 */
+    ContactFriendTask selectByIdForUpdate(@Param("id") Long id);
+
+    /** 按已固化的账号名单重新汇总计划数；不能覆盖已发送计数。 */
+    int refreshExpansionTotals(@Param("id") Long id, @Param("updatedAt") long updatedAt);
+
     /**
      * 分页查询任务列表。
      *

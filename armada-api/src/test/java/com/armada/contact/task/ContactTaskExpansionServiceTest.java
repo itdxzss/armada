@@ -101,6 +101,20 @@ class ContactTaskExpansionServiceTest {
     }
 
     @Test
+    void androidWithoutAddressBookPreparesCloudLidsInsteadOfSkipping() {
+        when(selector.select(any(), anyInt())).thenReturn(List.of(new AccountHyperlinkCandidateVO(
+                11L, 0, "8613800000000", "CN", 1, 1, 0L, "android", "acc_1", "ANDROID")));
+
+        service().expand(task(10, 0));
+
+        ArgumentCaptor<ContactFriendTaskAccount> captor = ArgumentCaptor.forClass(ContactFriendTaskAccount.class);
+        verify(accountMapper).insert(captor.capture());
+        assertThat(captor.getValue().getState()).isEqualTo("PREPARING");
+        verify(syncMapper, never()).selectByAccountId(anyLong());
+        verify(recipientMapper, never()).insertBatch(any());
+    }
+
+    @Test
     void rejectsEnablingWhenFilterMatchesNoAccount() {
         when(selector.select(any(), anyInt())).thenReturn(List.of());
 

@@ -34,7 +34,8 @@ class DeviceIngestGatewayTest(unittest.TestCase):
         cls.marker = secrets.token_urlsafe(32)
         cls.failure = secrets.token_urlsafe(32)
         cls.gateway_error = secrets.token_urlsafe(32)
-        cls.upload = json.dumps({"accountGroupId": 11, "phone": "999000000001", "payload": json.dumps({"jid": "999000000001",
+        cls.missing_group = secrets.token_urlsafe(32)
+        cls.upload = json.dumps({"groupName": "mobile-group", "phone": "999000000001", "payload": json.dumps({"jid": "999000000001",
                                 "clientStaticPrivateKey": "test-only-invalid-" + cls.marker})}, separators=(",", ":"))
         run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
             "-subj", "/CN=ingest.test", "-addext", "subjectAltName=DNS:ingest.test,IP:127.0.0.1",
@@ -53,7 +54,6 @@ server {
         proxy_set_header X-Test-Body $request_body;
     }
     location = /read-test-body { internal; return 204; }
-    location = /api/device-imports/groups { proxy_pass http://127.0.0.1:8081; }
     location = /api/device-imports/logout-confirmed { proxy_pass http://127.0.0.1:8081; }
     location / { return 500; }
 }
@@ -69,26 +69,21 @@ server {
         if ($http_x_ingest_token != "MARKER") { return 401; }
         return 200 '{"batchId":123,"onlinePhase":"QUEUED"}';
     }
-    location = /api/device-imports/groups {
-        if ($http_authorization != "") { return 500; }
-        if ($http_cookie != "") { return 500; }
-        if ($http_x_tenant_code != "") { return 500; }
-        if ($http_x_ingest_token != "MARKER") { return 401; }
-        return 200 '[{"id":11,"name":"mobile-group"}]';
-    }
     location = /api/device-imports {
         if ($http_authorization != "") { return 500; }
         if ($http_cookie != "") { return 500; }
         if ($http_x_tenant_code != "") { return 500; }
         if ($http_x_ingest_token = "FAILURE") { return 409 '{"message":"upstream conflict"}'; }
         if ($http_x_ingest_token = "GATEWAY_ERROR") { return 502; }
+        if ($http_x_ingest_token = "MISSING_GROUP") { return 404 '{"message":"upstream missing group"}'; }
         if ($http_x_ingest_token != "MARKER") { return 401 '{"message":"token rejected"}'; }
         if ($http_x_test_body != 'EXPECTED_UPLOAD') { return 422 '{"message":"upload body was changed"}'; }
         return 200 '{"batchId":123,"onlinePhase":"WAITING_LOGOUT"}';
     }
     location / { return 500; }
 }
-""".replace("FAILURE", cls.failure).replace("GATEWAY_ERROR", cls.gateway_error).replace("MARKER", cls.marker)
+""".replace("FAILURE", cls.failure).replace("GATEWAY_ERROR", cls.gateway_error)
+            .replace("MISSING_GROUP", cls.missing_group).replace("MARKER", cls.marker)
             .replace("EXPECTED_UPLOAD", cls.upload.replace("\\", "\\\\").replace("'", "\\'")))
         cls.container = "armada-ingest-test-" + uuid.uuid4().hex[:12]
         cls.addClassCleanup(lambda: subprocess.run(["docker", "rm", "-f", cls.container], capture_output=True))
@@ -149,28 +144,26 @@ server {
             self.assertEqual(headers.get("Allow"), "POST, OPTIONS")
         self.assertEqual(self.request("OPTIONS", path)[0], 204)
 
-    def test_group_list_is_authenticated_get_with_only_expected_fields(self):
+    def test_group_list_path_is_not_exposed(self):
         path = "/api/device-imports/groups"
-        status, headers, body = self.request("GET", path, headers={"Authorization": self.marker,
-                                             "Cookie": self.marker, "X-Tenant-Code": self.marker})
-        self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body), [{"id": 11, "name": "mobile-group"}])
-        self.assertIn("no-store", headers.get("Cache-Control", ""))
-        self.assertEqual(self.request("GET", path, headers={"X-Ingest-Token": ""})[0], 401)
-        self.assertEqual(self.request("GET", path + "?tenantId=8")[0], 400)
-        for method in ["POST", "PUT", "DELETE", "HEAD"]:
-            status, headers, _ = self.request(method, path)
-            self.assertEqual(status, 405)
-            self.assertEqual(headers.get("Allow"), "GET, OPTIONS")
-        status, headers, body = self.request("OPTIONS", path)
-        self.assertEqual(status, 204)
-        self.assertEqual(body, b"")
-        self.assertEqual(headers.get("Allow"), "GET, OPTIONS")
-        self.assertFalse(any(key.lower().startswith("access-control-") for key in headers))
+        for method in ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"]:
+            status, _, body = self.request(method, path)
+            self.assertEqual(status, 404)
+            if method != "HEAD":
+                self.assertEqual(set(json.loads(body)), {"message"})
 
     def test_upstream_receives_exact_original_phone_and_payload_bytes(self):
         self.assertEqual(self.request("POST")[0], 200)
         self.assertEqual(self.request("POST", body=b"{}")[0], 422)
+
+    def test_missing_group_is_distinct_from_missing_endpoint(self):
+        status, _, body = self.request("POST", headers={"X-Ingest-Token": self.missing_group})
+        self.assertEqual(status, 404)
+        self.assertEqual(json.loads(body), {"message": "分组不存在"})
+        for path in ["/api/device-imports/groups", "/api/%64evice-imports"]:
+            status, _, body = self.request("POST", path)
+            self.assertEqual(status, 404)
+            self.assertEqual(json.loads(body), {"message": "接口不存在"})
 
     def test_other_paths_and_normalized_aliases_never_reach_backend(self):
         for path in ["/", "/api/account-imports", "/api/public/login", "/actuator/health", "/index.html",

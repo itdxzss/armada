@@ -51,12 +51,11 @@ public final class DeviceImportRequestConverter extends AbstractHttpMessageConve
                 return new DeviceLogoutDTO(root.path("batchId").longValue());
             }
             if (root == null || !root.isObject() || root.size() != 3
-                    || !root.path("accountGroupId").isIntegralNumber()
-                    || !root.path("accountGroupId").canConvertToLong() || root.path("accountGroupId").longValue() <= 0
+                    || !root.path("groupName").isTextual()
                     || !root.path("phone").isTextual() || !root.path("payload").isTextual()) {
-                throw new HttpMessageNotReadableException("请求必须包含正整数 accountGroupId 及 phone 和 payload 字符串", input);
+                throw new HttpMessageNotReadableException("请求必须包含 groupName、phone 和 payload 字符串", input);
             }
-            return new DeviceImportDTO(root.path("accountGroupId").longValue(),
+            return new DeviceImportDTO(root.path("groupName").textValue(),
                     root.path("phone").textValue(), root.path("payload").textValue());
         } catch (IOException ex) {
             throw new HttpMessageNotReadableException("请求 JSON 格式不正确", input);

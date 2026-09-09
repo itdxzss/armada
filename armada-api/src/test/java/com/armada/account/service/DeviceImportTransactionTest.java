@@ -21,7 +21,6 @@ import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.DeviceImportDTO;
 import com.armada.account.model.dto.DeviceImportDefaults;
 import com.armada.account.model.vo.AccountBatchOnlineVO;
-import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.service.impl.AccountGroupServiceImpl;
 import com.armada.account.service.impl.AccountImportRowWriter;
 import com.armada.account.service.impl.AccountImportServiceImpl;
@@ -73,7 +72,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 class DeviceImportTransactionTest {
 
     @Autowired private DeviceImportService service;
-    @Autowired private AccountGroupService groups;
     @Autowired private AccountImportService imports;
     @Autowired private AccountImportDetailMapper details;
     @Autowired private AccountMapper accountMapper;
@@ -99,35 +97,24 @@ class DeviceImportTransactionTest {
     }
 
     @Test
-    void selectedGroupListIsTenantScopedAndSelectionControlsBothAccountAndBatch() {
+    void typedGroupNameIsTenantScopedAndControlsBothAccountAndBatch() {
         jdbc.update("INSERT INTO account_group(id, tenant_id, name) VALUES (13, 7, 'a-mobile-group'), (14, 7, 'deleted-group')");
         jdbc.update("UPDATE account_group SET deleted_at=100 WHERE id=14");
-        var options = groups.options();
-        assertThat(options).extracting(AccountGroupOptionVO::id)
-                .containsExactly(13L, 11L);
-        var selected = options.get(0);
-        assertThat(selected.name()).isEqualTo("a-mobile-group");
-        service.importAccount(new DeviceImportDTO(selected.id(), PHONE, DeviceImportTestData.payload(PHONE)), defaults);
+        service.importAccount(new DeviceImportDTO(" a-mobile-group ", PHONE,
+                DeviceImportTestData.payload(PHONE)), defaults);
         assertRowCounts(1);
         assertThat(jdbc.queryForObject("SELECT account_group_id FROM account", Long.class)).isEqualTo(13L);
         assertThat(jdbc.queryForObject("SELECT account_group_id FROM account_import_batch", Long.class)).isEqualTo(13L);
-        TenantContext.set(8L);
-        assertThat(groups.options()).extracting(AccountGroupOptionVO::id).containsExactly(12L);
-        TenantContext.set(9L);
-        assertThat(groups.options()).isEmpty();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account_group WHERE tenant_id=9", Integer.class)).isZero();
     }
 
     @Test
-    void groupDeletedAfterSelectionIsRejectedWithoutAnyImportRows() {
-        Long selected = groups.options().get(0).id();
-        jdbc.update("UPDATE account_group SET deleted_at=100 WHERE id=?", selected);
-        assertThat(groups.options()).isEmpty();
-        for (long unavailable : new long[]{selected, 12L, 9999L}) {
+    void deletedUnknownAndOtherTenantGroupNamesAreRejectedWithoutAnyImportRows() {
+        jdbc.update("UPDATE account_group SET deleted_at=100 WHERE id=11");
+        for (String unavailable : new String[]{"test-group", "other-test-group", "missing-group"}) {
             assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO(unavailable, PHONE,
                     DeviceImportTestData.payload(PHONE)), defaults))
                     .isInstanceOfSatisfying(BusinessException.class,
-                            ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.NOT_FOUND.code()));
+                            ex -> assertThat(ex.getCode()).isEqualTo(ErrorCode.DEVICE_IMPORT_GROUP_NOT_FOUND.code()));
             assertRowCounts(0);
         }
     }
@@ -141,7 +128,7 @@ class DeviceImportTransactionTest {
         source.put("platform", "smb_ios");
         source.put("lid", "");
         String payload = source.toString();
-        service.importAccount(new DeviceImportDTO(11L, PHONE, payload), defaults);
+        service.importAccount(new DeviceImportDTO("test-group", PHONE, payload), defaults);
         assertRowCounts(1);
         assertThat(sameContent(jdbc.queryForObject("SELECT raw_payload FROM account_import_detail", String.class), payload)).isTrue();
         assertThat(jdbc.queryForObject("SELECT cred_format FROM account_credential", Integer.class)).isEqualTo(1);
@@ -152,7 +139,7 @@ class DeviceImportTransactionTest {
     @Test
     void commitsOriginalPayloadAndSixCredentialWaitingForLogout() throws Exception {
         String payload = DeviceImportTestData.payload(PHONE);
-        var accepted = service.importAccount(new DeviceImportDTO(11L, PHONE, payload), defaults);
+        var accepted = service.importAccount(new DeviceImportDTO("test-group", PHONE, payload), defaults);
         assertThat(accepted.onlinePhase()).isEqualTo("WAITING_LOGOUT");
         assertRowCounts(1);
         assertThat(jdbc.queryForObject("SELECT tenant_id FROM account", Long.class)).isEqualTo(7);
@@ -243,12 +230,14 @@ class DeviceImportTransactionTest {
 
     @Test
     void groupAndPendingQueriesEnforceTenantIsolation() {
-        assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO(12L, PHONE, DeviceImportTestData.payload(PHONE)), defaults)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service.importAccount(new DeviceImportDTO("other-test-group", PHONE,
+                DeviceImportTestData.payload(PHONE)), defaults)).isInstanceOf(BusinessException.class);
         assertRowCounts(0);
         service.importAccount(request(), defaults);
         TenantContext.set(8L);
         assertThat(details.existsPendingByPhone(PHONE, 1, 1, 2, 4)).isFalse();
-        service.importAccount(new DeviceImportDTO(12L, PHONE, DeviceImportTestData.payload(PHONE)), defaults(8));
+        service.importAccount(new DeviceImportDTO("other-test-group", PHONE,
+                DeviceImportTestData.payload(PHONE)), defaults(8));
         assertThat(jdbc.queryForObject("SELECT COUNT(DISTINCT tenant_id) FROM account", Integer.class)).isEqualTo(2);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account WHERE tenant_id=8 AND account_group_id=12", Integer.class)).isEqualTo(1);
     }
@@ -456,7 +445,7 @@ class DeviceImportTransactionTest {
     }
 
     private static DeviceImportDTO request() {
-        return new DeviceImportDTO(11L, PHONE, DeviceImportTestData.payload(PHONE));
+        return new DeviceImportDTO("test-group", PHONE, DeviceImportTestData.payload(PHONE));
     }
 
     private static DeviceImportDefaults defaults(long tenantId) {

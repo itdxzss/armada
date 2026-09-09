@@ -115,6 +115,7 @@ class AccountContactSnapshotSinkH2Test {
                   id BIGINT NOT NULL,
                   tenant_id BIGINT NOT NULL,
                   deleted_at BIGINT,
+                  updated_at BIGINT,
                   PRIMARY KEY (id)
                 )
                 """);

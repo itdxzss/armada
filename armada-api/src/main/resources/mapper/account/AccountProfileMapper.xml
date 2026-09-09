@@ -19,7 +19,7 @@
       END,
       contact_named_synced_at = GREATEST(
         COALESCE(contact_named_synced_at, -1), VALUES(contact_named_synced_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="upsertFriendCount">

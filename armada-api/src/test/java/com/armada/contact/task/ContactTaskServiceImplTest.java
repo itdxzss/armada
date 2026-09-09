@@ -44,6 +44,7 @@ class ContactTaskServiceImplTest {
     @BeforeEach
     void setUp() {
         taskMapper = mock(ContactFriendTaskMapper.class);
+        when(taskMapper.updateForm(any())).thenReturn(1);
         accountMapper = mock(ContactFriendTaskAccountMapper.class);
         expansionService = mock(ContactTaskExpansionService.class);
         selector = mock(ContactAccountSelector.class);
@@ -341,6 +342,15 @@ class ContactTaskServiceImplTest {
 
         // 空条件的语义是「未限制」，由圈选服务补 schema 版本，这里不该自作主张
         verify(selector).count(null);
+    }
+
+    @Test
+    void concurrentDeletionPreventsEditFromExpandingRecipients() {
+        when(taskMapper.selectById(9L)).thenReturn(task(0));
+        when(taskMapper.updateForm(any())).thenReturn(0);
+        assertThatThrownBy(() -> service.update(9L, form("now", 0, 1)))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("删除");
+        verify(expansionService, never()).expand(any());
     }
 
 }

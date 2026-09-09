@@ -13,6 +13,15 @@ import java.util.List;
 public interface ContactFriendTaskMapper {
 
     /**
+     * 软删除允许删除的任务并清空后续调度时间，保留历史明细。
+     *
+     * @param ids 非空、去重的任务 ID；调用方须在事务内先锁定并校验整批任务
+     * @param deletedAt 删除时间（epoch 毫秒）
+     * @return 当前租户实际更新行数，调用方须校验数量以保证整批一致
+     */
+    int softDeleteBatch(@Param("ids") List<Long> ids, @Param("deletedAt") long deletedAt);
+
+    /**
      * 插入任务并回填主键。
      *
      * @param task 任务行

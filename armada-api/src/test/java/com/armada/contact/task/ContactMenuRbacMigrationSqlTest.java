@@ -45,12 +45,6 @@ class ContactMenuRbacMigrationSqlTest {
     }
 
     @Test
-    void declaresNoDeletePermission() throws IOException {
-        // 竞品没有删除任务的能力，权限节点也不该有
-        assertThat(sql()).doesNotContain("tenant:contact_task:delete");
-    }
-
-    @Test
     void insertsAreIdempotent() throws IOException {
         // 与 V155 同一策略：INSERT IGNORE，重复执行不炸
         assertThat(sql()).contains("INSERT IGNORE INTO sys_menu");

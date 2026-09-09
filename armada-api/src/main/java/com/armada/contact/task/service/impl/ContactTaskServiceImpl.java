@@ -48,6 +48,10 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     private static final String START_MODE_SCHEDULED = "scheduled";
     private static final long MILLIS_PER_MINUTE = 60_000L;
     private static final int ACCOUNT_PAGE_SIZE_MAX = 200;
+    private static final int DELETE_BATCH_SIZE_MAX = 200;
+    private static final Set<Integer> DELETABLE_STATUSES = Set.of(
+            ContactTaskRunStatus.NOT_STARTED.code(), ContactTaskRunStatus.COMPLETED.code(),
+            ContactTaskRunStatus.STOPPED.code());
 
     private final ContactFriendTaskMapper taskMapper;
     private final ContactFriendTaskAccountMapper accountMapper;
@@ -89,6 +93,39 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     public int previewAccountCount(String accountFilterJson) {
         // 走同一个归一化器再交给同一个圈号服务计数：任何一处走岔，界面显示的命中数就会骗人。
         return accountSelector.count(accountFilterJson);
+    }
+
+    /**
+     * 锁定后校验整批任务并软删除，与调度启动及发送轮次共享任务行锁。
+     *
+     * @param ids 当前租户待删除的任务 ID，最多 200 个
+     * @return 去重后的删除数量
+     * @throws BusinessException 参数非法、任务不存在或状态不允许时整批回滚
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty() || ids.size() > DELETE_BATCH_SIZE_MAX
+                || ids.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择 1 至 200 个有效任务 ID");
+        }
+        List<Long> taskIds = ids.stream().distinct().sorted().toList();
+        // 固定锁顺序避免两次批量删除按相反顺序互相等待；租户条件由 MyBatis 插件注入。
+        for (Long id : taskIds) {
+            ContactFriendTask task = taskMapper.selectByIdForUpdate(id);
+            if (task == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "任务不存在或已删除，请刷新后重试");
+            }
+            if (!DELETABLE_STATUSES.contains(task.getRunStatus())) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "任务 " + id + " 当前状态不允许删除，请先停止任务后重试");
+            }
+        }
+        int deleted = taskMapper.softDeleteBatch(taskIds, clock.getAsLong());
+        if (deleted != taskIds.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "任务状态已变更，请刷新后重试");
+        }
+        return deleted;
     }
 
     @Override
@@ -145,7 +182,10 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         // applyForm 会覆盖 isEnabled，旧值必须在覆盖前取
         boolean wasEnabled = isEnabled(existing);
         applyForm(existing, normalized, accountSelector.normalizeToJson(normalized.accountFilterJson()), now);
-        taskMapper.updateForm(existing);
+        // 删除可能在表单读取后提交；未更新成功时不能继续展开账号与收件人。
+        if (taskMapper.updateForm(existing) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "任务已变更或删除，请刷新后重试");
+        }
         // 只有草稿被打开时才展开；已启用任务重复保存不再圈一遍号
         if (!wasEnabled && isEnabled(existing)) {
             expansionService.expand(existing);

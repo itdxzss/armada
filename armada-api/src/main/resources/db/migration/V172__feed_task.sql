@@ -80,7 +80,7 @@ WHERE parent.menu_key = 'TaskCenter';
 INSERT IGNORE INTO sys_menu
     (tenant_id, parent_id, menu_name, menu_key, menu_type, route_path, component_path,
      perm_key, icon, sort_no, status, created_at, created_by, updated_at, updated_by)
-SELECT parent.tenant_id, parent.id, '动态发布任务', 'TaskFeed', 'M',
+SELECT parent.tenant_id, parent.id, '动态任务', 'TaskFeed', 'M',
        '/task/feed/task', 'task/feed-task/index', 'tenant:feed_task:view',
        NULL, 10, 1, @feed_task_menu_now, NULL, @feed_task_menu_now, NULL
 FROM sys_menu parent

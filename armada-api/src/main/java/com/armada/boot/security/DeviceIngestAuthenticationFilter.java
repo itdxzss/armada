@@ -87,8 +87,7 @@ public final class DeviceIngestAuthenticationFilter extends OncePerRequestFilter
             reject(response, HttpStatus.BAD_REQUEST, "请求路径不正确");
             return false;
         }
-        HttpMethod method = DeviceImportController.GROUPS_PATH.equals(request.getRequestURI())
-                ? HttpMethod.GET : HttpMethod.POST;
+        HttpMethod method = HttpMethod.POST;
         String allowed = method.name() + ", OPTIONS";
         if (HttpMethod.OPTIONS.matches(request.getMethod())) {
             response.setHeader(HttpHeaders.ALLOW, allowed);
@@ -105,14 +104,6 @@ public final class DeviceIngestAuthenticationFilter extends OncePerRequestFilter
     }
 
     private boolean validContent(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        if (HttpMethod.GET.matches(request.getMethod())) {
-            // 分组查询不接收凭据或筛选参数，未知长度的请求体同样拒绝。
-            if (request.getInputStream().read() != -1) {
-                reject(response, HttpStatus.BAD_REQUEST, "分组查询不能包含请求体");
-                return false;
-            }
-            return true;
-        }
         try {
             MediaType type = MediaType.parseMediaType(request.getContentType() == null ? "" : request.getContentType());
             if (!"application".equalsIgnoreCase(type.getType()) || !"json".equalsIgnoreCase(type.getSubtype())) {

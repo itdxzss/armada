@@ -1,8 +1,8 @@
 # 手机凭据导入：部署、验收与回滚
 
-本目录提供独立 TLS 网关，公网业务精确路径为 `GET /api/device-imports/groups`、`POST /api/device-imports`、`POST /api/device-imports/logout-confirmed`，均使用 `X-Ingest-Token`。上传 `{accountGroupId,phone,payload}` 返回 `200 {"batchId":123,"onlinePhase":"WAITING_LOGOUT"}`；手机核验官方退出后提交 `{batchId}`，返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}` 才放行既有调度。错误为真实 4xx/5xx JSON message；三个路径各自支持 OPTIONS，无 CORS。
+本目录提供独立 TLS 网关，公网业务精确路径为 `POST /api/device-imports`、`POST /api/device-imports/logout-confirmed`，均使用 `X-Ingest-Token`。上传 `{groupName,phone,payload}` 返回 `200 {"batchId":123,"onlinePhase":"WAITING_LOGOUT"}`；手机核验官方退出后提交 `{batchId}`，返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}` 才放行既有调度。错误为真实 4xx/5xx JSON message；两个路径各自支持 OPTIONS，无 CORS。设备入口不提供分组列表。
 
-**当前状态：test1 已部署 e603a129 交接门，可信 443 的分组查询和退出确认路由已验证。新版手机签名与真机交接验收进度见 [交接修复记录](../../.harness/changes/2026-09-07-device-ingest-handoff.md)。**
+**历史部署：test1 曾部署 e603a129 交接门。当前源码已改为手输分组并移除列表入口，本次发布状态见 [手输分组记录](../../.harness/changes/2026-09-09-device-import-group-name.md)。**
 
 ## 1. 上线前输入
 
@@ -40,7 +40,7 @@ device-ingest/preflight.py
 | `ipAllocationMode` | `smart` 或 `mixed`；省略/null 表示现有指定地区分配语义 |
 | `ipRegion` | 现有代理池地区名；指定地区模式必填，smart/mixed 可省略 |
 
-分组改由手机在上传请求中必填提供，令牌配置须删除旧 accountGroupId 字段；旧的两字段上传返回 400。所选分组必须属于令牌租户且未删除，服务端重新验证后使用，不回退系统默认组。手机不能覆盖租户、机型、账号类型或 IP 默认值。IP 参数指分配策略/地区，实际代理仍由现有上线服务选择。不记录令牌值或摘要；轮换需更新环境并重启后端，可暂时配置两个不同令牌映射到同一默认值。
+分组名称由手机在上传请求中必填提供，令牌配置须删除旧 accountGroupId 字段；旧的 ID 请求和两字段上传均返回 400。服务端按去除首尾空白后的名称在令牌租户内精确查找未删除分组；不存在时返回 404 `分组不存在`，不创建分组、不回退系统默认组。手机不能覆盖租户、机型、账号类型或 IP 默认值。IP 参数指分配策略/地区，实际代理仍由现有上线服务选择。不记录令牌值或摘要；轮换需更新环境并重启后端，可暂时配置两个不同令牌映射到同一默认值。
 
 ## 2. 部署次序
 
@@ -70,9 +70,9 @@ Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理�
 
 - TLS 链可信、域名匹配；明文 HTTP 不能导入，不开放 80。
 - `POST /api/device-imports` 无令牌、错令牌均为 401；正确令牌和非法 body 为 400。
-- 分组 GET 无令牌为 401；合法令牌返回仅 id/name 数组，无分组为 []。
-- 上传路径 OPTIONS 为 204、`Allow: POST, OPTIONS`；分组路径为 `Allow: GET, OPTIONS`，没有任何 `Access-Control-Allow-*` 头。
-- 上传路径 GET/PUT/DELETE 为 405；分组路径 POST/PUT/DELETE/HEAD 为 405。其他路径、尾斜杠、编码别名、额外子路径为 404；query 被拒绝。
+- 旧分组列表路径 `/api/device-imports/groups` 对所有方法均为 404，不能枚举租户分组。
+- 两个 POST 路径的 OPTIONS 均为 204、`Allow: POST, OPTIONS`，没有任何 `Access-Control-Allow-*` 头。
+- 上传路径 GET/PUT/DELETE 为 405。其他路径、尾斜杠、编码别名、额外子路径为 404；query 被拒绝。
 - `/`、`/api/account-imports`、`/api/public/login`、`/actuator/health`、导出和后台页面均不能通过公网网关访问。
 - 错误响应都是 JSON message，不能将 4xx/5xx 改写成 200 或 HTML。
 - 18080/8080/数据库/Kafka/协议端口不能从公网直达。
@@ -81,7 +81,7 @@ Compose 必须支持 `!override`（至少 2.24.4）：它用于**替换**管理�
 
 使用指定测试租户和明确授权的测试手机账号，手机按冻结接口发送完整单行全参；禁止把 body/token 写到终端参数、日志、截图、测试断言或 Git。
 
-1. 手机先查询、选择分组，再上传 accountGroupId/phone/payload；收到 200 且只包含 `batchId`、`onlinePhase=WAITING_LOGOUT`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
+1. 测试人员在手机输入控端已有分组名称，确认后上传 groupName/phone/payload；分组不存在时手机显示“分组不存在”，不得落库或登出。成功响应为 200 且只包含 `batchId`、`onlinePhase=WAITING_LOGOUT`。200 只代表批次、账号、状态、六段凭据、原始明细的事务已提交。
 2. 控端内网按 batchId 验证：来源 PARAMS=3、运行凭据 SIX=1、协议 ANDROID、账号和批次分组均为手机所选分组、令牌机型/账号类型/IP 策略正确，原文保留。检查仅输出字段存在性、长度或哈希，不输出密钥。
 3. 手机明确核验官方退出并提交 logout-confirmed 后，观察既有 10 秒调度从 QUEUED 派发，确认 outbox/协议受理和当前轮次 ONLINE 回调；没有代理资源、Kafka/协议故障时可能保持队列，不能将 HTTP 200 当作在线验收。
 4. 手机成功提示后执行官方登出，确认当前账号交给控端。现有契约没有手机退出回执，因此调度可能先于用户确认登出；不得声称零抢登交接。
@@ -125,6 +125,6 @@ H2 不等于 MySQL InnoDB；指定测试 MySQL、远程部署、公网封闭和�
 
 查看 `systemctl status armada-ingest-certificate.timer` 和 `systemctl show armada-ingest-certificate.service -p Result -p ExecMainStatus`；手动检查使用 `systemctl start armada-ingest-certificate.service`。停止续期使用 `systemctl disable --now armada-ingest-certificate.timer`，并等待正在运行的 service 恢复网关；不要删除仍被网关引用的证书。
 
-证书申请阶段曾使用有 180 秒上限、结束必清理的临时 nginx。随后正式网关和新后端已启用，当前验收边界见 [test1 联调记录](../../.harness/changes/2026-09-07-device-ingest-live.md)：服务端公网分组查询通过，手机真实账号交接尚待验收。
+证书申请阶段曾使用有 180 秒上限、结束必清理的临时 nginx。随后正式网关和新后端已启用，当前验收边界见 [test1 联调记录](../../.harness/changes/2026-09-07-device-ingest-live.md)。该记录中的旧分组查询验收已被当前手输分组名契约取代；手机真实账号交接尚待重新验收。
 
-后续重建后端容器后，应通过同一组 Compose 文件重启 `device-ingest-nginx` 并重新验证分组查询，确保 nginx 重新解析后端容器地址。不要以不存在的 `/actuator/health` 作为该应用的就绪判据；使用受保护令牌进行实际分组查询，并核对容器稳定性及启动错误。
+后续重建后端容器后，应通过同一组 Compose 文件重启 `device-ingest-nginx` 并使用合成非法上传验证它重新解析后端容器地址。不要以不存在的 `/actuator/health` 作为该应用的就绪判据；核对容器稳定性及启动错误，并在授权测试账号范围内完成实际手输分组名上传。

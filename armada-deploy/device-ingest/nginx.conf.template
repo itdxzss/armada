@@ -1,7 +1,12 @@
 # 由官方镜像 envsubst 仅替换 INGEST_HOSTNAME；禁止在此放置令牌或实际业务默认值。
 map $uri $device_ingest_allow {
     default "POST, OPTIONS";
-    /api/device-imports/groups "GET, OPTIONS";
+}
+
+# 只将上传业务的上游 404 映射为分组不存在；本地拒绝的路径仍是接口不存在。
+map "$request_uri:$upstream_status" $device_ingest_not_found {
+    default "接口不存在";
+    "/api/device-imports:404" "分组不存在";
 }
 
 server {
@@ -77,18 +82,6 @@ server {
         proxy_pass http://backend:8080;
     }
 
-    location = /api/device-imports/groups {
-        if ($is_args != "") { return 400; }
-        if ($request_uri != "/api/device-imports/groups") { return 404; }
-        if ($request_method !~ ^(GET|OPTIONS)$) { return 405; }
-        if ($request_method = OPTIONS) {
-            add_header Allow $device_ingest_allow always;
-            add_header Cache-Control "no-store" always;
-            return 204;
-        }
-        proxy_pass http://backend:8080;
-    }
-
     location = /api/device-imports/logout-confirmed {
         if ($is_args != "") { return 400; }
         if ($request_uri != "/api/device-imports/logout-confirmed") { return 404; }
@@ -105,7 +98,7 @@ server {
     location @bad_request { return 400 '{"message":"请求格式或路径不正确"}'; }
     location @unauthorized { return 401 '{"message":"导入令牌无效"}'; }
     location @forbidden { return 403 '{"message":"导入请求被拒绝"}'; }
-    location @not_found { return 404 '{"message":"接口不存在"}'; }
+    location @not_found { return 404 '{"message":"$device_ingest_not_found"}'; }
     location @method_not_allowed {
         add_header Allow $device_ingest_allow always;
         add_header Cache-Control "no-store" always;

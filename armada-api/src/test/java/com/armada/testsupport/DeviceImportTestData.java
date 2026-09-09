@@ -45,7 +45,7 @@ public final class DeviceImportTestData {
         return JSON.createArrayNode().add(row).toString();
     }
 
-    public static String body(Long groupId, String phone, String payload) {
-        return JSON.createObjectNode().put("accountGroupId", groupId).put("phone", phone).put("payload", payload).toString();
+    public static String body(String groupName, String phone, String payload) {
+        return JSON.createObjectNode().put("groupName", groupName).put("phone", phone).put("payload", payload).toString();
     }
 }

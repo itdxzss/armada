@@ -55,6 +55,9 @@ public class DeviceImportExceptionHandler {
         if (code == ErrorCode.NOT_FOUND.code()) {
             return response(HttpStatus.BAD_REQUEST, "分组或交接批次不可用，请在控端核对");
         }
+        if (code == ErrorCode.DEVICE_IMPORT_GROUP_NOT_FOUND.code()) {
+            return response(HttpStatus.NOT_FOUND, "分组不存在");
+        }
         if (code == ErrorCode.TENANT_MISSING.code()) {
             return response(HttpStatus.UNAUTHORIZED, "导入令牌无效");
         }

@@ -1,9 +1,11 @@
 package com.armada.account.service.impl;
 
+import com.armada.account.mapper.AccountGroupMapper;
 import com.armada.account.mapper.AccountImportDetailMapper;
 import com.armada.account.model.dto.AccountImportDTO;
 import com.armada.account.model.dto.DeviceImportDTO;
 import com.armada.account.model.dto.DeviceImportDefaults;
+import com.armada.account.model.entity.AccountGroup;
 import com.armada.account.model.entity.AccountImportOnlinePhase;
 import com.armada.account.model.entity.ImportResult;
 import com.armada.account.model.entity.ParsedEntry;
@@ -19,6 +21,7 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /** 原子复用批量导入服务；手机号冲突或任意落库失败时回滚整个手机请求。 */
 @Service
@@ -30,17 +33,20 @@ public class DeviceImportServiceImpl implements DeviceImportService {
     private static final String WAITING_LOGOUT = "WAITING_LOGOUT";
     private static final String DEVICE_SOURCE = "device-import";
     private static final int SINGLE_ROW = 1;
+    private static final int MAX_GROUP_NAME_LENGTH = 100;
 
     private final AccountImportParser parser;
     private final AccountImportService imports;
     private final AccountImportDetailMapper details;
+    private final AccountGroupMapper groups;
 
-    /** 注入现有解析、导入和明细查询，不另建凭据写入或调度通道。 */
+    /** 注入现有解析、分组查询、导入和明细查询，不另建凭据写入或调度通道。 */
     public DeviceImportServiceImpl(AccountImportParser parser, AccountImportService imports,
-                                   AccountImportDetailMapper details) {
+                                   AccountImportDetailMapper details, AccountGroupMapper groups) {
         this.parser = parser;
         this.imports = imports;
         this.details = details;
+        this.groups = groups;
     }
 
     /** {@inheritDoc} */
@@ -51,13 +57,18 @@ public class DeviceImportServiceImpl implements DeviceImportService {
             throw new BusinessException(ErrorCode.TENANT_MISSING);
         }
         ParsedEntry entry = validate(request);
+        String groupName = request.groupName().strip();
+        AccountGroup group = groups.selectActiveByName(groupName);
+        if (group == null) {
+            throw new BusinessException(ErrorCode.DEVICE_IMPORT_GROUP_NOT_FOUND);
+        }
         if (details.existsPendingByPhone(request.phone(), ImportResult.SUCCESS.getCode(),
                 AccountImportOnlinePhase.QUEUED, AccountImportOnlinePhase.DISPATCHED,
                 AccountImportOnlinePhase.WAITING_LOGOUT)) {
             throw new BusinessException(ErrorCode.CONFLICT);
         }
         AccountImportDTO configured = defaults.metadata();
-        AccountImportDTO metadata = new AccountImportDTO(request.accountGroupId(), configured.importFormat(),
+        AccountImportDTO metadata = new AccountImportDTO(group.getId(), configured.importFormat(),
                 configured.deviceOs(), configured.accountType(), configured.ipRegion(), configured.ipAllocationMode(),
                 configured.remark(), configured.sourceFileName());
         // 共用导入服务在写批次前通过租户插件复核目标分组，不退回系统默认分组。
@@ -104,7 +115,9 @@ public class DeviceImportServiceImpl implements DeviceImportService {
     }
 
     private ParsedEntry validate(DeviceImportDTO request) {
-        if (request == null || request.accountGroupId() == null || request.accountGroupId() <= 0
+        String groupName = request == null || request.groupName() == null ? "" : request.groupName().strip();
+        if (request == null || !StringUtils.hasText(groupName)
+                || groupName.codePointCount(0, groupName.length()) > MAX_GROUP_NAME_LENGTH
                 || request.phone() == null || !PHONE.matcher(request.phone()).matches()
                 || request.payload() == null || request.payload().isBlank()
                 || LINE_BREAK.matcher(request.payload()).find()) {

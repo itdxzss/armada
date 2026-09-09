@@ -11,6 +11,9 @@ public enum ErrorCode {
     /** 资源不存在。 */
     NOT_FOUND(40401, "资源不存在"),
 
+    /** V8 手工输入的手机导入目标分组不存在。 */
+    DEVICE_IMPORT_GROUP_NOT_FOUND(40403, "分组不存在"),
+
     /** 资源冲突(如名称重复)。 */
     CONFLICT(40901, "资源冲突"),
 

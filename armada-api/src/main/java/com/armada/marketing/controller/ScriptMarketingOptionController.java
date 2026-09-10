@@ -3,6 +3,9 @@ package com.armada.marketing.controller;
 import com.armada.account.model.dto.AccountQuery;
 import com.armada.account.model.vo.AccountListVO;
 import com.armada.account.service.AccountService;
+import com.armada.account.service.AccountGroupService;
+import com.armada.account.model.vo.AccountGroupOptionVO;
+import java.util.List;
 import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.vo.GroupLinkVO;
 import com.armada.group.service.GroupLinkService;
@@ -21,9 +24,10 @@ import org.springframework.web.bind.annotation.RestController;
 public class ScriptMarketingOptionController {
     private final AccountService accounts;
     private final GroupLinkService groups;
+    private final AccountGroupService accountGroups;
     /** 注入跨业务域的公开服务。 */
-    public ScriptMarketingOptionController(AccountService accounts, GroupLinkService groups) {
-        this.accounts = accounts; this.groups = groups;
+    public ScriptMarketingOptionController(AccountService accounts, GroupLinkService groups, AccountGroupService accountGroups) {
+        this.accounts = accounts; this.groups = groups; this.accountGroups = accountGroups;
     }
     /** 查找本租户可见账号。 */
     @GetMapping("/accounts")
@@ -33,6 +37,12 @@ public class ScriptMarketingOptionController {
     /** 查找本租户可见目标群。 */
     @GetMapping("/groups")
     public ApiResponse<PageResult<GroupLinkVO>> groups(@ModelAttribute GroupLinkQuery query) {
+        accountGroups.requireExisting(query.getAccountGroupId());
         return ApiResponse.ok(groups.listByLabel(query));
+    }
+    /** 当前租户推手账号分组，沿用剧本页面读取权限。 */
+    @GetMapping("/account-groups")
+    public ApiResponse<List<AccountGroupOptionVO>> accountGroups() {
+        return ApiResponse.ok(accountGroups.options());
     }
 }

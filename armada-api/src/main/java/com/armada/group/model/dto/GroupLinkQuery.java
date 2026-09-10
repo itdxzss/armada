@@ -7,6 +7,12 @@ import com.armada.group.model.enums.GroupListType;
  * 群链接列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
  */
 public class GroupLinkQuery extends PageQuery {
+    /** 限定当前在群的账号所属分组；用于从推手账号分组选择营销目标。 */
+    private Long accountGroupId;
+    /** 读取账号分组筛选。 */
+    public Long getAccountGroupId() { return accountGroupId; }
+    /** 设置账号分组筛选。 */
+    public void setAccountGroupId(Long value) { accountGroupId = value; }
 
     /** 所属WS链接分组 ID;群组列表主查询可为空,导入链接分组下钻时传入。 */
     private Long labelId;

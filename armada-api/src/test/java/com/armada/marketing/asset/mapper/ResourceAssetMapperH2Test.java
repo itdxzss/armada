@@ -79,6 +79,22 @@ public class ResourceAssetMapperH2Test {
                 .singleElement().satisfies(row -> assertThat(row.referenceCount()).isEqualTo(1));
     }
 
+    /** 定义软删除只解除定义引用，已经复制到任务的图片引用继续保护公共素材。 */
+    @Test
+    void scriptDefinitionRetainsSharedImageUntilDeletedAndKeepsTaskSnapshotReference() throws SQLException {
+        var file = insertFile("shared script image", 100L, new byte[] {1});
+        String steps = "[{\"message\":{\"imageFileId\":" + file.getId() + "}}]";
+        execute("INSERT INTO script_marketing_definition VALUES (1,7,'" + steps + "',NULL)");
+        execute("INSERT INTO script_marketing_definition VALUES (2,8,'" + steps + "',NULL)");
+        assertThat(fileMapper.countReferences(7L, file.getId())).isEqualTo(1);
+        execute("INSERT INTO script_marketing_task VALUES (1,7,'" + steps + "')");
+        assertThat(fileMapper.countReferences(7L, file.getId())).isEqualTo(2);
+        execute("UPDATE script_marketing_definition SET deleted_at=999 WHERE tenant_id=7");
+        assertThat(fileMapper.countReferences(7L, file.getId())).isEqualTo(1);
+        assertThat(fileMapper.selectReferenceCounts(7L, List.of(file.getId())))
+                .singleElement().satisfies(row -> assertThat(row.referenceCount()).isEqualTo(1));
+    }
+
     /** H2 方言适配：本查询只使用数组中 message.imageFileId 的包含条件。 */
     public static int scriptJsonContains(String document, String candidate) throws Exception {
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -240,6 +256,7 @@ public class ResourceAssetMapperH2Test {
     private void resetSchema() throws SQLException {
         execute("DROP ALL OBJECTS");
         execute("CREATE TABLE script_marketing_task (id BIGINT PRIMARY KEY, tenant_id BIGINT, steps_json LONGTEXT)");
+        execute("CREATE TABLE script_marketing_definition (id BIGINT PRIMARY KEY, tenant_id BIGINT, steps_json LONGTEXT, deleted_at BIGINT)");
         execute("CREATE ALIAS JSON_CONTAINS FOR '" + ResourceAssetMapperH2Test.class.getName() + ".scriptJsonContains'");
         execute("""
                 CREATE TABLE marketing_template_file (

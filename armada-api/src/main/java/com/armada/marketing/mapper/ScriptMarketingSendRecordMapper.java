@@ -9,6 +9,12 @@ import org.apache.ibatis.annotations.Param;
 /** 一群一项一记录，command_id 唯一，不生成重试记录。 */
 @Mapper
 public interface ScriptMarketingSendRecordMapper {
+    /** 跟踪全部在途或暂停原命令，任务上限 100 群 × 100 项，不只读取当前游标。 */
+    List<ScriptMarketingSendRecord> pending(@Param("taskId") Long taskId);
+    /** 单群最多 100 项，运行与暂停控制不重复扫描整个任务的在途内容。 */
+    List<ScriptMarketingSendRecord> pendingGroup(@Param("groupId") Long groupId);
+    /** 收尾只查询是否仍有在途原命令，不加载全部记录。 */
+    boolean hasPending(@Param("taskId") Long taskId);
     /** 插入发送意图，必须和 outbox 在同一事务。 */ int insert(ScriptMarketingSendRecord row);
     /** 按群与项查询原始事实。 */ ScriptMarketingSendRecord findStep(@Param("groupId") Long groupId, @Param("stepIndex") int stepIndex);
     /** 回调只通过当前租户原命令归属。 */ ScriptMarketingSendRecord findCommand(@Param("commandId") String commandId);

@@ -9,4 +9,4 @@ public record ScriptMarketingGroupVO(
         String groupName,
         Integer nextStep,
         Long nextAt,
-        Long remainingWaitMs) { }
+        Long remainingWaitMs, String bindingsJson, Boolean paused, String pauseReason) { }

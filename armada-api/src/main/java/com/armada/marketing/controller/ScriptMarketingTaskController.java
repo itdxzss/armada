@@ -7,6 +7,9 @@ import com.armada.marketing.model.vo.ScriptMarketingDetailVO;
 import com.armada.marketing.model.vo.ScriptMarketingSendRecordVO;
 import com.armada.marketing.script.service.ScriptMarketingTaskService;
 import com.armada.marketing.script.service.ScriptMarketingExecutionService;
+import com.armada.marketing.script.service.ScriptQualificationException;
+import com.armada.marketing.model.vo.ScriptQualificationVO;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import com.armada.shared.paging.PageQuery;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
@@ -46,6 +49,22 @@ public class ScriptMarketingTaskController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         return ApiResponse.ok(service.create(dto, principal.userId()));
     }
+    /** 保存前读取完整逐群资格，检查不会启动任务。 */
+    @PostMapping("/check")
+    public ApiResponse<ScriptQualificationVO> check(@RequestBody ScriptMarketingSaveDTO dto) {
+        return ApiResponse.ok(service.check(dto));
+    }
+    /** 已保存配置重新检查，进群处理完成后仍需用户显式启动。 */
+    @GetMapping("/{id}/check")
+    public ApiResponse<ScriptQualificationVO> checkSaved(@PathVariable Long id,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        return ApiResponse.ok(service.checkSaved(id, principal.userId()));
+    }
+    /** 启动复核拦截以非零业务码返回，并保留可展示的所有群缺口。 */
+    @ExceptionHandler(ScriptQualificationException.class)
+    public ApiResponse<ScriptQualificationVO> qualificationFailure(ScriptQualificationException exception) {
+        return new ApiResponse<>(exception.getCode(), exception.getMessage(), exception.getReport());
+    }
     /** 草稿配置编辑；运行后禁止变更发送顺序。 */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('tenant:script_marketing:view') and hasAuthority('tenant:script_marketing:edit')")
@@ -72,5 +91,13 @@ public class ScriptMarketingTaskController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         execution.action(id, action, principal.userId());
         return ApiResponse.ok(null);
+    }
+    /** 暂停或继续单群；全任务暂停时不能单独启动群发送。 */
+    @PostMapping("/{id}/groups/{groupId}/{action:pause|resume}")
+    @PreAuthorize("hasAuthority('tenant:script_marketing:view') and hasAuthority('tenant:script_marketing:operate')")
+    public ApiResponse<Void> groupAction(@PathVariable Long id, @PathVariable Long groupId,
+            @PathVariable String action, @AuthenticationPrincipal AuthPrincipal principal) {
+        execution.groupAction(id, groupId, action, principal.userId());
+        return ApiResponse.ok();
     }
 }

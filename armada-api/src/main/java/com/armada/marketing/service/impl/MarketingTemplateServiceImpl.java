@@ -238,7 +238,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * 保存前统一校验:模板名/内容必填、名称在租户内不重复、消息类型合法、按钮规则。
+     * 保存前统一校验:模板名必填、纯图片可无文字，其余内容必填；名称在租户内不重复、消息类型合法、按钮规则。
      *
      * @param excludeId 名称查重时要排除的 ID;新增传 {@code null},编辑传当前模板 ID 以放过自身
      */
@@ -246,8 +246,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         if (!StringUtils.hasText(dto.templateName())) {
             throw new BusinessException(ErrorCode.VALIDATION, "模板名称不能为空");
         }
-        if (!StringUtils.hasText(dto.content())) {
-            throw new BusinessException(ErrorCode.VALIDATION, "内容不能为空");
+        if (!StringUtils.hasText(dto.content())
+                && !(Integer.valueOf(LinkMode.IMAGE_TEXT.code()).equals(dto.linkMode()) && dto.imageFileId() != null)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "内容不能为空；纯图片消息请选择图片素材");
         }
         if (mapper.existsByName(dto.templateName(), excludeId)) {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());

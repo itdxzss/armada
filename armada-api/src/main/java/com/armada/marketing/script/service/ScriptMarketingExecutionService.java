@@ -46,13 +46,15 @@ public class ScriptMarketingExecutionService {
     private final MessageSendPort sender;
     private final ScriptMessageControlPort control;
     private final TransactionTemplate resultTransaction;
+    private final ScriptMarketingPacedExecutionService paced;
     /** 注入真实持久化与既有发送端口。 */
     public ScriptMarketingExecutionService(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
             ScriptMarketingSendRecordMapper records, ScriptMarketingContentService content,
             AccountProtocolLookupService accounts, MessageSendPort sender, ScriptMessageControlPort control,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager, ScriptMarketingPacedExecutionService paced) {
         this.tasks = tasks; this.groups = groups; this.records = records; this.content = content;
         this.accounts = accounts; this.sender = sender; this.control = control;
+        this.paced = paced;
         this.resultTransaction = new TransactionTemplate(transactionManager);
         this.resultTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -61,6 +63,7 @@ public class ScriptMarketingExecutionService {
     public void tick(Long taskId, Long groupId, long now) {
         var task = tasks.lock(taskId);
         if (task == null || (task.getStatus() != RUNNING && task.getStatus() != PAUSED)) return;
+        if (task.getAccountGroupId() != null) { paced.tick(task, groupId, now); return; }
         if (task.getEndAt() != null && task.getEndAt() <= now) { close(task, now); return; }
         var group = groups.find(groupId);
         if (group == null || !taskId.equals(group.getTaskId()) || group.getNextAt() > now) return;
@@ -86,6 +89,7 @@ public class ScriptMarketingExecutionService {
         var group = groups.find(groupId);
         if (group == null || !taskId.equals(group.getTaskId()) || group.getNextStep() != stepIndex
                 || records.findStep(groupId, stepIndex) != null) return;
+        if (task.getAccountGroupId() != null) { paced.recordUnsubmittedFailure(task, group, now, reason); return; }
         var steps = content.decode(task.getStepsJson());
         if (stepIndex >= steps.size()) return;
         var row = insertIntent(task, group, steps.get(stepIndex).accountId(), now);
@@ -97,6 +101,7 @@ public class ScriptMarketingExecutionService {
     public void action(Long id, String action, Long owner) {
         var task = ScriptMarketingTaskService.requireOwned(tasks.lock(id), owner);
         long now = System.currentTimeMillis();
+        if (task.getAccountGroupId() != null) { paced.action(task, action, now); return; }
         switch (action) {
             case "start" -> start(task, now);
             case "pause" -> pause(task, now);
@@ -104,6 +109,16 @@ public class ScriptMarketingExecutionService {
             case "close" -> close(task, now);
             default -> throw new BusinessException(ErrorCode.VALIDATION, "未知任务操作");
         }
+    }
+    /** 在同一任务锁与所有者边界内操作单群，存量任务保持原控制方式。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void groupAction(Long id, Long groupId, String action, Long owner) {
+        var task = ScriptMarketingTaskService.requireOwned(tasks.lock(id), owner);
+        var group = groups.find(groupId);
+        if (task.getAccountGroupId() == null || group == null || !id.equals(group.getTaskId())) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "群执行不存在或不支持单群操作");
+        }
+        paced.groupAction(task, group, action, System.currentTimeMillis());
     }
     /** 回调按原命令匹配；未知结果允许补记，重复结果不能再次推进进度。 */
     public void result(ProtocolMessageSendResultReportedEvent event) {
@@ -125,6 +140,7 @@ public class ScriptMarketingExecutionService {
                 : event.reasonCode() + ": " + (event.reasonMessage() == null ? "" : event.reasonMessage());
         int status = "UNKNOWN".equalsIgnoreCase(event.outcome()) ? UNKNOWN : event.success() ? SUCCESS : FAILED;
         finish(row, status, reason, event.messageId(), now);
+        if (task.getAccountGroupId() != null) { paced.completeIfSettled(task, now); return; }
         if (advance && group.getNextStep().equals(row.getStepIndex())) {
             advance(task, group, content.decode(task.getStepsJson()).size(), now);
         }

@@ -4,4 +4,4 @@ package com.armada.marketing.model.vo;
 public record ScriptMarketingTaskVO(Long id, String taskName, Integer status,
         Integer intervalSeconds, Long startAt, Long endAt, Long createdAt,
         long groupCount, long successCount, long failedCount, long unknownCount,
-        long inFlightCount) { }
+        long inFlightCount, Long accountGroupId, String pauseReason) { }

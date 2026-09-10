@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 /** 固定步骤的 JSON 与消息校验，复用现有内容组合与账号解析能力。 */
@@ -67,11 +68,62 @@ public class ScriptMarketingContentService {
             throw new BusinessException(ErrorCode.VALIDATION, "至少选择一个管理员和一个不同账号的推手");
         }
     }
+    /** 校验可复用剧本角色和逐项间隔；管理员账号可以在创建任务时再选择。 */
+    public void validateRoles(List<ScriptMarketingStepDTO> steps) {
+        if (steps == null || steps.size() < 2 || steps.size() > 100) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请配置 2–100 个发送项");
+        }
+        Map<String, ScriptMarketingStepDTO> roles = new HashMap<>();
+        for (var step : steps) {
+            if (step == null || step.role() == null || !List.of("ADMIN", "PROMOTER").contains(step.role())
+                    || step.roleKey() == null || step.roleKey().isBlank() || step.roleKey().length() > 32
+                    || !step.roleKey().equals(step.roleKey().trim())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "每项请选择管理员或推手，并填写角色名称");
+            }
+            var previous = roles.putIfAbsent(step.roleKey(), step);
+            if (previous != null && (!previous.role().equals(step.role())
+                    || !Objects.equals(previous.accountId(), step.accountId()))) {
+                throw new BusinessException(ErrorCode.VALIDATION, "同一角色的类型和管理员账号必须一致");
+            }
+            if ("PROMOTER".equals(step.role()) && step.accountId() != null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "推手在启动时按群随机分配，无需手动绑定账号");
+            }
+            if (step.waitMinSeconds() == null || step.waitMaxSeconds() == null
+                    || step.waitMinSeconds() < 0 || step.waitMaxSeconds() < step.waitMinSeconds()
+                    || step.waitMaxSeconds() > 86400) {
+                throw new BusinessException(ErrorCode.VALIDATION, "每项等待区间须为 0–86400 秒，最大值不小于最小值");
+            }
+            payload(step);
+        }
+        if (roles.values().stream().noneMatch(s -> "ADMIN".equals(s.role()))
+                || roles.values().stream().noneMatch(s -> "PROMOTER".equals(s.role()))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "至少配置一个管理员和一个推手角色");
+        }
+    }
+    /** 随机候选必须支持该角色全部消息，Android 不支持的按钮不能随机抽中后再失败。 */
+    public boolean supports(ProtocolBackend backend, ScriptMarketingStepDTO step) {
+        if (backend != ProtocolBackend.ANDROID || step.message().linkMode() != LinkMode.BUTTON.code()) return true;
+        var buttons = step.message().buttons();
+        return buttons != null && buttons.size() == 1
+                && buttons.get(0).type() == com.armada.marketing.model.ButtonType.LINK_JUMP;
+    }
+    /** 保存每个群的固定角色映射，不在恢复时重新抽样。 */
+    public String encodeBindings(Map<String, Long> bindings) {
+        try { return json.writeValueAsString(bindings); }
+        catch (JsonProcessingException ex) { throw new BusinessException(ErrorCode.VALIDATION, "角色绑定无法保存"); }
+    }
+    /** 读取原绑定；草稿尚未分配时返回空集。 */
+    public Map<String, Long> decodeBindings(String value) {
+        if (value == null) return Map.of();
+        try { return json.readValue(value, new TypeReference<Map<String, Long>>() { }); }
+        catch (JsonProcessingException ex) { throw new BusinessException(ErrorCode.VALIDATION, "角色绑定无法读取"); }
+    }
     /** 验证当前素材并生成现有协议支持的文字、图文、链接或按钮消息。 */
     public MessageSendCommand.MessagePayload payload(ScriptMarketingStepDTO step) {
         var message = step.message();
-        if (message == null || message.content() == null || message.content().isBlank()
-                || message.content().length() > 10000
+        boolean imageOnly = message != null && Integer.valueOf(LinkMode.IMAGE_TEXT.code()).equals(message.linkMode()) && message.imageFileId() != null;
+        if (message == null || (!imageOnly && (message.content() == null || message.content().isBlank()))
+                || (message.content() != null && message.content().length() > 10000)
                 || (message.bodyText() != null && message.bodyText().length() > 10000)) {
             throw new BusinessException(ErrorCode.VALIDATION, "消息内容必填，标题和正文分别不超过 10000 字");
         }

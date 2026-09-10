@@ -115,6 +115,20 @@
   <sql id="currentListFilter">
     handle.tenant_id = #{tenantId}
     AND handle.deleted_at IS NULL
+    <if test="query.accountGroupId != null">
+      AND EXISTS (
+        SELECT 1 FROM wa_account_group_binding group_binding
+        JOIN wa_group_participant group_participant
+          ON group_participant.tenant_id=group_binding.tenant_id
+         AND group_participant.group_id=group_binding.group_id
+         AND group_participant.id=group_binding.participant_id
+         AND group_participant.presence_status=1
+        JOIN account group_account ON group_account.tenant_id=group_binding.tenant_id
+         AND group_account.id=group_binding.account_id AND group_account.deleted_at IS NULL
+        WHERE group_binding.tenant_id=handle.tenant_id AND group_binding.group_id=handle.group_id
+          AND group_account.account_group_id=#{query.accountGroupId}
+      )
+    </if>
     <if test="query.labelId != null">
       AND handle.label_id = #{query.labelId}
     </if>

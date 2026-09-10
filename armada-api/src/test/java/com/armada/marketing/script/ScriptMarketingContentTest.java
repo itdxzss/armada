@@ -49,19 +49,19 @@ class ScriptMarketingContentTest {
     @Test void buttonsUseActualMarketingComposerAndMalformedLinkIsRejected() {
         var dto = new MarketingTemplateDTO("", 2, null, null, "welcome", "details",
                 List.of(new MessageButton(ButtonType.LINK_JUMP, "open", "https://example.com")), null, null, false);
-        var payload = service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, dto));
+        var payload = service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, dto, null, null, null));
         assertThat(payload.content().buttonCard().buttons()).singleElement()
                 .satisfies(button -> assertThat(button.value()).isEqualTo("https://example.com"));
         var invalid = new MarketingTemplateDTO("", 1, null, null, "hello", null,
                 null, "javascript:alert(1)", null, false);
-        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, invalid)))
+        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, invalid, null, null, null)))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("http(s)");
     }
     @Test void refusesMoreThanThreeButtonsBeforeDispatch() {
         var button = new MessageButton(ButtonType.QUICK_REPLY, "reply", null);
         var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(button, button, button, button), null, null, false);
-        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, message)))
+        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null)))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("1–3");
     }
     @Test void androidAccountRejectsUnsupportedButtonsBeforeSavingButKeepsWebCapabilities() {
@@ -71,7 +71,7 @@ class ScriptMarketingContentTest {
         for (var buttons : List.of(List.of(link, link), List.of(copy), List.of(quick))) {
             var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                     buttons, null, null, false);
-            var steps = List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message), step("PROMOTER", 2L));
+            var steps = List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), step("PROMOTER", 2L));
             when(accounts.findActiveProtocolRef(1L)).thenReturn(Optional.of(
                     new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "account", "15550000000")));
             assertThatThrownBy(() -> service.validate(steps))
@@ -84,10 +84,10 @@ class ScriptMarketingContentTest {
                 new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "account", "15550000000")));
         var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(link), null, null, false);
-        service.validate(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message), step("PROMOTER", 2L)));
+        service.validate(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), step("PROMOTER", 2L)));
     }
     ScriptMarketingStepDTO step(String role, Long id) {
         return new ScriptMarketingStepDTO(role, id, new MarketingTemplateDTO("", 1, null, null,
-                "hello", "body", null, null, null, false));
+                "hello", "body", null, null, null, false), null, null, null);
     }
 }

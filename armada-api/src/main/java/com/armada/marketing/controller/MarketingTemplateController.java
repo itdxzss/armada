@@ -40,7 +40,7 @@ public class MarketingTemplateController {
     @GetMapping
     @PreAuthorize("hasAnyAuthority('tenant:marketing_template:view', 'tenant:historical_group:view', "
             + "'tenant:marketing_task:view', 'tenant:group_pull_marketing:view', "
-            + "'tenant:group_creation_marketing:view')")
+            + "'tenant:group_creation_marketing:view', 'tenant:script_marketing:view')")
     public ApiResponse<PageResult<MarketingTemplateVO>> list(@ModelAttribute MarketingTemplateQuery query) {
         return ApiResponse.ok(service.list(query));
     }

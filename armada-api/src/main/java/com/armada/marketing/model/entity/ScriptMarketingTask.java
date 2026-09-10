@@ -24,6 +24,18 @@ public class ScriptMarketingTask {
     private Long createdAt;
     /** 更新时间。 */
     private Long updatedAt;
+    /** 推手账号分组；空值仅用于存量固定账号任务。 */
+    private Long accountGroupId;
+    /** 自动暂停原因，用户继续后清除。 */
+    private String pauseReason;
+    /** 读取推手分组。 */
+    public Long getAccountGroupId() { return accountGroupId; }
+    /** 设置推手分组。 */
+    public void setAccountGroupId(Long value) { accountGroupId = value; }
+    /** 读取暂停原因。 */
+    public String getPauseReason() { return pauseReason; }
+    /** 设置暂停原因。 */
+    public void setPauseReason(String value) { pauseReason = value; }
     /** 读取任务 ID。 */
     public Long getId() { return id; }
     /** 保存任务 ID。 */

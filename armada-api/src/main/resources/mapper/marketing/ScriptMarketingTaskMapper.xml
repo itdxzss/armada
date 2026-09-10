@@ -2,13 +2,13 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.marketing.mapper.ScriptMarketingTaskMapper">
  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
- INSERT INTO script_marketing_task (tenant_id, created_by, task_name, steps_json, status, interval_seconds, start_at, end_at, created_at, updated_at)
- VALUES (#{tenantId}, #{createdBy}, #{taskName}, #{stepsJson}, #{status}, #{intervalSeconds}, #{startAt}, #{endAt}, #{createdAt}, #{updatedAt})
+ INSERT INTO script_marketing_task (tenant_id, created_by, task_name, steps_json, status, interval_seconds, start_at, end_at, created_at, updated_at, account_group_id, pause_reason)
+ VALUES (#{tenantId}, #{createdBy}, #{taskName}, #{stepsJson}, #{status}, #{intervalSeconds}, #{startAt}, #{endAt}, #{createdAt}, #{updatedAt}, #{accountGroupId}, #{pauseReason})
  </insert>
  <select id="lock" resultType="com.armada.marketing.model.entity.ScriptMarketingTask">SELECT * FROM script_marketing_task WHERE id=#{id} FOR UPDATE</select>
  <select id="find" resultType="com.armada.marketing.model.entity.ScriptMarketingTask">SELECT * FROM script_marketing_task WHERE id=#{id}</select>
- <update id="updateDraft">UPDATE script_marketing_task SET task_name=#{taskName}, steps_json=#{stepsJson}, interval_seconds=#{intervalSeconds}, start_at=#{startAt}, end_at=#{endAt}, updated_at=#{updatedAt} WHERE id=#{id} AND status=0</update>
- <update id="updateState">UPDATE script_marketing_task SET status=#{status}, updated_at=#{updatedAt} WHERE id=#{id}</update>
+ <update id="updateDraft">UPDATE script_marketing_task SET task_name=#{taskName}, steps_json=#{stepsJson}, interval_seconds=#{intervalSeconds}, start_at=#{startAt}, end_at=#{endAt}, updated_at=#{updatedAt}, account_group_id=#{accountGroupId} WHERE id=#{id} AND status=0</update>
+ <update id="updateState">UPDATE script_marketing_task SET status=#{status}, updated_at=#{updatedAt}, pause_reason=#{pauseReason} WHERE id=#{id}</update>
  <sql id="filter">created_by=#{owner}
  <if test="q.keyword != null and q.keyword != ''">AND task_name LIKE CONCAT('%', #{q.keyword}, '%')</if>
  <if test="q.status != null">AND status=#{q.status}</if>
@@ -20,7 +20,8 @@
  (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=2) AS success_count,
  (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=3) AS failed_count,
  (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=4) AS unknown_count,
- (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=1) AS in_flight_count
+ (SELECT COUNT(*) FROM script_marketing_send_record r WHERE r.task_id=t.id AND r.status=1) AS in_flight_count,
+ t.account_group_id, t.pause_reason
  </sql>
  <select id="page" resultType="com.armada.marketing.model.vo.ScriptMarketingTaskVO">
  SELECT <include refid="summaryColumns"/> FROM script_marketing_task t WHERE <include refid="filter"/> ORDER BY t.id DESC LIMIT #{q.pageSize} OFFSET #{q.offset}

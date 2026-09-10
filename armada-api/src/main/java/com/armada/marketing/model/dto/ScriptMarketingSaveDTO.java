@@ -8,4 +8,5 @@ public record ScriptMarketingSaveDTO(
         Integer intervalSeconds,
         Long startAt, Long endAt,
         List<Long> groupLinkIds,
-        List<ScriptMarketingStepDTO> steps) { }
+        List<ScriptMarketingStepDTO> steps,
+        Long accountGroupId) { }

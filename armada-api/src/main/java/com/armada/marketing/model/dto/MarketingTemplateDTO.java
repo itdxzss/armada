@@ -20,7 +20,7 @@ public record MarketingTemplateDTO(
         /** 图片文件 ID。 */
         Long imageFileId,
 
-        /** 内容:标题 / 核心卖点(必填)。 */
+        /** 内容:标题 / 核心卖点；图文类型绑定图片时可为空，其余必填。 */
         String content,
 
         /** 文本:正文 / 活动说明(选填)。 */

@@ -37,5 +37,27 @@ class ScriptMarketingMigrationTest {
         assertThat(jdbc.queryForObject("SELECT component_path FROM sys_menu WHERE menu_key='TaskGroupMarketing'", String.class))
                 .isEqualTo("task/group-marketing/index");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_menu WHERE perm_key LIKE 'tenant:script_marketing:%'", Long.class)).isEqualTo(4);
+
+        Long originalTaskMenuId = jdbc.queryForObject("SELECT id FROM sys_menu WHERE menu_key='TaskScriptMarketing'", Long.class);
+        String upgrade = new ClassPathResource("db/migration/V186__script_definition_library.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        for (String statement : upgrade.split(";")) {
+            if (statement.isBlank()) continue;
+            if (statement.stripLeading().startsWith("UPDATE sys_menu task_menu")) {
+                // H2 不支持 MySQL 的 UPDATE JOIN：先解析原 SQL，再只适配该语法执行菜单数据验证。
+                assertThat(net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(statement))
+                        .isInstanceOf(net.sf.jsqlparser.statement.update.Update.class);
+                statement = statement.replace("JOIN sys_menu directory ON directory.tenant_id=task_menu.tenant_id AND directory.menu_key='GroupMaintenance'", "")
+                        .replace("SET task_menu.parent_id=directory.id", "SET task_menu.parent_id=(SELECT directory.id FROM sys_menu directory WHERE directory.tenant_id=task_menu.tenant_id AND directory.menu_key='GroupMaintenance')");
+            }
+            jdbc.execute(statement);
+        }
+        Long directory = jdbc.queryForObject("SELECT id FROM sys_menu WHERE menu_key='GroupMaintenance'", Long.class);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_menu WHERE parent_id=?", Long.class, directory)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT parent_id FROM sys_menu WHERE id=?", Long.class, originalTaskMenuId)).isEqualTo(directory);
+        assertThat(jdbc.queryForObject("SELECT route_path FROM sys_menu WHERE id=?", String.class, originalTaskMenuId)).isEqualTo("/task/script-marketing");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_menu WHERE parent_id=? AND menu_type='B'", Long.class, originalTaskMenuId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT component_path FROM sys_menu WHERE menu_key='ScriptDefinitionLibrary'", String.class))
+                .isEqualTo("task/script-definition/index");
     }
 }

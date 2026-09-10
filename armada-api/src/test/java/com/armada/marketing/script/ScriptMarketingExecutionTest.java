@@ -12,6 +12,11 @@ import com.armada.marketing.model.entity.ScriptMarketingTask;
 import com.armada.marketing.model.entity.ScriptMarketingGroup;
 import com.armada.marketing.script.service.ScriptMarketingContentService;
 import com.armada.marketing.script.service.ScriptMarketingExecutionService;
+import com.armada.marketing.script.service.ScriptMarketingPacedExecutionService;
+import com.armada.marketing.script.service.ScriptQualificationService;
+import com.armada.marketing.script.service.ScriptQualificationException;
+import com.armada.marketing.model.vo.ScriptQualificationVO;
+import java.util.Map;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.platform.protocol.mapper.ScriptMessageControlMapper;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
@@ -75,6 +80,15 @@ class ScriptMarketingExecutionTest {
         for (String statement : migration.replace("steps_json JSON", "steps_json LONGTEXT").split(";")) {
             if (!statement.isBlank()) jdbc.execute(statement);
         }
+        String upgrade = new ClassPathResource("db/migration/V185__script_marketing_group_assignment.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        var statements = java.util.regex.Pattern.compile("'(ALTER TABLE .*?)',\\s*'SELECT 1'", java.util.regex.Pattern.DOTALL).matcher(upgrade);
+        int altered = 0;
+        while (statements.find()) {
+            jdbc.execute(statements.group(1).replace("''", "'").replace("bindings_json JSON", "bindings_json LONGTEXT"));
+            altered++;
+        }
+        assertThat(altered).isEqualTo(6);
         jdbc.execute("CREATE TABLE protocol_command_outbox (id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, command_id VARCHAR(64) UNIQUE, aggregate_type VARCHAR(64), status INT, last_error VARCHAR(1024), locked_by VARCHAR(128), locked_at BIGINT, next_retry_at BIGINT, updated_at BIGINT)");
         execution = context.getBean(ScriptMarketingExecutionService.class);
         tasks = context.getBean(ScriptMarketingTaskMapper.class);
@@ -90,6 +104,145 @@ class ScriptMarketingExecutionTest {
         taskId = seedTask(11L); groupId = groups.list(taskId).get(0).getId();
     }
     @AfterEach void cleanup() { TenantContext.clear(); context.close(); }
+
+    @Test void newTaskRejectsAllGroupsBeforeAnyBindingOrOutboxWhenOneGroupIsShort() {
+        useGroupedTask(false);
+        assertThatThrownBy(() -> execution.action(taskId, "start", 11L)).isInstanceOf(ScriptQualificationException.class);
+        assertThat(tasks.find(taskId).getStatus()).isZero();
+        assertThat(groups.find(groupId).getBindingsJson()).isNull();
+        assertThat(records.count(taskId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM protocol_command_outbox", Long.class)).isZero();
+        verifyNoInteractions(sender);
+    }
+
+    @Test void newTaskSubmitsOnPreviousSubmissionTimeWithoutWaitingForReceipt() {
+        useGroupedTask(true);
+        execution.action(taskId, "start", 11L);
+        long firstAt = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, firstAt);
+        long submittedAt = records.findStep(groupId, 0).getSubmittedAt();
+        assertThat(submittedAt).isGreaterThanOrEqualTo(firstAt);
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(1);
+        assertThat(groups.find(groupId).getNextAt()).isEqualTo(submittedAt + 10000);
+        execution.tick(taskId, groupId, submittedAt + 9999);
+        assertThat(records.count(taskId)).isEqualTo(1);
+        execution.tick(taskId, groupId, submittedAt + 10000);
+        assertThat(records.count(taskId)).isEqualTo(2);
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        var first = records.findStep(groupId, 0); var second = records.findStep(groupId, 1);
+        execution.result(event(second.getCommandId(), true));
+        execution.result(event(first.getCommandId(), true));
+        execution.result(event(first.getCommandId(), true));
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(2);
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(3);
+        assertThat(tasks.summary(taskId).successCount()).isEqualTo(2);
+    }
+
+    @Test void resumeDiscardsWaitButPreservesAccountCommandAndOriginalSubmission() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        long firstAt = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, firstAt);
+        var first = records.findStep(groupId, 0);
+        String bindings = groups.find(groupId).getBindingsJson();
+        execution.action(taskId, "pause", 11L);
+        assertThat(outboxStatus(first.getCommandId())).isEqualTo(4);
+        execution.action(taskId, "resume", 11L);
+        long resumedAt = groups.find(groupId).getNextAt();
+        assertThat(resumedAt).isLessThan(firstAt + 10000);
+        execution.tick(taskId, groupId, resumedAt);
+        assertThat(records.findStep(groupId, 0).getSubmittedAt()).isEqualTo(first.getSubmittedAt());
+        assertThat(records.findStep(groupId, 0).getCommandId()).isEqualTo(first.getCommandId());
+        assertThat(groups.find(groupId).getBindingsJson()).isEqualTo(bindings);
+        assertThat(records.count(taskId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM protocol_command_outbox", Long.class)).isEqualTo(2);
+    }
+
+    @Test void scheduledFirstSubmissionRechecksEveryGroupAndPausesWithZeroSending() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        useGroupedTask(false);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(2);
+        assertThat(groups.find(groupId).getNextAt()).isEqualTo(Long.MAX_VALUE);
+        assertThat(records.count(taskId)).isZero();
+        verifyNoInteractions(sender);
+    }
+
+    @Test void severalPendingMessagesCanBeHeldAndClosedWithoutLosingOriginalCommands() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0); var second = records.findStep(groupId, 1);
+        jdbc.update("UPDATE protocol_command_outbox SET status=5 WHERE command_id=?", first.getCommandId());
+        execution.action(taskId, "pause", 11L);
+        assertThat(records.findCommand(second.getCommandId()).getStatus()).isEqualTo(5);
+        execution.action(taskId, "close", 11L);
+        assertThat(outboxStatus(first.getCommandId())).isEqualTo(6);
+        assertThat(records.findCommand(second.getCommandId()).getStatus()).isEqualTo(3);
+        execution.result(event(first.getCommandId(), true));
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(4);
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(2);
+        assertThat(records.count(taskId)).isEqualTo(2);
+    }
+
+    void useGroupedTask(boolean ready) {
+        jdbc.update("UPDATE script_marketing_task SET account_group_id=30 WHERE id=?", taskId);
+        var content = context.getBean(ScriptMarketingContentService.class);
+        var message = new MarketingTemplateDTO("", 1, null, null, "hello", null, null, null, null, false);
+        when(content.decode(anyString())).thenReturn(List.of(
+                new ScriptMarketingStepDTO("ADMIN", 1L, message, "管理员", 0, 0),
+                new ScriptMarketingStepDTO("PROMOTER", null, message, "推手一", 10, 10)));
+        when(content.encodeBindings(anyMap())).thenReturn("fixed-bindings");
+        when(content.decodeBindings(anyString())).thenReturn(Map.of("管理员", 1L, "推手一", 2L));
+        var report = new ScriptQualificationVO(ready, 3, 1, null, now, List.of(
+                new ScriptQualificationVO.Group(40L, "120000@g.us", "群", ready, 1, ready ? 1 : 0,
+                        ready ? 0 : 1, 0, 0, 0, ready ? List.of() : List.of("缺 1 个推手"))));
+        when(context.getBean(ScriptQualificationService.class).inspect(anyLong(), anyList(), anyList(), anyBoolean()))
+                .thenReturn(new ScriptQualificationService.Preparation(report, Map.of(40L, Map.of("管理员", 1L, "推手一", 2L))));
+    }
+
+    @Test void completedSubmissionStillScansPendingDeadlinesAndLateResultNeverResubmits() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var last = records.findStep(groupId, 1);
+        jdbc.update("UPDATE protocol_command_outbox SET status=5 WHERE command_id=?", last.getCommandId());
+        assertThat(groups.find(groupId).getNextAt()).isEqualTo(Long.MAX_VALUE);
+        assertThat(groups.due(last.getResultDeadlineAt(), 100)).extracting(ScriptMarketingGroup::getId).contains(groupId);
+        execution.tick(taskId, groupId, last.getResultDeadlineAt());
+        assertThat(records.findCommand(last.getCommandId()).getStatus()).isEqualTo(4);
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(3);
+        execution.result(event(last.getCommandId(), true));
+        assertThat(records.findCommand(last.getCommandId()).getStatus()).isEqualTo(2);
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(2);
+        assertThat(records.count(taskId)).isEqualTo(2);
+        verify(sender, times(2)).enqueue(anyList());
+    }
+
+    @Test void singleGroupResumeCannotBypassTaskPauseOrCutoffAndKeepsOriginalBinding() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var original = records.findStep(groupId, 0);
+        String bindings = groups.find(groupId).getBindingsJson();
+        execution.groupAction(taskId, groupId, "pause", 11L);
+        assertThat(groups.find(groupId).getPaused()).isTrue();
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        assertThat(outboxStatus(original.getCommandId())).isEqualTo(4);
+        execution.action(taskId, "pause", 11L);
+        assertThatThrownBy(() -> execution.groupAction(taskId, groupId, "resume", 11L))
+                .hasMessageContaining("请先继续整个任务");
+        execution.action(taskId, "resume", 11L);
+        assertThat(outboxStatus(original.getCommandId())).isEqualTo(4);
+        jdbc.update("UPDATE script_marketing_task SET end_at=? WHERE id=?", System.currentTimeMillis() - 1, taskId);
+        assertThatThrownBy(() -> execution.groupAction(taskId, groupId, "resume", 11L))
+                .hasMessageContaining("截止时间");
+        assertThat(outboxStatus(original.getCommandId())).isEqualTo(4);
+        jdbc.update("UPDATE script_marketing_task SET end_at=NULL WHERE id=?", taskId);
+        execution.groupAction(taskId, groupId, "resume", 11L);
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(groups.find(groupId).getBindingsJson()).isEqualTo(bindings);
+        assertThat(records.findCommand(original.getCommandId()).getSubmittedAt()).isEqualTo(original.getSubmittedAt());
+        assertThat(outboxStatus(original.getCommandId())).isZero();
+    }
 
     @Test void failureContinuesAndDuplicateCallbacksNeverAdvanceTwice() {
         execution.action(taskId, "start", 11L);
@@ -283,7 +436,7 @@ class ScriptMarketingExecutionTest {
     }
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
-    @Import(MyBatisConfig.class)
+    @Import({MyBatisConfig.class, ScriptMarketingPacedExecutionService.class})
     static class Config {
         @Bean DataSource dataSource() {
             var ds = new JdbcDataSource(); ds.setURL("jdbc:h2:mem:script_execution;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000"); return ds;
@@ -306,6 +459,7 @@ class ScriptMarketingExecutionTest {
         @Bean ScriptMessageControlMapper commands(SqlSessionTemplate s) { return s.getMapper(ScriptMessageControlMapper.class); }
         @Bean ScriptMessageControlPort control(ScriptMessageControlMapper mapper) { return new ScriptMessageControlService(mapper); }
         @Bean MessageSendPort sender() { return mock(MessageSendPort.class); }
+        @Bean ScriptQualificationService qualification() { return mock(ScriptQualificationService.class); }
         @Bean AccountProtocolLookupService accounts() {
             var service = mock(AccountProtocolLookupService.class);
             when(service.findOnlineProtocolRefs(anyList())).thenAnswer(call -> {
@@ -318,14 +472,15 @@ class ScriptMarketingExecutionTest {
         @Bean ScriptMarketingContentService content() {
             var service = mock(ScriptMarketingContentService.class);
             var message = new MarketingTemplateDTO("", 1, null, null, "hello", null, null, null, null, false);
-            when(service.decode(anyString())).thenReturn(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message), new ScriptMarketingStepDTO("PROMOTER", 2L, message)));
+            when(service.decode(anyString())).thenReturn(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), new ScriptMarketingStepDTO("PROMOTER", 2L, message, null, null, null)));
             when(service.payload(any())).thenReturn(new MessageSendCommand.MessagePayload(MessageType.TEXT, new MessageSendCommand.MessageContent("hello", null, null, null), false));
             return service;
         }
         @Bean ScriptMarketingExecutionService execution(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
                 ScriptMarketingSendRecordMapper records, ScriptMarketingContentService content, AccountProtocolLookupService accounts,
-                MessageSendPort sender, ScriptMessageControlPort control, DataSourceTransactionManager transactionManager) {
-            return new ScriptMarketingExecutionService(tasks, groups, records, content, accounts, sender, control, transactionManager);
+                MessageSendPort sender, ScriptMessageControlPort control, DataSourceTransactionManager transactionManager,
+                ScriptMarketingPacedExecutionService paced) {
+            return new ScriptMarketingExecutionService(tasks, groups, records, content, accounts, sender, control, transactionManager, paced);
         }
     }
 }

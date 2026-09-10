@@ -5,4 +5,7 @@ package com.armada.marketing.model.dto;
 public record ScriptMarketingStepDTO(
         String role,
         Long accountId,
-        MarketingTemplateDTO message) { }
+        MarketingTemplateDTO message,
+        String roleKey,
+        Integer waitMinSeconds,
+        Integer waitMaxSeconds) { }

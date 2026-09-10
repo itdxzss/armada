@@ -34,6 +34,7 @@ public class ResourceAssetController {
     /** 查看素材、模板或任务时允许读取素材元数据和图片内容。 */
     private static final String READ_AUTHORITIES = "hasAnyAuthority("
             + "'tenant:resource_asset:view', "
+            + "'tenant:script_marketing:view', "
             + "'tenant:hyperlink_template:view', 'tenant:hyperlink_template:create', "
             + "'tenant:hyperlink_template:edit', 'tenant:hyperlink_task:view', "
             + "'tenant:hyperlink_task:create', 'tenant:hyperlink_task:edit')";
@@ -41,6 +42,7 @@ public class ResourceAssetController {
     /** 独立素材上传权限或模板、任务编辑权限均可进入共享上传入口。 */
     private static final String UPLOAD_AUTHORITIES = "hasAnyAuthority("
             + "'tenant:resource_asset:upload', "
+            + "'tenant:script_marketing:create', 'tenant:script_marketing:edit', "
             + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit', "
             + "'tenant:hyperlink_task:create', 'tenant:hyperlink_task:edit')";
 

@@ -2,6 +2,12 @@ package com.armada.marketing.model.entity;
 
 /** 剧本营销：ScriptMarketingSendRecord 持久化事实。 */
 public class ScriptMarketingSendRecord {
+    /** 结果等待截止；恢复只重置此时间，不改写原提交事实。 */
+    private Long resultDeadlineAt;
+    /** 读取结果等待截止。 */
+    public Long getResultDeadlineAt() { return resultDeadlineAt; }
+    /** 保存结果等待截止。 */
+    public void setResultDeadlineAt(Long value) { resultDeadlineAt = value; }
     /** 发送记录 ID。 */
     private Long id;
     /** 租户 ID。 */

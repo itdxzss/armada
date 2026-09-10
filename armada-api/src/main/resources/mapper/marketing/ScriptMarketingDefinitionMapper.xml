@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.marketing.mapper.ScriptMarketingDefinitionMapper">
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+ INSERT INTO script_marketing_definition (tenant_id, created_by, name, steps_json, enabled, created_at, updated_at)
+ VALUES (#{tenantId}, #{createdBy}, #{name}, #{stepsJson}, #{enabled}, #{createdAt}, #{updatedAt})
+ </insert>
+ <select id="find" resultType="com.armada.marketing.model.entity.ScriptMarketingDefinition">
+ SELECT * FROM script_marketing_definition WHERE id=#{id} AND deleted_at IS NULL
+ </select>
+ <select id="lock" resultType="com.armada.marketing.model.entity.ScriptMarketingDefinition">
+ SELECT * FROM script_marketing_definition WHERE id=#{id} AND deleted_at IS NULL FOR UPDATE
+ </select>
+ <update id="update">UPDATE script_marketing_definition SET name=#{name}, steps_json=#{stepsJson}, enabled=#{enabled}, updated_at=#{updatedAt} WHERE id=#{id} AND deleted_at IS NULL</update>
+ <update id="delete">UPDATE script_marketing_definition SET deleted_at=#{now}, updated_at=#{now} WHERE id=#{id} AND deleted_at IS NULL</update>
+ <sql id="filter">
+ created_by=#{owner} AND deleted_at IS NULL
+ <if test="q.keyword != null and q.keyword != ''">AND name LIKE CONCAT('%', #{q.keyword}, '%')</if>
+ <if test="q.status != null">AND enabled=#{q.status}</if>
+ </sql>
+ <select id="page" resultType="com.armada.marketing.model.vo.ScriptDefinitionSummaryVO">
+ SELECT id, name, enabled, updated_at FROM script_marketing_definition WHERE <include refid="filter"/>
+ ORDER BY id DESC LIMIT #{q.pageSize} OFFSET #{q.offset}
+ </select>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM script_marketing_definition WHERE <include refid="filter"/></select>
+</mapper>

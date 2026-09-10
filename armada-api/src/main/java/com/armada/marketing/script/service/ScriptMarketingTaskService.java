@@ -1,6 +1,8 @@
 package com.armada.marketing.script.service;
 
 import com.armada.group.service.GroupDetailService;
+import com.armada.account.service.AccountGroupService;
+import com.armada.marketing.model.vo.ScriptQualificationVO;
 import com.armada.marketing.converter.ScriptMarketingConverter;
 import com.armada.marketing.mapper.ScriptMarketingTaskMapper;
 import com.armada.marketing.mapper.ScriptMarketingGroupMapper;
@@ -35,13 +37,17 @@ public class ScriptMarketingTaskService {
     private final ScriptMarketingContentService content;
     private final GroupDetailService groupDetails;
     private final MarketingTemplateFileService assets;
+    private final AccountGroupService accountGroups;
+    private final ScriptQualificationService qualification;
     /** 注入配置持久化与现有群、素材校验服务。 */
     public ScriptMarketingTaskService(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
             ScriptMarketingSendRecordMapper records, ScriptMarketingConverter converter,
             ScriptMarketingContentService content, GroupDetailService groupDetails,
-            MarketingTemplateFileService assets) {
+            MarketingTemplateFileService assets, AccountGroupService accountGroups,
+            ScriptQualificationService qualification) {
         this.tasks = tasks; this.groups = groups; this.records = records; this.converter = converter;
         this.content = content; this.groupDetails = groupDetails; this.assets = assets;
+        this.accountGroups = accountGroups; this.qualification = qualification;
     }
     /** 只返回当前用户任务，分页和结果计数在 SQL 中完成。 */
     public PageResult<ScriptMarketingTaskVO> list(ScriptMarketingQuery query, Long owner) {
@@ -63,11 +69,27 @@ public class ScriptMarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public ScriptMarketingDetailVO create(ScriptMarketingSaveDTO dto, Long owner) {
         var task = prepare(dto);
+        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList());
         task.setTenantId(TenantContext.get()); task.setCreatedBy(owner); task.setStatus(DRAFT);
         task.setCreatedAt(task.getUpdatedAt());
         tasks.insert(task);
         saveGroups(task, dto.groupLinkIds());
         return detail(task.getId(), owner);
+    }
+    /** 表单检查不保存也不发送；群与账号分组仍由服务端确认当前租户访问权。 */
+    public ScriptQualificationVO check(ScriptMarketingSaveDTO dto) {
+        var task = prepare(dto);
+        var targets = resolveGroups(dto.groupLinkIds());
+        return qualification.inspect(task.getAccountGroupId(), dto.steps(), targets, false).report();
+    }
+    /** 重新检查已保存任务；启动后校验原绑定，不产生新的随机身份。 */
+    public ScriptQualificationVO checkSaved(Long id, Long owner) {
+        var task = requireOwned(tasks.find(id), owner);
+        if (task.getAccountGroupId() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "存量固定账号任务请完成当前执行，新建任务使用分组检查");
+        }
+        return qualification.inspect(task.getAccountGroupId(), content.decode(task.getStepsJson()),
+                groups.list(id), task.getStatus() != DRAFT).report();
     }
     /** 仅草稿允许修改；行锁与启动串行，启动后内容和顺序固定。 */
     @Transactional(rollbackFor = Exception.class)
@@ -75,6 +97,7 @@ public class ScriptMarketingTaskService {
         var old = requireOwned(tasks.lock(id), owner);
         if (old.getStatus() != DRAFT) throw new BusinessException(ErrorCode.CONFLICT, "启动后不能修改内容和顺序");
         var task = prepare(dto); task.setId(id); task.setTenantId(old.getTenantId());
+        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList());
         tasks.updateDraft(task); groups.deleteDraftGroups(id); saveGroups(task, dto.groupLinkIds());
         return detail(id, owner);
     }
@@ -92,8 +115,11 @@ public class ScriptMarketingTaskService {
                 || dto.groupLinkIds().stream().anyMatch(Objects::isNull)) {
             throw new BusinessException(ErrorCode.VALIDATION, "请填写任务名称、1–86400 秒间隔和 1–100 个目标群");
         }
-        content.validate(dto.steps());
-        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList());
+        accountGroups.requireExisting(dto.accountGroupId());
+        content.validateRoles(dto.steps());
+        if (dto.steps().stream().anyMatch(s -> "ADMIN".equals(s.role()) && s.accountId() == null)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择管理员账号");
+        }
         var task = converter.toTask(dto);
         long now = System.currentTimeMillis();
         task.setStartAt(dto.startAt() == null ? now : dto.startAt());
@@ -104,7 +130,15 @@ public class ScriptMarketingTaskService {
         return task;
     }
     private void saveGroups(ScriptMarketingTask task, List<Long> ids) {
+        for (var group : resolveGroups(ids)) {
+            group.setTenantId(task.getTenantId()); group.setTaskId(task.getId());
+            group.setNextStep(0); group.setNextAt(task.getStartAt()); group.setRemainingWaitMs(0L);
+            groups.insert(group);
+        }
+    }
+    private List<ScriptMarketingGroup> resolveGroups(List<Long> ids) {
         var seen = new HashSet<String>();
+        var result = new java.util.ArrayList<ScriptMarketingGroup>();
         for (Long id : ids) {
             var detail = groupDetails.detail(id);
             if (detail.groupJid() == null || !detail.groupJid().endsWith("@g.us")) {
@@ -112,10 +146,10 @@ public class ScriptMarketingTaskService {
             }
             if (!seen.add(detail.groupJid())) throw new BusinessException(ErrorCode.VALIDATION, "目标群不能重复");
             var group = new ScriptMarketingGroup();
-            group.setTenantId(task.getTenantId()); group.setTaskId(task.getId()); group.setGroupLinkId(id);
+            group.setGroupLinkId(id);
             group.setGroupJid(detail.groupJid()); group.setGroupName(detail.groupName());
-            group.setNextStep(0); group.setNextAt(task.getStartAt()); group.setRemainingWaitMs(0L);
-            groups.insert(group);
+            result.add(group);
         }
+        return List.copyOf(result);
     }
 }

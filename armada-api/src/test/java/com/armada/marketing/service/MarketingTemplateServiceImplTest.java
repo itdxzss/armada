@@ -177,6 +177,27 @@ class MarketingTemplateServiceImplTest {
     }
 
     @Test
+    void create_pureImageAllowsEmptyCaptionAndStillLocksSharedAsset() {
+        MarketingTemplate entity = new MarketingTemplate();
+        entity.setImageFileId(91L);
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+        service.create(new MarketingTemplateDTO("纯图片素材", LinkMode.IMAGE_TEXT.code(), null,
+                91L, "", null, null, null, null, false));
+        InOrder order = inOrder(fileService, mapper);
+        order.verify(fileService).lockAndValidateBindableAssets(List.of(91L));
+        order.verify(mapper).insert(entity);
+    }
+
+    @Test
+    void create_emptyImageMessageWithoutAssetIsRejected() {
+        assertThatThrownBy(() -> service.create(new MarketingTemplateDTO("空素材", LinkMode.IMAGE_TEXT.code(), null,
+                null, "", null, null, null, null, false)))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("内容不能为空");
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
     void create_blankBodyText_insertsAndReturnsVO() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         MarketingTemplate entity = new MarketingTemplate();

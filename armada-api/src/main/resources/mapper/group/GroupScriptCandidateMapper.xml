@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.group.mapper.GroupScriptCandidateMapper">
+ <select id="list" resultType="com.armada.group.model.vo.GroupScriptCandidateVO">
+ SELECT handle.id AS group_link_id, a.id AS account_id, a.account_group_id,
+        participant.presence_status,
+        CASE WHEN participant.presence_status != 1 THEN NULL
+             WHEN profile.announce_only = 0 THEN TRUE
+             WHEN profile.announce_only = 1 AND participant.role IN (2,3) THEN TRUE
+             WHEN profile.announce_only = 1 AND participant.role = 1 THEN FALSE
+             ELSE NULL END AS message_send_allowed,
+        CASE WHEN s.login_state = 1 AND s.account_state IN (2,6,7)
+              AND (s.risk_status IS NULL OR s.risk_status = 1)
+              AND (s.mute_status IS NULL OR s.mute_status = 2)
+              AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) != ''
+              AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) != ''
+             THEN TRUE ELSE FALSE END AS online,
+        a.protocol_id,
+        CASE WHEN profile.banned = 1 THEN FALSE
+             WHEN profile.banned = 0 THEN TRUE ELSE NULL END AS group_available
+ FROM group_link handle
+ JOIN wa_account_group_binding binding ON binding.tenant_id=handle.tenant_id AND binding.group_id=handle.group_id
+ JOIN wa_group_participant participant ON participant.tenant_id=binding.tenant_id
+      AND participant.group_id=binding.group_id AND participant.id=binding.participant_id
+ JOIN account a ON a.tenant_id=binding.tenant_id AND a.id=binding.account_id AND a.deleted_at IS NULL
+ LEFT JOIN account_state s ON s.tenant_id=a.tenant_id AND s.account_id=a.id
+ LEFT JOIN wa_group_profile profile ON profile.tenant_id=handle.tenant_id AND profile.group_id=handle.group_id
+ WHERE handle.deleted_at IS NULL AND handle.id IN
+ <foreach collection="groupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+ AND (a.account_group_id=#{accountGroupId}
+ <if test="adminIds != null and !adminIds.isEmpty()">
+ OR a.id IN <foreach collection="adminIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+ </if>)
+ ORDER BY handle.id, a.id
+ </select>
+</mapper>

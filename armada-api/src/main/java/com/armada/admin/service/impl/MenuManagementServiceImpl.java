@@ -49,6 +49,8 @@ public class MenuManagementServiceImpl implements MenuManagementService {
             "task/join-task/index",
             "task/group-marketing/index",
             "task/script-marketing/index",
+            "task/script-definition/index",
+            "material/script-material/index",
             "task/group-pull-marketing/index",
             "task/group-creation-marketing/index",
             "material/marketing-template/index",

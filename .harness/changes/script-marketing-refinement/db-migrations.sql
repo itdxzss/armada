@@ -1,0 +1,6 @@
+-- 正式变更由 Flyway 执行；本文件是迁移索引，不手工修改共享数据库。
+-- V185: armada-api/src/main/resources/db/migration/V185__script_marketing_group_assignment.sql
+--   新任务分组、逐群角色绑定/暂停、独立结果等待截止。
+-- V186: armada-api/src/main/resources/db/migration/V186__script_definition_library.sql
+--   可复用剧本定义、养群管理三菜单，保留旧任务菜单 ID 和路由。
+-- 先确认目标环境；迁移后重新导出 information_schema 并生成数据模型 wiki。

@@ -115,6 +115,8 @@ public class ContactTaskSendResultSink implements ProtocolMessageSendResultRepor
         withTenant(event.tenantId(), () -> {
             ContactFriendTaskRecipient recipient = recipientMapper.selectByCommandId(event.commandId());
             if (recipient == null || !Objects.equals(recipient.getContactJid(), event.jid())
+                    || (event.accountId() != null && !Objects.equals(event.accountId(),
+                    accountMapper.selectSenderAccountId(recipient.getTaskAccountId())))
                     || (recipient.getProtocolMessageId() != null
                     && !recipient.getProtocolMessageId().equals(event.messageId()))) {
                 return;

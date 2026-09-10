@@ -67,7 +67,7 @@ class ContactTaskMapperXmlTest {
 
     @Test
     void accountSortColumnIsWhitelistedNotInterpolatedRaw() throws IOException {
-        String sql = xml("ContactFriendTaskAccountMapper.xml");
+        String sql = xml("ContactTaskStatsMapper.xml");
 
         // 排序列必须走 choose 白名单，不能把用户输入直接拼进 ORDER BY
         assertThat(sql).contains("<choose>");

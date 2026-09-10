@@ -78,7 +78,7 @@ public interface ContactTaskService {
      * 分页查询任务的账号发送数据。
      *
      * @param id 任务 ID
-     * @param sortBy 排序列，仅接受 needSendNum / sentNum / failNum
+     * @param sortBy 排序列，支持计划、已处理、发送确认、送达、已读、失败、未知和跳过指标
      * @param sortOrder 排序方向 asc / desc
      * @param page 页码
      * @param pageSize 每页条数

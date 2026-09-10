@@ -258,6 +258,16 @@ class ContactTaskReceiptH2Test {
         assertThat(sent()).isOne();
     }
 
+    @Test void ackForAnotherSenderCannotConfirmThisRecipientsMessage() {
+        ProtocolMessageAckEvent wrongSender = new ProtocolMessageAckEvent("ack", 7L,
+                "contact_task", null, null, "cmd", 999L, "android", "other-account",
+                "123456@lid", "PRIVATE", "msg", "READ", true, null, null, 1100L, "worker");
+        tx.executeWithoutResult(s -> sink.handleAck(wrongSender));
+        assertThat(row().getReadAt()).isNull();
+        assertThat(row().getSendStatus()).isEqualTo("SENDING");
+        assertThat(sent()).isZero();
+    }
+
     @Test void accountWithAnInFlightMessageIsNotSelectedAgain() {
         assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
         tx.executeWithoutResult(s -> sink.handleSendResultReported(result(true, null)));

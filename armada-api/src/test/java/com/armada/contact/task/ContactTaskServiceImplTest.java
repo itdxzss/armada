@@ -1,6 +1,7 @@
 package com.armada.contact.task;
 
-import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
+import com.armada.contact.task.service.ContactTaskStatsService;
+import com.armada.shared.response.PageResult;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.entity.ContactFriendTask;
@@ -36,7 +37,7 @@ class ContactTaskServiceImplTest {
     private static final long USER = 88L;
 
     private ContactFriendTaskMapper taskMapper;
-    private ContactFriendTaskAccountMapper accountMapper;
+    private ContactTaskStatsService statsService;
     private ContactTaskExpansionService expansionService;
     private ContactTaskServiceImpl service;
     private ContactAccountSelector selector;
@@ -45,12 +46,12 @@ class ContactTaskServiceImplTest {
     void setUp() {
         taskMapper = mock(ContactFriendTaskMapper.class);
         when(taskMapper.updateForm(any())).thenReturn(1);
-        accountMapper = mock(ContactFriendTaskAccountMapper.class);
+        statsService = mock(ContactTaskStatsService.class);
         expansionService = mock(ContactTaskExpansionService.class);
         selector = mock(ContactAccountSelector.class);
         service = new ContactTaskServiceImpl(
                 taskMapper,
-                accountMapper,
+                statsService,
                 new ContactTaskFormValidator(),
                 expansionService,
                 selector,
@@ -232,28 +233,11 @@ class ContactTaskServiceImplTest {
     }
 
     @Test
-    void accountDataPageIsEmptyUntilTheEngineExpandsIt() {
-        when(taskMapper.selectById(9L)).thenReturn(task(ContactTaskRunStatus.NOT_STARTED.code()));
-        when(accountMapper.countByTaskId(9L)).thenReturn(0L);
-        when(accountMapper.selectPage(anyLong(), any(), any(), anyInt(), anyInt()))
-                .thenReturn(List.of());
-
-        assertThat(service.accountData(9L, null, null, 1, 20).total()).isZero();
-    }
-
-    @Test
-    void accountDataOnlyPassesThroughWhitelistedSortColumns() {
-        when(taskMapper.selectById(9L)).thenReturn(task(ContactTaskRunStatus.NOT_STARTED.code()));
-        when(accountMapper.countByTaskId(9L)).thenReturn(0L);
-        when(accountMapper.selectPage(anyLong(), any(), any(), anyInt(), anyInt()))
-                .thenReturn(List.of());
-
-        service.accountData(9L, "sentNum", "asc", 1, 20);
-        verify(accountMapper).selectPage(9L, "sentNum", "asc", 0, 20);
-
-        // 非白名单列必须被抹成 null，交给 XML 兜底按 id 排序
-        service.accountData(9L, "1=1", "; DROP", 1, 20);
-        verify(accountMapper).selectPage(9L, null, "desc", 0, 20);
+    void accountDataUsesTheSharedStatsQuery() {
+        when(statsService.accounts(9L, "deliveredNum", "desc", 2, 20))
+                .thenReturn(PageResult.of(List.of(),2,20,0));
+        assertThat(service.accountData(9L,"deliveredNum","desc",2,20).total()).isZero();
+        verify(statsService).accounts(9L,"deliveredNum","desc",2,20);
     }
 
     @Test

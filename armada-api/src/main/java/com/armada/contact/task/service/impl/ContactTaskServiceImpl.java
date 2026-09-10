@@ -1,11 +1,9 @@
 package com.armada.contact.task.service.impl;
 
-import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
 import com.armada.contact.task.mapper.ContactFriendTaskMapper;
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
 import com.armada.contact.task.model.dto.ContactTaskQuery;
 import com.armada.contact.task.model.entity.ContactFriendTask;
-import com.armada.contact.task.model.entity.ContactFriendTaskAccount;
 import com.armada.contact.task.model.enums.ContactTaskAction;
 import com.armada.contact.task.model.enums.ContactTaskRunStatus;
 import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
@@ -15,10 +13,13 @@ import com.armada.contact.task.service.ContactAccountSelector;
 import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.ContactTaskService;
+import com.armada.contact.task.service.ContactTaskStatsService;
+import com.armada.contact.task.model.vo.ContactTaskStatsVO;
 import com.armada.contact.task.service.ContactTaskStateMachine;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -39,22 +40,15 @@ import java.util.function.Supplier;
  */
 public class ContactTaskServiceImpl implements ContactTaskService {
 
-    /** 账号数据接口允许的排序列白名单，其余一律抹成 null 交给 XML 兜底。 */
-    private static final Set<String> SORTABLE_COLUMNS =
-            Set.of("needSendNum", "sentNum", "failNum");
-
-    private static final String SORT_ASC = "asc";
-    private static final String SORT_DESC = "desc";
     private static final String START_MODE_SCHEDULED = "scheduled";
     private static final long MILLIS_PER_MINUTE = 60_000L;
-    private static final int ACCOUNT_PAGE_SIZE_MAX = 200;
     private static final int DELETE_BATCH_SIZE_MAX = 200;
     private static final Set<Integer> DELETABLE_STATUSES = Set.of(
             ContactTaskRunStatus.NOT_STARTED.code(), ContactTaskRunStatus.COMPLETED.code(),
             ContactTaskRunStatus.STOPPED.code());
 
     private final ContactFriendTaskMapper taskMapper;
-    private final ContactFriendTaskAccountMapper accountMapper;
+    private final ContactTaskStatsService statsService;
     private final ContactTaskFormValidator validator;
     private final ContactTaskExpansionService expansionService;
     private final ContactAccountSelector accountSelector;
@@ -65,7 +59,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
      * 创建通讯录营销任务服务。
      *
      * @param taskMapper 任务主表数据访问
-     * @param accountMapper 任务账号读模型数据访问
+     * @param statsService 任务和账号统计查询
      * @param validator 表单校验器
      * @param accountSelector 账号圈选与筛选归一化，与超链任务共用
      * @param expansionService 启用时的圈号与收件人展开服务
@@ -74,14 +68,14 @@ public class ContactTaskServiceImpl implements ContactTaskService {
      */
     public ContactTaskServiceImpl(
             ContactFriendTaskMapper taskMapper,
-            ContactFriendTaskAccountMapper accountMapper,
+            ContactTaskStatsService statsService,
             ContactTaskFormValidator validator,
             ContactTaskExpansionService expansionService,
             ContactAccountSelector accountSelector,
             Supplier<Long> tenantSupplier,
             LongSupplier clock) {
         this.taskMapper = taskMapper;
-        this.accountMapper = accountMapper;
+        this.statsService = statsService;
         this.validator = validator;
         this.expansionService = expansionService;
         this.accountSelector = accountSelector;
@@ -129,13 +123,16 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     }
 
     @Override
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResult<ContactTaskListItemVO> list(ContactTaskQuery query) {
         ContactTaskQuery effective = query == null
                 ? new ContactTaskQuery(null, null, null, null, null, null)
                 : query;
         long total = taskMapper.countPage(effective);
-        List<ContactTaskListItemVO> rows = taskMapper.selectPage(effective).stream()
-                .map(ContactTaskServiceImpl::toListItem)
+        List<ContactFriendTask> tasks = taskMapper.selectPage(effective);
+        var stats = statsService.forTasks(tasks);
+        List<ContactTaskListItemVO> rows = tasks.stream()
+                .map(row -> toListItem(row, stats.get(row.getId())))
                 .toList();
         return PageResult.of(rows, effective.pageOrDefault(), effective.pageSizeOrDefault(), total);
     }
@@ -223,22 +220,7 @@ public class ContactTaskServiceImpl implements ContactTaskService {
     @Override
     public PageResult<ContactTaskAccountItemVO> accountData(
             Long id, String sortBy, String sortOrder, Integer page, Integer pageSize) {
-        requireTask(id);
-        int effectivePage = page == null || page < 1 ? 1 : page;
-        int effectiveSize = pageSize == null || pageSize < 1
-                ? 20
-                : Math.min(pageSize, ACCOUNT_PAGE_SIZE_MAX);
-        String safeSortBy = sortBy != null && SORTABLE_COLUMNS.contains(sortBy) ? sortBy : null;
-        String safeSortOrder = SORT_ASC.equalsIgnoreCase(
-                sortOrder == null ? "" : sortOrder.trim()) ? SORT_ASC : SORT_DESC;
-
-        long total = accountMapper.countByTaskId(id);
-        List<ContactTaskAccountItemVO> rows = accountMapper.selectPage(
-                        id, safeSortBy, safeSortOrder,
-                        (effectivePage - 1) * effectiveSize, effectiveSize).stream()
-                .map(ContactTaskServiceImpl::toAccountItem)
-                .toList();
-        return PageResult.of(rows, effectivePage, effectiveSize, total);
+        return statsService.accounts(id, sortBy, sortOrder, page, pageSize);
     }
 
     private ContactFriendTask requireTask(Long id) {
@@ -283,14 +265,14 @@ public class ContactTaskServiceImpl implements ContactTaskService {
         return now;
     }
 
-    private static ContactTaskListItemVO toListItem(ContactFriendTask row) {
+    private static ContactTaskListItemVO toListItem(ContactFriendTask row, ContactTaskStatsVO stats) {
         return new ContactTaskListItemVO(
                 row.getId(), row.getName(), row.getMessageType(), row.getTitle(),
                 row.getContent(), row.getPromotionLink(), row.getAccountFilter(),
                 row.getIsEnabled(),
                 row.getRunStatus(), row.getTotalSendNum(), row.getSuccessMessageNum(),
                 row.getUsedAccountCount(), row.getInvalidAccountNum(),
-                row.getAvgSendPerAccount(), row.getTaskStartAt(), row.getCreatedAt());
+                row.getAvgSendPerAccount(), row.getTaskStartAt(), row.getCreatedAt(), stats);
     }
 
     private static ContactTaskDetailVO toDetail(ContactFriendTask row) {
@@ -306,16 +288,6 @@ public class ContactTaskServiceImpl implements ContactTaskService {
                 zeroIfNull(row.getUsedAccountCount()), zeroIfNull(row.getInvalidAccountNum()),
                 row.getAvgSendPerAccount() == null ? BigDecimal.ZERO : row.getAvgSendPerAccount(),
                 row.getCreatedAt(), row.getUpdatedAt());
-    }
-
-    private static ContactTaskAccountItemVO toAccountItem(ContactFriendTaskAccount row) {
-        return new ContactTaskAccountItemVO(
-                row.getAccountId(),
-                row.getAccountPhoneSnapshot(),
-                row.getAccountStatusSnapshot(),
-                zeroIfNull(row.getNeedSendNum()),
-                zeroIfNull(row.getSentNum()),
-                zeroIfNull(row.getFailNum()), row.getId(), row.getState(), row.getStopReason());
     }
 
     /** 只有 is_enabled=1 才算启用；null 与 0 都是草稿。 */

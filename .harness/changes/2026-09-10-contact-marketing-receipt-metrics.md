@@ -1,9 +1,9 @@
 # 通讯录营销执行进度与回执统计
 
 - 日期：2026-09-10。
-- 用户授权：在主仓实施设计，不 commit、不 push。未授权部署。
+- 用户授权：最初要求本地实施；后续明确追加 commit、push、部署，目标 test1。
 - 主仓分支：前后端均为 `1.0.3-snapshot`；起始 Armada `a690ed13`、前端 `eaf2a50`。
-- 状态：本地代码与验证完成；真实环境性能和 Android/Web 设备验收待授权发布后执行。
+- 状态：已提交、推送并部署 test1；登录态统计和 Android/Web 真实设备验收尚未执行。
 
 ## 实现
 
@@ -45,10 +45,24 @@ ARMADA_E2E_BASE_URL=http://127.0.0.1:8856 ARMADA_E2E_BROWSER_CHANNEL=chrome node
 
 无数据库迁移、Redis key 或协议契约修改。后续发布先后端再前端；回滚对应前后端制品即可，回执事实保留。旧前端需要的 HTTP 路径和旧字段语义仍保留；新前端遇到缺少 stats 的旧后端会明确显示统计不可用。
 
-未执行真库 EXPLAIN/规模性能验证、test1 部署、真实 Android/Web 发送确认/送达/已读验收。当前测试证明本地实现，不能代表截图中任务 5 的真实执行结果。
+实施阶段未执行真库 EXPLAIN/规模性能验证和真实 Android/Web 发送确认/送达/已读验收。test1 部署结果见下方。当前测试证明本地实现，不能代表截图中任务 5 的真实执行结果。
 
 设计与依据见[设计方案](../../docs/superpowers/specs/2026-09-10-contact-marketing-receipt-metrics-design.md)。
 
 ## 发布授权与发布前复核
 
 2026-09-10 用户追加授权 commit、push、部署。目标为主仓 itdxzss/armada 与 itdxzss/wheel-saas-pure-web 的 1.0.3-snapshot，第一套测试环境 test1，范围后端与前端，协议层不变。已核对远端无领先提交、Flyway 无重复版本、Mapper XML、已有测试证据和部署 dry-run。专家复核发现列表有收件人账号数仍用旧字段，已切换为 stats.accounts.readyAccountNum 并增加页面断言。部署脚本回归通过。下方记录发布实际结果。
+
+## test1 发布结果
+
+- 部署的后端代码：`92223696`；前端代码：`69c8560`，均已推送 `origin/1.0.3-snapshot`。
+- 从两个主仓干净提交构建；JDK 17 / pnpm frozen lockfile，执行 `deploy-test.sh --env test1 --all --yes`，退出码 0，Backend/Frontend SUCCESS；协议层 SKIPPED。
+- 入口：`http://armada.65.2.123.53.nip.io/`，环境标识第一套环境。
+- 本地、上传后的远端和运行中容器后端 jar SHA-256 一致：`74371fa637c98ef6d1e6c94563efe113ef190d5a5a7c18fa235d57ec85fc3bfa`。
+- 实际 HTTP：首页及 `index-XuFtefeZ.js`、`receipt-metrics-B30mu0cg.js` 都返回 200，内容 SHA-256 与本次本地 dist 一致。
+- 新 stats 与 recipients 路径未登录请求返回 HTTP 401 / 业务码 40104，只证明鉴权有效，未声称登录态统计已验收。
+- 容器均 running、RestartCount=0；后端启动完成、Flyway 校验通过，无启动/迁移失败。
+- 观察到 1 条数据库死锁，调用栈属于未修改的 `HyperlinkUnknownResultRecoveryScheduler/Service -> ProtocolCommandOutboxServiceImpl.replay`，Mapper 为 `ProtocolCommandOutboxMapper.xml`。已记录，未扩大范围修改超链恢复逻辑。
+- `deploy-test.test.sh` 通过；生产离线包测试因缺少既有 `armada-deploy/prod/protocol/.env.example` 失败，不属于本次 test1 前后端发布路径。没有发布生产离线包。
+
+本地发布证据：`/private/tmp/contact-release-test1.log`、`/private/tmp/contact-release-http-verification.json`。后续文档提交只记录发布结果，不改变上述已部署的产品代码。

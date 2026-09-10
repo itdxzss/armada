@@ -80,7 +80,7 @@ class ScriptMarketingExecutionTest {
         for (String statement : migration.replace("steps_json JSON", "steps_json LONGTEXT").split(";")) {
             if (!statement.isBlank()) jdbc.execute(statement);
         }
-        String upgrade = new ClassPathResource("db/migration/V185__script_marketing_group_assignment.sql")
+        String upgrade = new ClassPathResource("db/migration/V186__script_marketing_group_assignment.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
         var statements = java.util.regex.Pattern.compile("'(ALTER TABLE .*?)',\\s*'SELECT 1'", java.util.regex.Pattern.DOTALL).matcher(upgrade);
         int altered = 0;

@@ -18,7 +18,7 @@ mvn -q -Dtest='Script*Test,GroupScriptCandidateMapperH2Test,GroupListCurrentMapp
 | ScriptQualificationTest | 4 | 5 人缺 4、严格容量门槛、离线/未确认/发言权限、入群后重查与绑定稳定 |
 | ScriptMarketingContentTest | 5 | 消息内容、图片和按钮转换及既有协议能力 |
 | ScriptMarketingExecutionTest | 18 | 启动零提交、按提交时刻推进、暂停原命令、截止、最后一条超时、迟到结果、旧任务兼容及事务并发 |
-| ScriptMarketingMigrationTest | 2 | V180 约束；V186 三菜单、保留原任务菜单 ID/路由/按钮 |
+| ScriptMarketingMigrationTest | 2 | V180 约束；V187 三菜单、保留原任务菜单 ID/路由/按钮 |
 | ScriptDefinitionTest | 3 | 定义与任务快照独立、本人/租户边界、SQL 分页/状态与无效配置 |
 | GroupScriptCandidateMapperH2Test | 3 | 真实成员/发言查询、租户与分组隔离、群列表去重计数 |
 | GroupListCurrentMapperSqlShapeTest | 4 | 既有群查询 SQL 形状及性能约束 |
@@ -27,7 +27,7 @@ mvn -q -Dtest='Script*Test,GroupScriptCandidateMapperH2Test,GroupListCurrentMapp
 
 H2 测试加载生产 Mapper XML、MyBatis-Plus 租户插件和事务管理器；执行服务的发送端口使用事务内本地 outbox 夹具，不连接协议服务。资格服务规则测试使用跨域 Service 替身，实际资格 SQL 另由 H2 测试覆盖。
 
-方言适配已显式记录：H2 JSON 字符串使用 LONGTEXT / 测试 JSON_CONTAINS 别名；V185 从权威迁移提取六条 ALTER 后执行；V186 UPDATE JOIN 先解析原 SQL，仅此语法转为 H2 等价更新。**没有把 H2 方言适配当作真实 MySQL Flyway 验收。**
+方言适配已显式记录：H2 JSON 字符串使用 LONGTEXT / 测试 JSON_CONTAINS 别名；V186 从权威迁移提取六条 ALTER 后执行；V187 UPDATE JOIN 先解析原 SQL，仅此语法转为 H2 等价更新。**没有把 H2 方言适配当作真实 MySQL Flyway 验收。**
 
 新增匹配测试先因缺少实现编译失败，随后实现通过。未生成覆盖率报告，不宣称全仓覆盖率或核心逻辑覆盖率达到某个百分比。
 

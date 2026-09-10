@@ -39,7 +39,7 @@ class ScriptMarketingMigrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_menu WHERE perm_key LIKE 'tenant:script_marketing:%'", Long.class)).isEqualTo(4);
 
         Long originalTaskMenuId = jdbc.queryForObject("SELECT id FROM sys_menu WHERE menu_key='TaskScriptMarketing'", Long.class);
-        String upgrade = new ClassPathResource("db/migration/V186__script_definition_library.sql")
+        String upgrade = new ClassPathResource("db/migration/V187__script_definition_library.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
         for (String statement : upgrade.split(";")) {
             if (statement.isBlank()) continue;

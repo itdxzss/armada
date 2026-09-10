@@ -47,7 +47,7 @@ class ScriptDefinitionTest {
         context = new AnnotationConfigApplicationContext(Config.class);
         var jdbc = new JdbcTemplate(context.getBean(DataSource.class));
         jdbc.execute("DROP ALL OBJECTS");
-        String ddl = new ClassPathResource("db/migration/V186__script_definition_library.sql")
+        String ddl = new ClassPathResource("db/migration/V187__script_definition_library.sql")
                 .getContentAsString(StandardCharsets.UTF_8).split("-- 保留既有任务")[0];
         jdbc.execute(ddl.replace("steps_json JSON", "steps_json LONGTEXT"));
         TenantContext.set(7L); service = context.getBean(ScriptDefinitionService.class);

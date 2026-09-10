@@ -151,7 +151,7 @@ public interface ContactFriendTaskMapper {
                              @Param("updatedAt") long updatedAt);
 
     /**
-     * 累加成功送达条数。
+     * 累加成功条数并同步号均发量；完成后迟到的成功回执也更新统计，不重开任务。
      *
      * @param id 任务 ID
      * @param delta 增量

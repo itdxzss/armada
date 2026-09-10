@@ -91,7 +91,8 @@ public interface ContactFriendTaskAccountMapper {
     int markRunning(@Param("id") Long id, @Param("updatedAt") long updatedAt);
 
     /**
-     * 把已排干的账号行收敛为终态：发成功过至少一条为 DONE，一条都没成功为 FAILED。
+     * 收敛已排干的 PENDING/RUNNING 账号：已有成功或未知结果时为 DONE，否则为 FAILED。
+     * 含 UNKNOWN 时保留账号状态快照；已明确停止为 FAILED 的账号不在本方法中恢复。
      *
      * @param taskId 任务 ID
      * @param updatedAt 更新时间（epoch 毫秒）

@@ -192,7 +192,10 @@
 
   <update id="incrementSuccessMessageNum">
     UPDATE contact_friend_task
-       SET success_message_num = success_message_num + #{delta},
+       <!-- MySQL 单表 SET 从左到右赋值；先用旧成功数加增量计算，避免把增量加两次。 -->
+       SET avg_send_per_account = COALESCE(
+             ROUND((success_message_num + #{delta}) * 1.0 / NULLIF(used_account_count, 0), 2), 0),
+           success_message_num = success_message_num + #{delta},
            updated_at = #{updatedAt}
      WHERE id = #{id}
        AND deleted_at IS NULL

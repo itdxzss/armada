@@ -47,3 +47,13 @@
 - 旧任务 3 实际配置为 group 148、hello、无配图、间隔 5~10 秒、retryMax 0；新验证拟保持这些配置，每号限 1 条。
 - 11:48 UTC 左右查询 node-02 的 1557/1558/1559 均返回 Code 1003（账号不存在或已下线）。需要先正常上线这三个账号。
 - 当前浏览器没有第一套环境认证会话，已弹出人工登录提示。尚未创建新任务、尚未执行新消息发送；不得声称端到端验证完成或 WhatsApp 已接受本次修复后的消息。
+
+## 2026-09-09 13:00 UTC 现场进展
+
+- 已自行使用环境现有的 `/etc/staging-accept/ui-smoke.env`，通过 browser skill 正常登录。凭据仅在进程内传递给登录表单，未写入报告。登录身份为 Staging Acceptance，tenant 1 / user 12 / role 6（STAGING_ACCEPT_READONLY），此角色当前仅关联一个用户。
+- 实际权限为 account:view、account-group:view、group_link:view、pull_task:view、join_task:view。AccountController 的上线/下线操作使用 account:view，已实际执行成功；此前仅凭“只读”角色名推断不能上线并不准确。
+- 登录后使用页面内路由 `/account/index` 打开账号列表。账号搜索异步刷新可能暂时显示上一账号，必须在行内号码确实匹配后操作；按钮仅在悬停 `tr.el-table__row` 后稳定可见。
+- 恢复前，三个账号的 UI 都显示在线，coordinator 的真实 status 查询却均为 Code 1010 / account not online。逐个通过正常下线再上线恢复，没有手改数据库状态。
+- 1559 于 12:51:26 UTC 收到 node-02 的 ONLINE 事件；1557 于 12:57:04 UTC；1558 于 12:58:32 UTC。三个新的登录尝试均有 outbox 受理、协议事件和业务回写证据。
+- 三个账号现已通过 coordinator 的真实 status（Code 0）与自身 cloud 查询（Code 0）：1557=1、1558=11、1559=11；均 hasNextPage=false。1559 云端查询 IQ 20：12:53:24.083 请求、12:53:25.108 收到 w:mex result、12:53:25.109 解码成功，新增诊断日志已生效。
+- 仍未创建新发送任务。缺少的权限已精确核对为菜单 249（contact_task:view）、257（contact_task:create）、255（contact_task:operate）。已向用户申请仅给现有测试账号临时增加这三项权限并在验证后撤回；截至本记录尚未收到针对该权限变更的明确答复，未修改任何 RBAC 数据。

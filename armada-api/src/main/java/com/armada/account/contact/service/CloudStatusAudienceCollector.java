@@ -42,7 +42,8 @@ public class CloudStatusAudienceCollector {
     private static void validate(CloudContactsPage page) {
         if (page == null || page.version() == null || page.version().isBlank() || page.version().length() > 256
                 || page.nextCursor() == null || page.nextCursor().length() > 4096 || page.jids().size() > 100
-                || (page.hasNextPage() && (page.nextCursor().isBlank() || page.jids().isEmpty()))
+                // 协议排除账号自身后，中间页可以为空；仍由游标去重和分页上限防止空页循环。
+                || (page.hasNextPage() && page.nextCursor().isBlank())
                 || page.jids().stream().anyMatch(jid -> !jid.matches("[1-9][0-9]{0,19}@lid"))) {
             throw failure("CLOUD_INVALID_PAGE");
         }

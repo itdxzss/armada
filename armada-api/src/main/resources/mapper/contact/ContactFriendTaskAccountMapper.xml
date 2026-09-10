@@ -101,11 +101,17 @@
      WHERE id = #{id} AND state = 'PENDING'
   </update>
 
-  <!-- 一条都没发成功的账号收敛为 FAILED，这就是 invalid_account_num 的口径 -->
+  <!-- UNKNOWN 仅表示当前消息结果未知；排干后结束处理，不据此新增账号失效判断。 -->
   <update id="settleDrainedAccounts">
     UPDATE contact_friend_task_account a
-       SET a.state = CASE WHEN a.sent_num &gt; 0 THEN 'DONE' ELSE 'FAILED' END,
-           a.account_status_snapshot = CASE WHEN a.sent_num &gt; 0 THEN 'valid' ELSE 'invalid' END,
+       SET a.state = CASE WHEN a.sent_num &gt; 0 OR EXISTS (
+             SELECT 1 FROM contact_friend_task_recipient u
+              WHERE u.task_account_id = a.id AND u.tenant_id = a.tenant_id AND u.send_status = 'UNKNOWN'
+           ) THEN 'DONE' ELSE 'FAILED' END,
+           a.account_status_snapshot = CASE WHEN EXISTS (
+             SELECT 1 FROM contact_friend_task_recipient u
+              WHERE u.task_account_id = a.id AND u.tenant_id = a.tenant_id AND u.send_status = 'UNKNOWN'
+           ) THEN a.account_status_snapshot WHEN a.sent_num &gt; 0 THEN 'valid' ELSE 'invalid' END,
            a.updated_at = #{updatedAt}
      WHERE a.task_id = #{taskId}
        AND a.state IN ('PENDING', 'RUNNING')

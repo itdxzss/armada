@@ -90,7 +90,9 @@ public class AccountMessagingAudienceServiceImpl implements AccountMessagingAudi
         }
         var current = cloudMapper.selectByAccountId(account.accountId());
         var currentView = CloudStatusAudienceService.view(current, System.currentTimeMillis());
-        boolean refresh = "FAILED".equals(currentView.status()) && currentView.updatedAt() != null
+        // 每个新私聊任务重新准备名单，避免复用此前尚未排除自身的缓存；本任务结果及正在采集的代次仍复用。
+        boolean refresh = ("READY".equals(currentView.status()) || "EMPTY".equals(currentView.status())
+                || "FAILED".equals(currentView.status())) && currentView.updatedAt() != null
                 && currentView.updatedAt() < requestedAfter;
         return cloudService.resolve(account, refresh);
     }

@@ -219,7 +219,16 @@ class ContactTaskCloudPreparationH2Test {
         cloud("EMPTY");
         prepare();
         assertThat(accounts.selectById(10L).getState()).isEqualTo("SKIPPED");
-        assertThat(accounts.selectById(10L).getStopReason()).contains("为空");
+        assertThat(accounts.selectById(10L).getStopReason()).isEqualTo("没有可发送好友（已排除账号自身）");
+        assertThat(recipients.countByAccount(1L, 10L)).isZero();
+    }
+
+    @Test
+    void emptyReadyAudienceIsSkippedWithoutCreatingSendRecipients() {
+        cloud("READY");
+        prepare();
+        assertThat(accounts.selectById(10L).getState()).isEqualTo("SKIPPED");
+        assertThat(accounts.selectById(10L).getStopReason()).isEqualTo("没有可发送好友（已排除账号自身）");
         assertThat(recipients.countByAccount(1L, 10L)).isZero();
     }
 

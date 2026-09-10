@@ -19,7 +19,7 @@
       END,
       contact_named_synced_at = GREATEST(
         COALESCE(contact_named_synced_at, -1), VALUES(contact_named_synced_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="upsertFriendCount">
@@ -38,7 +38,7 @@
       END,
       friend_count_synced_at = GREATEST(
         COALESCE(friend_count_synced_at, -1), VALUES(friend_count_synced_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="upsertGroupInviteAllowed">
@@ -58,7 +58,7 @@
       END,
       group_invite_synced_at = GREATEST(
         COALESCE(group_invite_synced_at, -1), VALUES(group_invite_synced_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="upsertRotationStatus">
@@ -77,7 +77,7 @@
       END,
       rotation_updated_at = GREATEST(
         COALESCE(rotation_updated_at, -1), VALUES(rotation_updated_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="initializeRegistration">
@@ -94,7 +94,7 @@
         ELSE registered_at_source
       END,
       registered_at = COALESCE(registered_at, VALUES(registered_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <insert id="upsertMarketingSource">
@@ -114,7 +114,7 @@
       END,
       marketing_source_updated_at = GREATEST(
         COALESCE(marketing_source_updated_at, -1), VALUES(marketing_source_updated_at)),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+      updated_at = GREATEST(account_profile.updated_at, VALUES(updated_at))
   </insert>
 
   <select id="selectByTenantAndAccountId"

@@ -42,7 +42,7 @@ class AccountProfileMapperH2Test {
         execute("DROP ALL OBJECTS");
         execute("""
                 CREATE TABLE account (
-                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, deleted_at BIGINT)
+                  id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, deleted_at BIGINT, updated_at BIGINT)
                 """);
         execute("""
                 CREATE TABLE account_profile (
@@ -63,7 +63,7 @@ class AccountProfileMapperH2Test {
                   updated_at BIGINT NOT NULL,
                   UNIQUE (tenant_id, account_id))
                 """);
-        execute("INSERT INTO account VALUES (1,7,NULL),(2,8,NULL),(3,7,1000)");
+        execute("INSERT INTO account VALUES (1,7,NULL,9000),(2,8,NULL,9000),(3,7,1000,9000)");
     }
 
     @Test

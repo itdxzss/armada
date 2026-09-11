@@ -60,7 +60,7 @@ public class ScriptDefinitionService {
         }
         content.validateRoles(dto.steps());
         if (dto.steps().stream().anyMatch(step -> step.accountId() != null)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "剧本库不绑定具体账号，请在创建任务时选择管理员");
+            throw new BusinessException(ErrorCode.VALIDATION, "剧本库不绑定具体账号，管理员与推手在任务启动时按群分配");
         }
         assets.lockAndValidateBindableAssets(dto.steps().stream().map(step -> step.message().imageFileId()).toList());
         var row = converter.toDefinition(dto); row.setName(dto.name().trim());

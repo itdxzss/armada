@@ -61,10 +61,13 @@
   </select>
 
   <select id="selectOptions" resultType="com.armada.account.model.vo.AccountGroupOptionVO">
-    SELECT id, name
-    FROM account_group
-    WHERE deleted_at IS NULL
-    ORDER BY name ASC, id ASC
+    SELECT g.id, g.name,
+           (SELECT COUNT(*) FROM account a
+             WHERE a.tenant_id = g.tenant_id AND a.account_group_id = g.id
+               AND a.deleted_at IS NULL) AS accountCount
+    FROM account_group g
+    WHERE g.deleted_at IS NULL
+    ORDER BY g.name ASC, g.id ASC
   </select>
 
   <select id="selectHyperlinkDefaultGroupIds" resultType="long">

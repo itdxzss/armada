@@ -128,8 +128,8 @@ public class ScriptMarketingTaskService {
         }
         accountGroups.requireExisting(dto.accountGroupId());
         content.validateRoles(dto.steps());
-        if (dto.steps().stream().anyMatch(s -> "ADMIN".equals(s.role()) && s.accountId() == null)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "请选择管理员账号");
+        if (dto.steps().stream().anyMatch(s -> s.accountId() != null)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "管理员与推手由系统启动时按群分配，无需手动选择账号");
         }
         var task = converter.toTask(dto);
         long now = System.currentTimeMillis();

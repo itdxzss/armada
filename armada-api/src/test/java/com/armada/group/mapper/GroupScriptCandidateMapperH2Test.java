@@ -84,4 +84,22 @@ class GroupScriptCandidateMapperH2Test {
         assertThat(groupList.count(7L, query)).isZero();
         assertThat(groupList.count(8L, query)).isEqualTo(1);
     }
+    @Test void currentControlledAdminsAreCandidatesEvenOutsideThePusherPool() {
+        jdbc.execute("UPDATE account SET account_group_id=99 WHERE id IN (1,2,3)");
+        jdbc.execute("UPDATE wa_group_participant SET role=2 WHERE id=1");
+        jdbc.execute("UPDATE wa_group_participant SET role=3 WHERE id=2");
+        assertThat(mapper.list(List.of(40L), 30L, List.of()))
+                .extracting(row -> row.accountId()).containsExactly(1L, 2L, 4L);
+        assertThat(mapper.list(List.of(40L), 30L, List.of()))
+                .extracting(row -> row.admin()).containsExactly(true, true, false);
+        jdbc.execute("UPDATE wa_group_participant SET presence_status=2 WHERE id=1");
+        assertThat(mapper.list(List.of(40L), 30L, List.of()))
+                .extracting(row -> row.accountId()).containsExactly(2L, 4L);
+        jdbc.execute("UPDATE wa_group_participant SET role=1 WHERE id=2");
+        assertThat(mapper.list(List.of(40L), 30L, List.of(2L)))
+                .extracting(row -> row.admin()).containsExactly(false, false);
+        jdbc.execute("UPDATE account SET deleted_at=100 WHERE id=2");
+        assertThat(mapper.list(List.of(40L), 30L, List.of(2L)))
+                .extracting(row -> row.accountId()).containsExactly(4L);
+    }
 }

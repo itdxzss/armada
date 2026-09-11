@@ -17,7 +17,9 @@
              THEN TRUE ELSE FALSE END AS online,
         a.protocol_id,
         CASE WHEN profile.banned = 1 THEN FALSE
-             WHEN profile.banned = 0 THEN TRUE ELSE NULL END AS group_available
+             WHEN profile.banned = 0 THEN TRUE ELSE NULL END AS group_available,
+        CASE WHEN participant.presence_status = 1 AND participant.role IN (2,3)
+             THEN TRUE ELSE FALSE END AS admin
  FROM group_link handle
  JOIN wa_account_group_binding binding ON binding.tenant_id=handle.tenant_id AND binding.group_id=handle.group_id
  JOIN wa_group_participant participant ON participant.tenant_id=binding.tenant_id
@@ -28,6 +30,7 @@
  WHERE handle.deleted_at IS NULL AND handle.id IN
  <foreach collection="groupIds" item="id" open="(" separator="," close=")">#{id}</foreach>
  AND (a.account_group_id=#{accountGroupId}
+ OR (participant.presence_status=1 AND participant.role IN (2,3))
  <if test="adminIds != null and !adminIds.isEmpty()">
  OR a.id IN <foreach collection="adminIds" item="id" open="(" separator="," close=")">#{id}</foreach>
  </if>)

@@ -55,8 +55,8 @@ class HyperlinkStrategyAccountContextServiceTest {
     @Test
     void contextReturnsTenantOptionsWithoutPricingOrWalletDependency() {
         when(accountGroupService.options()).thenReturn(List.of(
-                new AccountGroupOptionVO(9L, "公共组"),
-                new AccountGroupOptionVO(10L, "超链组")));
+                new AccountGroupOptionVO(9L, "公共组", 0),
+                new AccountGroupOptionVO(10L, "超链组", 0)));
         when(accountGroupService.hyperlinkDefaultGroupIds()).thenReturn(List.of(9L, 10L));
         when(countryService.options("marketing-export")).thenReturn(new CountryOptionsVO(List.of(
                 new CountryOptionVO("TH", "TH", "泰国", "Thailand", "+66", "🇹🇭",

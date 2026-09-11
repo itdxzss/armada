@@ -60,7 +60,7 @@ class ContactAccountOptionsControllerTest {
     void contactViewPermissionAloneCanReadNumericOptionsAtTheExactRoute() throws Exception {
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(
                 "operator", null, "tenant:contact_task:view"));
-        when(groups.options()).thenReturn(List.of(new AccountGroupOptionVO(17L, "通讯录组")));
+        when(groups.options()).thenReturn(List.of(new AccountGroupOptionVO(17L, "通讯录组", 0)));
         when(channels.options()).thenReturn(List.of(new PromotionChannelOptionVO(83L, "推广渠道")));
 
         MockMvcBuilders.standaloneSetup(controller).build()

@@ -173,6 +173,21 @@ class AccountGroupMapperH2Test {
         assertThat(mapper.selectHyperlinkDefaultGroupIds()).containsExactly(10L, row.getId());
     }
 
+    @Test
+    void optionCountsIncludeEmptyGroupsButExcludeDeletedAndOtherTenantAccounts() throws SQLException {
+        execute("INSERT INTO account_group (id,tenant_id,name,created_at,updated_at) VALUES (11,7,'空分组',100,100)");
+        execute("INSERT INTO account (id,tenant_id,account_group_id,deleted_at) VALUES (1,7,10,NULL),(2,7,10,NULL),(3,7,10,100),(4,8,10,NULL)");
+        assertThat(mapper.selectOptions()).anySatisfy(option -> {
+            assertThat(option.id()).isEqualTo(10L);
+            assertThat(option.accountCount()).isEqualTo(2L);
+        }).anySatisfy(option -> {
+            assertThat(option.id()).isEqualTo(11L);
+            assertThat(option.accountCount()).isZero();
+        });
+        TenantContext.clear();
+        assertThat(mapper.selectOptions()).isEmpty();
+    }
+
     private void insertAccount(
             long id,
             String wsPhone,

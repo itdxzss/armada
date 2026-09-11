@@ -68,7 +68,7 @@ public class ScriptMarketingContentService {
             throw new BusinessException(ErrorCode.VALIDATION, "至少选择一个管理员和一个不同账号的推手");
         }
     }
-    /** 校验可复用剧本角色和逐项间隔；管理员账号可以在创建任务时再选择。 */
+    /** 校验角色和逐项间隔；新任务账号在启动时分配，仍能复核旧任务的固定管理员。 */
     public void validateRoles(List<ScriptMarketingStepDTO> steps) {
         if (steps == null || steps.size() < 2 || steps.size() > 100) {
             throw new BusinessException(ErrorCode.VALIDATION, "请配置 2–100 个发送项");

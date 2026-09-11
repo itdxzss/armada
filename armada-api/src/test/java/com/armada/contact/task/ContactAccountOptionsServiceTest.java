@@ -37,12 +37,12 @@ class ContactAccountOptionsServiceTest {
 
     @Test
     void returnsRealNamesAndIdsWithoutMixingGroupAndChannelDimensions() {
-        when(groups.options()).thenReturn(List.of(new AccountGroupOptionVO(17L, "通讯录组")));
+        when(groups.options()).thenReturn(List.of(new AccountGroupOptionVO(17L, "通讯录组", 0)));
         when(channels.options()).thenReturn(List.of(new PromotionChannelOptionVO(83L, "推广渠道")));
 
         var options = service.options();
 
-        assertThat(options.groups()).containsExactly(new AccountGroupOptionVO(17L, "通讯录组"));
+        assertThat(options.groups()).containsExactly(new AccountGroupOptionVO(17L, "通讯录组", 0));
         assertThat(options.channels()).containsExactly(new PromotionChannelOptionVO(83L, "推广渠道"));
     }
 

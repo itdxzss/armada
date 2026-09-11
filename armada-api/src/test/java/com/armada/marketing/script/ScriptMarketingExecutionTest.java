@@ -167,6 +167,117 @@ class ScriptMarketingExecutionTest {
         verifyNoInteractions(sender);
     }
 
+    @Test void qualificationFailureAfterSubmissionSkipsCurrentItemAndContinuesWithoutPausing() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        String bindings = groups.find(groupId).getBindingsJson();
+        useGroupedTask(false);
+        var content = context.getBean(ScriptMarketingContentService.class);
+        var steps = new java.util.ArrayList<>(content.decode("[]"));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", 1L, steps.get(0).message(), "管理员", 7, 7));
+        when(content.decode(anyString())).thenReturn(steps);
+        when(context.getBean(AccountProtocolLookupService.class).findOnlineProtocolRefs(List.of(2L)))
+                .thenReturn(List.of());
+
+        long failedAt = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, failedAt);
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        var failed = records.findStep(groupId, 1);
+        assertThat(failed.getStatus()).isEqualTo(3);
+        assertThat(failed.getAccountId()).isEqualTo(2L);
+        assertThat(failed.getReason()).contains("已跳过", "离线");
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(2);
+        assertThat(groups.find(groupId).getNextAt()).isEqualTo(failed.getFinishedAt() + 7000);
+        assertThat(outboxStatus(first.getCommandId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM protocol_command_outbox", Long.class)).isEqualTo(1);
+        execution.tick(taskId, groupId, failedAt);
+        assertThat(records.count(taskId)).isEqualTo(2);
+
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var third = records.findStep(groupId, 2);
+        assertThat(third.getAccountId()).isEqualTo(1L);
+        execution.result(event(first.getCommandId(), true));
+        execution.result(event(third.getCommandId(), true));
+        execution.result(event(failed.getCommandId(), false));
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(3);
+        assertThat(tasks.summary(taskId).failedCount()).isEqualTo(1);
+        assertThat(tasks.summary(taskId).successCount()).isEqualTo(2);
+        assertThat(groups.find(groupId).getBindingsJson()).isEqualTo(bindings);
+        assertThat(records.count(taskId)).isEqualTo(3);
+        verify(sender, times(2)).enqueue(anyList());
+    }
+
+    @Test void otherRoleQualificationFailureDoesNotBlockCurrentHealthySender() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        useGroupedTask(false);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(2);
+        assertThat(records.findStep(groupId, 1).getAccountId()).isEqualTo(2L);
+        verify(sender, times(2)).enqueue(anyList());
+    }
+
+    @Test void groupedSendFailureCallbackContinuesAndNeverResendsFailedItem() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        execution.result(event(first.getCommandId(), false));
+        execution.result(event(first.getCommandId(), false));
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.result(event(records.findStep(groupId, 1).getCommandId(), true));
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(3);
+        assertThat(tasks.summary(taskId).failedCount()).isEqualTo(1);
+        assertThat(tasks.summary(taskId).successCount()).isEqualTo(1);
+        assertThat(records.count(taskId)).isEqualTo(2);
+        verify(sender, times(2)).enqueue(anyList());
+    }
+
+    @Test void startedTaskAndGroupCanResumeWithUnavailableRolesWithoutReplacingBindings() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        String bindings = groups.find(groupId).getBindingsJson();
+        execution.groupAction(taskId, groupId, "pause", 11L);
+        execution.action(taskId, "pause", 11L);
+        useGroupedTask(false);
+        execution.action(taskId, "resume", 11L);
+        assertThat(groups.find(groupId).getPaused()).isTrue();
+        assertThat(outboxStatus(first.getCommandId())).isEqualTo(4);
+        execution.groupAction(taskId, groupId, "resume", 11L);
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        assertThat(groups.find(groupId).getBindingsJson()).isEqualTo(bindings);
+        assertThat(outboxStatus(first.getCommandId())).isZero();
+        assertThat(records.count(taskId)).isEqualTo(1);
+    }
+
+    @Test void perMessageQualificationFailureDoesNotHoldEarlierCommandsOrPauseGroup() {
+        useGroupedTask(true); execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        doThrow(new com.armada.shared.exception.BusinessException(
+                com.armada.shared.exception.ErrorCode.CONFLICT, "原账号没有群内发言权限"))
+                .when(context.getBean(ScriptQualificationService.class))
+                .requireStepSendable(eq(30L), any(), argThat(step -> "PROMOTER".equals(step.role())));
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var failed = records.findStep(groupId, 1);
+        assertThat(failed.getStatus()).isEqualTo(3);
+        assertThat(failed.getReason()).contains("已跳过", "没有群内发言权限");
+        assertThat(groups.find(groupId).getPaused()).isFalse();
+        assertThat(outboxStatus(first.getCommandId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM protocol_command_outbox", Long.class)).isEqualTo(1);
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(1);
+        execution.result(event(first.getCommandId(), true));
+        assertThat(tasks.find(taskId).getStatus()).isEqualTo(3);
+        assertThat(tasks.summary(taskId).failedCount()).isEqualTo(1);
+        verify(sender, times(1)).enqueue(anyList());
+    }
+
     @Test void severalPendingMessagesCanBeHeldAndClosedWithoutLosingOriginalCommands() {
         useGroupedTask(true); execution.action(taskId, "start", 11L);
         execution.tick(taskId, groupId, groups.find(groupId).getNextAt());

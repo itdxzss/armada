@@ -4,6 +4,8 @@ import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountService;
 import com.armada.group.model.vo.GroupScriptCandidateVO;
 import com.armada.group.service.GroupScriptCandidateService;
+import com.armada.marketing.model.ButtonType;
+import com.armada.marketing.model.MessageButton;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.dto.ScriptMarketingStepDTO;
 import com.armada.marketing.model.entity.ScriptMarketingGroup;
@@ -100,7 +102,7 @@ class ScriptQualificationTest {
         assertThat(result.bindings().get(40L)).containsEntry("A", 1L).containsEntry("主持人", 1L).containsEntry("P1", 2L);
         var shortage = service.inspect(30L, steps, List.of(group(40L), group(41L)), false);
         assertThat(shortage.report().ready()).isFalse();
-        assertThat(shortage.report().groups().get(1).reasons()).anyMatch(reason -> reason.contains("无可用在控管理员"));
+        assertThat(shortage.report().groups().get(1).reasons()).anyMatch(reason -> reason.contains("本群没有可用管理员"));
     }
     @Test void automaticAdminCannotTakeTheOnlyPusherAndDifferentGroupsChooseTheirOwnAdmin() {
         var steps = automaticSteps();
@@ -118,7 +120,7 @@ class ScriptQualificationTest {
         when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
                 fact(40L, 2L, 30L, 1, true, true), fact(40L, 3L, 99L, 1, true, true)));
         assertThat(service.inspect(30L, automaticSteps(), List.of(group(40L)), false).report().groups().get(0).reasons())
-                .anyMatch(reason -> reason.contains("无可用在控管理员"));
+                .anyMatch(reason -> reason.contains("本群没有可用管理员"));
         var steps = automaticSteps();
         var secondAdmin = new ScriptMarketingStepDTO("ADMIN", null, message, "主持人", 1, 2);
         steps.add(secondAdmin);
@@ -140,6 +142,88 @@ class ScriptQualificationTest {
         assertThat(result.report().ready()).isFalse();
         assertThat(result.bindings()).isEmpty();
         assertThat(result.report().groups().get(0).reasons()).anyMatch(reason -> reason.contains("原绑定管理员"));
+    }
+    @Test void duplicateFixedAdminNamesIdentifyTheAccountAndHowToCorrectTheRoles() {
+        var steps = new ArrayList<>(steps(5));
+        steps.set(0, new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员", 0, 0));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员1", 0, 0));
+        var facts = new ArrayList<GroupScriptCandidateVO>();
+        facts.add(fact(40L, 748L, 30L, 1, true, true));
+        for (long id = 2; id <= 8; id++) facts.add(fact(40L, id, 30L, 1, true, true));
+        when(accounts.listAccounts(any())).thenReturn(PageResult.of(List.of(), 1, 1, 8));
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(facts);
+        var result = service.inspect(30L, steps, List.of(group(40L)), false);
+        var row = result.report().groups().get(0);
+        assertThat(result.report().ready()).isFalse();
+        assertThat(result.bindings()).isEmpty();
+        assertThat(row.available()).isEqualTo(7);
+        assertThat(row.shortage()).isZero();
+        assertThat(row.reasons()).singleElement().asString()
+                .contains("管理员", "管理员1", "748", "同一账号", "统一角色名称", "不同账号")
+                .doesNotContain("协议能力");
+        steps.set(steps.size() - 1, steps.get(0));
+        assertThat(service.inspect(30L, steps, List.of(group(40L)), false).report().ready()).isTrue();
+    }
+    @Test void fixedAdminOfflineNamesTheAccountAndDoesNotBlameMessageSupport() {
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
+                fact(40L, 1L, 99L, 1, true, false), fact(40L, 2L, 30L, 1, true, true)));
+        var row = service.inspect(30L, steps(1), List.of(group(40L)), false).report().groups().get(0);
+        assertThat(row.ready()).isFalse();
+        assertThat(row.reasons()).singleElement().asString().contains("A", "ID：1", "离线或受限", "恢复")
+                .doesNotContain("消息", "协议能力");
+    }
+    @Test void fixedAdminWithoutMembershipRequiresCheckingTheGroupInformation() {
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(fact(40L, 2L, 30L, 1, true, true)));
+        var row = service.inspect(30L, steps(1), List.of(group(40L)), false).report().groups().get(0);
+        assertThat(row.ready()).isFalse();
+        assertThat(row.reasons()).singleElement().asString().contains("A", "ID：1", "未确认在群", "刷新群资料");
+    }
+    @Test void fixedAdminWithoutSpeakingPermissionNamesThePermissionToRestore() {
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
+                fact(40L, 1L, 99L, 1, false, true), fact(40L, 2L, 30L, 1, true, true)));
+        var row = service.inspect(30L, steps(1), List.of(group(40L)), false).report().groups().get(0);
+        assertThat(row.ready()).isFalse();
+        assertThat(row.reasons()).singleElement().asString().contains("A", "ID：1", "发言权限")
+                .doesNotContain("离线", "协议能力");
+    }
+    @Test void unsupportedAdminMessageIdentifiesItsPositionAndAllowedButtonType() {
+        var steps = automaticSteps();
+        var button = new MarketingTemplateDTO("", 2, null, null, "hello", null,
+                List.of(new MessageButton(ButtonType.COPY_CONTENT, "copy", "code")), null, null, false);
+        steps.add(new ScriptMarketingStepDTO("ADMIN", null, button, "主持人", 0, 0));
+        when(content.supports(any(), any())).thenCallRealMethod();
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
+                new GroupScriptCandidateVO(40L, 1L, 99L, 1, true, true, "ANDROID", true, true),
+                fact(40L, 2L, 30L, 1, true, true)));
+        var result = service.inspect(30L, steps, List.of(group(40L)), false);
+        assertThat(result.report().ready()).isFalse();
+        assertThat(result.bindings()).isEmpty();
+        assertThat(result.report().groups().get(0).reasons()).singleElement().asString()
+                .contains("主持人", "第 4 条", "Android", "1 个", "链接跳转", "修改")
+                .doesNotContain("无可用", "协议能力");
+    }
+    @Test void unsupportedPusherMessageIsReportedEvenWhenTheAccountCountIsEnough() {
+        var steps = new ArrayList<>(steps(1));
+        var button = new MarketingTemplateDTO("", 2, null, null, "hello", null,
+                List.of(new MessageButton(ButtonType.QUICK_REPLY, "reply", null)), null, null, false);
+        steps.set(1, new ScriptMarketingStepDTO("PROMOTER", null, button, "P1", 0, 0));
+        when(content.supports(any(), any())).thenCallRealMethod();
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
+                fact(40L, 1L, 99L, 1, true, true),
+                new GroupScriptCandidateVO(40L, 2L, 30L, 1, true, true, "ANDROID", true, false)));
+        var row = service.inspect(30L, steps, List.of(group(40L)), false).report().groups().get(0);
+        assertThat(row.ready()).isFalse();
+        assertThat(row.shortage()).isZero();
+        assertThat(row.reasons()).singleElement().asString().contains("P1", "第 2 条", "链接跳转")
+                .doesNotContain("管理员", "协议能力");
+    }
+    @Test void overlappingAdminAndPusherCandidatesExplainWhyOneMoreAccountIsNeeded() {
+        when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(adminFact(40L, 1L, 30L)));
+        var row = service.inspect(30L, automaticSteps(), List.of(group(40L)), false).report().groups().get(0);
+        assertThat(row.ready()).isFalse();
+        assertThat(row.shortage()).isZero();
+        assertThat(row.reasons()).singleElement().asString().contains("A", "P1", "可用账号重叠", "不同账号")
+                .doesNotContain("协议能力");
     }
     List<ScriptMarketingStepDTO> automaticSteps() {
         var result = new ArrayList<>(steps(1));

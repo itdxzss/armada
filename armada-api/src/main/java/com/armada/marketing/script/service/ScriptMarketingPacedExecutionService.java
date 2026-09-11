@@ -72,23 +72,19 @@ public class ScriptMarketingPacedExecutionService {
                 || group.getNextStep() >= steps.size() || group.getNextAt() > now || task.getStartAt() > now) {
             completeIfSettled(task, now); return;
         }
-        // 定时任务第一条实际提交前复核全部目标；失败时整个任务零发送。
-        boolean firstSubmission = records.count(task.getId()) == 0;
-        var targets = firstSubmission ? groups.list(task.getId()) : List.of(group);
-        try {
-            var report = qualification.inspect(task.getAccountGroupId(), steps, targets, true).report();
-            if (!report.ready()) {
-                if (firstSubmission) {
+        // 首次提交保留全任务门槛；已开始后在 submit 中逐条检查，失败仅跳过当前项。
+        if (records.count(task.getId()) == 0) {
+            try {
+                var report = qualification.inspect(task.getAccountGroupId(), steps, groups.list(task.getId()), true).report();
+                if (!report.ready()) {
                     pause(task, now);
-                    state(task, PAUSED, "所选群资格已变化，请查看检查结果，处理后继续", now);
+                    state(task, PAUSED, "任务已暂停：所选群暂不满足发送条件。请检查群资格，处理后继续任务。", now);
+                    return;
                 }
-                else pauseGroup(group, "原绑定账号或群资格发生变化，请查看检查结果", now);
+            } catch (BusinessException exception) {
+                pause(task, now); state(task, PAUSED, exception.getMessage(), now);
                 return;
             }
-        } catch (BusinessException exception) {
-            if (firstSubmission) { pause(task, now); state(task, PAUSED, exception.getMessage(), now); }
-            else pauseGroup(group, exception.getMessage(), now);
-            return;
         }
         submit(task, group, steps, now);
     }
@@ -102,7 +98,7 @@ public class ScriptMarketingPacedExecutionService {
         var steps = content.decode(task.getStepsJson());
         if (group.getNextStep() >= steps.size() || records.findStep(group.getId(), group.getNextStep()) != null) return;
         var row = intent(task, group, steps.get(group.getNextStep()), now);
-        finish(row, FAILED, reason, now);
+        finish(row, FAILED, "本条未发送，已跳过：" + reason, now);
         advance(task, group, steps, now);
     }
     /** 回执不推进提交游标，仅在全部计划和原命令收敛后结束任务。 */
@@ -112,14 +108,16 @@ public class ScriptMarketingPacedExecutionService {
         if (groups.list(task.getId()).stream().allMatch(g -> g.getNextStep() >= size)
                 && !records.hasPending(task.getId())) state(task, FINISHED, null, now);
     }
-    /** 单群继续复核原账号，不能越过全任务暂停；单群暂停保留角色与已提交记录。 */
+    /** 单群继续不能越过全任务暂停；已开始任务恢复原进度，后续各项独立检查且不换号。 */
     public void groupAction(ScriptMarketingTask task, ScriptMarketingGroup group, String action, long now) {
         requireState(task, RUNNING, "请先继续整个任务，再操作单群");
         if ("pause".equals(action)) { pauseGroup(group, "业务人员暂停", now); return; }
         if (!"resume".equals(action)) throw new BusinessException(ErrorCode.VALIDATION, "未知群操作");
         requireBeforeEnd(task, now);
-        var prepared = qualification.inspect(task.getAccountGroupId(), content.decode(task.getStepsJson()), List.of(group), true);
-        if (!prepared.report().ready()) throw new ScriptQualificationException(prepared.report());
+        if (records.count(task.getId()) == 0) {
+            var prepared = qualification.inspect(task.getAccountGroupId(), content.decode(task.getStepsJson()), List.of(group), true);
+            if (!prepared.report().ready()) throw new ScriptQualificationException(prepared.report());
+        }
         releaseHeld(group.getId(), now);
         group.setPaused(false); group.setPauseReason(null);
         group.setNextAt(group.getNextStep() < content.decode(task.getStepsJson()).size()
@@ -144,6 +142,7 @@ public class ScriptMarketingPacedExecutionService {
         var row = intent(task, group, step, now);
         MessageSendCommand command;
         try {
+            qualification.requireStepSendable(task.getAccountGroupId(), group, step);
             var account = accounts.findOnlineProtocolRefs(List.of(row.getAccountId())).stream().findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT, "原绑定账号已离线或不可用"));
             command = new MessageSendCommand(account, new MessageSendCommand.MessageTarget(group.getGroupJid()),
@@ -152,7 +151,7 @@ public class ScriptMarketingPacedExecutionService {
                     MessageSendCommand.DEFAULT_SEND_INTERVAL_MS, 0L);
         } catch (BusinessException ex) {
             long failedAt = Math.max(now, System.currentTimeMillis());
-            finish(row, FAILED, ex.getMessage(), failedAt); advance(task, group, steps, failedAt); return;
+            finish(row, FAILED, "本条未发送，已跳过：" + ex.getMessage(), failedAt); advance(task, group, steps, failedAt); return;
         }
         var response = sender.enqueue(List.of(command));
         var accepted = response.items().stream().filter(item -> row.getCommandId().equals(item.commandId())).findFirst();
@@ -222,8 +221,10 @@ public class ScriptMarketingPacedExecutionService {
         if (task.getStatus() == RUNNING) return;
         requireState(task, PAUSED, "只有暂停任务可以继续"); requireBeforeEnd(task, now);
         var targets = groups.list(task.getId());
-        var prepared = qualification.inspect(task.getAccountGroupId(), content.decode(task.getStepsJson()), targets, true);
-        if (!prepared.report().ready()) throw new ScriptQualificationException(prepared.report());
+        if (records.count(task.getId()) == 0) {
+            var prepared = qualification.inspect(task.getAccountGroupId(), content.decode(task.getStepsJson()), targets, true);
+            if (!prepared.report().ready()) throw new ScriptQualificationException(prepared.report());
+        }
         for (var group : targets) {
             if (Boolean.TRUE.equals(group.getPaused())) continue;
             releaseHeld(group.getId(), now);

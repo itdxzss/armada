@@ -30,4 +30,11 @@
 
 ## 发布与回滚
 
-仅本地实现，未提交、推送或部署，未操作远端任务或发送消息。回滚仅撤销本次增量，不回滚其他会话的资格提示修改，也不修改历史发送记录。
+已在主仓库 `1.0.3-snapshot` 提交并推送：后端 `5a421836`，前端 `4ad4fc66`。2026-09-11 17:48（北京时间）从这两个提交的干净 worktree 执行 `deploy-test.sh --env test1 --all -y`，退出码 0，部署第一套环境后端和前端；未部署 Web / Android 协议层。
+
+- 部署脚本测试通过；后端运行中 JAR SHA-256 与本地制品一致。
+- `armada-backend` / `armada-nginx` 均为 running，RestartCount=0；API 代理正常返回未登录业务响应，页面环境标识为第一套环境。
+- 前端 `ScriptDetailDrawer-Wm38pffe.js` 和 `ScriptSendRecords-IIXBtXKP.js` 的运行容器文件 SHA-256 均与本次构建一致。
+- 发布日志：`/private/tmp/script-skip-release.YcxPdP/deploy-test1.log`。本次验收为制品、服务与接口就绪，未新建真实发送任务、未操作旧暂停任务；旧群仍需业务人员手动继续。
+
+回滚仅撤销本次增量，不回滚其他会话的资格提示修改，也不修改历史发送记录。

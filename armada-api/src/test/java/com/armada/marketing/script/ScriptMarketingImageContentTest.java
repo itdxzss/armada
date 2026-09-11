@@ -12,7 +12,8 @@ import com.armada.marketing.service.MarketingMessageComposer;
 import com.armada.platform.protocol.model.enums.MessageType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mapstruct.factory.Mappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,12 +22,13 @@ import static org.mockito.Mockito.when;
 
 /** 复现纯图片经角色校验、快照和真实消息组装器后丢失可发送资格的回归。 */
 class ScriptMarketingImageContentTest {
-    @Test
-    void imageOnlyDefinitionAndTaskRetainEmptyCaptionAndImagePayload() {
+    @ParameterizedTest
+    @ValueSource(strings = {"image/jpeg", "image/png"})
+    void imageOnlyDefinitionAndTaskRetainEmptyCaptionAndImagePayload(String contentType) {
         var files = mock(MarketingTemplateFileMapper.class);
         var image = new MarketingTemplateFile();
         image.setContent(new byte[] {1, 2, 3});
-        image.setContentType("image/jpeg");
+        image.setContentType(contentType);
         when(files.selectById(34L)).thenReturn(image);
         var service = new ScriptMarketingContentService(new ObjectMapper(),
                 Mappers.getMapper(MarketingTemplateConverter.class), new MarketingMessageComposer(),
@@ -48,6 +50,6 @@ class ScriptMarketingImageContentTest {
         assertThat(payload.type()).isEqualTo(MessageType.IMAGE);
         assertThat(payload.content().text()).isEmpty();
         assertThat(payload.content().image().bytes()).containsExactly(1, 2, 3);
-        assertThat(payload.content().image().mimetype()).isEqualTo("image/jpeg");
+        assertThat(payload.content().image().mimetype()).isEqualTo(contentType);
     }
 }

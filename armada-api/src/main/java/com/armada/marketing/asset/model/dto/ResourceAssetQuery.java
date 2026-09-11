@@ -11,7 +11,7 @@ public class ResourceAssetQuery extends PageQuery {
     private String assetName;
     /** 大小写敏感标签筛选，任意一个标签匹配即命中。 */
     private List<String> tags = new ArrayList<>();
-    /** 是否只返回符合模板绑定规则的 JPEG 素材。 */
+    /** 是否只返回符合模板绑定规则的 JPEG/PNG 素材。 */
     private Boolean selectableOnly;
 
     /** 创建默认每页 24 条的素材查询。 */

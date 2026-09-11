@@ -228,6 +228,31 @@ public class ResourceAssetMapperH2Test {
         return query;
     }
 
+    @Test
+    void selectableAssetsIncludePngAndJpegWithinSizeLimitAndTenant() throws SQLException {
+        var jpeg = insertFile("JPEG", 100L, new byte[] {1});
+        var png = insertFile("PNG", 200L, new byte[] {2});
+        var oversized = insertFile("oversized PNG", 300L, new byte[] {3});
+        var gif = insertFile("GIF", 400L, new byte[] {4});
+        execute("UPDATE marketing_template_file SET content_type='IMAGE/PNG', size_bytes=512000 WHERE id=" + png.getId());
+        execute("UPDATE marketing_template_file SET content_type='image/png', size_bytes=512001 WHERE id=" + oversized.getId());
+        execute("UPDATE marketing_template_file SET content_type='image/gif' WHERE id=" + gif.getId());
+        TenantContext.set(OTHER_TENANT_ID);
+        var other = insertFile("other PNG", 500L, new byte[] {5});
+        execute("UPDATE marketing_template_file SET content_type='image/png' WHERE id=" + other.getId());
+        TenantContext.set(TENANT_ID);
+        ResourceAssetQuery query = query();
+        query.setSelectableOnly(true);
+
+        assertThat(fileMapper.countAssetPage(query)).isEqualTo(2);
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(png.getId(), jpeg.getId());
+        fileMapper.softDeleteAsset(png.getId(), 600L);
+        assertThat(fileMapper.countAssetPage(query)).isEqualTo(1);
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(jpeg.getId());
+    }
+
     private MarketingTemplateFile insertFile(String name, long createdAt, byte[] content) {
         MarketingTemplateFile file = new MarketingTemplateFile();
         file.setOriginalFilename(name + ".jpg");

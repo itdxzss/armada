@@ -29,6 +29,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
@@ -66,9 +68,10 @@ class ResourceAssetServiceImplTest {
         TenantContext.clear();
     }
 
-    @Test
-    void uploadDecodesDimensionsAndNormalizesJsonTagsBeforeWrite() throws Exception {
-        MockMultipartFile image = jpeg(" promo.JPG ", 3, 2);
+    @ParameterizedTest
+    @CsvSource({"promo.JPG,image/jpeg", "transparent.PNG,image/png"})
+    void uploadDecodesDimensionsAndNormalizesJsonTagsBeforeWrite(String filename, String contentType) throws Exception {
+        MockMultipartFile image = image(" " + filename + " ", 3, 2);
         AtomicReference<MarketingTemplateFile> saved = new AtomicReference<>();
         doAnswer(invocation -> {
             MarketingTemplateFile file = invocation.getArgument(0);
@@ -83,16 +86,17 @@ class ResourceAssetServiceImplTest {
                         new ResourceAssetTagRelationVO(88L, "promo")));
         when(fileMapper.selectReferenceCounts(7L, List.of(88L))).thenReturn(List.of());
         ResourceAssetVO response = new ResourceAssetVO(
-                88L, "promo.JPG", "/api/resource-assets/88/content", List.of("Promo", "promo"),
+                88L, filename, "/api/resource-assets/88/content", List.of("Promo", "promo"),
                 image.getSize(), 3, 2, 0, 11L, 100L, 100L);
         when(converter.toVO(any(MarketingTemplateFile.class), any(), anyLong())).thenReturn(response);
 
         assertThat(service.upload(image, "[\" Promo \",\"promo\",\"Promo\"]", 11L))
                 .isSameAs(response);
         assertThat(saved.get()).satisfies(file -> {
-            assertThat(file.getOriginalFilename()).isEqualTo("promo.JPG");
-            assertThat(file.getAssetName()).isEqualTo("promo.JPG");
-            assertThat(file.getContentType()).isEqualTo("image/jpeg");
+            assertThat(file.getOriginalFilename()).isEqualTo(filename);
+            assertThat(file.getAssetName()).isEqualTo(filename);
+            assertThat(file.getContentType()).isEqualTo(contentType);
+            assertThat(file.getContent()).containsExactly(image.getBytes());
             assertThat(file.getWidth()).isEqualTo(3);
             assertThat(file.getHeight()).isEqualTo(2);
             assertThat(file.getCreatedBy()).isEqualTo(11L);
@@ -103,7 +107,7 @@ class ResourceAssetServiceImplTest {
 
     @Test
     void uploadRejectsNonStringJsonTagsBeforeAnyWrite() throws Exception {
-        MockMultipartFile image = jpeg("promo.jpg", 2, 2);
+        MockMultipartFile image = image("promo.jpg", 2, 2);
 
         assertThatThrownBy(() -> service.upload(image, "[\"Promo\",1]", 11L))
                 .isInstanceOf(BusinessException.class)
@@ -113,7 +117,7 @@ class ResourceAssetServiceImplTest {
 
     @Test
     void uploadRejectsTrailingGarbageAfterTagsArray() throws Exception {
-        MockMultipartFile image = jpeg("promo.jpg", 2, 2);
+        MockMultipartFile image = image("promo.jpg", 2, 2);
 
         assertThatThrownBy(() -> service.upload(image, "[\"Promo\"] trailing", 11L))
                 .isInstanceOf(BusinessException.class)
@@ -135,11 +139,13 @@ class ResourceAssetServiceImplTest {
         verifyNoInteractions(writeService);
     }
 
-    private static MockMultipartFile jpeg(String filename, int width, int height) throws Exception {
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+    private static MockMultipartFile image(String filename, int width, int height) throws Exception {
+        boolean png = filename.trim().endsWith(".PNG");
+        BufferedImage image = new BufferedImage(width, height,
+                png ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            ImageIO.write(image, "jpg", output);
-            return new MockMultipartFile("file", filename, "image/jpeg", output.toByteArray());
+            ImageIO.write(image, png ? "png" : "jpg", output);
+            return new MockMultipartFile("file", filename, png ? "image/png" : "image/jpeg", output.toByteArray());
         }
     }
 }

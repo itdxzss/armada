@@ -4,15 +4,13 @@ import com.armada.hyperlink.template.model.HyperlinkButton;
 import com.armada.hyperlink.template.model.HyperlinkMessageContent;
 import com.armada.hyperlink.template.model.enums.HyperlinkButtonType;
 import com.armada.hyperlink.template.model.enums.HyperlinkMessageType;
+import com.armada.marketing.asset.service.ResourceAssetImageValidator;
 import com.armada.marketing.model.vo.MarketingTemplateFileContent;
 import com.armada.marketing.service.MarketingTemplateFileService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.util.HttpUrlValidator;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.util.List;
-import javax.imageio.ImageIO;
 import org.springframework.stereotype.Component;
 
 /** 模板与未来任务共用的超链消息内容校验和归一化组件。 */
@@ -39,12 +37,6 @@ public class HyperlinkMessageContentValidator {
     private static final int BUTTON_TEXT_MAX_LENGTH = 20;
     /** 一期唯一按钮排序值。 */
     private static final int BUTTON_SORT = 1;
-    /** 一期超链模板图片最大字节数。 */
-    private static final int MAX_IMAGE_BYTES = 500 * 1024;
-    /** 一期允许绑定的图片 MIME。 */
-    private static final String JPEG_CONTENT_TYPE = "image/jpeg";
-    /** 图片格式与大小校验的稳定提示。 */
-    private static final String IMAGE_VALIDATION_MESSAGE = "图片必须是可解码的 JPEG 且不超过 500KB";
 
     /** 复用营销图片服务按当前租户重新读取图片内容。 */
     private final MarketingTemplateFileService fileService;
@@ -185,27 +177,7 @@ public class HyperlinkMessageContentValidator {
             }
             throw exception;
         }
-        byte[] content = file.content();
-        if (!JPEG_CONTENT_TYPE.equalsIgnoreCase(file.contentType())
-                || content == null
-                || content.length > MAX_IMAGE_BYTES
-                || !isDecodableJpeg(content)) {
-            throw new BusinessException(ErrorCode.VALIDATION, IMAGE_VALIDATION_MESSAGE);
-        }
-    }
-
-    private static boolean isDecodableJpeg(byte[] content) {
-        if (content.length < 3
-                || (content[0] & 0xff) != 0xff
-                || (content[1] & 0xff) != 0xd8
-                || (content[2] & 0xff) != 0xff) {
-            return false;
-        }
-        try (ByteArrayInputStream input = new ByteArrayInputStream(content)) {
-            return ImageIO.read(input) != null;
-        } catch (IOException exception) {
-            return false;
-        }
+        ResourceAssetImageValidator.validateBindable(file.contentType(), file.content());
     }
 
     private static String required(String value, String emptyMessage, int maxLength, String lengthMessage) {

@@ -94,7 +94,7 @@ public class ResourceAssetController {
     }
 
     /**
-     * 校验并上传单张 JPEG，上传人取可信认证身份。
+     * 校验并上传单张 JPEG/PNG，上传人取可信认证身份。
      *
      * @param file 待上传图片
      * @param tags 可选 JSON 字符串数组

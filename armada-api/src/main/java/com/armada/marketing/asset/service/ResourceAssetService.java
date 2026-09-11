@@ -35,7 +35,7 @@ public interface ResourceAssetService {
     ResourceAssetTagsVO tags();
 
     /**
-     * 校验并上传单张 JPEG，同时在一个短事务内保存文件与公共标签。
+     * 校验并上传单张 JPEG/PNG，同时在一个短事务内保存文件与公共标签。
      *
      * @param file 待上传图片
      * @param tagsJson 可选 JSON 字符串数组

@@ -36,7 +36,7 @@
                 AND COALESCE(NULLIF(file.asset_name, ''), file.original_filename) LIKE CONCAT('%', #{q.assetName}, '%')
             </if>
             <if test="q.selectableOnly != null and q.selectableOnly">
-                AND LOWER(file.content_type) = 'image/jpeg'
+                AND LOWER(file.content_type) IN ('image/jpeg', 'image/png')
                 AND file.size_bytes &lt;= 512000
             </if>
             <if test="q.tags != null and !q.tags.isEmpty()">

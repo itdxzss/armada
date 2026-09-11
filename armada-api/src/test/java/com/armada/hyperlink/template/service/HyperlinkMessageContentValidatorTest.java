@@ -174,6 +174,22 @@ class HyperlinkMessageContentValidatorTest {
     }
 
     @Test
+    void pngIsAcceptedInLinkPreviewAndButtonImageSlots() throws Exception {
+        BufferedImage image = new BufferedImage(2, 2, BufferedImage.TYPE_INT_ARGB);
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            ImageIO.write(image, "png", output);
+            fileService.put(11L, new MarketingTemplateFileContent("image/png", output.toByteArray()));
+        }
+        var preview = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 1, "标题", "正文", "描述", "https://example.com", List.of(), null, 11L, null));
+        var button = validator.validateAndNormalize(new HyperlinkMessageContent(
+                1, 3, "标题", null, null, null, List.of(button()), null, null, 11L));
+
+        assertThat(preview.linkPreviewAssetId()).isEqualTo(11L);
+        assertThat(button.bodyMainAssetId()).isEqualTo(11L);
+    }
+
+    @Test
     void nonJpegImageIsRejectedEvenWhenStoredMimeClaimsJpeg() {
         fileService.put(11L, new MarketingTemplateFileContent("image/jpeg", new byte[] {1, 2, 3}));
         HyperlinkMessageContent input = new HyperlinkMessageContent(

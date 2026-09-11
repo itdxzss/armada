@@ -40,7 +40,7 @@ import org.springframework.web.multipart.MultipartFile;
  * <p>负责素材分页、详情、标签候选、上传、编辑、引用保护删除和鉴权内容读取。
  * 列表查询只读取元数据，并按当前页批量补充标签与引用数，禁止加载图片 BLOB 或形成 N+1 查询。</p>
  *
- * <p>普通查询由 MyBatis 租户拦截器隔离；上传会先在事务外完成文件读取与 JPEG 解码校验，
+ * <p>普通查询由 MyBatis 租户拦截器隔离；上传会先在事务外完成文件读取与 JPEG/PNG 解码校验，
  * 再委托 {@link ResourceAssetWriteService} 以短事务写入文件和标签关系。</p>
  */
 @Service
@@ -132,12 +132,12 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
     }
 
     /**
-     * 校验并上传单张 JPEG，同时保存租户共享标签关系。
+     * 校验并上传单张 JPEG/PNG，同时保存租户共享标签关系。
      *
-     * <p>先校验声明大小并读取字节，再验证文件名、MIME、真实 JPEG 内容和尺寸；所有校验通过后
+     * <p>先校验声明大小并读取字节，再验证文件名、MIME、真实 JPEG/PNG 内容和尺寸；所有校验通过后
      * 才进入短事务写入，避免无效文件占用数据库事务和 BLOB 存储。</p>
      *
-     * @param file 待上传的 JPEG 文件
+     * @param file 待上传的 JPEG/PNG 文件
      * @param tagsJson 可选标签 JSON 字符串数组
      * @param createdBy 可信认证身份中的上传人用户 ID
      * @return 已创建素材的完整管理信息

@@ -2,6 +2,7 @@ package com.armada.marketing.script.service;
 
 import com.armada.group.service.GroupDetailService;
 import com.armada.account.service.AccountGroupService;
+import com.armada.account.service.AccountService;
 import com.armada.marketing.model.vo.ScriptQualificationVO;
 import com.armada.marketing.converter.ScriptMarketingConverter;
 import com.armada.marketing.mapper.ScriptMarketingTaskMapper;
@@ -21,6 +22,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -39,15 +41,17 @@ public class ScriptMarketingTaskService {
     private final MarketingTemplateFileService assets;
     private final AccountGroupService accountGroups;
     private final ScriptQualificationService qualification;
+    private final AccountService accounts;
     /** 注入配置持久化与现有群、素材校验服务。 */
     public ScriptMarketingTaskService(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
             ScriptMarketingSendRecordMapper records, ScriptMarketingConverter converter,
             ScriptMarketingContentService content, GroupDetailService groupDetails,
             MarketingTemplateFileService assets, AccountGroupService accountGroups,
-            ScriptQualificationService qualification) {
+            ScriptQualificationService qualification, AccountService accounts) {
         this.tasks = tasks; this.groups = groups; this.records = records; this.converter = converter;
         this.content = content; this.groupDetails = groupDetails; this.assets = assets;
         this.accountGroups = accountGroups; this.qualification = qualification;
+        this.accounts = accounts;
     }
     /** 只返回当前用户任务，分页和结果计数在 SQL 中完成。 */
     public PageResult<ScriptMarketingTaskVO> list(ScriptMarketingQuery query, Long owner) {
@@ -56,13 +60,20 @@ public class ScriptMarketingTaskService {
     /** 返回固定配置与至多 100 个群进度，记录通过独立分页接口查询。 */
     public ScriptMarketingDetailVO detail(Long id, Long owner) {
         var task = requireOwned(tasks.find(id), owner);
-        return new ScriptMarketingDetailVO(tasks.summary(id), content.decode(task.getStepsJson()),
-                groups.list(id).stream().map(converter::toGroupVO).toList());
+        var steps = content.decode(task.getStepsJson());
+        var targets = groups.list(id);
+        var accountIds = new LinkedHashSet<Long>();
+        steps.forEach(step -> { if (step.accountId() != null) accountIds.add(step.accountId()); });
+        targets.forEach(group -> accountIds.addAll(content.decodeBindings(group.getBindingsJson()).values()));
+        return new ScriptMarketingDetailVO(tasks.summary(id), steps,
+                targets.stream().map(converter::toGroupVO).toList(), accounts.getPhonesByIds(List.copyOf(accountIds)));
     }
     /** 逐项结果按 SQL 分页，复用任务所有者边界。 */
     public PageResult<ScriptMarketingSendRecordVO> records(Long id, PageQuery query, Long owner) {
         requireOwned(tasks.find(id), owner);
-        return PageResult.of(records.page(id, query).stream().map(converter::toRecordVO).toList(),
+        var page = records.page(id, query);
+        var phones = accounts.getPhonesByIds(page.stream().map(row -> row.getAccountId()).distinct().toList());
+        return PageResult.of(page.stream().map(row -> converter.toRecordVO(row, phones.get(row.getAccountId()))).toList(),
                 query.getPage(), query.getPageSize(), records.count(id));
     }
     /** 新建草稿；保存不发送，启动动作另行显式触发。 */

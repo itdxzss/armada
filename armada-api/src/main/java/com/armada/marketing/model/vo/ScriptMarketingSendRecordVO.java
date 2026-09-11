@@ -12,4 +12,5 @@ public record ScriptMarketingSendRecordVO(
         String reason,
         String messageId,
         Long submittedAt,
-        Long finishedAt) { }
+        Long finishedAt,
+        String accountPhone) { }

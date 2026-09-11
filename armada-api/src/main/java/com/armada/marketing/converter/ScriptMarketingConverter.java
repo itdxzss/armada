@@ -18,5 +18,5 @@ public interface ScriptMarketingConverter {
     /** 草稿表单转任务；状态与租户由 Service 填充。 */
     ScriptMarketingTask toTask(ScriptMarketingSaveDTO dto);
     /** 群进度展示。 */ ScriptMarketingGroupVO toGroupVO(ScriptMarketingGroup group);
-    /** 单项结果展示。 */ ScriptMarketingSendRecordVO toRecordVO(ScriptMarketingSendRecord row);
+    /** 单项结果展示。 */ ScriptMarketingSendRecordVO toRecordVO(ScriptMarketingSendRecord row, String accountPhone);
 }

@@ -41,6 +41,9 @@ public interface AccountService {
      */
     Map<Long, Integer> getLoginStatesByIds(List<Long> accountIds);
 
+    /** 批量读取当前租户未软删账号的手机号；不存在或缺少号码的账号不返回。 */
+    Map<Long, String> getPhonesByIds(List<Long> accountIds);
+
     /**
      * 批量迁移分组:将指定账号迁移到目标分组。
      *

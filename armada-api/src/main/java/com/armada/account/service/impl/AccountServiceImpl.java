@@ -235,6 +235,21 @@ public class AccountServiceImpl implements AccountService {
         return Collections.unmodifiableMap(states);
     }
 
+    /** 复用带租户拦截的有效账号查询，不要求账号在线或具备协议状态。 */
+    @Override
+    public Map<Long, String> getPhonesByIds(List<Long> accountIds) {
+        if (accountIds == null || accountIds.isEmpty()) return Map.of();
+        var ids = accountIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, String> phones = new LinkedHashMap<>();
+        for (Account account : accountMapper.selectActiveByIds(ids)) {
+            if (account.getWsPhone() != null && !account.getWsPhone().isBlank()) {
+                phones.put(account.getId(), account.getWsPhone());
+            }
+        }
+        return Collections.unmodifiableMap(phones);
+    }
+
     /**
      * 将指定账号人工迁移到目标分组。
      *

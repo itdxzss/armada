@@ -25,6 +25,7 @@ public class ContactTaskCloudPreparationService {
 
     private static final Logger log = LoggerFactory.getLogger(ContactTaskCloudPreparationService.class);
     private static final int INSERT_BATCH_SIZE = 500;
+    private static final String NO_SENDABLE_FRIENDS_REASON = "没有可发送好友（已排除账号自身）";
     private final AccountMessagingAudienceService audiences;
     private final ContactFriendTaskMapper tasks;
     private final ContactFriendTaskAccountMapper accounts;
@@ -63,7 +64,7 @@ public class ContactTaskCloudPreparationService {
             StatusAudienceResolution resolution = audiences.resolveContactAudience(fact, row.getCreatedAt());
             switch (resolution.view().status()) {
                 case "READY" -> freeze(task, row, resolution, now);
-                case "EMPTY" -> finish(row, ContactFriendTaskAccount.STATE_SKIPPED, "云端 LID 名单为空", now);
+                case "EMPTY" -> finish(row, ContactFriendTaskAccount.STATE_SKIPPED, NO_SENDABLE_FRIENDS_REASON, now);
                 case "FAILED", "UNAVAILABLE" -> finish(row, ContactFriendTaskAccount.STATE_FAILED,
                         resolution.view().failReason() == null ? "云端 LID 名单准备失败" : resolution.view().failReason(), now);
                 // 包括采集队列已满时的 PENDING：保持准备中，不产生发送命令或消耗重试。
@@ -80,7 +81,7 @@ public class ContactTaskCloudPreparationService {
                 ? Integer.MAX_VALUE : task.getMaxSendsPerAccount();
         List<String> targets = resolution.jids().stream().distinct().limit(cap).toList();
         if (targets.isEmpty()) {
-            finish(row, ContactFriendTaskAccount.STATE_SKIPPED, "云端 LID 名单为空", now);
+            finish(row, ContactFriendTaskAccount.STATE_SKIPPED, NO_SENDABLE_FRIENDS_REASON, now);
             return;
         }
         List<ContactFriendTaskRecipient> batch = new ArrayList<>(INSERT_BATCH_SIZE);

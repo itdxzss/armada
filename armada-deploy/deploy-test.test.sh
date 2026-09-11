@@ -999,13 +999,15 @@ test_perf2_check_runs_all_read_only_groups_without_mutations() {
   assert_not_contains "${command_log}" "pnpm"
 }
 
-test_test1_check_skips_exact_kafka_metadata() {
+test_test1_check_requires_message_and_contact_dead_letter_topics() {
   local command_log out
   setup_deep_check_fixture
   out="$(run_deep_check_with_stubs --env test1 --check)"
   command_log="$(cat "${DEEP_CHECK_FIXTURE_COMMAND_LOG}")"
   cleanup_deep_check_fixture
-  assert_contains "${out}" "[check] Kafka exact metadata: SKIPPED"
+  assert_not_contains "${out}" "[check] Kafka exact metadata: SKIPPED"
+  assert_contains "${command_log}" "protocol.message.events.v1.DLT=12"
+  assert_contains "${command_log}" "protocol.account.contact-sync.events.v1.DLT=12"
   assert_contains "${command_log}" "/admin/nodes"
 }
 
@@ -1670,7 +1672,7 @@ test_full_dry_run_prints_selected_repository_evidence_without_secrets
 test_backend_dry_run_does_not_inspect_unselected_repositories
 test_failed_component_prints_redacted_summary
 test_perf2_check_runs_all_read_only_groups_without_mutations
-test_test1_check_skips_exact_kafka_metadata
+test_test1_check_requires_message_and_contact_dead_letter_topics
 test_check_rejects_mutation_and_mode_combinations
 test_normal_dry_run_does_not_run_deep_checks
 test_zhuan_dry_run_is_zhuan_only

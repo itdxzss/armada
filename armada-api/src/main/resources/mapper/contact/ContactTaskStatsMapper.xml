@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.contact.task.mapper.ContactTaskStatsMapper">
+  <!-- 所有聚合共享同一状态口径；计数单位是 recipient，而非回执次数。 -->
+  <sql id="metricColumns">
+    COUNT(*) AS planned_num,
+    SUM(CASE WHEN r.attempt_count &gt; 0 THEN 1 ELSE 0 END) AS attempted_num,
+    SUM(CASE WHEN r.send_status = 'SUCCESS' OR r.delivered_at IS NOT NULL OR r.read_at IS NOT NULL THEN 1 ELSE 0 END) AS confirmed_num,
+    SUM(CASE WHEN r.delivered_at IS NOT NULL OR r.read_at IS NOT NULL THEN 1 ELSE 0 END) AS delivered_num,
+    SUM(CASE WHEN r.read_at IS NOT NULL THEN 1 ELSE 0 END) AS read_num,
+    SUM(CASE WHEN r.send_status = 'FAILED' THEN 1 ELSE 0 END) AS failed_num,
+    SUM(CASE WHEN r.send_status = 'UNKNOWN' THEN 1 ELSE 0 END) AS unknown_num,
+    SUM(CASE WHEN r.send_status = 'SKIPPED' THEN 1 ELSE 0 END) AS skipped_num,
+    SUM(CASE WHEN r.send_status IN ('SUCCESS','FAILED','UNKNOWN','SKIPPED') THEN 1 ELSE 0 END) AS processed_num,
+    SUM(CASE WHEN r.send_status = 'PENDING' THEN 1 ELSE 0 END) AS pending_num,
+    SUM(CASE WHEN r.send_status = 'SENDING' THEN 1 ELSE 0 END) AS sending_num,
+    SUM(CASE WHEN r.send_status IS NULL OR r.send_status NOT IN ('PENDING','SENDING','SUCCESS','FAILED','UNKNOWN','SKIPPED')
+      OR (r.send_status &lt;&gt; 'SUCCESS' AND (r.delivered_at IS NOT NULL OR r.read_at IS NOT NULL))
+      THEN 1 ELSE 0 END) AS inconsistent_num
+  </sql>
+  <select id="selectTaskMetrics" resultType="com.armada.contact.task.model.vo.ContactTaskMetricsVO">
+    SELECT r.task_id AS scope_id, <include refid="metricColumns"/>
+    FROM contact_friend_task_recipient r
+    WHERE r.task_id IN <foreach collection="taskIds" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    GROUP BY r.task_id
+  </select>
+  <select id="selectAccountMetrics" resultType="com.armada.contact.task.model.vo.ContactTaskMetricsVO">
+    SELECT r.task_account_id AS scope_id, <include refid="metricColumns"/>
+    FROM contact_friend_task_recipient r
+    WHERE r.task_id = #{taskId} AND r.task_account_id IN
+    <foreach collection="accountIds" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    GROUP BY r.task_account_id
+  </select>
+  <select id="selectAccountSummaries" resultType="com.armada.contact.task.model.vo.ContactTaskAccountSummaryVO">
+    SELECT a.task_id, COUNT(*) AS selected_account_num,
+      SUM(CASE WHEN a.state = 'PREPARING' THEN 1 ELSE 0 END) AS preparing_account_num,
+      SUM(CASE WHEN a.need_send_num &gt; 0 THEN 1 ELSE 0 END) AS ready_account_num,
+      SUM(CASE WHEN a.state = 'FAILED' THEN 1 ELSE 0 END) AS failed_account_num
+    FROM contact_friend_task_account a
+    WHERE a.task_id IN <foreach collection="taskIds" item="id" open="(" close=")" separator=",">#{id}</foreach>
+    GROUP BY a.task_id
+  </select>
+  <select id="selectAccountPage" resultType="com.armada.contact.task.model.entity.ContactFriendTaskAccount">
+    SELECT a.* FROM contact_friend_task_account a
+    LEFT JOIN (SELECT r.tenant_id, r.task_account_id, <include refid="metricColumns"/>
+      FROM contact_friend_task_recipient r WHERE r.task_id = #{query.taskId}
+      GROUP BY r.tenant_id, r.task_account_id) m
+      ON m.tenant_id = a.tenant_id AND m.task_account_id = a.id
+    WHERE a.task_id = #{query.taskId}
+    ORDER BY
+    <choose>
+      <when test="query.sortBy == 'needSendNum'">COALESCE(m.planned_num,0)</when>
+      <when test="query.sortBy == 'sentNum'">COALESCE(m.confirmed_num,0)</when>
+      <when test="query.sortBy == 'failNum'">COALESCE(m.failed_num,0)</when>
+      <when test="query.sortBy == 'processedNum'">COALESCE(m.processed_num,0)</when>
+      <when test="query.sortBy == 'deliveredNum'">COALESCE(m.delivered_num,0)</when>
+      <when test="query.sortBy == 'readNum'">COALESCE(m.read_num,0)</when>
+      <when test="query.sortBy == 'unknownNum'">COALESCE(m.unknown_num,0)</when>
+      <when test="query.sortBy == 'skippedNum'">COALESCE(m.skipped_num,0)</when>
+      <otherwise>a.id</otherwise>
+    </choose>
+    <choose><when test="query.sortOrder == 'asc'">ASC</when><otherwise>DESC</otherwise></choose>, a.id ASC
+    LIMIT #{query.limit} OFFSET #{query.offset}
+  </select>
+  <select id="selectReasons" resultType="com.armada.contact.task.model.vo.ContactTaskReasonVO">
+    SELECT r.send_status, COALESCE(r.error_code,'UNSPECIFIED') AS error_code, COUNT(*) AS count
+    FROM contact_friend_task_recipient r
+    WHERE r.task_id = #{taskId} AND r.send_status IN ('FAILED','UNKNOWN','SKIPPED')
+    GROUP BY r.send_status, COALESCE(r.error_code,'UNSPECIFIED')
+    ORDER BY count DESC, r.send_status, error_code
+  </select>
+  <select id="countAccountScope" resultType="long">
+    SELECT COUNT(*) FROM contact_friend_task_account a WHERE a.task_id = #{taskId} AND a.id = #{taskAccountId}
+  </select>
+  <sql id="recipientConditions">
+    r.task_id = #{taskId}
+    <if test="query.taskAccountId != null">AND r.task_account_id = #{query.taskAccountId}</if>
+    <if test="query.sendStatus != null">AND r.send_status = #{query.sendStatus}</if>
+    <if test="query.errorCode != null">AND COALESCE(r.error_code,'UNSPECIFIED') = #{query.errorCode}</if>
+    <choose>
+      <when test="query.receiptStatus == 'CONFIRMED'">AND (r.send_status = 'SUCCESS' OR r.delivered_at IS NOT NULL OR r.read_at IS NOT NULL)</when>
+      <when test="query.receiptStatus == 'SINGLE_ONLY'">AND r.send_status = 'SUCCESS' AND r.delivered_at IS NULL AND r.read_at IS NULL</when>
+      <when test="query.receiptStatus == 'DELIVERED'">AND (r.delivered_at IS NOT NULL OR r.read_at IS NOT NULL)</when>
+      <when test="query.receiptStatus == 'DELIVERED_UNREAD'">AND r.delivered_at IS NOT NULL AND r.read_at IS NULL</when>
+      <when test="query.receiptStatus == 'READ'">AND r.read_at IS NOT NULL</when>
+    </choose>
+  </sql>
+  <sql id="recipientSource">
+    FROM contact_friend_task_recipient r
+    JOIN contact_friend_task_account a ON a.id = r.task_account_id AND a.task_id = r.task_id AND a.tenant_id = r.tenant_id
+    WHERE <include refid="recipientConditions"/>
+  </sql>
+  <select id="countRecipients" resultType="long">
+    SELECT COUNT(*) <include refid="recipientSource"/>
+  </select>
+  <select id="selectRecipients" resultType="com.armada.contact.task.model.vo.ContactTaskRecipientVO">
+    SELECT r.id, r.contact_jid, r.contact_phone, r.send_status, r.protocol_message_id,
+      r.error_code, r.error_desc, r.first_sent_at, r.delivered_at, r.read_at,
+      r.task_account_id, a.account_id
+    <include refid="recipientSource"/>
+    ORDER BY r.id LIMIT #{query.pageSize} OFFSET #{query.rowOffset}
+  </select>
+</mapper>

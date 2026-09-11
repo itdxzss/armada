@@ -9,6 +9,8 @@ import java.util.List;
 /** 通讯录营销任务账号维度读模型的数据访问。 */
 @Mapper
 public interface ContactFriendTaskAccountMapper {
+    /** 只读取任务快照的发信账号 ID，用于校验回执归属；租户条件由插件注入。 */
+    Long selectSenderAccountId(@Param("id") Long id);
 
     /** 读取本任务尚未固定收件人的账号；调用方须先锁定任务行。 */
     List<ContactFriendTaskAccount> selectPreparing(@Param("taskId") Long taskId);
@@ -22,22 +24,6 @@ public interface ContactFriendTaskAccountMapper {
     int stopAccount(@Param("id") Long id, @Param("reason") String reason,
                     @Param("updatedAt") long updatedAt);
 
-
-    /**
-     * 分页查询任务的账号发送数据。
-     *
-     * @param taskId 任务 ID
-     * @param sortBy 排序列，仅接受 needSendNum / sentNum / failNum，其余按 id
-     * @param sortOrder 排序方向，asc 或 desc
-     * @param offset 偏移量
-     * @param limit 每页条数
-     * @return 当前页账号行
-     */
-    List<ContactFriendTaskAccount> selectPage(@Param("taskId") Long taskId,
-                                              @Param("sortBy") String sortBy,
-                                              @Param("sortOrder") String sortOrder,
-                                              @Param("offset") int offset,
-                                              @Param("limit") int limit);
 
     /**
      * 统计任务下账号行总数。
@@ -91,7 +77,8 @@ public interface ContactFriendTaskAccountMapper {
     int markRunning(@Param("id") Long id, @Param("updatedAt") long updatedAt);
 
     /**
-     * 把已排干的账号行收敛为终态：发成功过至少一条为 DONE，一条都没成功为 FAILED。
+     * 收敛已排干的 PENDING/RUNNING 账号：已有成功或未知结果时为 DONE，否则为 FAILED。
+     * 含 UNKNOWN 时保留账号状态快照；已明确停止为 FAILED 的账号不在本方法中恢复。
      *
      * @param taskId 任务 ID
      * @param updatedAt 更新时间（epoch 毫秒）

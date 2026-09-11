@@ -67,7 +67,7 @@ class ContactTaskMapperXmlTest {
 
     @Test
     void accountSortColumnIsWhitelistedNotInterpolatedRaw() throws IOException {
-        String sql = xml("ContactFriendTaskAccountMapper.xml");
+        String sql = xml("ContactTaskStatsMapper.xml");
 
         // 排序列必须走 choose 白名单，不能把用户输入直接拼进 ORDER BY
         assertThat(sql).contains("<choose>");
@@ -161,11 +161,22 @@ class ContactTaskMapperXmlTest {
 
     @Test
     void drainedAccountSettlementDistinguishesDoneFromFailed() throws IOException {
-        // 一条都没发成功的账号收敛为 FAILED，用作 invalid_account_num 的口径
+        // 已排干账号仍区分 DONE/FAILED；UNKNOWN 的实际状态和租户行为由 H2 测试覆盖。
         String sql = xml("ContactFriendTaskAccountMapper.xml");
 
         assertThat(sql).contains("id=\"settleDrainedAccounts\"");
         assertThat(sql).contains("'FAILED'");
         assertThat(sql).contains("'DONE'");
+    }
+
+    @Test
+    void averageAssignmentPrecedesSuccessIncrementForMysqlEvaluationOrder() throws IOException {
+        // H2 使用旧行值计算赋值表达式；此处补齐 MySQL 单表 SET 从左到右的方言约束。
+        String sql = xml("ContactFriendTaskMapper.xml");
+        String increment = sql.substring(sql.indexOf("<update id=\"incrementSuccessMessageNum\">"));
+        increment = increment.substring(0, increment.indexOf("</update>"));
+        assertThat(increment).contains("avg_send_per_account =", "success_message_num =");
+        assertThat(increment.indexOf("avg_send_per_account ="))
+                .isLessThan(increment.indexOf("success_message_num ="));
     }
 }

@@ -26,6 +26,22 @@ class CloudStatusAudienceCollectorTest {
         assertThatThrownBy(() -> new CloudStatusAudienceCollector(port).collect(account))
                 .hasMessage("CLOUD_VERSION_CHANGED");
     }
+    @Test void continuesAfterAnIntermediatePageBecomesEmptyWhenSelfIsExcluded() {
+        when(port.cloudPage(any())).thenReturn(new CloudContactsPage(List.of(), "wa-version", "c1", true),
+                new CloudContactsPage(List.of("10002@lid"), "wa-version", "", false));
+        var result = new CloudStatusAudienceCollector(port).collect(account);
+        assertThat(result.jids()).containsExactly("10002@lid");
+        assertThat(result.version()).isEqualTo("wa-version");
+        verify(port).cloudPage(argThat(q -> "c1".equals(q.cursor())));
+    }
+    @Test void emptyIntermediatePagesStillRejectMissingOrRepeatedCursors() {
+        when(port.cloudPage(any())).thenReturn(new CloudContactsPage(List.of(), "v1", "", true));
+        assertThatThrownBy(() -> new CloudStatusAudienceCollector(port).collect(account))
+                .hasMessage("CLOUD_INVALID_PAGE");
+        when(port.cloudPage(any())).thenReturn(new CloudContactsPage(List.of(), "v1", "c1", true));
+        assertThatThrownBy(() -> new CloudStatusAudienceCollector(port).collect(account))
+                .hasMessage("CLOUD_CURSOR_REPEATED");
+    }
     @Test void rejectsRepeatedCursorAndInvalidIdentity() {
         when(port.cloudPage(any())).thenReturn(new CloudContactsPage(List.of("10001@lid"), "v1", "c1", true));
         assertThatThrownBy(() -> new CloudStatusAudienceCollector(port).collect(account)).hasMessage("CLOUD_CURSOR_REPEATED");

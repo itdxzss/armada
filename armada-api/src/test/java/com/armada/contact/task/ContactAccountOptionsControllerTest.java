@@ -11,6 +11,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.armada.account.model.vo.AccountGroupOptionVO;
 import com.armada.account.service.AccountGroupService;
 import com.armada.contact.task.controller.ContactTaskController;
+import com.armada.contact.task.model.dto.ContactTaskBatchDeleteDTO;
+import org.springframework.http.MediaType;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import com.armada.contact.task.service.ContactAccountOptionsService;
 import com.armada.contact.task.service.ContactTaskService;
 import com.armada.promotion.channel.model.vo.PromotionChannelOptionVO;
@@ -78,9 +81,34 @@ class ContactAccountOptionsControllerTest {
         verifyNoInteractions(groups, channels);
     }
 
+    @Test
+    void viewingOrOperatingTasksDoesNotGrantDeletePermission() {
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(
+                "operator", null, "tenant:contact_task:view", "tenant:contact_task:operate"));
+        assertThatThrownBy(() -> controller.batchDelete(new ContactTaskBatchDeleteDTO(List.of(1L))))
+                .isInstanceOf(AccessDeniedException.class);
+        verifyNoInteractions(context.getBean(ContactTaskService.class));
+    }
+
+    @Test
+    void deletePermissionAllowsExactBatchRouteAndReturnsCount() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(
+                "operator", null, "tenant:contact_task:delete"));
+        when(context.getBean(ContactTaskService.class).batchDelete(List.of(1L, 3L))).thenReturn(2);
+        MockMvcBuilders.standaloneSetup(controller).build()
+                .perform(post("/api/contact-tasks/batch-delete")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"ids\":[1,3]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value(2));
+    }
+
     @Configuration
     @EnableMethodSecurity
     static class TestConfig {
+        @Bean
+        ContactTaskService tasks() { return mock(ContactTaskService.class); }
+
         @Bean
         AccountGroupService groups() {
             return mock(AccountGroupService.class);
@@ -92,8 +120,9 @@ class ContactAccountOptionsControllerTest {
         }
 
         @Bean
-        ContactTaskController controller(AccountGroupService groups, PromotionChannelService channels) {
-            return new ContactTaskController(mock(ContactTaskService.class),
+        ContactTaskController controller(AccountGroupService groups, PromotionChannelService channels,
+                ContactTaskService tasks) {
+            return new ContactTaskController(tasks,
                     new ContactAccountOptionsService(groups, channels));
         }
     }

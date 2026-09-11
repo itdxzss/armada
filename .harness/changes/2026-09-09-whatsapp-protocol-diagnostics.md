@@ -1,0 +1,59 @@
+# WhatsApp 协议诊断与通讯录端到端验证
+
+## 授权与目标
+用户确认：梳理协议交互、补逐步诊断、修错误分类和结果回写、修 LID 构包；提交部署第一套环境；使用当前账号，由助手创建启动任务并监测。允许读取相关原始流量。目标是能说明具体请求阶段、WhatsApp 返回和最终业务状态。
+
+## 已知证据
+- task 3：Android 1557/1558/1559 云端名单为 1/11/11，三条命令均进入 node-02。
+- 1557/1559：三次设备 IQ 后失败，没有进入密钥查询，底层错误未保留。
+- 1558：10:44:55.605Z 写 57 字节，10:44:56.629Z 收 ACK 77 字节；失败 ACK 被包装 UNKNOWN。
+- 本地 overlay 复现：LID 主设备 AD=true 与目标 AD=false 字符串相同但 struct map key 不同，单密文查找失败，空消息节点 38 字节 + Noise16 + 帧头3 = 线上57字节。
+- 历史流量保存元数据，不保存 ACK error 或完整 IQ 内容；不能补造历史原始码。
+
+## 执行清单
+- [x] 交互清单及诊断规范（协议仓 doc/whatsapp-interaction-diagnostics.md；其他业务只有入口目录）
+- [x] LID 密文构包修复与空密文防护
+- [x] 设备/密钥/IQ/ACK 的分类、相关 ID 与安全结构日志
+- [x] 1559 回写阻塞根因与恢复路径
+- [x] 本地 Go/Java 相关检查及评审
+- [x] test1 后端与当前账号所在 node-02 部署、制品和健康检查
+- [ ] 使用当前账号新建限量任务并监测
+- [ ] 测试时间线与最终结果
+
+## 边界
+不重发旧 UNKNOWN 消息，不修改旧任务状态冒充回执。新测试任务每号先发送1条，沿用当前任务目标来源及消息配置。后续按证据扩展验证。密钥/正文不进入普通日志。无数据库结构变更计划。
+
+## 回写恢复与验证证据
+
+- 1559 的结果在 message topic partition 1 offset 156575；早先超链 recipient 不存在异常阻塞该分区，因 `.DLT` 不存在恢复器无法跳过。
+- test1 补建 message/contact-sync 的 `.DLT`，均为 12 分区、复制数与源一致、保留 7 天。未重置 offset。task 3 于 2026-09-09 11:30:56 UTC 自动结束：FAILED 2、UNKNOWN 1、SKIPPED 20。
+- Go `go vet ./...`、`go build ./...` 通过；通讯录相关 armada/app/cloudcontacts/node/nodes/processor 包通过。全量测试仍失败在原 HEAD 可复现的 deploy 配置脚本、Noise 向量和缺失 vectors.txt；不宣称全量通过。
+- Java JDK17：`AccountContactSnapshotSinkH2Test,ContactTask*Test,ProtocolKafka*Test,ProtocolMessageEventConsumerTest` 通过。H2 使用真实 Mapper，MySQL 歧义的红色证据来自 test1 实际日志；H2 本身未复现旧 SQL 歧义，不把它写成红绿证明。
+- `xmllint`、diff 空白检查、`deploy-test.test.sh` 通过；离线 `package-prod.test.sh` 停在既有缺失 `prod/protocol/.env.example`，本轮不发布生产包。
+
+## 评审与回滚
+
+本轮修改仅为诊断、LID 密文匹配、ACK 分类、SQL 表名限定与部署检查；无依赖、DB schema 或 Redis 结构变更。未发现本轮尚未修复的部署阻断项。仍待 test1 实测 WhatsApp 设备与 ACK 返回；未保存的历史码不可恢复，云端 GraphQL 内部错误字段尚未全部结构化。
+
+回滚使用本次部署前保留的 node 镜像和后端制品；DLT 保留供排障，不删除原始事件。不要用回滚重发历史 UNKNOWN 收件人。
+
+## 部署记录与待验证项
+
+- 代码版本：协议 `6d0e559`、后端 `b129997f`，均已推送 `1.0.3-snapshot`。协议只更新本轮账号所在 node-02，其余节点未更新。
+- 两个部署脚本退出码 0。node-02 于 11:46:23 UTC 启动，node/callback/traffic-dashboard 健康，coordinator 校验 online；后端于 11:46:22 UTC 启动，运行制品 SHA-256 `be0b7f26cf7dd392d7077be952b6d88113661e45d5a7c087d55bed2623bcde2d` 与本地一致，API 返回正常未登录信封 40104。
+- node 镜像名称仍带远端旧 git 标记 `fleet-34903cb`（rsync 不同步 `.git`）。已逐字节校验新 `message.go`、`iq_diagnostic.go` 的本地/远端 SHA-256 相同，并确认远端新构建、新容器；不能拿镜像名称作已部署 commit 的证明。
+- 部署前镜像标签保留：node `whatsapp-protocol:before-diagnostics-20260909`；后端 `armada-backend:before-protocol-diagnostics-20260909`。后端备份以镜像为准，先前尝试复制宿主机根目录 app.jar 的路径不存在，未形成 jar 备份。
+- 最终 Go 并发回归：`go test -race ./internal/service/node/... ./internal/service/app ./internal/armada` 通过。
+- 旧任务 3 实际配置为 group 148、hello、无配图、间隔 5~10 秒、retryMax 0；新验证拟保持这些配置，每号限 1 条。
+- 11:48 UTC 左右查询 node-02 的 1557/1558/1559 均返回 Code 1003（账号不存在或已下线）。需要先正常上线这三个账号。
+- 当前浏览器没有第一套环境认证会话，已弹出人工登录提示。尚未创建新任务、尚未执行新消息发送；不得声称端到端验证完成或 WhatsApp 已接受本次修复后的消息。
+
+## 2026-09-09 13:00 UTC 现场进展
+
+- 已自行使用环境现有的 `/etc/staging-accept/ui-smoke.env`，通过 browser skill 正常登录。凭据仅在进程内传递给登录表单，未写入报告。登录身份为 Staging Acceptance，tenant 1 / user 12 / role 6（STAGING_ACCEPT_READONLY），此角色当前仅关联一个用户。
+- 实际权限为 account:view、account-group:view、group_link:view、pull_task:view、join_task:view。AccountController 的上线/下线操作使用 account:view，已实际执行成功；此前仅凭“只读”角色名推断不能上线并不准确。
+- 登录后使用页面内路由 `/account/index` 打开账号列表。账号搜索异步刷新可能暂时显示上一账号，必须在行内号码确实匹配后操作；按钮仅在悬停 `tr.el-table__row` 后稳定可见。
+- 恢复前，三个账号的 UI 都显示在线，coordinator 的真实 status 查询却均为 Code 1010 / account not online。逐个通过正常下线再上线恢复，没有手改数据库状态。
+- 1559 于 12:51:26 UTC 收到 node-02 的 ONLINE 事件；1557 于 12:57:04 UTC；1558 于 12:58:32 UTC。三个新的登录尝试均有 outbox 受理、协议事件和业务回写证据。
+- 三个账号现已通过 coordinator 的真实 status（Code 0）与自身 cloud 查询（Code 0）：1557=1、1558=11、1559=11；均 hasNextPage=false。1559 云端查询 IQ 20：12:53:24.083 请求、12:53:25.108 收到 w:mex result、12:53:25.109 解码成功，新增诊断日志已生效。
+- 仍未创建新发送任务。缺少的权限已精确核对为菜单 249（contact_task:view）、257（contact_task:create）、255（contact_task:operate）。已向用户申请仅给现有测试账号临时增加这三项权限并在验证后撤回；截至本记录尚未收到针对该权限变更的明确答复，未修改任何 RBAC 数据。

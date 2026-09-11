@@ -17,9 +17,9 @@ public interface AccountMessagingAudienceService {
     /** 解析受众，必要时异步准备 Android 云端快照。 */
     StatusAudienceResolution resolveStatusAudience(SelectedAccount account, int limit);
     /**
-     * 为通讯录私聊任务取得账号自己的完整云端 LID 名单，不依赖具名通讯录或动态隐私。
+     * 为通讯录私聊任务准备排除账号自身后的完整云端 LID 名单，不依赖具名通讯录或动态隐私。
      * @param account 当前租户内已复查的可发送账号
-     * @param requestedAfter 本任务账号创建时间；只允许重新准备早于本任务的历史失败
+     * @param requestedAfter 本任务账号创建时间；早于本任务的完整、空名单或失败结果须重新准备，进行中的采集仍共用
      * @return 完整名单或显式准备/失败状态，不返回部分结果
      */
     StatusAudienceResolution resolveContactAudience(SelectedAccount account, long requestedAfter);

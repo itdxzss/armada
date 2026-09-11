@@ -103,6 +103,10 @@ public class ProtocolMessageEventConsumer {
                 event.messageId(), event.workerId());
         riskEventSink.handleResult(toRiskMetadata(event, data));
         selectSink(event).handleSendResultReported(event);
+        log.info("协议消息发送结果已处理 eventId={} source={} commandId={} contactTaskId={} "
+                        + "contactRecipientId={} messageId={} success={} reasonCode={}",
+                event.eventId(), event.source(), event.commandId(), event.contactTaskId(),
+                event.recipientId(), event.messageId(), event.success(), event.reasonCode());
     }
 
     private static ProtocolRiskResultMetadata toRiskMetadata(

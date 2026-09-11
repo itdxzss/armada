@@ -5,10 +5,11 @@ package com.armada.contact.task.model.vo;
  *
  * @param accountId 账号 ID
  * @param accountPhone 账号号码快照
- * @param accountStatus 账号状态快照：valid 有效 / invalid 无效
+ * @param accountStatus 历史任务结果快照，不代表账号当前在线或封禁状态
  * @param needSendNum 计划发送条数
  * @param sentNum 已成功条数
  * @param failNum 失败条数
+ * @param metrics 当前读快照的收件人事实统计
  */
 public record ContactTaskAccountItemVO(
         Long accountId,
@@ -19,6 +20,7 @@ public record ContactTaskAccountItemVO(
         Integer failNum,
         Long taskAccountId,
         String state,
-        String stopReason
+        String stopReason,
+        ContactTaskMetricsVO metrics
 ) {
 }

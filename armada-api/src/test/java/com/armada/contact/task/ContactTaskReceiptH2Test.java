@@ -1,7 +1,9 @@
 package com.armada.contact.task;
 
 import com.armada.boot.config.MyBatisConfig;
-import com.armada.contact.task.mapper.*;
+import com.armada.contact.task.mapper.ContactFriendTaskAccountMapper;
+import com.armada.contact.task.mapper.ContactFriendTaskMapper;
+import com.armada.contact.task.mapper.ContactFriendTaskRecipientMapper;
 import com.armada.contact.task.model.entity.ContactFriendTaskRecipient;
 import com.armada.contact.task.service.ContactTaskSendResultSink;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageAckEvent;
@@ -13,10 +15,18 @@ import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -24,7 +34,7 @@ import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.support.TransactionTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 使用真实 Mapper、租户拦截与事务验证乱序回执、未知终态和重复投递。 */
+/** 使用真实 Mapper、租户拦截与事务验证单条未知后继续调度、乱序回执和账号故障停号。 */
 @SpringJUnitConfig(ContactTaskReceiptH2Test.Config.class)
 class ContactTaskReceiptH2Test {
     @Autowired DataSource dataSource;
@@ -39,13 +49,13 @@ class ContactTaskReceiptH2Test {
         jdbc = new JdbcTemplate(dataSource);
         tx = new TransactionTemplate(new DataSourceTransactionManager(dataSource));
         jdbc.execute("DROP ALL OBJECTS");
-        jdbc.execute("CREATE TABLE contact_friend_task(id BIGINT PRIMARY KEY, tenant_id BIGINT, success_message_num INT DEFAULT 0, deleted_at BIGINT, updated_at BIGINT)");
+        jdbc.execute("CREATE TABLE contact_friend_task(id BIGINT PRIMARY KEY, tenant_id BIGINT, success_message_num INT DEFAULT 0, used_account_count INT DEFAULT 1, avg_send_per_account DECIMAL(12,2) DEFAULT 0, deleted_at BIGINT, updated_at BIGINT)");
         jdbc.execute("CREATE TABLE contact_friend_task_account(id BIGINT PRIMARY KEY, tenant_id BIGINT, task_id BIGINT, account_id BIGINT, state VARCHAR(16), sent_num INT DEFAULT 0, fail_num INT DEFAULT 0, stop_reason VARCHAR(255), updated_at BIGINT)");
         jdbc.execute("""
             CREATE TABLE contact_friend_task_recipient (
               id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, task_id BIGINT, task_account_id BIGINT,
               contact_phone VARCHAR(32), contact_jid VARCHAR(64) NOT NULL, contact_named INT,
-              send_status VARCHAR(16), attempt_count INT, protocol_message_id VARCHAR(128),
+              send_status VARCHAR(16), attempt_count INT DEFAULT 0, protocol_message_id VARCHAR(128),
               error_code VARCHAR(64), error_desc VARCHAR(255), first_sent_at BIGINT, last_attempt_at BIGINT,
               delivered_at BIGINT, read_at BIGINT, round_no BIGINT, command_id VARCHAR(64),
               created_at BIGINT, updated_at BIGINT,
@@ -75,6 +85,126 @@ class ContactTaskReceiptH2Test {
     private ContactFriendTaskRecipient row() { return tx.execute(s -> recipients.selectById(100L)); }
     private int sent() { return jdbc.queryForObject("SELECT success_message_num FROM contact_friend_task WHERE id = 1", Integer.class); }
 
+    private ProtocolMessageSendResultReportedEvent failure(String code, String messageId, String outcome, String reason) {
+        return new ProtocolMessageSendResultReportedEvent("event", 7L, null, null, null, 1L,
+                "account", "123456@lid", "cmd", false, messageId, code, reason,
+                1000L, "worker", null, null, "contact_task", null, null, null, null, null,
+                1L, 10L, 100L, "123456@lid", "PRIVATE", null, null, null, null, outcome, true);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"LID_SELF_RECIPIENT", "LID_TARGET_DEVICES_UNAVAILABLE"})
+    void targetPreparationFailureKeepsNextRecipientSchedulableAndDoesNotRetry(String code) {
+        ProtocolMessageSendResultReportedEvent failure = failure(code, null, "FAILED", "target unavailable");
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+
+        assertThat(row().getSendStatus()).isEqualTo("FAILED");
+        assertThat(row().getErrorCode()).isEqualTo(code);
+        assertThat(row().getProtocolMessageId()).isNull();
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT fail_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT stop_reason FROM contact_friend_task_account WHERE id = 10", String.class)).isNull();
+        assertThat(sent()).isZero();
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).containsExactly(10L);
+        assertThat(recipients.selectPendingByAccount(10L, 1)).extracting(ContactFriendTaskRecipient::getId).containsExactly(101L);
+        tx.executeWithoutResult(s -> assertThat(recipients.claimForSend(101L, 2L, "next-cmd", 1200L)).isOne());
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT attempt_count FROM contact_friend_task_recipient WHERE id = 101", Integer.class)).isOne();
+        assertThat(row().getSendStatus()).isEqualTo("FAILED");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ACCOUNT_OFFLINE", "ACCOUNT_BANNED", "LID_DEVICE_QUERY_FAILED",
+            "LID_DEVICE_QUERY_REJECTED", "LID_KEY_QUERY_REJECTED", "LID_PRIMARY_KEY_MISSING",
+            "LID_PRIMARY_DEVICE_MISSING", "SEND_PREPARE_FAILED"})
+    void accountAndAmbiguousPreparationFailuresStillStopAccount(String code) {
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure(code, null, "FAILED", "LID_TARGET_DEVICES_UNAVAILABLE")));
+        assertThat(row().getSendStatus()).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT send_status FROM contact_friend_task_recipient WHERE id = 101", String.class)).isEqualTo("SKIPPED");
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT fail_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isOne();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"SEND_RESULT_UNKNOWN, FAILED, msg", "SEND_RESULT_UNKNOWN, UNKNOWN,",
+            "UNKNOWN, FAILED, msg", "EMPTY_MESSAGE_ID, FAILED,", ", UNKNOWN, msg",
+            "LID_TARGET_DEVICES_UNAVAILABLE, UNKNOWN, msg"})
+    void singleRecipientUnknownKeepsNextRecipientSchedulableWithoutRetry(String code, String outcome, String messageId) {
+        ProtocolMessageSendResultReportedEvent failure = failure(code, messageId, outcome, "unknown");
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+        assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
+        assertThat(row().getErrorCode()).isEqualTo(code == null ? "SEND_RESULT_UNKNOWN" : code);
+        assertThat(row().getProtocolMessageId()).isEqualTo(messageId);
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT stop_reason FROM contact_friend_task_account WHERE id = 10", String.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT fail_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isZero();
+        assertThat(sent()).isZero();
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).containsExactly(10L);
+        assertThat(recipients.selectPendingByAccount(10L, 1)).extracting(ContactFriendTaskRecipient::getId).containsExactly(101L);
+        tx.executeWithoutResult(s -> {
+            assertThat(recipients.claimForSend(100L, 2L, "retry-cmd", 1200L)).isZero();
+            assertThat(recipients.claimForSend(101L, 2L, "next-cmd", 1200L)).isOne();
+            sink.handleSendResultReported(failure);
+        });
+        assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
+        assertThat(row().getCommandId()).isEqualTo("cmd");
+        assertThat(jdbc.queryForObject("SELECT attempt_count FROM contact_friend_task_recipient WHERE id = 101", Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("RUNNING");
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
+    }
+
+    @Test
+    void successWithoutMessageIdRemainsUnknownAndAllowsNextRecipient() {
+        ProtocolMessageSendResultReportedEvent emptySuccess = new ProtocolMessageSendResultReportedEvent(
+                "event", 7L, null, null, null, 1L, "account", "123456@lid", "cmd", true, " ", null, null,
+                1000L, "worker", null, null, "contact_task", null, null, null, null, null, 1L, 10L, 100L);
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(emptySuccess));
+        assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
+        assertThat(row().getProtocolMessageId()).isNull();
+        assertThat(row().getErrorCode()).isEqualTo("SEND_RESULT_UNKNOWN");
+        assertThat(sent()).isZero();
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).containsExactly(10L);
+        tx.executeWithoutResult(s -> assertThat(recipients.claimForSend(101L, 2L, "next-cmd", 1200L)).isOne());
+    }
+
+    @Test
+    void singleRecipientUnknownDoesNotDisplayLegacyAccountStopInstruction() {
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure("SEND_RESULT_UNKNOWN", "msg", "UNKNOWN",
+                "等待 WhatsApp 回执超时，停止该账号")));
+        assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
+        assertThat(row().getErrorCode()).isEqualTo("SEND_RESULT_UNKNOWN");
+        assertThat(row().getProtocolMessageId()).isEqualTo("msg");
+        assertThat(row().getErrorDesc()).isEqualTo("发送结果未知，本条不重试，继续处理其他联系人");
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).containsExactly(10L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ACCOUNT_OFFLINE", "ACCOUNT_BANNED", "LID_DEVICE_QUERY_FAILED",
+            "LID_DEVICE_QUERY_REJECTED", "LID_KEY_QUERY_REJECTED", "SEND_PREPARE_FAILED"})
+    void unknownOutcomeDoesNotOverrideAccountOrAmbiguousPreparationFailure(String code) {
+        ProtocolMessageSendResultReportedEvent failure = failure(code, "msg", "UNKNOWN", "SEND_RESULT_UNKNOWN");
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure));
+        assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
+        assertThat(row().getErrorCode()).isEqualTo(code);
+        assertThat(row().getErrorDesc()).isEqualTo("SEND_RESULT_UNKNOWN");
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT send_status FROM contact_friend_task_recipient WHERE id = 101", String.class)).isEqualTo("SKIPPED");
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT fail_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isZero();
+    }
+
+    @Test
+    void targetFailureWithMessageIdDoesNotAssertThatNothingWasSent() {
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(failure("LID_TARGET_DEVICES_UNAVAILABLE", "msg", "FAILED", "inconsistent evidence")));
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT send_status FROM contact_friend_task_recipient WHERE id = 101", String.class)).isEqualTo("SKIPPED");
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
+    }
+
     @Test void readBeforeSendResultPromotesOnlyOnceAndNeverRegresses() {
         tx.executeWithoutResult(s -> sink.handleAck(ack(7L, "msg", "READ")));
         tx.executeWithoutResult(s -> sink.handleSendResultReported(result(true, null)));
@@ -86,15 +216,37 @@ class ContactTaskReceiptH2Test {
         assertThat(sent()).isOne();
     }
 
-    @Test void unknownStopsAccountSkipsPendingAndLateReceiptCanResolveUnknown() {
-        tx.executeWithoutResult(s -> sink.handleSendResultReported(result(false, "SEND_RESULT_UNKNOWN")));
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = "msg")
+    void lateReceiptResolvesUnknownOnceWhileNextRecipientRemainsInFlight(String messageId) {
+        jdbc.update("INSERT INTO contact_friend_task_recipient(id, tenant_id, task_id, task_account_id, contact_jid, send_status, updated_at) VALUES(102, 7, 1, 10, '789012@lid', 'PENDING', 1)");
+        ProtocolMessageSendResultReportedEvent unknown = failure("SEND_RESULT_UNKNOWN", messageId, "UNKNOWN", "unknown");
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(unknown));
         assertThat(row().getSendStatus()).isEqualTo("UNKNOWN");
-        assertThat(jdbc.queryForObject("SELECT send_status FROM contact_friend_task_recipient WHERE id = 101", String.class)).isEqualTo("SKIPPED");
-        assertThat(recipients.countUnfinished(1L)).isZero();
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).containsExactly(10L);
+        tx.executeWithoutResult(s -> assertThat(recipients.claimForSend(101L, 2L, "next-cmd", 1200L)).isOne());
         tx.executeWithoutResult(s -> sink.handleAck(ack(7L, "msg", "DELIVERED")));
+        tx.executeWithoutResult(s -> sink.handleAck(ack(7L, "msg", "DELIVERED")));
+        tx.executeWithoutResult(s -> sink.handleAck(ack(7L, "msg", "READ")));
+        tx.executeWithoutResult(s -> sink.handleSendResultReported(unknown));
         assertThat(row().getSendStatus()).isEqualTo("SUCCESS");
+        assertThat(row().getProtocolMessageId()).isEqualTo("msg");
+        assertThat(row().getDeliveredAt()).isEqualTo(1100);
+        assertThat(row().getReadAt()).isEqualTo(1100);
+        assertThat(row().getErrorCode()).isNull();
         assertThat(sent()).isOne();
-        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT sent_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT fail_num FROM contact_friend_task_account WHERE id = 10", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT state FROM contact_friend_task_account WHERE id = 10", String.class)).isEqualTo("RUNNING");
+        ContactFriendTaskRecipient next = tx.execute(s -> recipients.selectById(101L));
+        assertThat(next.getSendStatus()).isEqualTo("SENDING");
+        assertThat(next.getCommandId()).isEqualTo("next-cmd");
+        assertThat(next.getProtocolMessageId()).isNull();
+        assertThat(next.getAttemptCount()).isOne();
+        assertThat(recipients.countUnfinished(1L)).isEqualTo(2);
+        assertThat(recipients.selectPendingByAccount(10L, 1)).extracting(ContactFriendTaskRecipient::getId).containsExactly(102L);
+        assertThat(recipients.selectAccountIdsWithPending(1L, 10)).isEmpty();
     }
 
     @Test void differentTenantOrMessageCannotUpdateRecipient() {
@@ -104,6 +256,16 @@ class ContactTaskReceiptH2Test {
         tx.executeWithoutResult(s -> sink.handleAck(ack(7L, "other-message", "READ")));
         assertThat(row().getReadAt()).isNull();
         assertThat(sent()).isOne();
+    }
+
+    @Test void ackForAnotherSenderCannotConfirmThisRecipientsMessage() {
+        ProtocolMessageAckEvent wrongSender = new ProtocolMessageAckEvent("ack", 7L,
+                "contact_task", null, null, "cmd", 999L, "android", "other-account",
+                "123456@lid", "PRIVATE", "msg", "READ", true, null, null, 1100L, "worker");
+        tx.executeWithoutResult(s -> sink.handleAck(wrongSender));
+        assertThat(row().getReadAt()).isNull();
+        assertThat(row().getSendStatus()).isEqualTo("SENDING");
+        assertThat(sent()).isZero();
     }
 
     @Test void accountWithAnInFlightMessageIsNotSelectedAgain() {

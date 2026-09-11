@@ -6,9 +6,21 @@ import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
 import com.armada.contact.task.model.vo.ContactTaskDetailVO;
 import com.armada.contact.task.model.vo.ContactTaskListItemVO;
 import com.armada.shared.response.PageResult;
+import java.util.List;
 
 /** 通讯录营销任务业务服务。 */
 public interface ContactTaskService {
+
+    /**
+     * 批量软删除当前租户的未开始、已完成或已停止任务，保留账号及收件人明细。
+     *
+     * <p>同一事务内按 ID 升序锁定并复查状态，任一任务不满足条件则整批回滚。</p>
+     *
+     * @param ids 待删除任务 ID，1 至 200 个，重复 ID 只处理一次
+     * @return 实际删除任务数
+     * @throws com.armada.shared.exception.BusinessException 参数非法、任务不可见或需先停止时抛出
+     */
+    int batchDelete(List<Long> ids);
 
     /**
      * 分页查询当前租户任务。
@@ -66,7 +78,7 @@ public interface ContactTaskService {
      * 分页查询任务的账号发送数据。
      *
      * @param id 任务 ID
-     * @param sortBy 排序列，仅接受 needSendNum / sentNum / failNum
+     * @param sortBy 排序列，支持计划、已处理、发送确认、送达、已读、失败、未知和跳过指标
      * @param sortOrder 排序方向 asc / desc
      * @param page 页码
      * @param pageSize 每页条数

@@ -1,6 +1,7 @@
 package com.armada.contact.task.controller;
 
 import com.armada.contact.task.model.dto.ContactTaskFormDTO;
+import com.armada.contact.task.model.dto.ContactTaskBatchDeleteDTO;
 import com.armada.contact.task.model.dto.ContactTaskQuery;
 import com.armada.contact.task.model.vo.ContactAccountOptionsVO;
 import com.armada.contact.task.model.vo.ContactTaskAccountItemVO;
@@ -30,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  * 本接口只接 JSON，预览图由调用方先上传后传 {@code previewImageFileId}。
  * 图片上传接线在前端期一并落地，届时才知道前端实际怎么传。</p>
  *
- * <p><b>不提供删除接口</b>：竞品的任务 API 与行操作均没有删除。</p>
+ * <p>批量删除采用软删除，仅未开始、已完成、已停止任务允许删除，保留历史明细。</p>
  */
 @RestController
 @RequestMapping("/api/contact-tasks")
@@ -53,6 +54,20 @@ public class ContactTaskController {
             ContactTaskService service, ContactAccountOptionsService accountOptionsService) {
         this.service = service;
         this.accountOptionsService = accountOptionsService;
+    }
+
+    /**
+     * 批量软删除当前租户任务；权限在服务端校验，整批状态校验及事务由 Service 负责。
+     *
+     * @param request 待删除任务 ID
+     * @return 实际删除任务数
+     * @throws com.armada.shared.exception.BusinessException 参数非法、任务不可见或状态不允许时抛出
+     */
+    @PostMapping("/batch-delete")
+    @PreAuthorize("hasAuthority('tenant:contact_task:delete')")
+    public ApiResponse<Integer> batchDelete(
+            @RequestBody ContactTaskBatchDeleteDTO request) {
+        return ApiResponse.ok(service.batchDelete(request == null ? null : request.ids()));
     }
 
     /**
@@ -138,7 +153,7 @@ public class ContactTaskController {
      * 分页查询任务的账号发送数据。
      *
      * @param id 任务 ID
-     * @param sortBy 排序列，仅接受 needSendNum / sentNum / failNum
+     * @param sortBy 排序列，支持计划、已处理、发送确认、送达、已读、失败、未知和跳过指标
      * @param sortOrder 排序方向 asc / desc
      * @param page 页码
      * @param pageSize 每页条数

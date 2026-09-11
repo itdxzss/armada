@@ -11,6 +11,7 @@ import com.armada.contact.task.service.ContactTaskExpansionService;
 import com.armada.contact.task.service.ContactTaskFormValidator;
 import com.armada.contact.task.service.ContactTaskSendResultSink;
 import com.armada.contact.task.service.ContactTaskService;
+import com.armada.contact.task.service.ContactTaskStatsService;
 import com.armada.contact.task.service.impl.ContactTaskServiceImpl;
 import com.armada.shared.tenant.TenantContext;
 import org.springframework.context.annotation.Bean;
@@ -26,23 +27,22 @@ public class ContactTaskConfiguration {
      * <p>实现类的构造参数含 Supplier，Spring 无法自动装配，因此在这里显式构造。</p>
      *
      * @param taskMapper 任务主表数据访问
-     * @param accountMapper 任务账号读模型数据访问
+     * @param statsService 任务回执统计读模型
      * @param validator 表单校验器
      * @param accountSelector 账号圈选，与超链任务共用同一份 WHERE
      * @param expansionService 启用时的圈号与收件人展开服务
-     * @param accountFilterSelector 账号圈选服务，用于账号范围试算
      * @return 通讯录营销任务服务
      */
     @Bean
     public ContactTaskService contactTaskService(
             ContactFriendTaskMapper taskMapper,
-            ContactFriendTaskAccountMapper accountMapper,
             ContactTaskFormValidator validator,
             ContactTaskExpansionService expansionService,
-            ContactAccountSelector accountSelector) {
+            ContactAccountSelector accountSelector,
+            ContactTaskStatsService statsService) {
         return new ContactTaskServiceImpl(
                 taskMapper,
-                accountMapper,
+                statsService,
                 validator,
                 expansionService,
                 accountSelector,

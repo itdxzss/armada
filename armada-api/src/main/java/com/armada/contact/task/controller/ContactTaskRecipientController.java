@@ -1,11 +1,13 @@
 package com.armada.contact.task.controller;
 
 import com.armada.contact.task.model.vo.ContactTaskRecipientVO;
+import com.armada.contact.task.model.dto.ContactTaskRecipientQuery;
 import com.armada.contact.task.service.ContactTaskRecipientService;
 import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,5 +26,12 @@ public class ContactTaskRecipientController {
             @PathVariable Long taskAccountId, @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize) {
         return ApiResponse.ok(service.list(id, taskAccountId, page, pageSize));
+    }
+
+    /** 按任务查询联系人，可按账号、处理状态、累计或互斥回执状态过滤。 */
+    @GetMapping("/{id}/recipients")
+    public ApiResponse<PageResult<ContactTaskRecipientVO>> listTask(@PathVariable Long id,
+            @ModelAttribute ContactTaskRecipientQuery query) {
+        return ApiResponse.ok(service.list(id, query));
     }
 }

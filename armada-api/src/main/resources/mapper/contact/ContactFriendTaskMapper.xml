@@ -2,6 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.contact.task.mapper.ContactFriendTaskMapper">
 
+  <update id="softDeleteBatch">
+    UPDATE contact_friend_task
+       SET deleted_at = #{deletedAt}, updated_at = #{deletedAt}, next_round_at = NULL
+     WHERE deleted_at IS NULL
+       AND run_status IN (0, 2, 4)
+       AND id IN
+       <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </update>
+
   <sql id="taskColumns">
     id, tenant_id, name, message_type, title, description, promotion_link, content,
     preview_image_file_id, account_filter, msg_interval_min_sec, msg_interval_max_sec,
@@ -183,7 +192,10 @@
 
   <update id="incrementSuccessMessageNum">
     UPDATE contact_friend_task
-       SET success_message_num = success_message_num + #{delta},
+       <!-- MySQL 单表 SET 从左到右赋值；先用旧成功数加增量计算，避免把增量加两次。 -->
+       SET avg_send_per_account = COALESCE(
+             ROUND((success_message_num + #{delta}) * 1.0 / NULLIF(used_account_count, 0), 2), 0),
+           success_message_num = success_message_num + #{delta},
            updated_at = #{updatedAt}
      WHERE id = #{id}
        AND deleted_at IS NULL

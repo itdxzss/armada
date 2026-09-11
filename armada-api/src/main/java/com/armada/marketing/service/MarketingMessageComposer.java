@@ -30,8 +30,8 @@ public class MarketingMessageComposer {
     /**
      * 组合模板消息。
      *
-     * <p>图文模式只有在图片文件真实存在且有内容时才发送 IMAGE;否则降级为纯文本,
-     * 避免协议层收到空图片 payload。</p>
+     * <p>图文模式只有在图片文件真实存在且有内容时才发送 IMAGE，允许不填写图片说明；
+     * 没有可用图片时仍要求非空文本，避免发送空消息。</p>
      */
     public ComposedMessage compose(MarketingTemplate template, MarketingTemplateFile imageFile) {
         if (template == null) {
@@ -43,6 +43,9 @@ public class MarketingMessageComposer {
         MediaPayload thumbnail = mediaPayload(imageFile);
         if (mode == LinkMode.IMAGE_TEXT && thumbnail != null) {
             return new ComposedMessage("IMAGE", text, thumbnail.bytes(), thumbnail.mimetype(), mentionAll);
+        }
+        if (!StringUtils.hasText(text)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "营销模板发送内容为空");
         }
         if (mode == LinkMode.BUTTON) {
             return composeButtonCard(template, text, thumbnail, mentionAll);
@@ -171,7 +174,7 @@ public class MarketingMessageComposer {
         return value.trim();
     }
 
-    /** 按标题/正文/推广链接顺序拼接,并统一做空内容与 WhatsApp 文本长度校验。 */
+    /** 按标题/正文/推广链接顺序拼接并校验长度；空说明是否可用由最终消息类型决定。 */
     private static String composeText(MarketingTemplate template, LinkMode mode) {
         StringBuilder sb = new StringBuilder();
         appendLine(sb, template.getContent());
@@ -180,9 +183,6 @@ public class MarketingMessageComposer {
             appendLine(sb, template.getPromotionLink());
         }
         String text = sb.toString().trim();
-        if (!StringUtils.hasText(text)) {
-            throw new BusinessException(ErrorCode.VALIDATION, "营销模板发送内容为空");
-        }
         if (text.length() > 4096) {
             throw new BusinessException(ErrorCode.VALIDATION, "营销模板发送内容超过4096字符");
         }

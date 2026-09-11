@@ -21,6 +21,56 @@ class MarketingMessageComposerTest {
     private final MarketingMessageComposer composer = new MarketingMessageComposer();
 
     @Test
+    void imageWithoutCaptionKeepsImageBytesAndEmptyText() {
+        MarketingTemplate template = template(LinkMode.IMAGE_TEXT.code(), 99L);
+        template.setContent("  ");
+        template.setBodyText(null);
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {1, 2, 3});
+        file.setContentType("image/jpeg");
+
+        var message = composer.compose(template, file);
+
+        assertThat(message.messageType()).isEqualTo("IMAGE");
+        assertThat(message.text()).isEmpty();
+        assertThat(message.imageBytes()).containsExactly(1, 2, 3);
+        assertThat(message.imageMimetype()).isEqualTo("image/jpeg");
+    }
+
+    @Test
+    void emptyImageWithoutUsableFileStillFails() {
+        MarketingTemplate template = template(LinkMode.IMAGE_TEXT.code(), 99L);
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[0]);
+
+        assertThatThrownBy(() -> composer.compose(template, null))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("发送内容为空");
+        assertThatThrownBy(() -> composer.compose(template, file))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("发送内容为空");
+    }
+
+    @Test
+    void thumbnailDoesNotAllowEmptyTextOrButtonMessage() {
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {1});
+        for (LinkMode mode : List.of(LinkMode.NORMAL, LinkMode.BUTTON)) {
+            assertThatThrownBy(() -> composer.compose(template(mode.code(), 99L), file))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("发送内容为空");
+        }
+    }
+
+    @Test
+    void imageCaptionStillHonorsTextLengthLimit() {
+        MarketingTemplate template = template(LinkMode.IMAGE_TEXT.code(), 99L);
+        template.setContent("a".repeat(4097));
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {1});
+
+        assertThatThrownBy(() -> composer.compose(template, file))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("超过4096字符");
+    }
+
+    @Test
     void normalLinkComposesLinkText() {
         MarketingTemplate template = template(LinkMode.NORMAL.code(), null);
         template.setMentionAll(true);

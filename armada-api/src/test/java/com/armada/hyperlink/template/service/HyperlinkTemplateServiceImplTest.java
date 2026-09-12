@@ -1,5 +1,6 @@
 package com.armada.hyperlink.template.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -246,12 +247,12 @@ class HyperlinkTemplateServiceImplTest {
         }
 
         @Override
-        public MarketingTemplateFileContent lockContentForBinding(Long id) {
+        public MarketingTemplateFileContent lockContentForBinding(Long id, ResourceAssetScope scope) {
             throw new UnsupportedOperationException("测试请求不绑定图片");
         }
 
         @Override
-        public void lockAndValidateBindableAssets(java.util.Collection<Long> ids) {
+        public void lockAndValidateBindableAssets(java.util.Collection<Long> ids, ResourceAssetScope scope) {
             throw new UnsupportedOperationException("测试请求不绑定图片");
         }
     }

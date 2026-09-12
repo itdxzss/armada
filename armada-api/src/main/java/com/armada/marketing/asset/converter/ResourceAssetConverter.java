@@ -1,6 +1,7 @@
 package com.armada.marketing.asset.converter;
 
 import com.armada.marketing.asset.model.vo.ResourceAssetVO;
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
 import java.util.List;
 import org.mapstruct.Mapper;
@@ -20,12 +21,13 @@ public interface ResourceAssetConverter {
      * @param file 当前租户的素材文件元数据
      * @param tags 当前素材的标签，已按关系创建顺序排序
      * @param referenceCount 当前素材在有效模板或任务中的去重引用数
+     * @param scope 当前请求业务，用于鉴权内容地址
      * @return 管理页和选择器共用的素材响应
      */
     @Mapping(target = "assetName", expression = "java(displayName(file))")
     @Mapping(
             target = "contentUrl",
-            expression = "java(CONTENT_PATH_PREFIX + file.getId() + \"/content\")")
+            expression = "java(CONTENT_PATH_PREFIX + file.getId() + \"/content?scope=\" + scope.name())")
     @Mapping(target = "tags", expression = "java(java.util.List.copyOf(tags))")
     @Mapping(
             target = "updatedAt",
@@ -33,7 +35,8 @@ public interface ResourceAssetConverter {
     ResourceAssetVO toVO(
             MarketingTemplateFile file,
             List<String> tags,
-            long referenceCount);
+            long referenceCount,
+            ResourceAssetScope scope);
 
     /**
      * 为存量文件生成稳定展示名称，优先使用素材业务名称。

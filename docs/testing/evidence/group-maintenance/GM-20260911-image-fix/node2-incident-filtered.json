@@ -1,0 +1,33 @@
+{
+  "container": "zhuan-node",
+  "exitCode": 0,
+  "scannedLines": 5007,
+  "matchedLines": 127,
+  "lines": [
+    "2026-09-11T00:34:06.029687823Z 2026-09-11 00:34:06.029\t\u001b[33mWARN\u001b[0m\t[ACCOUNT_687]\tread server data error eof",
+    "2026-09-11T00:34:06.029729574Z 2026-09-11 00:34:06.029\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tnoise generation closed\t{\"generation\": 15, \"cause\": \"read_error\", \"cleanupComplete\": true, \"cleanupDuration\": 0.000062272}",
+    "2026-09-11T00:34:06.029736374Z 2026-09-11 00:34:06.029\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tAndroid network disconnect classified\t{\"generation\": 15, \"cause\": \"read_error\", \"status\": \"Online\", \"action\": 2, \"cleanupComplete\": true, \"cleanupDuration\": 0.000062272}",
+    "2026-09-11T00:34:06.029742904Z 2026-09-11 00:34:06.029\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\t设置账号状态Reconnecting",
+    "2026-09-11T00:34:07.019523095Z 2026-09-11 00:34:07.019\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tgroup send stage timing\t{\"stage\": \"prep-text\", \"group\": \"120363430638294217\", \"memberMs\": 5, \"deviceMs\": 0}",
+    "2026-09-11T00:34:07.430433524Z 2026-09-11 00:34:07.430\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tgroup send stage timing\t{\"stage\": \"dispatch-prepared\", \"group\": \"120363430638294217\", \"typingMs\": 401, \"nativeSendMs\": 0, \"success\": true}",
+    "2026-09-11T00:34:07.436384677Z 2026-09-11 00:34:07.436\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tgroup send stage timing\t{\"stage\": \"prep-text\", \"group\": \"120363427447992430\", \"memberMs\": 5, \"deviceMs\": 0}",
+    "2026-09-11T00:34:07.933725748Z 2026-09-11 00:34:07.933\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tgroup send stage timing\t{\"stage\": \"dispatch-prepared\", \"group\": \"120363427447992430\", \"typingMs\": 401, \"nativeSendMs\": 0, \"success\": true}",
+    "2026-09-11T00:34:08.059194679Z 2026-09-11 00:34:08.058\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tnoise tcp connect started\t{\"generation\": 16}",
+    "2026-09-11T00:34:09.032323317Z 2026-09-11 00:34:09.032\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tnoise tcp connected\t{\"generation\": 16}",
+    "2026-09-11T00:34:09.524928427Z 2026-09-11 00:34:09.524\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\tnoise tcp handshake completed\t{\"generation\": 16}",
+    "2026-09-11T00:34:10.148149298Z 2026-09-11 00:34:10.147\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\t设置账号状态Online",
+    "2026-09-11T00:34:11.475280172Z 2026-09-11 00:34:11.475\t\u001b[34mINFO\u001b[0m\t[ACCOUNT_687]\t账号发送状态正常，无限制",
+    "2026-09-11T00:34:07.028620807Z 2026-09-11 00:34:07.028\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.028637057Z 2026-09-11 00:34:07.028\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}",
+    "2026-09-11T00:34:07.129456743Z 2026-09-11 00:34:07.129\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.129491524Z 2026-09-11 00:34:07.129\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}",
+    "2026-09-11T00:34:07.430389063Z 2026-09-11 00:34:07.430\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.430491435Z 2026-09-11 00:34:07.430\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}",
+    "2026-09-11T00:34:07.532199948Z 2026-09-11 00:34:07.532\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.532227668Z 2026-09-11 00:34:07.532\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}",
+    "2026-09-11T00:34:07.633284129Z 2026-09-11 00:34:07.633\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.633311939Z 2026-09-11 00:34:07.633\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}",
+    "2026-09-11T00:34:07.933803129Z 2026-09-11 00:34:07.933\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tsending node data failed\t{\"nodeType\": \"Unknown\", \"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\"}",
+    "2026-09-11T00:34:07.933869261Z 2026-09-11 00:34:07.933\t\u001b[31mERROR\u001b[0m\t[ACCOUNT_687]\tprocess queue item error\t{\"error\": \"write tcp 172.18.0.2:60104->185.230.245.187:12321: use of closed network connection\", \"itemType\": \"*traffic.tracedBuilder\"}"
+  ]
+}

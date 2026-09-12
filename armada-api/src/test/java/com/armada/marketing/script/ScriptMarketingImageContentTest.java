@@ -36,13 +36,13 @@ class ScriptMarketingImageContentTest {
         var message = new MarketingTemplateDTO("image-only", LinkMode.IMAGE_TEXT.code(), null, 34L,
                 "", "", List.of(), "", null, false);
         var definition = List.of(
-                new ScriptMarketingStepDTO("ADMIN", null, message, "admin", 0, 0),
-                new ScriptMarketingStepDTO("PROMOTER", null, message, "p1", 3, 3));
+                new ScriptMarketingStepDTO("ADMIN", null, message, "admin", 0, 0, "admin-line", null),
+                new ScriptMarketingStepDTO("PROMOTER", null, message, "p1", 3, 3, "promoter-line", null));
 
         service.validateRoles(definition);
         var snapshot = service.decode(service.encode(definition));
         var taskSteps = List.of(new ScriptMarketingStepDTO("ADMIN", 685L, snapshot.get(0).message(),
-                "admin", 0, 0), snapshot.get(1));
+                "admin", 0, 0, "admin-line", null), snapshot.get(1));
         service.validateRoles(taskSteps);
         var payload = service.payload(taskSteps.get(0));
 

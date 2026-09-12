@@ -62,6 +62,21 @@ class ProtocolMessageEventConsumerTest {
     }
 
     @Test
+    void scriptSuccessPreservesQuoteContextForDurableSameGroupResolution() {
+        onMessage("""
+                {"event":"message.send_result_reported","eventId":"script-quote","data":{
+                "tenantId":7,"protocolAccountId":"account","source":"script_marketing",
+                "groupJid":"120001@g.us","commandId":"source","messageId":"sent-original","success":true,
+                "quoteContext":{"version":1,"senderJid":"123@lid","messageBase64":"CgVoZWxsbw=="}}}
+                """);
+        var captor = ArgumentCaptor.forClass(ProtocolMessageSendResultReportedEvent.class);
+        verify(sink).handleSendResultReported(captor.capture());
+        assertThat(captor.getValue().quoteContext().senderJid()).isEqualTo("123@lid");
+        assertThat(captor.getValue().quoteContext().messageBase64()).isEqualTo("CgVoZWxsbw==");
+        assertThat(captor.getValue().messageId()).isEqualTo("sent-original");
+    }
+
+    @Test
     void onMessage_forwardsSemanticRiskCodeBeforeBusinessSink() {
         onMessage("""
                 {"eventId":"evt-risk-message","event":"message.send_result_reported",

@@ -66,8 +66,9 @@ public record MessageSendCommand(
      * @param type 消息类型
      * @param content 消息内容
      * @param mentionAll 是否提醒所有群成员
+     * @param replyTo 同群原句的实际消息 ID、作者和引用内容；普通消息为空
      */
-    public record MessagePayload(MessageType type, MessageContent content, boolean mentionAll) {
+    public record MessagePayload(MessageType type, MessageContent content, boolean mentionAll, MessageReply replyTo) {
     }
 
     /**

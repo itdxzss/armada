@@ -1,0 +1,48 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789086714674,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/resource-assets",
+      "request": {
+        "bytes": 10163,
+        "contentType": "image/jpeg",
+        "fileName": "GM-20260911-080650-fixture.jpg"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "assetName": "GM-20260911-080650-fixture.jpg",
+          "contentUrl": "/api/resource-assets/34/content",
+          "createdAt": 1789086714483,
+          "createdBy": 2,
+          "height": 240,
+          "id": 34,
+          "referenceCount": 0,
+          "sizeBytes": 10163,
+          "tags": [],
+          "updatedAt": 1789086714483,
+          "width": 480
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086713985
+    }
+  ],
+  "result": {
+    "asset": {
+      "assetName": "GM-20260911-080650-fixture.jpg",
+      "contentUrl": "/api/resource-assets/34/content",
+      "createdAt": 1789086714483,
+      "createdBy": 2,
+      "height": 240,
+      "id": 34,
+      "referenceCount": 0,
+      "sizeBytes": 10163,
+      "tags": [],
+      "updatedAt": 1789086714483,
+      "width": 480
+    }
+  }
+}

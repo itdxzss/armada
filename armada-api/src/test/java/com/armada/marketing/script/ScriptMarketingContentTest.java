@@ -35,7 +35,11 @@ class ScriptMarketingContentTest {
         var admin = step("ADMIN", 1L); var promoter = step("PROMOTER", 2L);
         var steps = List.of(admin, promoter, admin);
         service.validate(steps);
-        assertThat(service.decode(service.encode(steps))).isEqualTo(steps);
+        var decoded = service.decode(service.encode(steps));
+        assertThat(decoded).zipSatisfy(steps, (actual, expected) ->
+                assertThat(actual).usingRecursiveComparison().ignoringFields("stepId").isEqualTo(expected));
+        assertThat(decoded).extracting(ScriptMarketingStepDTO::stepId).containsExactly("legacy_0", "legacy_1", "legacy_2");
+        assertThat(service.decode(service.encode(decoded))).isEqualTo(decoded);
         assertThatThrownBy(() -> service.validate(List.of(admin, step("PROMOTER", 1L))))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("角色必须一致");
         assertThatThrownBy(() -> service.validate(List.of(admin, admin)))
@@ -49,19 +53,19 @@ class ScriptMarketingContentTest {
     @Test void buttonsUseActualMarketingComposerAndMalformedLinkIsRejected() {
         var dto = new MarketingTemplateDTO("", 2, null, null, "welcome", "details",
                 List.of(new MessageButton(ButtonType.LINK_JUMP, "open", "https://example.com")), null, null, false);
-        var payload = service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, dto, null, null, null));
+        var payload = service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, dto, null, null, null, null, null));
         assertThat(payload.content().buttonCard().buttons()).singleElement()
                 .satisfies(button -> assertThat(button.value()).isEqualTo("https://example.com"));
         var invalid = new MarketingTemplateDTO("", 1, null, null, "hello", null,
                 null, "javascript:alert(1)", null, false);
-        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, invalid, null, null, null)))
+        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, invalid, null, null, null, null, null)))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("http(s)");
     }
     @Test void refusesMoreThanThreeButtonsBeforeDispatch() {
         var button = new MessageButton(ButtonType.QUICK_REPLY, "reply", null);
         var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(button, button, button, button), null, null, false);
-        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null)))
+        assertThatThrownBy(() -> service.payload(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null, null, null)))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("1–3");
     }
     @Test void androidAccountRejectsUnsupportedButtonsBeforeSavingButKeepsWebCapabilities() {
@@ -71,7 +75,7 @@ class ScriptMarketingContentTest {
         for (var buttons : List.of(List.of(link, link), List.of(copy), List.of(quick))) {
             var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                     buttons, null, null, false);
-            var steps = List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), step("PROMOTER", 2L));
+            var steps = List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null, null, null), step("PROMOTER", 2L));
             when(accounts.findActiveProtocolRef(1L)).thenReturn(Optional.of(
                     new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "account", "15550000000")));
             assertThatThrownBy(() -> service.validate(steps))
@@ -84,10 +88,10 @@ class ScriptMarketingContentTest {
                 new ProtocolAccountRef(1L, ProtocolBackend.ANDROID, "account", "15550000000")));
         var message = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(link), null, null, false);
-        service.validate(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), step("PROMOTER", 2L)));
+        service.validate(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null, null, null), step("PROMOTER", 2L)));
     }
     ScriptMarketingStepDTO step(String role, Long id) {
         return new ScriptMarketingStepDTO(role, id, new MarketingTemplateDTO("", 1, null, null,
-                "hello", "body", null, null, null, false), null, null, null);
+                "hello", "body", null, null, null, false), null, null, null, null, null);
     }
 }

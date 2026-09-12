@@ -1,0 +1,447 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789087061579,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/9",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "bindingsJson": "{\"p1\": 686, \"admin\": 685}",
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 26,
+              "nextAt": 9223372036854776000,
+              "nextStep": 2,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 9
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=0 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 5,
+              "waitMinSeconds": 5
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 5,
+              "waitMinSeconds": 5
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 5,
+              "waitMinSeconds": 5
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789087020487,
+            "endAt": 1789087044159,
+            "failedCount": 0,
+            "groupCount": 1,
+            "id": 9,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789087035159,
+            "status": 4,
+            "successCount": 2,
+            "taskName": "GM-20260911-080650-future-and-deadline",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087061012
+    },
+    {
+      "finishedAt": 1789087062104,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/9/records",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "accountId": 685,
+              "commandId": "cmd_6b55b4fc543a4e1faf8e2abcb0fa7325",
+              "finishedAt": 1789087038197,
+              "groupId": 26,
+              "id": 249,
+              "messageId": "3CCABDC155D343419F9F3F5F6F17072A",
+              "status": 2,
+              "stepIndex": 0,
+              "submittedAt": 1789087036273,
+              "taskId": 9
+            },
+            {
+              "accountId": 686,
+              "commandId": "cmd_18a62dc5c4c04796927c31d67cc97b84",
+              "finishedAt": 1789087044526,
+              "groupId": 26,
+              "id": 250,
+              "messageId": "5C7025CC744544FC88F7C2BADA64F17B",
+              "status": 2,
+              "stepIndex": 1,
+              "submittedAt": 1789087041471,
+              "taskId": 9
+            }
+          ],
+          "page": 1,
+          "pageSize": 10,
+          "total": 2,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087061579
+    },
+    {
+      "finishedAt": 1789087062626,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/9/groups/26/resume",
+      "request": null,
+      "response": {
+        "code": 40901,
+        "message": "请先继续整个任务，再操作单群"
+      },
+      "startedAt": 1789087062104
+    },
+    {
+      "finishedAt": 1789087063154,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": 1789087077626,
+        "groupLinkIds": [
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": 1789087070626,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=0 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=2 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          }
+        ],
+        "taskName": "GM-20260911-080650-paused-deadline"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 27,
+              "nextAt": 1789087070626,
+              "nextStep": 0,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 10
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=0 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789087062938,
+            "endAt": 1789087077626,
+            "failedCount": 0,
+            "groupCount": 1,
+            "id": 10,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789087070626,
+            "status": 0,
+            "successCount": 0,
+            "taskName": "GM-20260911-080650-paused-deadline",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087062626
+    },
+    {
+      "finishedAt": 1789087063794,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/10/start",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789087063154
+    },
+    {
+      "finishedAt": 1789087064276,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/10/pause",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789087063794
+    }
+  ],
+  "result": {
+    "blockedResume": {
+      "code": 40901,
+      "message": "请先继续整个任务，再操作单群"
+    },
+    "endAt": 1789087077626,
+    "pausedTaskId": 10,
+    "records": {
+      "list": [
+        {
+          "accountId": 685,
+          "commandId": "cmd_6b55b4fc543a4e1faf8e2abcb0fa7325",
+          "finishedAt": 1789087038197,
+          "groupId": 26,
+          "id": 249,
+          "messageId": "3CCABDC155D343419F9F3F5F6F17072A",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789087036273,
+          "taskId": 9
+        },
+        {
+          "accountId": 686,
+          "commandId": "cmd_18a62dc5c4c04796927c31d67cc97b84",
+          "finishedAt": 1789087044526,
+          "groupId": 26,
+          "id": 250,
+          "messageId": "5C7025CC744544FC88F7C2BADA64F17B",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789087041471,
+          "taskId": 9
+        }
+      ],
+      "page": 1,
+      "pageSize": 10,
+      "total": 2,
+      "totalPages": 1
+    },
+    "task": {
+      "accountGroupId": 95,
+      "createdAt": 1789087020487,
+      "endAt": 1789087044159,
+      "failedCount": 0,
+      "groupCount": 1,
+      "id": 9,
+      "inFlightCount": 0,
+      "intervalSeconds": 3,
+      "startAt": 1789087035159,
+      "status": 4,
+      "successCount": 2,
+      "taskName": "GM-20260911-080650-future-and-deadline",
+      "unknownCount": 0
+    }
+  }
+}

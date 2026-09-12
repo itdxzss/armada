@@ -41,6 +41,7 @@
         FROM resource_asset_tag tag
         INNER JOIN resource_asset_tag_ref tag_ref ON tag_ref.resource_asset_tag_id = tag.id
         INNER JOIN marketing_template_file file ON file.id = tag_ref.file_id AND file.deleted_at IS NULL
+        WHERE file.asset_scope IS NULL OR file.asset_scope = #{scope}
         ORDER BY tag.tag_name ASC
     </select>
 </mapper>

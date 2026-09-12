@@ -1,5 +1,6 @@
 package com.armada.marketing.script.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.group.service.GroupDetailService;
 import com.armada.account.service.AccountGroupService;
 import com.armada.account.service.AccountService;
@@ -80,7 +81,7 @@ public class ScriptMarketingTaskService {
     @Transactional(rollbackFor = Exception.class)
     public ScriptMarketingDetailVO create(ScriptMarketingSaveDTO dto, Long owner) {
         var task = prepare(dto);
-        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList());
+        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList(), ResourceAssetScope.SCRIPT);
         task.setTenantId(TenantContext.get()); task.setCreatedBy(owner); task.setStatus(DRAFT);
         task.setCreatedAt(task.getUpdatedAt());
         tasks.insert(task);
@@ -108,7 +109,7 @@ public class ScriptMarketingTaskService {
         var old = requireOwned(tasks.lock(id), owner);
         if (old.getStatus() != DRAFT) throw new BusinessException(ErrorCode.CONFLICT, "启动后不能修改内容和顺序");
         var task = prepare(dto); task.setId(id); task.setTenantId(old.getTenantId());
-        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList());
+        assets.lockAndValidateBindableAssets(dto.steps().stream().map(s -> s.message().imageFileId()).toList(), ResourceAssetScope.SCRIPT);
         tasks.updateDraft(task); groups.deleteDraftGroups(id); saveGroups(task, dto.groupLinkIds());
         return detail(id, owner);
     }

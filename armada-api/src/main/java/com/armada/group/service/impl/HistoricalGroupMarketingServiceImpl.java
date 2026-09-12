@@ -244,7 +244,7 @@ public class HistoricalGroupMarketingServiceImpl implements HistoricalGroupMarke
                                 media(message.imageBytes(), message.imageMimetype()),
                                 linkCard(message.linkCard()),
                                 buttonCard(message.buttonCard())),
-                        message.mentionAll()),
+                        message.mentionAll(), null),
                 new MessageSendCommand.MessageCorrelation(
                         tenantId,
                         SOURCE_HISTORICAL_GROUP_PULL,

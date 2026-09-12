@@ -1,0 +1,992 @@
+{
+  "runId": "GM-20260911-080650",
+  "environment": "test1",
+  "executionState": "FIRST_ROUND_COMPLETE_WITH_FAILURES",
+  "updatedAt": "2026-09-11T08:43:48.299527+08:00",
+  "realMessagesSubmitted": 234,
+  "checks": [
+    {
+      "id": "PREFLIGHT-BACKEND",
+      "status": "PASS",
+      "evidence": "environment.json",
+      "detail": "Running backend JAR SHA-256 matches the 2026-09-10 accepted artifact."
+    },
+    {
+      "id": "PREFLIGHT-FLYWAY",
+      "status": "PASS",
+      "evidence": "environment.json",
+      "detail": "V180/V186/V187 success=1 observed with read-only SQL."
+    },
+    {
+      "id": "PREFLIGHT-UNAUTHENTICATED",
+      "status": "PASS",
+      "evidence": "unauthenticated-api.json",
+      "detail": "Four read endpoints rejected unauthenticated requests with HTTP 401 / code 40104."
+    },
+    {
+      "id": "PARAMETER-VARIANTS",
+      "status": "PASS",
+      "count": 43,
+      "note": "42 原断言通过；缺分组错误码断言修正为拒绝语义后 1 通过，原始证据保留。"
+    },
+    {
+      "id": "LIVE-LOAD200-4-PROMOTERS",
+      "status": "FAIL",
+      "expected": 200,
+      "success": 198,
+      "failed": 2,
+      "note": "两次资格暂停；未扩大负载。"
+    },
+    {
+      "id": "CROSS-LAYER-RECONCILIATION",
+      "status": "PASS",
+      "records": 234,
+      "uniqueCommands": 234,
+      "outboxSent": 234,
+      "protocolResults": 234,
+      "success": 232,
+      "failed": 2
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "MAT-01",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "文字素材创建及按名称/ID 查回。",
+      "evidence": [
+        "phase1.json",
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "MAT-02",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "FAIL",
+      "note": "图片素材可建，但纯图片定义、任务检查、任务创建均 40001：营销模板发送内容为空。GM-BUG-01。",
+      "evidence": [
+        "media-upload.json",
+        "media-library.json",
+        "media-positive.json"
+      ]
+    },
+    {
+      "caseId": "MAT-03",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "PARTIAL",
+      "note": "图文与 Android 单链接按钮保存并真实发送成功；无独立成员设备展示/点击证据。纯图片失败，Web/混合未跑。",
+      "evidence": [
+        "media-positive.json",
+        "media-final-and-timing-start.json",
+        "all-protocol-events.json"
+      ]
+    },
+    {
+      "caseId": "MAT-04",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "PARTIAL",
+      "note": "图文与 Android 单链接按钮保存并真实发送成功；无独立成员设备展示/点击证据。纯图片失败，Web/混合未跑。",
+      "evidence": [
+        "media-positive.json",
+        "media-final-and-timing-start.json",
+        "all-protocol-events.json"
+      ]
+    },
+    {
+      "caseId": "MAT-05",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "任务内嵌消息的非法内容变体已拦截；素材创建接口的全部同类变体未逐项重复。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "MAT-06",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "复制、编辑副本独立性及 keyword/ID 查询已验；类型筛选/素材多页未全部验。",
+      "evidence": [
+        "library-final.json",
+        "phase1.json"
+      ]
+    },
+    {
+      "caseId": "MAT-07",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "修改素材后定义、任务快照不变，任务按旧内容执行。",
+      "evidence": [
+        "phase1.json",
+        "smoke-observation-1.json"
+      ]
+    },
+    {
+      "caseId": "MAT-08",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "有引用图片删除被 40901 拦截；定义删除后任务仍引用且可执行。图片同时被素材引用，尚未隔离出“只被定义引用”条件。",
+      "evidence": [
+        "media-positive.json",
+        "media-start.json"
+      ]
+    },
+    {
+      "caseId": "DEF-01",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "定义 accountId 均无绑定；API 省略 null 属性，已纠正初版严格 null 断言。",
+      "evidence": [
+        "phase1.json",
+        "smoke-observation-1.json"
+      ]
+    },
+    {
+      "caseId": "DEF-02",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "编辑副本、启停和 status 筛选通过；顺序/等待编辑与多页未逐项测。",
+      "evidence": [
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "DEF-03",
+      "priority": "P1",
+      "method": "API",
+      "status": "PASS",
+      "note": "复制定义新 ID，编辑副本后原定义不变。",
+      "evidence": [
+        "phase1.json",
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "DEF-04",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "PASS",
+      "note": "定义编辑/停用后 task 3 保留 v1；定义 4 软删后 task 8 副本仍成功执行。",
+      "evidence": [
+        "phase1.json",
+        "media-start.json",
+        "media-final-and-timing-start.json"
+      ]
+    },
+    {
+      "caseId": "DEF-05",
+      "priority": "P1",
+      "method": "API+UI",
+      "status": "PARTIAL",
+      "note": "启用列表排除停用项已验；双会话旧候选竞态未验。",
+      "evidence": [
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "DEF-06",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "定义绑定具体管理员账号被拒绝。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "DEF-07",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "不同推手 roleKey 去重、缺角色定义拒绝通过；同名混用在任务 check 校验，未在定义接口重复。",
+      "evidence": [
+        "parameter-cases.json",
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "DEF-08",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "2/100/101 步和 roleKey 边界已通过任务 check 验证；完整定义保存边界未逐项执行。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "CFG-01",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "直接编排/定义复制草稿、零发送及管理员/推手/分组必填校验通过；缺分组 40401 也是正确拒绝。",
+      "evidence": [
+        "phase1.json",
+        "parameter-cases.json",
+        "controls-start.json",
+        "db-reconciliation.txt"
+      ]
+    },
+    {
+      "caseId": "CFG-02",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "直接编排/定义复制草稿、零发送及管理员/推手/分组必填校验通过；缺分组 40401 也是正确拒绝。",
+      "evidence": [
+        "phase1.json",
+        "parameter-cases.json",
+        "controls-start.json",
+        "db-reconciliation.txt"
+      ]
+    },
+    {
+      "caseId": "CFG-03",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "直接编排/定义复制草稿、零发送及管理员/推手/分组必填校验通过；缺分组 40401 也是正确拒绝。",
+      "evidence": [
+        "phase1.json",
+        "parameter-cases.json",
+        "controls-start.json",
+        "db-reconciliation.txt"
+      ]
+    },
+    {
+      "caseId": "CFG-04",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "空群/重复 ID/101 群被拒绝；未准备 100 个真实不同群、不同条目同 JID、非法 JID 变体。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "CFG-05",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "按 Android/Web 分组发现不同群及目标列表；跨页去重与搜索组合未完整执行。",
+      "evidence": [
+        "api-preflight.json",
+        "batch-readiness.json"
+      ]
+    },
+    {
+      "caseId": "CFG-06",
+      "priority": "P1",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "0、随机、86400 与非法等待边界及 3 秒真实执行已验；默认间隔 1 秒边界未单独验。",
+      "evidence": [
+        "parameter-cases.json",
+        "computed-metrics.json"
+      ]
+    },
+    {
+      "caseId": "CFG-07",
+      "priority": "P1",
+      "method": "API",
+      "status": "PASS",
+      "note": "无开始/未来开始及非法截止边界；未来任务真实零提交等待、截止停止。",
+      "evidence": [
+        "parameter-cases.json",
+        "timing-final-and-paused-deadline.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "CFG-08",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "暂停中编辑已启动任务被 40901 拒绝；草稿编辑全变体与运行中编辑未逐项验。",
+      "evidence": [
+        "controls-resume.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-01",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "现有池总数 8；未配置专用总数 1/2/3/5/6 的独立池。不能把群内缺人替代总数门槛测试。",
+      "evidence": [
+        "batch-readiness.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-02",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "p1 三次、p2 一次得到 requiredPromoters=2。",
+      "evidence": [
+        "library-final.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-03",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "合格群+零候选群完整报告；另 10 群各 required5/available4/shortage1。尚无合格+缺1 的同一两群任务。",
+      "evidence": [
+        "phase1.json",
+        "batch-readiness.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-04",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "分组 8 个但目标群 0 候选仍被拦截；事实未知变体未执行。",
+      "evidence": [
+        "phase1.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-05",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "真实快照捕获 offline=1 后恢复为 0，资格重算；未控制具体账号离线并完整闭环。",
+      "evidence": [
+        "media-positive.json",
+        "phase1.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-06",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-07",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-08",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "管理员 685 在池内但不计推手，最多 4 个候选；管理员离线/退群/禁言变体未控测。",
+      "evidence": [
+        "load200-start.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-09",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "Android 复制/快捷回复/双链接角色被拦截；支持单链接真实成功。纯 Web/混合候选分配未验。",
+      "evidence": [
+        "media-positive.json",
+        "media-final-and-timing-start.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-10",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-11",
+      "priority": "P0",
+      "method": "API",
+      "status": "PASS",
+      "note": "task 4 全单启动拦截，所有群无绑定、记录/outbox 均 0，结束时仍草稿。",
+      "evidence": [
+        "phase1.json",
+        "final-task-snapshots.json",
+        "db-reconciliation.txt"
+      ]
+    },
+    {
+      "caseId": "QUAL-12",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "新增 774、71 加入指定 10 群的审批未通过且用户具体授权待答；进群任务未创建。",
+      "evidence": [
+        "approval-boundaries.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-13",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "每群不同角色账号唯一；全量 234 条记录均匹配原 bindings；控制恢复不换号。",
+      "evidence": [
+        "computed-metrics.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-14",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "QUAL-15",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-01",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "双群文本 8 个唯一命令成功；首项不等待 30 秒；下一项早于上一结果；单群暂停不阻塞另一群；未来开始前 0 条。",
+      "evidence": [
+        "smoke-observation-1.json",
+        "all-protocol-events.json",
+        "single-group-resume.json",
+        "timing-final-and-paused-deadline.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-02",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "双群文本 8 个唯一命令成功；首项不等待 30 秒；下一项早于上一结果；单群暂停不阻塞另一群；未来开始前 0 条。",
+      "evidence": [
+        "smoke-observation-1.json",
+        "all-protocol-events.json",
+        "single-group-resume.json",
+        "timing-final-and-paused-deadline.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-03",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PARTIAL",
+      "note": "3 秒与 5 秒等待均按提交时间观察，无提前；尚未单任务按 3/5/3 完整编排。",
+      "evidence": [
+        "computed-metrics.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-04",
+      "priority": "P0",
+      "method": "LIVE+FAULT",
+      "status": "PASS",
+      "note": "双群文本 8 个唯一命令成功；首项不等待 30 秒；下一项早于上一结果；单群暂停不阻塞另一群；未来开始前 0 条。",
+      "evidence": [
+        "smoke-observation-1.json",
+        "all-protocol-events.json",
+        "single-group-resume.json",
+        "timing-final-and-paused-deadline.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-05",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "随机等待只做参数校验；服务重启需独占/隔离窗口，本轮未重启共享后端。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-06",
+      "priority": "P1",
+      "method": "API+LIVE",
+      "status": "NOT_RUN",
+      "note": "未执行默认30秒与显式3秒、逐项0秒真实发送对比。",
+      "evidence": [
+        "parameter-cases.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-07",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "双群文本 8 个唯一命令成功；首项不等待 30 秒；下一项早于上一结果；单群暂停不阻塞另一群；未来开始前 0 条。",
+      "evidence": [
+        "smoke-observation-1.json",
+        "all-protocol-events.json",
+        "single-group-resume.json",
+        "timing-final-and-paused-deadline.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-08",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "没有指定成员设备接收证据；不得将 send_result_reported 当成员收件或已读。",
+      "evidence": [
+        "all-protocol-events.json",
+        "approval-boundaries.json"
+      ]
+    },
+    {
+      "caseId": "EXEC-09",
+      "priority": "P1",
+      "method": "LIVE",
+      "status": "PARTIAL",
+      "note": "Android 文本/图文/单链接成功；纯图片失败；Web、混合及接收展示未覆盖。",
+      "evidence": [
+        "all-protocol-events.json",
+        "media-positive.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-01",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "整任务/单群暂停恢复按原进度和绑定；运行、暂停两种状态均到期 CLOSED，暂停到期任务 10 零发送。",
+      "evidence": [
+        "controls-resume.json",
+        "single-group-resume.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-02",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "整任务/单群暂停恢复按原进度和绑定；运行、暂停两种状态均到期 CLOSED，暂停到期任务 10 零发送。",
+      "evidence": [
+        "controls-resume.json",
+        "single-group-resume.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-03",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-04",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "缺少隔离的发言权限/未知成员/角色能力匹配/原绑定失效控制条件；未修改群权限或共享账号事实造场景。",
+      "evidence": [
+        "resource-observations.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-05",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "整任务/单群暂停恢复按原进度和绑定；运行、暂停两种状态均到期 CLOSED，暂停到期任务 10 零发送。",
+      "evidence": [
+        "controls-resume.json",
+        "single-group-resume.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-06",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PARTIAL",
+      "note": "整单暂停和截止后单群 resume 均被拒；整单恢复保留单群暂停的组合未验。",
+      "evidence": [
+        "controls-resume.json",
+        "timing-final-and-paused-deadline.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-07",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PARTIAL",
+      "note": "批量任务出现真实资格变化自动暂停、其他群继续；恢复保持绑定。根因账号事实时间线未完整定位，离线/退群/禁言各变体未控测。",
+      "evidence": [
+        "load200-observation.json",
+        "load200-check.json",
+        "load200-recovery.json",
+        "load200-final.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-08",
+      "priority": "P0",
+      "method": "LIVE+FAULT",
+      "status": "PARTIAL",
+      "note": "等待期 close、关闭后 start 拒绝通过；HELD/明确未投递取消需隔离故障条件。",
+      "evidence": [
+        "controls-resume.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-09",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "PASS",
+      "note": "整任务/单群暂停恢复按原进度和绑定；运行、暂停两种状态均到期 CLOSED，暂停到期任务 10 零发送。",
+      "evidence": [
+        "controls-resume.json",
+        "single-group-resume.json",
+        "final-task-snapshots.json"
+      ]
+    },
+    {
+      "caseId": "CTRL-10",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "PARTIAL",
+      "note": "重复 pause、已关闭 start 等转换部分覆盖；并发双 start/完成后 resume 未完整执行。",
+      "evidence": [
+        "controls-resume.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-01",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-02",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-03",
+      "priority": "P0",
+      "method": "LIVE+FAULT",
+      "status": "PARTIAL",
+      "note": "账号 687 两条真实 SEND_FAILED 写回原记录，未重试；后续步骤在资格恢复后继续。不能代替资格稳定的受控失败场景。",
+      "evidence": [
+        "load200-failures.json",
+        "all-protocol-events.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-04",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-05",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-06",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-07",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "RESULT-08",
+      "priority": "P0",
+      "method": "FAULT",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-01",
+      "priority": "P0",
+      "method": "API+UI",
+      "status": "PARTIAL",
+      "note": "4 个未登录读取接口均 HTTP401；缺少仅 view、无 view 账号做分权验证。",
+      "evidence": [
+        "unauthenticated-api.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-02",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "仅有 U1 正式业务会话，缺少分权、同租户其他用户和另一租户测试身份。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-03",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "仅有 U1 正式业务会话，缺少分权、同租户其他用户和另一租户测试身份。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-04",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "仅有 U1 正式业务会话，缺少分权、同租户其他用户和另一租户测试身份。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-05",
+      "priority": "P0",
+      "method": "API",
+      "status": "PARTIAL",
+      "note": "同用户另一任务 groupId 返回 40401；跨用户/跨租户变体无测试身份。",
+      "evidence": [
+        "controls-resume.json"
+      ]
+    },
+    {
+      "caseId": "AUTH-06",
+      "priority": "P0",
+      "method": "API",
+      "status": "BLOCKED",
+      "note": "仅有 U1 正式业务会话，缺少分权、同租户其他用户和另一租户测试身份。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "UI-01",
+      "priority": "P0",
+      "method": "UI",
+      "status": "PARTIAL",
+      "note": "正式养群任务和养群剧本页面可访问，按钮可见；三菜单及旧菜单 ID 完整比对未完成。",
+      "evidence": [
+        "ui-menu-snapshot.json"
+      ]
+    },
+    {
+      "caseId": "UI-02",
+      "priority": "P0",
+      "method": "UI",
+      "status": "NOT_RUN",
+      "note": "本轮以 API 回归为主；发现纯图片 P0 缺陷后未继续完整页面交互回归。",
+      "evidence": []
+    },
+    {
+      "caseId": "UI-03",
+      "priority": "P0",
+      "method": "UI",
+      "status": "NOT_RUN",
+      "note": "本轮以 API 回归为主；发现纯图片 P0 缺陷后未继续完整页面交互回归。",
+      "evidence": []
+    },
+    {
+      "caseId": "UI-04",
+      "priority": "P0",
+      "method": "UI",
+      "status": "NOT_RUN",
+      "note": "本轮以 API 回归为主；发现纯图片 P0 缺陷后未继续完整页面交互回归。",
+      "evidence": []
+    },
+    {
+      "caseId": "UI-05",
+      "priority": "P0",
+      "method": "UI",
+      "status": "NOT_RUN",
+      "note": "本轮以 API 回归为主；发现纯图片 P0 缺陷后未继续完整页面交互回归。",
+      "evidence": []
+    },
+    {
+      "caseId": "UI-06",
+      "priority": "P1",
+      "method": "UI",
+      "status": "NOT_RUN",
+      "note": "本轮以 API 回归为主；发现纯图片 P0 缺陷后未继续完整页面交互回归。",
+      "evidence": []
+    },
+    {
+      "caseId": "UI-07",
+      "priority": "P0",
+      "method": "UI",
+      "status": "PARTIAL",
+      "note": "页面已观察运行/完成/关闭计数；失败/UNKNOWN/HELD 等全部视图未验。",
+      "evidence": [
+        "ui-menu-snapshot.json"
+      ]
+    },
+    {
+      "caseId": "LEGACY-01",
+      "priority": "P0",
+      "method": "API+LIVE",
+      "status": "BLOCKED",
+      "note": "未获得适合继续执行/转换的真实旧任务；未创建旧格式库数据。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "LEGACY-02",
+      "priority": "P1",
+      "method": "API+UI",
+      "status": "BLOCKED",
+      "note": "未获得适合继续执行/转换的真实旧任务；未创建旧格式库数据。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "LEGACY-03",
+      "priority": "P0",
+      "method": "环境核验",
+      "status": "PARTIAL",
+      "note": "运行 JAR hash 与已验收制品一致，V180/V186/V187 成功；前端/协议精确源码提交未独立定位。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "LEGACY-04",
+      "priority": "P1",
+      "method": "API+LIVE",
+      "status": "BLOCKED",
+      "note": "缺少本轮命令级故障隔离/独占重启窗口；未伪造事件、停共享消费者或改库。",
+      "evidence": [
+        "environment.json"
+      ]
+    },
+    {
+      "caseId": "LOAD-01",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "原用例要求 5 推手；实际执行 4 推手变体 200 条，198 成功/2 失败且两次人工恢复。变体未通过稳定性验收，不能填原用例 PASS。",
+      "evidence": [
+        "load200-start.json",
+        "load200-failures.json",
+        "computed-metrics.json"
+      ]
+    },
+    {
+      "caseId": "LOAD-02",
+      "priority": "P1",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "200 条前置阶段有失败和重复暂停，停止升级；目前只有 20 个同池测试群，也不满足 50/100 群规模。",
+      "evidence": [
+        "load200-failures.json",
+        "batch-readiness.json"
+      ]
+    },
+    {
+      "caseId": "LOAD-03",
+      "priority": "P1",
+      "method": "LIVE",
+      "status": "BLOCKED",
+      "note": "200 条前置阶段有失败和重复暂停，停止升级；目前只有 20 个同池测试群，也不满足 50/100 群规模。",
+      "evidence": [
+        "load200-failures.json",
+        "batch-readiness.json"
+      ]
+    },
+    {
+      "caseId": "LOAD-04",
+      "priority": "P0",
+      "method": "LIVE",
+      "status": "NOT_RUN",
+      "note": "未另建 5 推手 200 条手动暂停场景；双群控制及批量自然暂停证据不等同完整本用例。",
+      "evidence": [
+        "single-group-resume.json",
+        "load200-recovery.json"
+      ]
+    }
+  ],
+  "protocolSuccess": 232,
+  "protocolFailed": 2,
+  "unknown": 0,
+  "inFlight": 0,
+  "uniqueCommands": 234,
+  "observedReceiverMessages": null,
+  "caseSummary": {
+    "PASS": 21,
+    "FAIL": 1,
+    "PARTIAL": 30,
+    "BLOCKED": 28,
+    "NOT_RUN": 7
+  }
+}

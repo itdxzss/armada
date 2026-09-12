@@ -1,7 +1,7 @@
 # 养群管理三菜单与逐群资格
 
 - 日期 / 分支 / 工作目录：2026-09-10 / 1.0.3-snapshot / Armada 主工作目录。
-- 状态：本地实现与聚焦验证完成；未提交、推送、部署、访问真库或启动真实任务。
+- 状态：已部署 test1，真实建群、进群和双群剧本发送已验证；隔离候选本地提交，未推送。
 - 需求来源：用户确认分组随机安排推手、全部勾选群营销、提交时刻计时；推手不足交给独立进群任务处理，并展示友好缺口。
 
 ## 实施
@@ -17,6 +17,6 @@
 
 ## 验证和部署
 
-结果见 [验证记录](script-marketing-refinement/test-summary.md)；接口见 [增量 API](script-marketing-refinement/api.md)。真实环境迁移、接口联调、送达验证和 schema wiki 刷新仍属于后续已确认环境中的发布验收。
+结果见 [验证记录](script-marketing-refinement/test-summary.md) 和 [test1 验收](script-marketing-refinement/acceptance-20260910.md)；接口见 [增量 API](script-marketing-refinement/api.md)。V186/V187、菜单权限、真实任务和 schema wiki 已验证/更新；成员接收和已读回执尚未证实。
 
 [迁移索引](script-marketing-refinement/db-migrations.sql) 引用新增 Flyway 文件；[回退检查](script-marketing-refinement/rollback.sql) 不自动删表或数据。存在新任务时优先前向修复，不能直接把它们交给旧执行器。

@@ -13,4 +13,5 @@ public record ScriptMarketingSendRecordVO(
         String messageId,
         Long submittedAt,
         Long finishedAt,
-        String accountPhone) { }
+        String accountPhone,
+        String replyFallbackReason) { }

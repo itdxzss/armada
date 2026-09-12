@@ -1,0 +1,1212 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789087246531,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-materials?keyword=GM-20260911-080650&page=1&pageSize=100",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "createdAt": 1789086745064,
+              "id": 44,
+              "linkMode": 2,
+              "mentionAll": false,
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "updatedAt": 1789086745064
+            },
+            {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "createdAt": 1789086744578,
+              "id": 43,
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "updatedAt": 1789086744578
+            },
+            {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "createdAt": 1789086744085,
+              "id": 42,
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image",
+              "updatedAt": 1789086744085
+            },
+            {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650-material-v1",
+              "createdAt": 1789085630788,
+              "id": 41,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text副本",
+              "updatedAt": 1789085630788
+            },
+            {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650-material-v2",
+              "createdAt": 1789085630315,
+              "id": 40,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "updatedAt": 1789085632721
+            }
+          ],
+          "page": 1,
+          "pageSize": 100,
+          "total": 5,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087245234
+    },
+    {
+      "finishedAt": 1789087247019,
+      "httpStatus": 200,
+      "method": "PUT",
+      "path": "/api/script-materials/41",
+      "request": {
+        "bodyText": "",
+        "buttons": [],
+        "content": "GM-20260911-080650 copy-only update",
+        "imageFileId": null,
+        "linkMode": 1,
+        "mentionAll": false,
+        "promotionLink": "",
+        "remark": "test1 group-maintenance regression",
+        "templateName": "GM-20260911-080650-copy-edited",
+        "textType": null
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "bodyText": "",
+          "buttons": [],
+          "content": "GM-20260911-080650 copy-only update",
+          "createdAt": 1789085630788,
+          "id": 41,
+          "linkMode": 1,
+          "mentionAll": false,
+          "promotionLink": "",
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-080650-copy-edited",
+          "updatedAt": 1789087246854
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087246531
+    },
+    {
+      "finishedAt": 1789087247498,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-materials?id=40&page=1&pageSize=10",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650-material-v2",
+              "createdAt": 1789085630315,
+              "id": 40,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "updatedAt": 1789085632721
+            }
+          ],
+          "page": 1,
+          "pageSize": 10,
+          "total": 1,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087247019
+    },
+    {
+      "finishedAt": 1789087247974,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-definitions/2",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": false,
+          "id": 2,
+          "name": "GM-20260911-080650-D4",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650-definition-v2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789085633734
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087247498
+    },
+    {
+      "finishedAt": 1789087248445,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-definitions/3",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": true,
+          "id": 3,
+          "name": "GM-20260911-080650-D4-copy",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 definition copy only",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789085634769
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087247974
+    },
+    {
+      "finishedAt": 1789087248937,
+      "httpStatus": 200,
+      "method": "PUT",
+      "path": "/api/script-definitions/3",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-D4-copy-edited",
+        "steps": [
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 definition copy only",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=2 / role=p2",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": true,
+          "id": 3,
+          "name": "GM-20260911-080650-D4-copy-edited",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 definition copy only",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789087248769
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087248445
+    },
+    {
+      "finishedAt": 1789087249410,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-definitions/2",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": false,
+          "id": 2,
+          "name": "GM-20260911-080650-D4",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650-definition-v2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789085633734
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087248937
+    },
+    {
+      "finishedAt": 1789087249887,
+      "httpStatus": 200,
+      "method": "PUT",
+      "path": "/api/script-definitions/3",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-D4-copy-edited",
+        "steps": [
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 definition copy only",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=2 / role=p2",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": false,
+          "id": 3,
+          "name": "GM-20260911-080650-D4-copy-edited",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 definition copy only",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789087249723
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087249410
+    },
+    {
+      "finishedAt": 1789087250361,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-definitions?keyword=GM-20260911-080650&status=0&page=1&pageSize=100",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "enabled": false,
+              "id": 3,
+              "name": "GM-20260911-080650-D4-copy-edited",
+              "updatedAt": 1789087249723
+            },
+            {
+              "enabled": false,
+              "id": 2,
+              "name": "GM-20260911-080650-D4",
+              "updatedAt": 1789085633734
+            }
+          ],
+          "page": 1,
+          "pageSize": 100,
+          "total": 2,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087249887
+    },
+    {
+      "finishedAt": 1789087250845,
+      "httpStatus": 200,
+      "method": "PUT",
+      "path": "/api/script-definitions/3",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-D4-copy-edited",
+        "steps": [
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 definition copy only",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=2 / role=p2",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text"
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": true,
+          "id": 3,
+          "name": "GM-20260911-080650-D4-copy-edited",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 definition copy only",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789087250675
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087250361
+    },
+    {
+      "finishedAt": 1789087251367,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-definitions?keyword=GM-20260911-080650&status=1&page=1&pageSize=100",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "enabled": true,
+              "id": 3,
+              "name": "GM-20260911-080650-D4-copy-edited",
+              "updatedAt": 1789087250675
+            }
+          ],
+          "page": 1,
+          "pageSize": 100,
+          "total": 1,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087250846
+    },
+    {
+      "finishedAt": 1789087252018,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=0 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-dedup-roles"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789087251860,
+          "groups": [
+            {
+              "available": 4,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": true,
+          "requiredPromoters": 2
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789087251367
+    },
+    {
+      "finishedAt": 1789087252503,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-definitions",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-invalid-ADMIN",
+        "steps": [
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=0 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 40001,
+        "message": "至少配置一个管理员和一个推手角色"
+      },
+      "startedAt": 1789087252018
+    },
+    {
+      "finishedAt": 1789087252975,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-definitions",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-invalid-PROMOTER",
+        "steps": [
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=0 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "promoter",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "promoter",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 40001,
+        "message": "至少配置一个管理员和一个推手角色"
+      },
+      "startedAt": 1789087252503
+    }
+  ],
+  "result": {
+    "definitionCopyIndependent": true,
+    "disabledIds": [
+      3,
+      2
+    ],
+    "enabledIds": [
+      3
+    ],
+    "materialCopyIndependent": true,
+    "requiredPromoters": 2,
+    "roleNeg": [
+      {
+        "response": {
+          "code": 40001,
+          "message": "至少配置一个管理员和一个推手角色"
+        },
+        "role": "ADMIN"
+      },
+      {
+        "response": {
+          "code": 40001,
+          "message": "至少配置一个管理员和一个推手角色"
+        },
+        "role": "PROMOTER"
+      }
+    ],
+    "sourceMaterial": 40
+  }
+}

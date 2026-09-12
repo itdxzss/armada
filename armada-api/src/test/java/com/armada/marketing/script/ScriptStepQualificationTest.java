@@ -101,6 +101,6 @@ class ScriptStepQualificationTest {
     }
 
     ScriptMarketingStepDTO step(String role) {
-        return new ScriptMarketingStepDTO(role, null, message, "当前角色", 10, 10);
+        return new ScriptMarketingStepDTO(role, null, message, "当前角色", 10, 10, null, null);
     }
 }

@@ -158,7 +158,7 @@ public class MarketingMessageCommandFactory {
                         mediaPayload(message.imageBytes(), message.imageMimetype()),
                         linkCardPayload(message.linkCard()),
                         buttonCardPayload(message.buttonCard())),
-                message.mentionAll());
+                message.mentionAll(), null);
     }
 
     private static MessageSendCommand.MessageLinkCard linkCardPayload(

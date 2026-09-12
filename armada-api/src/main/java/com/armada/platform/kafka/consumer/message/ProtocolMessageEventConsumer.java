@@ -288,7 +288,14 @@ public class ProtocolMessageEventConsumer {
                 feedTask
                         ? requiredLong(data, "feedTaskAccountId", "feed_task result missing data.feedTaskAccountId")
                         : longValue(data, "feedTaskAccountId"),
-                text(data, "outcome"), booleanValue(data, "terminal"));
+                text(data, "outcome"), booleanValue(data, "terminal"), scriptTask ? quoteContext(data.get("quoteContext")) : null);
+    }
+
+    private static com.armada.platform.protocol.model.command.MessageQuoteContext quoteContext(JsonNode node) {
+        if (node == null || !node.isObject() || !node.path("version").isInt()) return null;
+        var context = new com.armada.platform.protocol.model.command.MessageQuoteContext(
+                node.get("version").intValue(), text(node, "senderJid"), text(node, "messageBase64"));
+        return context.valid() ? context : null;
     }
 
     private static ProtocolMessageAckEvent toAckEvent(JsonNode envelope, JsonNode data) {

@@ -18,6 +18,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -40,6 +42,7 @@ public class ScriptMarketingContentService {
     }
     /** 验证最低角色配置、固定账号归属和每条真实消息。 */
     public void validate(List<ScriptMarketingStepDTO> steps) {
+        steps = normalizeSteps(steps);
         if (steps == null || steps.size() < 2 || steps.size() > 100) {
             throw new BusinessException(ErrorCode.VALIDATION, "至少配置管理员和推手，最多 100 项");
         }
@@ -70,6 +73,7 @@ public class ScriptMarketingContentService {
     }
     /** 校验角色和逐项间隔；新任务账号在启动时分配，仍能复核旧任务的固定管理员。 */
     public void validateRoles(List<ScriptMarketingStepDTO> steps) {
+        steps = normalizeSteps(steps);
         if (steps == null || steps.size() < 2 || steps.size() > 100) {
             throw new BusinessException(ErrorCode.VALIDATION, "请配置 2–100 个发送项");
         }
@@ -148,16 +152,42 @@ public class ScriptMarketingContentService {
     }
     /** 持久化业务人员填写的完整有序内容。 */
     public String encode(List<ScriptMarketingStepDTO> steps) {
-        try { return json.writeValueAsString(steps); }
+        try { return json.writeValueAsString(normalizeSteps(steps)); }
         catch (JsonProcessingException ex) {
             throw new BusinessException(ErrorCode.VALIDATION, "剧本配置无法保存");
         }
     }
     /** 恢复数据库内固定的发送顺序。 */
     public List<ScriptMarketingStepDTO> decode(String value) {
-        try { return json.readValue(value, new TypeReference<List<ScriptMarketingStepDTO>>() { }); }
+        try { return normalizeSteps(json.readValue(value, new TypeReference<List<ScriptMarketingStepDTO>>() { })); }
         catch (JsonProcessingException ex) {
             throw new BusinessException(ErrorCode.VALIDATION, "剧本配置无法读取");
         }
+    }
+    /** 旧列表按位置归一化；含引用的列表必须携带完整身份，不能根据位置猜测关系。 */
+    private List<ScriptMarketingStepDTO> normalizeSteps(List<ScriptMarketingStepDTO> steps) {
+        if (steps == null || steps.size() < 2 || steps.size() > 100 || steps.stream().anyMatch(Objects::isNull)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请配置 2–100 个有效发送项");
+        }
+        boolean hasReply = steps.stream().anyMatch(step -> step.replyToStepId() != null && !step.replyToStepId().isBlank());
+        var seen = new HashSet<String>();
+        var result = new ArrayList<ScriptMarketingStepDTO>();
+        for (int index = 0; index < steps.size(); index++) {
+            var step = steps.get(index);
+            String id = step.stepId();
+            if (id == null && !hasReply) id = "legacy_" + index;
+            if (id == null || !id.matches("[A-Za-z0-9_-]{1,64}") || seen.contains(id)) {
+                throw new BusinessException(ErrorCode.VALIDATION, "第 " + (index + 1) + " 句标识缺失、重复或无效");
+            }
+            String target = step.replyToStepId();
+            if (target != null && target.isEmpty()) target = null;
+            if (target != null && !seen.contains(target)) {
+                throw new BusinessException(ErrorCode.VALIDATION, "第 " + (index + 1) + " 句回复目标必须是前面的一句对话");
+            }
+            seen.add(id);
+            result.add(new ScriptMarketingStepDTO(step.role(), step.accountId(), step.message(), step.roleKey(),
+                    step.waitMinSeconds(), step.waitMaxSeconds(), id, target));
+        }
+        return List.copyOf(result);
     }
 }

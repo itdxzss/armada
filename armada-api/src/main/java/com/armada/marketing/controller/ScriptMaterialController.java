@@ -1,5 +1,6 @@
 package com.armada.marketing.controller;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
@@ -31,15 +32,15 @@ public class ScriptMaterialController {
     /** 新建完整消息素材，图片只保存公共文件引用。 */
     @PostMapping
     @PreAuthorize("hasAuthority('tenant:script_marketing:view') and hasAuthority('tenant:script_marketing:create')")
-    public ApiResponse<MarketingTemplateVO> create(@RequestBody MarketingTemplateDTO dto) { return ApiResponse.ok(service.create(dto)); }
+    public ApiResponse<MarketingTemplateVO> create(@RequestBody MarketingTemplateDTO dto) { return ApiResponse.ok(service.create(dto, ResourceAssetScope.SCRIPT)); }
     /** 更新素材，仅新选用的剧本会读取新内容，已复制的剧本保持快照。 */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('tenant:script_marketing:view') and hasAuthority('tenant:script_marketing:edit')")
     public ApiResponse<MarketingTemplateVO> update(@PathVariable Long id, @RequestBody MarketingTemplateDTO dto) {
-        return ApiResponse.ok(service.update(id, dto));
+        return ApiResponse.ok(service.update(id, dto, ResourceAssetScope.SCRIPT));
     }
     /** 复制为一条新的公共消息素材。 */
     @PostMapping("/{id}/clone")
     @PreAuthorize("hasAuthority('tenant:script_marketing:view') and hasAuthority('tenant:script_marketing:create')")
-    public ApiResponse<MarketingTemplateVO> copy(@PathVariable Long id) { return ApiResponse.ok(service.clone(id)); }
+    public ApiResponse<MarketingTemplateVO> copy(@PathVariable Long id) { return ApiResponse.ok(service.clone(id, ResourceAssetScope.SCRIPT)); }
 }

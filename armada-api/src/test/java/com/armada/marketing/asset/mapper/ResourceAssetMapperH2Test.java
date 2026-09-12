@@ -1,9 +1,17 @@
 package com.armada.marketing.asset.mapper;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.marketing.asset.model.dto.ResourceAssetQuery;
+import com.armada.marketing.asset.model.dto.ResourceAssetMoveDTO;
+import com.armada.marketing.asset.service.ResourceAssetGroupService;
+import com.armada.marketing.asset.service.ResourceAssetWriteService;
+import com.armada.marketing.asset.model.vo.ResourceAssetGroupVO;
+import com.armada.shared.exception.BusinessException;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 import com.armada.marketing.asset.model.entity.ResourceAssetTag;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
@@ -55,6 +63,225 @@ public class ResourceAssetMapperH2Test {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private ResourceAssetGroupService groupService;
+
+    @Autowired
+    private ResourceAssetWriteService writeService;
+
+    @Test
+    void legacyAssetsRemainVisibleInBothScopesAndNewUploadsStaySeparate() {
+        var legacy = insertFile("历史图片", 100L, new byte[] {1});
+        var hyperlink = fileMapper.selectById(legacy.getId());
+        hyperlink.setId(null);
+        hyperlink.setAssetScope(1);
+        fileMapper.insert(hyperlink);
+        var script = fileMapper.selectById(legacy.getId());
+        script.setId(null);
+        script.setAssetScope(2);
+        fileMapper.insert(script);
+        var query = query();
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(hyperlink.getId(), legacy.getId());
+        query.setScope(com.armada.marketing.asset.model.enums.ResourceAssetScope.SCRIPT);
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(script.getId(), legacy.getId());
+    }
+
+    @Test
+    void sharedHistoricalImageHasIndependentGroupsPerBusiness() {
+        var legacy = insertFile("历史共享图片", 100L, new byte[] {1});
+        var hyperlinkGroup = groupService.create("活动", ResourceAssetScope.HYPERLINK);
+        var scriptGroup = groupService.create("活动", ResourceAssetScope.SCRIPT);
+        groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId()), hyperlinkGroup.id()), ResourceAssetScope.HYPERLINK);
+        groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId()), scriptGroup.id()), ResourceAssetScope.SCRIPT);
+        assertThat(fileMapper.selectAssetMetadataById(legacy.getId(), 1).getGroupId()).isEqualTo(hyperlinkGroup.id());
+        assertThat(fileMapper.selectAssetMetadataById(legacy.getId(), 2).getGroupId()).isEqualTo(scriptGroup.id());
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::id).containsExactly(hyperlinkGroup.id());
+        assertThat(groupService.list(ResourceAssetScope.SCRIPT)).extracting(ResourceAssetGroupVO::id).containsExactly(scriptGroup.id());
+        assertThatThrownBy(() -> groupService.delete(scriptGroup.id(), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        groupService.delete(hyperlinkGroup.id(), ResourceAssetScope.HYPERLINK);
+        assertThat(fileMapper.selectAssetMetadataById(legacy.getId(), 1).getGroupId()).isNull();
+        assertThat(fileMapper.selectAssetMetadataById(legacy.getId(), 2).getGroupId()).isEqualTo(scriptGroup.id());
+        assertThat(fileMapper.selectById(legacy.getId()).getAssetScope()).isNull();
+    }
+
+    @Test
+    void newScriptAssetIsAbsentFromHyperlinkTagsDetailsAndWrites() {
+        var legacy = insertFile("旧图", 100L, new byte[] {1});
+        addTag(legacy.getId(), "历史标签", 100L);
+        var upload = fileMapper.selectById(legacy.getId());
+        upload.setId(null);
+        Long scriptId = writeService.create(upload, List.of("养群标签"), ResourceAssetScope.SCRIPT);
+        assertThat(fileMapper.selectAssetMetadataById(scriptId, 1)).isNull();
+        assertThat(fileMapper.selectAssetMetadataById(scriptId, 2)).isNotNull();
+        assertThat(tagMapper.selectActiveTagNames(1)).containsExactly("历史标签");
+        assertThat(tagMapper.selectActiveTagNames(2)).containsExactlyInAnyOrder("历史标签", "养群标签");
+        assertThatThrownBy(() -> writeService.update(scriptId, "跨业务编辑", List.of(), 200L, ResourceAssetScope.HYPERLINK))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> writeService.delete(scriptId, 200L, ResourceAssetScope.HYPERLINK))
+                .isInstanceOf(BusinessException.class);
+        var group = groupService.create("超链分组", ResourceAssetScope.HYPERLINK);
+        assertThatThrownBy(() -> groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId(), scriptId), group.id()), ResourceAssetScope.HYPERLINK))
+                .isInstanceOf(BusinessException.class);
+        assertThat(fileMapper.selectAssetMetadataById(legacy.getId(), 1).getGroupId()).isNull();
+        assertThat(fileMapper.selectById(scriptId).getDeletedAt()).isNull();
+    }
+
+    @Autowired
+    private com.armada.marketing.service.MarketingTemplateFileService bindingService;
+
+    @Test
+    void bindingAcceptsLegacyInBothBusinessesAndRejectsNewCrossBusinessIds() throws Exception {
+        var out = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "png", out);
+        var legacy = insertFile("历史图", 100L, out.toByteArray());
+        execute("UPDATE marketing_template_file SET content_type='image/png' WHERE id=" + legacy.getId());
+        var script = fileMapper.selectById(legacy.getId());
+        script.setId(null);
+        script.setAssetScope(2);
+        fileMapper.insert(script);
+        var tx = new TransactionTemplate(transactionManager);
+        tx.executeWithoutResult(status -> {
+            bindingService.lockAndValidateBindableAssets(List.of(legacy.getId()), ResourceAssetScope.HYPERLINK);
+            bindingService.lockAndValidateBindableAssets(List.of(legacy.getId(), script.getId()), ResourceAssetScope.SCRIPT);
+            assertThat(bindingService.lockContentForBinding(legacy.getId(), ResourceAssetScope.HYPERLINK).content()).isNotEmpty();
+        });
+        assertThatThrownBy(() -> tx.executeWithoutResult(status ->
+                bindingService.lockAndValidateBindableAssets(List.of(script.getId()), ResourceAssetScope.HYPERLINK)))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status ->
+                bindingService.lockContentForBinding(script.getId(), ResourceAssetScope.HYPERLINK)))
+                .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void deletingGroupPreservesImageBytesTagsAndReferences() throws SQLException {
+        var group = groupService.create(" 活动图片 ", ResourceAssetScope.HYPERLINK);
+        var image = insertFile("主图", 100L, new byte[] {1, 2});
+        addTag(image.getId(), "Promo", 100L);
+        execute("INSERT INTO marketing_template (tenant_id,image_file_id) VALUES (7," + image.getId() + ")");
+        groupService.move(new ResourceAssetMoveDTO(List.of(image.getId()), group.id()), ResourceAssetScope.HYPERLINK);
+        assertThat(fileMapper.selectAssetMetadataById(image.getId(), 1).getGroupId()).isEqualTo(group.id());
+        groupService.delete(group.id(), ResourceAssetScope.HYPERLINK);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).isEmpty();
+        var saved = fileMapper.selectById(image.getId());
+        assertThat(saved.getGroupId()).isNull();
+        assertThat(saved.getContent()).containsExactly(1, 2);
+        assertThat(saved.getDeletedAt()).isNull();
+        assertThat(fileMapper.countReferences(TENANT_ID, image.getId())).isEqualTo(1);
+        assertThat(tagMapper.selectActiveTagNames(1)).containsExactly("Promo");
+    }
+
+    @Test
+    void invalidBatchAndForeignGroupCannotChangeAnyAsset() {
+        var group = groupService.create("当前分组", ResourceAssetScope.HYPERLINK);
+        var image = insertFile("当前", 100L, new byte[] {1});
+        TenantContext.set(OTHER_TENANT_ID);
+        var foreignGroup = groupService.create("其他分组", ResourceAssetScope.HYPERLINK);
+        var foreign = insertFile("其他", 100L, new byte[] {2});
+        TenantContext.set(TENANT_ID);
+        assertThatThrownBy(() -> groupService.move(new ResourceAssetMoveDTO(
+                List.of(image.getId(), foreign.getId()), group.id()), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThat(fileMapper.selectAssetMetadataById(image.getId(), 1).getGroupId()).isNull();
+        assertThatThrownBy(() -> groupService.delete(foreignGroup.id(), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> groupService.move(new ResourceAssetMoveDTO(
+                List.of(image.getId()), foreignGroup.id()), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::id).containsExactly(group.id());
+        TenantContext.set(OTHER_TENANT_ID);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::id).containsExactly(foreignGroup.id());
+    }
+
+    @Test
+    void groupNamesAreRequiredAndUniqueWithinTenant() {
+        groupService.create("活动", ResourceAssetScope.HYPERLINK);
+        assertThatThrownBy(() -> groupService.create(" 活动 ", ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> groupService.create(" ", ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> groupService.create("a".repeat(65), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        TenantContext.set(OTHER_TENANT_ID);
+        assertThat(groupService.create("活动", ResourceAssetScope.HYPERLINK).id()).isNotNull();
+    }
+
+    @Test
+    void uploadIntoDeletedGroupFailsWithoutCreatingFile() {
+        var group = groupService.create("上传目标", ResourceAssetScope.HYPERLINK);
+        groupService.delete(group.id(), ResourceAssetScope.HYPERLINK);
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setGroupId(group.id());
+        assertThatThrownBy(() -> writeService.create(file, List.of(), ResourceAssetScope.HYPERLINK)).isInstanceOf(BusinessException.class);
+        assertThat(fileMapper.countAssetPage(query())).isZero();
+    }
+
+    @Test
+    void uploadStoresGroupAndDeleteRollbackRestoresBothGroupAndMembership() {
+        var group = groupService.create("保留分组", ResourceAssetScope.HYPERLINK);
+        var original = insertFile("原图片", 100L, new byte[] {1});
+        var upload = fileMapper.selectById(original.getId());
+        upload.setId(null);
+        upload.setGroupId(group.id());
+        Long uploadedId = writeService.create(upload, List.of(), ResourceAssetScope.HYPERLINK);
+        assertThat(fileMapper.selectAssetMetadataById(uploadedId, 1).getGroupId()).isEqualTo(group.id());
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            groupService.delete(group.id(), ResourceAssetScope.HYPERLINK);
+            throw new IllegalStateException("simulate rollback");
+        })).isInstanceOf(IllegalStateException.class);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::id).containsExactly(group.id());
+        assertThat(fileMapper.selectAssetMetadataById(uploadedId, 1).getGroupId()).isEqualTo(group.id());
+    }
+
+    @Test
+    void deleteAndConcurrentMoveSerializeOnGroupLock() throws Exception {
+        var group = groupService.create("并发分组", ResourceAssetScope.HYPERLINK);
+        var image = insertFile("图片", 100L, new byte[] {1});
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var worker = new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<?>>();
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                groupService.lockTarget(group.id(), ResourceAssetScope.HYPERLINK);
+                worker.set(executor.submit(() -> {
+                    TenantContext.set(TENANT_ID);
+                    try {
+                        started.countDown();
+                        groupService.move(new ResourceAssetMoveDTO(List.of(image.getId()), group.id()), ResourceAssetScope.HYPERLINK);
+                    } finally {
+                        TenantContext.clear();
+                    }
+                }));
+                try {
+                    assertThat(started.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                    assertThatThrownBy(() -> worker.get().get(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+                            .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(exception);
+                }
+                groupService.delete(group.id(), ResourceAssetScope.HYPERLINK);
+            });
+            assertThatThrownBy(() -> worker.get().get(3, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(BusinessException.class);
+            assertThat(fileMapper.selectAssetMetadataById(image.getId(), 1).getGroupId()).isNull();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void groupFilterSeparatesUngroupedAssets() throws SQLException {
+        var grouped = insertFile("分组图片", 100L, new byte[] {1});
+        var ungrouped = insertFile("未分组图片", 200L, new byte[] {2});
+        var group = groupService.create("测试分组", ResourceAssetScope.HYPERLINK);
+        groupService.move(new ResourceAssetMoveDTO(List.of(grouped.getId()), group.id()), ResourceAssetScope.HYPERLINK);
+        var query = query();
+        query.setGroupId(group.id());
+        assertThat(fileMapper.countAssetPage(query)).isEqualTo(1);
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(grouped.getId());
+        query.setGroupId(0L);
+        assertThat(fileMapper.selectAssetPage(query)).extracting(MarketingTemplateFile::getId)
+                .containsExactly(ungrouped.getId());
+    }
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -148,10 +375,10 @@ public class ResourceAssetMapperH2Test {
         assertThat(fileMapper.selectAssetPage(lower))
                 .extracting(MarketingTemplateFile::getId)
                 .containsExactly(current.getId());
-        assertThat(tagMapper.selectActiveTagNames()).containsExactly("Promo", "promo");
+        assertThat(tagMapper.selectActiveTagNames(1)).containsExactly("Promo", "promo");
         assertThat(tagMapper.selectRelationsByFileIds(List.of(current.getId(), other.getId())))
                 .allSatisfy(relation -> assertThat(relation.fileId()).isEqualTo(current.getId()));
-        assertThat(fileMapper.selectAssetMetadataById(other.getId())).isNull();
+        assertThat(fileMapper.selectAssetMetadataById(other.getId(), 1)).isNull();
     }
 
     @Test
@@ -164,7 +391,7 @@ public class ResourceAssetMapperH2Test {
         assertThat(fileMapper.updateAssetMetadata(other.getId(), "越权名称", 300L)).isZero();
         assertThat(fileMapper.softDeleteAsset(other.getId(), 300L)).isZero();
         assertThat(fileMapper.updateAssetMetadata(current.getId(), "已编辑", 300L)).isEqualTo(1);
-        assertThat(fileMapper.selectAssetMetadataById(current.getId()).getAssetName()).isEqualTo("已编辑");
+        assertThat(fileMapper.selectAssetMetadataById(current.getId(), 1).getAssetName()).isEqualTo("已编辑");
     }
 
     @Test
@@ -293,12 +520,30 @@ public class ResourceAssetMapperH2Test {
                     content BLOB NOT NULL,
                     owner_user_id BIGINT,
                     asset_name VARCHAR(128),
+                    asset_scope TINYINT,
                     width INT,
                     height INT,
                     created_by BIGINT,
                     created_at BIGINT NOT NULL,
                     updated_at BIGINT,
                     deleted_at BIGINT
+                )
+                """);
+        execute("""
+                CREATE TABLE resource_asset_group_ref (
+                    tenant_id BIGINT NOT NULL, file_id BIGINT NOT NULL,
+                    scope TINYINT NOT NULL, group_id BIGINT NOT NULL, created_at BIGINT NOT NULL,
+                    PRIMARY KEY (tenant_id, file_id, scope)
+                )
+                """);
+        execute("""
+                CREATE TABLE resource_asset_group (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    tenant_id BIGINT NOT NULL,
+                    group_name VARCHAR(64) NOT NULL,
+                    scope TINYINT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    UNIQUE (tenant_id, scope, group_name)
                 )
                 """);
         execute("""
@@ -357,6 +602,7 @@ public class ResourceAssetMapperH2Test {
     /** H2、生产 XML、租户插件和 Spring 事务管理器测试配置。 */
     @Configuration(proxyBeanMethods = false)
     @Import(MyBatisConfig.class)
+    @EnableTransactionManagement
     static class TestConfig {
 
         @Bean
@@ -387,7 +633,8 @@ public class ResourceAssetMapperH2Test {
             factory.setPlugins(interceptor);
             factory.setMapperLocations(
                     new ClassPathResource("mapper/marketing/MarketingTemplateFileMapper.xml"),
-                    new ClassPathResource("mapper/marketing/ResourceAssetTagMapper.xml"));
+                    new ClassPathResource("mapper/marketing/ResourceAssetTagMapper.xml"),
+                    new ClassPathResource("mapper/marketing/ResourceAssetGroupMapper.xml"));
             return factory.getObject();
         }
 
@@ -399,6 +646,27 @@ public class ResourceAssetMapperH2Test {
         @Bean
         MarketingTemplateFileMapper fileMapper(SqlSessionTemplate template) {
             return template.getMapper(MarketingTemplateFileMapper.class);
+        }
+
+        @Bean
+        ResourceAssetGroupMapper groupMapper(SqlSessionTemplate template) {
+            return template.getMapper(ResourceAssetGroupMapper.class);
+        }
+
+        @Bean
+        com.armada.marketing.service.MarketingTemplateFileService bindingService(MarketingTemplateFileMapper files) {
+            return new com.armada.marketing.service.impl.MarketingTemplateFileServiceImpl(files);
+        }
+
+        @Bean
+        ResourceAssetGroupService groupService(ResourceAssetGroupMapper groups, MarketingTemplateFileMapper files) {
+            return new ResourceAssetGroupService(groups, files);
+        }
+
+        @Bean
+        ResourceAssetWriteService writeService(MarketingTemplateFileMapper files, ResourceAssetTagMapper tags,
+                                               ResourceAssetGroupService groups) {
+            return new ResourceAssetWriteService(files, tags, groups);
         }
 
         @Bean

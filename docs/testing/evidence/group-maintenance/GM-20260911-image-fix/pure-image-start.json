@@ -1,0 +1,429 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789089485523,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-definitions",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-image-fix-pure-image",
+        "steps": [
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": true,
+          "id": 5,
+          "name": "GM-20260911-image-fix-pure-image",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789089485347
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789089484828
+    },
+    {
+      "finishedAt": 1789089486433,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-image-fix-pure-image-regression"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789089486232,
+          "groups": [
+            {
+              "available": 3,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": true,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态"
+              ],
+              "required": 1,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 3,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": true,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态"
+              ],
+              "required": 1,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": true,
+          "requiredPromoters": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789089485523
+    },
+    {
+      "finishedAt": 1789089487099,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-image-fix-pure-image-regression"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "id": 28,
+              "nextAt": 1789089486769,
+              "nextStep": 0,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 11
+            },
+            {
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 29,
+              "nextAt": 1789089486769,
+              "nextStep": 0,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 11
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789089486769,
+            "failedCount": 0,
+            "groupCount": 2,
+            "id": 11,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789089486769,
+            "status": 0,
+            "successCount": 0,
+            "taskName": "GM-20260911-image-fix-pure-image-regression",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789089486433
+    },
+    {
+      "finishedAt": 1789089487570,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": null,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": null,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-image-fix-pure-image",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-image-fix-pure-image-regression"
+      },
+      "response": {
+        "code": 40001,
+        "message": "消息内容必填，标题和正文分别不超过 10000 字"
+      },
+      "startedAt": 1789089487099
+    },
+    {
+      "finishedAt": 1789089488274,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/11/start",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789089487570
+    }
+  ],
+  "result": {
+    "definitionId": 5,
+    "expectedImages": 4,
+    "imageId": 34,
+    "noImage": {
+      "code": 40001,
+      "message": "消息内容必填，标题和正文分别不超过 10000 字"
+    },
+    "ready": true,
+    "start": {
+      "code": 0,
+      "message": "ok"
+    },
+    "taskId": 11
+  }
+}

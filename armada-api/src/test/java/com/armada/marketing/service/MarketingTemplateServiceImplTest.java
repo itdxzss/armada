@@ -1,5 +1,6 @@
 package com.armada.marketing.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -77,7 +78,7 @@ class MarketingTemplateServiceImplTest {
 
     @Test
     void create_blankName_throws() {
-        assertThatThrownBy(() -> service.create(dto(" ", LinkMode.NORMAL.code(), null)))
+        assertThatThrownBy(() -> service.create(dto(" ", LinkMode.NORMAL.code(), null), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("模板名称不能为空");
         verify(mapper, never()).insert(any());
@@ -86,7 +87,7 @@ class MarketingTemplateServiceImplTest {
     @Test
     void create_duplicateName_throwsConflict() {
         when(mapper.existsByName(eq("dup"), isNull())).thenReturn(true);
-        assertThatThrownBy(() -> service.create(dto("dup", LinkMode.NORMAL.code(), null)))
+        assertThatThrownBy(() -> service.create(dto("dup", LinkMode.NORMAL.code(), null), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("已存在");
         verify(mapper, never()).insert(any());
@@ -96,7 +97,7 @@ class MarketingTemplateServiceImplTest {
     void create_normalModeWithButtons_throws() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null));
-        assertThatThrownBy(() -> service.create(dto("t", LinkMode.NORMAL.code(), buttons)))
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.NORMAL.code(), buttons), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("普通超链消息类型不可配置消息按钮");
     }
@@ -104,7 +105,7 @@ class MarketingTemplateServiceImplTest {
     @Test
     void create_buttonModeWithoutButtons_throws() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
-        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), List.of())))
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), List.of()), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("至少配置 1 个");
     }
@@ -130,7 +131,7 @@ class MarketingTemplateServiceImplTest {
                 "",
                 buttons,
                 "https://promo.example/legacy",
-                "备注"));
+                "备注"), ResourceAssetScope.MARKETING);
 
         assertThat(entity.getPromotionLink()).isNull();
         verify(mapper).insert(entity);
@@ -157,7 +158,7 @@ class MarketingTemplateServiceImplTest {
                 "",
                 buttons,
                 "not-a-url",
-                "备注"));
+                "备注"), ResourceAssetScope.MARKETING);
 
         assertThat(entity.getPromotionLink()).isNull();
         verify(mapper).insert(entity);
@@ -170,7 +171,7 @@ class MarketingTemplateServiceImplTest {
         when(converter.toEntity(any())).thenReturn(entity);
         when(mapper.selectById(any())).thenReturn(entity);
 
-        service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), null));
+        service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), null), ResourceAssetScope.MARKETING);
 
         verify(mapper).insert(entity);
         verify(converter).toVO(entity);
@@ -183,16 +184,16 @@ class MarketingTemplateServiceImplTest {
         when(converter.toEntity(any())).thenReturn(entity);
         when(mapper.selectById(any())).thenReturn(entity);
         service.create(new MarketingTemplateDTO("纯图片素材", LinkMode.IMAGE_TEXT.code(), null,
-                91L, "", null, null, null, null, false));
+                91L, "", null, null, null, null, false), ResourceAssetScope.MARKETING);
         InOrder order = inOrder(fileService, mapper);
-        order.verify(fileService).lockAndValidateBindableAssets(List.of(91L));
+        order.verify(fileService).lockAndValidateBindableAssets(List.of(91L), ResourceAssetScope.MARKETING);
         order.verify(mapper).insert(entity);
     }
 
     @Test
     void create_emptyImageMessageWithoutAssetIsRejected() {
         assertThatThrownBy(() -> service.create(new MarketingTemplateDTO("空素材", LinkMode.IMAGE_TEXT.code(), null,
-                null, "", null, null, null, null, false)))
+                null, "", null, null, null, null, false), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("内容不能为空");
         verify(mapper, never()).insert(any());
     }
@@ -213,7 +214,7 @@ class MarketingTemplateServiceImplTest {
                 " ",
                 null,
                 "https://promo.example/vip",
-                "备注"));
+                "备注"), ResourceAssetScope.MARKETING);
 
         verify(mapper).insert(entity);
         verify(converter).toVO(entity);
@@ -224,7 +225,7 @@ class MarketingTemplateServiceImplTest {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null));
 
-        assertThatThrownBy(() -> service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), buttons)))
+        assertThatThrownBy(() -> service.create(dto("图文模板", LinkMode.IMAGE_TEXT.code(), buttons), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("图文内容消息类型不可配置消息按钮");
     }
@@ -233,7 +234,7 @@ class MarketingTemplateServiceImplTest {
     void create_tooManyButtons_throws() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         MessageButton b = new MessageButton(ButtonType.QUICK_REPLY, "回复", null);
-        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), List.of(b, b, b, b))))
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), List.of(b, b, b, b)), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("最多 3");
     }
@@ -242,7 +243,7 @@ class MarketingTemplateServiceImplTest {
     void create_linkJumpButtonWithoutParam_throws() {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.LINK_JUMP, "去看看", " "));
-        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons)))
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("必须填写参数");
     }
@@ -262,7 +263,7 @@ class MarketingTemplateServiceImplTest {
                 "not-a-url",
                 "备注");
 
-        assertThatThrownBy(() -> service.create(request))
+        assertThatThrownBy(() -> service.create(request, ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("推广链接格式不正确");
     }
@@ -272,7 +273,7 @@ class MarketingTemplateServiceImplTest {
         when(mapper.existsByName(any(), isNull())).thenReturn(false);
         List<MessageButton> buttons = List.of(new MessageButton(ButtonType.LINK_JUMP, "去看看", "abc"));
 
-        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons)))
+        assertThatThrownBy(() -> service.create(dto("t", LinkMode.BUTTON.code(), buttons), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("跳转链接格式不正确");
     }
@@ -284,7 +285,7 @@ class MarketingTemplateServiceImplTest {
         when(converter.toEntity(any())).thenReturn(entity);
         when(mapper.selectById(any())).thenReturn(entity);
 
-        service.create(dto("新模板", LinkMode.NORMAL.code(), null));
+        service.create(dto("新模板", LinkMode.NORMAL.code(), null), ResourceAssetScope.MARKETING);
 
         verify(mapper).insert(entity);
         verify(converter).toVO(entity);
@@ -336,7 +337,7 @@ class MarketingTemplateServiceImplTest {
     @Test
     void clone_notFound_throws() {
         when(mapper.selectById(eq(99L))).thenReturn(null);
-        assertThatThrownBy(() -> service.clone(99L))
+        assertThatThrownBy(() -> service.clone(99L, ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不存在");
     }
@@ -349,7 +350,7 @@ class MarketingTemplateServiceImplTest {
         origin.setMentionAll(true);
         when(mapper.selectById(7L)).thenReturn(origin);
 
-        service.clone(7L);
+        service.clone(7L, ResourceAssetScope.MARKETING);
 
         ArgumentCaptor<MarketingTemplate> inserted = ArgumentCaptor.forClass(MarketingTemplate.class);
         verify(mapper).insert(inserted.capture());
@@ -364,10 +365,10 @@ class MarketingTemplateServiceImplTest {
         origin.setImageFileId(88L);
         when(mapper.selectById(8L)).thenReturn(origin);
 
-        service.clone(8L);
+        service.clone(8L, ResourceAssetScope.MARKETING);
 
         InOrder ordered = inOrder(fileService, mapper);
-        ordered.verify(fileService).lockAndValidateBindableAssets(List.of(88L));
+        ordered.verify(fileService).lockAndValidateBindableAssets(List.of(88L), ResourceAssetScope.MARKETING);
         ordered.verify(mapper).insert(any(MarketingTemplate.class));
     }
 }

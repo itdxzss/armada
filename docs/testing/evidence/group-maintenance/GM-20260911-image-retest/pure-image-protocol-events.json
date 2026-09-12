@@ -1,0 +1,152 @@
+[
+  {
+    "topic": "protocol.message.events.v1",
+    "partitions": 12,
+    "startOffsets": [
+      {
+        "partition": 10,
+        "offset": "443109"
+      },
+      {
+        "partition": 4,
+        "offset": "243677"
+      },
+      {
+        "partition": 1,
+        "offset": "159009"
+      },
+      {
+        "partition": 7,
+        "offset": "323063"
+      },
+      {
+        "partition": 5,
+        "offset": "247862"
+      },
+      {
+        "partition": 8,
+        "offset": "219484"
+      },
+      {
+        "partition": 2,
+        "offset": "355437"
+      },
+      {
+        "partition": 11,
+        "offset": "300602"
+      },
+      {
+        "partition": 0,
+        "offset": "61878"
+      },
+      {
+        "partition": 9,
+        "offset": "139492"
+      },
+      {
+        "partition": 6,
+        "offset": "116302"
+      },
+      {
+        "partition": 3,
+        "offset": "156936"
+      }
+    ],
+    "endOffsets": [
+      {
+        "partition": 10,
+        "offset": "443109"
+      },
+      {
+        "partition": 4,
+        "offset": "243677"
+      },
+      {
+        "partition": 1,
+        "offset": "159011"
+      },
+      {
+        "partition": 7,
+        "offset": "323063"
+      },
+      {
+        "partition": 5,
+        "offset": "247864"
+      },
+      {
+        "partition": 8,
+        "offset": "219484"
+      },
+      {
+        "partition": 2,
+        "offset": "355437"
+      },
+      {
+        "partition": 11,
+        "offset": "300602"
+      },
+      {
+        "partition": 0,
+        "offset": "61878"
+      },
+      {
+        "partition": 9,
+        "offset": "139492"
+      },
+      {
+        "partition": 6,
+        "offset": "116302"
+      },
+      {
+        "partition": 3,
+        "offset": "156936"
+      }
+    ]
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "[REDACTED_PROTOCOL_ACCOUNT]",
+    "messageId": "DA08EF1DD9B74093B22E2D15F99D0C5B",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_9638ebe7471f428db7f11ca6124ddf10",
+    "success": true,
+    "offset": "159009",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "[REDACTED_PROTOCOL_ACCOUNT]",
+    "messageId": "5A1C4D8EDBDF4060B91823B7750566C3",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_6e6653e4e780410d877c46dc1d8ca604",
+    "success": true,
+    "offset": "159010",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "[REDACTED_PROTOCOL_ACCOUNT]",
+    "messageId": "C2973BC20A794B67AC523DE38B71530B",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_5a09f8299d744efa892fc92dd7235488",
+    "success": true,
+    "offset": "247862",
+    "partition": 5
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "[REDACTED_PROTOCOL_ACCOUNT]",
+    "messageId": "641C9E040D804DB2AA77423DDF55DB21",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_7b9ca9b436364e8ba8c35d5d42361f57",
+    "success": true,
+    "offset": "247863",
+    "partition": 5
+  },
+  {
+    "complete": true,
+    "scanned": 4,
+    "matched": 4,
+    "committedOffsets": false
+  }
+]

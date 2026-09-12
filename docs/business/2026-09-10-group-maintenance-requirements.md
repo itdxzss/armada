@@ -1,6 +1,6 @@
 # 养群管理三菜单实施契约
 
-日期：2026-09-10。状态：本地实现与聚焦验证完成，尚未部署、运行迁移或做真实发送验收。
+日期：2026-09-10。状态：已实现并部署 test1，V186/V187 迁移成功，双群共 8 条协议发送成功；验收证据及成员接收边界见 [test1 验收记录](../../.harness/changes/script-marketing-refinement/acceptance-20260910.md)。
 
 本文件以用户本次反馈为准，替代之前分析中尚未落定的实施细节。原型仅作为需求参考；本轮修改 Armada 后端和 Vue 前端，未修改原型或协议仓库。
 
@@ -86,6 +86,6 @@
 
 聚焦验证结果和命令见 [验证记录](../../.harness/changes/script-marketing-refinement/test-summary.md)。本地 H2 真跑生产 Mapper XML、租户插件与事务；浏览器仅调用测试夹具 API。它们不代表测试环境接口联调、真实 MySQL 迁移或 WhatsApp 实际送达验收。
 
-发布前需确认目标环境，再执行 Flyway、更新前后端并配置菜单授权；对指定测试群验证资格变化、真实发送和回执。每日重复调度未加入。
+用户已确认 test1，已执行 V186/V187、更新前后端，并验证菜单授权、群资格变化、真实发送和协议结果。具体任务、制品和未证实的成员接收边界见 [test1 验收记录](../../.harness/changes/script-marketing-refinement/acceptance-20260910.md)。每日重复调度未加入。
 
-数据模型 wiki 为真库 information_schema 导出的自动文档。本轮只新增迁移文件，没有修改共享 schema，且没有当前目标环境快照，故未伪造或手改 wiki；迁移后按规则重新导出并运行 gen_datamodel.py。回退必须先收敛新任务和原命令，保留绑定及发送事实，不能让旧执行器接管新配置。
+数据模型 wiki 为真库 information_schema 导出的自动文档。test1 迁移后已导出四张剧本相关表，并运行 gen_datamodel.py 生成对应段落，保留其他业务文档。回退必须先收敛新任务和原命令，保留绑定及发送事实，不能让旧执行器接管新配置。

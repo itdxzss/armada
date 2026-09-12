@@ -1,5 +1,6 @@
 package com.armada.hyperlink.template.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.hyperlink.template.model.HyperlinkButton;
 import com.armada.hyperlink.template.model.HyperlinkMessageContent;
 import com.armada.hyperlink.template.model.enums.HyperlinkButtonType;
@@ -170,7 +171,7 @@ public class HyperlinkMessageContentValidator {
     private void validateAsset(Long assetId) {
         MarketingTemplateFileContent file;
         try {
-            file = fileService.lockContentForBinding(assetId);
+            file = fileService.lockContentForBinding(assetId, ResourceAssetScope.HYPERLINK);
         } catch (BusinessException exception) {
             if (exception.getCode() == ErrorCode.NOT_FOUND.code()) {
                 throw new BusinessException(ErrorCode.NOT_FOUND, "图片不存在或已删除");

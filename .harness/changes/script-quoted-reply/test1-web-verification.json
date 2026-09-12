@@ -1,0 +1,52 @@
+{
+  "source": {
+    "checked": 277,
+    "mismatches": []
+  },
+  "compiledJavaScript": {
+    "checked": 137,
+    "mismatches": []
+  },
+  "processes": [
+    {
+      "name": "armada-protocol-master",
+      "pid": 3929144,
+      "status": "online",
+      "nodeVersion": "24.16.0",
+      "startedAt": 1789125300965,
+      "restarts": 103
+    },
+    {
+      "name": "armada-protocol-worker-1",
+      "pid": 3929145,
+      "status": "online",
+      "nodeVersion": "24.16.0",
+      "startedAt": 1789125300969,
+      "restarts": 106
+    },
+    {
+      "name": "armada-protocol-worker-2",
+      "pid": 3929213,
+      "status": "online",
+      "nodeVersion": "24.16.0",
+      "startedAt": 1789125306607,
+      "restarts": 108
+    },
+    {
+      "name": "armada-protocol-worker-3",
+      "pid": 3929225,
+      "status": "online",
+      "nodeVersion": "24.16.0",
+      "startedAt": 1789125308648,
+      "restarts": 106
+    },
+    {
+      "name": "armada-protocol-worker-4",
+      "pid": 3929280,
+      "status": "online",
+      "nodeVersion": "24.16.0",
+      "startedAt": 1789125310094,
+      "restarts": 112
+    }
+  ]
+}

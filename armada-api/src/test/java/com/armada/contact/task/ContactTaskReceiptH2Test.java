@@ -89,7 +89,7 @@ class ContactTaskReceiptH2Test {
         return new ProtocolMessageSendResultReportedEvent("event", 7L, null, null, null, 1L,
                 "account", "123456@lid", "cmd", false, messageId, code, reason,
                 1000L, "worker", null, null, "contact_task", null, null, null, null, null,
-                1L, 10L, 100L, "123456@lid", "PRIVATE", null, null, null, null, outcome, true);
+                1L, 10L, 100L, "123456@lid", "PRIVATE", null, null, null, null, outcome, true, null);
     }
 
     @ParameterizedTest

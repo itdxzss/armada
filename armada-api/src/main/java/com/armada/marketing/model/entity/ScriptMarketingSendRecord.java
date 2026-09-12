@@ -2,6 +2,14 @@ package com.armada.marketing.model.entity;
 
 /** 剧本营销：ScriptMarketingSendRecord 持久化事实。 */
 public class ScriptMarketingSendRecord {
+    /** 原消息实际引用内容，在协议结果到达时持久化。 */
+    private String quoteContextJson;
+    /** 本次去掉引用的确定原因，后续结果补记不得覆盖。 */
+    private String replyFallbackReason;
+    public String getQuoteContextJson() { return quoteContextJson; }
+    public void setQuoteContextJson(String value) { quoteContextJson = value; }
+    public String getReplyFallbackReason() { return replyFallbackReason; }
+    public void setReplyFallbackReason(String value) { replyFallbackReason = value; }
     /** 结果等待截止；恢复只重置此时间，不改写原提交事实。 */
     private Long resultDeadlineAt;
     /** 读取结果等待截止。 */

@@ -1,0 +1,78 @@
+{
+  "environment": "test1",
+  "baselineCommit": "d8e3a5448b72cad5155319fbce5cb92e81df01fa",
+  "worktree": "/private/tmp/gm-image-fix-20260911",
+  "scope": "backend only",
+  "jarSha256": "c7c4f28422db34e86ec544f5ebcf0bd1a513a5767c3ab43dccd5e89b83230f7e",
+  "deploymentExitCode": 0,
+  "running": true,
+  "restartCount": 0,
+  "taskId": 11,
+  "definitionId": 5,
+  "imageId": 34,
+  "expected": 4,
+  "success": 4,
+  "failed": 0,
+  "captionLength": 0,
+  "testSuites": [
+    {
+      "name": "MarketingMessageComposerTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "MarketingMessageCommandFactoryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ScriptMarketingImageContentTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ScriptMarketingContentTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ScriptDefinitionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ScriptMarketingExecutionTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "ResourceAssetMapperH2Test",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "testCount": 45,
+  "initialRegression": "10 tests, 1 error: imageWithoutCaptionKeepsImageBytesAndEmptyText -> empty content",
+  "review": "No blocker in minimal composer change; valid media permits empty caption, non-image blank remains rejected; no schema/API/tenant changes.",
+  "limitations": [
+    "Receiver UI not observed",
+    "Protocol reconnect admission issue diagnosed but not changed",
+    "No commit or push",
+    "Production packaging checks fail on baseline missing .env.example in isolated candidate; production not deployed"
+  ],
+  "deploymentScriptTests": "PASS from main repository; isolated-copy attempts lacked sibling repositories/keys, no script changes"
+}

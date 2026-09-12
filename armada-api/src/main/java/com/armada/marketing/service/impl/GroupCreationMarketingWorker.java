@@ -513,7 +513,7 @@ public class GroupCreationMarketingWorker {
                                 mediaPayload(message.imageBytes(), message.imageMimetype()),
                                 linkCardPayload(message.linkCard()),
                                 buttonCardPayload(message.buttonCard())),
-                        message.mentionAll()),
+                        message.mentionAll(), null),
                 new MessageSendCommand.MessageCorrelation(
                         tenantId,
                         SOURCE_GROUP_CREATION_MARKETING,

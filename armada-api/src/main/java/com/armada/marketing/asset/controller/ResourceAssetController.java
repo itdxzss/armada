@@ -1,6 +1,12 @@
 package com.armada.marketing.asset.controller;
 
 import com.armada.marketing.asset.model.dto.ResourceAssetQuery;
+import com.armada.marketing.asset.model.dto.ResourceAssetGroupDTO;
+import com.armada.marketing.asset.model.dto.ResourceAssetMoveDTO;
+import com.armada.marketing.asset.model.vo.ResourceAssetGroupVO;
+import com.armada.marketing.asset.service.ResourceAssetGroupService;
+import java.util.List;
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.asset.model.dto.ResourceAssetUpdateDTO;
 import com.armada.marketing.asset.model.vo.ResourceAssetTagsVO;
 import com.armada.marketing.asset.model.vo.ResourceAssetVO;
@@ -31,31 +37,20 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api/resource-assets")
 public class ResourceAssetController {
 
-    /** 查看素材、模板或任务时允许读取素材元数据和图片内容。 */
-    private static final String READ_AUTHORITIES = "hasAnyAuthority("
-            + "'tenant:resource_asset:view', "
-            + "'tenant:script_marketing:view', "
-            + "'tenant:hyperlink_template:view', 'tenant:hyperlink_template:create', "
-            + "'tenant:hyperlink_template:edit', 'tenant:hyperlink_task:view', "
-            + "'tenant:hyperlink_task:create', 'tenant:hyperlink_task:edit')";
-
-    /** 独立素材上传权限或模板、任务编辑权限均可进入共享上传入口。 */
-    private static final String UPLOAD_AUTHORITIES = "hasAnyAuthority("
-            + "'tenant:resource_asset:upload', "
-            + "'tenant:script_marketing:create', 'tenant:script_marketing:edit', "
-            + "'tenant:hyperlink_template:create', 'tenant:hyperlink_template:edit', "
-            + "'tenant:hyperlink_task:create', 'tenant:hyperlink_task:edit')";
-
     /** 图片素材库业务服务。 */
     private final ResourceAssetService service;
+    /** 素材分组业务服务。 */
+    private final ResourceAssetGroupService groupService;
 
     /**
      * 创建素材接口控制器。
      *
+     * @param groupService 分组业务服务
      * @param service 图片素材库业务服务
      */
-    public ResourceAssetController(ResourceAssetService service) {
+    public ResourceAssetController(ResourceAssetService service, ResourceAssetGroupService groupService) {
         this.service = service;
+        this.groupService = groupService;
     }
 
     /**
@@ -65,7 +60,7 @@ public class ResourceAssetController {
      * @return 当前页素材元数据
      */
     @GetMapping
-    @PreAuthorize(READ_AUTHORITIES)
+    @PreAuthorize("@resourceAssetAccess.allowed(#query.scope, 'view')")
     public ApiResponse<PageResult<ResourceAssetVO>> list(@ModelAttribute ResourceAssetQuery query) {
         return ApiResponse.ok(service.list(query));
     }
@@ -76,9 +71,39 @@ public class ResourceAssetController {
      * @return 按名称排序的标签候选
      */
     @GetMapping("/tags")
-    @PreAuthorize(READ_AUTHORITIES)
-    public ApiResponse<ResourceAssetTagsVO> tags() {
-        return ApiResponse.ok(service.tags());
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'view')")
+    public ApiResponse<ResourceAssetTagsVO> tags(@RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(service.tags(scope));
+    }
+
+    /** @return 当前租户分组候选，权限与素材读取相同 */
+    @GetMapping("/groups")
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'view')")
+    public ApiResponse<List<ResourceAssetGroupVO>> groups(@RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(groupService.list(scope));
+    }
+
+    /** @param request 分组名称 @return 新建的空分组 */
+    @PostMapping("/groups")
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'edit')")
+    public ApiResponse<ResourceAssetGroupVO> createGroup(@RequestBody ResourceAssetGroupDTO request, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(groupService.create(request.groupName(), scope));
+    }
+
+    /** @param id 分组 ID @return 删除结果；图片移至未分组并保留所有引用 */
+    @DeleteMapping("/groups/{id}")
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'delete')")
+    public ApiResponse<Void> deleteGroup(@PathVariable Long id, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        groupService.delete(id, scope);
+        return ApiResponse.ok();
+    }
+
+    /** @param request 批量素材与目标分组 @return 整批移组结果 */
+    @PutMapping("/group")
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'edit')")
+    public ApiResponse<Void> moveGroup(@RequestBody ResourceAssetMoveDTO request, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        groupService.move(request, scope);
+        return ApiResponse.ok();
     }
 
     /**
@@ -88,9 +113,9 @@ public class ResourceAssetController {
      * @return 素材详情
      */
     @GetMapping("/{id}")
-    @PreAuthorize(READ_AUTHORITIES)
-    public ApiResponse<ResourceAssetVO> detail(@PathVariable Long id) {
-        return ApiResponse.ok(service.detail(id));
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'view')")
+    public ApiResponse<ResourceAssetVO> detail(@PathVariable Long id, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(service.detail(id, scope));
     }
 
     /**
@@ -98,16 +123,19 @@ public class ResourceAssetController {
      *
      * @param file 待上传图片
      * @param tags 可选 JSON 字符串数组
+     * @param groupId 上传分组，省略时未分组
      * @param principal 当前认证身份
      * @return 已创建素材详情
      */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize(UPLOAD_AUTHORITIES)
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'upload')")
     public ApiResponse<ResourceAssetVO> upload(
             @RequestParam("file") MultipartFile file,
             @RequestParam(required = false) String tags,
-            @AuthenticationPrincipal AuthPrincipal principal) {
-        return ApiResponse.ok(service.upload(file, tags, principal.userId()));
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam(required = false) Long groupId,
+            @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(service.upload(file, tags, principal.userId(), groupId, scope));
     }
 
     /**
@@ -118,11 +146,12 @@ public class ResourceAssetController {
      * @return 更新后的素材详情
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('tenant:resource_asset:edit')")
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'edit')")
     public ApiResponse<ResourceAssetVO> update(
             @PathVariable Long id,
-            @RequestBody ResourceAssetUpdateDTO request) {
-        return ApiResponse.ok(service.update(id, request));
+            @RequestBody ResourceAssetUpdateDTO request,
+            @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        return ApiResponse.ok(service.update(id, request, scope));
     }
 
     /**
@@ -132,9 +161,9 @@ public class ResourceAssetController {
      * @return data 固定为 null 的成功响应
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('tenant:resource_asset:delete')")
-    public ApiResponse<Void> delete(@PathVariable Long id) {
-        service.delete(id);
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'delete')")
+    public ApiResponse<Void> delete(@PathVariable Long id, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        service.delete(id, scope);
         return ApiResponse.ok();
     }
 
@@ -145,9 +174,9 @@ public class ResourceAssetController {
      * @return 图片字节响应
      */
     @GetMapping("/{id}/content")
-    @PreAuthorize(READ_AUTHORITIES)
-    public ResponseEntity<byte[]> content(@PathVariable Long id) {
-        MarketingTemplateFileContent file = service.content(id);
+    @PreAuthorize("@resourceAssetAccess.allowed(#scope, 'view')")
+    public ResponseEntity<byte[]> content(@PathVariable Long id, @RequestParam(defaultValue = "HYPERLINK") ResourceAssetScope scope) {
+        MarketingTemplateFileContent file = service.content(id, scope);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(file.contentType()))
                 .cacheControl(CacheControl.noCache())

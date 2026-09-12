@@ -1,5 +1,6 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.asset.service.ResourceAssetImageValidator;
 import com.armada.marketing.mapper.MarketingTemplateFileMapper;
 import com.armada.marketing.model.entity.MarketingTemplateFile;
@@ -63,6 +64,7 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
         row.setSizeBytes((long) bytes.length);
         row.setContent(bytes);
         row.setAssetName(truncate(originalFilename(file), 128));
+        row.setAssetScope(ResourceAssetScope.MARKETING.getCode());
         long now = System.currentTimeMillis();
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
@@ -102,8 +104,9 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
      */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public MarketingTemplateFileContent lockContentForBinding(Long id) {
+    public MarketingTemplateFileContent lockContentForBinding(Long id, ResourceAssetScope scope) {
         MarketingTemplateFile row = lockExisting(id);
+        scope.requireVisible(row.getAssetScope());
         return new MarketingTemplateFileContent(row.getContentType(), row.getContent());
     }
 
@@ -119,12 +122,13 @@ public class MarketingTemplateFileServiceImpl implements MarketingTemplateFileSe
      */
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
-    public void lockAndValidateBindableAssets(Collection<Long> ids) {
+    public void lockAndValidateBindableAssets(Collection<Long> ids, ResourceAssetScope scope) {
         List<Long> normalizedIds = ids == null
                 ? List.of()
                 : ids.stream().filter(java.util.Objects::nonNull).distinct().sorted().toList();
         for (Long id : normalizedIds) {
             MarketingTemplateFile row = lockExisting(id);
+            scope.requireVisible(row.getAssetScope());
             ResourceAssetImageValidator.validateBindable(row.getContentType(), row.getContent());
         }
     }

@@ -1,5 +1,6 @@
 package com.armada.marketing.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.model.vo.MarketingTemplateFileContent;
 import com.armada.marketing.model.vo.MarketingTemplateFileVO;
 import java.util.Collection;
@@ -32,12 +33,12 @@ public interface MarketingTemplateFileService {
      * @param id 当前租户素材 ID
      * @return 已锁定素材的 MIME 与字节
      */
-    MarketingTemplateFileContent lockContentForBinding(Long id);
+    MarketingTemplateFileContent lockContentForBinding(Long id, ResourceAssetScope scope);
 
     /**
      * 在调用方事务内按 ID 升序锁定并校验全部非空素材，防止绑定与删除并发产生悬空引用。
      *
      * @param ids 待绑定的素材 ID 集合；空集合不执行查询
      */
-    void lockAndValidateBindableAssets(Collection<Long> ids);
+    void lockAndValidateBindableAssets(Collection<Long> ids, ResourceAssetScope scope);
 }

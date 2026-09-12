@@ -1,0 +1,11 @@
+[
+  "2026-09-11T00:32:26.580937211Z 2026-09-11 00:32:26.580\t\u001b[33mWARN\u001b[0m\t[REDACTED_ACCOUNT]\tread server data error eof",
+  "2026-09-11T00:32:26.581057434Z 2026-09-11 00:32:26.580\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\tnoise generation closed\t{\"generation\": 19, \"cause\": \"read_error\", \"cleanupComplete\": true, \"cleanupDuration\": 0.000111912}",
+  "2026-09-11T00:32:26.581135666Z 2026-09-11 00:32:26.580\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\tAndroid network disconnect classified\t{\"generation\": 19, \"cause\": \"read_error\", \"status\": \"Online\", \"action\": 2, \"cleanupComplete\": true, \"cleanupDuration\": 0.000111912}",
+  "2026-09-11T00:32:26.581147216Z 2026-09-11 00:32:26.581\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\t设置账号状态Reconnecting",
+  "2026-09-11T00:32:28.488215268Z 2026-09-11 00:32:28.488\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\tnoise tcp connect started\t{\"generation\": 20}",
+  "2026-09-11T00:32:29.278827565Z 2026-09-11 00:32:29.278\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\tnoise tcp connected\t{\"generation\": 20}",
+  "2026-09-11T00:32:29.610953278Z 2026-09-11 00:32:29.610\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\tnoise tcp handshake completed\t{\"generation\": 20}",
+  "2026-09-11T00:32:29.943785987Z 2026-09-11 00:32:29.943\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\t设置账号状态Online",
+  "2026-09-11T00:32:29.943817758Z 2026-09-11 00:32:29.943\t\u001b[34mINFO\u001b[0m\t[REDACTED_ACCOUNT]\t上线成功"
+]

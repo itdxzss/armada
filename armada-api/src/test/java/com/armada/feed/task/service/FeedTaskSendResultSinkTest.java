@@ -88,6 +88,6 @@ class FeedTaskSendResultSinkTest {
                 "acc-web", null, "cmd-feed", false, null, "TEMP", "temporary",
                 1_000L, "worker-a", null, null, "feed_task", null, null, null,
                 null, null, null, null, null, "status@broadcast", "STATUS",
-                null, null, 42L, 7001L, "FAILED", true);
+                null, null, 42L, 7001L, "FAILED", true, null);
     }
 }

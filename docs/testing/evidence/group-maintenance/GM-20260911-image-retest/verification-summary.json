@@ -1,0 +1,31 @@
+{
+  "environment": "test1 / 第一套环境",
+  "origin": "http://armada.65.2.123.53.nip.io",
+  "taskId": 12,
+  "definitionId": 6,
+  "imageId": 34,
+  "accounts": [
+    685,
+    690
+  ],
+  "groups": [
+    7506,
+    7507
+  ],
+  "expected": 4,
+  "success": 4,
+  "failed": 0,
+  "unknown": 0,
+  "pausedGroups": 0,
+  "protocolSuccessEvents": 4,
+  "emptyTitleAndBody": true,
+  "containerJar": "/app/app.jar",
+  "jarSha256": "c7c4f28422db34e86ec544f5ebcf0bd1a513a5767c3ab43dccd5e89b83230f7e",
+  "containerRunning": true,
+  "containerRestartCount": 0,
+  "browserSessionClosed": true,
+  "limitations": [
+    "No receiver-device image-rendering evidence",
+    "Reconnect/batch-stability changes not implemented in this regression"
+  ]
+}

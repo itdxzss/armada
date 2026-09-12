@@ -1,5 +1,6 @@
 package com.armada.marketing.asset.service.impl;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -78,8 +79,8 @@ class ResourceAssetServiceImplTest {
             file.setId(88L);
             saved.set(file);
             return 88L;
-        }).when(writeService).create(any(MarketingTemplateFile.class), any());
-        when(fileMapper.selectAssetMetadataById(88L)).thenAnswer(ignored -> saved.get());
+        }).when(writeService).create(any(MarketingTemplateFile.class), any(), any());
+        when(fileMapper.selectAssetMetadataById(88L, 1)).thenAnswer(ignored -> saved.get());
         when(tagMapper.selectRelationsByFileIds(List.of(88L)))
                 .thenReturn(List.of(
                         new ResourceAssetTagRelationVO(88L, "Promo"),
@@ -87,10 +88,10 @@ class ResourceAssetServiceImplTest {
         when(fileMapper.selectReferenceCounts(7L, List.of(88L))).thenReturn(List.of());
         ResourceAssetVO response = new ResourceAssetVO(
                 88L, filename, "/api/resource-assets/88/content", List.of("Promo", "promo"),
-                image.getSize(), 3, 2, 0, 11L, 100L, 100L);
-        when(converter.toVO(any(MarketingTemplateFile.class), any(), anyLong())).thenReturn(response);
+                image.getSize(), 3, 2, 0, 11L, 100L, 100L, null, null);
+        when(converter.toVO(any(MarketingTemplateFile.class), any(), anyLong(), any())).thenReturn(response);
 
-        assertThat(service.upload(image, "[\" Promo \",\"promo\",\"Promo\"]", 11L))
+        assertThat(service.upload(image, "[\" Promo \",\"promo\",\"Promo\"]", 11L, null, ResourceAssetScope.HYPERLINK))
                 .isSameAs(response);
         assertThat(saved.get()).satisfies(file -> {
             assertThat(file.getOriginalFilename()).isEqualTo(filename);
@@ -102,14 +103,14 @@ class ResourceAssetServiceImplTest {
             assertThat(file.getCreatedBy()).isEqualTo(11L);
             assertThat(file.getUpdatedAt()).isEqualTo(file.getCreatedAt());
         });
-        verify(writeService).create(saved.get(), List.of("Promo", "promo"));
+        verify(writeService).create(saved.get(), List.of("Promo", "promo"), ResourceAssetScope.HYPERLINK);
     }
 
     @Test
     void uploadRejectsNonStringJsonTagsBeforeAnyWrite() throws Exception {
         MockMultipartFile image = image("promo.jpg", 2, 2);
 
-        assertThatThrownBy(() -> service.upload(image, "[\"Promo\",1]", 11L))
+        assertThatThrownBy(() -> service.upload(image, "[\"Promo\",1]", 11L, null, ResourceAssetScope.HYPERLINK))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("tags 必须是 JSON 字符串数组");
         verifyNoInteractions(writeService);
@@ -119,7 +120,7 @@ class ResourceAssetServiceImplTest {
     void uploadRejectsTrailingGarbageAfterTagsArray() throws Exception {
         MockMultipartFile image = image("promo.jpg", 2, 2);
 
-        assertThatThrownBy(() -> service.upload(image, "[\"Promo\"] trailing", 11L))
+        assertThatThrownBy(() -> service.upload(image, "[\"Promo\"] trailing", 11L, null, ResourceAssetScope.HYPERLINK))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("tags 必须是 JSON 字符串数组");
         verifyNoInteractions(writeService);
@@ -133,7 +134,7 @@ class ResourceAssetServiceImplTest {
                 "image/jpeg",
                 new byte[ResourceAssetImageValidator.MAX_IMAGE_BYTES + 1]);
 
-        assertThatThrownBy(() -> service.upload(image, "[]", 11L))
+        assertThatThrownBy(() -> service.upload(image, "[]", 11L, null, ResourceAssetScope.HYPERLINK))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("500KB");
         verifyNoInteractions(writeService);

@@ -151,7 +151,7 @@ public class ContactTaskMessageCommandFactory {
                         // 通讯录消息没有按钮，这一位永远是 null
                         null),
                 // 私聊没有群成员，提醒所有人无意义
-                false);
+                false, null);
     }
 
     /**

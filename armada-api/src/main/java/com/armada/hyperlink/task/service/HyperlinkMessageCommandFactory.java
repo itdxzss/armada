@@ -74,7 +74,7 @@ public class HyperlinkMessageCommandFactory {
                 new MessageSendCommand.MessageContent(content.getContent(), null,
                         new MessageSendCommand.MessageLinkCard(targetUrl,
                                 content.getTitle(), content.getLinkDescription(),
-                                media(content.getLinkPreviewAssetId())), null), false);
+                                media(content.getLinkPreviewAssetId())), null), false, null);
     }
 
     private MessageSendCommand.MessagePayload buttonPayload(HyperlinkTaskContent content,
@@ -91,7 +91,7 @@ public class HyperlinkMessageCommandFactory {
                         "link", button.displayText(), targetUrl)),
                 media(content.getBodyMainAssetId()));
         return new MessageSendCommand.MessagePayload(MessageType.BUTTON_CARD,
-                new MessageSendCommand.MessageContent(body, null, null, card), false);
+                new MessageSendCommand.MessageContent(body, null, null, card), false, null);
     }
 
     private List<HyperlinkButton> buttons(String json) {

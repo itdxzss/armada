@@ -1,0 +1,58 @@
+{
+  "observationType": "read_only_database",
+  "tenantId": 1,
+  "candidatesNotYetAssigned": true,
+  "web": {
+    "accountGroupId": 195,
+    "totalAccounts": 10,
+    "latestOnlineObserved": 9,
+    "offlineAccountIds": [
+      107
+    ],
+    "unoccupied": true,
+    "previousGroups": [
+      {
+        "groupLinkId": 32827,
+        "groupJid": "120363429158864145@g.us",
+        "presentAccountIds": [
+          110,
+          145
+        ],
+        "previousAdminAccountId": 71,
+        "previousAdminPresenceStatus": 2
+      },
+      {
+        "groupLinkId": 32829,
+        "groupJid": "120363412887533798@g.us",
+        "presentAccountIds": [
+          75,
+          145
+        ],
+        "previousAdminAccountId": 71,
+        "previousAdminPresenceStatus": 2
+      }
+    ]
+  },
+  "android": {
+    "accountGroupId": 95,
+    "onlineAccountIds": [
+      685,
+      686,
+      687,
+      690,
+      692,
+      774
+    ],
+    "unoccupied": true,
+    "candidateTestGroupNamePrefix": "dev1-link-admin-20260805-",
+    "commonlyPresentAccountIds": [
+      685,
+      686,
+      687,
+      690,
+      692
+    ],
+    "fivePromoterRoleGap": "Choosing one of these five as administrator leaves four present promoters; another promoter must join and be verified."
+  },
+  "note": "Observed state can change. Re-run authenticated qualification before assigning or sending. No accounts moved, no group settings changed."
+}

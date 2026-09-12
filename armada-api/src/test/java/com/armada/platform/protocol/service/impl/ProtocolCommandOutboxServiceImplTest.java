@@ -1105,7 +1105,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("hello", null, null, null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         1L,
                         "marketing_task",
@@ -1165,7 +1165,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("offer", null, null, null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         1L,
                         "historical_group_pull",
@@ -1204,7 +1204,7 @@ class ProtocolCommandOutboxServiceImplTest {
                 new ProtocolAccountRef(501L, ProtocolBackend.WEB, "acc_web", "919000000001"),
                 new MessageSendCommand.MessageTarget("120363script@g.us"),
                 new MessageSendCommand.MessagePayload(MessageType.TEXT,
-                new MessageSendCommand.MessageContent("hello", null, null, null), false),
+                new MessageSendCommand.MessageContent("hello", null, null, null), false, null),
                 new MessageSendCommand.MessageCorrelation(1L, "script_marketing", null, null,
                         null, null, null, null, 77L), "cmd_script", 500, 0L);
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
@@ -1233,7 +1233,7 @@ class ProtocolCommandOutboxServiceImplTest {
                             MessageType.STATUS,
                             new MessageSendCommand.MessageContent(
                                     "活动正文", null, null, null, "#075E54", "#FFFFFF"),
-                            false),
+                            false, null),
                     new MessageSendCommand.MessageCorrelation(
                             1L,
                             "feed_task",

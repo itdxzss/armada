@@ -3,6 +3,7 @@ package com.armada.marketing.asset.service.impl;
 import com.armada.marketing.asset.converter.ResourceAssetConverter;
 import com.armada.marketing.asset.mapper.ResourceAssetTagMapper;
 import com.armada.marketing.asset.model.dto.ResourceAssetQuery;
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.asset.model.dto.ResourceAssetUpdateDTO;
 import com.armada.marketing.asset.model.vo.ResourceAssetReferenceCountVO;
 import com.armada.marketing.asset.model.vo.ResourceAssetTagRelationVO;
@@ -102,7 +103,7 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         normalizeQuery(query);
         long total = fileMapper.countAssetPage(query);
         List<MarketingTemplateFile> rows = total == 0 ? List.of() : fileMapper.selectAssetPage(query);
-        List<ResourceAssetVO> list = assemble(rows);
+        List<ResourceAssetVO> list = assemble(rows, query.getScope());
         return PageResult.of(list, query.getPage(), query.getPageSize(), total);
     }
 
@@ -116,9 +117,9 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      * @throws BusinessException 素材 ID 非法、素材不存在或已删除，或租户上下文缺失时抛出
      */
     @Override
-    public ResourceAssetVO detail(Long id) {
-        MarketingTemplateFile row = requireMetadata(id);
-        return assemble(List.of(row)).get(0);
+    public ResourceAssetVO detail(Long id, ResourceAssetScope scope) {
+        MarketingTemplateFile row = requireMetadata(id, scope);
+        return assemble(List.of(row), scope).get(0);
     }
 
     /**
@@ -127,8 +128,8 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      * @return 按标签名稳定排序的标签列表
      */
     @Override
-    public ResourceAssetTagsVO tags() {
-        return new ResourceAssetTagsVO(tagMapper.selectActiveTagNames());
+    public ResourceAssetTagsVO tags(ResourceAssetScope scope) {
+        return new ResourceAssetTagsVO(tagMapper.selectActiveTagNames(scope.getCode()));
     }
 
     /**
@@ -139,12 +140,13 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      *
      * @param file 待上传的 JPEG/PNG 文件
      * @param tagsJson 可选标签 JSON 字符串数组
+     * @param groupId 上传归属分组，null 表示未分组
      * @param createdBy 可信认证身份中的上传人用户 ID
      * @return 已创建素材的完整管理信息
      * @throws BusinessException 文件为空、大小或格式非法、标签格式不合法，或租户上下文缺失时抛出
      */
     @Override
-    public ResourceAssetVO upload(MultipartFile file, String tagsJson, long createdBy) {
+    public ResourceAssetVO upload(MultipartFile file, String tagsJson, long createdBy, Long groupId, ResourceAssetScope scope) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION, "请选择图片");
         }
@@ -166,10 +168,12 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         row.setWidth(dimensions.width());
         row.setHeight(dimensions.height());
         row.setCreatedBy(createdBy);
+        row.setGroupId(groupId);
+        row.setAssetScope(scope.getCode());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
-        writeService.create(row, tags);
-        return detail(row.getId());
+        writeService.create(row, tags, scope);
+        return detail(row.getId(), scope);
     }
 
     /**
@@ -183,14 +187,14 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      * @throws BusinessException 请求、名称或标签不合法，素材不存在或已删除时抛出
      */
     @Override
-    public ResourceAssetVO update(Long id, ResourceAssetUpdateDTO request) {
+    public ResourceAssetVO update(Long id, ResourceAssetUpdateDTO request, ResourceAssetScope scope) {
         if (request == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "素材信息不能为空");
         }
         String assetName = requiredName(request.assetName());
         List<String> tags = ResourceAssetTagNormalizer.normalize(request.tags());
-        writeService.update(id, assetName, tags, System.currentTimeMillis());
-        return detail(id);
+        writeService.update(id, assetName, tags, System.currentTimeMillis(), scope);
+        return detail(id, scope);
     }
 
     /**
@@ -202,8 +206,8 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      * @throws BusinessException 素材不存在、已删除或仍被模板引用时抛出
      */
     @Override
-    public void delete(Long id) {
-        writeService.delete(id, System.currentTimeMillis());
+    public void delete(Long id, ResourceAssetScope scope) {
+        writeService.delete(id, System.currentTimeMillis(), scope);
     }
 
     /**
@@ -216,11 +220,12 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
      * @throws BusinessException 素材不存在或已删除时抛出
      */
     @Override
-    public MarketingTemplateFileContent content(Long id) {
+    public MarketingTemplateFileContent content(Long id, ResourceAssetScope scope) {
+        requireMetadata(id, scope);
         return fileService.content(id);
     }
 
-    private List<ResourceAssetVO> assemble(List<MarketingTemplateFile> rows) {
+    private List<ResourceAssetVO> assemble(List<MarketingTemplateFile> rows, ResourceAssetScope scope) {
         if (rows.isEmpty()) {
             return List.of();
         }
@@ -240,14 +245,14 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
         return rows.stream().map(row -> converter.toVO(
                 row,
                 tagsByFile.getOrDefault(row.getId(), List.of()),
-                referencesByFile.getOrDefault(row.getId(), 0L))).toList();
+                referencesByFile.getOrDefault(row.getId(), 0L), scope)).toList();
     }
 
-    private MarketingTemplateFile requireMetadata(Long id) {
+    private MarketingTemplateFile requireMetadata(Long id, ResourceAssetScope scope) {
         if (id == null || id <= 0) {
             throw notFound();
         }
-        MarketingTemplateFile row = fileMapper.selectAssetMetadataById(id);
+        MarketingTemplateFile row = fileMapper.selectAssetMetadataById(id, scope.getCode());
         if (row == null) {
             throw notFound();
         }
@@ -255,11 +260,14 @@ public class ResourceAssetServiceImpl implements ResourceAssetService {
     }
 
     private void normalizeQuery(ResourceAssetQuery query) {
-        if (query == null) {
+        if (query == null || query.getScope() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "查询参数不能为空");
         }
         if (!ALLOWED_PAGE_SIZES.contains(query.getPageSize())) {
             throw new BusinessException(ErrorCode.VALIDATION, "pageSize 只接受 12、24、48、96");
+        }
+        if (query.getGroupId() != null && query.getGroupId() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "分组筛选值不合法");
         }
         String name = query.getAssetName();
         if (name != null) {

@@ -1,0 +1,128 @@
+{
+  "3": {
+    "records": 8,
+    "success": 8,
+    "failed": 0,
+    "uniqueCommands": 8,
+    "uniqueGroupSteps": 8,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1737,
+      "median": 3944.0,
+      "max": 4744
+    },
+    "observedIntervalMs": {
+      "min": 3375,
+      "median": 3383.0,
+      "max": 3390
+    },
+    "firstSubmittedAt": 1789085639776,
+    "lastFinishedAt": 1789085651856
+  },
+  "5": {
+    "records": 4,
+    "success": 4,
+    "failed": 0,
+    "uniqueCommands": 4,
+    "uniqueGroupSteps": 4,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1847,
+      "median": 1960.5,
+      "max": 2776
+    },
+    "observedIntervalMs": {
+      "min": 151498,
+      "median": 151500.0,
+      "max": 151502
+    },
+    "firstSubmittedAt": 1789086042606,
+    "lastFinishedAt": 1789086197073
+  },
+  "6": {
+    "records": 12,
+    "success": 12,
+    "failed": 0,
+    "uniqueCommands": 12,
+    "uniqueGroupSteps": 12,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1839,
+      "median": 1989.0,
+      "max": 4074
+    },
+    "observedIntervalMs": {
+      "min": 3189,
+      "median": 3196.0,
+      "max": 464548
+    },
+    "firstSubmittedAt": 1789086198546,
+    "lastFinishedAt": 1789086677965
+  },
+  "7": {
+    "records": 200,
+    "success": 198,
+    "failed": 2,
+    "uniqueCommands": 200,
+    "uniqueGroupSteps": 200,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1232,
+      "median": 2187.0,
+      "max": 10051
+    },
+    "observedIntervalMs": {
+      "min": 3550,
+      "median": 4070.0,
+      "max": 99414
+    },
+    "firstSubmittedAt": 1789086692269,
+    "lastFinishedAt": 1789086949930
+  },
+  "8": {
+    "records": 8,
+    "success": 8,
+    "failed": 0,
+    "uniqueCommands": 8,
+    "uniqueGroupSteps": 8,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1629,
+      "median": 4052.0,
+      "max": 5233
+    },
+    "observedIntervalMs": {
+      "min": 3380,
+      "median": 3395.5,
+      "max": 3438
+    },
+    "firstSubmittedAt": 1789086982622,
+    "lastFinishedAt": 1789086994669
+  },
+  "9": {
+    "records": 2,
+    "success": 2,
+    "failed": 0,
+    "uniqueCommands": 2,
+    "uniqueGroupSteps": 2,
+    "missingSteps": [],
+    "bindingErrors": [],
+    "resultLatencyMs": {
+      "min": 1924,
+      "median": 2489.5,
+      "max": 3055
+    },
+    "observedIntervalMs": {
+      "min": 5198,
+      "median": 5198,
+      "max": 5198
+    },
+    "firstSubmittedAt": 1789087036273,
+    "lastFinishedAt": 1789087044526
+  }
+}

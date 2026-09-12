@@ -64,7 +64,7 @@ public class FeedTaskMessageCommandFactory {
                         new MessageSendCommand.MessageContent(
                                 content.text(), image, null, null,
                                 task.getBackgroundColor(), task.getTextColor()),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         task.getTenantId(), SOURCE_FEED_TASK,
                         null, null, null, null,

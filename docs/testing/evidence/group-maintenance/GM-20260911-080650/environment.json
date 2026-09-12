@@ -1,0 +1,26 @@
+{
+  "runId": "GM-20260911-080650",
+  "environment": "test1",
+  "status": "FIRST_ROUND_COMPLETE_WITH_FAILURES",
+  "startedAt": "2026-09-11T08:06:50.079613+08:00",
+  "backendArtifactSha256": "ec818e0d142aa1e33640f2289ba8125a52fea73b7a58783b455154b942c49fce",
+  "backendContainer": "running",
+  "flyway": {
+    "180": true,
+    "186": true,
+    "187": true
+  },
+  "initialCandidatePool": {
+    "accountGroupId": 195,
+    "backend": "WEB",
+    "total": 10,
+    "sendableStateCount": 10,
+    "note": "Account state is dynamic; account 107 was briefly offline, then recovered."
+  },
+  "apiSession": "AUTHENTICATED",
+  "realMessagesSubmitted": 0,
+  "apiUsername": "daixz",
+  "executionState": "FIRST_ROUND_COMPLETE_WITH_FAILURES",
+  "activeTestTasks": 0,
+  "browserTestSession": "CLOSED"
+}

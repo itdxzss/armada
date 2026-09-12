@@ -14,6 +14,25 @@ class ResourceAssetMigrationSqlTest {
             "src/main/resources/db/migration/V157__hyperlink_image_asset_library.sql");
 
     @Test
+    void groupsMigrationIsAdditiveTenantScopedAndGuardsColumnAndIndex() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/migration/V189__resource_asset_groups.sql"));
+        assertThat(sql).contains("CREATE TABLE IF NOT EXISTS resource_asset_group", "tenant_id BIGINT NOT NULL",
+                "UNIQUE KEY uk_resource_asset_group_name (tenant_id, group_name)",
+                "information_schema.columns", "information_schema.statistics", "ADD COLUMN group_id BIGINT NULL",
+                "(tenant_id, group_id, deleted_at, created_at, id)")
+                .doesNotContain("DROP TABLE", "DELETE FROM", "UPDATE marketing_template_file");
+    }
+
+    @Test
+    void businessScopeMigrationKeepsExistingAssetsSharedAndSeparatesGroupMembership() throws Exception {
+        String sql = Files.readString(Path.of("src/main/resources/db/migration/V190__resource_asset_business_scope.sql"));
+        assertThat(sql).contains("ADD COLUMN asset_scope TINYINT NULL", "(tenant_id, scope, group_name)",
+                "PRIMARY KEY (tenant_id, file_id, scope)", "INSERT IGNORE INTO resource_asset_group_ref",
+                "ALTER TABLE marketing_template_file DROP COLUMN group_id", "idx_asset_scope_page")
+                .doesNotContain("SET asset_scope", "DELETE FROM marketing_template_file", "DROP TABLE marketing_template_file");
+    }
+
+    @Test
     void migrationAddsMetadataTagsReferenceIndexesAndRbac() throws Exception {
         String sql = Files.readString(MIGRATION, StandardCharsets.UTF_8);
 

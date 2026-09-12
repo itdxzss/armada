@@ -1,0 +1,601 @@
+{
+  "environment": "test1",
+  "date": "2026-09-10",
+  "api": {
+    "capturedAt": 1789055228907,
+    "records1": {
+      "list": [
+        {
+          "accountId": 71,
+          "commandId": "cmd_03f4ba5437324caab9a7942eafc44fbd",
+          "finishedAt": 1789054392832,
+          "groupId": 2,
+          "id": 1,
+          "messageId": "3EB02DACD031BFF84BBA71",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789054386635,
+          "taskId": 1
+        },
+        {
+          "accountId": 110,
+          "commandId": "cmd_689844227231424ba16f64d9042448a2",
+          "finishedAt": 1789054445685,
+          "groupId": 2,
+          "id": 3,
+          "messageId": "3EB00A7CA3D27BE1A04C39",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789054444065,
+          "taskId": 1
+        },
+        {
+          "accountId": 145,
+          "commandId": "cmd_a967eeac1df94330b1aa6646b85605d6",
+          "finishedAt": 1789054471587,
+          "groupId": 2,
+          "id": 5,
+          "messageId": "3EB0BCD9863E5E8D36A247",
+          "status": 2,
+          "stepIndex": 2,
+          "submittedAt": 1789054464460,
+          "taskId": 1
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_95c1a5bcb94441afabd06509f8826146",
+          "finishedAt": 1789054478282,
+          "groupId": 2,
+          "id": 7,
+          "messageId": "3EB0FC91D0263FF60E7250",
+          "status": 2,
+          "stepIndex": 3,
+          "submittedAt": 1789054474867,
+          "taskId": 1
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_477ad24e3a6842c6b35f6100f2643a56",
+          "finishedAt": 1789054398439,
+          "groupId": 3,
+          "id": 2,
+          "messageId": "3EB0EC0B4EF8114344E948",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789054386815,
+          "taskId": 1
+        },
+        {
+          "accountId": 145,
+          "commandId": "cmd_3f1b559569e1478ea0baf0cfe559891b",
+          "finishedAt": 1789054459043,
+          "groupId": 3,
+          "id": 4,
+          "messageId": "3EB0D764FB7D42D346D852",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789054444254,
+          "taskId": 1
+        },
+        {
+          "accountId": 75,
+          "commandId": "cmd_c02288c0205a4b2cb311cc44e385fe91",
+          "finishedAt": 1789054472829,
+          "groupId": 3,
+          "id": 6,
+          "reason": "ANNOUNCE_ONLY_NON_ADMIN: current account cannot send to announce-only group",
+          "status": 3,
+          "stepIndex": 2,
+          "submittedAt": 1789054464647,
+          "taskId": 1
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_8bcdca5f65d24316bc2b3e7fc62bb72d",
+          "finishedAt": 1789055017986,
+          "groupId": 3,
+          "id": 8,
+          "messageId": "3EB05EA8E1DD1910BE18D2",
+          "status": 2,
+          "stepIndex": 3,
+          "submittedAt": 1789055012706,
+          "taskId": 1
+        }
+      ],
+      "page": 1,
+      "pageSize": 100,
+      "total": 8,
+      "totalPages": 1
+    },
+    "records2": {
+      "list": [
+        {
+          "accountId": 71,
+          "commandId": "cmd_d61251dc528d4be0911e7243409e59a5",
+          "finishedAt": 1789055097056,
+          "groupId": 4,
+          "id": 9,
+          "messageId": "3EB01A57A68A45F1826FA2",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789055089973,
+          "taskId": 2
+        },
+        {
+          "accountId": 145,
+          "commandId": "cmd_fb2cf77fab3346f19f61096a44724596",
+          "finishedAt": 1789055101016,
+          "groupId": 4,
+          "id": 11,
+          "messageId": "3EB073AB2B9405D27124A0",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789055093346,
+          "taskId": 2
+        },
+        {
+          "accountId": 110,
+          "commandId": "cmd_b0206b2c502a4e2a9d016ad2ba0dd551",
+          "finishedAt": 1789055101224,
+          "groupId": 4,
+          "id": 13,
+          "messageId": "3EB03A31F213647C44B8DB",
+          "status": 2,
+          "stepIndex": 2,
+          "submittedAt": 1789055096716,
+          "taskId": 2
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_91480a41b7de41b49a7a6064381f751b",
+          "finishedAt": 1789055107059,
+          "groupId": 4,
+          "id": 15,
+          "messageId": "3EB02A227A43A8112166F7",
+          "status": 2,
+          "stepIndex": 3,
+          "submittedAt": 1789055100239,
+          "taskId": 2
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_ff9ef98c94304d09b779e3f11132b0d5",
+          "finishedAt": 1789055100668,
+          "groupId": 5,
+          "id": 10,
+          "messageId": "3EB0F4E769EF327FBE588C",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789055090164,
+          "taskId": 2
+        },
+        {
+          "accountId": 145,
+          "commandId": "cmd_6db8f34902e645c8bf4e32ab31924401",
+          "finishedAt": 1789055105882,
+          "groupId": 5,
+          "id": 12,
+          "messageId": "3EB023A1D8771BBF39E2B5",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789055093523,
+          "taskId": 2
+        },
+        {
+          "accountId": 75,
+          "commandId": "cmd_e60713aa302e460ca35489b251475151",
+          "finishedAt": 1789055103783,
+          "groupId": 5,
+          "id": 14,
+          "messageId": "3EB063A0EE3FB383869ACB",
+          "status": 2,
+          "stepIndex": 2,
+          "submittedAt": 1789055096903,
+          "taskId": 2
+        },
+        {
+          "accountId": 71,
+          "commandId": "cmd_5349da9fc10b475982928809b913181e",
+          "finishedAt": 1789055108685,
+          "groupId": 5,
+          "id": 16,
+          "messageId": "3EB0A8A4FA64FA92094785",
+          "status": 2,
+          "stepIndex": 3,
+          "submittedAt": 1789055100508,
+          "taskId": 2
+        }
+      ],
+      "page": 1,
+      "pageSize": 100,
+      "total": 8,
+      "totalPages": 1
+    },
+    "task1": {
+      "groups": [
+        {
+          "bindingsJson": "{\"admin\": 71, \"promoter1\": 110, \"promoter2\": 145}",
+          "groupJid": "120363429158864145@g.us",
+          "groupLinkId": 32827,
+          "groupName": "SCR0910-WA-1",
+          "id": 2,
+          "nextAt": 9223372036854776000,
+          "nextStep": 4,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 1
+        },
+        {
+          "bindingsJson": "{\"admin\": 71, \"promoter1\": 145, \"promoter2\": 75}",
+          "groupJid": "120363412887533798@g.us",
+          "groupLinkId": 32829,
+          "groupName": "SCR0910-WB-1",
+          "id": 3,
+          "nextAt": 9223372036854776000,
+          "nextStep": 4,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 1
+        }
+      ],
+      "steps": [
+        {
+          "accountId": 71,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910] 第1条 admin 流程验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 1"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 0,
+          "waitMinSeconds": 0
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910] 第2条 promoter1 流程验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 2"
+          },
+          "role": "PROMOTER",
+          "roleKey": "promoter1",
+          "waitMaxSeconds": 20,
+          "waitMinSeconds": 20
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910] 第3条 promoter2 流程验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 3"
+          },
+          "role": "PROMOTER",
+          "roleKey": "promoter2",
+          "waitMaxSeconds": 20,
+          "waitMinSeconds": 20
+        },
+        {
+          "accountId": 71,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910] 第4条 admin 流程验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 4"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 10,
+          "waitMinSeconds": 10
+        }
+      ],
+      "task": {
+        "accountGroupId": 195,
+        "createdAt": 1789053812739,
+        "failedCount": 1,
+        "groupCount": 2,
+        "id": 1,
+        "inFlightCount": 0,
+        "intervalSeconds": 20,
+        "startAt": 1789053923848,
+        "status": 3,
+        "successCount": 7,
+        "taskName": "SCR0910 全群资格与间隔验收",
+        "unknownCount": 0
+      }
+    },
+    "task2": {
+      "groups": [
+        {
+          "bindingsJson": "{\"admin\": 71, \"promoter1\": 145, \"promoter2\": 110}",
+          "groupJid": "120363429158864145@g.us",
+          "groupLinkId": 32827,
+          "groupName": "SCR0910-WA-1",
+          "id": 4,
+          "nextAt": 9223372036854776000,
+          "nextStep": 4,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 2
+        },
+        {
+          "bindingsJson": "{\"admin\": 71, \"promoter1\": 145, \"promoter2\": 75}",
+          "groupJid": "120363412887533798@g.us",
+          "groupLinkId": 32829,
+          "groupName": "SCR0910-WB-1",
+          "id": 5,
+          "nextAt": 9223372036854776000,
+          "nextStep": 4,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 2
+        }
+      ],
+      "steps": [
+        {
+          "accountId": 71,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910 CLEAN] 第1条 admin 双群完整验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 1"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 0,
+          "waitMinSeconds": 0
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910 CLEAN] 第2条 promoter1 双群完整验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 2"
+          },
+          "role": "PROMOTER",
+          "roleKey": "promoter1",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910 CLEAN] 第3条 promoter2 双群完整验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 3"
+          },
+          "role": "PROMOTER",
+          "roleKey": "promoter2",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "accountId": 71,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "[SCR0910 CLEAN] 第4条 admin 双群完整验收",
+            "linkMode": 3,
+            "mentionAll": false,
+            "promotionLink": "",
+            "templateName": "SCR0910 4"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        }
+      ],
+      "task": {
+        "accountGroupId": 195,
+        "createdAt": 1789055046931,
+        "failedCount": 0,
+        "groupCount": 2,
+        "id": 2,
+        "inFlightCount": 0,
+        "intervalSeconds": 3,
+        "startAt": 1789055046931,
+        "status": 3,
+        "successCount": 8,
+        "taskName": "SCR0910 双群完整成功验收",
+        "unknownCount": 0
+      }
+    }
+  },
+  "protocolResultEvents": [
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_917008262136",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_c02288c0205a4b2cb311cc44e385fe91",
+      "offset": "116140",
+      "partition": 6
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_917008262136",
+      "messageId": "3EB063A0EE3FB383869ACB",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_e60713aa302e460ca35489b251475151",
+      "offset": "116142",
+      "partition": 6
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916377795307",
+      "messageId": "3EB0D764FB7D42D346D852",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_3f1b559569e1478ea0baf0cfe559891b",
+      "offset": "443099",
+      "partition": 10
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916377795307",
+      "messageId": "3EB0BCD9863E5E8D36A247",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_a967eeac1df94330b1aa6646b85605d6",
+      "offset": "443101",
+      "partition": 10
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916377795307",
+      "messageId": "3EB073AB2B9405D27124A0",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_fb2cf77fab3346f19f61096a44724596",
+      "offset": "443103",
+      "partition": 10
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916377795307",
+      "messageId": "3EB023A1D8771BBF39E2B5",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_6db8f34902e645c8bf4e32ab31924401",
+      "offset": "443104",
+      "partition": 10
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB02DACD031BFF84BBA71",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_03f4ba5437324caab9a7942eafc44fbd",
+      "offset": "158500",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB0EC0B4EF8114344E948",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_477ad24e3a6842c6b35f6100f2643a56",
+      "offset": "158501",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB0FC91D0263FF60E7250",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_95c1a5bcb94441afabd06509f8826146",
+      "offset": "158503",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB05EA8E1DD1910BE18D2",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_8bcdca5f65d24316bc2b3e7fc62bb72d",
+      "offset": "158508",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB01A57A68A45F1826FA2",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_d61251dc528d4be0911e7243409e59a5",
+      "offset": "158509",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB0F4E769EF327FBE588C",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_ff9ef98c94304d09b779e3f11132b0d5",
+      "offset": "158510",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB02A227A43A8112166F7",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_91480a41b7de41b49a7a6064381f751b",
+      "offset": "158511",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_918169352968",
+      "messageId": "3EB0A8A4FA64FA92094785",
+      "jid": "120363412887533798@g.us",
+      "commandId": "cmd_5349da9fc10b475982928809b913181e",
+      "offset": "158512",
+      "partition": 1
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916305675163",
+      "messageId": "3EB00A7CA3D27BE1A04C39",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_689844227231424ba16f64d9042448a2",
+      "offset": "300556",
+      "partition": 11
+    },
+    {
+      "event": "message.send_result_reported",
+      "accountId": "acc_916305675163",
+      "messageId": "3EB03A31F213647C44B8DB",
+      "jid": "120363429158864145@g.us",
+      "commandId": "cmd_b0206b2c502a4e2a9d016ad2ba0dd551",
+      "offset": "300558",
+      "partition": 11
+    }
+  ],
+  "receiptBoundary": {
+    "matchingMemberInbound": 0,
+    "matchingAck": 0,
+    "meaning": "Protocol send result only; recipient delivery/read not confirmed"
+  },
+  "injectedFailure": {
+    "taskId": 1,
+    "recordId": 6,
+    "reason": "ANNOUNCE_ONLY_NON_ADMIN",
+    "groupPermissionRestored": true
+  },
+  "timingEvidence": {
+    "task1StartRequestedAt": 1789054385057,
+    "task1PausedAt": 1789054387837,
+    "task1ResumedAt": 1789054442496,
+    "pausePreservedOriginalRecordAndBindings": true,
+    "task1ExpectedWaitSeconds": [
+      0,
+      20,
+      20,
+      10
+    ],
+    "task2ExpectedWaitSeconds": [
+      0,
+      3,
+      3,
+      3
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "containers": [
+    {
+      "name": "armada-backend",
+      "image": "sha256:43f0fdf2c3f1b3c3de1158c6f6aada64a8d33bc0ce01e619c851cfe16b0c094b",
+      "startedAt": "2026-09-11T11:18:03.446387124Z",
+      "state": "running",
+      "health": null,
+      "restarts": 0
+    },
+    {
+      "name": "armada-nginx",
+      "image": "sha256:754b31ee89f60ce8f4818eea65f8f78ba40d6242eaf47802ad7a0cb99f045bd5",
+      "startedAt": "2026-09-11T11:18:03.631892428Z",
+      "state": "running",
+      "health": null,
+      "restarts": 0
+    }
+  ],
+  "startupLogs": {
+    "errorLines": 0,
+    "criticalSignatures": [],
+    "errorLoggers": {}
+  },
+  "jarSha256": "3ceafd4ca3038e2e3093e20ad08eee031a94c5fc18893ad638aa30c268fc9dbc",
+  "frontend": {
+    "checked": 553,
+    "mismatches": []
+  },
+  "database": [
+    [
+      "migration",
+      "188",
+      "script quoted reply",
+      "1",
+      "2026-09-11 11:18:17"
+    ],
+    [
+      "failed_migrations",
+      "0"
+    ],
+    [
+      "column",
+      "quote_context_json",
+      "json",
+      "YES"
+    ],
+    [
+      "column",
+      "reply_fallback_reason",
+      "varchar(64)",
+      "YES"
+    ]
+  ],
+  "jarMatchesLocal": true
+}

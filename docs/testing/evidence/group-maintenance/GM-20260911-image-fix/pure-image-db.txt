@@ -1,0 +1,10 @@
+id	status	protocol_backend	message_type	caption_length	image_fields	sent
+251	2	ANDROID	IMAGE	0	["assetRef"]	1
+252	2	ANDROID	IMAGE	0	["assetRef"]	1
+253	2	ANDROID	IMAGE	0	["assetRef"]	1
+254	2	ANDROID	IMAGE	0	["assetRef"]	1
+version	success
+180	1
+186	1
+187	1
+

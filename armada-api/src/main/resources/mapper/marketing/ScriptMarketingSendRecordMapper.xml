@@ -2,12 +2,12 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.marketing.mapper.ScriptMarketingSendRecordMapper">
  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
- INSERT INTO script_marketing_send_record (tenant_id, task_id, group_id, step_index, account_id, command_id, status, reason, message_id, submitted_at, finished_at, result_deadline_at)
- VALUES (#{tenantId}, #{taskId}, #{groupId}, #{stepIndex}, #{accountId}, #{commandId}, #{status}, #{reason}, #{messageId}, #{submittedAt}, #{finishedAt}, #{resultDeadlineAt})
+ INSERT INTO script_marketing_send_record (tenant_id, task_id, group_id, step_index, account_id, command_id, status, reason, message_id, submitted_at, finished_at, result_deadline_at, quote_context_json, reply_fallback_reason)
+ VALUES (#{tenantId}, #{taskId}, #{groupId}, #{stepIndex}, #{accountId}, #{commandId}, #{status}, #{reason}, #{messageId}, #{submittedAt}, #{finishedAt}, #{resultDeadlineAt}, #{quoteContextJson}, #{replyFallbackReason})
  </insert>
  <select id="findStep" resultType="com.armada.marketing.model.entity.ScriptMarketingSendRecord">SELECT * FROM script_marketing_send_record WHERE group_id=#{groupId} AND step_index=#{stepIndex}</select>
  <select id="findCommand" resultType="com.armada.marketing.model.entity.ScriptMarketingSendRecord">SELECT * FROM script_marketing_send_record WHERE command_id=#{commandId}</select>
- <update id="update">UPDATE script_marketing_send_record SET status=#{status}, reason=#{reason}, message_id=#{messageId}, submitted_at=#{submittedAt}, finished_at=#{finishedAt}, result_deadline_at=#{resultDeadlineAt} WHERE id=#{id}</update>
+ <update id="update">UPDATE script_marketing_send_record SET status=#{status}, reason=#{reason}, message_id=#{messageId}, submitted_at=#{submittedAt}, finished_at=#{finishedAt}, result_deadline_at=#{resultDeadlineAt}, quote_context_json=#{quoteContextJson}, reply_fallback_reason=#{replyFallbackReason} WHERE id=#{id}</update>
  <select id="pending" resultType="com.armada.marketing.model.entity.ScriptMarketingSendRecord">
  SELECT * FROM script_marketing_send_record WHERE task_id=#{taskId} AND status IN (1,5) ORDER BY group_id, step_index
  </select>

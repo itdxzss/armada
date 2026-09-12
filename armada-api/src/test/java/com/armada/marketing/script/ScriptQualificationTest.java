@@ -85,15 +85,15 @@ class ScriptQualificationTest {
     }
     List<ScriptMarketingStepDTO> steps(int count) {
         var steps = new ArrayList<ScriptMarketingStepDTO>();
-        steps.add(new ScriptMarketingStepDTO("ADMIN", 1L, message, "A", 0, 0));
-        for (int i = 1; i <= count; i++) steps.add(new ScriptMarketingStepDTO("PROMOTER", null, message, "P" + i, 10, 20));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", 1L, message, "A", 0, 0, null, null));
+        for (int i = 1; i <= count; i++) steps.add(new ScriptMarketingStepDTO("PROMOTER", null, message, "P" + i, 10, 20, null, null));
         steps.add(steps.get(1)); // 同一推手重复发言不增加所需人数
         return steps;
     }
     @Test void automaticAdminIsChosenPerGroupAndAllAdminRolesShareOneAccount() {
         var steps = new ArrayList<>(steps(1));
-        steps.set(0, new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0));
-        steps.add(new ScriptMarketingStepDTO("ADMIN", null, message, "主持人", 1, 2));
+        steps.set(0, new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0, null, null));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", null, message, "主持人", 1, 2, null, null));
         when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
                 fact(40L, 1L, 99L, 1, true, true), fact(40L, 2L, 30L, 1, true, true),
                 fact(41L, 1L, 99L, 1, true, false), fact(41L, 2L, 30L, 1, true, true)));
@@ -122,7 +122,7 @@ class ScriptQualificationTest {
         assertThat(service.inspect(30L, automaticSteps(), List.of(group(40L)), false).report().groups().get(0).reasons())
                 .anyMatch(reason -> reason.contains("本群没有可用管理员"));
         var steps = automaticSteps();
-        var secondAdmin = new ScriptMarketingStepDTO("ADMIN", null, message, "主持人", 1, 2);
+        var secondAdmin = new ScriptMarketingStepDTO("ADMIN", null, message, "主持人", 1, 2, null, null);
         steps.add(secondAdmin);
         when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
                 adminFact(40L, 1L, 99L), fact(40L, 2L, 30L, 1, true, true)));
@@ -145,8 +145,8 @@ class ScriptQualificationTest {
     }
     @Test void duplicateFixedAdminNamesIdentifyTheAccountAndHowToCorrectTheRoles() {
         var steps = new ArrayList<>(steps(5));
-        steps.set(0, new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员", 0, 0));
-        steps.add(new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员1", 0, 0));
+        steps.set(0, new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员", 0, 0, null, null));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", 748L, message, "管理员1", 0, 0, null, null));
         var facts = new ArrayList<GroupScriptCandidateVO>();
         facts.add(fact(40L, 748L, 30L, 1, true, true));
         for (long id = 2; id <= 8; id++) facts.add(fact(40L, id, 30L, 1, true, true));
@@ -190,7 +190,7 @@ class ScriptQualificationTest {
         var steps = automaticSteps();
         var button = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(new MessageButton(ButtonType.COPY_CONTENT, "copy", "code")), null, null, false);
-        steps.add(new ScriptMarketingStepDTO("ADMIN", null, button, "主持人", 0, 0));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", null, button, "主持人", 0, 0, null, null));
         when(content.supports(any(), any())).thenCallRealMethod();
         when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
                 new GroupScriptCandidateVO(40L, 1L, 99L, 1, true, true, "ANDROID", true, true),
@@ -206,7 +206,7 @@ class ScriptQualificationTest {
         var steps = new ArrayList<>(steps(1));
         var button = new MarketingTemplateDTO("", 2, null, null, "hello", null,
                 List.of(new MessageButton(ButtonType.QUICK_REPLY, "reply", null)), null, null, false);
-        steps.set(1, new ScriptMarketingStepDTO("PROMOTER", null, button, "P1", 0, 0));
+        steps.set(1, new ScriptMarketingStepDTO("PROMOTER", null, button, "P1", 0, 0, null, null));
         when(content.supports(any(), any())).thenCallRealMethod();
         when(candidates.list(anyList(), anyLong(), anyList())).thenReturn(List.of(
                 fact(40L, 1L, 99L, 1, true, true),
@@ -227,7 +227,7 @@ class ScriptQualificationTest {
     }
     List<ScriptMarketingStepDTO> automaticSteps() {
         var result = new ArrayList<>(steps(1));
-        result.set(0, new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0));
+        result.set(0, new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0, null, null));
         return result;
     }
     GroupScriptCandidateVO adminFact(Long group, Long account, Long pool) {

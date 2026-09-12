@@ -8,6 +8,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
+import com.armada.marketing.asset.model.dto.ResourceAssetMoveDTO;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -18,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ResourceAssetWriteService {
 
+    /** 复用分组锁，上传与删组串行。 */
+    private final ResourceAssetGroupService groupService;
+
     /** 素材文件数据访问。 */
     private final MarketingTemplateFileMapper fileMapper;
     /** 素材标签和关系数据访问。 */
@@ -27,13 +32,16 @@ public class ResourceAssetWriteService {
      * 创建素材写事务服务。
      *
      * @param fileMapper 素材文件数据访问
+     * @param groupService 分组写入校验
      * @param tagMapper 素材标签数据访问
      */
     public ResourceAssetWriteService(
             MarketingTemplateFileMapper fileMapper,
-            ResourceAssetTagMapper tagMapper) {
+            ResourceAssetTagMapper tagMapper,
+            ResourceAssetGroupService groupService) {
         this.fileMapper = fileMapper;
         this.tagMapper = tagMapper;
+        this.groupService = groupService;
     }
 
     /**
@@ -44,9 +52,14 @@ public class ResourceAssetWriteService {
      * @return 新素材 ID
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long create(MarketingTemplateFile file, List<String> tags) {
+    public Long create(MarketingTemplateFile file, List<String> tags, ResourceAssetScope scope) {
+        groupService.lockTarget(file.getGroupId(), scope);
+        file.setAssetScope(scope.getCode());
         fileMapper.insert(file);
         replaceTags(file.getId(), tags, file.getCreatedAt());
+        if (file.getGroupId() != null) {
+            groupService.move(new ResourceAssetMoveDTO(List.of(file.getId()), file.getGroupId()), scope);
+        }
         return file.getId();
     }
 
@@ -59,8 +72,8 @@ public class ResourceAssetWriteService {
      * @param updatedAt 更新时间，epoch 毫秒
      */
     @Transactional(rollbackFor = Exception.class)
-    public void update(Long id, String assetName, List<String> tags, long updatedAt) {
-        lockExistingId(id);
+    public void update(Long id, String assetName, List<String> tags, long updatedAt, ResourceAssetScope scope) {
+        lockExistingId(id, scope);
         if (fileMapper.updateAssetMetadata(id, assetName, updatedAt) != 1) {
             throw notFound();
         }
@@ -74,9 +87,9 @@ public class ResourceAssetWriteService {
      * @param deletedAt 删除时间，epoch 毫秒
      */
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id, long deletedAt) {
+    public void delete(Long id, long deletedAt, ResourceAssetScope scope) {
         Long tenantId = requireTenant();
-        lockExistingId(id);
+        lockExistingId(id, scope);
         long references = fileMapper.countReferences(tenantId, id);
         if (references > 0) {
             throw new BusinessException(
@@ -111,9 +124,10 @@ public class ResourceAssetWriteService {
         }
     }
 
-    private void lockExistingId(Long id) {
+    private void lockExistingId(Long id, ResourceAssetScope scope) {
         requireTenant();
-        if (fileMapper.selectIdByIdForUpdate(id) == null) {
+        if (fileMapper.selectIdByIdForUpdate(id) == null
+                || fileMapper.selectAssetMetadataById(id, scope.getCode()) == null) {
             throw notFound();
         }
     }

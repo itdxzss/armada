@@ -1,0 +1,192 @@
+[
+  {
+    "topic": "protocol.message.events.v1",
+    "partitions": 12,
+    "startOffsets": [
+      {
+        "partition": 10,
+        "offset": "443109"
+      },
+      {
+        "partition": 4,
+        "offset": "243633"
+      },
+      {
+        "partition": 1,
+        "offset": "158875"
+      },
+      {
+        "partition": 7,
+        "offset": "323052"
+      },
+      {
+        "partition": 5,
+        "offset": "247815"
+      },
+      {
+        "partition": 8,
+        "offset": "219484"
+      },
+      {
+        "partition": 2,
+        "offset": "355388"
+      },
+      {
+        "partition": 11,
+        "offset": "300596"
+      },
+      {
+        "partition": 0,
+        "offset": "61878"
+      },
+      {
+        "partition": 9,
+        "offset": "139491"
+      },
+      {
+        "partition": 6,
+        "offset": "116165"
+      },
+      {
+        "partition": 3,
+        "offset": "156936"
+      }
+    ],
+    "endOffsets": [
+      {
+        "partition": 10,
+        "offset": "443109"
+      },
+      {
+        "partition": 4,
+        "offset": "243634"
+      },
+      {
+        "partition": 1,
+        "offset": "158882"
+      },
+      {
+        "partition": 7,
+        "offset": "323052"
+      },
+      {
+        "partition": 5,
+        "offset": "247817"
+      },
+      {
+        "partition": 8,
+        "offset": "219484"
+      },
+      {
+        "partition": 2,
+        "offset": "355389"
+      },
+      {
+        "partition": 11,
+        "offset": "300596"
+      },
+      {
+        "partition": 0,
+        "offset": "61878"
+      },
+      {
+        "partition": 9,
+        "offset": "139491"
+      },
+      {
+        "partition": 6,
+        "offset": "116165"
+      },
+      {
+        "partition": 3,
+        "offset": "156936"
+      }
+    ]
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_243892767632",
+    "messageId": "F43988534A024A02A5CDF67AF184F6F1",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_0c83fdc5cdc348248e34468ebf5ca409",
+    "success": true,
+    "offset": "243633",
+    "partition": 4
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_27630013024",
+    "messageId": "879750A1254046B49CE866F8897B9D3C",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_dfe8b65943c24e919b0c27d6adf47d4d",
+    "success": true,
+    "offset": "158876",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_27630013024",
+    "messageId": "0E362CD0FD9B49DBB9CF634A13D931AA",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_9526f98a6c144370a3a76b7566c107ce",
+    "success": true,
+    "offset": "158877",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_27630013024",
+    "messageId": "36197F4A2BFA49C59DF3D13A3AE2103C",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_8bc0721b771c488a8689089034dae242",
+    "success": true,
+    "offset": "158878",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_27630013024",
+    "messageId": "0CF59D6429F74384B58445769A33DE91",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_5835a155fca9477aaeed490310fef27b",
+    "success": true,
+    "offset": "158879",
+    "partition": 1
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_243858305992",
+    "messageId": "BCCD265F606940D4BF5C1F3D05F366BE",
+    "jid": "120363429257617063@g.us",
+    "commandId": "cmd_a7edd1d3742c40238772ef23c361eab2",
+    "success": true,
+    "offset": "247815",
+    "partition": 5
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_243858305992",
+    "messageId": "96686FFC51E34315BE3594F9499EC582",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_9475e4136e1c4361b52593d8948bd4d5",
+    "success": true,
+    "offset": "247816",
+    "partition": 5
+  },
+  {
+    "event": "message.send_result_reported",
+    "accountId": "acc_243848227922",
+    "messageId": "012E8F834F7E491984CD412EDEE6C35A",
+    "jid": "120363428223437482@g.us",
+    "commandId": "cmd_1a64dda642d04b4dab9fba4d04e1b505",
+    "success": true,
+    "offset": "355388",
+    "partition": 2
+  },
+  {
+    "complete": true,
+    "scanned": 11,
+    "matched": 8,
+    "committedOffsets": false
+  }
+]

@@ -60,5 +60,5 @@ public interface ResourceAssetTagMapper {
      *
      * @return 按标签名稳定排序的候选
      */
-    List<String> selectActiveTagNames();
+    List<String> selectActiveTagNames(@Param("scope") int scope);
 }

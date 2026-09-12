@@ -1,0 +1,34 @@
+[
+  {
+    "path": "/api/script-marketing-tasks/options/account-groups",
+    "httpStatus": 401,
+    "body": {
+      "code": 40104,
+      "message": "登录已失效，请重新登录"
+    }
+  },
+  {
+    "path": "/api/script-marketing-tasks?page=1&pageSize=10",
+    "httpStatus": 401,
+    "body": {
+      "code": 40104,
+      "message": "登录已失效，请重新登录"
+    }
+  },
+  {
+    "path": "/api/script-definitions?page=1&pageSize=10",
+    "httpStatus": 401,
+    "body": {
+      "code": 40104,
+      "message": "登录已失效，请重新登录"
+    }
+  },
+  {
+    "path": "/api/script-materials?page=1&pageSize=10",
+    "httpStatus": 401,
+    "body": {
+      "code": 40104,
+      "message": "登录已失效，请重新登录"
+    }
+  }
+]

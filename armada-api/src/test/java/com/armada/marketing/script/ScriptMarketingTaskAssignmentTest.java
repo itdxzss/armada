@@ -59,7 +59,7 @@ class ScriptMarketingTaskAssignmentTest {
     private ScriptMarketingSaveDTO dto(Long accountId) {
         var message = new MarketingTemplateDTO("", 1, null, null, "hello", null, null, null, null, false);
         return new ScriptMarketingSaveDTO("自动管理员任务", 10, null, null, List.of(40L), List.of(
-                new ScriptMarketingStepDTO("ADMIN", accountId, message, "A", 0, 0),
-                new ScriptMarketingStepDTO("PROMOTER", null, message, "P1", 10, 10)), 30L);
+                new ScriptMarketingStepDTO("ADMIN", accountId, message, "A", 0, 0, null, null),
+                new ScriptMarketingStepDTO("PROMOTER", null, message, "P1", 10, 10, null, null)), 30L);
     }
 }

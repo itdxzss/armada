@@ -1,0 +1,102 @@
+{
+  "coordinator": {
+    "source": {
+      "checked": 692,
+      "mismatches": []
+    },
+    "container": {
+      "name": "zhuan-coordinator",
+      "image": "sha256:b48e36ddd916153cf91a52dba38be143abe15bd179bcaf7fce579b2599de1017",
+      "startedAt": "2026-09-11T11:17:20.511999473Z",
+      "state": "running",
+      "health": "healthy",
+      "restarts": 0
+    },
+    "serverBinarySha256": "b310e68f1f6e50057c6b183e88d6801cb0d8da3ff1029bda82c776ec9e9468f8",
+    "coordinatorBinarySha256": "b54138869cd4a6bcfbe7ad5ba826e5632bc65c318393fc79967bbf563fb58104",
+    "architecture": "amd64",
+    "imageCreatedAt": "2026-09-11T11:16:24.799713412Z",
+    "goVersion": "go1.26.8",
+    "buildSettings": [
+      "build\tCGO_ENABLED=1",
+      "build\tGOARCH=amd64",
+      "build\tGOOS=linux",
+      "build\tGOAMD64=v1"
+    ]
+  },
+  "node1": {
+    "source": {
+      "checked": 692,
+      "mismatches": []
+    },
+    "container": {
+      "name": "zhuan-node",
+      "image": "sha256:fa8583ce0f1a923a6c1c13324722c0bbe65319390056904fec3667f658aa2bfb",
+      "startedAt": "2026-09-11T11:17:13.705315833Z",
+      "state": "running",
+      "health": "healthy",
+      "restarts": 0
+    },
+    "serverBinarySha256": "88b7bad17280a9be3e12d04f31b2d5410f95238de12d3c59b07831b8d2e13ce0",
+    "coordinatorBinarySha256": "41539fadf7de91e2793feaf871f6a2c9f58e84cfa7cff7c6523face458db94cd",
+    "architecture": "amd64",
+    "imageCreatedAt": "2026-09-11T11:16:01.562456323Z",
+    "goVersion": "go1.26.5",
+    "buildSettings": [
+      "build\tCGO_ENABLED=1",
+      "build\tGOARCH=amd64",
+      "build\tGOOS=linux",
+      "build\tGOAMD64=v1"
+    ]
+  },
+  "node2": {
+    "source": {
+      "checked": 692,
+      "mismatches": []
+    },
+    "container": {
+      "name": "zhuan-node",
+      "image": "sha256:ebcf63b23aecd356817047c4a621c4b4e7abb19a8c59ee40e9f0ba229de4b70e",
+      "startedAt": "2026-09-11T11:17:14.493444992Z",
+      "state": "running",
+      "health": "healthy",
+      "restarts": 0
+    },
+    "serverBinarySha256": "b310e68f1f6e50057c6b183e88d6801cb0d8da3ff1029bda82c776ec9e9468f8",
+    "coordinatorBinarySha256": "b54138869cd4a6bcfbe7ad5ba826e5632bc65c318393fc79967bbf563fb58104",
+    "architecture": "amd64",
+    "imageCreatedAt": "2026-09-11T11:16:01.396859256Z",
+    "goVersion": "go1.26.8",
+    "buildSettings": [
+      "build\tCGO_ENABLED=1",
+      "build\tGOARCH=amd64",
+      "build\tGOOS=linux",
+      "build\tGOAMD64=v1"
+    ]
+  },
+  "node3": {
+    "source": {
+      "checked": 692,
+      "mismatches": []
+    },
+    "container": {
+      "name": "zhuan-node",
+      "image": "sha256:b519fd5892951e89134391c79e9466d39481f7ea9d2306bde25fcf56a7b2379f",
+      "startedAt": "2026-09-11T11:17:13.766753834Z",
+      "state": "running",
+      "health": "healthy",
+      "restarts": 0
+    },
+    "serverBinarySha256": "35917efc0fac90801c80cd37a23ce9fa85ed3169fcf90447b0ac52acfa5f3776",
+    "coordinatorBinarySha256": "012c27d9ff338f3d7206066ab95315a9f4402b848007dcdb4fb0cfb9776bea60",
+    "architecture": "amd64",
+    "imageCreatedAt": "2026-09-11T11:16:02.748740335Z",
+    "goVersion": "go1.26.6",
+    "buildSettings": [
+      "build\tCGO_ENABLED=1",
+      "build\tGOARCH=amd64",
+      "build\tGOOS=linux",
+      "build\tGOAMD64=v1"
+    ]
+  }
+}

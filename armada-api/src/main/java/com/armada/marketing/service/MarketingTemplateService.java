@@ -1,5 +1,6 @@
 package com.armada.marketing.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
 import com.armada.marketing.model.vo.MarketingTemplateVO;
@@ -33,7 +34,7 @@ public interface MarketingTemplateService {
      * @return 创建后的模板
      * @throws BusinessException 参数校验失败或模板名已存在
      */
-    MarketingTemplateVO create(MarketingTemplateDTO dto);
+    MarketingTemplateVO create(MarketingTemplateDTO dto, ResourceAssetScope scope);
 
     /**
      * 编辑指定营销模板。
@@ -45,7 +46,7 @@ public interface MarketingTemplateService {
      * @return 更新后的模板
      * @throws BusinessException 模板不存在或校验失败
      */
-    MarketingTemplateVO update(Long id, MarketingTemplateDTO dto);
+    MarketingTemplateVO update(Long id, MarketingTemplateDTO dto, ResourceAssetScope scope);
 
     /**
      * 复制营销模板。
@@ -57,7 +58,7 @@ public interface MarketingTemplateService {
      * @return 复制生成的新模板
      * @throws BusinessException 源模板不存在,或副本名已存在
      */
-    MarketingTemplateVO clone(Long id);
+    MarketingTemplateVO clone(Long id, ResourceAssetScope scope);
 
     /**
      * 批量软删除营销模板。空列表直接返回、不做任何操作。

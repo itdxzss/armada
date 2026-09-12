@@ -11,6 +11,8 @@
         <result column="size_bytes" property="sizeBytes"/>
         <result column="content" property="content"/>
         <result column="asset_name" property="assetName"/>
+        <result column="group_id" property="groupId"/>
+        <result column="asset_scope" property="assetScope"/>
         <result column="width" property="width"/>
         <result column="height" property="height"/>
         <result column="created_by" property="createdBy"/>
@@ -21,17 +23,30 @@
 
     <sql id="AllColumns">
         id, tenant_id, original_filename, content_type, size_bytes, content,
-        asset_name, width, height, created_by, created_at, updated_at, deleted_at
+        asset_name, asset_scope, width, height, created_by, created_at, updated_at, deleted_at
     </sql>
 
     <sql id="MetadataColumns">
         id, tenant_id, original_filename, content_type, size_bytes,
-        asset_name, width, height, created_by, created_at, updated_at, deleted_at
+        asset_name, asset_scope, width, height, created_by, created_at, updated_at, deleted_at
     </sql>
 
     <sql id="AssetFilterWhere">
         <where>
             file.deleted_at IS NULL
+            AND (file.asset_scope IS NULL OR file.asset_scope = #{q.scope.code})
+            <if test="q.groupId != null">
+                <choose>
+                    <when test="q.groupId == 0">
+                        AND NOT EXISTS (SELECT 1 FROM resource_asset_group_ref gr
+                            WHERE gr.file_id = file.id AND gr.scope = #{q.scope.code})
+                    </when>
+                    <otherwise>
+                        AND EXISTS (SELECT 1 FROM resource_asset_group_ref gr
+                            WHERE gr.file_id = file.id AND gr.scope = #{q.scope.code} AND gr.group_id = #{q.groupId})
+                    </otherwise>
+                </choose>
+            </if>
             <if test="q.assetName != null and q.assetName != ''">
                 AND COALESCE(NULLIF(file.asset_name, ''), file.original_filename) LIKE CONCAT('%', #{q.assetName}, '%')
             </if>
@@ -58,10 +73,10 @@
             useGeneratedKeys="true" keyProperty="id">
         INSERT INTO marketing_template_file
             (original_filename, content_type, size_bytes, content,
-             asset_name, width, height, created_by, created_at, updated_at)
+             asset_name, asset_scope, width, height, created_by, created_at, updated_at)
         VALUES
             (#{originalFilename}, #{contentType}, #{sizeBytes}, #{content},
-             #{assetName}, #{width}, #{height}, #{createdBy}, #{createdAt}, #{updatedAt})
+             #{assetName}, #{assetScope}, #{width}, #{height}, #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="selectById" resultMap="MarketingTemplateFileResultMap">
@@ -71,7 +86,8 @@
     </select>
 
     <select id="selectAssetPage" resultMap="MarketingTemplateFileResultMap">
-        SELECT <include refid="MetadataColumns"/>
+        SELECT <include refid="MetadataColumns"/>,
+            (SELECT gr.group_id FROM resource_asset_group_ref gr WHERE gr.file_id = file.id AND gr.scope = #{q.scope.code}) AS group_id
         FROM marketing_template_file file
         <include refid="AssetFilterWhere"/>
         ORDER BY file.created_at DESC, file.id DESC
@@ -85,9 +101,10 @@
     </select>
 
     <select id="selectAssetMetadataById" resultMap="MarketingTemplateFileResultMap">
-        SELECT <include refid="MetadataColumns"/>
-        FROM marketing_template_file
-        WHERE id = #{id} AND deleted_at IS NULL
+        SELECT <include refid="MetadataColumns"/>,
+            (SELECT gr.group_id FROM resource_asset_group_ref gr WHERE gr.file_id = file.id AND gr.scope = #{scope}) AS group_id
+        FROM marketing_template_file file
+        WHERE id = #{id} AND deleted_at IS NULL AND (asset_scope IS NULL OR asset_scope = #{scope})
     </select>
 
     <select id="selectByIdForUpdate" resultMap="MarketingTemplateFileResultMap">

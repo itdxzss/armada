@@ -1,5 +1,6 @@
 package com.armada.marketing.controller;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.model.dto.BatchIdsRequest;
 import com.armada.marketing.model.dto.MarketingTemplateDTO;
 import com.armada.marketing.model.dto.MarketingTemplateQuery;
@@ -53,7 +54,7 @@ public class MarketingTemplateController {
      */
     @PostMapping
     public ApiResponse<MarketingTemplateVO> create(@RequestBody MarketingTemplateDTO dto) {
-        return ApiResponse.ok(service.create(dto));
+        return ApiResponse.ok(service.create(dto, ResourceAssetScope.MARKETING));
     }
 
     /**
@@ -65,7 +66,7 @@ public class MarketingTemplateController {
      */
     @PutMapping("/{id}")
     public ApiResponse<MarketingTemplateVO> update(@PathVariable Long id, @RequestBody MarketingTemplateDTO dto) {
-        return ApiResponse.ok(service.update(id, dto));
+        return ApiResponse.ok(service.update(id, dto, ResourceAssetScope.MARKETING));
     }
 
     /**
@@ -76,7 +77,7 @@ public class MarketingTemplateController {
      */
     @PostMapping("/{id}/clone")
     public ApiResponse<MarketingTemplateVO> clone(@PathVariable Long id) {
-        return ApiResponse.ok(service.clone(id));
+        return ApiResponse.ok(service.clone(id, ResourceAssetScope.MARKETING));
     }
 
     /**

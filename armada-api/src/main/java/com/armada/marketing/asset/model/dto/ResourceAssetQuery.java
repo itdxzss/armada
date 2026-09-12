@@ -1,11 +1,31 @@
 package com.armada.marketing.asset.model.dto;
 
 import com.armada.shared.paging.PageQuery;
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import java.util.ArrayList;
 import java.util.List;
 
 /** 图片素材分页查询；GET 参数通过 setter 绑定。 */
 public class ResourceAssetQuery extends PageQuery {
+
+    /** 当前入口业务范围；历史图片在所有业务入口可见。 */
+    private ResourceAssetScope scope = ResourceAssetScope.HYPERLINK;
+    /** @return 当前入口业务范围 */
+    public ResourceAssetScope getScope() { return scope; }
+    /** @param scope 当前入口业务范围 */
+    public void setScope(ResourceAssetScope scope) { this.scope = scope; }
+
+    /** 分组筛选：null 全部，0 未分组，正数指定分组。 */
+    private Long groupId;
+
+    /** @return 分组筛选值 */
+    public Long getGroupId() {
+        return groupId;
+    }
+    /** @param groupId 分组筛选值 */
+    public void setGroupId(Long groupId) {
+        this.groupId = groupId;
+    }
 
     /** 素材业务名称模糊筛选。 */
     private String assetName;

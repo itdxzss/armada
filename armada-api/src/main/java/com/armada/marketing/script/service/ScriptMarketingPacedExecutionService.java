@@ -43,13 +43,15 @@ public class ScriptMarketingPacedExecutionService {
     private final AccountProtocolLookupService accounts;
     private final MessageSendPort sender;
     private final ScriptMessageControlPort control;
+    private final ScriptReplyResolver replies;
     /** 注入既有聚合持久化、资格和原命令控制端口。 */
     public ScriptMarketingPacedExecutionService(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
             ScriptMarketingSendRecordMapper records, ScriptMarketingContentService content,
             ScriptQualificationService qualification, AccountProtocolLookupService accounts,
-            MessageSendPort sender, ScriptMessageControlPort control) {
+            MessageSendPort sender, ScriptMessageControlPort control, ScriptReplyResolver replies) {
         this.tasks = tasks; this.groups = groups; this.records = records; this.content = content;
         this.qualification = qualification; this.accounts = accounts; this.sender = sender; this.control = control;
+        this.replies = replies;
     }
     /** 明确操作只在任务锁内执行；启动检查失败抛异常使绑定和状态全部回滚。 */
     public void action(ScriptMarketingTask task, String action, long now) {
@@ -138,15 +140,21 @@ public class ScriptMarketingPacedExecutionService {
     }
     private void submit(ScriptMarketingTask task, ScriptMarketingGroup group, List<ScriptMarketingStepDTO> steps, long now) {
         if (records.findStep(group.getId(), group.getNextStep()) != null) return;
+        var reply = replies.resolve(group, steps);
+        if (reply.waiting()) {
+            // 原间隔已经到期，仅安排有限频率复查，不重新抽取消息间隔。
+            group.setNextAt(now + 1000L); groups.update(group); return;
+        }
         var step = steps.get(group.getNextStep());
         var row = intent(task, group, step, now);
+        row.setReplyFallbackReason(reply.fallbackReason()); records.update(row);
         MessageSendCommand command;
         try {
             qualification.requireStepSendable(task.getAccountGroupId(), group, step);
             var account = accounts.findOnlineProtocolRefs(List.of(row.getAccountId())).stream().findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.CONFLICT, "原绑定账号已离线或不可用"));
             command = new MessageSendCommand(account, new MessageSendCommand.MessageTarget(group.getGroupJid()),
-                    content.payload(step), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
+                    reply.apply(content.payload(step)), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
                     null, null, null, null, null, null, row.getId()), row.getCommandId(),
                     MessageSendCommand.DEFAULT_SEND_INTERVAL_MS, 0L);
         } catch (BusinessException ex) {

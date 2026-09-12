@@ -17,6 +17,25 @@ public class MarketingTemplateFile {
     private Long sizeBytes;
     /** 原始图片字节。 */
     private byte[] content;
+    /** 图片业务归属；NULL 仅用于迁移前的历史共享图片。 */
+    private Integer assetScope;
+    /** @return 图片业务归属 */
+    public Integer getAssetScope() { return assetScope; }
+    /** @param assetScope 新增图片的业务归属 */
+    public void setAssetScope(Integer assetScope) { this.assetScope = assetScope; }
+
+    /** 当前查询业务内的分组，由关系表投影，不是图片表持久化列。 */
+    private Long groupId;
+
+    /** @return 素材所属分组 */
+    public Long getGroupId() {
+        return groupId;
+    }
+    /** @param groupId 素材所属分组 */
+    public void setGroupId(Long groupId) {
+        this.groupId = groupId;
+    }
+
     /** 素材库展示与搜索使用的业务名称。 */
     private String assetName;
     /** 新上传图片解码得到的像素宽度；历史图片允许为空。 */

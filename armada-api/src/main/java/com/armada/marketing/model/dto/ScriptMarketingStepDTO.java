@@ -8,4 +8,6 @@ public record ScriptMarketingStepDTO(
         MarketingTemplateDTO message,
         String roleKey,
         Integer waitMinSeconds,
-        Integer waitMaxSeconds) { }
+        Integer waitMaxSeconds,
+        String stepId,
+        String replyToStepId) { }

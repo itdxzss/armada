@@ -1,0 +1,1383 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789086821517,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/7",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "bindingsJson": "{\"p1\": 687, \"p2\": 690, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "id": 14,
+              "nextAt": 9223372036854776000,
+              "nextStep": 14,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 692, \"p2\": 687, \"p3\": 690, \"p4\": 686, \"admin\": 685}",
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 15,
+              "nextAt": 9223372036854776000,
+              "nextStep": 20,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 690, \"p2\": 687, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+              "groupJid": "120363430001860302@g.us",
+              "groupLinkId": 7508,
+              "groupName": "dev1-link-admin-20260805-04",
+              "id": 16,
+              "nextAt": 9223372036854776000,
+              "nextStep": 20,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 687, \"p2\": 692, \"p3\": 686, \"p4\": 690, \"admin\": 685}",
+              "groupJid": "120363428328772085@g.us",
+              "groupLinkId": 7509,
+              "groupName": "dev1-link-admin-20260805-05",
+              "id": 17,
+              "nextAt": 9223372036854776000,
+              "nextStep": 20,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 690, \"p2\": 687, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+              "groupJid": "120363413114110140@g.us",
+              "groupLinkId": 7511,
+              "groupName": "dev1-link-admin-20260805-06",
+              "id": 18,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 690, \"p2\": 686, \"p3\": 687, \"p4\": 692, \"admin\": 685}",
+              "groupJid": "120363430638294217@g.us",
+              "groupLinkId": 7513,
+              "groupName": "dev1-link-admin-20260805-07",
+              "id": 19,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 686, \"p2\": 692, \"p3\": 687, \"p4\": 690, \"admin\": 685}",
+              "groupJid": "120363427447992430@g.us",
+              "groupLinkId": 7515,
+              "groupName": "dev1-link-admin-20260805-08",
+              "id": 20,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 692, \"p2\": 686, \"p3\": 687, \"p4\": 690, \"admin\": 685}",
+              "groupJid": "120363412027408953@g.us",
+              "groupLinkId": 7517,
+              "groupName": "dev1-link-admin-20260805-09",
+              "id": 21,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 686, \"p2\": 690, \"p3\": 687, \"p4\": 692, \"admin\": 685}",
+              "groupJid": "120363412919471142@g.us",
+              "groupLinkId": 7519,
+              "groupName": "dev1-link-admin-20260805-10",
+              "id": 22,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            },
+            {
+              "bindingsJson": "{\"p1\": 690, \"p2\": 692, \"p3\": 687, \"p4\": 686, \"admin\": 685}",
+              "groupJid": "120363410743117173@g.us",
+              "groupLinkId": 7521,
+              "groupName": "dev1-link-admin-20260805-11",
+              "id": 23,
+              "nextAt": 9223372036854776000,
+              "nextStep": 13,
+              "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+              "paused": true,
+              "remainingWaitMs": 0,
+              "taskId": 7
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=0 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=1 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=2 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=3 / role=p3",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p3",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=4 / role=p4",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p4",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=5 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=6 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=7 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=8 / role=p3",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p3",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=9 / role=p4",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p4",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=10 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=11 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=12 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=13 / role=p3",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p3",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=14 / role=p4",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p4",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=15 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=16 / role=p1",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=17 / role=p2",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=18 / role=p3",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p3",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / LOAD200 / step=19 / role=p4",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p4",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789086690599,
+            "failedCount": 0,
+            "groupCount": 10,
+            "id": 7,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789086690599,
+            "status": 1,
+            "successCount": 152,
+            "taskName": "GM-20260911-080650-load200-existing-4-promoters",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086820973
+    },
+    {
+      "finishedAt": 1789086822160,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/7/check",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789086821999,
+          "groups": [
+            {
+              "available": 4,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363430001860302@g.us",
+              "groupLinkId": 7508,
+              "groupName": "dev1-link-admin-20260805-04",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363428328772085@g.us",
+              "groupLinkId": 7509,
+              "groupName": "dev1-link-admin-20260805-05",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363413114110140@g.us",
+              "groupLinkId": 7511,
+              "groupName": "dev1-link-admin-20260805-06",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363430638294217@g.us",
+              "groupLinkId": 7513,
+              "groupName": "dev1-link-admin-20260805-07",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363427447992430@g.us",
+              "groupLinkId": 7515,
+              "groupName": "dev1-link-admin-20260805-08",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363412027408953@g.us",
+              "groupLinkId": 7517,
+              "groupName": "dev1-link-admin-20260805-09",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363412919471142@g.us",
+              "groupLinkId": 7519,
+              "groupName": "dev1-link-admin-20260805-10",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363410743117173@g.us",
+              "groupLinkId": 7521,
+              "groupName": "dev1-link-admin-20260805-11",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": true,
+              "reasons": [],
+              "required": 4,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": true,
+          "requiredPromoters": 4
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086821517
+    },
+    {
+      "finishedAt": 1789086822825,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/14/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086822160
+    },
+    {
+      "finishedAt": 1789086823549,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/18/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086822825
+    },
+    {
+      "finishedAt": 1789086824233,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/19/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086823549
+    },
+    {
+      "finishedAt": 1789086824889,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/20/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086824233
+    },
+    {
+      "finishedAt": 1789086825647,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/21/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086824889
+    },
+    {
+      "finishedAt": 1789086826288,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/22/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086825647
+    },
+    {
+      "finishedAt": 1789086827031,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/7/groups/23/resume",
+      "request": null,
+      "response": {
+        "code": 0,
+        "message": "ok"
+      },
+      "startedAt": 1789086826288
+    }
+  ],
+  "result": {
+    "before": {
+      "groups": [
+        {
+          "bindingsJson": "{\"p1\": 687, \"p2\": 690, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+          "groupJid": "120363428223437482@g.us",
+          "groupLinkId": 7506,
+          "groupName": "dev1-link-admin-20260805-02",
+          "id": 14,
+          "nextAt": 9223372036854776000,
+          "nextStep": 14,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 692, \"p2\": 687, \"p3\": 690, \"p4\": 686, \"admin\": 685}",
+          "groupJid": "120363429257617063@g.us",
+          "groupLinkId": 7507,
+          "groupName": "dev1-link-admin-20260805-03",
+          "id": 15,
+          "nextAt": 9223372036854776000,
+          "nextStep": 20,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 690, \"p2\": 687, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+          "groupJid": "120363430001860302@g.us",
+          "groupLinkId": 7508,
+          "groupName": "dev1-link-admin-20260805-04",
+          "id": 16,
+          "nextAt": 9223372036854776000,
+          "nextStep": 20,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 687, \"p2\": 692, \"p3\": 686, \"p4\": 690, \"admin\": 685}",
+          "groupJid": "120363428328772085@g.us",
+          "groupLinkId": 7509,
+          "groupName": "dev1-link-admin-20260805-05",
+          "id": 17,
+          "nextAt": 9223372036854776000,
+          "nextStep": 20,
+          "paused": false,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 690, \"p2\": 687, \"p3\": 686, \"p4\": 692, \"admin\": 685}",
+          "groupJid": "120363413114110140@g.us",
+          "groupLinkId": 7511,
+          "groupName": "dev1-link-admin-20260805-06",
+          "id": 18,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 690, \"p2\": 686, \"p3\": 687, \"p4\": 692, \"admin\": 685}",
+          "groupJid": "120363430638294217@g.us",
+          "groupLinkId": 7513,
+          "groupName": "dev1-link-admin-20260805-07",
+          "id": 19,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 686, \"p2\": 692, \"p3\": 687, \"p4\": 690, \"admin\": 685}",
+          "groupJid": "120363427447992430@g.us",
+          "groupLinkId": 7515,
+          "groupName": "dev1-link-admin-20260805-08",
+          "id": 20,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 692, \"p2\": 686, \"p3\": 687, \"p4\": 690, \"admin\": 685}",
+          "groupJid": "120363412027408953@g.us",
+          "groupLinkId": 7517,
+          "groupName": "dev1-link-admin-20260805-09",
+          "id": 21,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 686, \"p2\": 690, \"p3\": 687, \"p4\": 692, \"admin\": 685}",
+          "groupJid": "120363412919471142@g.us",
+          "groupLinkId": 7519,
+          "groupName": "dev1-link-admin-20260805-10",
+          "id": 22,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        },
+        {
+          "bindingsJson": "{\"p1\": 690, \"p2\": 692, \"p3\": 687, \"p4\": 686, \"admin\": 685}",
+          "groupJid": "120363410743117173@g.us",
+          "groupLinkId": 7521,
+          "groupName": "dev1-link-admin-20260805-11",
+          "id": 23,
+          "nextAt": 9223372036854776000,
+          "nextStep": 13,
+          "pauseReason": "原绑定账号或群资格发生变化，请查看检查结果",
+          "paused": true,
+          "remainingWaitMs": 0,
+          "taskId": 7
+        }
+      ],
+      "steps": [
+        {
+          "accountId": 685,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=0 / role=admin",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 30,
+          "waitMinSeconds": 30
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=1 / role=p1",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p1",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=2 / role=p2",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p2",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=3 / role=p3",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p3",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=4 / role=p4",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p4",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "accountId": 685,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=5 / role=admin",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=6 / role=p1",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p1",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=7 / role=p2",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p2",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=8 / role=p3",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p3",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=9 / role=p4",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p4",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "accountId": 685,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=10 / role=admin",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=11 / role=p1",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p1",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=12 / role=p2",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p2",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=13 / role=p3",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p3",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=14 / role=p4",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p4",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "accountId": 685,
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=15 / role=admin",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "ADMIN",
+          "roleKey": "admin",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=16 / role=p1",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p1",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=17 / role=p2",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p2",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=18 / role=p3",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p3",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        },
+        {
+          "message": {
+            "bodyText": "",
+            "buttons": [],
+            "content": "GM-20260911-080650 / LOAD200 / step=19 / role=p4",
+            "linkMode": 1,
+            "mentionAll": false,
+            "promotionLink": "",
+            "remark": "test1 group-maintenance regression",
+            "templateName": "GM-20260911-080650-text"
+          },
+          "role": "PROMOTER",
+          "roleKey": "p4",
+          "waitMaxSeconds": 3,
+          "waitMinSeconds": 3
+        }
+      ],
+      "task": {
+        "accountGroupId": 95,
+        "createdAt": 1789086690599,
+        "failedCount": 0,
+        "groupCount": 10,
+        "id": 7,
+        "inFlightCount": 0,
+        "intervalSeconds": 3,
+        "startAt": 1789086690599,
+        "status": 1,
+        "successCount": 152,
+        "taskName": "GM-20260911-080650-load200-existing-4-promoters",
+        "unknownCount": 0
+      }
+    },
+    "check": {
+      "accountCount": 8,
+      "checkedAt": 1789086821999,
+      "groups": [
+        {
+          "available": 4,
+          "groupJid": "120363428223437482@g.us",
+          "groupLinkId": 7506,
+          "groupName": "dev1-link-admin-20260805-02",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363429257617063@g.us",
+          "groupLinkId": 7507,
+          "groupName": "dev1-link-admin-20260805-03",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363430001860302@g.us",
+          "groupLinkId": 7508,
+          "groupName": "dev1-link-admin-20260805-04",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363428328772085@g.us",
+          "groupLinkId": 7509,
+          "groupName": "dev1-link-admin-20260805-05",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363413114110140@g.us",
+          "groupLinkId": 7511,
+          "groupName": "dev1-link-admin-20260805-06",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363430638294217@g.us",
+          "groupLinkId": 7513,
+          "groupName": "dev1-link-admin-20260805-07",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363427447992430@g.us",
+          "groupLinkId": 7515,
+          "groupName": "dev1-link-admin-20260805-08",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363412027408953@g.us",
+          "groupLinkId": 7517,
+          "groupName": "dev1-link-admin-20260805-09",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363412919471142@g.us",
+          "groupLinkId": 7519,
+          "groupName": "dev1-link-admin-20260805-10",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 4,
+          "groupJid": "120363410743117173@g.us",
+          "groupLinkId": 7521,
+          "groupName": "dev1-link-admin-20260805-11",
+          "noPermission": 0,
+          "offline": 0,
+          "ready": true,
+          "reasons": [],
+          "required": 4,
+          "shortage": 0,
+          "unconfirmed": 0
+        }
+      ],
+      "ready": true,
+      "requiredPromoters": 4
+    },
+    "resumed": [
+      {
+        "groupId": 14,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 18,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 19,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 20,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 21,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 22,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      },
+      {
+        "groupId": 23,
+        "response": {
+          "code": 0,
+          "message": "ok"
+        }
+      }
+    ]
+  }
+}

@@ -5,6 +5,8 @@ import java.util.List;
 /**
  * 图片素材管理和选择器共用的稳定响应。
  *
+ * @param assetScope 图片归属；null 为历史共享
+ * @param groupId 所属分组，null 表示未分组
  * @param id 素材文件 ID
  * @param assetName 素材业务名称
  * @param contentUrl 鉴权图片内容路径
@@ -28,5 +30,7 @@ public record ResourceAssetVO(
         long referenceCount,
         Long createdBy,
         Long createdAt,
-        Long updatedAt) {
+        Long updatedAt,
+        Long groupId,
+        Integer assetScope) {
 }

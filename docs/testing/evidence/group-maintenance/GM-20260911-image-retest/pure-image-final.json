@@ -1,0 +1,174 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789090331968,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/12",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "bindingsJson": "{\"p1\": 690, \"admin\": 685}",
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "id": 30,
+              "nextAt": 9223372036854776000,
+              "nextStep": 2,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 12
+            },
+            {
+              "bindingsJson": "{\"p1\": 690, \"admin\": 685}",
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 31,
+              "nextAt": 9223372036854776000,
+              "nextStep": 2,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 12
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-retest-pure-image"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-retest-pure-image"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789090304663,
+            "failedCount": 0,
+            "groupCount": 2,
+            "id": 12,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789090304663,
+            "status": 3,
+            "successCount": 4,
+            "taskName": "GM-20260911-image-retest-pure-image-regression",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789090331433
+    }
+  ],
+  "result": {
+    "groups": [
+      {
+        "bindingsJson": "{\"p1\": 690, \"admin\": 685}",
+        "groupJid": "120363428223437482@g.us",
+        "groupLinkId": 7506,
+        "groupName": "dev1-link-admin-20260805-02",
+        "id": 30,
+        "nextAt": 9223372036854776000,
+        "nextStep": 2,
+        "paused": false,
+        "remainingWaitMs": 0,
+        "taskId": 12
+      },
+      {
+        "bindingsJson": "{\"p1\": 690, \"admin\": 685}",
+        "groupJid": "120363429257617063@g.us",
+        "groupLinkId": 7507,
+        "groupName": "dev1-link-admin-20260805-03",
+        "id": 31,
+        "nextAt": 9223372036854776000,
+        "nextStep": 2,
+        "paused": false,
+        "remainingWaitMs": 0,
+        "taskId": 12
+      }
+    ],
+    "steps": [
+      {
+        "accountId": 685,
+        "message": {
+          "bodyText": "",
+          "buttons": [],
+          "content": "",
+          "imageFileId": 34,
+          "linkMode": 3,
+          "mentionAll": false,
+          "promotionLink": "",
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-image-retest-pure-image"
+        },
+        "role": "ADMIN",
+        "roleKey": "admin",
+        "waitMaxSeconds": 30,
+        "waitMinSeconds": 30
+      },
+      {
+        "message": {
+          "bodyText": "",
+          "buttons": [],
+          "content": "",
+          "imageFileId": 34,
+          "linkMode": 3,
+          "mentionAll": false,
+          "promotionLink": "",
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-image-retest-pure-image"
+        },
+        "role": "PROMOTER",
+        "roleKey": "p1",
+        "waitMaxSeconds": 3,
+        "waitMinSeconds": 3
+      }
+    ],
+    "task": {
+      "accountGroupId": 95,
+      "createdAt": 1789090304663,
+      "failedCount": 0,
+      "groupCount": 2,
+      "id": 12,
+      "inFlightCount": 0,
+      "intervalSeconds": 3,
+      "startAt": 1789090304663,
+      "status": 3,
+      "successCount": 4,
+      "taskName": "GM-20260911-image-retest-pure-image-regression",
+      "unknownCount": 0
+    }
+  }
+}

@@ -44,8 +44,8 @@ class ScriptMarketingTaskPhoneTest {
     @Test
     void detailCombinesConfiguredAndBoundAccountsInOneLookup() {
         when(content.decode("steps")).thenReturn(List.of(
-                new ScriptMarketingStepDTO("ADMIN",685L,null,"admin",null,null),
-                new ScriptMarketingStepDTO("PROMOTER",null,null,"p1",null,null)));
+                new ScriptMarketingStepDTO("ADMIN",685L,null,"admin",null,null, null, null),
+                new ScriptMarketingStepDTO("PROMOTER",null,null,"p1",null,null, null, null)));
         var group = new ScriptMarketingGroup(); group.setBindingsJson("bindings");
         when(groups.list(12L)).thenReturn(List.of(group));
         when(content.decodeBindings("bindings")).thenReturn(Map.of("admin",685L,"p1",690L));

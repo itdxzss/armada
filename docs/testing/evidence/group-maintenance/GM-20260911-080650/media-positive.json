@@ -1,0 +1,1341 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789086847310,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-image-only-repro"
+      },
+      "response": {
+        "code": 40001,
+        "message": "营销模板发送内容为空"
+      },
+      "startedAt": 1789086846830
+    },
+    {
+      "finishedAt": 1789086847785,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=1 / role=p1",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-image-only-repro"
+      },
+      "response": {
+        "code": 40001,
+        "message": "营销模板发送内容为空"
+      },
+      "startedAt": 1789086847310
+    },
+    {
+      "finishedAt": 1789086848284,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-definitions",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-media-def",
+        "steps": [
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "enabled": true,
+          "id": 4,
+          "name": "GM-20260911-080650-media-def",
+          "steps": [
+            {
+              "message": {
+                "bodyText": "GM-20260911-080650 image body",
+                "buttons": [],
+                "content": "GM-20260911-080650 image caption",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-image-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "GM-20260911-080650 image body",
+                "buttons": [],
+                "content": "GM-20260911-080650 image caption",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-image-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "GM-20260911-080650 footer",
+                "buttons": [
+                  {
+                    "param": "https://example.com/",
+                    "text": "测试链接",
+                    "type": "LINK_JUMP"
+                  }
+                ],
+                "content": "GM-20260911-080650 button title",
+                "linkMode": 2,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-button-link"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "updatedAt": 1789086848116
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086847785
+    },
+    {
+      "finishedAt": 1789086848758,
+      "httpStatus": 200,
+      "method": "DELETE",
+      "path": "/api/resource-assets/34",
+      "request": null,
+      "response": {
+        "code": 40901,
+        "message": "该素材仍被 3 处模板或任务引用，不能删除"
+      },
+      "startedAt": 1789086848284
+    },
+    {
+      "finishedAt": 1789086849412,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-android-media"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789086849250,
+          "groups": [
+            {
+              "available": 3,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": true,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 3,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": true,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": true,
+          "requiredPromoters": 2
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086848758
+    },
+    {
+      "finishedAt": 1789086850040,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-android-media"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "id": 24,
+              "nextAt": 1789086849743,
+              "nextStep": 0,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 8
+            },
+            {
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 25,
+              "nextAt": 1789086849743,
+              "nextStep": 0,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 8
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "GM-20260911-080650 image body",
+                "buttons": [],
+                "content": "GM-20260911-080650 image caption",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-image-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "GM-20260911-080650 image body",
+                "buttons": [],
+                "content": "GM-20260911-080650 image caption",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-image-text"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "message": {
+                "bodyText": "GM-20260911-080650 footer",
+                "buttons": [
+                  {
+                    "param": "https://example.com/",
+                    "text": "测试链接",
+                    "type": "LINK_JUMP"
+                  }
+                ],
+                "content": "GM-20260911-080650 button title",
+                "linkMode": 2,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-button-link"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p2",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            },
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "GM-20260911-080650 / step=3 / role=admin",
+                "linkMode": 1,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-080650-text"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789086849743,
+            "failedCount": 0,
+            "groupCount": 2,
+            "id": 8,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789086849743,
+            "status": 0,
+            "successCount": 0,
+            "taskName": "GM-20260911-080650-android-media",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086849412
+    },
+    {
+      "finishedAt": 1789086850705,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "test",
+                  "text": "复制",
+                  "type": "COPY_CONTENT"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-android-media"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789086850544,
+          "groups": [
+            {
+              "available": 3,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": false,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态",
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 3,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 1,
+              "ready": false,
+              "reasons": [
+                "1 个群内推手离线或受限，请先恢复账号可用状态",
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": false,
+          "requiredPromoters": 2
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086850040
+    },
+    {
+      "finishedAt": 1789086851397,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": null,
+                  "text": "回复",
+                  "type": "QUICK_REPLY"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-android-media"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789086851235,
+          "groups": [
+            {
+              "available": 4,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": false,
+              "reasons": [
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": false,
+              "reasons": [
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": false,
+          "requiredPromoters": 2
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086850705
+    },
+    {
+      "finishedAt": 1789086852056,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-marketing-tasks/check",
+      "request": {
+        "accountGroupId": 95,
+        "endAt": null,
+        "groupLinkIds": [
+          7506,
+          7507
+        ],
+        "intervalSeconds": 3,
+        "startAt": null,
+        "steps": [
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                },
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": 685,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ],
+        "taskName": "GM-20260911-080650-android-media"
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "accountCount": 8,
+          "checkedAt": 1789086851895,
+          "groups": [
+            {
+              "available": 4,
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": false,
+              "reasons": [
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            },
+            {
+              "available": 4,
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "noPermission": 0,
+              "offline": 0,
+              "ready": false,
+              "reasons": [
+                "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+              ],
+              "required": 2,
+              "shortage": 0,
+              "unconfirmed": 0
+            }
+          ],
+          "ready": false,
+          "requiredPromoters": 2
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086851398
+    }
+  ],
+  "result": {
+    "check": {
+      "accountCount": 8,
+      "checkedAt": 1789086849250,
+      "groups": [
+        {
+          "available": 3,
+          "groupJid": "120363428223437482@g.us",
+          "groupLinkId": 7506,
+          "groupName": "dev1-link-admin-20260805-02",
+          "noPermission": 0,
+          "offline": 1,
+          "ready": true,
+          "reasons": [
+            "1 个群内推手离线或受限，请先恢复账号可用状态"
+          ],
+          "required": 2,
+          "shortage": 0,
+          "unconfirmed": 0
+        },
+        {
+          "available": 3,
+          "groupJid": "120363429257617063@g.us",
+          "groupLinkId": 7507,
+          "groupName": "dev1-link-admin-20260805-03",
+          "noPermission": 0,
+          "offline": 1,
+          "ready": true,
+          "reasons": [
+            "1 个群内推手离线或受限，请先恢复账号可用状态"
+          ],
+          "required": 2,
+          "shortage": 0,
+          "unconfirmed": 0
+        }
+      ],
+      "ready": true,
+      "requiredPromoters": 2
+    },
+    "definitionId": 4,
+    "deniedDeleteDefinition": {
+      "code": 40901,
+      "message": "该素材仍被 3 处模板或任务引用，不能删除"
+    },
+    "materials": [],
+    "negative": [
+      {
+        "buttons": [
+          "COPY_CONTENT"
+        ],
+        "result": {
+          "code": 0,
+          "data": {
+            "accountCount": 8,
+            "checkedAt": 1789086850544,
+            "groups": [
+              {
+                "available": 3,
+                "groupJid": "120363428223437482@g.us",
+                "groupLinkId": 7506,
+                "groupName": "dev1-link-admin-20260805-02",
+                "noPermission": 0,
+                "offline": 1,
+                "ready": false,
+                "reasons": [
+                  "1 个群内推手离线或受限，请先恢复账号可用状态",
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              },
+              {
+                "available": 3,
+                "groupJid": "120363429257617063@g.us",
+                "groupLinkId": 7507,
+                "groupName": "dev1-link-admin-20260805-03",
+                "noPermission": 0,
+                "offline": 1,
+                "ready": false,
+                "reasons": [
+                  "1 个群内推手离线或受限，请先恢复账号可用状态",
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              }
+            ],
+            "ready": false,
+            "requiredPromoters": 2
+          },
+          "message": "ok"
+        }
+      },
+      {
+        "buttons": [
+          "QUICK_REPLY"
+        ],
+        "result": {
+          "code": 0,
+          "data": {
+            "accountCount": 8,
+            "checkedAt": 1789086851235,
+            "groups": [
+              {
+                "available": 4,
+                "groupJid": "120363428223437482@g.us",
+                "groupLinkId": 7506,
+                "groupName": "dev1-link-admin-20260805-02",
+                "noPermission": 0,
+                "offline": 0,
+                "ready": false,
+                "reasons": [
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              },
+              {
+                "available": 4,
+                "groupJid": "120363429257617063@g.us",
+                "groupLinkId": 7507,
+                "groupName": "dev1-link-admin-20260805-03",
+                "noPermission": 0,
+                "offline": 0,
+                "ready": false,
+                "reasons": [
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              }
+            ],
+            "ready": false,
+            "requiredPromoters": 2
+          },
+          "message": "ok"
+        }
+      },
+      {
+        "buttons": [
+          "LINK_JUMP",
+          "LINK_JUMP"
+        ],
+        "result": {
+          "code": 0,
+          "data": {
+            "accountCount": 8,
+            "checkedAt": 1789086851895,
+            "groups": [
+              {
+                "available": 4,
+                "groupJid": "120363428223437482@g.us",
+                "groupLinkId": 7506,
+                "groupName": "dev1-link-admin-20260805-02",
+                "noPermission": 0,
+                "offline": 0,
+                "ready": false,
+                "reasons": [
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              },
+              {
+                "available": 4,
+                "groupJid": "120363429257617063@g.us",
+                "groupLinkId": 7507,
+                "groupName": "dev1-link-admin-20260805-03",
+                "noPermission": 0,
+                "offline": 0,
+                "ready": false,
+                "reasons": [
+                  "管理员账号或角色消息的协议能力不满足要求，请检查管理员和消息配置"
+                ],
+                "required": 2,
+                "shortage": 0,
+                "unconfirmed": 0
+              }
+            ],
+            "ready": false,
+            "requiredPromoters": 2
+          },
+          "message": "ok"
+        }
+      }
+    ],
+    "pureImageCheck": {
+      "code": 40001,
+      "message": "营销模板发送内容为空"
+    },
+    "pureImageCreate": {
+      "code": 40001,
+      "message": "营销模板发送内容为空"
+    },
+    "taskId": 8
+  }
+}

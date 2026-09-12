@@ -1,0 +1,225 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789086744258,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-materials",
+      "request": {
+        "bodyText": "",
+        "buttons": [],
+        "content": "",
+        "imageFileId": 34,
+        "linkMode": 3,
+        "mentionAll": false,
+        "promotionLink": "",
+        "remark": "test1 group-maintenance regression",
+        "templateName": "GM-20260911-080650-image",
+        "textType": null
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "bodyText": "",
+          "buttons": [],
+          "content": "",
+          "createdAt": 1789086744085,
+          "id": 42,
+          "imageFileId": 34,
+          "linkMode": 3,
+          "mentionAll": false,
+          "promotionLink": "",
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-080650-image",
+          "updatedAt": 1789086744085
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086743757
+    },
+    {
+      "finishedAt": 1789086744751,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-materials",
+      "request": {
+        "bodyText": "GM-20260911-080650 image body",
+        "buttons": [],
+        "content": "GM-20260911-080650 image caption",
+        "imageFileId": 34,
+        "linkMode": 3,
+        "mentionAll": false,
+        "promotionLink": "",
+        "remark": "test1 group-maintenance regression",
+        "templateName": "GM-20260911-080650-image-text",
+        "textType": null
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "bodyText": "GM-20260911-080650 image body",
+          "buttons": [],
+          "content": "GM-20260911-080650 image caption",
+          "createdAt": 1789086744578,
+          "id": 43,
+          "imageFileId": 34,
+          "linkMode": 3,
+          "mentionAll": false,
+          "promotionLink": "",
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-080650-image-text",
+          "updatedAt": 1789086744578
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086744258
+    },
+    {
+      "finishedAt": 1789086745237,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-materials",
+      "request": {
+        "bodyText": "GM-20260911-080650 footer",
+        "buttons": [
+          {
+            "param": "https://example.com/",
+            "text": "测试链接",
+            "type": "LINK_JUMP"
+          }
+        ],
+        "content": "GM-20260911-080650 button title",
+        "imageFileId": null,
+        "linkMode": 2,
+        "mentionAll": false,
+        "promotionLink": "",
+        "remark": "test1 group-maintenance regression",
+        "templateName": "GM-20260911-080650-button-link",
+        "textType": null
+      },
+      "response": {
+        "code": 0,
+        "data": {
+          "bodyText": "GM-20260911-080650 footer",
+          "buttons": [
+            {
+              "param": "https://example.com/",
+              "text": "测试链接",
+              "type": "LINK_JUMP"
+            }
+          ],
+          "content": "GM-20260911-080650 button title",
+          "createdAt": 1789086745064,
+          "id": 44,
+          "linkMode": 2,
+          "mentionAll": false,
+          "remark": "test1 group-maintenance regression",
+          "templateName": "GM-20260911-080650-button-link",
+          "updatedAt": 1789086745064
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789086744751
+    },
+    {
+      "finishedAt": 1789086745710,
+      "httpStatus": 200,
+      "method": "POST",
+      "path": "/api/script-definitions",
+      "request": {
+        "enabled": true,
+        "name": "GM-20260911-080650-media-def",
+        "steps": [
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 30,
+            "waitMinSeconds": 30
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 image body",
+              "buttons": [],
+              "content": "GM-20260911-080650 image caption",
+              "imageFileId": 34,
+              "linkMode": 3,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-image-text",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p1",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "GM-20260911-080650 footer",
+              "buttons": [
+                {
+                  "param": "https://example.com/",
+                  "text": "测试链接",
+                  "type": "LINK_JUMP"
+                }
+              ],
+              "content": "GM-20260911-080650 button title",
+              "imageFileId": null,
+              "linkMode": 2,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-button-link",
+              "textType": null
+            },
+            "role": "PROMOTER",
+            "roleKey": "p2",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          },
+          {
+            "accountId": null,
+            "message": {
+              "bodyText": "",
+              "buttons": [],
+              "content": "GM-20260911-080650 / step=3 / role=admin",
+              "imageFileId": null,
+              "linkMode": 1,
+              "mentionAll": false,
+              "promotionLink": "",
+              "remark": "test1 group-maintenance regression",
+              "templateName": "GM-20260911-080650-text",
+              "textType": null
+            },
+            "role": "ADMIN",
+            "roleKey": "admin",
+            "waitMaxSeconds": 3,
+            "waitMinSeconds": 3
+          }
+        ]
+      },
+      "response": {
+        "code": 40001,
+        "message": "营销模板发送内容为空"
+      },
+      "startedAt": 1789086745237
+    }
+  ],
+  "error": "Error: Business error 40001: 营销模板发送内容为空"
+}

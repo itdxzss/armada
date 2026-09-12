@@ -1,5 +1,6 @@
 package com.armada.marketing.service.impl;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.converter.MarketingTemplateConverter;
 import com.armada.marketing.mapper.MarketingTemplateMapper;
 import com.armada.marketing.mapper.MarketingTaskMapper;
@@ -111,11 +112,11 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public MarketingTemplateVO create(MarketingTemplateDTO dto) {
+    public MarketingTemplateVO create(MarketingTemplateDTO dto, ResourceAssetScope scope) {
         LinkMode mode = validate(dto, null);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
-        lockImage(entity.getImageFileId());
+        lockImage(entity.getImageFileId(), scope);
         long now = System.currentTimeMillis();
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
@@ -138,12 +139,12 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public MarketingTemplateVO update(Long id, MarketingTemplateDTO dto) {
+    public MarketingTemplateVO update(Long id, MarketingTemplateDTO dto, ResourceAssetScope scope) {
         requireExisting(id);
         LinkMode mode = validate(dto, id);
         MarketingTemplate entity = converter.toEntity(dto);
         normalizeByMode(entity, mode);
-        lockImage(entity.getImageFileId());
+        lockImage(entity.getImageFileId(), scope);
         entity.setId(id);
         entity.setUpdatedAt(System.currentTimeMillis());
         mapper.updateById(entity);
@@ -163,7 +164,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public MarketingTemplateVO clone(Long id) {
+    public MarketingTemplateVO clone(Long id, ResourceAssetScope scope) {
         MarketingTemplate origin = requireExisting(id);
         String cloneName = origin.getTemplateName() + CLONE_SUFFIX;
         // excludeId 传 null:复制是新建,没有"自身"需要排除
@@ -181,7 +182,7 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         copy.setPromotionLink(origin.getPromotionLink());
         copy.setMentionAll(origin.getMentionAll());
         normalizeByMode(copy, LinkMode.fromCode(copy.getLinkMode()));
-        lockImage(copy.getImageFileId());
+        lockImage(copy.getImageFileId(), scope);
         copy.setRemark(origin.getRemark());
         long now = System.currentTimeMillis();
         copy.setCreatedAt(now);
@@ -272,9 +273,9 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
         }
     }
 
-    private void lockImage(Long imageFileId) {
+    private void lockImage(Long imageFileId, ResourceAssetScope scope) {
         if (imageFileId != null) {
-            fileService.lockAndValidateBindableAssets(List.of(imageFileId));
+            fileService.lockAndValidateBindableAssets(List.of(imageFileId), scope);
         }
     }
 

@@ -1,0 +1,266 @@
+{
+  "calls": [
+    {
+      "finishedAt": 1789089520247,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/11",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "groups": [
+            {
+              "bindingsJson": "{\"p1\": 687, \"admin\": 685}",
+              "groupJid": "120363428223437482@g.us",
+              "groupLinkId": 7506,
+              "groupName": "dev1-link-admin-20260805-02",
+              "id": 28,
+              "nextAt": 9223372036854776000,
+              "nextStep": 2,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 11
+            },
+            {
+              "bindingsJson": "{\"p1\": 692, \"admin\": 685}",
+              "groupJid": "120363429257617063@g.us",
+              "groupLinkId": 7507,
+              "groupName": "dev1-link-admin-20260805-03",
+              "id": 29,
+              "nextAt": 9223372036854776000,
+              "nextStep": 2,
+              "paused": false,
+              "remainingWaitMs": 0,
+              "taskId": 11
+            }
+          ],
+          "steps": [
+            {
+              "accountId": 685,
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "ADMIN",
+              "roleKey": "admin",
+              "waitMaxSeconds": 30,
+              "waitMinSeconds": 30
+            },
+            {
+              "message": {
+                "bodyText": "",
+                "buttons": [],
+                "content": "",
+                "imageFileId": 34,
+                "linkMode": 3,
+                "mentionAll": false,
+                "promotionLink": "",
+                "remark": "test1 group-maintenance regression",
+                "templateName": "GM-20260911-image-fix-pure-image"
+              },
+              "role": "PROMOTER",
+              "roleKey": "p1",
+              "waitMaxSeconds": 3,
+              "waitMinSeconds": 3
+            }
+          ],
+          "task": {
+            "accountGroupId": 95,
+            "createdAt": 1789089486769,
+            "failedCount": 0,
+            "groupCount": 2,
+            "id": 11,
+            "inFlightCount": 0,
+            "intervalSeconds": 3,
+            "startAt": 1789089486769,
+            "status": 3,
+            "successCount": 4,
+            "taskName": "GM-20260911-image-fix-pure-image-regression",
+            "unknownCount": 0
+          }
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789089519638
+    },
+    {
+      "finishedAt": 1789089520720,
+      "httpStatus": 200,
+      "method": "GET",
+      "path": "/api/script-marketing-tasks/11/records?page=1&pageSize=100",
+      "request": null,
+      "response": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "accountId": 685,
+              "commandId": "cmd_db073e3769884c95946832a82090c35e",
+              "finishedAt": 1789089494796,
+              "groupId": 28,
+              "id": 251,
+              "messageId": "B82740C98F2244F48F2C93598D37DAA1",
+              "status": 2,
+              "stepIndex": 0,
+              "submittedAt": 1789089488536,
+              "taskId": 11
+            },
+            {
+              "accountId": 687,
+              "commandId": "cmd_59a17994e0fb4ba28c72d828b53e99fd",
+              "finishedAt": 1789089499136,
+              "groupId": 28,
+              "id": 253,
+              "messageId": "4BF240BC56D84D65909DE552B8F607E9",
+              "status": 2,
+              "stepIndex": 1,
+              "submittedAt": 1789089492038,
+              "taskId": 11
+            },
+            {
+              "accountId": 685,
+              "commandId": "cmd_703bb2ae97ad435cb7f72374a95e0b22",
+              "finishedAt": 1789089494773,
+              "groupId": 29,
+              "id": 252,
+              "messageId": "E82F66AF283D49F9A0620C86FC066674",
+              "status": 2,
+              "stepIndex": 0,
+              "submittedAt": 1789089488805,
+              "taskId": 11
+            },
+            {
+              "accountId": 692,
+              "commandId": "cmd_6fef2c0c2eb84e079f8971c273cd3e94",
+              "finishedAt": 1789089495803,
+              "groupId": 29,
+              "id": 254,
+              "messageId": "97C1592653DB4345B1515F270AFDA7E6",
+              "status": 2,
+              "stepIndex": 1,
+              "submittedAt": 1789089492297,
+              "taskId": 11
+            }
+          ],
+          "page": 1,
+          "pageSize": 100,
+          "total": 4,
+          "totalPages": 1
+        },
+        "message": "ok"
+      },
+      "startedAt": 1789089520247
+    }
+  ],
+  "result": {
+    "emptyCaptions": true,
+    "groups": [
+      {
+        "bindingsJson": "{\"p1\": 687, \"admin\": 685}",
+        "groupJid": "120363428223437482@g.us",
+        "groupLinkId": 7506,
+        "groupName": "dev1-link-admin-20260805-02",
+        "id": 28,
+        "nextAt": 9223372036854776000,
+        "nextStep": 2,
+        "paused": false,
+        "remainingWaitMs": 0,
+        "taskId": 11
+      },
+      {
+        "bindingsJson": "{\"p1\": 692, \"admin\": 685}",
+        "groupJid": "120363429257617063@g.us",
+        "groupLinkId": 7507,
+        "groupName": "dev1-link-admin-20260805-03",
+        "id": 29,
+        "nextAt": 9223372036854776000,
+        "nextStep": 2,
+        "paused": false,
+        "remainingWaitMs": 0,
+        "taskId": 11
+      }
+    ],
+    "imageIds": [
+      34,
+      34
+    ],
+    "records": {
+      "list": [
+        {
+          "accountId": 685,
+          "commandId": "cmd_db073e3769884c95946832a82090c35e",
+          "finishedAt": 1789089494796,
+          "groupId": 28,
+          "id": 251,
+          "messageId": "B82740C98F2244F48F2C93598D37DAA1",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789089488536,
+          "taskId": 11
+        },
+        {
+          "accountId": 687,
+          "commandId": "cmd_59a17994e0fb4ba28c72d828b53e99fd",
+          "finishedAt": 1789089499136,
+          "groupId": 28,
+          "id": 253,
+          "messageId": "4BF240BC56D84D65909DE552B8F607E9",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789089492038,
+          "taskId": 11
+        },
+        {
+          "accountId": 685,
+          "commandId": "cmd_703bb2ae97ad435cb7f72374a95e0b22",
+          "finishedAt": 1789089494773,
+          "groupId": 29,
+          "id": 252,
+          "messageId": "E82F66AF283D49F9A0620C86FC066674",
+          "status": 2,
+          "stepIndex": 0,
+          "submittedAt": 1789089488805,
+          "taskId": 11
+        },
+        {
+          "accountId": 692,
+          "commandId": "cmd_6fef2c0c2eb84e079f8971c273cd3e94",
+          "finishedAt": 1789089495803,
+          "groupId": 29,
+          "id": 254,
+          "messageId": "97C1592653DB4345B1515F270AFDA7E6",
+          "status": 2,
+          "stepIndex": 1,
+          "submittedAt": 1789089492297,
+          "taskId": 11
+        }
+      ],
+      "page": 1,
+      "pageSize": 100,
+      "total": 4,
+      "totalPages": 1
+    },
+    "task": {
+      "accountGroupId": 95,
+      "createdAt": 1789089486769,
+      "failedCount": 0,
+      "groupCount": 2,
+      "id": 11,
+      "inFlightCount": 0,
+      "intervalSeconds": 3,
+      "startAt": 1789089486769,
+      "status": 3,
+      "successCount": 4,
+      "taskName": "GM-20260911-image-fix-pure-image-regression",
+      "unknownCount": 0
+    }
+  }
+}

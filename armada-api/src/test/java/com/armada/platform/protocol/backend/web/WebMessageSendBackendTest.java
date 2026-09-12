@@ -28,6 +28,28 @@ class WebMessageSendBackendTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void encodesScriptQuoteWithoutReplacingSenderOrMentionAll() {
+        WebMessageSendBackend backend = new WebMessageSendBackend(outboxService, new ProtocolMasterCommandProperties());
+        var quote = new com.armada.platform.protocol.model.command.MessageReply("source-id", "120363001@g.us",
+                new com.armada.platform.protocol.model.command.MessageQuoteContext(1, "123@lid", "CgVoZWxsbw=="));
+        var command = new MessageSendCommand(account(), new MessageSendCommand.MessageTarget("120363001@g.us"),
+                new MessageSendCommand.MessagePayload(MessageType.TEXT,
+                        new MessageSendCommand.MessageContent("reply", null, null, null), true, quote),
+                new MessageSendCommand.MessageCorrelation(7L, "script_marketing", null, null, null, null), "reply-cmd", 500, 0L);
+        when(outboxService.enqueueMessageCommands(anyList())).thenReturn(
+                new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(null, List.of("reply-cmd"), 1));
+        backend.enqueue(List.of(command));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ProtocolMessageOutboxCommand>> captor = ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueueMessageCommands(captor.capture());
+        var wire = objectMapper.valueToTree(captor.getValue().get(0).payload());
+        assertThat(wire.path("replyTo").path("context").path("senderJid").asText()).isEqualTo("123@lid");
+        assertThat(wire.path("replyTo").path("messageId").asText()).isEqualTo("source-id");
+        assertThat(wire.path("mentionAll").asBoolean()).isTrue();
+        assertThat(wire.path("source").asText()).isEqualTo("script_marketing");
+    }
+
+    @Test
     void preservesWebTopicPayloadAndMultipleButtonCapabilities() {
         ProtocolMasterCommandProperties properties = new ProtocolMasterCommandProperties();
         properties.setTopic("protocol.master.commands.custom");
@@ -59,7 +81,7 @@ class WebMessageSendBackendTest {
                 .containsEntry("mentionAll", true)
                 .containsEntry("source", "marketing_task")
                 .doesNotContainKey("wsPhone")
-                .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs");
+                .doesNotContainKeys("dispatchPolicy", "notBeforeAt", "dispatchIntervalMs", "replyTo");
         @SuppressWarnings("unchecked")
         Map<String, Object> buttonCard = (Map<String, Object>) payload.get("buttonCard");
         @SuppressWarnings("unchecked")
@@ -83,7 +105,7 @@ class WebMessageSendBackendTest {
                                 new MessageSendCommand.MessageMedia(new byte[]{1, 2, 3}, "image/png"),
                                 null,
                                 null),
-                        false),
+                        false, null),
                 correlation(),
                 "cmd_image",
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
@@ -117,7 +139,7 @@ class WebMessageSendBackendTest {
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("offer", null, null, null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         7L,
                         "historical_group_pull",
@@ -189,7 +211,7 @@ class WebMessageSendBackendTest {
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("hi", null, null, null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         7L,
                         "contact_task",
@@ -244,7 +266,7 @@ class WebMessageSendBackendTest {
                                                 new MessageSendCommand.MessageButton(
                                                         "copy", "复制", "CODE-1")),
                                         null)),
-                        true),
+                        true, null),
                 correlation(),
                 "cmd_web",
                 MessageSendCommand.DEFAULT_SEND_INTERVAL_MS,
@@ -261,7 +283,7 @@ class WebMessageSendBackendTest {
                         new MessageSendCommand.MessageContent("正文", null,
                                 new MessageSendCommand.MessageLinkCard(
                                         "https://example.com", "标题", "描述", null), null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(7L, "hyperlink_task",
                         null, null, null,
                         new MessageSendCommand.HyperlinkCorrelation(11L, 13L)),

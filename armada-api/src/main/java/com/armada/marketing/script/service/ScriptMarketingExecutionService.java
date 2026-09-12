@@ -15,6 +15,7 @@ import com.armada.platform.protocol.port.ScriptMessageControlPort;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,14 +48,16 @@ public class ScriptMarketingExecutionService {
     private final ScriptMessageControlPort control;
     private final TransactionTemplate resultTransaction;
     private final ScriptMarketingPacedExecutionService paced;
+    private final ScriptReplyResolver replies;
     /** 注入真实持久化与既有发送端口。 */
     public ScriptMarketingExecutionService(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
             ScriptMarketingSendRecordMapper records, ScriptMarketingContentService content,
             AccountProtocolLookupService accounts, MessageSendPort sender, ScriptMessageControlPort control,
-            PlatformTransactionManager transactionManager, ScriptMarketingPacedExecutionService paced) {
+            PlatformTransactionManager transactionManager, ScriptMarketingPacedExecutionService paced, ScriptReplyResolver replies) {
         this.tasks = tasks; this.groups = groups; this.records = records; this.content = content;
         this.accounts = accounts; this.sender = sender; this.control = control;
         this.paced = paced;
+        this.replies = replies;
         this.resultTransaction = new TransactionTemplate(transactionManager);
         this.resultTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -131,14 +134,19 @@ public class ScriptMarketingExecutionService {
     private void applyResult(Long taskId, ProtocolMessageSendResultReportedEvent event) {
         var task = tasks.lock(taskId);
         var row = records.findCommand(event.commandId());
-        if (task == null || row == null || !row.getTaskId().equals(taskId) || (row.getStatus() != SENDING && row.getStatus() != UNKNOWN)) return;
+        if (task == null || row == null || !row.getTaskId().equals(taskId)) return;
         var group = groups.find(row.getGroupId());
         if (event.groupJid() != null && !group.getGroupJid().equals(event.groupJid())) return;
+        if (row.getStatus() == SUCCESS && event.success() && Objects.equals(row.getMessageId(), event.messageId())) {
+            replies.capture(row, event.quoteContext()); records.update(row); return;
+        }
+        if (row.getStatus() != SENDING && row.getStatus() != UNKNOWN) return;
         boolean advance = row.getStatus() == SENDING;
         long now = System.currentTimeMillis();
         String reason = event.reasonCode() == null ? event.reasonMessage()
                 : event.reasonCode() + ": " + (event.reasonMessage() == null ? "" : event.reasonMessage());
         int status = "UNKNOWN".equalsIgnoreCase(event.outcome()) ? UNKNOWN : event.success() ? SUCCESS : FAILED;
+        if (status == SUCCESS) replies.capture(row, event.quoteContext());
         finish(row, status, reason, event.messageId(), now);
         if (task.getAccountGroupId() != null) { paced.completeIfSettled(task, now); return; }
         if (advance && group.getNextStep().equals(row.getStepIndex())) {
@@ -147,14 +155,17 @@ public class ScriptMarketingExecutionService {
     }
     private void submit(ScriptMarketingTask task, ScriptMarketingGroup group,
             List<ScriptMarketingStepDTO> steps, long now) {
+        var reply = replies.resolve(group, steps);
+        if (reply.waiting()) { group.setNextAt(now + 1000L); groups.update(group); return; }
         var step = steps.get(group.getNextStep());
         var row = insertIntent(task, group, step.accountId(), now);
+        row.setReplyFallbackReason(reply.fallbackReason()); records.update(row);
         MessageSendCommand command;
         try {
             var account = accounts.findOnlineProtocolRefs(List.of(step.accountId())).stream().findFirst()
                     .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION, "固定账号不在线或不可用"));
             command = new MessageSendCommand(account, new MessageSendCommand.MessageTarget(group.getGroupJid()),
-                    content.payload(step), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
+                    reply.apply(content.payload(step)), new MessageSendCommand.MessageCorrelation(task.getTenantId(), SOURCE,
                     null, null, null, null, null, null, row.getId()), row.getCommandId(),
                     MessageSendCommand.DEFAULT_SEND_INTERVAL_MS, 0L);
         } catch (BusinessException ex) {

@@ -92,7 +92,7 @@ class RoutingMessageSendPortTest {
                 new MessageSendCommand.MessagePayload(
                         MessageType.TEXT,
                         new MessageSendCommand.MessageContent("hello", null, null, null),
-                        false),
+                        false, null),
                 new MessageSendCommand.MessageCorrelation(
                         1L,
                         "marketing_task",

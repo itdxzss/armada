@@ -262,7 +262,7 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
                 feedTask == null ? null : feedTask.taskId(),
                 feedTask == null ? null : feedTask.taskAccountId(),
                 hyperlink == null ? null : hyperlink.taskId(),
-                hyperlink == null ? null : hyperlink.recipientId());
+                hyperlink == null ? null : hyperlink.recipientId(), command.payload().replyTo());
         return new ProtocolMessageOutboxCommand(
                 command,
                 ProtocolBackend.ANDROID,
@@ -353,7 +353,8 @@ public final class AndroidMessageSendBackend implements MessageSendBackend {
             Long feedTaskId,
             Long feedTaskAccountId,
             Long hyperlinkTaskId,
-            Long hyperlinkRecipientId
+            Long hyperlinkRecipientId,
+            com.armada.platform.protocol.model.command.MessageReply replyTo
     ) {
     }
 

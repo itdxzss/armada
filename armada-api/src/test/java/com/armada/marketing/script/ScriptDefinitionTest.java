@@ -79,7 +79,7 @@ class ScriptDefinitionTest {
     }
     @Test void invalidRoleOrIntervalCannotLeaveAPartiallySavedDefinition() {
         var valid = dto("bad", true, "hello");
-        var invalid = new ScriptMarketingStepDTO(null, null, valid.steps().get(0).message(), "A", 0, 0);
+        var invalid = new ScriptMarketingStepDTO(null, null, valid.steps().get(0).message(), "A", 0, 0, null, null);
         assertThatThrownBy(() -> service.create(new ScriptDefinitionSaveDTO("bad", true, List.of(invalid, valid.steps().get(1))), 11L))
                 .hasMessageContaining("角色");
         assertThat(service.list(new ScriptMarketingQuery(), 11L).total()).isZero();
@@ -87,8 +87,8 @@ class ScriptDefinitionTest {
     ScriptDefinitionSaveDTO dto(String name, boolean enabled, String text) {
         var message = new MarketingTemplateDTO("", 1, null, null, text, null, null, null, null, false);
         return new ScriptDefinitionSaveDTO(name, enabled, List.of(
-                new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0),
-                new ScriptMarketingStepDTO("PROMOTER", null, message, "P1", 10, 20)));
+                new ScriptMarketingStepDTO("ADMIN", null, message, "A", 0, 0, null, null),
+                new ScriptMarketingStepDTO("PROMOTER", null, message, "P1", 10, 20, null, null)));
     }
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement

@@ -1,0 +1,62 @@
+id	status	records	commands	outbox	success	failed	unknown	sending	held	sent_outbox
+3	3	8	8	8	8	0	0	0	0	8
+4	0	0	0	0	NULL	NULL	NULL	NULL	NULL	0
+5	4	4	4	4	4	0	0	0	0	4
+6	3	12	12	12	12	0	0	0	0	12
+7	3	200	200	200	198	2	0	0	0	200
+8	3	8	8	8	8	0	0	0	0	8
+9	4	2	2	2	2	0	0	0	0	2
+10	4	0	0	0	NULL	NULL	NULL	NULL	NULL	0
+task_id	account_id	protocol_backend	status	n	max_retries
+3	685	ANDROID	2	4	0
+3	692	ANDROID	2	1	0
+3	687	ANDROID	2	1	0
+3	690	ANDROID	2	2	0
+5	685	ANDROID	2	2	0
+5	692	ANDROID	2	2	0
+6	685	ANDROID	2	4	0
+6	692	ANDROID	2	4	0
+6	690	ANDROID	2	4	0
+7	685	ANDROID	2	40	0
+7	687	ANDROID	2	40	0
+7	692	ANDROID	2	40	0
+7	690	ANDROID	2	40	0
+7	686	ANDROID	2	40	0
+8	685	ANDROID	2	4	0
+8	687	ANDROID	2	2	0
+8	690	ANDROID	2	1	0
+8	686	ANDROID	2	1	0
+9	685	ANDROID	2	1	0
+9	686	ANDROID	2	1	0
+Field	Type	Null	Key	Default	Extra
+id	bigint	NO	PRI	NULL	auto_increment
+tenant_id	bigint	NO	MUL	NULL	
+account_id	bigint	NO		NULL	
+account_state	tinyint	YES		NULL	
+login_state	tinyint	YES		NULL	
+desired_login_state	tinyint	YES		NULL	
+risk_status	tinyint	YES		NULL	
+risk_end_time	bigint	YES		NULL	
+cooldown_until	bigint	YES	MUL	NULL	
+fallback_message_restriction_until	bigint	YES	MUL	NULL	
+platform_message_restriction_until	bigint	YES		NULL	
+platform_message_restriction_active	tinyint	YES		NULL	
+platform_message_restriction_reported_at	bigint	YES		NULL	
+pulling_restriction_until	bigint	YES	MUL	NULL	
+manual_restriction_cleared_at	bigint	YES		NULL	
+mute_status	tinyint	YES		NULL	
+restriction_reason_code	varchar(64)	YES		NULL	
+restriction_reported_at	bigint	YES		NULL	
+block_error_code	varchar(32)	YES		NULL	
+block_reason	varchar(255)	YES		NULL	
+state_source	varchar(64)	YES		NULL	
+last_state_sync_time	bigint	YES		NULL	
+invalidated_at	bigint	YES		NULL	
+truth_ip	varchar(45)	YES		NULL	
+proxy_country	varchar(64)	YES		NULL	
+proxy_source	varchar(64)	YES		NULL	
+proxy_failure_count	int	NO		0	
+pull_into_group_count	int	NO		0	
+created_at	bigint	NO		NULL	
+updated_at	bigint	NO		NULL	
+

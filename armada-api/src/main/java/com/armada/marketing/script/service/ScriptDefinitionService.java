@@ -1,5 +1,6 @@
 package com.armada.marketing.script.service;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.marketing.converter.ScriptMarketingConverter;
 import com.armada.marketing.mapper.ScriptMarketingDefinitionMapper;
 import com.armada.marketing.model.dto.ScriptDefinitionSaveDTO;
@@ -62,7 +63,7 @@ public class ScriptDefinitionService {
         if (dto.steps().stream().anyMatch(step -> step.accountId() != null)) {
             throw new BusinessException(ErrorCode.VALIDATION, "剧本库不绑定具体账号，管理员与推手在任务启动时按群分配");
         }
-        assets.lockAndValidateBindableAssets(dto.steps().stream().map(step -> step.message().imageFileId()).toList());
+        assets.lockAndValidateBindableAssets(dto.steps().stream().map(step -> step.message().imageFileId()).toList(), ResourceAssetScope.SCRIPT);
         var row = converter.toDefinition(dto); row.setName(dto.name().trim());
         row.setStepsJson(content.encode(dto.steps())); row.setUpdatedAt(System.currentTimeMillis()); return row;
     }

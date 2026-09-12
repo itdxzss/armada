@@ -1,5 +1,6 @@
 package com.armada.hyperlink.template.service.impl;
 
+import com.armada.marketing.asset.model.enums.ResourceAssetScope;
 import com.armada.hyperlink.template.converter.HyperlinkTemplateConverter;
 import com.armada.hyperlink.template.mapper.HyperlinkTemplateMapper;
 import com.armada.hyperlink.template.model.HyperlinkMessageContent;
@@ -168,7 +169,7 @@ public class HyperlinkTemplateServiceImpl implements HyperlinkTemplateService {
                 .filter(java.util.Objects::nonNull)
                 .toList();
         if (!assetIds.isEmpty()) {
-            fileService.lockAndValidateBindableAssets(assetIds);
+            fileService.lockAndValidateBindableAssets(assetIds, ResourceAssetScope.HYPERLINK);
         }
         HyperlinkTemplate copy = converter.copyBusiness(origin);
         copy.setTemplateName(nextCopyName(origin.getTemplateName()));

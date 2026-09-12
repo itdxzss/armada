@@ -89,6 +89,15 @@ class ScriptMarketingExecutionTest {
             altered++;
         }
         assertThat(altered).isEqualTo(6);
+        String replyUpgrade = new ClassPathResource("db/migration/V188__script_quoted_reply.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        var replyStatements = java.util.regex.Pattern.compile("'(ALTER TABLE .*?)',\\s*'SELECT 1'", java.util.regex.Pattern.DOTALL).matcher(replyUpgrade);
+        int replyAltered = 0;
+        while (replyStatements.find()) {
+            jdbc.execute(replyStatements.group(1).replace("''", "'").replace("quote_context_json JSON", "quote_context_json LONGTEXT"));
+            replyAltered++;
+        }
+        assertThat(replyAltered).isEqualTo(2);
         jdbc.execute("CREATE TABLE protocol_command_outbox (id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, command_id VARCHAR(64) UNIQUE, aggregate_type VARCHAR(64), status INT, last_error VARCHAR(1024), locked_by VARCHAR(128), locked_at BIGINT, next_retry_at BIGINT, updated_at BIGINT)");
         execution = context.getBean(ScriptMarketingExecutionService.class);
         tasks = context.getBean(ScriptMarketingTaskMapper.class);
@@ -104,6 +113,138 @@ class ScriptMarketingExecutionTest {
         taskId = seedTask(11L); groupId = groups.list(taskId).get(0).getId();
     }
     @AfterEach void cleanup() { TenantContext.clear(); context.close(); }
+
+    @Test void replyWaitsForOriginalMessageThenUsesItsDurableSameGroupContext() {
+        useGroupedReply();
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        long due = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, due);
+        assertThat(records.count(taskId)).isEqualTo(1);
+        assertThat(groups.find(groupId).getNextStep()).isEqualTo(1);
+        execution.result(replyEvent(first.getCommandId(), true));
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(sender, times(2)).enqueue(captor.capture());
+        var sent = (MessageSendCommand) captor.getValue().get(0);
+        assertThat(sent.payload().replyTo().messageId()).isEqualTo("wamid.source");
+        assertThat(sent.payload().replyTo().groupJid()).isEqualTo("120000@g.us");
+        assertThat(sent.payload().replyTo().context().senderJid()).isEqualTo("15550000001@s.whatsapp.net");
+        assertThat(records.findStep(groupId, 0).getQuoteContextJson()).contains("15550000001");
+    }
+    @Test void failedOriginalFallsBackWithoutFailingReplyOrDuplicatingAfterLateResults() {
+        useGroupedReply();
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        execution.result(replyEvent(first.getCommandId(), false));
+        long due = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, due - 1);
+        assertThat(records.count(taskId)).isEqualTo(1);
+        execution.tick(taskId, groupId, due);
+        var reply = records.findStep(groupId, 1);
+        assertThat(reply.getReplyFallbackReason()).isEqualTo("REPLY_TARGET_FAILED");
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(sender, times(2)).enqueue(captor.capture());
+        var sent = (MessageSendCommand) captor.getValue().get(0);
+        assertThat(sent.payload().replyTo()).isNull();
+        assertThat(sent.payload().content().text()).isEqualTo("hello");
+        assertThat(sent.account().armadaAccountId()).isEqualTo(reply.getAccountId());
+        execution.result(replyEvent(reply.getCommandId(), true));
+        execution.result(replyEvent(first.getCommandId(), true));
+        execution.tick(taskId, groupId, due + 1000);
+        assertThat(records.findStep(groupId, 1).getStatus()).isEqualTo(2);
+        assertThat(records.findStep(groupId, 1).getReplyFallbackReason()).isEqualTo("REPLY_TARGET_FAILED");
+        assertThat(tasks.summary(taskId).successCount()).isEqualTo(1);
+        verify(sender, times(2)).enqueue(anyList());
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {2, 4})
+    void missingSnapshotOrUnknownOriginalFallsBackAtTheOriginalDeadline(int status) {
+        useGroupedReply();
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var first = records.findStep(groupId, 0);
+        jdbc.update("UPDATE script_marketing_send_record SET status=?, message_id='source-no-context' WHERE id=?", status, first.getId());
+        long due = groups.find(groupId).getNextAt();
+        execution.tick(taskId, groupId, due);
+        var row = records.findStep(groupId, 1);
+        assertThat(row.getReplyFallbackReason()).isEqualTo(status == 2 ? "REPLY_CONTEXT_MISSING" : "REPLY_TARGET_UNKNOWN");
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(sender, times(2)).enqueue(captor.capture());
+        assertThat(((MessageSendCommand) captor.getValue().get(0)).payload().replyTo()).isNull();
+    }
+    @Test void quoteResolutionSurvivesRecreationAndNeverSearchesAnotherGroup() {
+        useGroupedReply();
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.result(replyEvent(records.findStep(groupId, 0).getCommandId(), true));
+        var steps = context.getBean(ScriptMarketingContentService.class).decode("ignored");
+        var restarted = new com.armada.marketing.script.service.ScriptReplyResolver(records, new com.fasterxml.jackson.databind.ObjectMapper());
+        assertThat(restarted.resolve(groups.find(groupId), steps).reply().messageId()).isEqualTo("wamid.source");
+        Long otherTask = seedTask(11L);
+        var otherGroup = groups.list(otherTask).get(0);
+        otherGroup.setNextStep(1);
+        assertThat(restarted.resolve(otherGroup, steps).fallbackReason()).isEqualTo("REPLY_TARGET_MISSING");
+        TenantContext.set(8L);
+        assertThat(records.findStep(groupId, 0)).isNull();
+    }
+    @Test void pausingAReplyWaitAndResumingDoesNotCreateAnotherOriginalCommand() {
+        useGroupedReply();
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var original = records.findStep(groupId, 0);
+        jdbc.update("UPDATE protocol_command_outbox SET status=2 WHERE command_id=?", original.getCommandId());
+        execution.action(taskId, "pause", 11L);
+        execution.result(replyEvent(original.getCommandId(), true));
+        assertThat(records.count(taskId)).isEqualTo(1);
+        execution.action(taskId, "resume", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        assertThat(records.count(taskId)).isEqualTo(2);
+        assertThat(records.findStep(groupId, 0).getCommandId()).isEqualTo(original.getCommandId());
+        assertThat(records.findStep(groupId, 1).getReplyFallbackReason()).isNull();
+        verify(sender, times(2)).enqueue(anyList());
+    }
+    @Test void successfulOrdinaryFallbackCanBeQuotedByTheFollowingSentence() {
+        useGroupedReply();
+        var content = context.getBean(ScriptMarketingContentService.class);
+        var steps = content.decode("ignored");
+        var second = steps.get(1);
+        when(content.decode(anyString())).thenReturn(List.of(steps.get(0), second,
+                new ScriptMarketingStepDTO(second.role(), second.accountId(), second.message(),
+                        second.roleKey(), 0, 0, "third", "second")));
+        execution.action(taskId, "start", 11L);
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        execution.result(replyEvent(records.findStep(groupId, 0).getCommandId(), false));
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var ordinary = records.findStep(groupId, 1);
+        assertThat(ordinary.getReplyFallbackReason()).isEqualTo("REPLY_TARGET_FAILED");
+        execution.result(replyEvent(ordinary.getCommandId(), true));
+        execution.tick(taskId, groupId, groups.find(groupId).getNextAt());
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(sender, times(3)).enqueue(captor.capture());
+        assertThat(((MessageSendCommand) captor.getValue().get(0)).payload().replyTo().messageId()).isEqualTo("wamid.source");
+        assertThat(records.findStep(groupId, 2).getReplyFallbackReason()).isNull();
+    }
+    private void useGroupedReply() {
+        useGroupedTask(true);
+        var content = context.getBean(ScriptMarketingContentService.class);
+        var steps = content.decode("ignored");
+        var a = steps.get(0); var b = steps.get(1);
+        when(content.decode(anyString())).thenReturn(List.of(
+                new ScriptMarketingStepDTO(a.role(), a.accountId(), a.message(), a.roleKey(), 0, 0, "first", null),
+                new ScriptMarketingStepDTO(b.role(), b.accountId(), b.message(), b.roleKey(), 10, 10, "second", "first")));
+    }
+    private ProtocolMessageSendResultReportedEvent replyEvent(String command, boolean success) {
+        var quote = success ? new com.armada.platform.protocol.model.command.MessageQuoteContext(1,
+                "15550000001@s.whatsapp.net", "CgVoZWxsbw==") : null;
+        return new ProtocolMessageSendResultReportedEvent("event", 7L, null, null, null, null,
+                "account", "120000@g.us", command, success, success ? "wamid.source" : null, success ? null : "SEND_FAILED",
+                null, now, "worker", null, null, "script_marketing", null, null, null,
+                null, null, null, null, null, "120000@g.us", "GROUP", null, null, null, null, null, true, quote);
+    }
 
     @Test void newTaskRejectsAllGroupsBeforeAnyBindingOrOutboxWhenOneGroupIsShort() {
         useGroupedTask(false);
@@ -175,7 +316,7 @@ class ScriptMarketingExecutionTest {
         useGroupedTask(false);
         var content = context.getBean(ScriptMarketingContentService.class);
         var steps = new java.util.ArrayList<>(content.decode("[]"));
-        steps.add(new ScriptMarketingStepDTO("ADMIN", 1L, steps.get(0).message(), "管理员", 7, 7));
+        steps.add(new ScriptMarketingStepDTO("ADMIN", 1L, steps.get(0).message(), "管理员", 7, 7, null, null));
         when(content.decode(anyString())).thenReturn(steps);
         when(context.getBean(AccountProtocolLookupService.class).findOnlineProtocolRefs(List.of(2L)))
                 .thenReturn(List.of());
@@ -300,8 +441,8 @@ class ScriptMarketingExecutionTest {
         var content = context.getBean(ScriptMarketingContentService.class);
         var message = new MarketingTemplateDTO("", 1, null, null, "hello", null, null, null, null, false);
         when(content.decode(anyString())).thenReturn(List.of(
-                new ScriptMarketingStepDTO("ADMIN", 1L, message, "管理员", 0, 0),
-                new ScriptMarketingStepDTO("PROMOTER", null, message, "推手一", 10, 10)));
+                new ScriptMarketingStepDTO("ADMIN", 1L, message, "管理员", 0, 0, null, null),
+                new ScriptMarketingStepDTO("PROMOTER", null, message, "推手一", 10, 10, null, null)));
         when(content.encodeBindings(anyMap())).thenReturn("fixed-bindings");
         when(content.decodeBindings(anyString())).thenReturn(Map.of("管理员", 1L, "推手一", 2L));
         var report = new ScriptQualificationVO(ready, 3, 1, null, now, List.of(
@@ -543,12 +684,15 @@ class ScriptMarketingExecutionTest {
                 "account", "120000@g.us", command, success, success ? "wamid.ok" : null, success ? null : "SEND_FAILED",
                 null, now, "worker", null, null, "script_marketing", null, null, null,
                 null, null, null, null, null, "120000@g.us", "GROUP",
-                null, null, null, null, null, true);
+                null, null, null, null, null, true, null);
     }
     @Configuration(proxyBeanMethods = false)
     @EnableTransactionManagement
     @Import({MyBatisConfig.class, ScriptMarketingPacedExecutionService.class})
     static class Config {
+        @Bean com.armada.marketing.script.service.ScriptReplyResolver replies(ScriptMarketingSendRecordMapper records) {
+            return new com.armada.marketing.script.service.ScriptReplyResolver(records, new com.fasterxml.jackson.databind.ObjectMapper());
+        }
         @Bean DataSource dataSource() {
             var ds = new JdbcDataSource(); ds.setURL("jdbc:h2:mem:script_execution;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=10000"); return ds;
         }
@@ -583,15 +727,15 @@ class ScriptMarketingExecutionTest {
         @Bean ScriptMarketingContentService content() {
             var service = mock(ScriptMarketingContentService.class);
             var message = new MarketingTemplateDTO("", 1, null, null, "hello", null, null, null, null, false);
-            when(service.decode(anyString())).thenReturn(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null), new ScriptMarketingStepDTO("PROMOTER", 2L, message, null, null, null)));
-            when(service.payload(any())).thenReturn(new MessageSendCommand.MessagePayload(MessageType.TEXT, new MessageSendCommand.MessageContent("hello", null, null, null), false));
+            when(service.decode(anyString())).thenReturn(List.of(new ScriptMarketingStepDTO("ADMIN", 1L, message, null, null, null, null, null), new ScriptMarketingStepDTO("PROMOTER", 2L, message, null, null, null, null, null)));
+            when(service.payload(any())).thenReturn(new MessageSendCommand.MessagePayload(MessageType.TEXT, new MessageSendCommand.MessageContent("hello", null, null, null), false, null));
             return service;
         }
         @Bean ScriptMarketingExecutionService execution(ScriptMarketingTaskMapper tasks, ScriptMarketingGroupMapper groups,
                 ScriptMarketingSendRecordMapper records, ScriptMarketingContentService content, AccountProtocolLookupService accounts,
                 MessageSendPort sender, ScriptMessageControlPort control, DataSourceTransactionManager transactionManager,
-                ScriptMarketingPacedExecutionService paced) {
-            return new ScriptMarketingExecutionService(tasks, groups, records, content, accounts, sender, control, transactionManager, paced);
+                ScriptMarketingPacedExecutionService paced, com.armada.marketing.script.service.ScriptReplyResolver replies) {
+            return new ScriptMarketingExecutionService(tasks, groups, records, content, accounts, sender, control, transactionManager, paced, replies);
         }
     }
 }

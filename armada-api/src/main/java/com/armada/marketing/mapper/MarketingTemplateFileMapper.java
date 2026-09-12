@@ -52,7 +52,7 @@ public interface MarketingTemplateFileMapper {
      * @param id 素材文件 ID
      * @return 匹配素材；不存在或跨租户时为空
      */
-    MarketingTemplateFile selectAssetMetadataById(@Param("id") Long id);
+    MarketingTemplateFile selectAssetMetadataById(@Param("id") Long id, @Param("scope") int scope);
 
     /**
      * 按 ID 锁定当前租户素材并读取完整内容。

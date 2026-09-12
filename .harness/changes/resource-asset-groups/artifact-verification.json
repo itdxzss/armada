@@ -1,0 +1,23 @@
+{
+  "states": [
+    {
+      "name": "armada-backend",
+      "status": "running",
+      "startedAt": "2026-09-12T12:11:24.465525043Z",
+      "restarts": 0,
+      "health": null
+    },
+    {
+      "name": "armada-nginx",
+      "status": "running",
+      "startedAt": "2026-09-12T12:11:24.64720934Z",
+      "restarts": 0,
+      "health": null
+    }
+  ],
+  "jarSha256": "abbe1ddf6a0385ac218f51fb5c93bbb941bc6119e703cfbc78c8f5c69d33b7aa",
+  "frontendMatched": 554,
+  "frontendMismatches": [],
+  "appTitle": "第一套环境",
+  "startupErrorCount": 0
+}

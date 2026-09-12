@@ -1,0 +1,15 @@
+version	script	checksum	success
+188	V188__script_quoted_reply.sql	1746630632	1
+189	V189__resource_asset_groups.sql	-1667912507	1
+190	V190__resource_asset_business_scope.sql	-507475080	1
+failed_migrations
+0
+TABLE_NAME	COLUMN_NAME	COLUMN_TYPE	IS_NULLABLE
+marketing_template_file	asset_scope	tinyint	YES
+resource_asset_group	scope	tinyint	NO
+resource_asset_group_ref	group_id	bigint	NO
+resource_asset_group_ref	scope	tinyint	NO
+asset_scope	image_count
+NULL	62
+old_images_with_changed_scope
+0

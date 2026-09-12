@@ -1,6 +1,6 @@
 # 图片业务隔离确认（2026-09-12）
 
-用户已明确：“历史的两边都能查到，新增、后来的要分开清楚”。本地按此实现；未迁移真实数据库或部署。
+用户已明确：“历史的两边都能查到，新增、后来的要分开清楚”。按此实现，已在第一套 test1 部署并应用迁移；详见 deployment.md。
 
 此前确认两端共用 marketing_template_file、ResourceAssetPicker 和 /api/resource-assets，查询与上传缺少业务范围。现增加 nullable asset_scope：历史 NULL 双边可见，新超链 1、新养群 2；普通营销旧上传路径显式写 3，避免新数据继续成为历史共享。
 

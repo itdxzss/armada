@@ -16,7 +16,9 @@ import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
 import com.armada.group.model.entity.GroupLink;
+import com.armada.group.model.vo.GroupFolderCountVO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
+import com.armada.group.model.vo.GroupFolderFilterOptionsVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.service.impl.GroupFolderServiceImpl;
@@ -56,6 +58,27 @@ class GroupFolderServiceImplTest {
         service = new GroupFolderServiceImpl(
                 folderMapper, groupLinkMapper, currentLocalPersistence,
                 taskGroupOccupancyService);
+    }
+
+    @Test
+    void filterOptionsIncludeZeroFoldersAndCountGroupsOutsideVisibleOptionsInTotal() {
+        when(folderMapper.selectOptions()).thenReturn(List.of(
+                new GroupFolderOptionVO(20L, "空分组"), new GroupFolderOptionVO(10L, "9-8")));
+        when(folderMapper.selectGroupCounts()).thenReturn(List.of(
+                new GroupFolderCountVO(null, 2), new GroupFolderCountVO(10L, 8),
+                new GroupFolderCountVO(99L, 3)));
+
+        assertThat(service.filterOptions()).isEqualTo(new GroupFolderFilterOptionsVO(13, 2, List.of(
+                new GroupFolderFilterOptionsVO.Option(20L, "空分组", 0),
+                new GroupFolderFilterOptionsVO.Option(10L, "9-8", 8))));
+    }
+
+    @Test
+    void filterOptionsReturnZeroForAnEmptyTenant() {
+        when(folderMapper.selectOptions()).thenReturn(List.of());
+        when(folderMapper.selectGroupCounts()).thenReturn(List.of());
+
+        assertThat(service.filterOptions()).isEqualTo(new GroupFolderFilterOptionsVO(0, 0, List.of()));
     }
 
     @Test

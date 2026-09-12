@@ -3,6 +3,7 @@ package com.armada.group.service;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
+import com.armada.group.model.vo.GroupFolderFilterOptionsVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.model.vo.GroupPoolResourceVO;
@@ -17,6 +18,9 @@ public interface GroupFolderService {
 
     /** 查询当前租户的有效运营分组选项。 */
     List<GroupFolderOptionVO> options();
+
+    /** 查询群组列表分组选项及各组、全部、未分组的未删除群入口数量。 */
+    GroupFolderFilterOptionsVO filterOptions();
 
     /** 新建运营分组；同名软删除记录存在时复活原记录。 */
     GroupFolderVO create(GroupFolderWriteDTO request, long userId);

@@ -5,7 +5,9 @@ import com.armada.group.mapper.GroupLinkMapper;
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.vo.GroupFolderCountVO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
+import com.armada.group.model.vo.GroupFolderFilterOptionsVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.model.vo.GroupPoolResourceVO;
@@ -14,7 +16,9 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.task.service.PullTaskGroupOccupancyService;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import org.slf4j.Logger;
@@ -64,6 +68,23 @@ public class GroupFolderServiceImpl implements GroupFolderService {
     @Override
     public List<GroupFolderOptionVO> options() {
         return folderMapper.selectOptions();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public GroupFolderFilterOptionsVO filterOptions() {
+        Map<Long, Long> counts = new HashMap<>();
+        long total = 0;
+        for (GroupFolderCountVO row : folderMapper.selectGroupCounts()) {
+            counts.put(row.folderId(), row.groupCount());
+            total += row.groupCount();
+        }
+        List<GroupFolderFilterOptionsVO.Option> folders = folderMapper.selectOptions().stream()
+                .map(folder -> new GroupFolderFilterOptionsVO.Option(
+                        folder.id(), folder.name(), counts.getOrDefault(folder.id(), 0L)))
+                .toList();
+        return new GroupFolderFilterOptionsVO(total, counts.getOrDefault(null, 0L), folders);
     }
 
     /** {@inheritDoc} */

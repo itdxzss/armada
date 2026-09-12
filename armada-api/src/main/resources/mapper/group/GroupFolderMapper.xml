@@ -75,6 +75,18 @@
     ORDER BY created_at DESC, id DESC
   </select>
 
+  <!-- 与群组列表一致：统计所有未删除入口，优先使用当前群分组，不按健康状态过滤。 -->
+  <select id="selectGroupCounts" resultType="com.armada.group.model.vo.GroupFolderCountVO">
+    SELECT COALESCE(current_group.folder_id, handle.folder_id) AS folderId,
+           COUNT(*) AS groupCount
+    FROM group_link handle
+    LEFT JOIN wa_group current_group
+      ON current_group.tenant_id = handle.tenant_id
+     AND current_group.id = handle.group_id
+    WHERE handle.deleted_at IS NULL
+    GROUP BY COALESCE(current_group.folder_id, handle.folder_id)
+  </select>
+
   <select id="selectActiveByName" resultType="com.armada.group.model.entity.GroupFolder">
     SELECT *
     FROM group_folder

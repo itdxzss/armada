@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.dto.GroupFolderQuery;
+import com.armada.group.model.dto.GroupLinkQuery;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.vo.GroupFolderCountVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -29,6 +31,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /** 群组运营分组 Mapper 的 H2 MySQL 模式与租户隔离测试。 */
 @SpringJUnitConfig(GroupFolderMapperInMemoryTest.TestConfig.class)
@@ -42,6 +45,9 @@ class GroupFolderMapperInMemoryTest {
 
     @Autowired
     private GroupFolderMapper mapper;
+
+    @Autowired
+    private GroupListCurrentMapper groupListMapper;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -200,6 +206,55 @@ class GroupFolderMapperInMemoryTest {
         assertThat(mapper.selectOptions())
                 .containsExactly(new com.armada.group.model.vo.GroupFolderOptionVO(
                         custom.getId(), "今日待拉群"));
+    }
+
+    @Test
+    void filterCountsMatchListIncludingBannedUncheckedAndCurrentFolderOverrides() throws SQLException {
+        insertLink(1L, 7L, 10L, "chat.whatsapp.com/AVAILABLE", null);
+        insertHealth(1L, 7L, 1L, 1, 0);
+        insertLink(2L, 7L, 10L, "chat.whatsapp.com/BANNED", null);
+        insertHealth(2L, 7L, 2L, 1, 1);
+        insertLink(3L, 7L, 10L, "chat.whatsapp.com/UNCHECKED", null);
+        insertLink(4L, 7L, 10L, "chat.whatsapp.com/DELETED", 900L);
+        insertLink(5L, 7L, 10L, "wa://group/current@g.us", null);
+        execute("UPDATE wa_group SET folder_id = 20 WHERE id = 5");
+        insertLink(6L, 7L, 10L, "chat.whatsapp.com/UNASSIGNED", null);
+        execute("UPDATE group_link SET folder_id = NULL WHERE id = 6");
+        insertLink(7L, 7L, 30L, "wa://group/fallback@g.us", null);
+        execute("UPDATE wa_group SET folder_id = NULL WHERE id = 7");
+        insertLink(8L, 8L, 10L, "chat.whatsapp.com/OTHER_TENANT", null);
+
+        List<GroupFolderCountVO> counts = mapper.selectGroupCounts();
+
+        assertThat(counts).containsExactlyInAnyOrder(
+                new GroupFolderCountVO(10L, 3), new GroupFolderCountVO(20L, 1),
+                new GroupFolderCountVO(30L, 1), new GroupFolderCountVO(null, 1));
+        assertThat(counts.stream().mapToLong(GroupFolderCountVO::groupCount).sum())
+                .isEqualTo(groupListMapper.count(7L, new GroupLinkQuery()));
+        for (GroupFolderCountVO count : counts) {
+            GroupLinkQuery query = new GroupLinkQuery();
+            query.setFolderId(count.folderId());
+            query.setWithoutFolder(count.folderId() == null);
+            assertThat(count.groupCount()).isEqualTo(groupListMapper.count(7L, query));
+        }
+
+        TenantContext.set(8L);
+        assertThat(mapper.selectGroupCounts()).containsExactly(new GroupFolderCountVO(10L, 1));
+        TenantContext.clear();
+        assertThat(mapper.selectGroupCounts()).isEmpty();
+    }
+
+    @Test
+    void filterCountsReflectAssignmentDeletionAndEmptyTenant() throws SQLException {
+        assertThat(mapper.selectGroupCounts()).isEmpty();
+        insertLink(1L, 7L, 10L, "wa://group/moving@g.us", null);
+        execute("UPDATE wa_group SET folder_id = 20 WHERE id = 1");
+        assertThat(mapper.selectGroupCounts()).containsExactly(new GroupFolderCountVO(20L, 1));
+        execute("UPDATE wa_group SET folder_id = NULL WHERE id = 1");
+        execute("UPDATE group_link SET folder_id = NULL WHERE id = 1");
+        assertThat(mapper.selectGroupCounts()).containsExactly(new GroupFolderCountVO(null, 1));
+        execute("UPDATE group_link SET deleted_at = 900 WHERE id = 1");
+        assertThat(mapper.selectGroupCounts()).isEmpty();
     }
 
     private GroupFolder folder(String name, long now) {
@@ -394,7 +449,8 @@ class GroupFolderMapperInMemoryTest {
             factory.setConfiguration(configuration);
             factory.setPlugins(interceptor);
             factory.setMapperLocations(
-                    new ClassPathResource("mapper/group/GroupFolderMapper.xml"));
+                    new ClassPathResource("mapper/group/GroupFolderMapper.xml"),
+                    new ClassPathResource("mapper/group/GroupListCurrentMapper.xml"));
             return factory.getObject();
         }
 
@@ -406,6 +462,16 @@ class GroupFolderMapperInMemoryTest {
         @Bean
         GroupFolderMapper groupFolderMapper(SqlSessionTemplate template) {
             return template.getMapper(GroupFolderMapper.class);
+        }
+
+        @Bean
+        GroupListCurrentMapper groupListCurrentMapper(SqlSessionTemplate template) {
+            return template.getMapper(GroupListCurrentMapper.class);
+        }
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
         }
     }
 }

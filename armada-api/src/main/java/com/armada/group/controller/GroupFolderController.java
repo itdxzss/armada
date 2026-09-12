@@ -4,6 +4,7 @@ import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.dto.GroupIdsDTO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
+import com.armada.group.model.vo.GroupFolderFilterOptionsVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.service.GroupFolderService;
@@ -46,6 +47,12 @@ public class GroupFolderController {
     @PreAuthorize("hasAnyAuthority('tenant:group_link:view', 'tenant:pull_task:view')")
     public ApiResponse<List<GroupFolderOptionVO>> options() {
         return ApiResponse.ok(service.options());
+    }
+
+    /** 查询群组列表筛选分组及各分组、全部和未分组的记录总数。 */
+    @GetMapping("/filter-options")
+    public ApiResponse<GroupFolderFilterOptionsVO> filterOptions() {
+        return ApiResponse.ok(service.filterOptions());
     }
 
     /** 新建运营分组；创建人取当前鉴权用户。 */

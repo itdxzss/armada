@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.armada.group.model.dto.GroupFolderWriteDTO;
 import com.armada.group.model.vo.GroupFolderDeleteVO;
+import com.armada.group.model.vo.GroupFolderFilterOptionsVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.service.GroupFolderService;
@@ -57,6 +58,24 @@ class GroupFolderControllerTest {
         mockMvc.perform(get("/api/group-folders/options"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].name").value("印度组"));
+    }
+
+    @Test
+    void exposesFilterOptionsWithAllUnassignedAndPerFolderCounts() throws Exception {
+        when(service.filterOptions()).thenReturn(new GroupFolderFilterOptionsVO(5, 2, List.of(
+                new GroupFolderFilterOptionsVO.Option(8L, "印度组", 3),
+                new GroupFolderFilterOptionsVO.Option(9L, "空分组", 0))));
+
+        mockMvc.perform(get("/api/group-folders/filter-options"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalGroupCount").value(5))
+                .andExpect(jsonPath("$.data.unassignedGroupCount").value(2))
+                .andExpect(jsonPath("$.data.folders[0].id").value(8))
+                .andExpect(jsonPath("$.data.folders[0].name").value("印度组"))
+                .andExpect(jsonPath("$.data.folders[0].groupCount").value(3))
+                .andExpect(jsonPath("$.data.folders[1].groupCount").value(0));
+        assertThat(GroupFolderController.class.getMethod("filterOptions")
+                .getAnnotation(PreAuthorize.class)).isNull();
     }
 
     @Test

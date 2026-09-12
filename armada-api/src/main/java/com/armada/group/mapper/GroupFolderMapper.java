@@ -2,6 +2,7 @@ package com.armada.group.mapper;
 
 import com.armada.group.model.dto.GroupFolderQuery;
 import com.armada.group.model.entity.GroupFolder;
+import com.armada.group.model.vo.GroupFolderCountVO;
 import com.armada.group.model.vo.GroupFolderOptionVO;
 import com.armada.group.model.vo.GroupFolderVO;
 import com.armada.group.model.vo.GroupPoolResourceVO;
@@ -25,6 +26,9 @@ public interface GroupFolderMapper {
 
     /** 查询当前租户全部有效分组选项。 */
     List<GroupFolderOptionVO> selectOptions();
+
+    /** 按群组列表当前分组归属统计本租户未删除的群入口，包含未分组与系统分组。 */
+    List<GroupFolderCountVO> selectGroupCounts();
 
     /** 按名称查询有效分组。 */
     GroupFolder selectActiveByName(@Param("name") String name);

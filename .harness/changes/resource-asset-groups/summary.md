@@ -35,3 +35,11 @@
 证据：/tmp/resource-asset-scope-tests.log、/tmp/resource-asset-scope-converter-tests.log、/tmp/resource-asset-scope-e2e.log、/tmp/resource-asset-scope-typecheck.log。
 
 不包含普通营销与养群的消息模板集合拆分；本次隔离对象为图片素材。其他会话在途修改保留。
+
+## 2026-09-12 分组素材数量
+
+分组下拉和管理弹窗显示“分组名（数量）”，移组、上传及素材选择器复用相同标签。数量由后端 GET /groups 返回 assetCount，按当前租户和业务统计未删除素材；历史共享图片按业务各自归属计数，不受搜索、标签或分页影响。新分组返回 0，上传、移组及删图后刷新数量。无需数据库迁移。
+
+后端 ResourceAsset*Test 37 项通过（含 H2 Mapper 20 项），新增计数测试覆盖空组、历史双边独立归属、移组、删除、异常跨业务/跨租户关系。前端定向 ESLint/Stylelint、隔离提交版本 tsc/vue-tsc 均通过；4 项本地 Playwright 回归通过，覆盖数量刷新及业务隔离。本地夹具验证不等同于测试环境登录态 API 联调。
+
+代码提交：后端 428b7873，前端 f708d008，均已推送 1.0.3-snapshot。第一套 test1 发布与产物核对结果另见 count-deployment.md。

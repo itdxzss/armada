@@ -130,6 +130,19 @@ public interface PullTaskGroupAccountMapper {
                 id, com.armada.task.model.enums.PullTaskGroupAccountRole.PULLER.code(), now);
     }
 
+    /** 按选号时读取的状态原子退出旧角色，避免并发进群结果被替换操作覆盖。 */
+    int markPullerReplaced(@Param("row") PullTaskGroupAccount row,
+                           @Param("now") long now,
+                           @Param("removedStatus") int removedStatus,
+                           @Param("reasonCode") String reasonCode);
+
+    /** 新角色占位成功后调用；必须与新角色创建处于同一个事务。 */
+    default int retireReplacedPuller(PullTaskGroupAccount row, long now) {
+        return markPullerReplaced(row, now,
+                com.armada.task.model.enums.PullTaskGroupAccountAvailability.REMOVED.code(),
+                com.armada.task.model.PullTaskPullerSlotPolicy.REPLACED_REASON);
+    }
+
     /**
      * 释放执行行下全部仍在占用中的拉手。
      *
@@ -168,11 +181,21 @@ public interface PullTaskGroupAccountMapper {
      * @param now 更新时间(epoch 毫秒)
      * @return 实际更新行数
      */
-    int markUnavailable(@Param("id") long id,
-                        @Param("availabilityStatus") int availabilityStatus,
-                        @Param("reasonCode") String reasonCode,
-                        @Param("cooldownUntil") Long cooldownUntil,
-                        @Param("now") long now);
+    default int markUnavailable(long id, int availabilityStatus, String reasonCode,
+                                Long cooldownUntil, long now) {
+        PullTaskGroupAccount row = new PullTaskGroupAccount();
+        row.setId(id);
+        row.setAvailabilityStatus(availabilityStatus);
+        row.setUnavailableReasonCode(reasonCode);
+        row.setCooldownUntil(cooldownUntil);
+        row.setUpdatedAt(now);
+        return markUnavailableUnlessRemoved(row,
+                com.armada.task.model.enums.PullTaskGroupAccountAvailability.REMOVED.code());
+    }
+
+    /** 已移出是角色终态，迟到的账号离线事件不得覆盖它。 */
+    int markUnavailableUnlessRemoved(@Param("row") PullTaskGroupAccount row,
+                                     @Param("removedStatus") int removedStatus);
 
     /**
      * 查询指定候选中仍带某种账号级不可用事实的拉手账号。

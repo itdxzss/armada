@@ -62,6 +62,21 @@ class PullTaskGroupAccountMapperInMemoryTest {
     }
 
     @Test
+    void replacementIsTenantScopedAndRejectsChangedMembership() {
+        PullTaskGroupAccount old = role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
+        mapper.insert(old);
+        PullTaskGroupAccount snapshot = mapper.selectById(old.getId());
+        TenantContext.set(8L);
+        assertThat(mapper.retireReplacedPuller(snapshot, 700L)).isZero();
+        TenantContext.set(7L);
+        mapper.updateMembership(old.getId(), PullTaskGroupAccountMembershipStatus.JOINING.code(), null, 710L);
+        assertThat(mapper.retireReplacedPuller(snapshot, 720L)).isZero();
+        assertThat(mapper.selectById(old.getId()).getReleasedAt()).isNull();
+        assertThat(mapper.selectById(old.getId()).getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
+    }
+
+    @Test
     void samePullerCannotServeTwoExecutionRowsAtOnce() {
         mapper.insert(role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1));
 

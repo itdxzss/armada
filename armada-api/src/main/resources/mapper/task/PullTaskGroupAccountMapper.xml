@@ -87,6 +87,21 @@
       AND released_at IS NOT NULL
   </update>
 
+  <update id="markPullerReplaced">
+    UPDATE pull_task_group_account
+    SET availability_status = #{removedStatus},
+        unavailable_reason_code = #{reasonCode},
+        cooldown_until = NULL,
+        released_at = COALESCE(released_at, #{now}),
+        updated_at = #{now}
+    WHERE id = #{row.id}
+      AND group_execution_id = #{row.groupExecutionId}
+      AND role_type = #{row.roleType}
+      AND membership_status = #{row.membershipStatus}
+      AND availability_status = #{row.availabilityStatus}
+      AND availability_status &lt;&gt; #{removedStatus}
+  </update>
+
   <update id="releaseAllPullersOfExecution">
     UPDATE pull_task_group_account
     SET released_at = #{now},
@@ -105,13 +120,14 @@
       AND released_at IS NULL
   </update>
 
-  <update id="markUnavailable">
+  <update id="markUnavailableUnlessRemoved">
     UPDATE pull_task_group_account
-    SET availability_status = #{availabilityStatus},
-        unavailable_reason_code = #{reasonCode},
-        cooldown_until = #{cooldownUntil},
-        updated_at = #{now}
-    WHERE id = #{id}
+    SET availability_status = #{row.availabilityStatus},
+        unavailable_reason_code = #{row.unavailableReasonCode},
+        cooldown_until = #{row.cooldownUntil},
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND availability_status &lt;&gt; #{removedStatus}
   </update>
 
   <select id="selectAccountIdsByAvailability" resultType="java.lang.Long">

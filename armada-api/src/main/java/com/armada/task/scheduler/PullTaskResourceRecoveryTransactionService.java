@@ -24,6 +24,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountSource;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -63,7 +64,7 @@ public class PullTaskResourceRecoveryTransactionService {
         this.resources = resources;
     }
 
-    /** 复核等待类型对应资源；恢复成功只回到原检查点，下一轮才执行业务动作。 */
+    /** 复核等待资源；恢复拉手若尚未进群则回到进群前置检查点，下一轮才执行业务动作。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult recover(
             PullTaskGroupExecution candidate,
@@ -292,9 +293,24 @@ public class PullTaskResourceRecoveryTransactionService {
             PullTaskGroupExecution candidate, long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(candidate.getStage());
+        update.setStage(recoveryStage(candidate));
         update.setNextRunAt(0L);
-        return transitionWaiting(update, PullTaskExecutionDispatchResult.ADVANCED);
+        return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.ADVANCED);
+    }
+
+    private int recoveryStage(PullTaskGroupExecution candidate) {
+        if (!Objects.equals(candidate.getWaitResourceType(), PullTaskWaitResourceType.PULLER.code())
+                || !Objects.equals(candidate.getStage(), PullTaskExecutionStage.PULL_EXECUTION.code())) {
+            return candidate.getStage();
+        }
+        List<PullTaskGroupAccount> pullers = accountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
+        boolean needsEntry = pullers.stream()
+                .filter(row -> Objects.equals(row.getAvailabilityStatus(), PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                .filter(row -> row.getReleasedAt() == null)
+                .anyMatch(row -> Objects.equals(row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.NOT_JOINED.code())
+                        || PullTaskPullerSlotPolicy.awaitingJoinResult(row));
+        return needsEntry ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code() : candidate.getStage();
     }
 
     private boolean acquireExecutionSlot(
@@ -336,7 +352,7 @@ public class PullTaskResourceRecoveryTransactionService {
         update.setReasonCode(candidate.getReasonCode());
         update.setReasonMessage(candidate.getReasonMessage());
         update.setNextRunAt(Math.addExact(now, retryDelayMs));
-        return transitionWaiting(update, PullTaskExecutionDispatchResult.DEFERRED);
+        return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.DEFERRED);
     }
 
     private PullTaskExecutionDispatchResult defer(
@@ -351,14 +367,15 @@ public class PullTaskResourceRecoveryTransactionService {
         update.setReasonCode(check.reasonCode());
         update.setReasonMessage(check.reasonMessage());
         update.setNextRunAt(Math.addExact(now, retryDelayMs));
-        return transitionWaiting(update, PullTaskExecutionDispatchResult.DEFERRED);
+        return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.DEFERRED);
     }
 
     private PullTaskExecutionDispatchResult transitionWaiting(
             PullTaskGroupExecution update,
+            int expectedStage,
             PullTaskExecutionDispatchResult success) {
         return resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStatus.WAIT_RESOURCE.code(), update.getStage()) == 1
+                update, PullTaskExecutionStatus.WAIT_RESOURCE.code(), expectedStage) == 1
                 ? success : PullTaskExecutionDispatchResult.LOST;
     }
 

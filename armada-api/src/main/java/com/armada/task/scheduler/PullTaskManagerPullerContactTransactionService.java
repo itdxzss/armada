@@ -13,6 +13,7 @@ import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
@@ -283,13 +284,13 @@ public class PullTaskManagerPullerContactTransactionService {
         List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         Set<Long> eligibleAssignedIds = eligibleAssignedIds(existing, eligible);
-        releaseIneligiblePullers(existing, eligibleAssignedIds, now);
-        existing = groupAccountMapper.selectByExecutionAndRole(
-                candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         restoreReleasedPullers(existing, eligibleAssignedIds, planned, now);
         existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
-        int activeCount = activePullers(existing).size();
+        int activeCount = (int) existing.stream()
+                .filter(row -> PullTaskPullerSlotPolicy.occupiesSlot(row, eligibleAssignedIds)).count();
+        var replaced = existing.stream()
+                .filter(row -> PullTaskPullerSlotPolicy.replaceable(row, eligibleAssignedIds)).iterator();
         Set<Long> existingIds = accountIds(existing);
         int nextSeq = existing.stream().map(PullTaskGroupAccount::getRoleSeq)
                 .filter(value -> value != null).max(Integer::compareTo).orElse(0) + 1;
@@ -302,15 +303,21 @@ public class PullTaskManagerPullerContactTransactionService {
             }
             try {
                 insertPuller(candidate, account, nextSeq++, pullerEntryMode(setting), now);
+                if (replaced.hasNext() && groupAccountMapper.retireReplacedPuller(replaced.next(), now) != 1) {
+                    throw new IllegalStateException("被替换拉手状态已变化");
+                }
                 existingIds.add(account.armadaAccountId());
                 activeCount++;
             } catch (DuplicateKeyException ignored) {
                 // 账号刚被别的执行行占用，继续尝试分组内下一个候选。
             }
         }
-        return activePullers(groupAccountMapper.selectByExecutionAndRole(
-                        candidate.getId(), PullTaskGroupAccountRole.PULLER.code()))
-                .stream().limit(planned).toList();
+        return groupAccountMapper.selectByExecutionAndRole(
+                        candidate.getId(), PullTaskGroupAccountRole.PULLER.code()).stream()
+                .filter(row -> PullTaskPullerSlotPolicy.occupiesSlot(row, eligibleAssignedIds))
+                .filter(PullTaskManagerPullerContactTransactionService::available)
+                .filter(row -> eligibleAssignedIds.contains(row.getAccountId()))
+                .limit(planned).toList();
     }
 
     private List<ProtocolAccountRef> eligiblePullers(Long groupId) {
@@ -344,26 +351,13 @@ public class PullTaskManagerPullerContactTransactionService {
         return eligibleIds;
     }
 
-    private void releaseIneligiblePullers(
-            List<PullTaskGroupAccount> existing,
-            Set<Long> eligibleIds,
-            long now) {
-        for (PullTaskGroupAccount row : activePullers(existing)) {
-            if (eligibleIds.contains(row.getAccountId())) {
-                continue;
-            }
-            if (groupAccountMapper.releasePuller(row.getId(), now) != 1) {
-                throw new IllegalStateException("受限拉手占用释放失败");
-            }
-        }
-    }
-
     private void restoreReleasedPullers(
             List<PullTaskGroupAccount> existing,
             Set<Long> eligibleIds,
             int planned,
             long now) {
-        int activeCount = activePullers(existing).size();
+        int activeCount = (int) existing.stream()
+                .filter(row -> PullTaskPullerSlotPolicy.occupiesSlot(row, eligibleIds)).count();
         for (PullTaskGroupAccount row : existing) {
             if (activeCount >= planned) {
                 break;

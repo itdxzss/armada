@@ -202,6 +202,72 @@ class PullTaskPullerSupplementServiceTest {
                 .hasMessageContaining("候选");
     }
 
+    @Test
+    void optionsReserveJoiningPullerExactlyLikeSubmission() {
+        jdbc.update("UPDATE pull_task_group_account SET availability_status=1, released_at=NULL, "
+                + "membership_status=1 WHERE id=101");
+        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=1 WHERE task_id=1");
+
+        PullTaskPullerSupplementOptionsVO options = service.options(1L, 11L, null);
+
+        assertThat(options.currentPullerCount()).isZero();
+        assertThat(options.missingPullerCount()).isZero();
+        assertThatThrownBy(() -> service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(
+                89L, 1, 1, 1, List.of()))).hasMessageContaining("缺口");
+    }
+
+    @Test
+    void successfulSupplementRetiresOfflinePredecessor() {
+        jdbc.update("UPDATE pull_task_group_account SET released_at=NULL WHERE id=101");
+        service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(89L, 1, 1, 1, List.of()));
+
+        assertThat(jdbc.queryForObject("SELECT availability_status FROM pull_task_group_account WHERE id=101",
+                Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject("SELECT released_at FROM pull_task_group_account WHERE id=101",
+                Long.class)).isNotNull();
+    }
+
+    @Test
+    void releasedUnknownJoinStillReservesSlot() {
+        jdbc.update("UPDATE pull_task_group_account SET membership_status=4 WHERE id=101");
+        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=1 WHERE task_id=1");
+        assertThat(service.options(1L, 11L, null).missingPullerCount()).isZero();
+        assertThatThrownBy(() -> service.supplement(1L, 11L,
+                new PullTaskPullerSupplementDTO(89L, 1, 1, 1, List.of()))).hasMessageContaining("缺口");
+    }
+
+    @Test
+    void readyAndReplacedRolesExposeTheSameGapThatCanBeSubmitted() {
+        jdbc.update("UPDATE pull_task_group_account SET availability_status=4, unavailable_reason_code='PULLER_REPLACED' WHERE id=101");
+        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=2 WHERE task_id=1");
+        PullTaskPullerSupplementOptionsVO options = service.options(1L, 11L, null);
+        assertThat(options.missingPullerCount()).isEqualTo(2);
+        assertThat(options.currentPullers()).singleElement().satisfies(row -> {
+            assertThat(row.unavailableReasonCode()).isEqualTo("PULLER_REPLACED");
+            assertThat(row.occupied()).isFalse();
+        });
+        service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(89L, options.missingPullerCount(), 1, 1, List.of()));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_account WHERE group_execution_id=11 AND source_type=2",
+                Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void failedSupplementRollsBackNewRoleAndRetirement() {
+        jdbc.update("UPDATE pull_task_group_account SET released_at=NULL WHERE id=101");
+        org.mockito.Mockito.doThrow(new IllegalStateException("dispatch failed"))
+                .when(dispatchTrigger).dispatchAfterCommit();
+
+        assertThatThrownBy(() -> service.supplement(1L, 11L,
+                new PullTaskPullerSupplementDTO(89L, 1, 1, 1, List.of())))
+                .hasMessageContaining("dispatch failed");
+
+        assertThat(jdbc.queryForObject("SELECT availability_status FROM pull_task_group_account WHERE id=101", Integer.class))
+                .isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT released_at FROM pull_task_group_account WHERE id=101", Long.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_account WHERE group_execution_id=11 AND source_type=2",
+                Integer.class)).isZero();
+    }
+
     private static ProtocolAccountRef account(long id) {
         return new ProtocolAccountRef(
                 id, ProtocolBackend.WEB, "acc-" + id, "861380000" + id);

@@ -7,5 +7,6 @@ public record PullTaskPullerOptionRoleVO(
         String accountPhone,
         int membershipStatus,
         int availabilityStatus,
-        boolean occupied) {
+        boolean occupied,
+        String unavailableReasonCode) {
 }

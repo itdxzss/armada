@@ -392,6 +392,42 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         assertThat(executionMapper.selectClaimed("worker-1", 600L)).isEmpty();
     }
 
+    @Test
+    void unjoinedRecoveredPullerReturnsToEntryCheckpoint() throws SQLException {
+        waitAt(PullTaskExecutionStage.PULL_EXECUTION, PullTaskWaitResourceType.PULLER, "等待拉手");
+        PullTaskGroupAccount row = puller();
+        accountMapper.insert(row);
+        accountMapper.markUnavailable(row.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                "ACCOUNT_NOT_ONLINE", null, 520L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(PULLER));
+
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+    }
+
+    @Test
+    void replacedPullerNeverRestoresEvenWhenAccountIsOnline() throws SQLException {
+        waitAt(PullTaskExecutionStage.PULL_EXECUTION, PullTaskWaitResourceType.PULLER, "等待拉手");
+        PullTaskGroupAccount row = puller();
+        accountMapper.insert(row);
+        accountMapper.markUnavailable(row.getId(), PullTaskGroupAccountAvailability.REMOVED.code(),
+                "PULLER_REPLACED", null, 520L);
+        accountMapper.releasePuller(row.getId(), 520L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(PULLER));
+
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectById(row.getId()).getReleasedAt()).isEqualTo(520L);
+        assertThat(accountMapper.selectById(row.getId()).getAvailabilityStatus())
+                .isEqualTo(PullTaskGroupAccountAvailability.REMOVED.code());
+    }
+
     private void waitAt(
             PullTaskExecutionStage stage,
             PullTaskWaitResourceType resourceType,

@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
@@ -486,6 +487,79 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 .singleElement()
                 .extracting(PullTaskGroupAccount::getAccountId)
                 .isEqualTo(902L);
+    }
+
+    @Test
+    void offlinePullerIsRetiredOnlyAfterReplacementIsSelected() {
+        PullTaskGroupAccount old = puller(100L, executionId(), 902L);
+        groupAccountMapper.insert(old);
+        groupAccountMapper.markUnavailable(old.getId(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findActiveProtocolRefs(anyList()))
+                .thenReturn(List.of(protocolRef(901L), protocolRef(903L)));
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("replacement"), 1));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        PullTaskGroupAccount retired = groupAccountMapper.selectById(old.getId());
+        assertThat(retired.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.REMOVED.code());
+        assertThat(retired.getReleasedAt()).isEqualTo(610L);
+        assertThat(retired.getUnavailableReasonCode()).isEqualTo("PULLER_REPLACED");
+        assertThat(groupAccountMapper.restoreValidatedAvailability(List.of(902L),
+                PullTaskGroupAccountRole.PULLER.code(), List.of(PullTaskGroupAccountAvailability.OFFLINE.code()),
+                PullTaskGroupAccountAvailability.AVAILABLE.code(), 700L)).isZero();
+        assertThat(groupAccountMapper.markUnavailable(old.getId(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "LATE_OFFLINE", null, 710L)).isZero();
+        assertThat(groupAccountMapper.selectById(old.getId()).getUnavailableReasonCode())
+                .isEqualTo("PULLER_REPLACED");
+    }
+
+    @Test
+    void failedReplacementTransactionPreservesOldRoleAndOccupancy() {
+        PullTaskGroupAccount old = puller(100L, executionId(), 902L);
+        groupAccountMapper.insert(old);
+        groupAccountMapper.markUnavailable(old.getId(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findActiveProtocolRefs(anyList()))
+                .thenReturn(List.of(protocolRef(901L), protocolRef(903L)));
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
+                .thenThrow(new IllegalStateException("outbox unavailable"));
+
+        PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
+        assertThatThrownBy(() -> service.prepare(candidate, "worker-1", 610L))
+                .isInstanceOf(IllegalStateException.class);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId(), PullTaskGroupAccountRole.PULLER.code()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getAccountId()).isEqualTo(902L);
+                    assertThat(row.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+                    assertThat(row.getReleasedAt()).isNull();
+                });
+    }
+
+    @Test
+    void offlineJoiningPullerKeepsItsSlotInsteadOfBeingReplaced() {
+        PullTaskGroupAccount old = puller(100L, executionId(), 902L);
+        groupAccountMapper.insert(old);
+        groupAccountMapper.updateMembership(old.getId(), PullTaskGroupAccountMembershipStatus.JOINING.code(),
+                null, 540L);
+        groupAccountMapper.markUnavailable(old.getId(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
+        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId(), PullTaskGroupAccountRole.PULLER.code()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getAccountId()).isEqualTo(902L);
+                    assertThat(row.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+                });
     }
 
     private void seedProtocolAccounts() {

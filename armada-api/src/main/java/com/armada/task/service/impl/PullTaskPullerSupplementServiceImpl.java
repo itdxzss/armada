@@ -16,7 +16,6 @@ import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
-import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskGroupAccountSource;
@@ -29,6 +28,7 @@ import com.armada.task.model.vo.PullTaskPullerOptionRoleVO;
 import com.armada.task.model.vo.PullTaskPullerSupplementOptionsVO;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.service.PullTaskPullerSupplementService;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -76,11 +76,14 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 ? context.setting().getPullerGroupId() : accountGroupId;
         requireGroup(groupId);
         List<PullTaskGroupAccount> pullers = pullers(executionId);
+        Set<Long> eligibleIds = eligibleIds(pullers);
         int current = (int) pullers.stream().filter(
-                PullTaskPullerSupplementServiceImpl::currentPuller).count();
+                row -> PullTaskPullerSlotPolicy.occupiesSlot(row, eligibleIds)
+                        && Objects.equals(row.getMembershipStatus(),
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code())).count();
         int required = requiredCount(context.setting());
         return new PullTaskPullerSupplementOptionsVO(
-                current, required, Math.max(required - current, 0), groupId, pullers.stream()
+                current, required, availableSlots(context.setting(), pullers, eligibleIds), groupId, pullers.stream()
                 .map(PullTaskPullerSupplementServiceImpl::role).toList(),
                 candidates(groupId, pullers));
     }
@@ -94,7 +97,8 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         requirePullerWait(context.execution());
         requireGroup(request.accountGroupId());
         List<PullTaskGroupAccount> existing = pullers(executionId);
-        int availableSlots = availableSlots(context.setting(), existing);
+        Set<Long> eligibleIds = eligibleIds(existing);
+        int availableSlots = availableSlots(context.setting(), existing, eligibleIds);
         if (request.supplementCount() > availableSlots) {
             throw new BusinessException(ErrorCode.CONFLICT, "补充数量超过当前拉手缺口");
         }
@@ -102,7 +106,14 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 candidates(request.accountGroupId(), existing);
         List<PullTaskPullerCandidateVO> selected = select(request, requestState, candidates);
         long now = System.currentTimeMillis();
+        List<PullTaskGroupAccount> replaceable = existing.stream()
+                .filter(row -> PullTaskPullerSlotPolicy.replaceable(row, eligibleIds)).toList();
         insertSelections(context.execution(), requestState, selected, existing, now);
+        for (PullTaskGroupAccount row : replaceable.stream().limit(request.supplementCount()).toList()) {
+            if (resources.accountMapper().retireReplacedPuller(row, now) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "被替换拉手状态已变化，请刷新后重试");
+            }
+        }
         activate(context.execution(), now);
         dispatchTrigger.dispatchAfterCommit();
     }
@@ -311,9 +322,9 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
     }
 
     private static int availableSlots(
-            PullTaskStandardSetting setting, List<PullTaskGroupAccount> existing) {
-        long occupied = existing.stream().filter(
-                PullTaskPullerSupplementServiceImpl::occupiesPullerSlot).count();
+            PullTaskStandardSetting setting, List<PullTaskGroupAccount> existing, Set<Long> eligibleIds) {
+        long occupied = existing.stream().filter(row ->
+                PullTaskPullerSlotPolicy.occupiesSlot(row, eligibleIds)).count();
         return Math.max(requiredCount(setting) - (int) occupied, 0);
     }
 
@@ -322,17 +333,11 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 ? 0 : Math.max(setting.getPullerCountPerGroup(), 0);
     }
 
-    private static boolean currentPuller(PullTaskGroupAccount row) {
-        return occupiesPullerSlot(row) && Objects.equals(row.getMembershipStatus(),
-                PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
-    }
-
-    private static boolean occupiesPullerSlot(PullTaskGroupAccount row) {
-        return Objects.equals(row.getAvailabilityStatus(),
-                PullTaskGroupAccountAvailability.AVAILABLE.code())
-                && row.getReleasedAt() == null
-                && !Objects.equals(row.getMembershipStatus(),
-                PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code());
+    private Set<Long> eligibleIds(List<PullTaskGroupAccount> rows) {
+        List<Long> ids = rows.stream().map(PullTaskGroupAccount::getAccountId).distinct().toList();
+        return safe(resources.accountLookup().findEligiblePullerProtocolRefs(ids)).stream()
+                .filter(Objects::nonNull).map(ProtocolAccountRef::armadaAccountId)
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     private static int nextRoleSeq(List<PullTaskGroupAccount> rows) {
@@ -344,7 +349,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         return new PullTaskPullerOptionRoleVO(
                 row.getId(), row.getAccountId(), row.getAccountPhone(),
                 value(row.getMembershipStatus()), value(row.getAvailabilityStatus()),
-                row.getReleasedAt() == null);
+                row.getReleasedAt() == null, row.getUnavailableReasonCode());
     }
 
     private static boolean supplementableParent(String status) {

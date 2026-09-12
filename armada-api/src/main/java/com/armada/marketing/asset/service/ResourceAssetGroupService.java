@@ -53,7 +53,7 @@ public class ResourceAssetGroupService {
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(ErrorCode.CONFLICT, "分组名称已存在");
         }
-        return new ResourceAssetGroupVO(group.getId(), group.getGroupName());
+        return new ResourceAssetGroupVO(group.getId(), group.getGroupName(), 0L);
     }
 
     /** @param id 分组 ID；原子解除所有归属再删除分组，图片和引用全部保留 */

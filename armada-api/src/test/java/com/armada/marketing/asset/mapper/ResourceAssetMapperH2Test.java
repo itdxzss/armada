@@ -108,6 +108,34 @@ public class ResourceAssetMapperH2Test {
     }
 
     @Test
+    void groupCountsFollowMovesAndExcludeDeletedForeignAndOtherBusinessImages() throws SQLException {
+        var legacy = insertFile("共享", 100L, new byte[] {1});
+        var hyperlinkGroup = groupService.create("超链", ResourceAssetScope.HYPERLINK);
+        var scriptGroup = groupService.create("养群", ResourceAssetScope.SCRIPT);
+        assertThat(hyperlinkGroup.assetCount()).isZero();
+        var upload = fileMapper.selectById(legacy.getId());
+        upload.setId(null);
+        Long hyperlinkId = writeService.create(upload, List.of(), ResourceAssetScope.HYPERLINK);
+        upload.setId(null);
+        Long scriptId = writeService.create(upload, List.of(), ResourceAssetScope.SCRIPT);
+        groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId(), hyperlinkId), hyperlinkGroup.id()), ResourceAssetScope.HYPERLINK);
+        groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId(), scriptId), scriptGroup.id()), ResourceAssetScope.SCRIPT);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::assetCount).containsExactly(2L);
+        assertThat(groupService.list(ResourceAssetScope.SCRIPT)).extracting(ResourceAssetGroupVO::assetCount).containsExactly(2L);
+        writeService.delete(hyperlinkId, 300L, ResourceAssetScope.HYPERLINK);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::assetCount).containsExactly(1L);
+        groupService.move(new ResourceAssetMoveDTO(List.of(legacy.getId()), null), ResourceAssetScope.HYPERLINK);
+        // 即使存在旧异常关系，另一个业务或租户的素材也不能进入计数。
+        execute("INSERT INTO resource_asset_group_ref (tenant_id,file_id,scope,group_id,created_at) VALUES (7," + scriptId + ",1," + hyperlinkGroup.id() + ",1)");
+        TenantContext.set(8L);
+        var foreign = insertFile("其他租户", 400L, new byte[] {2});
+        execute("INSERT INTO resource_asset_group_ref (tenant_id,file_id,scope,group_id,created_at) VALUES (8," + foreign.getId() + ",1," + hyperlinkGroup.id() + ",1)");
+        TenantContext.set(7L);
+        assertThat(groupService.list(ResourceAssetScope.HYPERLINK)).extracting(ResourceAssetGroupVO::assetCount).containsExactly(0L);
+        assertThat(groupService.list(ResourceAssetScope.SCRIPT)).extracting(ResourceAssetGroupVO::assetCount).containsExactly(2L);
+    }
+
+    @Test
     void newScriptAssetIsAbsentFromHyperlinkTagsDetailsAndWrites() {
         var legacy = insertFile("旧图", 100L, new byte[] {1});
         addTag(legacy.getId(), "历史标签", 100L);

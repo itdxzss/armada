@@ -2,7 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.marketing.asset.mapper.ResourceAssetGroupMapper">
     <select id="selectAll" resultType="com.armada.marketing.asset.model.vo.ResourceAssetGroupVO">
-        SELECT id, group_name FROM resource_asset_group WHERE scope = #{scope} ORDER BY group_name, id
+        SELECT g.id, g.group_name,
+            (SELECT COUNT(*) FROM resource_asset_group_ref r
+                INNER JOIN marketing_template_file f ON f.id = r.file_id
+                    AND f.deleted_at IS NULL
+                    AND (f.asset_scope IS NULL OR f.asset_scope = #{scope})
+                WHERE r.group_id = g.id AND r.scope = #{scope}) AS asset_count
+        FROM resource_asset_group g
+        WHERE g.scope = #{scope}
+        ORDER BY g.group_name, g.id
     </select>
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO resource_asset_group (group_name, created_at, scope) VALUES (#{groupName}, #{createdAt}, #{scope})

@@ -86,6 +86,13 @@
     WHERE id = #{id}
   </select>
 
+  <select id="selectByIdForUpdate" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_group_execution
+    WHERE id = #{id}
+    FOR UPDATE
+  </select>
+
   <select id="selectActiveByGroupLinkId"
           resultType="com.armada.task.model.entity.PullTaskGroupExecution">
     SELECT <include refid="ExecutionRowColumns"/>

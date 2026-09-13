@@ -6,6 +6,7 @@ import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskPullerAssignment;
 import com.armada.task.model.dto.PullTaskPlannedCallPullerBinding;
 import com.armada.task.model.dto.PullTaskPlannedCallPrune;
+import com.armada.task.model.dto.PullTaskPlannedCallCounts;
 import com.armada.task.model.dto.PullTaskLegacyCallWaveBinding;
 import com.armada.task.model.dto.PullTaskLegacyPullerGenerationBinding;
 import com.armada.task.model.entity.PullTaskPullCall;
@@ -119,6 +120,9 @@ public interface PullTaskPullCallMapper {
     /** 迟到成功时只从仍为计划态的调用剔除对应参与者类型的一人。 */
     int prunePlannedParticipant(
             @Param("prune") PullTaskPlannedCallPrune prune);
+
+    /** 提交前按有效参与者同步计划计数；已关联命令或已提交的批次不可修改。 */
+    int synchronizeUnsubmittedPlan(@Param("counts") PullTaskPlannedCallCounts counts);
 
     /** 按 Java 端稳定排序把一条开放历史调用挂接到初始波次。 */
     int attachOpenLegacyCallsToWave(

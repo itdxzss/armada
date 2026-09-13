@@ -71,8 +71,46 @@
       AND pull_call_id IS NULL
       AND active_pull_attempt_id IS NULL
       AND pull_failure_count &lt; #{maxFailureCount}
+      AND NOT EXISTS (
+        SELECT 1 FROM pull_task_pull_call_member_attempt prior_attempt
+        WHERE prior_attempt.group_execution_id = pull_task_material_member.group_execution_id
+          AND prior_attempt.participant_type = #{participantType}
+          AND prior_attempt.participant_ref_id = pull_task_material_member.id
+      )
     ORDER BY member_seq ASC, id ASC
   </select>
+
+  <update id="normalizeHistoricalRetryResult">
+    UPDATE pull_task_material_member
+    SET pull_status = #{normalization.target.resultStatus}, updated_at = #{normalization.now}
+    WHERE group_execution_id = #{normalization.scope.executionId}
+      AND pull_status = #{normalization.target.pendingStatus}
+      AND active_pull_attempt_id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM pull_task_pull_call_member_attempt prior_attempt
+        WHERE prior_attempt.group_execution_id = pull_task_material_member.group_execution_id
+          AND prior_attempt.participant_type = #{normalization.scope.participantType}
+          AND prior_attempt.participant_ref_id = pull_task_material_member.id
+          AND prior_attempt.lifecycle_status IN (#{normalization.attemptState.closed}, #{normalization.attemptState.released})
+          AND prior_attempt.active_slot IS NULL
+          AND prior_attempt.protocol_outcome = #{normalization.target.protocolOutcome}
+          AND (prior_attempt.attempt_no &gt;= #{normalization.retryRule.maxAttempts}
+            OR (#{normalization.target.protocolOutcome} = #{normalization.attemptState.failedOutcome}
+              AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.retryableFailureReason})
+            OR (#{normalization.target.protocolOutcome} = #{normalization.attemptState.unknownOutcome}
+              AND (prior_attempt.lifecycle_status = #{normalization.attemptState.closed}
+                OR (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.notStarted}
+                  AND (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.uncertain}
+                    OR COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason})))))
+          AND NOT EXISTS (
+            SELECT 1 FROM pull_task_pull_call_member_attempt successor
+            WHERE successor.group_execution_id = prior_attempt.group_execution_id
+              AND successor.participant_type = prior_attempt.participant_type
+              AND successor.participant_ref_id = prior_attempt.participant_ref_id
+              AND (successor.attempt_no &gt; prior_attempt.attempt_no OR successor.active_slot IS NOT NULL)
+          )
+      )
+  </update>
 
   <!-- 只绑定仍未消费的行；返回行数不足时调用方必须放弃本次调用重新取料。 -->
   <update id="assignToCallIfStatus">
@@ -129,6 +167,14 @@
       AND pull_status IN
       <foreach collection="transition.expected.statuses" item="status"
                open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
+  <update id="clearSuccessfulPullAttempt">
+    UPDATE pull_task_material_member
+    SET active_pull_attempt_id = NULL, updated_at = #{scope.now}
+    WHERE id = #{scope.participantId}
+      AND active_pull_attempt_id = #{scope.attemptId}
+      AND pull_status = #{successStatus}
   </update>
 
   <update id="promotePullSuccess">

@@ -17,6 +17,15 @@ public class PullTaskBatchAddProcessor {
         this.transactions = transactions;
     }
 
+    /** 在领取拉手前修复本地计划；空批直接推进，有效计划才继续申请协议资源。 */
+    public PullTaskPullWavePreparation preflight(
+            PullTaskGroupExecution candidate,
+            PullTaskPullCall call,
+            String lockOwner,
+            long now) {
+        return transactions.preflight(candidate, call, lockOwner, now);
+    }
+
     /** 提交一个已经完整冻结的站台和料子批次。 */
     public PullTaskExecutionDispatchResult process(
             PullTaskGroupExecution candidate,

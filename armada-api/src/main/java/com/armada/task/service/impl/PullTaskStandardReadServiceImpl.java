@@ -262,7 +262,13 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 value(aggregate.getUnknownMemberCount()),
                 value(aggregate.getUnconsumedMemberCount()),
                 value(aggregate.getSubmittedMemberCount()),
-                value(aggregate.getCanceledMemberCount()));
+                value(aggregate.getCanceledMemberCount()),
+                value(aggregate.getRetryPendingCount()),
+                aggregate.getSubmittedAttemptCount() == null ? 0L
+                        : aggregate.getSubmittedAttemptCount(),
+                aggregate.getUnconfirmedAttemptCount() == null ? 0L
+                        : aggregate.getUnconfirmedAttemptCount(),
+                aggregate.getLastSuccessfulAt());
     }
 
     private static PullTaskStandardResourceCountVO resource(

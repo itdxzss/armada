@@ -24,6 +24,7 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
@@ -146,8 +147,8 @@ class PullTaskPullWaveSettlementIntegrationTest {
         assertThat(retry.getWaveNo()).isEqualTo(2);
         assertThat(retry.getWaveType()).isEqualTo(PullTaskPullWaveType.RETRY.code());
         assertThat(retry.getWaveStatus()).isEqualTo(PullTaskPullWaveStatus.DISPATCHING.code());
-        assertThat(retry.getNextDispatchAt()).isEqualTo(11_000L);
-        assertThat(saved.getNextRunAt()).isEqualTo(11_000L);
+        assertThat(retry.getNextDispatchAt()).isEqualTo(62_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(62_000L);
         assertThat(callMapper.selectByExecution(EXECUTION_ID))
                 .filteredOn(call -> retry.getId().equals(call.getPullWaveId()))
                 .singleElement()
@@ -155,6 +156,26 @@ class PullTaskPullWaveSettlementIntegrationTest {
                         .singleElement()
                         .extracting(PullTaskPullCallMemberAttempt::getParticipantRefId)
                         .isEqualTo(MATERIAL_ID));
+    }
+
+    @Test
+    void retryBackoffRespectsLongerConfiguredInterval() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);
+        callMapper.markSubmitted(fixture.call().getId(), "cmd-long-interval", 1_000L);
+        closeAttempt(fixture.attempt(), "FAILED");
+        execute("UPDATE pull_task_material_member SET pull_status=0, pull_failure_count=1, "
+                + "pull_call_id=NULL, active_pull_attempt_id=NULL WHERE id=" + MATERIAL_ID);
+        execute("UPDATE pull_task_standard_setting SET pull_interval_seconds=300 WHERE task_id=100");
+
+        assertThat(service.settle(
+                executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        assertThat(saved.getNextRunAt()).isEqualTo(301_000L);
+        assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt())
+                .isEqualTo(301_000L);
     }
 
     @Test
@@ -185,6 +206,33 @@ class PullTaskPullWaveSettlementIntegrationTest {
         assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.CLOSING.code());
         assertThat(waveMapper.selectById(fixture.wave().getId()).getWaveStatus())
                 .isEqualTo(PullTaskPullWaveStatus.SETTLED.code());
+    }
+
+    @Test
+    void historicalReleasedUnknownIsVisibleBeforeContinuingWithMaterialAdmin() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=4, active_slot=NULL, "
+                + "protocol_outcome='UNKNOWN', execution_state='UNCERTAIN', "
+                + "reason_code='PROTOCOL_RESULT_UNCONFIRMED' WHERE id=" + fixture.attempt().getId());
+        execute("UPDATE pull_task_pull_call SET call_status=3 WHERE id=" + fixture.call().getId());
+        execute("INSERT INTO pull_task_material_member (tenant_id, group_execution_id, member_seq, "
+                + "source_line_no, normalized_phone, admin_required, pull_status, admin_status, "
+                + "created_at, updated_at) VALUES (7, " + EXECUTION_ID
+                + ", 2, 2, '8613900000002', 1, 2, "
+                + PullTaskMaterialAdminStatus.PENDING.code() + ", 100, 100)");
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        assertThat(executionMapper.selectById(EXECUTION_ID).getStage())
+                .isEqualTo(PullTaskExecutionStage.MATERIAL_ADMIN.code());
+        assertThat(materialMapper.selectByExecution(EXECUTION_ID))
+                .filteredOn(row -> row.getId().equals(MATERIAL_ID)).singleElement()
+                .satisfies(row -> assertThat(row.getPullStatus())
+                        .isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code()));
+        assertThat(materialMapper.selectUnconsumed(EXECUTION_ID, 1)).isEmpty();
+        assertThat(materialMapper.selectInitialWaveCandidates(EXECUTION_ID)).isEmpty();
+        assertThat(callMapper.selectByExecution(EXECUTION_ID)).hasSize(1);
     }
 
     private WaveFixture insertCollectingWave() throws SQLException {

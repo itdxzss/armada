@@ -253,6 +253,10 @@ class PullTaskStandardReadServiceTest {
                     assertThat(row.manualPaused()).isTrue();
                     assertThat(row.waitResourceType()).isEqualTo(1);
                     assertThat(row.materialSummary().successfulCount()).isEqualTo(1);
+                    assertThat(row.materialSummary().retryPendingCount()).isEqualTo(2);
+                    assertThat(row.materialSummary().submittedAttemptCount()).isEqualTo(8L);
+                    assertThat(row.materialSummary().unconfirmedAttemptCount()).isEqualTo(5L);
+                    assertThat(row.materialSummary().lastSuccessfulAt()).isEqualTo(500L);
                     assertThat(row.managers().missingCount()).isZero();
                 });
     }
@@ -333,6 +337,10 @@ class PullTaskStandardReadServiceTest {
         row.setUnconsumedMemberCount(0);
         row.setSubmittedMemberCount(0);
         row.setCanceledMemberCount(0);
+        row.setRetryPendingCount(2);
+        row.setSubmittedAttemptCount(8L);
+        row.setUnconfirmedAttemptCount(5L);
+        row.setLastSuccessfulAt(500L);
         row.setRequiredManagerCount(1);
         row.setPlannedPullerCount(1);
         row.setPlannedStationCount(1);

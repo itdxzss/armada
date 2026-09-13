@@ -4,6 +4,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskHistoricalRetryNormalization;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.dto.PullTaskParticipantPlanBinding;
 import com.armada.task.model.dto.PullTaskStationBinding;
@@ -306,6 +307,15 @@ public interface PullTaskGroupAccountMapper {
     /** 当前活动 attempt 与失败计数匹配时推进站台聚合状态。 */
     int transitionMembershipAttempt(
             @Param("transition") PullTaskParticipantAggregateTransition transition);
+
+    /** 成功后仅清除指定的活动指针，完整保留获胜调用和成功事实。 */
+    int clearSuccessfulPullAttempt(
+            @Param("scope") PullTaskParticipantAggregateTransition.Scope scope,
+            @Param("successStatus") int successStatus);
+
+    /** 按真实协议结果归一不再允许重试的历史站台，不触碰绑定与失败次数。 */
+    int normalizeHistoricalRetryResult(
+            @Param("normalization") PullTaskHistoricalRetryNormalization normalization);
 
     /** 单调提升站台为在群；迟到成功不得清除更新 attempt 的活动指针。 */
     int promoteMembershipSuccess(

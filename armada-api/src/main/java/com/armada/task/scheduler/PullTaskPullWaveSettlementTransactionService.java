@@ -10,6 +10,7 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
+import com.armada.task.service.PullTaskRetryPolicy;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -31,7 +32,6 @@ public class PullTaskPullWaveSettlementTransactionService {
     private static final Logger log = LoggerFactory.getLogger(
             PullTaskPullWaveSettlementTransactionService.class);
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final long MAX_EXPLICIT_FAILURE_COUNT = 4L;
     private static final int ADMIN_REQUIRED = 1;
 
     private final PullTaskPullWaveSettlementResources resources;
@@ -77,7 +77,7 @@ public class PullTaskPullWaveSettlementTransactionService {
         TenantContext.set(candidate.getTenantId());
         try {
             PullTaskGroupExecution execution = resources.executionMapper()
-                    .selectById(candidate.getId());
+                    .selectByIdForUpdate(candidate.getId());
             PullTaskPullWave wave = resources.waveMapper().selectById(requestedWave.getId());
             PullTask parent = resources.taskMapper().selectLifecycle(candidate.getTaskId());
             if (!isCollectible(parent, execution, wave, lockOwner, now)) {
@@ -87,10 +87,11 @@ public class PullTaskPullWaveSettlementTransactionService {
             if (hasOpenAttempts(wave.getId())) {
                 return deferCollection(execution, wave.getId(), now);
             }
+            planning.normalizeHistoricalResults(execution.getId(), now);
             settleWave(wave, now);
             List<PullTaskPullWaveCandidate> retryCandidates = resources.attemptMapper()
                     .selectRetryCandidatesByWave(
-                            wave.getId(), MAX_EXPLICIT_FAILURE_COUNT);
+                            wave.getId(), PullTaskRetryPolicy.MAX_ATTEMPTS);
             if (!retryCandidates.isEmpty()) {
                 return createRetry(execution, wave, retryCandidates, now);
             }

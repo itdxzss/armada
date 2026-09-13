@@ -133,6 +133,58 @@ class PullTaskStandardReadMapperInMemoryTest {
         assertThat(row.getSuccessfulMemberCount()).isEqualTo(2);
     }
 
+    @Test
+    void executionProgressSeparatesCurrentPeopleFromSubmittedAttemptHistory() throws SQLException {
+        execute("INSERT INTO pull_task_material_member "
+                + "(id, tenant_id, group_execution_id, member_seq, source_line_no, "
+                + "normalized_phone, pull_status, pull_result_at, created_at, updated_at) VALUES "
+                + "(901, 7, 13, 2, 2, '901', 0, NULL, 1, 9000),"
+                + "(902, 7, 13, 3, 3, '902', 1, NULL, 1, 9000),"
+                + "(903, 7, 13, 4, 4, '903', 4, 7000, 1, 9000),"
+                + "(904, 7, 13, 5, 5, '904', 2, 5000, 1, 9000),"
+                + "(905, 7, 13, 6, 6, '905', 3, 8000, 1, 9000),"
+                + "(906, 7, 13, 7, 7, '906', 0, NULL, 1, 9000)");
+        execute("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(tenant_id, task_id, group_execution_id, pull_call_id, participant_type, "
+                + "participant_ref_id, target_phone, attempt_no, lifecycle_status, active_slot, "
+                + "protocol_outcome, submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, 13, 501, 1, 901, '901', 1, 4, NULL, 'UNKNOWN', 1000, 1, 1),"
+                + "(7, 100, 13, 502, 1, 901, '901', 2, 4, NULL, 'UNKNOWN', 2000, 1, 1),"
+                + "(7, 100, 13, 503, 1, 902, '902', 1, 2, 1, NULL, 3000, 1, 1),"
+                + "(7, 100, 13, 504, 1, 903, '903', 1, 3, NULL, 'UNKNOWN', 3000, 1, 1),"
+                + "(7, 100, 13, 505, 1, 904, '904', 1, 3, NULL, 'SUCCESS', 4000, 1, 1),"
+                + "(7, 100, 13, 506, 1, 905, '905', 1, 3, NULL, 'FAILED', 4000, 1, 1),"
+                + "(7, 100, 13, 507, 1, 906, '906', 1, 1, 1, NULL, NULL, 1, 1),"
+                + "(7, 100, 13, 501, 2, 901, '901', 1, 3, NULL, 'UNKNOWN', 1000, 1, 1),"
+                + "(8, 200, 13, 508, 1, 901, '901', 1, 3, NULL, 'UNKNOWN', 1000, 1, 1)");
+
+        PullTaskStandardExecutionAggregate row = mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(13L, 21L))).get(0);
+
+        assertThat(row.getExecutionId()).isEqualTo(13L);
+        assertThat(row.getTotalMemberCount()).isEqualTo(7);
+        assertThat(row.getUnconsumedMemberCount()).isEqualTo(3);
+        assertThat(row.getRetryPendingCount()).isEqualTo(1);
+        assertThat(row.getSubmittedMemberCount()).isEqualTo(1);
+        assertThat(row.getUnknownMemberCount()).isEqualTo(1);
+        assertThat(row.getSubmittedAttemptCount()).isEqualTo(6L);
+        assertThat(row.getUnconfirmedAttemptCount()).isEqualTo(3L);
+        assertThat(row.getLastSuccessfulAt()).isEqualTo(5000L);
+        assertThat(mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(21L)))).isEmpty();
+    }
+
+    @Test
+    void executionWithoutSubmittedAttemptsDoesNotInventProgress() {
+        PullTaskStandardExecutionAggregate row = mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(13L))).get(0);
+
+        assertThat(row.getRetryPendingCount()).isZero();
+        assertThat(row.getSubmittedAttemptCount()).isZero();
+        assertThat(row.getUnconfirmedAttemptCount()).isZero();
+        assertThat(row.getLastSuccessfulAt()).isNull();
+    }
+
     private PullTaskStandardAggregateCriteria criteria(List<Long> taskIds) {
         return PullTaskStandardAggregateCriteria.fromEnums(taskIds);
     }

@@ -12,7 +12,6 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
-import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
@@ -72,12 +71,8 @@ class PullTaskPullCallReconciliationServiceTest {
         assertThat(settlement.getAllValues())
                 .allSatisfy(row -> assertThat(row.observation())
                         .isEqualTo(PullTaskRosterObservation.UNCONFIRMED));
-        ArgumentCaptor<PullTaskParticipantAttemptTransition> missingTransition =
-                ArgumentCaptor.forClass(PullTaskParticipantAttemptTransition.class);
-        verify(attemptMapper).transition(missingTransition.capture());
-        assertThat(missingTransition.getValue().target().protocolOutcome()).isEqualTo("UNKNOWN");
-        assertThat(missingTransition.getValue().target().executionState())
-                .isEqualTo(PullTaskParticipantExecutionState.UNCERTAIN);
+        // Missing outcome and aggregate now settle atomically inside the per-participant transaction.
+        verify(attemptMapper, never()).transition(any());
     }
 
     @Test
@@ -91,6 +86,17 @@ class PullTaskPullCallReconciliationServiceTest {
 
         verify(attemptMapper, never()).transition(any());
         verify(participantResultService, never()).settleUncertain(any());
+    }
+
+    @Test
+    void oneBrokenParticipantDoesNotPreventOtherParticipantsFromSettling() {
+        when(participantResultService.settleUncertain(any()))
+                .thenThrow(new IllegalStateException("fixture aggregate conflict"))
+                .thenReturn(true);
+        assertThat(service.reconcile(execution(), call(CUTOFF),
+                List.of(attempt(41L, null, null), attempt(42L, null, null)),
+                List.of(), CUTOFF, NOW))
+                .isEqualTo(new PullTaskUnknownResultReconciliationStats(0, 1));
     }
 
     private static PullTaskGroupExecution execution() {

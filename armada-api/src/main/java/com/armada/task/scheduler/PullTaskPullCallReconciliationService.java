@@ -1,13 +1,10 @@
 package com.armada.task.scheduler;
 
-import com.armada.task.model.dto.PullTaskFactResult;
-import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
-import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
@@ -20,13 +17,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 新版逐号码批次在结果窗口结束后释放缺失回调。 */
+/** 新版逐号码批次在结果窗口结束后保留未知事实，不重放可能已生效的命令。 */
 @Service
 public class PullTaskPullCallReconciliationService {
 
     private static final Logger log = LoggerFactory.getLogger(
             PullTaskPullCallReconciliationService.class);
-    private static final String UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
 
     private final PullTaskUnknownResultResources resources;
     private final PullTaskPullCallParticipantResultService participantResultService;
@@ -66,7 +62,6 @@ public class PullTaskPullCallReconciliationService {
                 && !unavailablePullerStillOwnsOpenAttempt(call, unresolved, accounts)) {
             return PullTaskUnknownResultReconciliationStats.empty();
         }
-        persistMissingAsUncertain(unresolved, now);
         int released = 0;
         for (PullTaskPullCallMemberAttempt attempt : unresolved) {
             PullTaskUncertainParticipantSettlement settlement =
@@ -74,12 +69,19 @@ public class PullTaskPullCallReconciliationService {
                             new PullTaskUncertainParticipantSettlement.Context(
                                     execution.getTenantId(), call, execution),
                             attempt, PullTaskRosterObservation.UNCONFIRMED, now);
-            if (participantResultService.settleUncertain(settlement)) {
-                released++;
+            try {
+                if (participantResultService.settleUncertain(settlement)) {
+                    released++;
+                }
+            } catch (RuntimeException error) {
+                log.warn("event=pull_participant_reconciliation_failed tenantId={} taskId={} "
+                                + "executionId={} callId={} attemptId={}",
+                        execution.getTenantId(), execution.getTaskId(), execution.getId(),
+                        call.getId(), attempt.getId(), error);
             }
         }
-        log.info("event=pull_call_unconfirmed_released tenantId={} taskId={} "
-                        + "executionId={} waveId={} callId={} unresolvedCount={} releasedCount={}",
+        log.info("event=pull_call_unconfirmed_settled tenantId={} taskId={} "
+                        + "executionId={} waveId={} callId={} unresolvedCount={} settledCount={}",
                 execution.getTenantId(), execution.getTaskId(), execution.getId(),
                 call.getPullWaveId(), call.getId(), unresolved.size(), released);
         return new PullTaskUnknownResultReconciliationStats(0, released);
@@ -99,32 +101,6 @@ public class PullTaskPullCallReconciliationService {
         }
         return unresolved.stream().anyMatch(attempt ->
                 Objects.equals(attempt.getPullerGroupAccountId(), pullerId));
-    }
-
-    private void persistMissingAsUncertain(
-            List<PullTaskPullCallMemberAttempt> unresolved,
-            long now) {
-        for (PullTaskPullCallMemberAttempt attempt : unresolved) {
-            if (attempt.getProtocolOutcome() != null) {
-                continue;
-            }
-            PullTaskParticipantAttemptTransition transition =
-                    new PullTaskParticipantAttemptTransition(
-                            new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
-                            new PullTaskParticipantAttemptTransition.Expected(List.of(
-                                    PullTaskParticipantAttemptStatus.SUBMITTED.code())),
-                            new PullTaskParticipantAttemptTransition.Target(
-                                    PullTaskParticipantAttemptStatus.SUBMITTED.code(),
-                                    PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name(),
-                                    PullTaskParticipantExecutionState.UNCERTAIN, null),
-                            PullTaskFactResult.reason(
-                                    UNCONFIRMED, "结果收集窗口结束仍未收到逐号码回调"));
-            if (resources.attemptMapper().transition(transition) != 1) {
-                throw new IllegalStateException("缺失逐号码回调转为待核实状态失败");
-            }
-            attempt.setProtocolOutcome(PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name());
-            attempt.setExecutionState(PullTaskParticipantExecutionState.UNCERTAIN);
-        }
     }
 
 }

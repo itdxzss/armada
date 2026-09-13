@@ -32,6 +32,7 @@ import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskRosterObservation;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
+import com.armada.task.service.PullTaskRetryPolicy;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -91,10 +92,10 @@ public class PullTaskPullCallParticipantResultService {
         Long previousTenant = TenantContext.get();
         TenantContext.set(callback.tenantId());
         try {
+            PullTaskGroupExecution execution = executionMapper
+                    .selectByIdForUpdate(callback.groupExecutionId());
             PullTaskPullCall call = resources.callMapper()
                     .selectByCommandId(callback.commandId());
-            PullTaskGroupExecution execution = executionMapper
-                    .selectById(callback.groupExecutionId());
             if (!matchesCall(call, execution, callback)) {
                 return false;
             }
@@ -114,10 +115,13 @@ public class PullTaskPullCallParticipantResultService {
                 return false;
             }
             if (alreadyApplied(attempt, callback)) {
+                closeCallIfReady(call, execution, callback.tenantId(), callback.occurredAt());
                 return true;
             }
             if (finalUnknownAttempt(attempt)) {
-                return applyLateFinalUnknownAttempt(attempt, callback);
+                boolean handled = applyLateFinalUnknownAttempt(attempt, callback);
+                closeCallIfReady(call, execution, callback.tenantId(), callback.occurredAt());
+                return handled;
             }
             boolean handled;
             if (Objects.equals(attempt.getLifecycleStatus(),
@@ -154,6 +158,12 @@ public class PullTaskPullCallParticipantResultService {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
+            if (call == null || execution == null || attempt == null) {
+                return false;
+            }
+            execution = executionMapper.selectByIdForUpdate(execution.getId());
+            call = resources.callMapper().selectByCommandId(call.getCommandId());
+            attempt = resources.attemptMapper().selectById(attempt.getId());
             if (call == null || execution == null || attempt == null
                     || !Objects.equals(call.getId(), attempt.getPullCallId())
                     || !Objects.equals(call.getGroupExecutionId(), execution.getId())
@@ -167,13 +177,15 @@ public class PullTaskPullCallParticipantResultService {
             if (resources.attemptMapper().transition(attemptTransition) != 1) {
                 return false;
             }
-            PullTaskParticipantAggregateTransition aggregate =
-                    rosterAggregateTransition(attempt, observation, now);
-            int changed = isMaterial(attempt)
-                    ? resources.materialMapper().transitionPullAttempt(aggregate)
-                    : resources.accountMapper().transitionMembershipAttempt(aggregate);
-            if (changed != 1) {
-                throw new IllegalStateException("逐成员收口结果与参与者聚合状态不一致");
+            if (!preserveSuccessfulAggregate(attempt, now)) {
+                PullTaskParticipantAggregateTransition aggregate =
+                        rosterAggregateTransition(attempt, observation, now);
+                int changed = isMaterial(attempt)
+                        ? resources.materialMapper().transitionPullAttempt(aggregate)
+                        : resources.accountMapper().transitionMembershipAttempt(aggregate);
+                if (changed != 1) {
+                    throw new IllegalStateException("逐成员收口结果与参与者聚合状态不一致");
+                }
             }
             closeCallIfReady(call, execution, tenantId, now);
             return true;
@@ -188,7 +200,7 @@ public class PullTaskPullCallParticipantResultService {
             long now) {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
         boolean released = observation == PullTaskRosterObservation.ABSENT
-                || observation == PullTaskRosterObservation.UNCONFIRMED;
+                && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
         return new PullTaskParticipantAttemptTransition(
                 new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
                 new PullTaskParticipantAttemptTransition.Expected(List.of(
@@ -213,7 +225,7 @@ public class PullTaskPullCallParticipantResultService {
             case ABSENT -> new PullTaskFactResult(
                     "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群", null, now);
             case UNCONFIRMED -> new PullTaskFactResult(
-                    PROTOCOL_RESULT_UNCONFIRMED, "结果未知，等待按配置间隔重试", null, now);
+                    PROTOCOL_RESULT_UNCONFIRMED, "未收到确认结果，保持未知且不自动重发", null, now);
             case UNAVAILABLE -> new PullTaskFactResult(
                     ROSTER_QUERY_UNAVAILABLE, "群成员名单查询不可用，结果保持未知", null, now);
             case PRESENT -> throw new IllegalArgumentException("已确认成员不能生成失败事实");
@@ -228,8 +240,9 @@ public class PullTaskPullCallParticipantResultService {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
         int targetStatus = switch (observation) {
             case PRESENT -> successStatus(attempt);
-            case ABSENT, UNCONFIRMED -> pendingStatus(attempt);
-            case UNAVAILABLE -> unknownStatus(attempt);
+            case ABSENT -> PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()))
+                    ? pendingStatus(attempt) : unknownStatus(attempt);
+            case UNCONFIRMED, UNAVAILABLE -> unknownStatus(attempt);
         };
         return new PullTaskParticipantAggregateTransition(
                 new PullTaskParticipantAggregateTransition.Scope(
@@ -238,9 +251,7 @@ public class PullTaskPullCallParticipantResultService {
                         List.of(submittedStatus(attempt)), failureCount),
                 new PullTaskParticipantAggregateTransition.Target(
                         targetStatus, failureCount,
-                        observation == PullTaskRosterObservation.ABSENT
-                                || observation == PullTaskRosterObservation.UNCONFIRMED
-                                ? null : attempt.getPullCallId(),
+                        targetStatus == pendingStatus(attempt) ? null : attempt.getPullCallId(),
                         null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
@@ -264,8 +275,7 @@ public class PullTaskPullCallParticipantResultService {
         if (resources.attemptMapper().transition(transition) != 1) {
             return false;
         }
-        AggregateSnapshot snapshot = aggregateSnapshot(attempt);
-        if (snapshot != null && snapshot.status() == successStatus(attempt)) {
+        if (preserveSuccessfulAggregate(attempt, callback.occurredAt())) {
             return true;
         }
         PullTaskParticipantAggregateTransition aggregate =
@@ -275,6 +285,25 @@ public class PullTaskPullCallParticipantResultService {
                 : resources.accountMapper().transitionMembershipAttempt(aggregate);
         if (changed != 1) {
             throw new IllegalStateException("逐号码执行记录与参与者聚合状态不一致");
+        }
+        return true;
+    }
+
+    private boolean preserveSuccessfulAggregate(PullTaskPullCallMemberAttempt attempt, long now) {
+        AggregateSnapshot snapshot = aggregateSnapshot(attempt);
+        if (snapshot == null || snapshot.status() != successStatus(attempt)) {
+            return false;
+        }
+        if (Objects.equals(snapshot.activeAttemptId(), attempt.getId())) {
+            PullTaskParticipantAggregateTransition.Scope scope =
+                    new PullTaskParticipantAggregateTransition.Scope(
+                            attempt.getParticipantRefId(), attempt.getId(), now);
+            int cleared = isMaterial(attempt)
+                    ? resources.materialMapper().clearSuccessfulPullAttempt(scope, successStatus(attempt))
+                    : resources.accountMapper().clearSuccessfulPullAttempt(scope, successStatus(attempt));
+            if (cleared != 1) {
+                throw new IllegalStateException("成功事实的活动尝试指针释放失败");
+            }
         }
         return true;
     }
@@ -372,7 +401,8 @@ public class PullTaskPullCallParticipantResultService {
                 .findFirst().orElseThrow(() -> new IllegalStateException(
                         "迟到成功命中的更新计划批次不存在"));
         if (!Objects.equals(
-                newerCall.getCallStatus(), PullTaskPullCallStatus.PLANNED.code())) {
+                newerCall.getCallStatus(), PullTaskPullCallStatus.PLANNED.code())
+                || newerCall.getCommandId() != null || newerCall.getSubmittedAt() != null) {
             return;
         }
         cancelPlannedParticipant(newer, now);
@@ -386,22 +416,8 @@ public class PullTaskPullCallParticipantResultService {
     private void cancelPlannedParticipant(
             PullTaskPullCallMemberAttempt attempt,
             long now) {
-        long failureCount = value(attempt.getFailureCountBefore());
-        PullTaskParticipantAggregateTransition aggregate =
-                new PullTaskParticipantAggregateTransition(
-                        new PullTaskParticipantAggregateTransition.Scope(
-                                attempt.getParticipantRefId(), attempt.getId(), now),
-                        new PullTaskParticipantAggregateTransition.Expected(
-                                List.of(submittedStatus(attempt)), failureCount),
-                        new PullTaskParticipantAggregateTransition.Target(
-                                pendingStatus(attempt), failureCount, null, null),
-                        PullTaskFactResult.reason(
-                                "LATE_PARTICIPANT_SUCCESS", "迟到成功使未提交批次失效"));
-        int aggregateChanged = isMaterial(attempt)
-                ? resources.materialMapper().transitionPullAttempt(aggregate)
-                : resources.accountMapper().transitionMembershipAttempt(aggregate);
-        if (aggregateChanged != 1) {
-            throw new IllegalStateException("迟到成功释放更新计划参与者失败");
+        if (!preserveSuccessfulAggregate(attempt, now)) {
+            releasePlannedAggregate(attempt, now);
         }
         PullTaskParticipantAttemptTransition attemptTransition =
                 new PullTaskParticipantAttemptTransition(
@@ -415,6 +431,26 @@ public class PullTaskPullCallParticipantResultService {
                                 "LATE_PARTICIPANT_SUCCESS", "迟到成功使未提交批次失效"));
         if (resources.attemptMapper().transition(attemptTransition) != 1) {
             throw new IllegalStateException("迟到成功取消更新计划 attempt 失败");
+        }
+    }
+
+    private void releasePlannedAggregate(PullTaskPullCallMemberAttempt attempt, long now) {
+        long failureCount = value(attempt.getFailureCountBefore());
+        PullTaskParticipantAggregateTransition aggregate =
+                new PullTaskParticipantAggregateTransition(
+                        new PullTaskParticipantAggregateTransition.Scope(
+                                attempt.getParticipantRefId(), attempt.getId(), now),
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(pendingStatus(attempt)), failureCount),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                pendingStatus(attempt), failureCount, null, null),
+                        PullTaskFactResult.reason(
+                                "LATE_PARTICIPANT_SUCCESS", "迟到成功使未提交批次失效"));
+        int aggregateChanged = isMaterial(attempt)
+                ? resources.materialMapper().transitionPullAttempt(aggregate)
+                : resources.accountMapper().transitionMembershipAttempt(aggregate);
+        if (aggregateChanged != 1) {
+            throw new IllegalStateException("迟到成功释放更新计划参与者失败");
         }
     }
 
@@ -448,7 +484,10 @@ public class PullTaskPullCallParticipantResultService {
             return;
         }
         List<PullTaskPullCallMemberAttempt> attempts =
-                resources.attemptMapper().selectByCall(call.getId());
+                resources.attemptMapper().selectByCall(call.getId()).stream()
+                        .filter(row -> !Objects.equals(row.getLifecycleStatus(),
+                                PullTaskParticipantAttemptStatus.CANCELED.code()))
+                        .toList();
         if (attempts.size() != expectedCount || attempts.stream().anyMatch(row ->
                 PullTaskParticipantAttemptStatus.active(value(row.getLifecycleStatus())))) {
             return;
@@ -596,24 +635,28 @@ public class PullTaskPullCallParticipantResultService {
         }
         if (callback.outcome() == PullTaskBatchParticipantProtocolOutcome.FAILED) {
             long failureCount = Math.addExact(failureBefore, 1L);
-            boolean retry = failureCount < MAX_EXPLICIT_FAILURE_COUNT;
+            boolean retry = ProtocolErrorCode.TIMEOUT.name().equals(normalizedReason(callback.reasonCode()))
+                    && failureCount < MAX_EXPLICIT_FAILURE_COUNT
+                    && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
             return new AggregateTarget(
                     retry ? pendingStatus(attempt) : failedStatus(attempt),
                     failureCount, retry ? null : attempt.getPullCallId());
         }
-        return new AggregateTarget(pendingStatus(attempt), failureBefore, null);
+        boolean retry = callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
+                && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
+        return new AggregateTarget(retry ? pendingStatus(attempt) : unknownStatus(attempt),
+                failureBefore, retry ? null : attempt.getPullCallId());
     }
 
     private static AttemptTarget attemptTarget(PullTaskBatchParticipantCallback callback) {
         if (callback.outcome() != PullTaskBatchParticipantProtocolOutcome.UNKNOWN) {
             return new AttemptTarget(PullTaskParticipantAttemptStatus.CLOSED.code(), null);
         }
-        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
-                || callback.executionState() == PullTaskParticipantExecutionState.UNCERTAIN) {
+        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED) {
             return new AttemptTarget(
                     PullTaskParticipantAttemptStatus.RELEASED.code(), callback.occurredAt());
         }
-        return new AttemptTarget(PullTaskParticipantAttemptStatus.SUBMITTED.code(), null);
+        return new AttemptTarget(PullTaskParticipantAttemptStatus.CLOSED.code(), null);
     }
 
     private static PullTaskFactResult callbackFact(
@@ -638,8 +681,7 @@ public class PullTaskPullCallParticipantResultService {
                 PullTaskParticipantAttemptStatus.CLOSED.code())
                 && Objects.equals(attempt.getProtocolOutcome(),
                 PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name())
-                && attempt.getExecutionState() == PullTaskParticipantExecutionState.UNCERTAIN
-                && Objects.equals(attempt.getReasonCode(), ROSTER_QUERY_UNAVAILABLE);
+                && attempt.getExecutionState() != PullTaskParticipantExecutionState.NOT_STARTED;
     }
 
     private static boolean matchesAttempt(

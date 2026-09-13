@@ -9,6 +9,11 @@ import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
+import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskParticipantAttemptTransition;
+import com.armada.task.model.dto.PullTaskFactResult;
+import com.armada.task.model.dto.PullTaskFactTransition;
+import com.armada.task.model.dto.PullTaskPlannedCallCounts;
 import com.armada.task.model.dto.PullTaskPullWaveDispatchAdvance;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupAccount;
@@ -21,15 +26,21 @@ import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
+import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
+import com.armada.task.service.PullTaskRetryPolicy;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -43,6 +54,9 @@ public class PullTaskBatchAddTransactionService {
             PullTaskBatchAddTransactionService.class);
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final long MILLIS_PER_SECOND = 1_000L;
+    private static final String LATE_PARTICIPANT_SUCCESS = "LATE_PARTICIPANT_SUCCESS";
+    private static final String RETRY_LIMIT_REACHED = "RETRY_LIMIT_REACHED";
+    private static final String EMPTY_PLANNED_CALL = "EMPTY_PLANNED_CALL";
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -70,7 +84,34 @@ public class PullTaskBatchAddTransactionService {
         this.resources = resources;
     }
 
-    /** 提交一个到期的计划调用；不读取也不等待同波更早调用的结果。 */
+    /** 领取拉手前修复未提交计划；仍有成员返回 ready，空批在本地推进后返回 completed。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskPullWavePreparation preflight(
+            PullTaskGroupExecution candidate,
+            PullTaskPullCall requestedCall,
+            String lockOwner,
+            long now) {
+        if (!hasIdentity(candidate, requestedCall)) {
+            return PullTaskPullWavePreparation.completed(PullTaskExecutionDispatchResult.LOST);
+        }
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(candidate.getTenantId());
+        try {
+            Optional<DispatchPlan> loaded = loadPlan(candidate, requestedCall, lockOwner, now);
+            if (loaded.isEmpty()) {
+                return PullTaskPullWavePreparation.completed(PullTaskExecutionDispatchResult.LOST);
+            }
+            DispatchPlan plan = loaded.get();
+            if (skipEmptyPlan(plan, now)) {
+                return PullTaskPullWavePreparation.completed(PullTaskExecutionDispatchResult.DEFERRED);
+            }
+            return PullTaskPullWavePreparation.ready(plan.wave(), plan.call());
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    /** 提交前再次锁定并校验计划，不读取也不等待同波更早调用的结果。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult prepare(
             PullTaskGroupExecution candidate,
@@ -83,30 +124,26 @@ public class PullTaskBatchAddTransactionService {
         Long previousTenant = TenantContext.get();
         TenantContext.set(candidate.getTenantId());
         try {
-            PullTaskGroupExecution execution = resources.persistence().executionMapper()
-                    .selectById(candidate.getId());
-            PullTaskPullCall call = currentCall(execution, requestedCall.getId());
-            PullTaskPullWave wave = call == null || call.getPullWaveId() == null
-                    ? null : resources.persistence().waveMapper().selectById(call.getPullWaveId());
-            PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
-            if (!isDispatchable(parent, execution, wave, call, lockOwner, now)) {
-                release(candidate.getId(), lockOwner, now);
+            Optional<DispatchPlan> loaded = loadPlan(candidate, requestedCall, lockOwner, now);
+            if (loaded.isEmpty()) {
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            PullTaskStandardSetting setting = settingMapper.selectByTaskId(execution.getTaskId());
-            Optional<BatchScope> scope = batchScope(execution.getId(), call);
-            if (setting == null || scope.isEmpty()) {
-                release(execution.getId(), lockOwner, now);
-                return PullTaskExecutionDispatchResult.LOST;
+            DispatchPlan plan = loaded.get();
+            if (skipEmptyPlan(plan, now)) {
+                return PullTaskExecutionDispatchResult.DEFERRED;
             }
-            ProtocolAccountRef puller = activeProtocol(scope.get().puller().getAccountId());
+            PullTaskGroupExecution execution = plan.execution();
+            PullTaskPullCall call = plan.call();
+            PullTaskPullWave wave = plan.wave();
+            ProtocolAccountRef puller = plan.scope().puller() == null
+                    ? null : activeProtocol(plan.scope().puller().getAccountId());
             if (puller == null) {
                 release(execution.getId(), lockOwner, now);
                 return PullTaskExecutionDispatchResult.DEFERRED;
             }
-            submitCommand(execution, call, scope.get(), puller, now);
+            submitCommand(execution, call, plan.scope(), puller, now);
             PullTaskPullWaveDispatchAdvance advance = advanceDispatch(
-                    execution, wave, setting, now);
+                    execution, wave, nextSubmissionAt(plan.setting(), now), now);
             log.info("event=pull_call_submitted tenantId={} taskId={} executionId={} "
                             + "waveId={} callId={} waveCallSeq={} participantCount={} "
                             + "pullerGroupAccountId={} pullerAccountId={} "
@@ -114,7 +151,7 @@ public class PullTaskBatchAddTransactionService {
                             + "nextDispatchAt={}",
                     execution.getTenantId(), execution.getTaskId(), execution.getId(),
                     wave.getId(), call.getId(), call.getWaveCallSeq(),
-                    scope.get().attempts().size(), call.getPullerGroupAccountId(),
+                    plan.scope().attempts().size(), call.getPullerGroupAccountId(),
                     call.getPullerAccountId(), call.getPullerAssignmentSeq(),
                     advance.target().waveStatus(), advance.target().nextCallSeq(),
                     advance.target().nextDispatchAt());
@@ -122,6 +159,44 @@ public class PullTaskBatchAddTransactionService {
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private Optional<DispatchPlan> loadPlan(
+            PullTaskGroupExecution candidate, PullTaskPullCall requestedCall,
+            String lockOwner, long now) {
+        PullTaskGroupExecution execution = resources.persistence().executionMapper()
+                .selectByIdForUpdate(candidate.getId());
+        PullTaskPullCall call = currentCall(execution, requestedCall.getId());
+        PullTaskPullWave wave = call == null || call.getPullWaveId() == null
+                ? null : resources.persistence().waveMapper().selectById(call.getPullWaveId());
+        PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
+        if (!isDispatchable(parent, execution, wave, call, lockOwner, now)) {
+            release(candidate.getId(), lockOwner, now);
+            return Optional.empty();
+        }
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(execution.getTaskId());
+        if (setting == null) {
+            release(execution.getId(), lockOwner, now);
+            return Optional.empty();
+        }
+        Optional<BatchScope> scope = batchScope(execution.getId(), call, now);
+        if (scope.isEmpty()) {
+            release(execution.getId(), lockOwner, now);
+            return Optional.empty();
+        }
+        return Optional.of(new DispatchPlan(execution, call, wave, setting, scope.get()));
+    }
+
+    private boolean skipEmptyPlan(DispatchPlan plan, long now) {
+        if (!plan.scope().attempts().isEmpty()) {
+            return false;
+        }
+        advanceDispatch(plan.execution(), plan.wave(), now, now);
+        log.info("event=pull_call_empty_plan_skipped tenantId={} taskId={} "
+                        + "executionId={} waveId={} callId={}",
+                plan.execution().getTenantId(), plan.execution().getTaskId(), plan.execution().getId(),
+                plan.wave().getId(), plan.call().getId());
+        return true;
     }
 
     private void submitCommand(
@@ -147,18 +222,21 @@ public class PullTaskBatchAddTransactionService {
         markParticipantsSubmitted(scope.attempts(), call, now);
     }
 
-    private PullTaskPullWaveDispatchAdvance advanceDispatch(
-            PullTaskGroupExecution execution,
-            PullTaskPullWave wave,
-            PullTaskStandardSetting setting,
-            long now) {
+    private long nextSubmissionAt(PullTaskStandardSetting setting, long now) {
         long intervalMs = Math.multiplyExact(
                 Math.max(0L, setting.getPullIntervalSeconds() == null
                         ? 0L : setting.getPullIntervalSeconds().longValue()),
                 MILLIS_PER_SECOND);
-        long nextDispatchAt = Math.max(
+        return Math.max(
                 Math.addExact(now, intervalMs),
                 resources.delayPolicy().nextSideEffectAt(now));
+    }
+
+    private PullTaskPullWaveDispatchAdvance advanceDispatch(
+            PullTaskGroupExecution execution,
+            PullTaskPullWave wave,
+            long nextDispatchAt,
+            long now) {
         boolean finalCall = wave.getNextCallSeq() >= wave.getPlannedCallCount();
         PullTaskPullWaveDispatchAdvance advance = new PullTaskPullWaveDispatchAdvance(
                 new PullTaskPullWaveDispatchAdvance.Scope(
@@ -174,39 +252,167 @@ public class PullTaskBatchAddTransactionService {
                         execution.getId(), execution.getVersion(), execution.getLockOwner()),
                 now);
         if (resources.persistence().waveMapper().advanceDispatch(advance) != 1) {
-            throw new IllegalStateException("批量拉人提交后波次游标推进失败");
+            throw new IllegalStateException("批量拉人调用处理后波次游标推进失败");
         }
         if (resources.persistence().executionMapper().advancePullWaveDispatch(advance) != 1) {
-            throw new IllegalStateException("批量拉人提交后执行行时钟推进失败");
+            throw new IllegalStateException("批量拉人调用处理后执行行时钟推进失败");
         }
         return advance;
     }
 
-    private Optional<BatchScope> batchScope(long executionId, PullTaskPullCall call) {
+    private Optional<BatchScope> batchScope(long executionId, PullTaskPullCall call, long now) {
         PullTaskGroupAccount puller = groupAccountMapper.selectByExecutionAndRole(
                         executionId, PullTaskGroupAccountRole.PULLER.code())
                 .stream()
                 .filter(row -> Objects.equals(row.getId(), call.getPullerGroupAccountId()))
                 .findFirst().orElse(null);
         List<PullTaskGroupAccount> stations = groupAccountMapper.selectByExecutionAndRole(
-                        executionId, PullTaskGroupAccountRole.STATION.code())
-                .stream()
-                .filter(row -> Objects.equals(row.getPullCallId(), call.getId()))
-                .toList();
-        List<PullTaskMaterialMember> materials = materialMapper.selectByExecution(executionId)
-                .stream()
-                .filter(row -> Objects.equals(row.getPullCallId(), call.getId()))
-                .toList();
+                executionId, PullTaskGroupAccountRole.STATION.code());
+        List<PullTaskMaterialMember> materials = materialMapper.selectByExecution(executionId);
         List<PullTaskPullCallMemberAttempt> attempts = resources.persistence().attemptMapper()
                 .selectByCallAndStatus(
                         call.getId(), PullTaskParticipantAttemptStatus.PLANNED.code());
-        if (puller == null
-                || stations.size() != call.getPlannedStationCount()
-                || materials.size() != call.getPlannedMaterialCount()
-                || attempts.size() != stations.size() + materials.size()) {
+        Map<Long, PullTaskMaterialMember> materialById = materials.stream().collect(
+                Collectors.toMap(PullTaskMaterialMember::getId, row -> row));
+        Map<Long, PullTaskGroupAccount> stationById = stations.stream().collect(
+                Collectors.toMap(PullTaskGroupAccount::getId, row -> row));
+        List<ParticipantBinding> bindings = attempts.stream().map(attempt ->
+                attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                        ? materialBinding(attempt, materialById.get(attempt.getParticipantRefId()), now)
+                        : stationBinding(attempt, stationById.get(attempt.getParticipantRefId()), now))
+                .toList();
+        if (!validUnsubmittedBindings(call, bindings, materials, stations)) {
+            log.error("event=pull_call_plan_inconsistent executionId={} callId={} "
+                            + "plannedMaterialCount={} plannedStationCount={} plannedAttemptCount={}",
+                    executionId, call.getId(), call.getPlannedMaterialCount(),
+                    call.getPlannedStationCount(), attempts.size());
             return Optional.empty();
         }
-        return Optional.of(new BatchScope(puller, stations, attempts));
+        List<PullTaskPullCallMemberAttempt> remaining = bindings.stream()
+                .filter(binding -> !binding.discard()).map(ParticipantBinding::attempt).toList();
+        bindings.stream().filter(ParticipantBinding::discard)
+                .forEach(binding -> cancelUnsubmittedAttempt(binding, now));
+        synchronizePlan(call, remaining, now);
+        return Optional.of(new BatchScope(puller, remaining));
+    }
+
+    private boolean validUnsubmittedBindings(
+            PullTaskPullCall call,
+            List<ParticipantBinding> bindings,
+            List<PullTaskMaterialMember> materials,
+            List<PullTaskGroupAccount> stations) {
+        if (bindings.stream().anyMatch(binding -> binding == null
+                || (!binding.success() && !binding.matches(call.getId())))) {
+            return false;
+        }
+        boolean submittedAttempt = resources.persistence().attemptMapper().selectByCall(call.getId())
+                .stream().anyMatch(attempt -> attempt.getSubmittedAt() != null
+                        || (attempt.getLifecycleStatus() != PullTaskParticipantAttemptStatus.PLANNED.code()
+                            && attempt.getLifecycleStatus() != PullTaskParticipantAttemptStatus.CANCELED.code()));
+        long expectedMaterials = bindings.stream().filter(binding -> !binding.success()
+                && binding.attempt().getParticipantType() == PullTaskParticipantType.MATERIAL.code()).count();
+        long expectedStations = bindings.stream().filter(binding -> !binding.success()
+                && binding.attempt().getParticipantType() == PullTaskParticipantType.STATION.code()).count();
+        return !submittedAttempt
+                && expectedMaterials == materials.stream().filter(row ->
+                        Objects.equals(row.getPullCallId(), call.getId())
+                                && row.getPullStatus() != PullTaskMaterialPullStatus.SUCCESS.code()).count()
+                && expectedStations == stations.stream().filter(row ->
+                        Objects.equals(row.getPullCallId(), call.getId())
+                                && row.getMembershipStatus() != PullTaskGroupAccountMembershipStatus.IN_GROUP.code()).count();
+    }
+
+    private ParticipantBinding materialBinding(
+            PullTaskPullCallMemberAttempt attempt, PullTaskMaterialMember row, long now) {
+        if (row == null) {
+            return null;
+        }
+        return new ParticipantBinding(attempt, row.getPullCallId(), row.getActivePullAttemptId(),
+                row.getPullStatus(), new PullTaskParticipantAggregateTransition(
+                        new PullTaskParticipantAggregateTransition.Scope(row.getId(), attempt.getId(), now),
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(row.getPullStatus()), row.getPullFailureCount()),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                row.getPullStatus(), row.getPullFailureCount(), row.getPullCallId(), null),
+                        new PullTaskFactResult(row.getPullReasonCode(), row.getPullReasonMessage(),
+                                row.getWaJid(), row.getPullResultAt())));
+    }
+
+    private ParticipantBinding stationBinding(
+            PullTaskPullCallMemberAttempt attempt, PullTaskGroupAccount row, long now) {
+        if (row == null || attempt.getParticipantType() != PullTaskParticipantType.STATION.code()) {
+            return null;
+        }
+        return new ParticipantBinding(attempt, row.getPullCallId(), row.getActivePullAttemptId(),
+                row.getMembershipStatus(), new PullTaskParticipantAggregateTransition(
+                        new PullTaskParticipantAggregateTransition.Scope(row.getId(), attempt.getId(), now),
+                        new PullTaskParticipantAggregateTransition.Expected(
+                                List.of(row.getMembershipStatus()), row.getMembershipFailureCount()),
+                        new PullTaskParticipantAggregateTransition.Target(
+                                row.getMembershipStatus(), row.getMembershipFailureCount(), row.getPullCallId(), null),
+                        new PullTaskFactResult(row.getMembershipReasonCode(), row.getMembershipReasonMessage(),
+                                null, row.getMembershipResultAt())));
+    }
+
+    private void cancelUnsubmittedAttempt(ParticipantBinding binding, long now) {
+        PullTaskPullCallMemberAttempt attempt = binding.attempt();
+        PullTaskFactResult cancellation = binding.success()
+                ? PullTaskFactResult.reason(LATE_PARTICIPANT_SUCCESS, "已确认成功，取消尚未提交的重复计划")
+                : PullTaskFactResult.reason(RETRY_LIMIT_REACHED, "自动尝试次数已达上限，保留未知结果");
+        if (resources.persistence().attemptMapper().transition(new PullTaskParticipantAttemptTransition(
+                new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
+                new PullTaskParticipantAttemptTransition.Expected(
+                        List.of(PullTaskParticipantAttemptStatus.PLANNED.code())),
+                new PullTaskParticipantAttemptTransition.Target(
+                        PullTaskParticipantAttemptStatus.CANCELED.code(), null,
+                        PullTaskParticipantExecutionState.NOT_STARTED, null), cancellation)) != 1) {
+            throw new IllegalStateException("取消不可继续提交的参与者计划失败");
+        }
+        if (!Objects.equals(binding.activeAttemptId(), attempt.getId())) {
+            return;
+        }
+        PullTaskParticipantAggregateTransition aggregate = binding.clearSuccess();
+        if (!binding.success()) {
+            int unknownStatus = attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                    ? PullTaskMaterialPullStatus.UNKNOWN.code()
+                    : PullTaskGroupAccountMembershipStatus.UNKNOWN.code();
+            aggregate = new PullTaskParticipantAggregateTransition(aggregate.scope(), aggregate.expected(),
+                    new PullTaskParticipantAggregateTransition.Target(unknownStatus,
+                            aggregate.target().failureCount(), binding.pullCallId(), null),
+                    new PullTaskFactResult(cancellation.reasonCode(), cancellation.reasonMessage(), null, now));
+        }
+        int changed = attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                ? materialMapper.transitionPullAttempt(aggregate)
+                : groupAccountMapper.transitionMembershipAttempt(aggregate);
+        if (changed != 1) {
+            throw new IllegalStateException("清除已取消计划的参与者占用失败");
+        }
+    }
+
+    private void synchronizePlan(
+            PullTaskPullCall call, List<PullTaskPullCallMemberAttempt> remaining, long now) {
+        int materialCount = (int) remaining.stream().filter(attempt ->
+                attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()).count();
+        int stationCount = remaining.size() - materialCount;
+        if (!Objects.equals(call.getPlannedMaterialCount(), materialCount)
+                || !Objects.equals(call.getPlannedStationCount(), stationCount)) {
+            if (resources.persistence().pullCallMapper().synchronizeUnsubmittedPlan(
+                    new PullTaskPlannedCallCounts(call.getId(), materialCount, stationCount,
+                            PullTaskPullCallStatus.PLANNED.code(), now)) != 1) {
+                throw new IllegalStateException("未提交批次计划人数修复失败");
+            }
+            log.info("event=pull_call_plan_repaired callId={} oldMaterialCount={} materialCount={} "
+                            + "oldStationCount={} stationCount={}", call.getId(),
+                    call.getPlannedMaterialCount(), materialCount, call.getPlannedStationCount(), stationCount);
+            call.setPlannedMaterialCount(materialCount);
+            call.setPlannedStationCount(stationCount);
+        }
+        if (remaining.isEmpty() && resources.persistence().pullCallMapper().transitionResult(
+                new PullTaskFactTransition(call.getId(), List.of(PullTaskPullCallStatus.PLANNED.code()),
+                        PullTaskPullCallStatus.CANCELED.code(), PullTaskFactResult.reason(
+                                EMPTY_PLANNED_CALL, "当前批次无可继续提交的参与者"), now)) != 1) {
+            throw new IllegalStateException("取消无剩余参与者的计划批次失败");
+        }
     }
 
     private ProtocolAccountRef activeProtocol(long accountId) {
@@ -290,6 +496,7 @@ public class PullTaskBatchAddTransactionService {
                 && Objects.equals(wave.getWaveStatus(), PullTaskPullWaveStatus.DISPATCHING.code())
                 && Objects.equals(wave.getNextCallSeq(), call.getWaveCallSeq())
                 && Objects.equals(call.getCallStatus(), PullTaskPullCallStatus.PLANNED.code())
+                && call.getCommandId() == null && call.getSubmittedAt() == null
                 && wave.getNextDispatchAt() != null && wave.getNextDispatchAt() <= now
                 && Objects.equals(execution.getLockOwner(), lockOwner)
                 && execution.getLockExpiresAt() != null
@@ -306,7 +513,42 @@ public class PullTaskBatchAddTransactionService {
 
     private record BatchScope(
             PullTaskGroupAccount puller,
-            List<PullTaskGroupAccount> stations,
             List<PullTaskPullCallMemberAttempt> attempts) {
+    }
+
+    private record DispatchPlan(
+            PullTaskGroupExecution execution,
+            PullTaskPullCall call,
+            PullTaskPullWave wave,
+            PullTaskStandardSetting setting,
+            BatchScope scope) {
+    }
+
+    private record ParticipantBinding(
+            PullTaskPullCallMemberAttempt attempt,
+            Long pullCallId,
+            Long activeAttemptId,
+            int status,
+            PullTaskParticipantAggregateTransition clearSuccess) {
+
+        private boolean success() {
+            return status == (attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                    ? PullTaskMaterialPullStatus.SUCCESS.code()
+                    : PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
+        }
+
+        private boolean discard() {
+            return success() || (attempt.getAttemptNo() != null
+                    && attempt.getAttemptNo() > PullTaskRetryPolicy.MAX_ATTEMPTS);
+        }
+
+        private boolean matches(long callId) {
+            int pendingStatus = attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
+                    ? PullTaskMaterialPullStatus.UNCONSUMED.code()
+                    : PullTaskGroupAccountMembershipStatus.NOT_JOINED.code();
+            return status == pendingStatus && Objects.equals(pullCallId, callId)
+                    && Objects.equals(activeAttemptId, attempt.getId())
+                    && Objects.equals(attempt.getActiveSlot(), 1);
+        }
     }
 }

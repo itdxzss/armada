@@ -113,12 +113,24 @@
      AND station_row.id = attempt_row.participant_ref_id
      AND station_row.group_execution_id = attempt_row.group_execution_id
     WHERE attempt_row.pull_wave_id = #{pullWaveId}
+      AND attempt_row.attempt_no &lt; #{maxAttemptCount}
+      AND attempt_row.active_slot IS NULL
       AND CASE
             WHEN attempt_row.participant_type = 1 THEN material_row.pull_failure_count
             ELSE station_row.membership_failure_count
           END &lt; #{maxFailureCount}
-      AND ((attempt_row.participant_type = 1 AND material_row.pull_status &lt;&gt; 2)
-        OR (attempt_row.participant_type = 2 AND station_row.membership_status &lt;&gt; 2))
+      AND ((attempt_row.participant_type = 1 AND material_row.pull_status &lt;&gt; 2
+            AND material_row.active_pull_attempt_id IS NULL)
+        OR (attempt_row.participant_type = 2 AND station_row.membership_status &lt;&gt; 2
+            AND station_row.active_pull_attempt_id IS NULL))
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pull_task_pull_call_member_attempt successor
+        WHERE successor.group_execution_id = attempt_row.group_execution_id
+          AND successor.participant_type = attempt_row.participant_type
+          AND successor.participant_ref_id = attempt_row.participant_ref_id
+          AND (successor.attempt_no &gt; attempt_row.attempt_no OR successor.active_slot = 1)
+      )
       AND ((attempt_row.lifecycle_status = 3
             AND attempt_row.protocol_outcome = 'FAILED'
             AND attempt_row.reason_code IN
@@ -129,7 +141,8 @@
             AND attempt_row.execution_state = 'NOT_STARTED')
         OR (attempt_row.lifecycle_status = 4
             AND attempt_row.protocol_outcome = 'UNKNOWN'
-            AND attempt_row.execution_state = 'UNCERTAIN'))
+            AND attempt_row.execution_state = 'UNCERTAIN'
+            AND attempt_row.reason_code = #{confirmedAbsenceReasonCode}))
     ORDER BY attempt_row.participant_type ASC,
              attempt_row.participant_ref_id ASC,
              attempt_row.id ASC

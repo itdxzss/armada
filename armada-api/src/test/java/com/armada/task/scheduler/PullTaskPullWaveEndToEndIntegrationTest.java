@@ -161,7 +161,8 @@ class PullTaskPullWaveEndToEndIntegrationTest {
         assertThat(outcomes.finalUnknownParticipantId())
                 .isNotIn(outcomes.retryableParticipantIds());
 
-        dispatchAt(100_001L);
+        assertThat(retryWave.getNextDispatchAt()).isEqualTo(160_000L);
+        dispatchAt(160_000L);
 
         TenantContext.set(7L);
         PullTaskPullCall submittedRetry = callMapper.selectByExecution(executionId).stream()

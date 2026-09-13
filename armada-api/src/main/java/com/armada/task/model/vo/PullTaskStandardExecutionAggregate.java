@@ -11,6 +11,14 @@ public class PullTaskStandardExecutionAggregate {
     private Integer failedMemberCount;
     private Integer unknownMemberCount;
     private Integer canceledMemberCount;
+    /** 当前待执行且有已提交历史的不同料子人数。 */
+    private Integer retryPendingCount;
+    /** 已提交料子的累计执行次数，不是去重人数。 */
+    private Long submittedAttemptCount;
+    /** 已提交历史中当前结果仍未确认的执行次数。 */
+    private Long unconfirmedAttemptCount;
+    /** 最近一次确认料子成功入群的事实时间。 */
+    private Long lastSuccessfulAt;
     private Integer requiredManagerCount;
     private Integer plannedPullerCount;
     private Integer plannedStationCount;
@@ -34,6 +42,14 @@ public class PullTaskStandardExecutionAggregate {
     public void setUnknownMemberCount(Integer value) { unknownMemberCount = value; }
     public Integer getCanceledMemberCount() { return canceledMemberCount; }
     public void setCanceledMemberCount(Integer value) { canceledMemberCount = value; }
+    public Integer getRetryPendingCount() { return retryPendingCount; }
+    public void setRetryPendingCount(Integer value) { retryPendingCount = value; }
+    public Long getSubmittedAttemptCount() { return submittedAttemptCount; }
+    public void setSubmittedAttemptCount(Long value) { submittedAttemptCount = value; }
+    public Long getUnconfirmedAttemptCount() { return unconfirmedAttemptCount; }
+    public void setUnconfirmedAttemptCount(Long value) { unconfirmedAttemptCount = value; }
+    public Long getLastSuccessfulAt() { return lastSuccessfulAt; }
+    public void setLastSuccessfulAt(Long value) { lastSuccessfulAt = value; }
     public Integer getRequiredManagerCount() { return requiredManagerCount; }
     public void setRequiredManagerCount(Integer value) { requiredManagerCount = value; }
     public Integer getPlannedPullerCount() { return plannedPullerCount; }

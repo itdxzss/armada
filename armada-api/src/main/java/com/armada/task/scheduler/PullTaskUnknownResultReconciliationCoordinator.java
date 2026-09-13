@@ -85,7 +85,7 @@ public class PullTaskUnknownResultReconciliationCoordinator {
             total.add(service.reconcile(execution, cutoff, participantCutoff, now));
         } catch (RuntimeException ex) {
             log.warn("普通拉群未知结果单行收敛失败 tenantId={} executionId={} errorType={}",
-                    execution.getTenantId(), execution.getId(), ex.getClass().getSimpleName());
+                    execution.getTenantId(), execution.getId(), ex.getClass().getSimpleName(), ex);
         } finally {
             restoreTenant(previous);
         }

@@ -4,6 +4,7 @@ import com.armada.task.model.dto.PullTaskFactStatusCriteria;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskMaterialPullResult;
 import com.armada.task.model.dto.PullTaskParticipantAggregateTransition;
+import com.armada.task.model.dto.PullTaskHistoricalRetryNormalization;
 import com.armada.task.model.dto.PullTaskParticipantAttemptBinding;
 import com.armada.task.model.dto.PullTaskParticipantPlanBinding;
 import com.armada.task.model.dto.PullTaskPullWaveCandidate;
@@ -107,6 +108,10 @@ public interface PullTaskMaterialMemberMapper {
             @Param("pullStatus") int pullStatus,
             @Param("maxFailureCount") long maxFailureCount);
 
+    /** 按真实协议结果归一不再允许重试的历史料子，不触碰绑定与失败次数。 */
+    int normalizeHistoricalRetryResult(
+            @Param("normalization") PullTaskHistoricalRetryNormalization normalization);
+
     /** 使用普通链接料子的固定初始候选条件。 */
     default List<PullTaskPullWaveCandidate> selectInitialWaveCandidates(long groupExecutionId) {
         return selectInitialWaveCandidatesByStatus(
@@ -151,6 +156,11 @@ public interface PullTaskMaterialMemberMapper {
     /** 只有当前活动 attempt 和精确失败计数都匹配时才推进聚合状态。 */
     int transitionPullAttempt(
             @Param("transition") PullTaskParticipantAggregateTransition transition);
+
+    /** 成功后仅清除指定的活动指针，完整保留获胜调用和成功事实。 */
+    int clearSuccessfulPullAttempt(
+            @Param("scope") PullTaskParticipantAggregateTransition.Scope scope,
+            @Param("successStatus") int successStatus);
 
     /** 单调提升为成功；旧 attempt 成功不得清除更新 attempt 的活动指针。 */
     int promotePullSuccess(

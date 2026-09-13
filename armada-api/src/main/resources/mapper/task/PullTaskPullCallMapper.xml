@@ -90,15 +90,21 @@
       AND call_status = #{binding.scope.expectedCallStatus}
   </update>
 
-  <update id="prunePlannedParticipant">
+  <update id="synchronizeUnsubmittedPlan">
     UPDATE pull_task_pull_call
-    SET planned_material_count = planned_material_count
-          - CASE WHEN #{prune.participantType} = #{prune.target.materialParticipantType}
-            THEN 1 ELSE 0 END,
-        planned_station_count = planned_station_count
-          - CASE WHEN #{prune.participantType} = #{prune.target.stationParticipantType}
-            THEN 1 ELSE 0 END,
-        call_status = CASE
+    SET planned_material_count = #{counts.materialCount},
+        planned_station_count = #{counts.stationCount},
+        updated_at = #{counts.now}
+    WHERE id = #{counts.pullCallId}
+      AND call_status = #{counts.expectedCallStatus}
+      AND command_id IS NULL
+      AND submitted_at IS NULL
+  </update>
+
+  <update id="prunePlannedParticipant">
+    <!-- MySQL 单表 UPDATE 从左到右赋值；所有空批判断必须先读原计数，再递减人数。 -->
+    UPDATE pull_task_pull_call
+    SET call_status = CASE
           WHEN planned_material_count + planned_station_count = 1
             THEN #{prune.target.canceledCallStatus}
           ELSE call_status
@@ -117,6 +123,12 @@
           WHEN planned_material_count + planned_station_count = 1 THEN #{prune.now}
           ELSE result_at
         END,
+        planned_material_count = planned_material_count
+          - CASE WHEN #{prune.participantType} = #{prune.target.materialParticipantType}
+            THEN 1 ELSE 0 END,
+        planned_station_count = planned_station_count
+          - CASE WHEN #{prune.participantType} = #{prune.target.stationParticipantType}
+            THEN 1 ELSE 0 END,
         updated_at = #{prune.now}
     WHERE id = #{prune.pullCallId}
       AND call_status = #{prune.expectedCallStatus}

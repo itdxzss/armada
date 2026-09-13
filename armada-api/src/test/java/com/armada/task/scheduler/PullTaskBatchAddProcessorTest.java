@@ -27,6 +27,17 @@ class PullTaskBatchAddProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
     }
 
+    @Test
+    void delegatesResourceIndependentPreflightToTransaction() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskPullCall call = call();
+        PullTaskPullWavePreparation completed = PullTaskPullWavePreparation.completed(
+                PullTaskExecutionDispatchResult.DEFERRED);
+        when(transactions.preflight(candidate, call, "worker-1", 1_000L)).thenReturn(completed);
+
+        assertThat(processor.preflight(candidate, call, "worker-1", 1_000L)).isSameAs(completed);
+    }
+
     private static PullTaskGroupExecution candidate() {
         PullTaskGroupExecution row = new PullTaskGroupExecution();
         row.setId(11L);

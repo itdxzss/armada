@@ -22,6 +22,7 @@ import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
+import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
@@ -33,6 +34,7 @@ import com.armada.task.model.enums.PullTaskPullWaveType;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
+import com.armada.task.service.PullTaskRetryPolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -97,7 +99,7 @@ public class PullTaskPullWavePlanningTransactionService {
         TenantContext.set(candidate.getTenantId());
         try {
             PullTaskGroupExecution execution = resources.executionMapper()
-                    .selectById(candidate.getId());
+                    .selectByIdForUpdate(candidate.getId());
             PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
             if (!isDispatchable(parent, execution, lockOwner, now)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
@@ -106,8 +108,9 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskPullWave active = resources.waveMapper().selectActiveByExecution(
                     execution.getId(), activeWaveStatuses());
             if (active != null) {
-                return resume(active);
+                return resume(active, now);
             }
+            normalizeHistoricalResults(execution.getId(), now);
             List<PullTaskPullCall> existingCalls =
                     resources.pullCallMapper().selectByExecution(execution.getId());
             List<PullTaskPullCall> legacyOpenCalls = legacyOpenCalls(existingCalls);
@@ -159,7 +162,7 @@ public class PullTaskPullWavePlanningTransactionService {
         }
         PullTaskStandardSetting setting = requiredSetting(execution.getTaskId());
         List<PlannedBatch> batches = retryBatches(setting, candidates);
-        long nextDispatchAt = retryNextDispatchAt(execution, setting, now);
+        long nextDispatchAt = retryNextDispatchAt(execution, setting, settledWave, now);
         return createWave(
                 execution,
                 settledWave.getWaveNo() + 1,
@@ -172,31 +175,79 @@ public class PullTaskPullWavePlanningTransactionService {
     private long retryNextDispatchAt(
             PullTaskGroupExecution execution,
             PullTaskStandardSetting setting,
+            PullTaskPullWave settledWave,
             long now) {
+        long retryAt = Math.addExact(now, PullTaskRetryPolicy.retryDelayMs(settledWave.getWaveNo()));
         Long lastSubmittedAt = resources.pullCallMapper()
                 .selectByExecution(execution.getId()).stream()
                 .map(PullTaskPullCall::getSubmittedAt)
                 .filter(Objects::nonNull)
                 .max(Long::compareTo).orElse(null);
         if (lastSubmittedAt == null) {
-            return now;
+            return retryAt;
         }
         long interval = Math.multiplyExact(
                 setting.getPullIntervalSeconds().longValue(), 1_000L);
-        return Math.max(now, Math.addExact(lastSubmittedAt, interval));
+        return Math.max(retryAt, Math.addExact(lastSubmittedAt, interval));
     }
 
-    private PullTaskPullWavePreparation resume(PullTaskPullWave wave) {
+    /** 同包结算事务在查重试候选前修复旧版错误释放的待执行投影。 */
+    void normalizeHistoricalResults(long executionId, long now) {
+        int materials = 0;
+        int stations = 0;
+        for (PullTaskBatchParticipantProtocolOutcome outcome : List.of(
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN, PullTaskBatchParticipantProtocolOutcome.FAILED)) {
+            materials += materialMapper.normalizeHistoricalRetryResult(
+                    PullTaskRetryPolicy.historicalNormalization(executionId, PullTaskParticipantType.MATERIAL, outcome, now));
+            stations += groupAccountMapper.normalizeHistoricalRetryResult(
+                    PullTaskRetryPolicy.historicalNormalization(executionId, PullTaskParticipantType.STATION, outcome, now));
+        }
+        if (materials + stations > 0) {
+            log.info("event=pull_historical_result_normalized executionId={} materials={} stations={}",
+                    executionId, materials, stations);
+        }
+    }
+
+    private PullTaskPullWavePreparation resume(PullTaskPullWave wave, long now) {
         PullTaskPullCall call = null;
-        if (Objects.equals(
+        while (Objects.equals(
                 wave.getWaveStatus(), PullTaskPullWaveStatus.DISPATCHING.code())) {
             call = resources.pullCallMapper().selectByWaveAndSeq(
                     wave.getId(), wave.getNextCallSeq());
             if (call == null) {
                 throw new IllegalStateException("活动波次下一调用不存在");
             }
+            if (!Objects.equals(call.getCallStatus(), PullTaskPullCallStatus.CANCELED.code())
+                    || !Objects.equals(call.getPlannedMaterialCount(), 0)
+                    || !Objects.equals(call.getPlannedStationCount(), 0)
+                    || call.getCommandId() != null || call.getSubmittedAt() != null) {
+                break;
+            }
+            skipCanceledEmptyCall(wave, now);
+            call = null;
         }
         return PullTaskPullWavePreparation.ready(wave, call);
+    }
+
+    private void skipCanceledEmptyCall(PullTaskPullWave wave, long now) {
+        boolean finalCall = wave.getNextCallSeq() >= wave.getPlannedCallCount();
+        PullTaskPullWaveTransition transition = new PullTaskPullWaveTransition(
+                new PullTaskPullWaveTransition.Scope(
+                        wave.getId(), wave.getGroupExecutionId(),
+                        PullTaskPullWaveStatus.DISPATCHING.code(), wave.getVersion()),
+                new PullTaskPullWaveTransition.Target(
+                        finalCall ? PullTaskPullWaveStatus.COLLECTING.code()
+                                : PullTaskPullWaveStatus.DISPATCHING.code(),
+                        wave.getNextCallSeq() + 1, finalCall ? now : wave.getNextDispatchAt(),
+                        finalCall ? now : null, null), now);
+        if (resources.waveMapper().transition(transition) != 1) {
+            throw new IllegalStateException("空拉人调用取消后波次游标发生并发变化");
+        }
+        wave.setWaveStatus(transition.target().status());
+        wave.setNextCallSeq(transition.target().nextCallSeq());
+        wave.setNextDispatchAt(transition.target().nextDispatchAt());
+        wave.setDispatchCompletedAt(transition.target().dispatchCompletedAt());
+        wave.setVersion(wave.getVersion() + 1);
     }
 
     private WavePlanningDecision initialBatches(

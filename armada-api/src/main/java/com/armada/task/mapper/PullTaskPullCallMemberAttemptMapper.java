@@ -7,6 +7,7 @@ import com.armada.task.model.dto.PullTaskPlannedCallPullerBinding;
 import com.armada.task.model.dto.PullTaskLegacyPullerGenerationBinding;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.service.PullTaskRetryPolicy;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -67,22 +68,24 @@ public interface PullTaskPullCallMemberAttemptMapper {
     }
 
     /**
-     * 从指定已结算波次读取明确失败或已释放的可重试参与者。
+     * 从指定已结算波次读取仍有自动尝试预算、没有后继 attempt 的可重试参与者。
      *
      * <p>明确失败按原因码白名单筛选：Web 与 Android 两端协议对逐成员结果的判定都是
      * "明确失败中只有 TIMEOUT 可重试"，其余（PRIVACY_BLOCKED、GROUP_FULL、
      * GROUP_JOIN_REJECTED 等）属于确定性终态，换拉手重试也不会成功。白名单让协议层
      * 未来新增的未知原因码默认不重试，与协议侧判定保持同向。</p>
      *
-     * <p>限流与账号受限走 UNKNOWN + UNCERTAIN 分支，不受本白名单约束：那类失败归属于
-     * 拉手账号而非目标号码，换个拉手就能成功，必须继续重试。</p>
+     * <p>UNKNOWN 只有明确未开始，或成员名单核实不在群内时允许重试；限流、离线和缺失
+     * 回调不能证明原调用未生效。总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
      */
     default List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
             long pullWaveId, long maxFailureCount) {
         return selectRetryCandidatesByWaveInternal(
                 pullWaveId,
                 maxFailureCount,
-                List.of(ProtocolErrorCode.TIMEOUT.name()));
+                PullTaskRetryPolicy.MAX_ATTEMPTS,
+                List.of(ProtocolErrorCode.TIMEOUT.name()),
+                PullTaskRetryPolicy.CONFIRMED_ABSENCE_REASON);
     }
 
     /**
@@ -90,13 +93,17 @@ public interface PullTaskPullCallMemberAttemptMapper {
      *
      * @param pullWaveId                 已结算波次 ID
      * @param maxFailureCount            单参与者累计明确失败次数上限
+     * @param maxAttemptCount            单参与者包含首轮的自动尝试次数上限
      * @param retryableFailureReasonCodes 明确失败中仍允许重试的原因码
+     * @param confirmedAbsenceReasonCode  成员名单明确不在群内的事实原因码
      * @return 可进入下一波次的参与者
      */
     List<PullTaskPullWaveCandidate> selectRetryCandidatesByWaveInternal(
             @Param("pullWaveId") long pullWaveId,
             @Param("maxFailureCount") long maxFailureCount,
-            @Param("retryableFailureReasonCodes") List<String> retryableFailureReasonCodes);
+            @Param("maxAttemptCount") int maxAttemptCount,
+            @Param("retryableFailureReasonCodes") List<String> retryableFailureReasonCodes,
+            @Param("confirmedAbsenceReasonCode") String confirmedAbsenceReasonCode);
 
     /** 统计波次内仍未关闭、释放或取消的 attempt。 */
     int countOpenByWave(

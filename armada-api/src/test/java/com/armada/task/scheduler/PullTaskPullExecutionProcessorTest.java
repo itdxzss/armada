@@ -1,7 +1,11 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -15,6 +19,7 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 
 class PullTaskPullExecutionProcessorTest {
 
@@ -35,6 +40,13 @@ class PullTaskPullExecutionProcessorTest {
             new PullTaskPullExecutionDispatchResources(
                     waves, pullers, settlement, contacts, batch), creatorLeave, closing);
 
+    @BeforeEach
+    void preparePreflight() {
+        when(batch.preflight(any(), any(), anyString(), anyLong())).thenAnswer(invocation ->
+                PullTaskPullWavePreparation.ready(
+                        wave(PullTaskPullWaveStatus.DISPATCHING), invocation.getArgument(1)));
+    }
+
     @Test
     void dispatchingWaveBindsStickyPullerBeforeContactsAndBatch() {
         PullTaskGroupExecution candidate = candidate();
@@ -54,6 +66,26 @@ class PullTaskPullExecutionProcessorTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         verify(pullers).bindForDispatch(candidate, call, "worker-1", 1_000L);
         verify(batch).process(candidate, call, "worker-1", 1_000L);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(batch, pullers, contacts);
+        order.verify(batch).preflight(candidate, call, "worker-1", 1_000L);
+        order.verify(pullers).bindForDispatch(candidate, call, "worker-1", 1_000L);
+        order.verify(contacts).process(candidate, call, "worker-1", 1_000L);
+    }
+
+    @Test
+    void locallyCompletedEmptyPlanNeedsNoPullerOrContacts() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskPullCall call = call();
+        when(waves.prepare(candidate, "worker-1", 1_000L)).thenReturn(
+                PullTaskPullWavePreparation.ready(wave(PullTaskPullWaveStatus.DISPATCHING), call));
+        when(batch.preflight(candidate, call, "worker-1", 1_000L)).thenReturn(
+                PullTaskPullWavePreparation.completed(PullTaskExecutionDispatchResult.DEFERRED));
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        verifyNoInteractions(pullers, contacts);
+        verify(batch, never()).process(any(), any(), anyString(), anyLong());
     }
 
     @Test
@@ -84,7 +116,8 @@ class PullTaskPullExecutionProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verifyNoInteractions(contacts, batch);
+        verifyNoInteractions(contacts);
+        verify(batch, never()).process(any(), any(), anyString(), anyLong());
     }
 
     @Test
@@ -101,7 +134,7 @@ class PullTaskPullExecutionProcessorTest {
 
         assertThat(processor.process(candidate, "worker-1", 1_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
-        verifyNoInteractions(batch);
+        verify(batch, never()).process(any(), any(), anyString(), anyLong());
     }
 
     @Test

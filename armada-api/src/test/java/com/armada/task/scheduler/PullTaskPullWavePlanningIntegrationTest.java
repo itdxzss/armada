@@ -31,6 +31,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantType;
+import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
@@ -149,6 +150,157 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
+    void canceledEmptyCallAdvancesBeforeAnyPullerIsRequired() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        TenantContext.set(7L);
+        List<PullTaskPullCall> calls = callMapper.selectByExecution(executionId);
+        execute("UPDATE pull_task_pull_call SET call_status=" + PullTaskPullCallStatus.CANCELED.code()
+                + ", planned_material_count=0, planned_station_count=0 WHERE id=" + calls.get(0).getId());
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=5, active_slot=NULL "
+                + "WHERE pull_call_id=" + calls.get(0).getId());
+
+        PullTaskPullWavePreparation resumed = service.prepare(
+                executionMapper.selectById(executionId), "worker-1", 620L);
+
+        assertThat(resumed.ready()).isTrue();
+        assertThat(resumed.call().getId()).isEqualTo(calls.get(1).getId());
+        assertThat(resumed.wave().getNextCallSeq()).isEqualTo(2);
+        assertThat(waveMapper.selectById(wave.getId()).getNextDispatchAt()).isEqualTo(610L);
+    }
+
+    @Test
+    void entirelyCanceledWaveEntersCollectionWithoutBindingAPuller() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        TenantContext.set(7L);
+        execute("UPDATE pull_task_pull_call SET call_status=" + PullTaskPullCallStatus.CANCELED.code()
+                + ", planned_material_count=0, planned_station_count=0 WHERE pull_wave_id=" + wave.getId());
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=5, active_slot=NULL "
+                + "WHERE pull_wave_id=" + wave.getId());
+
+        PullTaskPullWavePreparation resumed = service.prepare(
+                executionMapper.selectById(executionId), "worker-1", 620L);
+
+        assertThat(resumed.ready()).isTrue();
+        assertThat(resumed.call()).isNull();
+        assertThat(resumed.wave().getWaveStatus()).isEqualTo(PullTaskPullWaveStatus.COLLECTING.code());
+        assertThat(resumed.wave().getNextCallSeq()).isEqualTo(7);
+        assertThat(waveMapper.selectById(wave.getId()).getDispatchCompletedAt()).isEqualTo(620L);
+    }
+
+    @Test
+    void canceledCallWithSubmissionEvidenceIsNotSkipped() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        TenantContext.set(7L);
+        PullTaskPullCall firstCall = callMapper.selectByExecution(executionId).get(0);
+        execute("UPDATE pull_task_pull_call SET call_status=" + PullTaskPullCallStatus.CANCELED.code()
+                + ", planned_material_count=0, planned_station_count=0, submitted_at=615 WHERE id="
+                + firstCall.getId());
+
+        PullTaskPullWavePreparation resumed = service.prepare(
+                executionMapper.selectById(executionId), "worker-1", 620L);
+
+        assertThat(resumed.ready()).isTrue();
+        assertThat(resumed.call().getId()).isEqualTo(firstCall.getId());
+        assertThat(waveMapper.selectById(wave.getId()).getNextCallSeq()).isEqualTo(1);
+        assertThat(waveMapper.selectById(wave.getId()).getDispatchCompletedAt()).isNull();
+    }
+
+    @Test
+    void historicalUnconfirmedMemberBecomesUnknownAndCannotReenterAnInitialWave()
+            throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        PullTaskPullCallMemberAttempt historical = attemptsByWave(wave.getId()).get(0);
+        execute("UPDATE pull_task_pull_wave SET wave_status=3 WHERE id=" + wave.getId());
+        execute("UPDATE pull_task_group_execution SET active_pull_wave_id=NULL WHERE id=" + executionId);
+        execute("UPDATE pull_task_pull_call SET call_status=3 WHERE pull_wave_id=" + wave.getId());
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=3, active_slot=NULL, "
+                + "protocol_outcome='SUCCESS' WHERE pull_wave_id=" + wave.getId());
+        execute("UPDATE pull_task_material_member SET pull_status=2, active_pull_attempt_id=NULL "
+                + "WHERE group_execution_id=" + executionId);
+        mutate(historical, new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "PROTOCOL_RESULT_UNCONFIRMED", 0));
+
+        assertThat(materialMapper.selectInitialWaveCandidates(executionId)).isEmpty();
+        PullTaskPullWavePreparation result = service.prepare(
+                executionMapper.selectById(executionId), "worker-1", 620L);
+
+        assertThat(result.ready()).isFalse();
+        assertThat(result.result()).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(materialMapper.selectByExecution(executionId))
+                .filteredOn(row -> row.getId().equals(historical.getParticipantRefId()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code());
+                    assertThat(row.getPullFailureCount()).isZero();
+                });
+        assertThat(callMapper.selectByExecution(executionId)).hasSize(6);
+    }
+
+    @Test
+    void historicalNormalizationPreservesOutcomeBudgetAndCurrentOwnership() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
+        mutate(attempts.get(0), new AttemptFact(4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
+        mutate(attempts.get(1), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        mutate(attempts.get(2), new AttemptFact(3, "FAILED", "STARTED", "TIMEOUT", 1));
+        mutate(attempts.get(3), new AttemptFact(3, "FAILED", "STARTED", "PRIVACY_BLOCKED", 1));
+        mutate(attempts.get(4), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        mutate(attempts.get(5), new AttemptFact(4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
+        mutate(attempts.get(6), new AttemptFact(4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
+        mutate(attempts.get(7), new AttemptFact(4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
+        execute("UPDATE pull_task_pull_call_member_attempt SET attempt_no=4 WHERE id IN ("
+                + attempts.get(1).getId() + "," + attempts.get(2).getId() + ")");
+        execute("UPDATE pull_task_material_member SET pull_status=2 WHERE id="
+                + attempts.get(6).getParticipantRefId());
+        execute("UPDATE pull_task_material_member SET active_pull_attempt_id=9999 WHERE id="
+                + attempts.get(7).getParticipantRefId());
+
+        TenantContext.set(8L);
+        service.normalizeHistoricalResults(executionId, 700L);
+        TenantContext.set(7L);
+        assertThat(materialMapper.selectByExecution(executionId).get(0).getPullStatus()).isZero();
+        service.normalizeHistoricalResults(executionId, 710L);
+
+        List<PullTaskMaterialMember> rows = materialMapper.selectByExecution(executionId);
+        assertThat(rows.subList(0, 8)).extracting(PullTaskMaterialMember::getPullStatus)
+                .containsExactly(4, 4, 3, 3, 0, 0, 2, 0);
+        assertThat(rows.subList(0, 8)).extracting(PullTaskMaterialMember::getPullFailureCount)
+                .containsExactly(0L, 0L, 1L, 1L, 0L, 0L, 0L, 0L);
+        assertThat(rows.get(7).getActivePullAttemptId()).isEqualTo(9999L);
+        assertThat(materialMapper.selectInitialWaveCandidates(executionId)).isEmpty();
+    }
+
+    @Test
+    void historicalStationKeepsBindingAndFailureCountWhenBudgetIsExhausted() throws SQLException {
+        execute("INSERT INTO pull_task_group_account (id, tenant_id, task_id, group_execution_id, "
+                + "account_id, account_phone, role_type, role_seq, membership_status, pull_call_id, "
+                + "membership_failure_count, membership_reason_code, membership_result_at, "
+                + "created_at, updated_at) VALUES (9001, 7, 100, " + executionId
+                + ", 9002, '8613800000001', 3, 1, 0, 9003, 2, 'OFFLINE', 190, 100, 200)");
+        execute("INSERT INTO pull_task_pull_call_member_attempt (tenant_id, task_id, group_execution_id, "
+                + "pull_call_id, participant_type, participant_ref_id, target_phone, attempt_no, "
+                + "lifecycle_status, active_slot, protocol_outcome, execution_state, reason_code, "
+                + "created_at, updated_at) VALUES (7, 100, " + executionId
+                + ", 9003, 2, 9001, '8613800000001', 4, 4, NULL, 'UNKNOWN', 'NOT_STARTED', "
+                + "'OFFLINE', 100, 200)");
+
+        service.normalizeHistoricalResults(executionId, 700L);
+
+        assertThat(groupAccountMapper.selectById(9001L)).satisfies(row -> {
+            assertThat(row.getMembershipStatus()).isEqualTo(4);
+            assertThat(row.getPullCallId()).isEqualTo(9003L);
+            assertThat(row.getMembershipFailureCount()).isEqualTo(2L);
+            assertThat(row.getMembershipReasonCode()).isEqualTo("OFFLINE");
+            assertThat(row.getMembershipResultAt()).isEqualTo(190L);
+        });
+        execute("UPDATE pull_task_group_account SET membership_status=0 WHERE id=9001");
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=3, "
+                + "protocol_outcome='FAILED', reason_code='TIMEOUT' WHERE participant_ref_id=9001");
+        service.normalizeHistoricalResults(executionId, 710L);
+        assertThat(groupAccountMapper.selectById(9001L).getMembershipStatus()).isEqualTo(3);
+        assertThat(groupAccountMapper.selectById(9001L).getMembershipFailureCount()).isEqualTo(2L);
+    }
+
+    @Test
     void earlyFailedAggregateCannotBeSelectedAgainInsideTheActiveWave() throws SQLException {
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
         PullTaskPullWavePreparation first = service.prepare(candidate, "worker-1", 610L);
@@ -174,7 +326,7 @@ class PullTaskPullWavePlanningIntegrationTest {
         mutate(attempts.get(0), new AttemptFact(3, "FAILED", "STARTED", "TIMEOUT", 1));
         mutate(attempts.get(1), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
         mutate(attempts.get(2), new AttemptFact(
-                4, "UNKNOWN", "UNCERTAIN", "TIMEOUT", 0));
+                4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
         mutate(attempts.get(3), new AttemptFact(3, "SUCCESS", "STARTED", null, 0));
         mutate(attempts.get(4), new AttemptFact(
                 3, "UNKNOWN", "UNCERTAIN", "ROSTER_QUERY_FAILED", 0));
@@ -195,7 +347,7 @@ class PullTaskPullWavePlanningIntegrationTest {
                 executionMapper.selectById(executionId), wave, retryCandidates, 2_000L);
 
         assertThat(retry.getWaveNo()).isEqualTo(2);
-        assertThat(retry.getNextDispatchAt()).isEqualTo(2_000L);
+        assertThat(retry.getNextDispatchAt()).isEqualTo(62_000L);
         assertThat(callMapper.selectByExecution(executionId))
                 .filteredOn(call -> retry.getId().equals(call.getPullWaveId()))
                 .singleElement()
@@ -226,22 +378,76 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
-    void rateLimitedAndReachoutRestrictedStillRetryBecauseTheyBelongToThePuller()
+    void uncertainAccountFailuresRequireConfirmedAbsenceBeforeRetry()
             throws SQLException {
         PullTaskPullWave wave = preparedWave();
         List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
-        // 限流与账号受限走 UNKNOWN + UNCERTAIN，归属拉手而非目标号码，
-        // 不受明确失败白名单约束：换个拉手就能成功，必须继续重试。
+        // 拉手异常不能证明原调用未生效；没有名单核实就再次提交会重复拉人。
         mutate(attempts.get(0), new AttemptFact(
                 4, "UNKNOWN", "UNCERTAIN", "RATE_LIMITED", 0));
         mutate(attempts.get(1), new AttemptFact(
                 4, "UNKNOWN", "UNCERTAIN", "ACCOUNT_REACHOUT_RESTRICTED", 0));
+        mutate(attempts.get(2), new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "PROTOCOL_RESULT_UNCONFIRMED", 0));
+        mutate(attempts.get(3), new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
 
         assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L))
                 .extracting(PullTaskPullWaveCandidate::participantRefId)
-                .containsExactly(
-                        attempts.get(0).getParticipantRefId(),
-                        attempts.get(1).getParticipantRefId());
+                .containsExactly(attempts.get(3).getParticipantRefId());
+    }
+
+    @Test
+    void fourthAutomaticAttemptCannotRetryEvenWhenNoExplicitFailureWasCounted()
+            throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
+        mutate(attempts.get(0), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        mutate(attempts.get(1), new AttemptFact(
+                4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
+        mutate(attempts.get(2), new AttemptFact(3, "FAILED", "STARTED", "TIMEOUT", 1));
+        mutate(attempts.get(3), new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        execute("UPDATE pull_task_pull_call_member_attempt SET attempt_no=4 WHERE id IN ("
+                + attempts.get(0).getId() + "," + attempts.get(1).getId() + ","
+                + attempts.get(2).getId() + ")");
+        execute("UPDATE pull_task_pull_call_member_attempt SET attempt_no=3 WHERE id="
+                + attempts.get(3).getId());
+
+        assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L))
+                .extracting(PullTaskPullWaveCandidate::participantRefId)
+                .containsExactly(attempts.get(3).getParticipantRefId());
+    }
+
+    @Test
+    void releasedAttemptCannotRetryAfterAnotherAttemptTookOwnership() throws SQLException {
+        PullTaskPullWave wave = preparedWave();
+        PullTaskPullCallMemberAttempt released = attemptsByWave(wave.getId()).get(0);
+        mutate(released, new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        PullTaskPullCallMemberAttempt successor = new PullTaskPullCallMemberAttempt();
+        successor.setTaskId(TASK_ID);
+        successor.setGroupExecutionId(executionId);
+        successor.setPullCallId(99_001L);
+        successor.setPullWaveId(99_002L);
+        successor.setParticipantType(released.getParticipantType());
+        successor.setParticipantRefId(released.getParticipantRefId());
+        successor.setTargetPhone(released.getTargetPhone());
+        successor.setTargetJid(released.getTargetJid());
+        successor.setAttemptNo(2);
+        successor.setFailureCountBefore(0L);
+        successor.setCreatedAt(2_000L);
+        successor.setUpdatedAt(2_000L);
+        attemptMapper.insertPlanned(successor);
+
+        assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L)).isEmpty();
+
+        mutate(successor, new AttemptFact(4, "UNKNOWN", "NOT_STARTED", "OFFLINE", 0));
+        assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L)).isEmpty();
+        assertThat(attemptMapper.selectRetryCandidatesByWave(successor.getPullWaveId(), 4L))
+                .extracting(PullTaskPullWaveCandidate::participantRefId)
+                .containsExactly(released.getParticipantRefId());
+        TenantContext.set(8L);
+        assertThat(attemptMapper.selectRetryCandidatesByWave(successor.getPullWaveId(), 4L))
+                .isEmpty();
     }
 
     @Test

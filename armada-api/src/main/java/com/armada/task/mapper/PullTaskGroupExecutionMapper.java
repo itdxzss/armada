@@ -89,6 +89,9 @@ public interface PullTaskGroupExecutionMapper {
      */
     PullTaskGroupExecution selectById(@Param("id") long id);
 
+    /** 在短事务内锁定执行行，串行化同群的计划、提交和结果回写。 */
+    PullTaskGroupExecution selectByIdForUpdate(@Param("id") long id);
+
     /**
      * 按群入口读取当前租户内仍可终止的普通拉群执行行。
      *

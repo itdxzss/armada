@@ -162,6 +162,10 @@
            COALESCE(material_facts.failed_member_count, 0) AS failedMemberCount,
            COALESCE(material_facts.unknown_member_count, 0) AS unknownMemberCount,
            COALESCE(material_facts.canceled_member_count, 0) AS canceledMemberCount,
+           COALESCE(material_facts.retry_pending_count, 0) AS retryPendingCount,
+           material_facts.last_successful_at AS lastSuccessfulAt,
+           COALESCE(attempt_facts.submitted_attempt_count, 0) AS submittedAttemptCount,
+           COALESCE(attempt_facts.unconfirmed_attempt_count, 0) AS unconfirmedAttemptCount,
            setting_row.required_manager_count AS requiredManagerCount,
            setting_row.puller_count_per_group AS plannedPullerCount,
            setting_row.station_count_per_call AS plannedStationCount,
@@ -186,11 +190,33 @@
              SUM(CASE WHEN material_row.pull_status = #{criteria.material.unknown}
                       THEN 1 ELSE 0 END) AS unknown_member_count,
              SUM(CASE WHEN material_row.pull_status = #{criteria.material.canceled}
-                      THEN 1 ELSE 0 END) AS canceled_member_count
+                      THEN 1 ELSE 0 END) AS canceled_member_count,
+             SUM(CASE WHEN material_row.pull_status = #{criteria.material.unconsumed}
+                           AND EXISTS (
+                             SELECT 1 FROM pull_task_pull_call_member_attempt retry_attempt
+                             WHERE retry_attempt.tenant_id = material_row.tenant_id
+                               AND retry_attempt.group_execution_id = material_row.group_execution_id
+                               AND retry_attempt.participant_type = #{criteria.attempt.materialType}
+                               AND retry_attempt.participant_ref_id = material_row.id
+                               AND retry_attempt.submitted_at IS NOT NULL
+                           ) THEN 1 ELSE 0 END) AS retry_pending_count,
+             MAX(CASE WHEN material_row.pull_status = #{criteria.material.success}
+                      THEN material_row.pull_result_at ELSE NULL END) AS last_successful_at
       FROM pull_task_material_member material_row
       WHERE material_row.group_execution_id IN <include refid="executionIds"/>
       GROUP BY material_row.group_execution_id
     ) material_facts ON material_facts.group_execution_id = execution_row.id
+    LEFT JOIN (
+      SELECT attempt_row.group_execution_id,
+             COUNT(*) AS submitted_attempt_count,
+             SUM(CASE WHEN attempt_row.protocol_outcome = #{criteria.attempt.unknownOutcome}
+                      THEN 1 ELSE 0 END) AS unconfirmed_attempt_count
+      FROM pull_task_pull_call_member_attempt attempt_row
+      WHERE attempt_row.group_execution_id IN <include refid="executionIds"/>
+        AND attempt_row.participant_type = #{criteria.attempt.materialType}
+        AND attempt_row.submitted_at IS NOT NULL
+      GROUP BY attempt_row.group_execution_id
+    ) attempt_facts ON attempt_facts.group_execution_id = execution_row.id
     LEFT JOIN (
       SELECT account_row.group_execution_id,
              SUM(CASE WHEN account_row.role_type = #{criteria.account.managerRole}

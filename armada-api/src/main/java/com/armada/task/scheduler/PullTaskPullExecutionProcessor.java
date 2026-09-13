@@ -36,6 +36,10 @@ public class PullTaskPullExecutionProcessor {
             return resources.settlement().settle(
                     candidate, preparation.wave(), lockOwner, now);
         }
+        preparation = resources.batch().preflight(candidate, preparation.call(), lockOwner, now);
+        if (!preparation.ready()) {
+            return preparation.result();
+        }
         PullTaskStickyPullerSelection selected = resources.pullers().bindForDispatch(
                 candidate, preparation.call(), lockOwner, now);
         if (!selected.ready()) {

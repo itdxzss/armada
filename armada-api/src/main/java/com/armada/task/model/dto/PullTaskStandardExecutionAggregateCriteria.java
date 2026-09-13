@@ -5,13 +5,16 @@ import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
+import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
+import com.armada.task.model.enums.PullTaskParticipantType;
 import java.util.List;
 
 /** RD-02 当前页执行行的资源和料子聚合口径。 */
 public record PullTaskStandardExecutionAggregateCriteria(
         List<Long> executionIds,
         PullTaskStandardAggregateCriteria.Material material,
-        Account account) {
+        Account account,
+        Attempt attempt) {
 
     /** 固化执行行范围并拒绝生成空 IN。 */
     public PullTaskStandardExecutionAggregateCriteria {
@@ -39,7 +42,9 @@ public record PullTaskStandardExecutionAggregateCriteria(
                         PullTaskGroupAccountRole.STATION.code(),
                         PullTaskGroupAccountAvailability.AVAILABLE.code(),
                         PullTaskGroupAccountMembershipStatus.IN_GROUP.code(),
-                        PullTaskGroupAccountAdminStatus.SUCCESS.code()));
+                        PullTaskGroupAccountAdminStatus.SUCCESS.code()),
+                new Attempt(PullTaskParticipantType.MATERIAL.code(),
+                        PullTaskBatchParticipantProtocolOutcome.UNKNOWN.name()));
     }
 
     /** 角色类型及“当前有效”事实口径。 */
@@ -50,5 +55,9 @@ public record PullTaskStandardExecutionAggregateCriteria(
             int available,
             int inGroup,
             int adminSuccess) {
+    }
+
+    /** 逐号码历史统计仅覆盖料子，未知次数与当前未知人数分开。 */
+    public record Attempt(int materialType, String unknownOutcome) {
     }
 }

@@ -2,7 +2,7 @@
 
 - 日期 / 分支：2026-09-13，1.0.3-snapshot，现有工作区。
 - 需求来源：用户明确要求拉群所有相关环节允许在线的“被抢登 / 抢登中”账号，而非只放开补充拉手。
-- 状态：本地实现与聚焦回归完成，未部署。
+- 状态：已提交、push 并部署 test1；实际补充拉手业务流程未验收。
 
 ## 目标与边界
 
@@ -38,8 +38,15 @@
 - `tsc --noEmit`、`vue-tsc --noEmit --skipLibCheck`、本次 7 个前端文件 ESLint、Vite build 全部退出 0；XML 校验、两仓 `git diff --check` 通过。
 - 运行日志：`/tmp/pull-focused-final.log`（核心初跑，站台 fixture 修正前）、`/tmp/pull-station-final.log`（站台修正后通过）、`/tmp/pull-dispatch-final.log`、`/tmp/pull-ui-tests3.log`、`/tmp/pull-ui-build.log`。
 - 扩大回归未全绿：旧 PullTaskMapperInMemoryTest fixture 缺 creation_mode；旧 PullTaskGroupMarketingGroupMapperInMemoryTest fixture 缺 group_classification；状态 SQL 结构旧断言、过期邀请链接回归亦失败。Java 23 扩跑还出现 JVM 134 退出。上述不能当作全量验收通过；本次改动已使用 Java 17 聚焦回归验证。
-- 未执行真实账号补充、发消息或远程部署。
+- 未手动执行真实账号补充或发消息。远程发布结果见下。
 
 ## 部署与回滚
 
-尚未 commit、push 或部署。回滚只撤销本次改动，保留工作区其他账号代理恢复修改。
+- 主仓库修改：后端 `420fefce`、前端 `c7485f57`，均已 push 到 `origin/1.0.3-snapshot`。
+- 用户明确授权第一套环境，执行 `deploy-test.sh --env test1 --all --branch 1.0.3-snapshot -y`；仅后端和前端，协议未发布。
+- 从以上提交的干净目录构建，未包含主仓库其他代理恢复未提交修改。前端使用部署脚本现有 node_modules 的 npm fallback；本机 pnpm 11 自动安装问题未带入发布。
+- test1 后端/前端均 SUCCESS，运行容器 JAR SHA-256 与构建一致，前端可访问、环境标题及 API 路由通过。
+- 公开资源 `static/js/account-group-DWoWoknS.js` 与本次构建 SHA-256 相同，含 `pullTaskOnlineCount`。
+- 浏览器借用被取消，已结束会话；没有把部署成功当作真实补充流程验收。
+- 部署日志 `/tmp/pull-online-test1-deploy.log`，部署前检查 `/tmp/pull-before-deploy-check.log`。
+- 回滚可从上一版后端 `38ae36ee`、前端 `c576395a` 构建发布；不覆盖其他工作区改动。

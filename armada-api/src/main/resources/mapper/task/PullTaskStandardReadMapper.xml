@@ -112,6 +112,52 @@
     ORDER BY execution_facts.task_id DESC
   </select>
 
+  <select id="selectExecutionObservations"
+          resultType="com.armada.task.model.vo.PullTaskExecutionObservationFact">
+    SELECT execution_row.id AS execution_id, task_row.status AS task_status,
+           wave_row.id AS wave_id, wave_row.wave_no, wave_row.wave_status,
+           wave_row.planned_call_count, wave_row.next_dispatch_at,
+           call_row.id AS call_id, call_row.wave_call_seq, call_row.call_status,
+           call_row.planned_material_count, call_row.command_id, call_row.submitted_at,
+           (SELECT COUNT(*) FROM pull_task_material_member material_row
+            WHERE material_row.tenant_id = execution_row.tenant_id
+              AND material_row.group_execution_id = execution_row.id
+              AND material_row.pull_call_id = call_row.id
+              AND material_row.pull_status = #{criteria.unconsumedMaterial}) AS bound_material_count,
+           (SELECT MIN(action_row.submitted_at) FROM pull_task_account_action action_row
+            WHERE action_row.tenant_id = execution_row.tenant_id
+              AND action_row.group_execution_id = execution_row.id
+              AND action_row.action_status = #{criteria.submittedAction}
+              AND action_row.action_type NOT IN
+                <foreach collection="criteria.nonBlockingActions" item="actionType"
+                         open="(" separator="," close=")">#{actionType}</foreach>) AS action_submitted_at
+    FROM pull_task_group_execution execution_row
+    JOIN pull_task task_row
+      ON task_row.id = execution_row.task_id AND task_row.tenant_id = execution_row.tenant_id
+    LEFT JOIN pull_task_pull_wave wave_row
+      ON wave_row.id = execution_row.active_pull_wave_id
+     AND wave_row.group_execution_id = execution_row.id
+     AND wave_row.tenant_id = execution_row.tenant_id
+     AND wave_row.wave_status IN
+       <foreach collection="criteria.activeWaveStatuses" item="waveStatus"
+                open="(" separator="," close=")">#{waveStatus}</foreach>
+    LEFT JOIN pull_task_pull_call call_row
+      ON call_row.id = (
+        SELECT candidate.id FROM pull_task_pull_call candidate
+        WHERE candidate.tenant_id = execution_row.tenant_id
+          AND candidate.group_execution_id = execution_row.id
+          AND candidate.pull_wave_id = wave_row.id
+          AND candidate.call_status IN (#{criteria.plannedCall}, #{criteria.submittedCall})
+        ORDER BY CASE WHEN candidate.call_status = #{criteria.submittedCall} THEN 0 ELSE 1 END,
+                 candidate.wave_call_seq ASC, candidate.id ASC
+        LIMIT 1
+      )
+     AND call_row.tenant_id = execution_row.tenant_id
+    WHERE execution_row.id IN <include refid="executionIds"/>
+      AND task_row.deleted_at IS NULL
+    ORDER BY execution_row.id
+  </select>
+
   <sql id="executionFilter">
     execution_row.task_id = #{filter.taskId}
     <if test="filter.keyword != null">

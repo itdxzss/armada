@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
+import com.armada.task.model.dto.PullTaskExecutionObservationCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionAggregateCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -187,6 +188,72 @@ class PullTaskStandardReadMapperInMemoryTest {
 
     private PullTaskStandardAggregateCriteria criteria(List<Long> taskIds) {
         return PullTaskStandardAggregateCriteria.fromEnums(taskIds);
+    }
+
+    @Test
+    void observationUsesOnlyActiveWaveAndPendingCallWithoutChangingFacts() throws SQLException {
+        execute("INSERT INTO pull_task_pull_wave "
+                + "(id, tenant_id, task_id, group_execution_id, wave_no, wave_type, wave_status, "
+                + "planned_call_count, next_call_seq, next_dispatch_at, created_at, updated_at) VALUES "
+                + "(700, 7, 100, 13, 3, 1, 1, 3, 2, 9000, 1000, 2000)");
+        execute("UPDATE pull_task_group_execution SET active_pull_wave_id = 700 WHERE id = 13");
+        execute("INSERT INTO pull_task_pull_call "
+                + "(id, tenant_id, task_id, group_execution_id, pull_wave_id, call_seq, wave_call_seq, "
+                + "planned_material_count, planned_station_count, call_status, idempotency_key, "
+                + "submitted_at, created_at, updated_at) VALUES "
+                + "(701, 7, 100, 13, 700, 10, 1, 1, 0, 3, 'done', 3000, 1, 1),"
+                + "(702, 7, 100, 13, 700, 11, 2, 13, 0, 1, 'next', NULL, 1, 1),"
+                + "(703, 7, 100, 13, 700, 12, 3, 1, 0, 1, 'later', NULL, 1, 1),"
+                + "(704, 8, 200, 13, 700, 13, 0, 999, 0, 2, 'other-tenant', 1, 1, 1)");
+
+        var observations = mapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(
+                        List.of(13L, 21L)));
+
+        assertThat(observations).hasSize(1);
+        var row = observations.get(0);
+        assertThat(row.getExecutionId()).isEqualTo(13L);
+        assertThat(row.getWaveNo()).isEqualTo(3);
+        assertThat(row.getCallId()).isEqualTo(702L);
+        assertThat(row.getWaveCallSeq()).isEqualTo(2);
+        assertThat(row.getNextDispatchAt()).isEqualTo(9000L);
+        assertThat(row.getPlannedMaterialCount()).isEqualTo(13);
+        assertThat(row.getBoundMaterialCount()).isZero();
+        assertThat(mapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(
+                        List.of(21L)))).isEmpty();
+        try (var connection = dataSource.getConnection();
+             var statement = connection.createStatement();
+             var result = statement.executeQuery("SELECT call_status FROM pull_task_pull_call WHERE id = 702")) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
+        }
+        execute("UPDATE pull_task_pull_call SET call_status = 2, submitted_at = 6000 WHERE id = 703");
+        var submitted = mapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(List.of(13L))).get(0);
+        assertThat(submitted.getCallId()).isEqualTo(703L);
+        assertThat(submitted.getSubmittedAt()).isEqualTo(6000L);
+        execute("UPDATE pull_task_pull_wave SET wave_status = 3 WHERE id = 700");
+        var closed = mapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(List.of(13L))).get(0);
+        assertThat(closed.getWaveId()).isNull();
+        assertThat(closed.getCallId()).isNull();
+    }
+
+    @Test
+    void observationActionWaitExcludesFinishedAndOtherTenantActions() throws SQLException {
+        execute("INSERT INTO pull_task_account_action "
+                + "(tenant_id, task_id, group_execution_id, action_type, actor_group_account_id, "
+                + "target_group_account_id, action_status, submitted_at, created_at, updated_at) VALUES "
+                + "(7, 100, 13, 1, 1, 2, 3, 1000, 1, 1),"
+                + "(7, 100, 13, 1, 1, 3, 2, 3000, 1, 1),"
+                + "(8, 200, 13, 1, 1, 4, 2, 2000, 1, 1),"
+                + "(7, 100, 13, 7, 1, 5, 2, 500, 1, 1)");
+        var row = mapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(List.of(13L))).get(0);
+        assertThat(row.getActionSubmittedAt()).isEqualTo(3000L);
+        assertThat(row.getTaskStatus()).isEqualTo("EXECUTING");
+        assertThat(row.getWaveId()).isNull();
     }
 
     private void seedFacts() throws SQLException {

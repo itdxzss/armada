@@ -1,10 +1,12 @@
 package com.armada.task.mapper;
 
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
+import com.armada.task.model.dto.PullTaskExecutionObservationCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionAggregateCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
+import com.armada.task.model.vo.PullTaskExecutionObservationFact;
 import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
@@ -13,6 +15,10 @@ import org.apache.ibatis.annotations.Param;
 /** 普通群链接任务批量聚合和详情分页读 Mapper。 */
 @Mapper
 public interface PullTaskStandardReadMapper {
+
+    /** 批量读取当前页活动波次、调用和待回调动作；不修改执行事实。 */
+    List<PullTaskExecutionObservationFact> selectExecutionObservations(
+            @Param("criteria") PullTaskExecutionObservationCriteria criteria);
 
     /** 按当前页任务 ID 批量聚合真实执行、料子与角色资源事实。 */
     List<PullTaskStandardTaskAggregate> selectTaskAggregates(

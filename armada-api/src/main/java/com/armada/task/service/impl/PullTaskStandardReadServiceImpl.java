@@ -9,6 +9,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.response.PageResult;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
+import com.armada.task.model.dto.PullTaskExecutionObservationCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionAggregateCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
@@ -30,6 +31,8 @@ import com.armada.task.model.enums.PullTaskMuteMode;
 import com.armada.task.model.enums.PullTaskLinkPermissionMode;
 import com.armada.task.model.enums.PullTaskDisappearingMessageMode;
 import com.armada.task.model.vo.PullTaskStandardActionVO;
+import com.armada.task.model.vo.PullTaskExecutionObservationFact;
+import com.armada.task.model.vo.PullTaskExecutionObservationVO;
 import com.armada.task.model.vo.PullTaskStandardCallVO;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
 import com.armada.task.model.vo.PullTaskStandardExecutionDetailVO;
@@ -124,10 +127,14 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         List<PullTaskGroupExecution> rows = resources.readMapper().selectExecutionPage(
                 filter, safeQuery.getOffset(), safeQuery.getPageSize());
         Map<Long, PullTaskStandardExecutionAggregate> aggregates = aggregateExecutions(rows);
+        long observedAt = System.currentTimeMillis();
+        Map<Long, PullTaskExecutionObservationFact> observations = observationFacts(rows);
         Map<Long, String> groupNames = groupNames(rows);
         List<PullTaskStandardExecutionSummaryVO> result = rows.stream()
                 .map(row -> summary(
-                        row, aggregates.get(row.getId()), groupName(groupNames, row)))
+                        row, aggregates.get(row.getId()), groupName(groupNames, row),
+                        PullTaskExecutionObservation.describe(row, aggregates.get(row.getId()),
+                                observations.get(row.getId()), observedAt)))
                 .toList();
         return PageResult.of(
                 result, safeQuery.getPage(), safeQuery.getPageSize(), total);
@@ -140,9 +147,12 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         PullTaskStandardExecutionAggregate aggregate = aggregateExecutions(List.of(execution))
                 .get(executionId);
         Map<Long, String> groupNames = groupNames(List.of(execution));
+        long observedAt = System.currentTimeMillis();
+        PullTaskExecutionObservationVO observation = PullTaskExecutionObservation.describe(
+                execution, aggregate, observationFacts(List.of(execution)).get(executionId), observedAt);
         PullTaskStandardReadFactMappers facts = resources.facts();
         return new PullTaskStandardExecutionDetailVO(
-                summary(execution, aggregate, groupName(groupNames, execution)), roles(executionId),
+                summary(execution, aggregate, groupName(groupNames, execution), observation), roles(executionId),
                 facts.callMapper().selectByExecution(executionId).stream()
                         .map(PullTaskStandardReadServiceImpl::call).toList(),
                 facts.actionMapper().selectByExecutionAndStatuses(
@@ -194,6 +204,16 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                         PullTaskStandardExecutionAggregate::getExecutionId, Function.identity()));
     }
 
+    private Map<Long, PullTaskExecutionObservationFact> observationFacts(List<PullTaskGroupExecution> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        return resources.readMapper().selectExecutionObservations(
+                        PullTaskExecutionObservationCriteria.fromEnums(
+                                rows.stream().map(PullTaskGroupExecution::getId).toList())).stream()
+                .collect(Collectors.toMap(PullTaskExecutionObservationFact::getExecutionId, Function.identity()));
+    }
+
     private Map<Long, String> groupNames(List<PullTaskGroupExecution> rows) {
         return groupLinkService.findWhatsAppGroupNamesByIds(
                 rows.stream().map(PullTaskGroupExecution::getGroupLinkId).toList());
@@ -235,7 +255,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
     private static PullTaskStandardExecutionSummaryVO summary(
             PullTaskGroupExecution row,
             PullTaskStandardExecutionAggregate aggregate,
-            String groupName) {
+            String groupName,
+            PullTaskExecutionObservationVO observation) {
         return new PullTaskStandardExecutionSummaryVO(
                 row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
                 groupName, row.getSourceFileName(),
@@ -247,7 +268,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 row.getLastBusinessExecutedAt(), materialSummary(aggregate),
                 resource(aggregate, ResourceRole.MANAGER),
                 resource(aggregate, ResourceRole.PULLER),
-                resource(aggregate, ResourceRole.STATION));
+                resource(aggregate, ResourceRole.STATION), observation);
     }
 
     private static PullTaskStandardMaterialSummaryVO materialSummary(

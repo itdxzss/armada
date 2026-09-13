@@ -19,6 +19,7 @@ package com.armada.task.model.vo;
  * @param reasonCode      当前原因码
  * @param reasonMessage   当前脱敏原因
  * @param lastBusinessExecutedAt 最近业务执行时间
+ * @param observation 当前快照运行说明；独立于业务状态，不参与调度
  */
 public record PullTaskStandardExecutionSummaryVO(
         long executionId,
@@ -40,7 +41,8 @@ public record PullTaskStandardExecutionSummaryVO(
         PullTaskStandardMaterialSummaryVO materialSummary,
         PullTaskStandardResourceCountVO managers,
         PullTaskStandardResourceCountVO pullers,
-        PullTaskStandardResourceCountVO stations) {
+        PullTaskStandardResourceCountVO stations,
+        PullTaskExecutionObservationVO observation) {
 
     /** M1 兼容构造；没有聚合事实时不填假零值。 */
     public PullTaskStandardExecutionSummaryVO(
@@ -57,6 +59,6 @@ public record PullTaskStandardExecutionSummaryVO(
             Long lastBusinessExecutedAt) {
         this(executionId, seq, normalizedLink, groupJid, null, null, executionStatus, stage,
                 null, null, manualPaused, null, validMemberCount, reasonCode, reasonMessage,
-                lastBusinessExecutedAt, null, null, null, null);
+                lastBusinessExecutedAt, null, null, null, null, null);
     }
 }

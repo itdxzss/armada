@@ -22,6 +22,7 @@ import com.armada.task.mapper.PullTaskStandardReadMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
+import com.armada.task.model.dto.PullTaskExecutionObservationCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
 import com.armada.task.model.dto.PullTaskStandardAggregateCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionAggregateCriteria;
@@ -38,6 +39,7 @@ import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.vo.PullTaskStandardExecutionAggregate;
+import com.armada.task.model.vo.PullTaskExecutionObservationFact;
 import com.armada.task.model.vo.PullTaskStandardTaskAggregate;
 import com.armada.task.service.impl.PullTaskStandardReadServiceImpl;
 import com.armada.task.service.impl.PullTaskStandardReadFactMappers;
@@ -151,7 +153,21 @@ class PullTaskStandardReadServiceTest {
         assertThat(service.task(100L).groupSetting().avatarPreviewUrl())
                 .isEqualTo("/api/pull-tasks/standard/group-avatars/avatar.png");
         verify(executionMapper, never()).selectByTaskId(100L);
+        PullTaskExecutionObservationFact observation = new PullTaskExecutionObservationFact();
+        observation.setExecutionId(11L);
+        observation.setTaskStatus("EXECUTING");
+        observation.setCallStatus(2);
+        observation.setSubmittedAt(5000L);
+        when(readMapper.selectExecutionObservations(
+                PullTaskExecutionObservationCriteria.fromEnums(List.of(11L))))
+                .thenReturn(List.of(observation));
         var detail = service.execution(100L, 11L);
+        assertThat(detail.execution().observation().state()).isEqualTo("PAUSED");
+        assertThat(detail.execution().observation().waitStartedAt()).isNull();
+        execution.setManualPaused(0);
+        assertThat(service.execution(100L, 11L).execution().observation().state()).isEqualTo("WAIT_RESULT");
+        assertThat(detail.execution().stage()).isEqualTo(execution.getStage());
+        assertThat(detail.execution().executionStatus()).isEqualTo(execution.getExecutionStatus());
         assertThat(detail.execution().groupJid()).isEqualTo("120363000000000000@g.us");
         assertThat(detail.execution().groupName()).isEqualTo("WhatsApp 详情群名");
         assertThat(detail.execution().normalizedLink()).isEqualTo("chat.whatsapp.com/AAAA");

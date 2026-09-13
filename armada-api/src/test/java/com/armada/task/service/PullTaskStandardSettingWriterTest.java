@@ -45,7 +45,7 @@ class PullTaskStandardSettingWriterTest {
         when(accountGroupService.requireExisting(14L)).thenReturn(group("管理完成组"));
         when(accountGroupService.requireExisting(15L)).thenReturn(group("拉手完成组"));
         when(accountGroupService.requireExisting(16L)).thenReturn(group("建群人组"));
-        when(accountLookup.findOnlineNormalStrictByGroupId(13L)).thenReturn(
+        when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(13L)).thenReturn(
                 java.util.List.of(ref(101L), ref(102L), ref(103L)));
         when(groupFolderService.requireExisting(18L))
                 .thenReturn(new GroupFolderOptionVO(18L, "印度群"));
@@ -120,7 +120,7 @@ class PullTaskStandardSettingWriterTest {
         when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
         when(request.creatorGroupId()).thenReturn(16L);
         when(request.initialStationCount()).thenReturn(3);
-        when(accountLookup.findOnlineNormalStrictByGroupId(13L)).thenReturn(
+        when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(13L)).thenReturn(
                 java.util.List.of(ref(101L), ref(102L)));
 
         assertThatThrownBy(() -> writer.insert(request, 9L))

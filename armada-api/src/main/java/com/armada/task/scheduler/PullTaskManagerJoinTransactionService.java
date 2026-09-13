@@ -135,7 +135,7 @@ public class PullTaskManagerJoinTransactionService {
         }
         AccountProtocolLookupService accountLookup = resources.accountLookup();
         ProtocolAccountRef selected = accountLookup
-                .findRandomOnlineNormalPullerByGroupId(setting.getManagerGroupId())
+                .findRandomOnlinePullTaskAccountByGroupId(setting.getManagerGroupId())
                 .orElse(null);
         if (selected == null) {
             return waitForManager(candidate,

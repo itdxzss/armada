@@ -129,7 +129,7 @@ public class PullTaskResourceRecoveryTransactionService {
             boolean ready = candidate.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code()
                     && setting.getManagerGroupId() != null
                     && resources.accountLookup()
-                    .findRandomOnlineNormalPullerByGroupId(
+                    .findRandomOnlinePullTaskAccountByGroupId(
                             setting.getManagerGroupId()).isPresent();
             return ready ? ResourceCheck.available() : managerWaiting(0);
         }
@@ -189,7 +189,7 @@ public class PullTaskResourceRecoveryTransactionService {
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         List<ProtocolAccountRef> validated = setting.getPullerGroupId() == null
                 ? List.of() : safe(resources.accountLookup()
-                .findOnlineNormalPullersByGroupId(setting.getPullerGroupId()));
+                .findOnlineEligiblePullersByGroupId(setting.getPullerGroupId()));
         Set<Long> validatedIds = new LinkedHashSet<>(validated.stream()
                 .filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId)

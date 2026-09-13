@@ -240,7 +240,7 @@ public class PullTaskStandardController {
         return ApiResponse.ok(readService.members(taskId, executionId));
     }
 
-    /** @return 补充管理员页的缺口、当前执行账号和在线正常候选 */
+    /** @return 补充管理员页的缺口、当前执行账号和在线可用候选 */
     @GetMapping("/{taskId}/executions/{executionId}/manager-supplement/options")
     public ApiResponse<PullTaskManagerSupplementOptionsVO> managerSupplementOptions(
             @PathVariable Long taskId,

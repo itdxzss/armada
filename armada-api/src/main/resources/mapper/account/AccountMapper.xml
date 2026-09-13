@@ -472,7 +472,7 @@
     选号刻意不连接营销/任务占用表：占用是具体任务事实，不能改变账号作为通用拉手的可用性。
     tenant_id 由租户拦截器注入，状态表同时按 tenant_id 关联，防止跨租户串行。
   -->
-  <select id="selectRandomOnlineNormalByGroupId"
+  <select id="selectRandomOnlineByGroupId"
           resultType="com.armada.account.model.entity.Account">
     SELECT a.*
     FROM account a
@@ -487,7 +487,8 @@
       AND TRIM(a.protocol_id) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
       AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
       AND s.login_state = #{onlineLoginState}
       AND (s.risk_status IS NULL OR s.risk_status = #{riskAllowed})
       AND (s.mute_status IS NULL OR s.mute_status = #{allowedRestrictionStatus})
@@ -495,7 +496,7 @@
     LIMIT 1
   </select>
 
-  <select id="selectOnlineNormalByGroupId"
+  <select id="selectOnlineByGroupId"
           resultType="com.armada.account.model.entity.Account">
     SELECT a.*
     FROM account a
@@ -508,13 +509,14 @@
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
       AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
       AND s.login_state = #{onlineLoginState}
     ORDER BY a.id ASC
   </select>
 
   <!-- 普通拉群拉手选号：仅拉人受限(2/3)停用；消息发送受限(1)仍可拉人。 -->
-  <select id="selectOnlineNormalPullersByGroupId"
+  <select id="selectOnlineEligiblePullersByGroupId"
           resultType="com.armada.account.model.entity.Account">
     SELECT a.*
     FROM account a
@@ -527,7 +529,8 @@
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
       AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
       AND s.login_state = #{onlineLoginState}
       AND (s.mute_status IS NULL OR s.mute_status = 1)
     ORDER BY a.id ASC
@@ -547,7 +550,8 @@
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
       AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND s.account_state = #{normalAccountState}
+      AND s.account_state IN
+      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
       AND s.login_state = #{onlineLoginState}
       AND (s.mute_status IS NULL OR s.mute_status = 1)
       AND a.id IN

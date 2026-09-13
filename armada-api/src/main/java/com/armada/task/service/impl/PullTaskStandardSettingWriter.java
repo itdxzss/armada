@@ -120,7 +120,7 @@ public class PullTaskStandardSettingWriter {
         return optionalAccountGroup(request.stationGroupId());
     }
 
-    /** 创建时按两种站台用途中的较大值校验在线正常账号容量。 */
+    /** 创建时按两种站台用途中的较大值校验在线可用账号容量。 */
     private void validateStationCapacity(
             PullTaskStandardCreateDTO request,
             AccountGroup stationGroup) {
@@ -133,7 +133,7 @@ public class PullTaskStandardSettingWriter {
             throw new BusinessException(ErrorCode.VALIDATION, "站台数量大于 0 时必须选择站台分组");
         }
         java.util.List<com.armada.platform.protocol.model.command.ProtocolAccountRef> candidates =
-                accountLookupService.findOnlineNormalStrictByGroupId(request.stationGroupId());
+                accountLookupService.findOnlinePullTaskAccountsStrictByGroupId(request.stationGroupId());
         int available = candidates == null ? 0 : candidates.size();
         if (available < demand) {
             throw new BusinessException(ErrorCode.VALIDATION,

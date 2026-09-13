@@ -220,7 +220,7 @@ public interface PullTaskGroupAccountMapper {
             @Param("roleType") int roleType);
 
     /**
-     * 对已经通过实时在线正常校验的账号恢复到期冷却事实。
+     * 对已经通过实时在线可用校验的账号恢复到期冷却事实。
      *
      * <p>只有调用方显式传入的账号、预期状态匹配且冷却时间已到才更新；
      * {@code cooldown_until IS NULL} 代表不定时恢复，永远不会被本方法命中。</p>
@@ -240,7 +240,7 @@ public interface PullTaskGroupAccountMapper {
             @Param("now") long now);
 
     /**
-     * 对已通过实时在线正常校验的账号恢复指定可用性事实。
+     * 对已通过实时在线可用校验的账号恢复指定可用性事实。
      *
      * <p>调用方只应把已完成真实校验的账号 ID 传入；风控冷却仍使用带到期条件的专用
      * 方法，不能通过本入口绕过冷却时长。</p>

@@ -246,6 +246,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     0L,
                     0L,
                     0L,
+                    0L,
                     deleted.getCreatedAt(),
                     now
             );
@@ -262,6 +263,7 @@ public class AccountGroupServiceImpl implements AccountGroupService {
                     null,
                     null,
                     0,
+                    0L,
                     0L,
                     0L,
                     0L,

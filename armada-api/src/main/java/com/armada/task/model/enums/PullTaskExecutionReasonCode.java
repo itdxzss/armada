@@ -3,7 +3,7 @@ package com.armada.task.model.enums;
 /** 普通群链接执行链路的持久化原因码与脱敏说明。 */
 public enum PullTaskExecutionReasonCode {
 
-    /** 建群人分组当前没有可用于同步建群调用的在线正常账号。 */
+    /** 建群人分组当前没有可用于同步建群调用的在线可用账号。 */
     GROUP_CREATOR_UNAVAILABLE("当前没有可用建群人"),
 
     /** 协议明确确认本次没有创建群，可继续复用同一幂等键重试。 */
@@ -24,7 +24,7 @@ public enum PullTaskExecutionReasonCode {
     /** 历史兼容原因码；取消公开邀请页预检后不再生成。 */
     LINK_PROBE_INCOMPLETE("群链接校验暂不可用"),
 
-    /** 管理分组当前没有可执行协议动作的在线正常账号。 */
+    /** 管理分组当前没有可执行协议动作的在线可用账号。 */
     MANAGER_UNAVAILABLE("当前没有可用管理员"),
 
     /** 管理账号已提交入群申请，尚未确认在群。 */
@@ -105,7 +105,7 @@ public enum PullTaskExecutionReasonCode {
     /** 协议明确通知目标群已满、不存在、不可访问或无法继续拉人。 */
     GROUP_UNAVAILABLE("群当前不可继续执行拉人"),
 
-    /** 拉手分组当前没有可占用且可执行协议动作的在线正常账号。 */
+    /** 拉手分组当前没有可占用且可执行协议动作的在线可用账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
 
     /** 站台分组中同群未使用的在线账号不足本次调用配置数。 */

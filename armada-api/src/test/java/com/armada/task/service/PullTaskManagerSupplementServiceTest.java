@@ -78,7 +78,7 @@ class PullTaskManagerSupplementServiceTest {
                 task(), setting(), execution(), unavailableManager());
         reset(accountLookup, accountGroupService, dispatchTrigger);
         when(accountGroupService.requireExisting(88L)).thenReturn(accountGroup(88L));
-        when(accountLookup.findOnlineNormalByGroupId(88L)).thenReturn(List.of(
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(88L)).thenReturn(List.of(
                 account(901L, "8613800000901"),
                 account(902L, "8613800000902")));
     }
@@ -153,7 +153,7 @@ class PullTaskManagerSupplementServiceTest {
 
         service.supplement(1L, 11L, new PullTaskManagerSupplementDTO(
                 88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null));
-        when(accountLookup.findOnlineNormalByGroupId(88L)).thenReturn(List.of(
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(88L)).thenReturn(List.of(
                 account(903L, "8613800000903")));
 
         assertThatThrownBy(() -> service.supplement(1L, 11L,

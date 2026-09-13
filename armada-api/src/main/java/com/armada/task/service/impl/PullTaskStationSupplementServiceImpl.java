@@ -223,7 +223,7 @@ public class PullTaskStationSupplementServiceImpl implements PullTaskStationSupp
                 .map(ProtocolAccountRef::armadaAccountId).forEach(excluded::add);
         Map<Long, PullTaskStationCandidateVO> result = new HashMap<>();
         for (ProtocolAccountRef account : safe(
-                resources.accountLookup().findOnlineNormalByGroupId(groupId))) {
+                resources.accountLookup().findOnlinePullTaskAccountsByGroupId(groupId))) {
             if (account != null && !excluded.contains(account.armadaAccountId())) {
                 result.putIfAbsent(account.armadaAccountId(), new PullTaskStationCandidateVO(
                         account.armadaAccountId(), account.wsPhone()));

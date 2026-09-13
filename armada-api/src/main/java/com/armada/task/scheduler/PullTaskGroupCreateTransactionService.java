@@ -446,7 +446,7 @@ public class PullTaskGroupCreateTransactionService {
             return List.of();
         }
         List<ProtocolAccountRef> rows =
-                resources.accountLookup().findOnlineNormalStrictByGroupId(groupId);
+                resources.accountLookup().findOnlinePullTaskAccountsStrictByGroupId(groupId);
         return rows == null ? List.of() : rows.stream()
                 .filter(Objects::nonNull)
                 .filter(row -> row.armadaAccountId() != null)

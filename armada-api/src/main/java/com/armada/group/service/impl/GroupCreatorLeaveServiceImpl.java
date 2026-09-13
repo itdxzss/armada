@@ -152,24 +152,31 @@ public class GroupCreatorLeaveServiceImpl implements GroupCreatorLeaveService {
 
     private static boolean isOperationalOwner(GroupCreatorLeaveAccount account) {
         return Objects.equals(account.loginState(), AccountLoginStateCode.ONLINE)
-                && Objects.equals(account.accountState(), AccountStateCode.NORMAL);
+                && isAvailableLifecycle(account);
     }
 
     private static boolean isAvailableAdmin(GroupCreatorLeaveAccount account) {
         return account.role() == ROLE_ADMIN
-                && isNormalControlledParticipant(account);
+                && isAvailableControlledParticipant(account);
     }
 
     private static boolean isAvailableMember(GroupCreatorLeaveAccount account) {
         return account.role() == ROLE_MEMBER
-                && isNormalControlledParticipant(account);
+                && isAvailableControlledParticipant(account);
     }
 
-    private static boolean isNormalControlledParticipant(GroupCreatorLeaveAccount account) {
+    private static boolean isAvailableControlledParticipant(GroupCreatorLeaveAccount account) {
         return account != null
-                && Objects.equals(account.accountState(), AccountStateCode.NORMAL)
+                && isAvailableLifecycle(account)
                 && account.participantJid() != null
                 && !account.participantJid().isBlank();
+    }
+
+    private static boolean isAvailableLifecycle(GroupCreatorLeaveAccount account) {
+        return Objects.equals(account.accountState(), AccountStateCode.NORMAL)
+                || (Objects.equals(account.loginState(), AccountLoginStateCode.ONLINE)
+                && (Objects.equals(account.accountState(), AccountStateCode.LOGIN_REPLACED)
+                || Objects.equals(account.accountState(), AccountStateCode.TAKING_OVER)));
     }
 
     private static int offlineOrder(GroupCreatorLeaveAccount account) {

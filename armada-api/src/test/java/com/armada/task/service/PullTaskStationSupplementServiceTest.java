@@ -74,9 +74,9 @@ class PullTaskStationSupplementServiceTest {
         reset(accountLookup, accountGroupService, dispatchTrigger);
         when(accountGroupService.requireExisting(90L)).thenReturn(group(90L));
         when(accountGroupService.requireExisting(91L)).thenReturn(group(91L));
-        when(accountLookup.findOnlineNormalByGroupId(90L))
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L))
                 .thenReturn(List.of(account(911L)));
-        when(accountLookup.findOnlineNormalByGroupId(91L))
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(91L))
                 .thenReturn(List.of(account(912L), account(913L)));
     }
 
@@ -130,6 +130,15 @@ class PullTaskStationSupplementServiceTest {
                     assertThat(row.get("MANUAL_PAUSED")).isEqualTo(1);
                 });
         verify(dispatchTrigger).dispatchAfterCommit();
+    }
+
+    @Test
+    void supplementStillRejectsAnExecutionOutsideTheStationStage() {
+        jdbc.update("UPDATE pull_task_group_execution SET stage=? WHERE id=11",
+                PullTaskExecutionStage.PULLER_INVITE.code());
+        assertThatThrownBy(() -> service.supplement(1L, 11L, new PullTaskStationSupplementDTO(
+                91L, 1, PullTaskSelectionMode.AUTOMATIC.code(), List.of())))
+                .hasMessageContaining("执行行当前不处于等待站台状态");
     }
 
     @Test
@@ -194,7 +203,8 @@ class PullTaskStationSupplementServiceTest {
                 + "execution_status, stage, manual_paused, wait_resource_type, reason_code, "
                 + "next_run_at, version, created_at, updated_at) VALUES "
                 + "(11, 7, 1, 1, 'chat.whatsapp.com/AAAA', 'AAAA', 1, 1, 'a.txt', "
-                + "'120363group@g.us', 3, 5, 0, 3, 'STATION_UNAVAILABLE', 5000, 2, 100, 100)";
+                + "'120363group@g.us', 3, " + PullTaskExecutionStage.PULL_EXECUTION.code()
+                + ", 0, 3, 'STATION_UNAVAILABLE', 5000, 2, 100, 100)";
     }
 
     private static String usedStation() {

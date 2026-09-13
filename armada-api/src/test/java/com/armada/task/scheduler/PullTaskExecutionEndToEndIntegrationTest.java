@@ -1013,12 +1013,12 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean AccountProtocolLookupService accountLookup() {
             AccountProtocolLookupService lookup = mock(AccountProtocolLookupService.class);
-            when(lookup.findRandomOnlineNormalPullerByGroupId(88L))
+            when(lookup.findRandomOnlinePullTaskAccountByGroupId(88L))
                     .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
                             ? Optional.of(manager()) : Optional.empty());
-            when(lookup.findOnlineNormalPullersByGroupId(89L))
+            when(lookup.findOnlineEligiblePullersByGroupId(89L))
                     .thenAnswer(invocation -> List.of(puller()));
-            when(lookup.findOnlineNormalByGroupId(90L))
+            when(lookup.findOnlinePullTaskAccountsByGroupId(90L))
                     .thenAnswer(invocation -> List.of(station()));
             when(lookup.findActiveProtocolRef(901L))
                     .thenAnswer(invocation -> Optional.of(manager()));

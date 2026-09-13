@@ -344,7 +344,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         insertReleasedFailedPuller(47L, 2);
         List<ProtocolAccountRef> refs = List.of(
                 protocolRef(45L), protocolRef(47L), protocolRef(48L), protocolRef(50L));
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(refs);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(refs);
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(
                 protocolRef(901L), protocolRef(48L), protocolRef(50L)));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
@@ -394,7 +394,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
 
     @Test
     void noAvailablePullerWaitsOnlyThisExecutionRow() {
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of());
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of());
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
 
         PullTaskExecutionDispatchResult result =
@@ -441,7 +441,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         groupAccountMapper.insert(restricted);
         ProtocolAccountRef manager = protocolRef(901L);
         ProtocolAccountRef replacement = protocolRef(903L);
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L))
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L))
                 .thenReturn(List.of(replacement));
         when(accountLookup.findEligiblePullerProtocolRefs(List.of(902L)))
                 .thenReturn(List.of());
@@ -495,7 +495,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         groupAccountMapper.insert(old);
         groupAccountMapper.markUnavailable(old.getId(),
                 PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
         when(accountLookup.findActiveProtocolRefs(anyList()))
                 .thenReturn(List.of(protocolRef(901L), protocolRef(903L)));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
@@ -523,7 +523,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
         groupAccountMapper.insert(old);
         groupAccountMapper.markUnavailable(old.getId(),
                 PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
         when(accountLookup.findActiveProtocolRefs(anyList()))
                 .thenReturn(List.of(protocolRef(901L), protocolRef(903L)));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
@@ -550,7 +550,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 null, 540L);
         groupAccountMapper.markUnavailable(old.getId(),
                 PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 550L);
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
 
         service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
 
@@ -567,7 +567,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 901L, ProtocolBackend.WEB, "manager-901", "8613800000901");
         ProtocolAccountRef puller = new ProtocolAccountRef(
                 902L, ProtocolBackend.WEB, "puller-902", "8613800000902");
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(puller));
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(puller));
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(manager, puller));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(

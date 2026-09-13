@@ -136,47 +136,47 @@ public interface AccountMapper {
                                @Param("credentialVersion") Long credentialVersion);
 
     /**
-     * 从指定账号分组随机选择在线正常且协议身份完整的活跃账号。
+     * 从指定账号分组随机选择在线且生命周期允许且协议身份完整的活跃账号。
      *
      * <p>状态筛选全部下推 SQL，且故意不关联任何任务占用表；tenant_id 由租户拦截器注入。</p>
      *
      * @param groupId 账号分组 ID
-     * @param normalAccountState 正常账号生命周期状态码
+     * @param accountStates 允许的账号生命周期状态码
      * @param onlineLoginState 在线登录状态码
      * @param riskAllowed 风险允许状态码；未上报风险同样允许
      * @return 随机候选；无候选时返回 null，由 Service 转为 Optional.empty
      */
-    Account selectRandomOnlineNormalByGroupId(
+    Account selectRandomOnlineByGroupId(
             @Param("groupId") Long groupId,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("accountStates") List<Integer> accountStates,
             @Param("onlineLoginState") int onlineLoginState,
             @Param("riskAllowed") int riskAllowed,
             @Param("allowedRestrictionStatus") int allowedRestrictionStatus);
 
     /**
-     * 查询指定账号组内全部在线正常且协议身份完整的账号。
+     * 查询指定账号组内全部在线、生命周期允许且协议身份完整的账号。
      *
      * @param groupId 账号组 ID
-     * @param normalAccountState 正常账号状态码
+     * @param accountStates 允许的账号生命周期状态码
      * @param onlineLoginState 在线登录状态码
      * @return 按账号 ID 排序的候选账号
      */
-    List<Account> selectOnlineNormalByGroupId(
+    List<Account> selectOnlineByGroupId(
             @Param("groupId") Long groupId,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("accountStates") List<Integer> accountStates,
             @Param("onlineLoginState") int onlineLoginState);
 
     /**
      * 查询普通拉群任务可选的拉手账号，额外排除拉手专用限制状态。
      *
      * @param groupId 账号组 ID
-     * @param normalAccountState 正常账号状态码
+     * @param accountStates 允许的账号生命周期状态码
      * @param onlineLoginState 在线登录状态码
      * @return 按账号 ID 排序的候选账号
      */
-    List<Account> selectOnlineNormalPullersByGroupId(
+    List<Account> selectOnlineEligiblePullersByGroupId(
             @Param("groupId") Long groupId,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("accountStates") List<Integer> accountStates,
             @Param("onlineLoginState") int onlineLoginState);
 
     /**
@@ -187,7 +187,7 @@ public interface AccountMapper {
      */
     List<Account> selectEligiblePullersByIds(
             @Param("ids") List<Long> ids,
-            @Param("normalAccountState") int normalAccountState,
+            @Param("accountStates") List<Integer> accountStates,
             @Param("onlineLoginState") int onlineLoginState);
 
     /**

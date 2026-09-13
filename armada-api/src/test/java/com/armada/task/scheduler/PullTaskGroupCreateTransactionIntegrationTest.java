@@ -78,11 +78,11 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         PullTaskNormalLinkH2Support.resetSchema(
                 dataSource, task(), standardSetting(), disabledGroupSetting(), execution());
         reset(accountLookup, groupRegistry, profileDispatcher);
-        when(accountLookup.findOnlineNormalStrictByGroupId(16L))
+        when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(16L))
                 .thenReturn(List.of(account(901L)));
-        when(accountLookup.findOnlineNormalStrictByGroupId(11L))
+        when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(11L))
                 .thenReturn(List.of(account(902L)));
-        when(accountLookup.findOnlineNormalStrictByGroupId(13L))
+        when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(13L))
                 .thenReturn(List.of(account(903L), account(904L)));
         when(accountLookup.findActiveProtocolRef(901L))
                 .thenReturn(Optional.of(account(901L)));

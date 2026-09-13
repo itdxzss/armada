@@ -23,6 +23,8 @@ public class AccountGroupVoRow {
     private long accountCount;
     private long onlineCount;
     private long executableOnlineCount;
+    /** 拉群生命周期准入及显式协议身份校验后的在线数量。 */
+    private long pullTaskOnlineCount;
     private long riskCount;
     private long restrictedCount;
     private long bannedCount;
@@ -107,6 +109,16 @@ public class AccountGroupVoRow {
 
     public void setExecutableOnlineCount(long executableOnlineCount) {
         this.executableOnlineCount = executableOnlineCount;
+    }
+
+    /** @return 拉群在线候选数量 */
+    public long getPullTaskOnlineCount() {
+        return pullTaskOnlineCount;
+    }
+
+    /** @param pullTaskOnlineCount 拉群在线候选数量 */
+    public void setPullTaskOnlineCount(long pullTaskOnlineCount) {
+        this.pullTaskOnlineCount = pullTaskOnlineCount;
     }
 
     public long getRiskCount() {

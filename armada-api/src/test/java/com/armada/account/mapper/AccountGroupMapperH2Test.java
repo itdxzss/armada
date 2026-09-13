@@ -130,6 +130,22 @@ class AccountGroupMapperH2Test {
     }
 
     @Test
+    void pullTaskCountIncludesOnlineTakeoverWithoutChangingGenericExecutableCount() throws SQLException {
+        insertAccount(1, "10001", "web-1", "WEB", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(2, "10002", "web-2", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
+        insertAccount(3, "10003", "android-3", "ANDROID", AccountStateCode.TAKING_OVER, AccountLoginStateCode.ONLINE);
+        insertAccount(4, "10004", "web-4", "WEB", AccountStateCode.TAKING_OVER, AccountLoginStateCode.OFFLINE);
+        insertAccount(5, "10005", "web-5", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.PENDING_ONLINE);
+        insertAccount(6, "10006", "web-6", "WEB", AccountStateCode.BANNED, AccountLoginStateCode.ONLINE);
+        insertAccount(7, "10007", "bad-7", "DESKTOP", AccountStateCode.TAKING_OVER, AccountLoginStateCode.ONLINE);
+        AccountGroupQuery query = new AccountGroupQuery();
+        query.setId(10L);
+        AccountGroupVoRow row = mapper.selectPage(query).get(0);
+        assertThat(row.getExecutableOnlineCount()).isEqualTo(1L);
+        assertThat(row.getPullTaskOnlineCount()).isEqualTo(3L);
+    }
+
+    @Test
     void optionsAreActiveTenantScopedAndStablySorted() throws SQLException {
         execute("""
                 INSERT INTO account_group

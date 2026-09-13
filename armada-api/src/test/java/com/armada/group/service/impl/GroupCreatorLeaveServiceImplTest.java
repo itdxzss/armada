@@ -44,6 +44,30 @@ class GroupCreatorLeaveServiceImplTest {
         service = new GroupCreatorLeaveServiceImpl(membershipMapper, participantPort, leavePort);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {6, 7})
+    void onlineTakeoverOwnerAndSuccessorCanCompleteCreatorLeave(int lifecycle) {
+        GroupCreatorLeaveAccount owner = account(11L, "owner", "owner@s.whatsapp.net", 3,
+                AccountLoginStateCode.ONLINE, lifecycle, 100L);
+        GroupCreatorLeaveAccount admin = account(12L, "admin", "admin@s.whatsapp.net", 2,
+                AccountLoginStateCode.ONLINE, lifecycle, 200L);
+        when(membershipMapper.selectCreatorLeaveAccounts(91L)).thenReturn(List.of(owner, admin));
+        assertThat(service.execute(91L, null).status()).isEqualTo(GroupCreatorLeaveStatus.SUCCESS);
+        verify(leavePort).leave(owner.protocolRef(), "120363creator@g.us");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {6, 7})
+    void offlineTakeoverCannotReplaceTheLastController(int lifecycle) {
+        GroupCreatorLeaveAccount owner = account(11L, "owner", "owner@s.whatsapp.net", 3,
+                AccountLoginStateCode.ONLINE, AccountStateCode.NORMAL, 100L);
+        GroupCreatorLeaveAccount admin = account(12L, "admin", "admin@s.whatsapp.net", 2,
+                AccountLoginStateCode.OFFLINE, lifecycle, 200L);
+        when(membershipMapper.selectCreatorLeaveAccounts(91L)).thenReturn(List.of(owner, admin));
+        assertThat(service.plan(91L, null).failure()).isEqualTo(GroupCreatorLeaveStatus.NO_AVAILABLE_CONTROLLER);
+        verify(leavePort, never()).leave(any(), any());
+    }
+
     @Test
     void offlineNormalAdminCanReceiveOwnershipWithoutPromotion() {
         GroupCreatorLeaveAccount owner = account(

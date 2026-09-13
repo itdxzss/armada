@@ -10,7 +10,7 @@ import java.util.List;
  * @param missingPullerCount 当前允许补充的数量，已扣除有效待进群与结果待确认的名额
  * @param pullerGroupId 当前选择的拉手分组
  * @param currentPullers 当前执行行的角色历史，含已替换记录
- * @param candidates 可选择的在线正常账号
+ * @param candidates 可选择的在线可用账号
  */
 public record PullTaskPullerSupplementOptionsVO(
         int currentPullerCount,

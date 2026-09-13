@@ -322,7 +322,7 @@ public class PullTaskManagerPullerContactTransactionService {
 
     private List<ProtocolAccountRef> eligiblePullers(Long groupId) {
         List<ProtocolAccountRef> eligible = resources.accountLookup()
-                .findOnlineNormalPullersByGroupId(groupId);
+                .findOnlineEligiblePullersByGroupId(groupId);
         return eligible == null ? List.of() : eligible.stream()
                 .filter(Objects::nonNull)
                 .toList();

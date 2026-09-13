@@ -13,6 +13,7 @@ package com.armada.account.model.vo;
  * @param accountCount  分组下账号总数
  * @param onlineCount   在线账号数(login_state=1)
  * @param executableOnlineCount 新建普群可用账号数(状态正常、在线且协议身份完整)
+ * @param pullTaskOnlineCount 拉群在线候选数（正常/被抢登/抢登中，协议后端完整；能力限制和占用另行校验）
  * @param riskCount     风控账号数(risk_status&gt;1)
  * @param restrictedCount 异常账号总计(banned + unbound + muted + exported)
  * @param bannedCount   封禁账号数(account_state=3)
@@ -30,6 +31,7 @@ public record AccountGroupVO(
         long accountCount,
         long onlineCount,
         long executableOnlineCount,
+        long pullTaskOnlineCount,
         long riskCount,
         long restrictedCount,
         long bannedCount,

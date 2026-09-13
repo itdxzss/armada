@@ -484,7 +484,7 @@ class PullTaskPullWavePlanningIntegrationTest {
     @Test
     void stationAndMaterialCandidatesKeepStableOrder() throws SQLException {
         execute("UPDATE pull_task_standard_setting SET station_count_per_call=1 WHERE task_id=100");
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(
                 station(911L), station(912L), station(913L), station(914L), station(915L),
                 station(916L)));
 
@@ -510,7 +510,7 @@ class PullTaskPullWavePlanningIntegrationTest {
     @Test
     void insufficientStationsRollBackTheWholeWaveAndEnterStationWait() throws SQLException {
         execute("UPDATE pull_task_standard_setting SET station_count_per_call=1 WHERE task_id=100");
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(
                 station(911L), station(912L), station(913L), station(914L), station(915L)));
 
         PullTaskPullWavePreparation result = service.prepare(

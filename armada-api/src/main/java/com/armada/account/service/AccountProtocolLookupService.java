@@ -67,12 +67,21 @@ public interface AccountProtocolLookupService {
      */
     List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId);
 
+    /** 拉群管理员/站台候选：正常、被抢登、抢登中均允许，仍须在线且协议身份完整。 */
+    List<ProtocolAccountRef> findOnlinePullTaskAccountsByGroupId(Long groupId);
+
+    /** 拉群新建群和站台预检候选；在拉群生命周期准入基础上要求显式协议后端。 */
+    List<ProtocolAccountRef> findOnlinePullTaskAccountsStrictByGroupId(Long groupId);
+
+    /** 拉群管理员首次选号和资源恢复：在线可用生命周期，并保留风险和拉人限制校验。 */
+    Optional<ProtocolAccountRef> findRandomOnlinePullTaskAccountByGroupId(Long groupId);
+
     /**
      * 查询普通拉群任务当前可选拉手。
      *
-     * <p>除在线、正常和协议后端明确外，账号的拉手专用限制状态必须为可用。</p>
+     * <p>除在线、生命周期可用（正常/被抢登/抢登中）和协议后端明确外，账号的拉手专用限制状态必须为可用。</p>
      */
-    List<ProtocolAccountRef> findOnlineNormalPullersByGroupId(Long groupId);
+    List<ProtocolAccountRef> findOnlineEligiblePullersByGroupId(Long groupId);
 
     /**
      * 复核已分配拉手是否仍可执行普通拉人命令。

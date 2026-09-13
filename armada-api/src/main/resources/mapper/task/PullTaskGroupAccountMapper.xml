@@ -154,7 +154,7 @@
     ORDER BY account_id ASC
   </select>
 
-  <!-- 到期只是必要条件；accountIds 必须由调用方先通过实时在线正常校验后传入。 -->
+  <!-- 到期只是必要条件；accountIds 必须由调用方先通过实时在线可用校验后传入。 -->
   <update id="restoreExpiredPullerCooldowns">
     UPDATE pull_task_group_account
     SET availability_status = #{targetAvailabilityStatus},

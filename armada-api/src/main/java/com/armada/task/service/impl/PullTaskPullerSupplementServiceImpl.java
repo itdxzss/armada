@@ -278,7 +278,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
     private List<PullTaskPullerCandidateVO> candidates(
             long groupId, List<PullTaskGroupAccount> existing) {
         List<ProtocolAccountRef> online = safe(
-                resources.accountLookup().findOnlineNormalPullersByGroupId(groupId));
+                resources.accountLookup().findOnlineEligiblePullersByGroupId(groupId));
         List<Long> ids = online.stream().filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId).distinct().toList();
         if (ids.isEmpty()) {

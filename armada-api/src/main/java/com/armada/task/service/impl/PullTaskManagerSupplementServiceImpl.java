@@ -86,7 +86,7 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
                 ? context.setting().getManagerGroupId() : accountGroupId;
         requireGroup(groupId);
         List<ProtocolAccountRef> groupAccounts = safe(
-                resources.accountLookup().findOnlineNormalByGroupId(groupId));
+                resources.accountLookup().findOnlinePullTaskAccountsByGroupId(groupId));
         List<PullTaskGroupAccount> managers = managers(executionId);
         List<PullTaskGroupAccount> executors = executorRows(managers);
         int current = (int) managers.stream().filter(
@@ -152,13 +152,13 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
     }
 
     private ProtocolAccountRef requireCandidate(PullTaskManagerSupplementDTO request) {
-        return safe(resources.accountLookup().findOnlineNormalByGroupId(request.accountGroupId()))
+        return safe(resources.accountLookup().findOnlinePullTaskAccountsByGroupId(request.accountGroupId()))
                 .stream()
                 .filter(Objects::nonNull)
                 .filter(account -> Objects.equals(account.armadaAccountId(), request.accountId()))
                 .findFirst()
                 .orElseThrow(() -> new BusinessException(
-                        ErrorCode.VALIDATION, "所选账号不在当前在线正常候选中"));
+                        ErrorCode.VALIDATION, "所选账号不在当前在线可用候选中"));
     }
 
     private PullTaskGroupAccount requireExecutor(

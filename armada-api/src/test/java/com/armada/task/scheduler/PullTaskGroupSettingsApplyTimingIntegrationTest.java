@@ -456,7 +456,7 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
                 901L, ProtocolBackend.WEB, "manager-901", "8613800000901");
         ProtocolAccountRef puller = new ProtocolAccountRef(
                 902L, ProtocolBackend.WEB, "puller-902", "8613800000902");
-        when(accountLookup.findOnlineNormalPullersByGroupId(89L)).thenReturn(List.of(puller));
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(puller));
         when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(manager, puller));
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(

@@ -82,7 +82,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         PullTaskGroupExecution candidate = candidate();
         seedDispatchableParent(candidate);
         when(groupAccountMapper.selectByExecutionAndRole(11L, 1)).thenReturn(List.of());
-        when(accountLookup.findRandomOnlineNormalPullerByGroupId(88L))
+        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
                 .thenReturn(Optional.of(account()));
         doAnswer(invocation -> {
             invocation.<PullTaskGroupAccount>getArgument(0).setId(501L);
@@ -137,7 +137,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         PullTaskGroupExecution candidate = candidate();
         seedDispatchableParent(candidate);
         when(groupAccountMapper.selectByExecutionAndRole(11L, 1)).thenReturn(List.of());
-        when(accountLookup.findRandomOnlineNormalPullerByGroupId(88L))
+        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
                 .thenReturn(Optional.empty());
         when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);

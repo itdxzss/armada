@@ -130,7 +130,7 @@ class PullTaskStationSelectionContactIntegrationTest {
     void selectedStationIsBoundAndBothContactDirectionsConvergeThroughOutboxCallbacks() {
         ProtocolAccountRef pullerRef = account(902L, "8613800000902");
         ProtocolAccountRef stationRef = account(911L, "8613800000911");
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(stationRef));
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(stationRef));
         when(accountLookup.findActiveProtocolRefs(anyList()))
                 .thenReturn(List.of(pullerRef, stationRef));
         PullTaskStationSelection selected = stationSelectionService.select(
@@ -172,7 +172,7 @@ class PullTaskStationSelectionContactIntegrationTest {
 
     @Test
     void insufficientStationsPersistNothing() {
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of());
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of());
 
         PullTaskStationSelection selected = stationSelectionService.select(
                 execution(), setting(), call.getId(), 580L);
@@ -187,7 +187,7 @@ class PullTaskStationSelectionContactIntegrationTest {
     void duplicateCandidateFactsStillProduceUniqueStations() {
         ProtocolAccountRef first = account(911L, "8613800000911");
         ProtocolAccountRef second = account(912L, "8613800000912");
-        when(accountLookup.findOnlineNormalByGroupId(90L))
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L))
                 .thenReturn(List.of(first, first, second));
         PullTaskStandardSetting setting = setting();
         setting.setStationCountPerCall(2);
@@ -212,7 +212,7 @@ class PullTaskStationSelectionContactIntegrationTest {
         groupAccountMapper.insert(station);
         when(accountLookup.findActiveProtocolRefs(List.of(911L)))
                 .thenReturn(List.of(stationRef));
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of());
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of());
 
         PullTaskStationSelection selected = stationSelectionService.select(
                 execution(), setting(), call.getId(), 580L);
@@ -233,7 +233,7 @@ class PullTaskStationSelectionContactIntegrationTest {
     void stationIsUniqueWithinOneExecutionButReusableByAnotherExecution() {
         ProtocolAccountRef first = account(911L, "8613800000911");
         ProtocolAccountRef second = account(912L, "8613800000912");
-        when(accountLookup.findOnlineNormalByGroupId(90L))
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L))
                 .thenReturn(List.of(first, second));
         PullTaskStationSelection firstSelection = stationSelectionService.select(
                 execution(), setting(), call.getId(), 580L);
@@ -259,7 +259,7 @@ class PullTaskStationSelectionContactIntegrationTest {
     void submittedStationContactRemainsSubmittedAndIsNotRepublished() throws SQLException {
         ProtocolAccountRef pullerRef = account(902L, "8613800000902");
         ProtocolAccountRef stationRef = account(911L, "8613800000911");
-        when(accountLookup.findOnlineNormalByGroupId(90L)).thenReturn(List.of(stationRef));
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(stationRef));
         when(accountLookup.findActiveProtocolRefs(anyList()))
                 .thenReturn(List.of(pullerRef, stationRef));
         stationSelectionService.select(execution(), setting(), call.getId(), 580L);

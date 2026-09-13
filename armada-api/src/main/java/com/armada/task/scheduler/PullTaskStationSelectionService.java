@@ -99,7 +99,7 @@ public class PullTaskStationSelectionService {
         LinkedHashMap<Long, ProtocolAccountRef> selected = new LinkedHashMap<>();
         addReusableCandidates(existing, selected, excluded, excludedIds, required);
         List<ProtocolAccountRef> groupCandidates = accountLookup
-                .findOnlineNormalByGroupId(setting.getStationGroupId());
+                .findOnlinePullTaskAccountsByGroupId(setting.getStationGroupId());
         if (groupCandidates != null) {
             for (ProtocolAccountRef account : groupCandidates) {
                 if (selected.size() >= required) {

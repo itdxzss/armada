@@ -2,6 +2,14 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskGroupMarketingCandidateMapper">
 
+  <!-- 普通离线管理员可留在等待池；被抢登/抢登中仅在线时可用。alias 仅由本 XML 的固定 include 传入。 -->
+  <sql id="eligibleLifecycle">
+    <bind name="normalState" value="@com.armada.account.model.entity.AccountStateCode@NORMAL"/>
+    (${alias}.account_state = #{normalState}
+      OR (${alias}.login_state = 1 AND ${alias}.account_state IN
+        <foreach collection="@com.armada.account.model.PullTaskAccountEligibility@ACCOUNT_STATES" item="state" open="(" separator="," close=")">#{state}</foreach>))
+  </sql>
+
   <sql id="candidateFacts">
     SELECT MAX(handle.id) AS groupLinkId,
            current_group.group_jid AS groupJid,
@@ -29,14 +37,14 @@
              THEN a.id
            END) AS adminRelationCount,
            COUNT(DISTINCT CASE
-             WHEN s.account_state = 2
+             WHEN <include refid="eligibleLifecycle"><property name="alias" value="s"/></include>
               AND (self_participant.role IN (2, 3)
                 OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
                    = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
              THEN a.id
            END) AS eligibleAccountCount,
            COUNT(DISTINCT CASE
-             WHEN s.account_state = 2 AND s.login_state = 1
+             WHEN <include refid="eligibleLifecycle"><property name="alias" value="s"/></include> AND s.login_state = 1
               AND (self_participant.role IN (2, 3)
                 OR REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
                    = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', ''))
@@ -136,7 +144,7 @@
         INNER JOIN account_state fs
           ON fs.tenant_id = fa.tenant_id
          AND fs.account_id = fa.id
-         AND fs.account_state = 2
+         AND <include refid="eligibleLifecycle"><property name="alias" value="fs"/></include>
         INNER JOIN group_link filter_handle
           ON filter_handle.tenant_id = filter_binding.tenant_id
          AND filter_handle.group_id = filter_binding.group_id
@@ -244,7 +252,7 @@
     INNER JOIN account_state s
       ON s.tenant_id = a.tenant_id
      AND s.account_id = a.id
-     AND s.account_state = 2
+     AND <include refid="eligibleLifecycle"><property name="alias" value="s"/></include>
     INNER JOIN group_link handle
       ON handle.tenant_id = binding.tenant_id
      AND handle.group_id = binding.group_id

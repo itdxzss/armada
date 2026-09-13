@@ -84,7 +84,7 @@ class AccountPullerEligibilityMapperH2Test {
 
     @Test
     void groupSelectionAllowsMessageRestrictionButExcludesPullingRestriction() {
-        assertThat(service.findOnlineNormalPullersByGroupId(100L))
+        assertThat(service.findOnlineEligiblePullersByGroupId(100L))
                 .containsExactly(
                         new ProtocolAccountRef(
                                 10L, ProtocolBackend.WEB, "protocol-10", "phone-10"),
@@ -111,6 +111,65 @@ class AccountPullerEligibilityMapperH2Test {
         assertThat(service.findRandomOnlineNormalPullerByGroupId(100L))
                 .get().extracting(ProtocolAccountRef::armadaAccountId)
                 .isIn(10L, 13L);
+    }
+
+    @Test
+    void onlineTakeoverStatesRemainEligibleThroughoutPullerSelectionAndDispatch() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seed(jdbc, 1L, 30L, 100L, 6, 1, null, "WEB");
+        seed(jdbc, 1L, 31L, 100L, 7, 1, 1, "ANDROID");
+        seed(jdbc, 1L, 32L, 100L, 6, 2, null, "WEB");
+        seed(jdbc, 1L, 33L, 100L, 7, 3, null, "WEB");
+        seed(jdbc, 1L, 34L, 100L, 7, 1, 2, "WEB");
+        seed(jdbc, 1L, 35L, 100L, 6, 1, 3, "WEB");
+        seed(jdbc, 1L, 36L, 100L, 3, 1, null, "WEB");
+        seed(jdbc, 2L, 37L, 100L, 7, 1, null, "WEB");
+        seed(jdbc, 1L, 38L, 100L, 7, 1, null, "DESKTOP");
+        seed(jdbc, 1L, 39L, 100L, 6, 1, null, "WEB");
+        jdbc.update("UPDATE account SET deleted_at = 1 WHERE id = 39");
+
+        assertThat(service.findOnlineEligiblePullersByGroupId(100L))
+                .extracting(ProtocolAccountRef::armadaAccountId)
+                .containsExactly(10L, 13L, 30L, 31L);
+        assertThat(service.findEligiblePullerProtocolRefs(
+                List.of(31L, 30L, 31L, 32L, 33L, 34L, 35L, 36L, 37L, 38L, 39L)))
+                .extracting(ProtocolAccountRef::armadaAccountId)
+                .containsExactly(31L, 30L);
+    }
+
+    @Test
+    void managersStationsAndCreatorsAllowOnlineTakeoverWhileOtherBusinessesStayNormalOnly() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seed(jdbc, 1L, 30L, 200L, 6, 1, null, "WEB");
+        seed(jdbc, 1L, 31L, 200L, 7, 1, null, "ANDROID");
+        seed(jdbc, 1L, 32L, 200L, 7, 2, null, "WEB");
+        seed(jdbc, 1L, 33L, 200L, 6, 3, null, "WEB");
+        seed(jdbc, 1L, 34L, 200L, 3, 1, null, "WEB");
+        seed(jdbc, 1L, 35L, 200L, 5, 1, null, "WEB");
+        seed(jdbc, 1L, 36L, 200L, 8, 1, null, "WEB");
+        seed(jdbc, 2L, 37L, 200L, 7, 1, null, "WEB");
+        seed(jdbc, 1L, 38L, 200L, 7, 1, null, null);
+        seed(jdbc, 1L, 39L, 200L, 6, 1, null, "WEB");
+        jdbc.update("UPDATE account SET protocol_account_id = '' WHERE id = 39");
+
+        assertThat(service.findOnlinePullTaskAccountsByGroupId(200L))
+                .extracting(ProtocolAccountRef::armadaAccountId).containsExactly(30L, 31L, 38L);
+        assertThat(service.findOnlinePullTaskAccountsStrictByGroupId(200L))
+                .extracting(ProtocolAccountRef::armadaAccountId).containsExactly(30L, 31L);
+        assertThat(service.findOnlineNormalByGroupId(200L)).isEmpty();
+        assertThat(service.findRandomOnlineNormalPullerByGroupId(200L)).isEmpty();
+        assertThat(service.findRandomOnlineNormalByGroupId(200L)).isEmpty();
+
+        for (int state : List.of(6, 7)) {
+            long groupId = 300L + state;
+            seed(jdbc, 1L, groupId, groupId, state, 1, null, "WEB");
+            assertThat(service.findRandomOnlinePullTaskAccountByGroupId(groupId))
+                    .get().extracting(ProtocolAccountRef::armadaAccountId).isEqualTo(groupId);
+            jdbc.update("UPDATE account_state SET mute_status = 2 WHERE account_id = ?", groupId);
+            assertThat(service.findRandomOnlinePullTaskAccountByGroupId(groupId)).isEmpty();
+            jdbc.update("UPDATE account_state SET mute_status = 1, risk_status = 2 WHERE account_id = ?", groupId);
+            assertThat(service.findRandomOnlinePullTaskAccountByGroupId(groupId)).isEmpty();
+        }
     }
 
     private static void seed(

@@ -843,7 +843,7 @@ class PullTaskStandardCreateServiceTest {
         @Bean
         AccountProtocolLookupService accountProtocolLookupService() {
             AccountProtocolLookupService mock = mock(AccountProtocolLookupService.class);
-            when(mock.findOnlineNormalStrictByGroupId(anyLong())).thenReturn(List.of(
+            when(mock.findOnlinePullTaskAccountsStrictByGroupId(anyLong())).thenReturn(List.of(
                     protocolRef(101L), protocolRef(102L), protocolRef(103L)));
             return mock;
         }

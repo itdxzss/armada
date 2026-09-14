@@ -246,7 +246,7 @@ class PullTaskStandardReadServiceTest {
         query.setExecutionStatus(2);
         when(taskMapper.selectLifecycle(100L)).thenReturn(task());
         PullTaskStandardExecutionFilter filter = new PullTaskStandardExecutionFilter(
-                100L, "AAAA", 2, null, null, null);
+                100L, "AAAA", 2, null, null, null, null);
         when(readMapper.countExecutions(filter)).thenReturn(2L);
         when(readMapper.selectExecutionPage(filter, 1, 1))
                 .thenReturn(List.of(execution(11L)));

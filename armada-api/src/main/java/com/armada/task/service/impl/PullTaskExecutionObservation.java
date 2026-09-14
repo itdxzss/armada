@@ -146,6 +146,10 @@ public final class PullTaskExecutionObservation {
     private static Decision resourceWait(PullTaskGroupExecution execution,
             PullTaskStandardExecutionAggregate aggregate) {
         Integer type = execution.getWaitResourceType();
+        if (PullTaskExecutionReasonCode.EXECUTION_SLOT_UNAVAILABLE.name().equals(execution.getReasonCode())) {
+            return new Decision(State.WAIT_CONCURRENCY, "资源已通过复核，正在等待任务并发执行名额",
+                    "其他群释放名额后自动复核资源并继续执行", null);
+        }
         if (execution.getReasonCode() != null && PERMISSION_WAITS.contains(execution.getReasonCode())) {
             return new Decision(State.WAIT_RESOURCE, "当前受群权限或管理员设置条件阻塞",
                     "核实在群管理员权限与群加人设置", null);
@@ -203,6 +207,7 @@ public final class PullTaskExecutionObservation {
         /** 父任务不在执行。 */ TASK_BLOCKED("任务未在执行", true),
         /** 缺少观察事实。 */ UNOBSERVED("运行情况待确认", true),
         /** 等资源。 */ WAIT_RESOURCE("等待资源", false),
+        /** 资源已复核，尚未取得父任务并发名额。 */ WAIT_CONCURRENCY("等待并发名额", false),
         /** 等进群审批。 */ WAIT_APPROVAL("等待审批", false),
         /** 未提交计划与绑定人数矛盾。 */ BATCH_INCONSISTENT("批次数据异常", false),
         /** 已提交拉人结果尚未收口。 */ WAIT_RESULT("等待结果", false),

@@ -45,6 +45,7 @@ public class PullTaskManagerPullerContactTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
+    private static final String CONTACT_TARGET_UNAVAILABLE = "CONTACT_TARGET_UNAVAILABLE";
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
     /** 允许提交新一轮加人权限命令的动作状态：首次为 PENDING，重发为失败或结果未知。 */
@@ -456,7 +457,7 @@ public class PullTaskManagerPullerContactTransactionService {
             PullTaskGroupAccount target = roles.get(action.getTargetGroupAccountId());
             ProtocolAccountRef account = actor == null ? null : accounts.get(actor.getAccountId());
             if (actor == null || target == null || account == null) {
-                closeUnavailableAction(action, actor, now);
+                closeUnavailableAction(action, actor, account, now);
                 continue;
             }
             return submit(candidate, action, account, now);
@@ -468,14 +469,18 @@ public class PullTaskManagerPullerContactTransactionService {
     private void closeUnavailableAction(
             PullTaskAccountAction action,
             PullTaskGroupAccount actor,
+            ProtocolAccountRef account,
             long now) {
         if (actionMapper.markSubmitted(action.getId(), operationId(action.getId()), now) != 1) {
             return;
         }
+        // 目标拉手被替换时只收口旧动作；目标缺失不能作为发起账号离线的证据。
+        boolean actorUnavailable = account == null;
         actionMapper.writeBackResult(action.getId(), PullTaskActionStatus.FAILED.code(),
-                ACCOUNT_UNAVAILABLE, "联系人发起账号不可用", now);
+                actorUnavailable ? ACCOUNT_UNAVAILABLE : CONTACT_TARGET_UNAVAILABLE,
+                actorUnavailable ? "联系人发起账号不可用" : "联系人目标账号已不参与当前执行行", now);
         action.setActionStatus(PullTaskActionStatus.FAILED.code());
-        if (actor != null) {
+        if (actor != null && actorUnavailable) {
             groupAccountMapper.markUnavailable(actor.getId(),
                     PullTaskGroupAccountAvailability.OFFLINE.code(),
                     ACCOUNT_UNAVAILABLE, null, now);

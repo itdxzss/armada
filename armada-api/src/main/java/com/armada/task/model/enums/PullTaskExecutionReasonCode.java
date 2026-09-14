@@ -27,6 +27,9 @@ public enum PullTaskExecutionReasonCode {
     /** 管理分组当前没有可执行协议动作的在线可用账号。 */
     MANAGER_UNAVAILABLE("当前没有可用管理员"),
 
+    /** 资源已通过本轮复核，但尚未获得父任务的并发执行名额。 */
+    EXECUTION_SLOT_UNAVAILABLE("资源已就绪，等待任务并发执行名额"),
+
     /** 管理账号已提交入群申请，尚未确认在群。 */
     MANAGER_JOIN_PENDING_APPROVAL("管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停"),
 

@@ -109,10 +109,26 @@ class PullTaskStandardReadMapperInMemoryTest {
     }
 
     @Test
+    void resourceShortageFilterExcludesRecoveredRowsWaitingForConcurrency() throws SQLException {
+        execute("UPDATE pull_task_group_execution SET reason_code='EXECUTION_SLOT_UNAVAILABLE' WHERE id=12");
+        PullTaskStandardExecutionFilter filter = new PullTaskStandardExecutionFilter(
+                100L, null, PullTaskExecutionStatus.WAIT_RESOURCE.code(), null,
+                PullTaskWaitResourceType.PULLER.code(), null, null);
+        assertThat(mapper.countExecutions(filter)).isZero();
+        assertThat(mapper.selectExecutionPage(filter, 0, 10)).isEmpty();
+        var query = new com.armada.task.model.dto.PullTaskStandardExecutionQuery();
+        query.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        query.setReasonCode(" EXECUTION_SLOT_UNAVAILABLE ");
+        assertThat(mapper.countExecutions(query.toFilter(100L))).isEqualTo(1);
+        assertThat(mapper.selectExecutionPage(query.toFilter(100L), 0, 10))
+                .singleElement().extracting(row -> row.getId()).isEqualTo(12L);
+    }
+
+    @Test
     void executionPagePushesAllWorkbenchFiltersIntoSql() {
         PullTaskStandardExecutionFilter filter = new PullTaskStandardExecutionFilter(
                 100L, "l2", PullTaskExecutionStatus.WAIT_RESOURCE.code(), 5,
-                PullTaskWaitResourceType.PULLER.code(), 0);
+                PullTaskWaitResourceType.PULLER.code(), 0, null);
 
         assertThat(mapper.countExecutions(filter)).isEqualTo(1);
         assertThat(mapper.selectExecutionPage(filter, 0, 10))

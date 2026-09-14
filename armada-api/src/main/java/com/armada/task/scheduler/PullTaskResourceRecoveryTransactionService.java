@@ -349,8 +349,9 @@ public class PullTaskResourceRecoveryTransactionService {
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(candidate.getStage());
         update.setWaitResourceType(candidate.getWaitResourceType());
-        update.setReasonCode(candidate.getReasonCode());
-        update.setReasonMessage(candidate.getReasonMessage());
+        // 保留资源类型供下一轮重新复核；当前阻塞原因必须反映名额等待，不能沿用旧缺口。
+        update.setReasonCode(PullTaskExecutionReasonCode.EXECUTION_SLOT_UNAVAILABLE.name());
+        update.setReasonMessage(PullTaskExecutionReasonCode.EXECUTION_SLOT_UNAVAILABLE.message());
         update.setNextRunAt(Math.addExact(now, retryDelayMs));
         return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.DEFERRED);
     }

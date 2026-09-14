@@ -118,6 +118,73 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
+    void replacedContactTargetDoesNotInvalidateManagerOrReplaySubmittedActions() throws SQLException {
+        seedProtocolAccounts();
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+        TenantContext.set(7L);
+        long id = executionId();
+        PullTaskGroupAccount old = groupAccountMapper.selectByExecutionAndRole(
+                id, PullTaskGroupAccountRole.PULLER.code()).get(0);
+        List<PullTaskAccountAction> oldActions = actionMapper.selectByExecutionAndType(
+                id, PullTaskAccountActionType.SAVE_CONTACT.code());
+        // 模拟旧拉手失效时尚未发送的方向；反向动作已在途，不能被取消或重发。
+        execute("UPDATE pull_task_account_action SET action_status=1, command_id=NULL WHERE id="
+                + oldActions.get(0).getId());
+        actionMapper.markSubmitted(oldActions.get(1).getId(), "cmd-old-in-flight", 620L);
+        groupAccountMapper.markUnavailable(old.getId(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE", null, 630L);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(protocolRef(903L)));
+        when(accountLookup.findActiveProtocolRefs(anyList()))
+                .thenReturn(List.of(protocolRef(901L), protocolRef(903L)));
+        when(outboxService.enqueuePullTaskContactSaveCommands(anyList())).thenReturn(
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-new-1"), 1),
+                new ProtocolCommandOutboxEnqueueResult("pull-task:100", List.of("cmd-new-2"), 1));
+
+        service.prepare(claim("worker-2", 61_000L, 62_000L), "worker-2", 61_010L);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(id, PullTaskGroupAccountRole.MANAGER.code()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
+                    assertThat(row.getUnavailableReasonCode()).isNull();
+                });
+        assertThat(groupAccountMapper.selectById(old.getId()).getUnavailableReasonCode())
+                .isEqualTo("PULLER_REPLACED");
+        List<PullTaskAccountAction> savedActions = actionMapper.selectByExecutionAndType(
+                id, PullTaskAccountActionType.SAVE_CONTACT.code());
+        PullTaskAccountAction skipped = savedActions.get(0);
+        assertThat(skipped.getActionStatus()).isEqualTo(PullTaskActionStatus.FAILED.code());
+        assertThat(skipped.getReasonCode()).isEqualTo("CONTACT_TARGET_UNAVAILABLE");
+        assertThat(savedActions.get(1).getCommandId())
+                .isEqualTo("cmd-old-in-flight");
+        assertThat(savedActions.get(1).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+
+        service.prepare(claim("worker-3", 122_000L, 123_000L), "worker-3", 122_010L);
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(id).getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(actionMapper.selectByExecutionAndType(id, PullTaskAccountActionType.SAVE_CONTACT.code()))
+                .filteredOn(row -> row.getCommandId() != null && row.getCommandId().startsWith("cmd-new-"))
+                .hasSize(2);
+    }
+
+    @Test
+    void missingActorProtocolIdentityStillInvalidatesThatActor() {
+        seedProtocolAccounts();
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(protocolRef(902L)));
+
+        service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId(), PullTaskGroupAccountRole.MANAGER.code()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+                    assertThat(row.getUnavailableReasonCode()).isEqualTo("ACCOUNT_UNAVAILABLE");
+                });
+    }
+
+    @Test
     void firstContactDirectionIsSubmittedToOutboxAndReleasesLease() {
         seedProtocolAccounts();
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))

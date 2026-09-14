@@ -14,6 +14,23 @@ class PullTaskExecutionObservationTest {
     private final PullTaskStandardExecutionAggregate aggregate = new PullTaskStandardExecutionAggregate();
 
     @Test
+    void recoveredManagerWaitingForConcurrencyDoesNotAskForMoreManagers() {
+        execution.setExecutionStatus(3);
+        execution.setWaitResourceType(1);
+        execution.setReasonCode("EXECUTION_SLOT_UNAVAILABLE");
+        aggregate.setRequiredManagerCount(1);
+        aggregate.setCurrentManagerCount(1);
+        var view = PullTaskExecutionObservation.describe(execution, aggregate, facts, 5000L);
+        assertThat(view.state()).isEqualTo("WAIT_CONCURRENCY");
+        assertThat(view.detail()).contains("并发").doesNotContain("不足");
+        assertThat(view.nextStep()).doesNotContain("补充", "管理员");
+        assertThat(view.nextCheckAt()).isEqualTo(6000L);
+        execution.setManualPaused(1);
+        assertThat(PullTaskExecutionObservation.describe(execution, aggregate, facts, 5000L).state())
+                .isEqualTo("PAUSED");
+    }
+
+    @Test
     void intervalUsesDispatchEvidenceAndDoesNotRenameBusinessState() {
         facts.setWaveId(1L);
         facts.setWaveNo(3);

@@ -170,6 +170,23 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         assertThat(saved.getNextRunAt()).isEqualTo(2_600L);
         assertThat(executionMapper.selectById(running.getId()).getExecutionStatus())
                 .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(saved.getReasonCode()).isEqualTo("EXECUTION_SLOT_UNAVAILABLE");
+        assertThat(saved.getReasonMessage()).contains("并发").doesNotContain("不足", "缺口");
+        assertThat(saved.getWaitResourceType()).isEqualTo(PullTaskWaitResourceType.STATION.code());
+
+        // 保留资源检查类型：名额未释放前资源再次失效，要重新显示真实缺口。
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of());
+        service.recover(claim("worker-2", 2_700L), "worker-2", 2_700L, 2_000L);
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isEqualTo("STATION_UNAVAILABLE");
+
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(STATION));
+        execute("UPDATE pull_task_group_execution SET execution_status=4 WHERE id=" + running.getId());
+        assertThat(service.recover(claim("worker-3", 4_800L), "worker-3", 4_800L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isNull();
+        assertThat(executionMapper.selectById(executionId).getWaitResourceType()).isNull();
     }
 
     @Test

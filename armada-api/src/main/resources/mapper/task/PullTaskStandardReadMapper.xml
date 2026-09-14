@@ -172,6 +172,11 @@
     </if>
     <if test="filter.waitResourceType != null">
       AND execution_row.wait_resource_type = #{filter.waitResourceType}
+      AND (execution_row.reason_code IS NULL
+        OR execution_row.reason_code != #{filter.executionSlotWaitReason})
+    </if>
+    <if test="filter.reasonCode != null">
+      AND execution_row.reason_code = #{filter.reasonCode}
     </if>
     <if test="filter.manualPaused != null">
       AND execution_row.manual_paused = #{filter.manualPaused}

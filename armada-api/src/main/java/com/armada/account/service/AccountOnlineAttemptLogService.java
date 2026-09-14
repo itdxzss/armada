@@ -13,6 +13,9 @@ public interface AccountOnlineAttemptLogService {
 
     String latestAttemptId(Long accountId);
 
-    /** 返回最近一次带代理 ID 的 PROXY_FAILED 诊断；没有诊断时返回 null。 */
-    AccountProxyFailureContext latestProxyFailure(Long accountId);
+    /** 与已接受的状态事件同事务保存补偿上下文，不依赖协议额外发送诊断事件。 */
+    void recordProxyFailure(AccountStateChangedEvent event, long occurredAt);
+
+    /** 只读取当前失败时间水位的上下文；旧事件可没有 proxyId。 */
+    AccountProxyFailureContext proxyFailureAt(Long accountId, Long occurredAt);
 }

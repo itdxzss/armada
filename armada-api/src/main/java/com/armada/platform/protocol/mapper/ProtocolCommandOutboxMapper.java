@@ -15,6 +15,11 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface ProtocolCommandOutboxMapper {
+
+    /** 按租户插件、账号及上线尝试精确读取冻结代理 ID，不读取凭据。 */
+    Long selectOnlineAttemptProxyId(@Param("accountId") Long accountId,
+                                   @Param("onlineAttemptId") String onlineAttemptId,
+                                   @Param("commandType") String commandType);
     int REGULAR_RETENTION_CLASS = 0;
     int HYPERLINK_RETENTION_CLASS = 1;
 

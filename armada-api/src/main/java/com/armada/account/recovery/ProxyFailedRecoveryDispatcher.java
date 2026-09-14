@@ -52,11 +52,13 @@ public class ProxyFailedRecoveryDispatcher {
                 TenantContext.set(candidate.tenantId());
                 attempted++;
                 try {
-                    AccountProxyFailureContext failureContext = latestFailureContext(candidate.accountId());
+                    AccountProxyFailureContext failureContext = attemptLogService.proxyFailureAt(
+                            candidate.accountId(), candidate.occurredAt());
                     String failedAttemptId = failureContext == null ? null : failureContext.onlineAttemptId();
                     Long failedProxyId = failureContext == null ? null : failureContext.proxyId();
                     coordinator.recover(
-                            candidate.tenantId(), candidate.accountId(), failedAttemptId, failedProxyId);
+                            candidate.tenantId(), candidate.accountId(), failedAttemptId, failedProxyId,
+                            candidate.occurredAt());
                 } catch (RuntimeException ex) {
                     log.warn("账号代理失败单账号补偿异常,保留状态等待下一轮 tenantId={} accountId={}",
                             candidate.tenantId(), candidate.accountId(), ex);
@@ -69,15 +71,6 @@ public class ProxyFailedRecoveryDispatcher {
             log.info("账号代理失败持续补偿完成 candidateCount={} attempted={}", candidates.size(), attempted);
         }
         return attempted;
-    }
-
-    private AccountProxyFailureContext latestFailureContext(Long accountId) {
-        try {
-            return attemptLogService.latestProxyFailure(accountId);
-        } catch (RuntimeException ex) {
-            log.warn("账号代理失败补偿读取诊断上下文失败,本轮仍尝试重上线 accountId={}", accountId, ex);
-            return null;
-        }
     }
 
     private static void restoreTenant(Long previousTenant) {

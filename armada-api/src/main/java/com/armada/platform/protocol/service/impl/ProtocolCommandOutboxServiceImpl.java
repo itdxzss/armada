@@ -219,6 +219,17 @@ public class ProtocolCommandOutboxServiceImpl
                 ProtocolCommandOutboxStatus.PENDING.code(), now) == 1;
     }
 
+    /** 按失败的原始上线尝试读取冻结代理，避免用当前绑定误伤后来分配的代理。 */
+    @Override
+    public Optional<Long> findOnlineAttemptProxyId(Long accountId, String onlineAttemptId) {
+        if (accountId == null || onlineAttemptId == null || onlineAttemptId.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(mapper.selectOnlineAttemptProxyId(
+                accountId, onlineAttemptId, COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED))
+                .filter(proxyId -> proxyId > 0);
+    }
+
     /**
      * 批量写入账号上线 outbox 命令。
      *

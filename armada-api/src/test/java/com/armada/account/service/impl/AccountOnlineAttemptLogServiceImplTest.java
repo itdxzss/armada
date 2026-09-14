@@ -223,10 +223,10 @@ class AccountOnlineAttemptLogServiceImplTest {
     }
 
     @Test
-    void latestProxyFailure_returnsAttemptAndProxyFromLatestProxyFailedDiagnosis() {
-        when(mapper.selectLatestProxyFailureByAccountId(9L, "PROXY_FAILED")).thenReturn(row());
+    void proxyFailureAt_returnsAttemptAndProxyFromMatchingFailure() {
+        when(mapper.selectProxyFailureAt(9L, LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(2_000L), java.time.ZoneOffset.UTC))).thenReturn(row());
 
-        var result = service.latestProxyFailure(9L);
+        var result = service.proxyFailureAt(9L, 2_000L);
 
         assertThat(result.onlineAttemptId()).isEqualTo("oa_1");
         assertThat(result.proxyId()).isEqualTo(4035L);

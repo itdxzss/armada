@@ -302,6 +302,7 @@ class ProtocolCommandPublisherTest {
         assertThat(firstEnvelope.payload().get("onlineAttemptId").asText()).isEqualTo("oa_100");
         assertThat(firstEnvelope.payload().get("previousOnlineAttemptId").asText()).isEqualTo("oa_99");
         assertThat(firstEnvelope.payload().get("source").asText()).isEqualTo("batch_online");
+        assertThat(firstEnvelope.payload().path("proxyId").asLong()).isEqualTo(7L);
         assertThat(firstEnvelope.payload().get("credential").get("creds").get("noiseKey").asText()).isEqualTo("n1");
         assertThat(firstEnvelope.payload().get("proxy").get("protocol").asText()).isEqualTo("socks5");
         assertThat(firstEnvelope.payload().get("proxy").get("url").asText())
@@ -309,8 +310,7 @@ class ProtocolCommandPublisherTest {
         assertThat(firstEnvelope.payload().get("proxy").get("sessionId").asText()).isEqualTo("Aaa111");
         assertThat(firstEnvelope.payload().toString())
                 .doesNotContain("credentialJson")
-                .doesNotContain("credentialFormat")
-                .doesNotContain("\"proxyId\"");
+                .doesNotContain("credentialFormat");
     }
 
     @Test
@@ -527,6 +527,7 @@ class ProtocolCommandPublisherTest {
                 .isEqualTo("socks5://user-a:pass_session-Aaa111@proxy-a.internal:1080");
         assertThat(envelope.payload().get("source").asText()).isEqualTo("batch_online");
         assertThat(envelope.payload().get("onlineAttemptId").asText()).isEqualTo("oa_android");
+        assertThat(envelope.payload().path("proxyId").asLong()).isEqualTo(7L);
         assertThat(envelope.payload().get("previousOnlineAttemptId").asText()).isEqualTo("oa_previous");
         assertThat(envelope.payload().get("protocolBackend").asText()).isEqualTo("ANDROID");
     }

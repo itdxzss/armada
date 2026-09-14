@@ -167,16 +167,16 @@ class AccountOnlineCommandServiceImplDbTest extends DbTestBase {
         insertDefaultState(account.getId(), now);
 
         setProxyFailedState(account.getId(), AccountLoginStateCode.OFFLINE, 1L, now);
-        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 1)).isZero();
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now, now + 1)).isZero();
         assertThat(recoveryCandidateIds(now + 10_000L)).doesNotContain(account.getId());
 
         setProxyFailedState(account.getId(), AccountLoginStateCode.ONLINE, 1L, now + 2);
         assertThat(recoveryCandidateIds(now + 10_000L)).contains(account.getId());
-        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 3)).isEqualTo(1);
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 2, now + 3)).isEqualTo(1);
 
         setProxyFailedState(account.getId(), null, 1L, now + 4);
         assertThat(recoveryCandidateIds(now + 10_000L)).contains(account.getId());
-        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 5)).isEqualTo(1);
+        assertThat(stateMapper.claimProxyFailedReonline(account.getId(), now + 4, now + 5)).isEqualTo(1);
     }
 
     private void setProxyFailedState(Long accountId,

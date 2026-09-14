@@ -4,6 +4,8 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolCommandOutboxStatus;
 import com.armada.shared.tenant.TenantContext;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
@@ -35,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         inheritListeners = false)
-class ProtocolCommandOutboxMapperInMemoryTest {
+public class ProtocolCommandOutboxMapperInMemoryTest {
 
     private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
@@ -49,11 +51,52 @@ class ProtocolCommandOutboxMapperInMemoryTest {
     void setUp() throws SQLException {
         TenantContext.set(7L);
         resetSchema();
+        execute("CREATE ALIAS JSON_EXTRACT FOR '" + getClass().getName() + ".jsonExtract'");
+        execute("CREATE ALIAS JSON_UNQUOTE FOR '" + getClass().getName() + ".jsonUnquote'");
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void findFailedProxyUsesExactAccountAttemptAndTenantEvenAfterANewerAllocation() {
+        ProtocolCommandOutbox failed = pendingRow();
+        failed.setPayloadJson("{\"onlineAttemptId\":\"oa_failed\",\"proxyId\":7}");
+        mapper.batchInsertPending(List.of(failed));
+        ProtocolCommandOutbox newer = pendingRow();
+        newer.setCommandId("cmd-newer");
+        newer.setPayloadJson("{\"onlineAttemptId\":\"oa_newer\",\"proxyId\":8}");
+        mapper.batchInsertPending(List.of(newer));
+
+        assertThat(mapper.selectOnlineAttemptProxyId(101L, "oa_failed", "account.online.requested"))
+                .isEqualTo(7L);
+        assertThat(mapper.selectOnlineAttemptProxyId(102L, "oa_failed", "account.online.requested"))
+                .isNull();
+        assertThat(mapper.selectOnlineAttemptProxyId(101L, "oa_missing", "account.online.requested"))
+                .isNull();
+        assertThat(mapper.selectOnlineAttemptProxyId(101L, "oa_failed", "account.offline.requested"))
+                .isNull();
+        TenantContext.set(8L);
+        assertThat(mapper.selectOnlineAttemptProxyId(101L, "oa_failed", "account.online.requested"))
+                .isNull();
+    }
+
+    /** H2 不提供 MySQL JSON 函数；仅在测试内适配，WHERE 与租户隔离仍执行真实 Mapper。 */
+    public static String jsonExtract(String document, String path) throws Exception {
+        JsonNode node = new ObjectMapper().readTree(document);
+        // H2 将 JDBC 字符串写入 JSON 列时可能保留为 JSON string。
+        if (node.isTextual()) {
+            node = new ObjectMapper().readTree(node.asText());
+        }
+        JsonNode value = node.get(path.substring(2));
+        return value == null || value.isNull() ? null : value.toString();
+    }
+
+    /** 测试专用 MySQL JSON_UNQUOTE 语义。 */
+    public static String jsonUnquote(String value) throws Exception {
+        return value == null ? null : new ObjectMapper().readTree(value).asText();
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.armada.account.model.vo.AccountOnlineAttemptLogVO;
 import com.armada.account.service.AccountOfflineDiagnosedEvent;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountProxyFailureContext;
+import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -14,6 +15,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptLogService {
@@ -93,11 +96,39 @@ public class AccountOnlineAttemptLogServiceImpl implements AccountOnlineAttemptL
     }
 
     @Override
-    public AccountProxyFailureContext latestProxyFailure(Long accountId) {
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordProxyFailure(AccountStateChangedEvent event, long occurredAt) {
+        // 调用方已持有账号状态行锁；同一状态水位重复投递时只保存一次。
+        Long existingId = mapper.selectProxyFailureStateIdForUpdate(
+                TenantContext.get(), event.accountId(), event.onlineAttemptId(), epochMillis(occurredAt));
+        if (existingId != null) {
+            return;
+        }
+        AccountOnlineAttemptLog row = new AccountOnlineAttemptLog();
+        row.setAccountId(event.accountId());
+        row.setProtocolAccountId(event.protocolAccountId());
+        row.setOnlineAttemptId(event.onlineAttemptId());
+        row.setProxyId(event.proxyId());
+        row.setSource(event.source());
+        row.setFromState(event.from());
+        row.setToState("PROXY_FAILED");
+        row.setDiagnosisCode("PROXY_FAILED");
+        row.setDiagnosisClass("STATE_CHANGED");
+        row.setRawCode(event.rawCode());
+        row.setOccurredAt(epochMillis(occurredAt));
+        row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        mapper.insert(row);
+    }
+
+    @Override
+    public AccountProxyFailureContext proxyFailureAt(Long accountId, Long occurredAt) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
         }
-        AccountOnlineAttemptLog row = mapper.selectLatestProxyFailureByAccountId(accountId, "PROXY_FAILED");
+        if (occurredAt == null) {
+            return null;
+        }
+        AccountOnlineAttemptLog row = mapper.selectProxyFailureAt(accountId, epochMillis(occurredAt));
         if (row == null) {
             return null;
         }

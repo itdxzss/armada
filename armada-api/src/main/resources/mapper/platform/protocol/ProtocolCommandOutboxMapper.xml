@@ -2,6 +2,17 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper">
 
+  <select id="selectOnlineAttemptProxyId" resultType="java.lang.Long">
+    SELECT JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.proxyId'))
+    FROM protocol_command_outbox
+    WHERE aggregate_id = #{accountId}
+      AND command_type = #{commandType}
+      AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.onlineAttemptId')) = #{onlineAttemptId}
+      AND deleted_at IS NULL
+    ORDER BY id DESC
+    LIMIT 1
+  </select>
+
   <update id="replayMessageCommand">
     UPDATE protocol_command_outbox
     SET status=#{pendingStatus}, next_retry_at=#{now}, locked_by=NULL, locked_at=NULL,

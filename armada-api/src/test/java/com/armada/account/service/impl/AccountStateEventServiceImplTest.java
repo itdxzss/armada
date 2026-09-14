@@ -175,7 +175,7 @@ class AccountStateEventServiceImplTest {
                 "PROXY_FAILED",
                 null,
                 null,
-                null);
+                null, null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 
@@ -232,7 +232,7 @@ class AccountStateEventServiceImplTest {
                 semantic,
                 rawCode,
                 source,
-                onlineAttemptId);
+                onlineAttemptId, null);
     }
 
     @Test
@@ -253,7 +253,7 @@ class AccountStateEventServiceImplTest {
                 "PROXY_FAILED",
                 null,
                 null,
-                null);
+                null, null);
         when(accountMapper.selectActiveById(100L)).thenReturn(account);
         when(stateMapper.selectByTenantAndAccountIdForUpdate(1L, 100L)).thenReturn(currentState);
 

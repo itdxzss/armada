@@ -24,43 +24,18 @@ public interface AccountOnlineCommandService {
     AccountOnlineVO online(Long accountId);
 
     /**
-     * 代理失败后自动重新上线账号。
-     *
-     * <p>调用方必须先释放账号当前绑定 IP。实现会重新分配一条可用代理并写入上线 outbox,
-     * 返回值仍只表示命令已受理,不代表账号已经 ONLINE。</p>
-     *
-     * @param accountId armada 账号主键
-     * @return outbox 上线命令受理回执
-     * @throws BusinessException 当账号、凭据或代理分配不满足上线前置条件时抛出
-     */
-    AccountOnlineVO reonlineAfterProxyFailure(Long accountId);
-
-    /**
-     * 代理失败后自动重新上线账号,并把刚失败的上线尝试 ID 串到新命令里。
-     *
-     * <p>{@code failedOnlineAttemptId} 来自协议层 {@code account.state_changed}。
-     * 它比离线诊断日志更早到达,用于避免 Kafka 事件顺序导致的 attempt 链路断裂。
-     * 当该字段为空时,实现会退回读取最近一次诊断日志。</p>
-     *
-     * @param accountId              armada 账号主键
-     * @param failedOnlineAttemptId  刚失败的上线尝试 ID,可空
-     * @return outbox 上线命令受理回执
-     * @throws BusinessException 当账号、凭据或代理分配不满足上线前置条件时抛出
-     */
-    AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId);
-
-    /**
      * 代理失败后换 IP 重上线，并排除协议事件明确指出的失败代理。
      *
      * @param accountId             Armada 账号主键
      * @param failedOnlineAttemptId 刚失败的上线尝试 ID，可空
-     * @param failedProxyId         刚失败的代理 ID，可空；非空时本次分配必须排除
+     * @param failedProxyId         刚失败且已隔离的代理 ID，必填；本次分配必须排除
      * @return outbox 上线命令受理回执；账号已不再满足 PROXY_FAILED 恢复条件时 accepted=false
      */
     AccountOnlineVO reonlineAfterProxyFailure(
             Long accountId,
             String failedOnlineAttemptId,
-            Long failedProxyId);
+            Long failedProxyId,
+            long failedAt);
 
     /**
      * 批量发起一键抢登。

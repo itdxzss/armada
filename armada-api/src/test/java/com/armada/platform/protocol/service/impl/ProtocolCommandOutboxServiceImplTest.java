@@ -65,6 +65,18 @@ class ProtocolCommandOutboxServiceImplTest {
 
     private static final String FIXED_TRACE_ID = "0123456789abcdef0123456789abcdef";
 
+    @Test
+    void findOnlineAttemptProxyIdResolvesOnlyTheRequestedAttemptAndSkipsMissingContext() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        when(mapper.selectOnlineAttemptProxyId(100L, "oa_failed", "account.online.requested"))
+                .thenReturn(7L);
+
+        assertThat(service.findOnlineAttemptProxyId(100L, "oa_failed")).contains(7L);
+        assertThat(service.findOnlineAttemptProxyId(100L, "oa_missing")).isEmpty();
+        assertThat(service.findOnlineAttemptProxyId(100L, null)).isEmpty();
+        verify(mapper, never()).selectOnlineAttemptProxyId(eq(100L), eq(null), eq("account.online.requested"));
+    }
+
     private final ProtocolCommandOutboxMapper mapper = org.mockito.Mockito.mock(ProtocolCommandOutboxMapper.class);
     private final ProtocolCommandDispatchTrigger dispatchTrigger =
             org.mockito.Mockito.mock(ProtocolCommandDispatchTrigger.class);

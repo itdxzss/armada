@@ -58,20 +58,22 @@ public class AccountStateChangedSinkAdapter implements ProtocolAccountStateChang
      */
     @Override
     public void handleStateChanged(ProtocolAccountStateChangedEvent event) {
+        long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
         boolean applied = service.applyStateChanged(new AccountStateChangedEvent(
                 event.tenantId(),
                 event.accountId(),
                 event.protocolAccountId(),
                 event.from(),
                 event.to(),
-                event.occurredAt(),
+                occurredAt,
                 event.semantic(),
                 event.rawCode(),
                 event.source(),
-                event.onlineAttemptId()));
+                event.onlineAttemptId(),
+                event.proxyId()));
         if (applied && isProxyFailed(event)) {
             recoveryCoordinator.recover(
-                    event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId());
+                    event.tenantId(), event.accountId(), event.onlineAttemptId(), event.proxyId(), occurredAt);
         }
         if (applied && "ONLINE".equalsIgnoreCase(event.to())) {
             submitDeferredInviteResume(event);

@@ -46,6 +46,6 @@ class InitialAccountGroupSyncSideEffectTest {
     private static AccountStateChangedEvent event(String target) {
         return new AccountStateChangedEvent(
                 7L, 101L, "acc_101", "VERIFYING", target, 2_000L,
-                target, null, "batch_online", "attempt-1");
+                target, null, "batch_online", "attempt-1", null);
     }
 }

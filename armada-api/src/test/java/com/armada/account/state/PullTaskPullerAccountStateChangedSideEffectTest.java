@@ -66,6 +66,6 @@ class PullTaskPullerAccountStateChangedSideEffectTest {
     private static AccountStateChangedEvent event(String to, Integer rawCode) {
         return new AccountStateChangedEvent(
                 7L, 1187L, "acc_918809345662", "ONLINE", to,
-                5_000L, to, rawCode, "protocol", null);
+                5_000L, to, rawCode, "protocol", null, null);
     }
 }

@@ -16,6 +16,7 @@ package com.armada.account.service;
  * @param rawCode           协议层断线原始码;NEED_REAUTH 时用于区分封禁与解绑
  * @param source            触发本次状态事件的命令来源;用于区分用户下线停止抢登与协议普通离线
  * @param onlineAttemptId   当前状态事件关联的上线尝试 ID;旧协议事件可为空
+ * @param proxyId           此次上线命令使用的代理 ID;旧协议事件按 onlineAttemptId 追溯
  */
 public record AccountStateChangedEvent(
         Long tenantId,
@@ -27,5 +28,6 @@ public record AccountStateChangedEvent(
         String semantic,
         Integer rawCode,
         String source,
-        String onlineAttemptId) {
+        String onlineAttemptId,
+        Long proxyId) {
 }

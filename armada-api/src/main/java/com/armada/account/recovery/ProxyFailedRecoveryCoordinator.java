@@ -1,9 +1,11 @@
 package com.armada.account.recovery;
 
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -12,7 +14,8 @@ import org.springframework.stereotype.Service;
  * 在账号状态事务提交后编排 PROXY_FAILED 的 B/C 两个独立事务。
  *
  * <p>本类故意不启事务。B 精确标记失败代理不可用并解绑，C 条件抢占恢复资格并换 IP 写 outbox；
- * 两步任一失败都只记录，不能反向回滚已提交的状态，也不能把有效 Kafka 状态事件送入 DLT。</p>
+ * B 未完成时不进入 C，避免把尚未隔离的失败代理释放回空闲池。
+ * 失败只记录，不能反向回滚已提交的状态，也不能把有效 Kafka 状态事件送入 DLT。</p>
  */
 @Service
 public class ProxyFailedRecoveryCoordinator {
@@ -21,11 +24,14 @@ public class ProxyFailedRecoveryCoordinator {
 
     private final IpProxyService ipProxyService;
     private final AccountOnlineCommandService onlineCommandService;
+    private final ProtocolCommandOutboxService outboxService;
 
     public ProxyFailedRecoveryCoordinator(IpProxyService ipProxyService,
-                                          AccountOnlineCommandService onlineCommandService) {
+                                          AccountOnlineCommandService onlineCommandService,
+                                          ProtocolCommandOutboxService outboxService) {
         this.ipProxyService = ipProxyService;
         this.onlineCommandService = onlineCommandService;
+        this.outboxService = outboxService;
     }
 
     /**
@@ -34,34 +40,56 @@ public class ProxyFailedRecoveryCoordinator {
     public void recover(Long tenantId,
                         Long accountId,
                         String failedOnlineAttemptId,
-                        Long failedProxyId) {
+                        Long failedProxyId,
+                        Long failedAt) {
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(tenantId);
-            markFailedProxyUnavailable(accountId, failedProxyId);
-            reonline(accountId, failedOnlineAttemptId, failedProxyId);
+            if (failedAt == null) {
+                log.warn("账号代理失败恢复缺少失败时间水位 accountId={}", accountId);
+                return;
+            }
+            Optional<Long> resolvedProxyId = resolveFailedProxyId(accountId, failedOnlineAttemptId, failedProxyId);
+            if (resolvedProxyId.isEmpty()) {
+                log.warn("账号代理失败恢复等待原始代理上下文 accountId={} attemptId={}",
+                        accountId, failedOnlineAttemptId);
+                return;
+            }
+            if (markFailedProxyUnavailable(accountId, resolvedProxyId.get(), failedAt)) {
+                reonline(accountId, failedOnlineAttemptId, resolvedProxyId.get(), failedAt);
+            }
         } finally {
             restoreTenant(previousTenant);
         }
     }
 
-    private void markFailedProxyUnavailable(Long accountId, Long failedProxyId) {
-        if (failedProxyId == null) {
-            log.warn("账号代理失败标记不可用跳过,事件未携带 proxyId accountId={}", accountId);
-            return;
+    private Optional<Long> resolveFailedProxyId(Long accountId, String attemptId, Long failedProxyId) {
+        if (failedProxyId != null && failedProxyId > 0) {
+            return Optional.of(failedProxyId);
         }
         try {
-            ipProxyService.markFailedProxyUnavailable(accountId, failedProxyId);
+            return outboxService.findOnlineAttemptProxyId(accountId, attemptId);
         } catch (RuntimeException ex) {
-            log.error("账号代理失败标记不可用异常,保留状态等待补偿 accountId={} failedProxyId={}",
-                    accountId, failedProxyId, ex);
+            log.warn("账号代理失败追溯原始代理异常,保留状态等待补偿 accountId={} attemptId={}",
+                    accountId, attemptId, ex);
+            return Optional.empty();
         }
     }
 
-    private void reonline(Long accountId, String failedOnlineAttemptId, Long failedProxyId) {
+    private boolean markFailedProxyUnavailable(Long accountId, Long failedProxyId, long failedAt) {
+        try {
+            return ipProxyService.markFailedProxyUnavailable(accountId, failedProxyId, failedAt);
+        } catch (RuntimeException ex) {
+            log.error("账号代理失败标记不可用异常,保留状态等待补偿 accountId={} failedProxyId={}",
+                    accountId, failedProxyId, ex);
+            return false;
+        }
+    }
+
+    private void reonline(Long accountId, String failedOnlineAttemptId, Long failedProxyId, long failedAt) {
         try {
             onlineCommandService.reonlineAfterProxyFailure(
-                    accountId, failedOnlineAttemptId, failedProxyId);
+                    accountId, failedOnlineAttemptId, failedProxyId, failedAt);
         } catch (RuntimeException ex) {
             if (ex instanceof BusinessException) {
                 log.warn("账号代理失败换IP重上线未完成,保留 PROXY_FAILED 等待补偿 accountId={} "

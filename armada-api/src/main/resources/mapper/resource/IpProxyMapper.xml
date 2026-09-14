@@ -571,10 +571,17 @@
             whatsapp_http_status = #{entity.whatsappHttpStatus},
             whatsapp_check_error = #{entity.whatsappCheckError},
             updated_at = #{entity.updatedAt}
-        WHERE id = #{proxyId}
-          AND bound_account_id = #{accountId}
+        WHERE id = #{failure.proxyId}
           AND deleted_at IS NULL
-          AND status = #{usingStatus}
+          AND pairing_session_id IS NULL
+          AND (
+            (status = #{usingStatus} AND bound_account_id = #{failure.accountId}
+              AND (bound_at IS NULL OR bound_at &lt;= #{failure.failedAt}))
+            OR (status = #{idleStatus} AND bound_account_id IS NULL)
+          )
+          AND (last_sample_check_at IS NULL OR last_sample_check_at &lt;= #{failure.failedAt}
+            OR COALESCE(check_status, -1) != #{successCheckStatus}
+            OR COALESCE(whatsapp_check_status, -1) != #{successCheckStatus})
     </update>
 
     <update id="reserveForPairing">

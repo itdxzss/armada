@@ -168,7 +168,7 @@ class AccountOnlineCommandServiceImplTest {
         assertThat(transactionalAnnotation("onlineBatchWithProtocolBackends", List.class).isolation())
                 .isEqualTo(Isolation.DEFAULT);
         assertThat(transactionalAnnotation(
-                "reonlineAfterProxyFailure", Long.class, String.class, Long.class).isolation())
+                "reonlineAfterProxyFailure", Long.class, String.class, Long.class, long.class).isolation())
                 .isEqualTo(Isolation.DEFAULT);
         assertThat(transactionalAnnotation("offlineBatch", List.class).isolation())
                 .isEqualTo(Isolation.DEFAULT);
@@ -405,16 +405,17 @@ class AccountOnlineCommandServiceImplTest {
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
-        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(1);
-        when(ipProxyService.allocateOnlineEndpoint(new IpProxyAllocationRequest(100L, "印度", true)))
-                .thenReturn(new IpProxyAllocation(7L, endpoint, "iproyal"));
+        when(stateMapper.claimProxyFailedReonline(eq(100L), eq(2_000L), anyLong())).thenReturn(1);
+        when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(
+                List.of(new IpProxyAllocationRequest(100L, "印度", true)), List.of(6L)))
+                .thenReturn(List.of(new IpProxyAccountAllocation(100L, 7L, endpoint, "iproyal")));
         when(onlineAttemptIdGenerator.nextId()).thenReturn("oa_retry_1");
         when(accountOnlineAttemptLogService.latestAttemptId(100L)).thenReturn("oa_previous_1");
         when(protocolCommandOutboxService.enqueueOnlineCommands(any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
         lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
-        service.reonlineAfterProxyFailure(100L);
+        service.reonlineAfterProxyFailure(100L, null, 6L, 2_000L);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
@@ -429,6 +430,14 @@ class AccountOnlineCommandServiceImplTest {
     }
 
     @Test
+    void reonlineAfterProxyFailure_rejectsMissingFailedProxyBeforeAnyAllocation() {
+        assertThatThrownBy(() -> service.reonlineAfterProxyFailure(100L, "oa_failed", null, 2_000L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("失败代理 ID");
+        verifyNoInteractions(ipProxyService, protocolCommandOutboxService);
+    }
+
+    @Test
     void reonlineAfterProxyFailure_withFailedAttemptContextUsesEventAttemptWithoutWaitingForDiagnosisLog() {
         Account account = onlineAccount();
         AccountCredential credential = onlineCredential();
@@ -437,7 +446,7 @@ class AccountOnlineCommandServiceImplTest {
         when(credentialMapper.selectByAccountId(100L)).thenReturn(credential);
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
-        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(1);
+        when(stateMapper.claimProxyFailedReonline(eq(100L), eq(2_000L), anyLong())).thenReturn(1);
         when(ipProxyService.allocateOnlineEndpointsExcludingProxyIds(
                 List.of(new IpProxyAllocationRequest(100L, "印度", true)), List.of(6L)))
                 .thenReturn(List.of(new IpProxyAccountAllocation(100L, 7L, endpoint, "iproyal")));
@@ -446,7 +455,7 @@ class AccountOnlineCommandServiceImplTest {
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("cmd_100"), 1));
         lenient().when(stateMapper.markPendingOnline(any(), anyLong())).thenReturn(1);
 
-        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event", 6L);
+        service.reonlineAfterProxyFailure(100L, "oa_failed_from_state_event", 6L, 2_000L);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ProtocolOnlineCommandRequest>> commandsCaptor = ArgumentCaptor.forClass(List.class);
@@ -468,9 +477,9 @@ class AccountOnlineCommandServiceImplTest {
         when(credentialMapper.selectByAccountId(100L)).thenReturn(onlineCredential());
         when(accountMapper.selectIpRegionsByAccountIds(List.of(100L), ImportResult.SUCCESS.getCode()))
                 .thenReturn(List.of(ipRegionRow(100L, "印度")));
-        when(stateMapper.claimProxyFailedReonline(eq(100L), anyLong())).thenReturn(0);
+        when(stateMapper.claimProxyFailedReonline(eq(100L), eq(2_000L), anyLong())).thenReturn(0);
 
-        AccountOnlineVO result = service.reonlineAfterProxyFailure(100L, "oa_failed_1", 6L);
+        AccountOnlineVO result = service.reonlineAfterProxyFailure(100L, "oa_failed_1", 6L, 2_000L);
 
         assertThat(result.accepted()).isFalse();
         assertThat(result.stateSource()).isEqualTo("PROXY_FAILED_REONLINE_SKIPPED");

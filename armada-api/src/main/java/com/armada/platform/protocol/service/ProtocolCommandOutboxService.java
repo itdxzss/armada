@@ -20,6 +20,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddComman
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 协议命令 Outbox 应用服务。
@@ -28,6 +29,15 @@ import java.util.List;
  * Kafka 发送由事务提交后的通用 dispatcher 触发，避免协议层执行一条最终被数据库回滚的命令。</p>
  */
 public interface ProtocolCommandOutboxService {
+
+    /**
+     * 按当前租户、账号和精确上线尝试追溯已冻结的代理 ID，兼容旧协议缺失 proxyId 的事件。
+     *
+     * @param accountId 失败事件的账号 ID
+     * @param onlineAttemptId 失败事件的上线尝试 ID；不使用当前绑定或其它尝试代替
+     * @return 对应代理 ID；上下文缺失或命令已清理时为空
+     */
+    Optional<Long> findOnlineAttemptProxyId(Long accountId, String onlineAttemptId);
 
     /**
      * 批量写入账号上线 outbox 命令。

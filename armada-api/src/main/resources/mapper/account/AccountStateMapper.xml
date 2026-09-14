@@ -96,6 +96,7 @@
     WHERE account_id = #{accountId}
       AND login_state = #{offlineLoginState}
       AND state_source = #{expectedStateSource}
+      AND last_state_sync_time = #{failedAt}
       AND (desired_login_state IS NULL OR desired_login_state != #{desiredOfflineState})
   </update>
 
@@ -192,7 +193,8 @@
   <select id="selectProxyFailedRecoveryCandidates"
           resultType="com.armada.account.model.AccountProxyFailedRecoveryCandidate">
     SELECT s.tenant_id AS tenantId,
-           s.account_id AS accountId
+           s.account_id AS accountId,
+           s.last_state_sync_time AS occurredAt
     FROM account_state s
     INNER JOIN account a
       ON a.id = s.account_id

@@ -47,6 +47,6 @@ class HyperlinkAccountStateChangedSideEffectTest {
 
     private static AccountStateChangedEvent event(String to, Integer rawCode) {
         return new AccountStateChangedEvent(7L, 1187L, "acc-1187", "ONLINE", to,
-                5_000L, to, rawCode, "protocol", null);
+                5_000L, to, rawCode, "protocol", null, null);
     }
 }

@@ -164,7 +164,7 @@ public interface AccountStateMapper {
      * <p>只有仍处于 OFFLINE/PROXY_FAILED 的账号能从离线变为待上线；抢占、代理分配、快照和 outbox
      * 处在同一事务，任一步失败都会整体回滚，恢复为可继续补偿的 PROXY_FAILED。</p>
      */
-    default int claimProxyFailedReonline(Long accountId, long updatedAt) {
+    default int claimProxyFailedReonline(Long accountId, long failedAt, long updatedAt) {
         if (accountId == null) {
             return 0;
         }
@@ -175,6 +175,7 @@ public interface AccountStateMapper {
                 AccountLoginStateCode.OFFLINE,
                 "PROXY_FAILED",
                 STATE_SOURCE_OUTBOX,
+                failedAt,
                 updatedAt);
     }
 
@@ -184,6 +185,7 @@ public interface AccountStateMapper {
                                          @Param("desiredOfflineState") int desiredOfflineState,
                                          @Param("expectedStateSource") String expectedStateSource,
                                          @Param("targetStateSource") String targetStateSource,
+                                         @Param("failedAt") long failedAt,
                                          @Param("updatedAt") long updatedAt);
 
     /**

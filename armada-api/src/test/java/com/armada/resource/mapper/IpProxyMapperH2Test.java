@@ -14,6 +14,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -56,6 +57,7 @@ class IpProxyMapperH2Test {
                     region VARCHAR(64),
                     bound_account_id BIGINT,
                     bound_at BIGINT,
+                    pairing_session_id BIGINT,
                     last_sample_check_at BIGINT,
                     detected_country_code VARCHAR(8),
                     outbound_ip VARCHAR(64),
@@ -91,11 +93,14 @@ class IpProxyMapperH2Test {
         IpProxy update = failedUpdate(2_000L);
 
         assertThat(mapper.markFailedProxyUnavailable(
-                502L, 10L, IpProxyStatus.IN_USE.code(), update)).isZero();
+                new IpProxyFailureContext(502L, 10L, 2_000L),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), update)).isZero();
         assertThat(mapper.markFailedProxyUnavailable(
-                501L, 11L, IpProxyStatus.IN_USE.code(), update)).isZero();
+                new IpProxyFailureContext(501L, 11L, 2_000L),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), update)).isZero();
         assertThat(mapper.markFailedProxyUnavailable(
-                501L, 10L, IpProxyStatus.IN_USE.code(), update)).isEqualTo(1);
+                new IpProxyFailureContext(501L, 10L, 2_000L),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), update)).isEqualTo(1);
 
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement();
@@ -113,6 +118,42 @@ class IpProxyMapperH2Test {
             assertThat(result.getString("last_check_error")).isEqualTo("PROXY_FAILED");
         }
         assertThat(queryStatus(11L)).isEqualTo(IpProxyStatus.IN_USE.code());
+    }
+
+    @Test
+    void failedProxyCannotBeReallocatedUntilDetectionSucceeds() throws SQLException {
+        executeSql("INSERT INTO ip_proxy (id, tenant_id, status, bound_account_id, bound_at, "
+                + "check_fail_count, updated_at) VALUES (10, 7, 2, 501, 1000, 0, 1000)");
+
+        assertThat(mapper.markFailedProxyUnavailable(new IpProxyFailureContext(501L, 10L, 2_000L),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), failedUpdate(2_000L))).isEqualTo(1);
+        assertThat(mapper.releaseByAccounts(List.of(501L), IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(), 2_100L)).isZero();
+        assertThat(mapper.markUsingAndBind(10L, 502L, IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(), 2_200L)).isZero();
+
+        IpProxy failedCheck = failedUpdate(3_000L);
+        failedCheck.setId(10L);
+        mapper.updateDetectionResult(failedCheck, IpProxyStatus.IN_USE.code(),
+                IpProxyStatus.PAIRING_RESERVED.code());
+        assertThat(queryStatus(10L)).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(mapper.markUsingAndBind(10L, 502L, IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(), 3_100L)).isZero();
+
+        IpProxy recovered = failedUpdate(4_000L);
+        recovered.setId(10L);
+        recovered.setStatus(IpProxyStatus.IDLE.code());
+        recovered.setCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        recovered.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        recovered.setCheckFailCount(0);
+        mapper.updateDetectionResult(recovered, IpProxyStatus.IN_USE.code(),
+                IpProxyStatus.PAIRING_RESERVED.code());
+        assertThat(mapper.markUsingAndBind(10L, 502L, IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(), 4_100L)).isEqualTo(1);
+        // 旧账号迟到的失败事件不能隔离新账号已占用的代理。
+        assertThat(mapper.markFailedProxyUnavailable(new IpProxyFailureContext(501L, 10L, 2_000L),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), failedUpdate(5_000L))).isZero();
+        assertThat(queryStatus(10L)).isEqualTo(IpProxyStatus.IN_USE.code());
     }
 
     @Test
@@ -148,6 +189,33 @@ class IpProxyMapperH2Test {
         update.setWhatsappCheckError("PROXY_FAILED");
         update.setUpdatedAt(now);
         return update;
+    }
+
+    @Test
+    void releasedFailedProxyIsQuarantinedButNewBindingsAndSuccessfulRechecksAreProtected() throws SQLException {
+        executeSql("INSERT INTO ip_proxy (id, tenant_id, status, updated_at) VALUES (10, 7, 1, 2100)");
+        assertThat(quarantine(10L, 2_000L)).isOne();
+        assertThat(mapper.markUsingAndBind(10L, 502L, IpProxyStatus.IDLE.code(),
+                IpProxyStatus.IN_USE.code(), 2_500L)).isZero();
+        // 同账号后续的新绑定也不能被上一轮迟到失败解绑。
+        executeSql("INSERT INTO ip_proxy (id, tenant_id, status, bound_account_id, bound_at, updated_at) "
+                + "VALUES (11, 7, 2, 501, 2500, 2500)");
+        assertThat(quarantine(11L, 2_000L)).isZero();
+        executeSql("INSERT INTO ip_proxy (id, tenant_id, status, last_sample_check_at, check_status, "
+                + "whatsapp_check_status, updated_at) VALUES (12, 7, 1, 2500, 1, 1, 2500)");
+        assertThat(quarantine(12L, 2_000L)).isZero();
+        assertThat(queryStatus(12L)).isEqualTo(IpProxyStatus.IDLE.code());
+        executeSql("INSERT INTO ip_proxy (id, tenant_id, status, pairing_session_id, updated_at) "
+                + "VALUES (13, 7, 1, 900, 2500)");
+        assertThat(quarantine(13L, 2_000L)).isZero();
+        // 较新失败检测不能当作已经恢复；继续隔离。
+        executeSql("UPDATE ip_proxy SET whatsapp_check_status = 2 WHERE id = 12");
+        assertThat(quarantine(12L, 2_000L)).isOne();
+    }
+
+    private int quarantine(long proxyId, long failedAt) {
+        return mapper.markFailedProxyUnavailable(new IpProxyFailureContext(501L, proxyId, failedAt),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(), IpProxyCheckLifecycleStatus.SUCCESS.code(), failedUpdate(3_000L));
     }
 
     private int queryStatus(long id) throws SQLException {

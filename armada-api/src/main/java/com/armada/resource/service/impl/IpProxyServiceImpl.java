@@ -1,5 +1,7 @@
 package com.armada.resource.service.impl;
 
+import com.armada.resource.mapper.IpProxyFailureContext;
+
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.proxy.ProxyCredentials;
 import com.armada.platform.proxy.ProxyEndpoint;
@@ -501,7 +503,7 @@ public class IpProxyServiceImpl implements IpProxyService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void markFailedProxyUnavailable(Long accountId, Long proxyId) {
+    public boolean markFailedProxyUnavailable(Long accountId, Long proxyId, long failedAt) {
         if (accountId == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "账号 ID 不能为空");
         }
@@ -511,8 +513,27 @@ public class IpProxyServiceImpl implements IpProxyService {
         long now = System.currentTimeMillis();
         IpProxy update = protocolFailureUpdate(now);
         int marked = mapper.markFailedProxyUnavailable(
-                accountId, proxyId, IpProxyStatus.IN_USE.code(), update);
+                new IpProxyFailureContext(accountId, proxyId, failedAt),
+                IpProxyStatus.IN_USE.code(), IpProxyStatus.IDLE.code(),
+                IpProxyCheckLifecycleStatus.SUCCESS.code(), update);
         log.info("IP代理失败标记不可用 accountId={} proxyId={} marked={}", accountId, proxyId, marked);
+        if (marked == 1) {
+            return true;
+        }
+        IpProxy current = mapper.selectActiveById(proxyId);
+        if (current == null) {
+            return false;
+        }
+        boolean unavailable = Integer.valueOf(IpProxyStatus.UNAVAILABLE.code()).equals(current.getStatus());
+        boolean rechecked = current.getLastSampleCheckAt() != null
+                && current.getLastSampleCheckAt() > failedAt
+                && Integer.valueOf(IpProxyCheckLifecycleStatus.SUCCESS.code()).equals(current.getCheckStatus())
+                && Integer.valueOf(IpProxyCheckLifecycleStatus.SUCCESS.code()).equals(current.getWhatsappCheckStatus());
+        if (!unavailable && !rechecked) {
+            log.warn("IP代理失败隔离未完成,绑定或状态已变化 accountId={} proxyId={} status={}",
+                    accountId, proxyId, current.getStatus());
+        }
+        return unavailable || rechecked;
     }
 
     private void releaseExactBinding(Long accountId, Long proxyId, String logAction) {

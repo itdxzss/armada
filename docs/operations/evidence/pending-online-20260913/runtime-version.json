@@ -1,0 +1,15 @@
+{
+  "backendStartedAtUtc": "2026-09-13T07:51:17.52448645Z",
+  "runtimeJarSha256": "bd12e52f4559f26367dfcdbd946c8c4d869793e6dadef034c02cbe38e1006e1e",
+  "hostJarMatchesRuntime": true,
+  "proxyFailureContextSideEffectClass": false,
+  "onlineWirePayloadContainsProxyId": false,
+  "recoveryQueryUsesFailureWatermark": false,
+  "androidSourceContainsProxyID": false,
+  "androidRuntimeStartedAtUtc": {
+    "node1": "2026-09-11T11:17:13.705315833Z",
+    "node2": "2026-09-11T11:17:14.493444992Z",
+    "node3": "2026-09-11T11:17:13.766753834Z",
+    "coordinator": "2026-09-11T11:17:20.511999473Z"
+  }
+}

@@ -601,7 +601,7 @@ public class NormalGroupCreationProtocolResultService
                 ACCOUNT_OFFLINE_SEMANTIC,
                 null,
                 NORMAL_GROUP_CREATION_SOURCE,
-                null));
+                null, null));
     }
 
     private static FailureDetails failureDetails(

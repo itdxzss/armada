@@ -47,15 +47,28 @@
     LIMIT 1
   </select>
 
-  <select id="selectLatestProxyFailureByAccountId"
+  <select id="selectProxyFailureAt"
           resultType="com.armada.account.model.entity.AccountOnlineAttemptLog">
     SELECT <include refid="Columns"/>
     FROM account_online_attempt_log
     WHERE account_id = #{accountId}
-      AND to_state = #{proxyFailedState}
-      AND proxy_id IS NOT NULL
-    ORDER BY occurred_at DESC, id DESC
+      AND to_state = 'PROXY_FAILED'
+      AND occurred_at = #{occurredAt}
+    ORDER BY CASE WHEN diagnosis_class = 'STATE_CHANGED' THEN 0 ELSE 1 END, id DESC
     LIMIT 1
+  </select>
+
+  <!-- 当前读显式限定租户，避免状态事务中的旧一致性快照重复插入。 -->
+  <select id="selectProxyFailureStateIdForUpdate" resultType="java.lang.Long">
+    SELECT id
+    FROM account_online_attempt_log
+    WHERE tenant_id = #{tenantId}
+      AND account_id = #{accountId}
+      AND online_attempt_id = #{onlineAttemptId}
+      AND occurred_at = #{occurredAt}
+      AND to_state = 'PROXY_FAILED'
+      AND diagnosis_class = 'STATE_CHANGED'
+    LIMIT 1 FOR UPDATE
   </select>
 
   <!-- 当前 TenantContext 租户内清理;tenant_id 由租户拦截器注入。 -->

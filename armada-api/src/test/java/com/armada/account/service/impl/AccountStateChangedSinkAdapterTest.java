@@ -81,7 +81,23 @@ class AccountStateChangedSinkAdapterTest {
         assertThat(event.rawCode()).isEqualTo(403);
         assertThat(event.source()).isEqualTo("batch_online");
         assertThat(event.onlineAttemptId()).isEqualTo("oa_state_1");
-        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any());
+        assertThat(event.proxyId()).isEqualTo(7L);
+        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void missingEventTimeUsesSameNormalizedWatermarkForStateAndRecovery() {
+        ProtocolAccountStateChangedEvent platformEvent = new ProtocolAccountStateChangedEvent(
+                "evt-no-time", 1L, 100L, "acc_861800000001", "VERIFYING", "PROXY_FAILED",
+                null, "PROXY_FAILED", 302, "batch_online", "oa_failed_1", 7L, "worker-a");
+        when(service.applyStateChanged(any())).thenReturn(true);
+        long before = System.currentTimeMillis();
+        adapter.handleStateChanged(platformEvent);
+        ArgumentCaptor<AccountStateChangedEvent> captor = ArgumentCaptor.forClass(AccountStateChangedEvent.class);
+        verify(service).applyStateChanged(captor.capture());
+        long occurredAt = captor.getValue().occurredAt();
+        assertThat(occurredAt).isBetween(before, System.currentTimeMillis());
+        verify(recoveryCoordinator).recover(1L, 100L, "oa_failed_1", 7L, occurredAt);
     }
 
     @Test
@@ -93,7 +109,7 @@ class AccountStateChangedSinkAdapterTest {
 
         adapter.handleStateChanged(platformEvent);
 
-        verify(recoveryCoordinator).recover(1L, 100L, "oa_failed_1", 7L);
+        verify(recoveryCoordinator).recover(1L, 100L, "oa_failed_1", 7L, 1782626401000L);
     }
 
     @Test
@@ -105,7 +121,7 @@ class AccountStateChangedSinkAdapterTest {
 
         adapter.handleStateChanged(platformEvent);
 
-        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any());
+        verify(recoveryCoordinator, never()).recover(any(), any(), any(), any(), any());
     }
 
     @Test

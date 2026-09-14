@@ -127,28 +127,20 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO online(Long accountId) {
-        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null, null);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AccountOnlineVO reonlineAfterProxyFailure(Long accountId) {
-        return reonlineAfterProxyFailure(accountId, null);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public AccountOnlineVO reonlineAfterProxyFailure(Long accountId, String failedOnlineAttemptId) {
-        return reonlineAfterProxyFailure(accountId, failedOnlineAttemptId, null);
+        return onlineWithSource(accountId, SOURCE_MANUAL_ONLINE, null, null, null);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO reonlineAfterProxyFailure(Long accountId,
                                                      String failedOnlineAttemptId,
-                                                     Long failedProxyId) {
+                                                     Long failedProxyId,
+                                                     long failedAt) {
+        if (failedProxyId == null || failedProxyId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "代理失败重上线必须提供已隔离的失败代理 ID");
+        }
         return onlineWithSource(
-                accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId, failedProxyId);
+                accountId, SOURCE_PROXY_FAILED_REONLINE, failedOnlineAttemptId, failedProxyId, failedAt);
     }
 
     /**
@@ -202,7 +194,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
             return skippedTakeoverVO(accountId);
         }
         return onlineWithSource(
-                accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId, null);
+                accountId, requireText(source, "抢登续上线来源不能为空"), failedOnlineAttemptId, null, null);
     }
 
     private static boolean shouldApplyTakeoverCooldown(String source) {
@@ -212,7 +204,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private AccountOnlineVO onlineWithSource(Long accountId,
                                              String source,
                                              String failedOnlineAttemptId,
-                                             Long failedProxyId) {
+                                             Long failedProxyId,
+                                             Long failedAt) {
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
@@ -234,7 +227,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
 
         // 用户手动上线先把 OFFLINE/未上报状态原子预占为 PENDING；并发请求更新不到行时不能释放旧代理。
         claimManualOnline(List.of(account.getId()), source);
-        if (!claimProxyFailedReonline(account.getId(), source)) {
+        if (!claimProxyFailedReonline(account.getId(), source, failedAt)) {
             log.info("账号代理失败重上线跳过,状态已变化 accountId={} failedProxyId={}",
                     account.getId(), failedProxyId);
             return skippedOnlineVO(account, PROXY_FAILED_REONLINE_SKIPPED_SOURCE);
@@ -548,11 +541,12 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         }
     }
 
-    private boolean claimProxyFailedReonline(Long accountId, String source) {
+    private boolean claimProxyFailedReonline(Long accountId, String source, Long failedAt) {
         if (!SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
             return true;
         }
-        return stateMapper.claimProxyFailedReonline(accountId, System.currentTimeMillis()) == 1;
+        return failedAt != null
+                && stateMapper.claimProxyFailedReonline(accountId, failedAt, System.currentTimeMillis()) == 1;
     }
 
     private void updateDesiredLoginStateOrThrow(List<Long> accountIds, int desiredLoginState, long updatedAt) {
@@ -567,7 +561,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private IpProxyAllocation allocateOnlineEndpoint(IpProxyAllocationRequest request,
                                                       String source,
                                                       Long failedProxyId) {
-        if (!SOURCE_PROXY_FAILED_REONLINE.equals(source) || failedProxyId == null) {
+        if (!SOURCE_PROXY_FAILED_REONLINE.equals(source)) {
             return ipProxyService.allocateOnlineEndpoint(request);
         }
         IpProxyAccountAllocation allocation = ipProxyService.allocateOnlineEndpointsExcludingProxyIds(

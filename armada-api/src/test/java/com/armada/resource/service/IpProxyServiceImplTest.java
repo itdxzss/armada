@@ -1,5 +1,7 @@
 package com.armada.resource.service;
 
+import com.armada.resource.mapper.IpProxyFailureContext;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -1196,13 +1198,13 @@ class IpProxyServiceImplTest {
     @Test
     void markFailedProxyUnavailable_marksExactFailedBindingUnavailable() {
         when(mapper.markFailedProxyUnavailable(
-                eq(100L), eq(10L), eq(IpProxyStatus.IN_USE.code()), any(IpProxy.class))).thenReturn(1);
+                eq(new IpProxyFailureContext(100L, 10L, 2_000L)), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.IDLE.code()), eq(IpProxyCheckLifecycleStatus.SUCCESS.code()), any(IpProxy.class))).thenReturn(1);
 
-        service.markFailedProxyUnavailable(100L, 10L);
+        assertThat(service.markFailedProxyUnavailable(100L, 10L, 2_000L)).isTrue();
 
         ArgumentCaptor<IpProxy> updateCaptor = ArgumentCaptor.forClass(IpProxy.class);
         verify(mapper).markFailedProxyUnavailable(
-                eq(100L), eq(10L), eq(IpProxyStatus.IN_USE.code()), updateCaptor.capture());
+                eq(new IpProxyFailureContext(100L, 10L, 2_000L)), eq(IpProxyStatus.IN_USE.code()), eq(IpProxyStatus.IDLE.code()), eq(IpProxyCheckLifecycleStatus.SUCCESS.code()), updateCaptor.capture());
         IpProxy update = updateCaptor.getValue();
         assertThat(update.getStatus()).isEqualTo(IpProxyStatus.UNAVAILABLE.code());
         assertThat(update.getCheckStatus()).isEqualTo(IpProxyCheckLifecycleStatus.FAILED.code());
@@ -1255,6 +1257,28 @@ class IpProxyServiceImplTest {
         assertThat(result.failed()).isZero();
         verify(mapper).selectUnavailableForCheck(IpProxyStatus.UNAVAILABLE.code(), 20);
         verify(detector, times(2)).check(any());
+    }
+
+    @Test
+    void quarantineZeroRowsIsSuccessfulOnlyWhenAlreadyUnavailableOrSuccessfullyRechecked() {
+        IpProxy current = new IpProxy();
+        current.setStatus(IpProxyStatus.IN_USE.code());
+        current.setLastSampleCheckAt(3_000L);
+        current.setCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        current.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.FAILED.code());
+        when(mapper.selectActiveById(10L)).thenReturn(current);
+        assertThat(service.markFailedProxyUnavailable(100L, 10L, 2_000L)).isFalse();
+
+        current.setStatus(IpProxyStatus.UNAVAILABLE.code());
+        assertThat(service.markFailedProxyUnavailable(100L, 10L, 2_000L)).isTrue();
+
+        current.setStatus(IpProxyStatus.IDLE.code());
+        current.setCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        current.setWhatsappCheckStatus(IpProxyCheckLifecycleStatus.SUCCESS.code());
+        assertThat(service.markFailedProxyUnavailable(100L, 10L, 2_000L)).isTrue();
+
+        current.setLastSampleCheckAt(1_999L);
+        assertThat(service.markFailedProxyUnavailable(100L, 10L, 2_000L)).isFalse();
     }
 
     @Test

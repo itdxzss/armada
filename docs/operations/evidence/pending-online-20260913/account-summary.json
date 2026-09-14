@@ -1,0 +1,696 @@
+{
+  "observation": {
+    "utc": "2026-09-13T08:27:29.877789+00:00",
+    "windowMinutes": 35
+  },
+  "accounts": [
+    {
+      "accountId": 1784,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 489
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.884",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:25.705",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.527",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9218": 489
+      },
+      "skipMissingProxyId": 489,
+      "quarantineCount": 0,
+      "phoneSuffix": "8444",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Ready"
+      },
+      "ordinaryLoginUpdateLogCount": 2,
+      "nodeErrorCounts": {
+        "node": "node1",
+        "noise": 757,
+        "proxy_connect": 754,
+        "handshake": 1
+      }
+    },
+    {
+      "accountId": 1777,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 419
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.309",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:24.890",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:26.645",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9245": 112,
+        "9235": 307
+      },
+      "skipMissingProxyId": 419,
+      "quarantineCount": 0,
+      "phoneSuffix": "2009",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Offline"
+      },
+      "ordinaryLoginUpdateLogCount": 421,
+      "nodeErrorCounts": {
+        "node": "node2",
+        "noise": 847,
+        "proxy_connect": 846
+      }
+    },
+    {
+      "accountId": 1771,
+      "events": {
+        "RECONNECTING": 3,
+        "ONLINE/200": 3,
+        "LOGIN_REPLACED/303": 1,
+        "PROXY_FAILED/302": 383
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.116",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:24.867",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:26.693",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9237": 122,
+        "9236": 261
+      },
+      "skipMissingProxyId": 384,
+      "quarantineCount": 0,
+      "phoneSuffix": "9363",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Offline"
+      },
+      "ordinaryLoginUpdateLogCount": 3,
+      "nodeErrorCounts": {
+        "node": "node1",
+        "noise": 598,
+        "proxy_connect": 596
+      }
+    },
+    {
+      "accountId": 1764,
+      "events": {
+        "PROXY_FAILED/302": 60,
+        "ONLINE/200": 101,
+        "LOGIN_REPLACED/303": 101
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:11.523",
+          "state": "LOGIN_REPLACED/303"
+        },
+        {
+          "utc": "2026-09-13 08:27:16.468",
+          "state": "ONLINE/200"
+        },
+        {
+          "utc": "2026-09-13 08:27:17.908",
+          "state": "LOGIN_REPLACED/303"
+        }
+      ],
+      "allocationCounts": {
+        "9247": 60,
+        "9246": 101
+      },
+      "skipMissingProxyId": 60,
+      "quarantineCount": 0,
+      "phoneSuffix": "6024",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 0,
+        "state": "ONLINE"
+      },
+      "ordinaryLoginUpdateLogCount": 0,
+      "nodeErrorCounts": {
+        "node": "node2",
+        "conflict": 103,
+        "replaced": 103,
+        "noise": 410,
+        "handshake": 102
+      }
+    },
+    {
+      "accountId": 1762,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 405
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.050",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:24.861",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:26.605",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9244": 405
+      },
+      "skipMissingProxyId": 405,
+      "quarantineCount": 0,
+      "phoneSuffix": "0323",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Offline"
+      },
+      "ordinaryLoginUpdateLogCount": 407,
+      "nodeErrorCounts": {
+        "node": "node2",
+        "proxy_connect": 816,
+        "noise": 815
+      }
+    },
+    {
+      "accountId": 1757,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 402
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.949",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:25.650",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.463",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9234": 402
+      },
+      "skipMissingProxyId": 402,
+      "quarantineCount": 0,
+      "phoneSuffix": "2660",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Ready"
+      },
+      "ordinaryLoginUpdateLogCount": 404,
+      "nodeErrorCounts": {
+        "node": "node2",
+        "noise": 814,
+        "proxy_connect": 814
+      }
+    },
+    {
+      "accountId": 1589,
+      "events": {
+        "RECONNECTING": 3,
+        "ONLINE/200": 3,
+        "PROXY_FAILED/302": 15
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:17.311",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:26:21.404",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:26:28.469",
+          "state": "ONLINE/200"
+        }
+      ],
+      "allocationCounts": {
+        "7194": 15
+      },
+      "skipMissingProxyId": 15,
+      "quarantineCount": 0,
+      "phoneSuffix": "5892",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 0,
+        "state": "ONLINE"
+      },
+      "ordinaryLoginUpdateLogCount": 18,
+      "nodeErrorCounts": {
+        "node": "node3",
+        "noise": 34,
+        "proxy_connect": 26,
+        "handshake": 2
+      }
+    },
+    {
+      "accountId": 1574,
+      "events": {
+        "RECONNECTING": 2,
+        "PROXY_FAILED/302": 351,
+        "ONLINE/200": 1
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:23.881",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:25.658",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.459",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9243": 46,
+        "9237": 305
+      },
+      "skipMissingProxyId": 351,
+      "quarantineCount": 0,
+      "phoneSuffix": "8336",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Ready"
+      },
+      "ordinaryLoginUpdateLogCount": 353,
+      "nodeErrorCounts": {
+        "node": "node3",
+        "noise": 540,
+        "proxy_connect": 538
+      }
+    },
+    {
+      "accountId": 1558,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 369,
+        "OFFLINE/101": 1
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:24.838",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:26.117",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.774",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "9235": 76,
+        "9245": 292
+      },
+      "skipMissingProxyId": 369,
+      "quarantineCount": 0,
+      "phoneSuffix": "3682",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Ready"
+      },
+      "ordinaryLoginUpdateLogCount": 372,
+      "nodeErrorCounts": {
+        "node": "node3",
+        "noise": 809,
+        "proxy_connect": 808
+      }
+    },
+    {
+      "accountId": 744,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 225
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:22.700",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:24.944",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.072",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "7177": 225
+      },
+      "skipMissingProxyId": 225,
+      "quarantineCount": 0,
+      "phoneSuffix": "8059",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Offline"
+      },
+      "ordinaryLoginUpdateLogCount": 227,
+      "nodeErrorCounts": {
+        "node": "node1",
+        "noise": 520,
+        "proxy_connect": 518
+      }
+    },
+    {
+      "accountId": 707,
+      "events": {
+        "RECONNECTING": 2,
+        "ONLINE/200": 1,
+        "PROXY_FAILED/302": 196
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:27:17.266",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:21.364",
+          "state": "PROXY_FAILED/302"
+        },
+        {
+          "utc": "2026-09-13 08:27:25.465",
+          "state": "PROXY_FAILED/302"
+        }
+      ],
+      "allocationCounts": {
+        "7164": 196
+      },
+      "skipMissingProxyId": 196,
+      "quarantineCount": 0,
+      "phoneSuffix": "1628",
+      "backend": "ANDROID",
+      "protocolStatus": {
+        "code": 1003,
+        "state": "Offline"
+      },
+      "ordinaryLoginUpdateLogCount": 198,
+      "nodeErrorCounts": {
+        "node": "node3",
+        "proxy_connect": 350,
+        "noise": 350
+      }
+    },
+    {
+      "accountId": 179,
+      "events": {
+        "RECONNECTING/428": 2,
+        "VERIFYING": 23,
+        "ONLINE": 1,
+        "PROXY_FAILED/428": 1,
+        "PROXY_FAILED/408": 20
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:51.380",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:21.425",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:23.617",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9202": 21
+      },
+      "skipMissingProxyId": 21,
+      "quarantineCount": 0,
+      "phoneSuffix": "8862",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.760Z",
+        "connectionField": "connecting",
+        "ageMs": 12147,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 46,
+      "nodeErrorCounts": {}
+    },
+    {
+      "accountId": 178,
+      "events": {
+        "STALE/408": 3,
+        "RECONNECTING": 3,
+        "VERIFYING": 46,
+        "PROXY_FAILED/408": 43,
+        "ONLINE": 3
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:35.260",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:05.271",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:07.499",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9201": 43
+      },
+      "skipMissingProxyId": 43,
+      "quarantineCount": 0,
+      "phoneSuffix": "2301",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.760Z",
+        "connectionField": "connecting",
+        "ageMs": 28265,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 95,
+      "nodeErrorCounts": {}
+    },
+    {
+      "accountId": 116,
+      "events": {
+        "RECONNECTING/428": 2,
+        "VERIFYING": 31,
+        "ONLINE": 1,
+        "PROXY_FAILED/428": 1,
+        "PROXY_FAILED/408": 28
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:55.411",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:25.423",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:27.733",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9184": 29
+      },
+      "skipMissingProxyId": 29,
+      "quarantineCount": 0,
+      "phoneSuffix": "7850",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.761Z",
+        "connectionField": "connecting",
+        "ageMs": 8032,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 62,
+      "nodeErrorCounts": {}
+    },
+    {
+      "accountId": 95,
+      "events": {
+        "PROXY_FAILED/428": 2,
+        "VERIFYING": 14,
+        "ONLINE": 1,
+        "RECONNECTING/428": 1,
+        "PROXY_FAILED/408": 11
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:47.350",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:17.360",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:19.580",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9180": 13
+      },
+      "skipMissingProxyId": 13,
+      "quarantineCount": 0,
+      "phoneSuffix": "6030",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.761Z",
+        "connectionField": "connecting",
+        "ageMs": 16185,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 28,
+      "nodeErrorCounts": {}
+    },
+    {
+      "accountId": 24,
+      "events": {
+        "PROXY_FAILED/428": 3,
+        "VERIFYING": 6,
+        "ONLINE": 2,
+        "RECONNECTING/428": 1,
+        "PROXY_FAILED/408": 2
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:43.322",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:13.347",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:15.553",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9159": 5
+      },
+      "skipMissingProxyId": 5,
+      "quarantineCount": 0,
+      "phoneSuffix": "1337",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.762Z",
+        "connectionField": "connecting",
+        "ageMs": 20213,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 12,
+      "nodeErrorCounts": {}
+    },
+    {
+      "accountId": 18,
+      "events": {
+        "PROXY_FAILED/428": 2,
+        "VERIFYING": 6,
+        "ONLINE": 2,
+        "STALE/408": 1,
+        "RECONNECTING": 1,
+        "PROXY_FAILED/408": 2,
+        "RECONNECTING/428": 1
+      },
+      "lastEvents": [
+        {
+          "utc": "2026-09-13 08:26:39.299",
+          "state": "VERIFYING"
+        },
+        {
+          "utc": "2026-09-13 08:27:09.309",
+          "state": "PROXY_FAILED/408"
+        },
+        {
+          "utc": "2026-09-13 08:27:11.607",
+          "state": "VERIFYING"
+        }
+      ],
+      "allocationCounts": {
+        "9158": 4
+      },
+      "skipMissingProxyId": 4,
+      "quarantineCount": 0,
+      "phoneSuffix": "8932",
+      "backend": "WEB",
+      "protocolStatus": {
+        "state": "VERIFYING",
+        "workerId": "armada-protocol-w1",
+        "lastStateSyncTime": "2026-09-13T08:27:35.762Z",
+        "connectionField": "connecting",
+        "ageMs": 24244,
+        "reasonCategories": []
+      },
+      "ordinaryLoginUpdateLogCount": 13,
+      "nodeErrorCounts": {}
+    }
+  ]
+}

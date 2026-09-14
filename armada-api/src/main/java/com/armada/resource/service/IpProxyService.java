@@ -193,13 +193,15 @@ public interface IpProxyService {
     /**
      * 将协议本次判定失败的旧代理精确标记为不可用并解绑。
      *
-     * <p>只命中 {@code proxyId + accountId + IN_USE}，避免迟到事件误伤其它绑定；标记后的代理由
-     * 不可用 IP 定时重检任务探测，恢复后重新进入空闲池。未命中按幂等成功处理。</p>
+     * <p>隔离原绑定或被提前释放的空闲代理，保护失败之后的新绑定和成功重检结果。
+     * 标记后的代理由不可用 IP 定时重检任务探测，成功后重新进入空闲池。</p>
      *
      * @param accountId 账号主键
      * @param proxyId   协议状态事件携带的失败代理主键
+     * @param failedAt 此次失败时间水位
+     * @return 已隔离或在本次失败之后成功重检；false 表示未完成，调用方不得分配新代理
      */
-    void markFailedProxyUnavailable(Long accountId, Long proxyId);
+    boolean markFailedProxyUnavailable(Long accountId, Long proxyId, long failedAt);
 
     /**
      * 批量释放账号上线过程中本次分配的代理。

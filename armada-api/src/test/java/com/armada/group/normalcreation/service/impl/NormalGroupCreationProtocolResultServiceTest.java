@@ -232,7 +232,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
         verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
                 1L, 383L, "member-android", null, "OFFLINE", 1000L,
-                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
+                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null, null));
     }
 
     @Test
@@ -266,7 +266,7 @@ class NormalGroupCreationProtocolResultServiceTest {
                 anyLong());
         verify(accountStateEventService).applyStateChanged(new AccountStateChangedEvent(
                 1L, 382L, "creator-web", null, "OFFLINE", 1000L,
-                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null));
+                "NORMAL_GROUP_ACCOUNT_NOT_ONLINE", null, "normal_group_creation", null, null));
     }
 
     @Test

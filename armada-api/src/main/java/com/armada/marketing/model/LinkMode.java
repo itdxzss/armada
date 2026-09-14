@@ -15,7 +15,10 @@ public enum LinkMode {
     BUTTON(2),
 
     /** 图文内容:按图文模板内容发送,不配置消息按钮。 */
-    IMAGE_TEXT(3);
+    IMAGE_TEXT(3),
+
+    /** 图片链接卡片:图片作为链接预览图,图片与有效 HTTP(S) 推广链接必填。 */
+    IMAGE_LINK(4);
 
     private final int code;
 

@@ -255,6 +255,14 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
             throw new BusinessException(ErrorCode.CONFLICT, "模板名称已存在: " + dto.templateName());
         }
         LinkMode mode = LinkMode.fromCode(dto.linkMode());
+        if (mode == LinkMode.IMAGE_LINK) {
+            if (dto.imageFileId() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "图片链接卡片必须选择图片");
+            }
+            if (!HttpUrlValidator.isHttpUrl(dto.promotionLink())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "图片链接卡片必须配置有效的推广链接");
+            }
+        }
         if (mode != LinkMode.BUTTON
                 && StringUtils.hasText(dto.promotionLink())
                 && !HttpUrlValidator.isHttpUrl(dto.promotionLink())) {
@@ -280,13 +288,17 @@ public class MarketingTemplateServiceImpl implements MarketingTemplateService {
     }
 
     /**
-     * 按消息类型校验按钮。只有按钮超链允许配置按钮;普通超链和图文内容都不携带按钮。
+     * 按消息类型校验按钮。只有按钮超链允许配置按钮，其他类型不携带按钮。
      */
     private void validateButtons(LinkMode mode, List<MessageButton> buttons) {
         boolean hasButtons = buttons != null && !buttons.isEmpty();
         if (mode != LinkMode.BUTTON) {
             if (hasButtons) {
-                String modeName = mode == LinkMode.IMAGE_TEXT ? "图文内容消息类型" : "普通超链消息类型";
+                String modeName = switch (mode) {
+                    case IMAGE_TEXT -> "图文内容消息类型";
+                    case IMAGE_LINK -> "图片链接卡片";
+                    default -> "普通超链消息类型";
+                };
                 throw new BusinessException(ErrorCode.VALIDATION, modeName + "不可配置消息按钮");
             }
             return;

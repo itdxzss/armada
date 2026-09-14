@@ -77,6 +77,46 @@ class MarketingTemplateServiceImplTest {
     }
 
     @Test
+    void imageLinkRequiresImageAndDestinationBeforeSaving() {
+        assertThatThrownBy(() -> service.create(new MarketingTemplateDTO("图片链接", 4, null,
+                null, "标题", null, List.of(), "https://example.com", null), ResourceAssetScope.MARKETING))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片必须选择图片");
+        for (String url : new String[] {null, "", " ", "javascript:alert(1)"}) {
+            assertThatThrownBy(() -> service.create(new MarketingTemplateDTO("图片链接", 4, null,
+                    91L, "标题", null, List.of(), url, null), ResourceAssetScope.MARKETING))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片必须配置有效的推广链接");
+        }
+        verify(mapper, never()).insert(any());
+    }
+
+    @Test
+    void imageLinkSavesNewTypeAndLocksItsImage() {
+        MarketingTemplate entity = new MarketingTemplate();
+        entity.setImageFileId(91L);
+        entity.setLinkMode(4);
+        entity.setPromotionLink("https://example.com");
+        when(converter.toEntity(any())).thenReturn(entity);
+        when(mapper.selectById(any())).thenReturn(entity);
+
+        service.create(new MarketingTemplateDTO("图片链接", 4, null, 91L, "标题", null,
+                List.of(), "https://example.com", null), ResourceAssetScope.MARKETING);
+
+        InOrder order = inOrder(fileService, mapper);
+        order.verify(fileService).lockAndValidateBindableAssets(List.of(91L), ResourceAssetScope.MARKETING);
+        order.verify(mapper).insert(entity);
+        assertThat(entity.getLinkMode()).isEqualTo(4);
+        assertThat(entity.getPromotionLink()).isEqualTo("https://example.com");
+    }
+
+    @Test
+    void imageLinkRejectsButtons() {
+        assertThatThrownBy(() -> service.create(new MarketingTemplateDTO("图片链接", 4, null,
+                91L, "标题", null, List.of(new MessageButton(ButtonType.QUICK_REPLY, "回复", null)),
+                "https://example.com", null), ResourceAssetScope.MARKETING))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片不可配置消息按钮");
+    }
+
+    @Test
     void create_blankName_throws() {
         assertThatThrownBy(() -> service.create(dto(" ", LinkMode.NORMAL.code(), null), ResourceAssetScope.MARKETING))
                 .isInstanceOf(BusinessException.class)

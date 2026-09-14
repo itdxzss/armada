@@ -11,13 +11,13 @@ public record MarketingTemplateDTO(
         /** 模板名(必填,租户内唯一)。 */
         String templateName,
 
-        /** 消息类型码:1=普通超链 2=按钮超链 3=图文内容(必填)。 */
+        /** 消息类型码:1=普通超链 2=按钮超链 3=图文内容 4=图片链接卡片(必填)。 */
         Integer linkMode,
 
         /** 文本类型(搜索筛选用,dict 配置)。 */
         String textType,
 
-        /** 图片文件 ID。 */
+        /** 图片文件 ID，图片链接卡片必填。 */
         Long imageFileId,
 
         /** 内容:标题 / 核心卖点；图文类型绑定图片时可为空，其余必填。 */
@@ -29,7 +29,7 @@ public record MarketingTemplateDTO(
         /** 消息按钮:最多 3 个,仅按钮超链消息类型可配。 */
         List<MessageButton> buttons,
 
-        /** 推广链接(二期)。 */
+        /** 推广链接；图片链接卡片必须配置有效 HTTP(S) URL。 */
         String promotionLink,
 
         /** 备注。 */

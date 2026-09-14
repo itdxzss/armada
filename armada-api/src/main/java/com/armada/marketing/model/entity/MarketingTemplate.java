@@ -17,7 +17,7 @@ public class MarketingTemplate {
     /** 模板名。 */
     private String templateName;
 
-    /** 消息类型:1=普通超链 2=按钮超链 3=图文内容(见 {@code LinkMode})。 */
+    /** 消息类型:1=普通超链 2=按钮超链 3=图文内容 4=图片链接卡片(见 {@code LinkMode})。 */
     private Integer linkMode;
 
     /** 文本类型(搜索筛选,dict 配置)。 */

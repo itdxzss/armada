@@ -14,7 +14,7 @@ public record MarketingTemplateVO(
         /** 模板名。 */
         String templateName,
 
-        /** 消息类型码:1=普通超链 2=按钮超链 3=图文内容。 */
+        /** 消息类型码:1=普通超链 2=按钮超链 3=图文内容 4=图片链接卡片。 */
         Integer linkMode,
 
         /** 文本类型。 */

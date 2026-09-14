@@ -21,6 +21,59 @@ class MarketingMessageComposerTest {
     private final MarketingMessageComposer composer = new MarketingMessageComposer();
 
     @Test
+    void explicitImageLinkCarriesDestinationAndThumbnailThroughSendCommand() {
+        MarketingTemplate template = template(4, 99L);
+        template.setContent("卡片标题");
+        template.setBodyText("卡片说明");
+        template.setPromotionLink(" https://example.com/image-link ");
+        template.setMentionAll(true);
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {9, 8, 7});
+        file.setContentType("image/png");
+
+        var message = composer.compose(template, file);
+        var payload = MarketingMessageCommandFactory.payload(message);
+
+        assertThat(payload.type().name()).isEqualTo("LINK_CARD");
+        assertThat(message.text()).isEqualTo("https://example.com/image-link");
+        assertThat(message.imageBytes()).isNull();
+        assertThat(message.buttonCard()).isNull();
+        assertThat(payload.content().linkCard().url()).isEqualTo("https://example.com/image-link");
+        assertThat(payload.content().linkCard().title()).isEqualTo("卡片标题");
+        assertThat(payload.content().linkCard().description()).isEqualTo("卡片说明");
+        assertThat(payload.content().linkCard().thumbnail().bytes()).containsExactly(9, 8, 7);
+        assertThat(message.mentionAll()).isTrue();
+    }
+
+    @Test
+    void explicitImageLinkNeverFallsBackWhenImageIsMissingOrEmpty() {
+        MarketingTemplate template = template(4, 99L);
+        template.setContent("卡片标题");
+        template.setPromotionLink("https://example.com/image-link");
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[0]);
+
+        assertThatThrownBy(() -> composer.compose(template, null))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片必须配置可用图片");
+        assertThatThrownBy(() -> composer.compose(template, file))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片必须配置可用图片");
+    }
+
+    @Test
+    void explicitImageLinkRejectsMissingAndUnsafeDestinations() {
+        MarketingTemplate template = template(4, 99L);
+        template.setContent("卡片标题");
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {1});
+
+        for (String url : new String[] {null, "", " ", "javascript:alert(1)", "ftp://example.com"}) {
+            template.setPromotionLink(url);
+            assertThatThrownBy(() -> composer.compose(template, file))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("图片链接卡片必须配置有效的推广链接");
+        }
+    }
+
+    @Test
     void imageWithoutCaptionKeepsImageBytesAndEmptyText() {
         MarketingTemplate template = template(LinkMode.IMAGE_TEXT.code(), 99L);
         template.setContent("  ");

@@ -41,6 +41,14 @@ public class MarketingMessageComposer {
         boolean mentionAll = template.getMentionAll();
         String text = composeText(template, mode);
         MediaPayload thumbnail = mediaPayload(imageFile);
+        if (mode == LinkMode.IMAGE_LINK) {
+            if (thumbnail == null) {
+                throw new BusinessException(ErrorCode.VALIDATION, "图片链接卡片必须配置可用图片");
+            }
+            if (!HttpUrlValidator.isHttpUrl(template.getPromotionLink())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "图片链接卡片必须配置有效的推广链接");
+            }
+        }
         if (mode == LinkMode.IMAGE_TEXT && thumbnail != null) {
             return new ComposedMessage("IMAGE", text, thumbnail.bytes(), thumbnail.mimetype(), mentionAll);
         }
@@ -50,7 +58,7 @@ public class MarketingMessageComposer {
         if (mode == LinkMode.BUTTON) {
             return composeButtonCard(template, text, thumbnail, mentionAll);
         }
-        if (mode == LinkMode.NORMAL
+        if ((mode == LinkMode.NORMAL || mode == LinkMode.IMAGE_LINK)
                 && thumbnail != null
                 && HttpUrlValidator.isHttpUrl(template.getPromotionLink())) {
             return new ComposedMessage(
@@ -142,7 +150,7 @@ public class MarketingMessageComposer {
     }
 
     /**
-     * link preview 的正文优先使用模板标题,其次正文,最后用推广链接兜底,避免卡片文本为空。
+     * 链接预览正文必须包含目标 URL，收件端才能将预览图识别为可点击链接。
      */
     private static String linkCardText(MarketingTemplate template) {
         return template.getPromotionLink().trim();

@@ -3,8 +3,12 @@ package com.armada.group.service.impl;
 import com.armada.account.model.enums.AccountGroupBaselineStateCode;
 import com.armada.group.mapper.AccountGroupCurrentSnapshotMapper;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledExisting;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledObservation;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupWriteContext;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupHandle;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupReference;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.MembershipExitWrite;
@@ -14,6 +18,7 @@ import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ParticipantPre
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.SyncStateWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Write;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
+import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.dto.WhatsappGroupDepartureFact;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
@@ -29,6 +34,7 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -472,8 +478,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
 
         long now = System.currentTimeMillis();
         String normalizedEventId = clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH);
-        Long groupId = resolveGroupIds(
-                tenantId, List.of(normalizedGroupJid), now).get(normalizedGroupJid);
+        resolveGroupIds(tenantId, List.of(normalizedGroupJid), now);
         Existing existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                 tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         if (existing == null) {
@@ -488,6 +493,166 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             existing = mapper.selectSelfMembershipExistingAfterGroupLock(
                     tenantId, accountId, self.ownerJid(), normalizedGroupJid);
         }
+        ControlledParticipantOutcome outcome = controlledParticipantOutcome(context, existing,
+                new ControlledObservation(accountId, inGroup, admin, observedAt,
+                        normalizedEventId, normalizedSource), now);
+        ParticipantPresenceWrite row = outcome.write().row();
+        mergeSplitParticipantIdentities(tenantId, List.of(row));
+        mapper.upsertParticipantFacts(List.of(row));
+        if (!inGroup) {
+            mapper.clearMembershipActiveSinceForAcceptedExit(
+                    tenantId, new MembershipExitWrite(
+                            accountId, List.of(row.groupId()),
+                            normalizedSource, observedAt, now));
+        }
+        mapper.upsertSelfBinding(tenantId, accountId, row);
+        return outcome.newlyInGroup();
+    }
+
+    /**
+     * 在同一事务内批量处理一个群的受控成员，返回本批新确认的进群周期。
+     *
+     * <p>每个账号在一批内只能出现一次。沿用 GL→G→P→B 群写入边界及既有事实优先级，
+     * 只将重复账号查询、成员写入和绑定写入集合化；不合并或丢弃不同消息。</p>
+     *
+     * @param groupJid 本条群事件对应的群
+     * @param observations 各受控账号的独立成员观察
+     * @return 新确认进群周期的账号与群
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public List<ControlledAccountGroupTransition> applyControlledParticipantObservations(
+            String groupJid, List<ControlledObservation> observations) {
+        if (observations == null || observations.isEmpty()) {
+            return List.of();
+        }
+        Long tenantId = requiredTenantId();
+        String normalizedGroupJid = participantGroupJid(groupJid);
+        Map<Long, Context> contexts = controlledContexts(tenantId, observations);
+        long now = System.currentTimeMillis();
+        Long groupId = resolveGroupIds(tenantId, List.of(normalizedGroupJid), now)
+                .get(normalizedGroupJid);
+        return persistControlledBatches(new GroupWriteContext(tenantId, groupId, normalizedGroupJid),
+                observations, contexts, Set.of(), now);
+    }
+
+    /**
+     * 对齐完整资料快照中的账号绑定，复用本事务已锁定的群与已写入成员。
+     *
+     * <p>只有本条完整快照成功写入的 PN 才省去第二遍成员 UPSERT；旧快照被拒绝或 PN 尚未
+     * 写入时仍走原有事实补写。所有账号的绑定始终更新，不合并不同账号或不同事件。</p>
+     *
+     * @param group 本事务已取得写锁的群
+     * @param observations 本条完整资料的受控账号观察
+     * @param writtenPnJids 本条快照返回的已写入 PN，不能复用其他消息的结果
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void reconcileProfileSnapshotBindings(GroupWriteContext group,
+            List<ControlledObservation> observations, Set<String> writtenPnJids) {
+        Long tenantId = validateGroupWriteContext(group);
+        if (observations == null || observations.isEmpty()) {
+            return;
+        }
+        if (writtenPnJids == null || observations.stream().anyMatch(observation ->
+                observation == null || !observation.inGroup()
+                        || !"FULL_SNAPSHOT".equals(observation.source()))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "资料绑定必须来自同条完整成员快照");
+        }
+        persistControlledBatches(group, observations, controlledContexts(tenantId, observations),
+                writtenPnJids, System.currentTimeMillis());
+    }
+
+    private Map<Long, Context> controlledContexts(
+            Long tenantId, List<ControlledObservation> observations) {
+        List<Long> accountIds = observations.stream().map(observation -> {
+            if (observation == null || observation.accountId() == null
+                    || observation.accountId() <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION, "群成员批量观察缺少账号");
+            }
+            return observation.accountId();
+        }).distinct().sorted().toList();
+        if (accountIds.size() != observations.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "同批群成员观察包含重复账号");
+        }
+        Map<Long, Context> contexts = mapper.selectContexts(tenantId, accountIds).stream()
+                .collect(Collectors.toMap(Context::accountId, Function.identity()));
+        if (!contexts.keySet().containsAll(accountIds)) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型成员观察找不到活跃账号");
+        }
+        return contexts;
+    }
+
+    private List<ControlledAccountGroupTransition> persistControlledBatches(
+            GroupWriteContext lockedGroup, List<ControlledObservation> observations,
+            Map<Long, Context> contexts, Set<String> writtenPnJids, long now) {
+        Long tenantId = lockedGroup.tenantId();
+        Long groupId = lockedGroup.groupId();
+        String normalizedGroupJid = lockedGroup.groupJid();
+        Existing group = new Existing(normalizedGroupJid, groupId,
+                null, null, null, null, null, null, null, null, null);
+        List<ControlledObservation> sorted = observations.stream()
+                .sorted(Comparator.comparing(ControlledObservation::accountId)).toList();
+        List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
+        for (int start = 0; start < sorted.size(); start += PARTICIPANT_WRITE_BATCH_SIZE) {
+            List<ControlledObservation> batch = sorted.subList(start,
+                    Math.min(start + PARTICIPANT_WRITE_BATCH_SIZE, sorted.size()));
+            List<ControlledWrite> keys = batch.stream().map(observation ->
+                    controlledParticipantOutcome(contexts.get(observation.accountId()), group,
+                            observation, now).write()).toList();
+            Map<Long, Existing> existing = controlledExisting(tenantId, groupId, keys);
+            List<ControlledParticipantOutcome> outcomes = batch.stream().map(observation ->
+                    controlledParticipantOutcome(contexts.get(observation.accountId()),
+                            existing.get(observation.accountId()), observation, now)).toList();
+            List<ControlledWrite> writes = outcomes.stream()
+                    .map(ControlledParticipantOutcome::write).toList();
+            upsertParticipantFactsInBatches(tenantId,
+                    writes.stream().map(ControlledWrite::row)
+                            .filter(row -> !writtenPnJids.contains(row.pnJid())).toList());
+            List<ControlledWrite> exits = writes.stream()
+                    .filter(write -> write.row().presenceStatus() != PRESENCE_IN_GROUP).toList();
+            if (!exits.isEmpty()) {
+                mapper.clearControlledMembershipActiveSinceForAcceptedExits(tenantId, exits);
+            }
+            mapper.upsertControlledBindings(tenantId, writes);
+            outcomes.stream().filter(ControlledParticipantOutcome::newlyInGroup)
+                    .map(outcome -> new ControlledAccountGroupTransition(
+                            outcome.write().accountId(), normalizedGroupJid))
+                    .forEach(transitions::add);
+        }
+        return List.copyOf(transitions);
+    }
+
+    private Map<Long, Existing> controlledExisting(
+            Long tenantId, Long groupId, List<ControlledWrite> rows) {
+        Map<Long, Existing> existing = mapper.selectControlledExistingAfterGroupLock(
+                        tenantId, groupId, rows).stream()
+                .collect(Collectors.toMap(ControlledExisting::accountId, ControlledExisting::existing));
+        if (existing.size() != rows.size()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定成员观察的群事实");
+        }
+        rows.stream().filter(write -> write.row().presenceStatus() == PRESENCE_IN_GROUP
+                && existing.get(write.accountId()).deletedAt() != null).findFirst().ifPresent(write -> {
+                    ParticipantPresenceWrite row = write.row();
+                    mapper.insertMissingGroups(tenantId, List.of(new Write(
+                            null, row.groupJid(), null, null, null, null, null,
+                            row.pnJid(), row.phone(), 0, row.eventId(), row.occurredAt(), row.now(),
+                            null, null, null, null, null, null, null, null, null)));
+                });
+        return existing;
+    }
+
+    private static ControlledParticipantOutcome controlledParticipantOutcome(
+            Context context, Existing existing, ControlledObservation observation, long now) {
+        WhatsappJids.OwnerIdentity self = WhatsappJids.ownerIdentity(context.wsPhone(), "pn");
+        if (self.kind() != OwnerIdentityKind.PN || self.ownerJid() == null || self.ownerPhone() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "账号手机号无法构造 self PN JID");
+        }
+        String normalizedSource = blankToNull(observation.source());
+        long observedAt = observation.observedAt();
+        if (normalizedSource == null || observedAt <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模型成员观察来源或事实时间非法");
+        }
+        String normalizedEventId = clamp(blankToNull(observation.eventId()), EVENT_ID_MAX_LENGTH);
+        boolean inGroup = observation.inGroup();
         boolean accepted = presenceWins(existing, observedAt, normalizedSource);
         boolean preciseAdd = PRECISE_ADD_SOURCE.equals(normalizedSource);
         boolean acceptedTransition = inGroup
@@ -500,7 +665,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         boolean newlyInGroup = acceptedTransition || activeSince != null;
         ParticipantPresenceWrite row = new ParticipantPresenceWrite(
                 existing.groupId(),
-                normalizedGroupJid,
+                existing.groupJid(),
                 self.ownerJid(),
                 null,
                 self.ownerPhone(),
@@ -513,26 +678,21 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 null,
                 null,
                 null,
-                inGroup ? (admin ? 2 : 1) : null,
+                inGroup ? (observation.admin() ? 2 : 1) : null,
                 inGroup ? normalizedSource : null,
                 inGroup ? observedAt : null,
-                inGroup ? clamp(blankToNull(eventId), EVENT_ID_MAX_LENGTH) : null,
+                inGroup ? normalizedEventId : null,
                 null,
                 null,
                 null,
                 activeSince,
                 null);
 
-        mergeSplitParticipantIdentities(tenantId, List.of(row));
-        mapper.upsertParticipantFacts(List.of(row));
-        if (!inGroup) {
-            mapper.clearMembershipActiveSinceForAcceptedExit(
-                    tenantId, new MembershipExitWrite(
-                            accountId, List.of(row.groupId()),
-                            normalizedSource, observedAt, now));
-        }
-        mapper.upsertSelfBinding(tenantId, accountId, row);
-        return newlyInGroup;
+        return new ControlledParticipantOutcome(
+                new ControlledWrite(observation.accountId(), row), newlyInGroup);
+    }
+
+    private record ControlledParticipantOutcome(ControlledWrite write, boolean newlyInGroup) {
     }
 
     /** 写入普通成员进群事实，不创建账号群关系。 */
@@ -698,14 +858,23 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 null, null, null, null);
     }
 
-    /** 用已确认完整的成员数组替换新模型成员快照。 */
+    /**
+     * 用已确认完整的成员数组更新成员事实，并标记快照中缺失的成员。
+     *
+     * @param group 本事务已取得写锁的群
+     * @param participants 协议明确声明完整的成员数组，空数组表示群内无人
+     * @param snapshotAt 协议观察时间
+     * @param snapshotVersion 本条快照版本
+     * @return 本事务已写入的 PN，供同条资料的账号绑定复用；旧版本被拒绝时返回空集
+     * @throws BusinessException 上下文租户不符或快照缺少数组、版本
+     */
     @Transactional(rollbackFor = Exception.class)
-    public void replaceCompleteParticipantSnapshot(
-            String groupJid,
+    public Set<String> replaceCompleteParticipantSnapshot(
+            GroupWriteContext group,
             List<GroupParticipantResult> participants,
             long snapshotAt,
             String snapshotVersion) {
-        replaceCompleteSnapshot(groupJid, participants, snapshotAt, snapshotVersion, null);
+        return replaceCompleteSnapshot(group, participants, snapshotAt, snapshotVersion, null);
     }
 
     /**
@@ -717,10 +886,10 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      *
      * @param groupLinkId 本事件刚登记或复用的兼容群句柄，可空
      * @param groupJid WhatsApp 群 JID
-     * @return 已锁定的 {@code wa_group.id}
+     * @return 仅供同一事务复用的已锁定群上下文
      */
     @Transactional(rollbackFor = Exception.class)
-    public Long lockGroupWriteBoundary(Long groupLinkId, String groupJid) {
+    public GroupWriteContext lockGroupWriteBoundary(Long groupLinkId, String groupJid) {
         Long tenantId = requiredTenantId();
         String normalizedGroupJid = participantGroupJid(groupJid);
         if (groupLinkId != null) {
@@ -736,7 +905,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         if (groupId == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法锁定资料上报的群写入边界");
         }
-        return groupId;
+        return new GroupWriteContext(tenantId, groupId, normalizedGroupJid);
     }
 
     /** 将现有群详情成功结果同步写入新模型群资料和完整成员快照。 */
@@ -750,7 +919,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
             throw new BusinessException(ErrorCode.VALIDATION, "完整群资料快照为空");
         }
         replaceCompleteSnapshot(
-                preview.getGroupJid(), participants, snapshotAt, snapshotVersion, preview);
+                lockGroupWriteBoundary(null, preview.getGroupJid()),
+                participants, snapshotAt, snapshotVersion, preview);
     }
 
     /**
@@ -759,22 +929,26 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      * <p>建群时间建群时定死、此后不变，与可变的资料字段不是同一生命周期，因此不进
      * fieldMask 也不参与版本比较——先到先得即可。</p>
      *
-     * @param groupJid    群 JID
+     * @param group      本事务已取得写锁的群
      * @param waCreatedAt WhatsApp 建群时间(epoch 毫秒)
      */
     @Transactional(rollbackFor = Exception.class)
-    public void fillGroupCreatedAt(String groupJid, Long waCreatedAt) {
+    public void fillGroupCreatedAt(GroupWriteContext group, Long waCreatedAt) {
+        validateGroupWriteContext(group);
         if (waCreatedAt == null || waCreatedAt <= 0) {
             return;
         }
+        mapper.fillGroupCreatedAt(group.groupId(), waCreatedAt, System.currentTimeMillis());
+    }
+
+    private Long validateGroupWriteContext(GroupWriteContext group) {
         Long tenantId = requiredTenantId();
-        long now = System.currentTimeMillis();
-        String normalizedJid = participantGroupJid(groupJid);
-        Long groupId = resolveGroupIds(tenantId, List.of(normalizedJid), now).get(normalizedJid);
-        if (groupId == null) {
-            return;
+        if (group == null || !tenantId.equals(group.tenantId())
+                || group.groupId() == null || group.groupId() <= 0
+                || !participantGroupJid(group.groupJid()).equals(group.groupJid())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群写入上下文与当前租户不符");
         }
-        mapper.fillGroupCreatedAt(groupId, waCreatedAt, now);
+        return tenantId;
     }
 
     /** 将协议回读已确认的群资料单字段立即写入新模型。 */
@@ -791,28 +965,24 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
         mapper.upsertGroupMetadata(groupId, preview, null, observedAt, now);
     }
 
-    private void replaceCompleteSnapshot(
-            String groupJid,
+    private Set<String> replaceCompleteSnapshot(
+            GroupWriteContext group,
             List<GroupParticipantResult> participants,
             long snapshotAt,
             String snapshotVersion,
             GroupLinkPreview preview) {
-        Long tenantId = requiredTenantId();
+        Long tenantId = validateGroupWriteContext(group);
         if (participants == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照缺少成员数组");
         }
-        String normalizedGroupJid = participantGroupJid(groupJid);
+        String normalizedGroupJid = group.groupJid();
         String normalizedVersion = clamp(
                 blankToNull(snapshotVersion), SNAPSHOT_VERSION_MAX_LENGTH);
         if (normalizedVersion == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "完整群成员快照缺少版本");
         }
         long now = System.currentTimeMillis();
-        Long groupId = resolveGroupIds(
-                tenantId, List.of(normalizedGroupJid), now).get(normalizedGroupJid);
-        if (groupId == null) {
-            throw new BusinessException(ErrorCode.CONFLICT, "新群模型无法解析成员快照的 groupId");
-        }
+        Long groupId = group.groupId();
         if (preview != null) {
             long metadataObservedAt = preview.getMetadataObservedAt() == null
                     ? requiredFactTime(preview.getUpdatedAt())
@@ -832,7 +1002,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 groupId, rows.size(), snapshotAt, normalizedVersion, now);
         String winningVersion = mapper.selectParticipantSnapshotVersionForUpdate(groupId);
         if (!normalizedVersion.equals(winningVersion)) {
-            return;
+            return Set.of();
         }
         upsertParticipantFactsInBatches(tenantId, rows);
         mapper.markParticipantSnapshotMissing(
@@ -841,6 +1011,8 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                 normalizedVersion,
                 clamp("snapshot:" + normalizedVersion + ":absent", EVENT_ID_MAX_LENGTH),
                 now);
+        return rows.stream().map(ParticipantPresenceWrite::pnJid)
+                .filter(Objects::nonNull).collect(Collectors.toUnmodifiableSet());
     }
 
     private void persistParticipantFacts(

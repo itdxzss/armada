@@ -94,6 +94,9 @@ public class GroupLinkPreview {
     /** 群详情请求开始观察时间(epoch毫秒)。 */
     private Long metadataObservedAt;
 
+    /** 当前群完整成员快照版本；仅用于详情读取投影，不对应 group_link_preview 列。 */
+    private String memberSnapshotVersion;
+
     /** 创建时间(epoch毫秒)。 */
     private Long createdAt;
 
@@ -346,6 +349,16 @@ public class GroupLinkPreview {
 
     public void setMetadataObservedAt(Long metadataObservedAt) {
         this.metadataObservedAt = metadataObservedAt;
+    }
+
+    /** 返回详情读取所使用的完整成员快照版本。 */
+    public String getMemberSnapshotVersion() {
+        return memberSnapshotVersion;
+    }
+
+    /** 设置来自 wa_group_profile 的完整成员快照版本。 */
+    public void setMemberSnapshotVersion(String memberSnapshotVersion) {
+        this.memberSnapshotVersion = memberSnapshotVersion;
     }
 
     public Long getCreatedAt() {

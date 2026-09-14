@@ -22,6 +22,82 @@
     LIMIT 1
   </select>
 
+  <select id="selectContexts"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
+    SELECT a.id AS accountId,
+           a.ws_phone AS wsPhone,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           s.baseline_state AS baselineState,
+           s.baseline_completeness AS baselineCompleteness,
+           s.baseline_group_count AS baselineGroupCount,
+           s.baseline_captured_at AS baselineCapturedAt,
+           s.last_sync_requested_at AS lastSyncRequestedAt,
+           s.last_complete_at AS lastCompleteAt
+    FROM account a
+    LEFT JOIN account_group_sync_state s
+      ON s.tenant_id = a.tenant_id AND s.account_id = a.id
+    WHERE a.tenant_id = #{tenantId}
+      AND a.deleted_at IS NULL
+    <choose>
+      <when test="accountIds != null and !accountIds.isEmpty()">
+        AND a.id IN
+        <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
+          #{accountId}
+        </foreach>
+      </when>
+      <otherwise>AND 1 = 0</otherwise>
+    </choose>
+    ORDER BY a.id ASC
+  </select>
+
+  <!--
+    调用前已持有该群 PRIMARY 锁；仍用 current-read 取得各账号的成员和绑定事实。
+    incoming PN 与 V120 的 ascii_bin 列保持同字符集，避免 MySQL 转换索引列后只能按租户和群扫描。
+  -->
+  <select id="selectControlledExistingAfterGroupLock"
+          resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$ControlledExisting">
+    SELECT incoming.account_id AS accountId,
+           g.group_jid AS groupJid,
+           g.id AS groupId,
+           p.id AS participantId,
+           p.presence_status AS presenceStatus,
+           p.presence_source AS presenceSource,
+           p.presence_observed_at AS presenceObservedAt,
+           b.id AS bindingId,
+           b.was_in_initial_baseline AS wasInInitialBaseline,
+           b.first_post_control_observed_at AS firstPostControlObservedAt,
+           b.membership_active_since_at AS membershipActiveSinceAt,
+           g.deleted_at AS deletedAt
+    FROM wa_group g
+    INNER JOIN (
+      <choose>
+        <when test="rows != null and !rows.isEmpty()">
+          <foreach collection="rows" item="item" separator=" UNION ALL ">
+            SELECT CAST(#{item.accountId} AS DECIMAL(20, 0)) AS account_id,
+                   CAST(#{item.row.pnJid} AS CHAR(191) CHARACTER SET ascii) COLLATE ascii_bin AS pn_jid
+          </foreach>
+        </when>
+        <otherwise>
+          SELECT CAST(NULL AS DECIMAL(20, 0)) AS account_id,
+                 CAST(NULL AS CHAR(191) CHARACTER SET ascii) COLLATE ascii_bin AS pn_jid WHERE 1 = 0
+        </otherwise>
+      </choose>
+    ) incoming ON 1 = 1
+    LEFT JOIN wa_group_participant p
+      ON p.tenant_id = #{tenantId}
+     AND p.group_id = g.id
+     AND p.pn_jid = incoming.pn_jid
+    LEFT JOIN wa_account_group_binding b
+      ON b.tenant_id = #{tenantId}
+     AND b.group_id = g.id
+     AND b.account_id = incoming.account_id
+    WHERE g.tenant_id = #{tenantId}
+      AND g.id = #{groupId}
+    ORDER BY g.id ASC, incoming.pn_jid ASC, incoming.account_id ASC
+    FOR UPDATE
+  </select>
+
   <!-- 串行化同账号 phase1/phase2 的绑定校验与完整快照水位判定。 -->
   <select id="selectContextForUpdateByTenant"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Context">
@@ -1204,6 +1280,105 @@
       ),
       updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
   </insert>
+
+  <insert id="upsertControlledBindings">
+    INSERT INTO wa_account_group_binding (
+      tenant_id, account_id, group_id, participant_id,
+      was_in_initial_baseline, baseline_subject_snapshot,
+      membership_active_since_at, last_observed_at,
+      first_post_control_observed_at, created_at, updated_at
+    )
+    SELECT #{tenantId}, incoming.account_id, incoming.group_id, participant.id,
+           CASE WHEN participant.presence_status = incoming.presence_status
+                  AND participant.presence_source = incoming.presence_source
+                  AND participant.presence_observed_at = incoming.observed_at
+                THEN incoming.was_in_initial_baseline ELSE NULL END,
+           CASE WHEN participant.presence_status = incoming.presence_status
+                  AND participant.presence_source = incoming.presence_source
+                  AND participant.presence_observed_at = incoming.observed_at
+                THEN incoming.baseline_subject_snapshot ELSE NULL END,
+           CASE WHEN participant.presence_status = 1
+                  AND incoming.membership_active_since_at IS NOT NULL
+                THEN incoming.membership_active_since_at ELSE NULL END,
+           incoming.observed_at,
+           CASE WHEN participant.presence_status = 1
+                  AND participant.presence_source = incoming.presence_source
+                  AND participant.presence_observed_at = incoming.observed_at
+                THEN incoming.first_post_control_observed_at ELSE NULL END,
+           incoming.now_at, incoming.now_at
+    FROM (
+      <foreach collection="rows" item="item" separator=" UNION ALL ">
+        SELECT CAST(#{item.accountId} AS DECIMAL(20, 0)) AS account_id,
+               CAST(#{item.row.groupId} AS DECIMAL(20, 0)) AS group_id,
+               CAST(#{item.row.pnJid} AS CHAR(191) CHARACTER SET ascii) COLLATE ascii_bin AS pn_jid,
+               CAST(#{item.row.presenceStatus} AS SIGNED) AS presence_status,
+               CAST(#{item.row.presenceSource} AS CHAR(64)) AS presence_source,
+               CAST(#{item.row.occurredAt} AS DECIMAL(20, 0)) AS observed_at,
+               CAST(#{item.row.wasInInitialBaseline} AS SIGNED) AS was_in_initial_baseline,
+               CAST(#{item.row.baselineSubjectSnapshot} AS CHAR(255)) AS baseline_subject_snapshot,
+               CAST(#{item.row.membershipActiveSinceAt} AS DECIMAL(20, 0)) AS membership_active_since_at,
+               CAST(#{item.row.firstPostControlObservedAt} AS DECIMAL(20, 0)) AS first_post_control_observed_at,
+               CAST(#{item.row.now} AS DECIMAL(20, 0)) AS now_at
+      </foreach>
+    ) incoming
+    INNER JOIN wa_group_participant participant
+      ON participant.tenant_id = #{tenantId}
+     AND participant.group_id = incoming.group_id
+     AND participant.pn_jid = incoming.pn_jid
+    ORDER BY incoming.group_id ASC, incoming.pn_jid ASC, incoming.account_id ASC
+    ON DUPLICATE KEY UPDATE
+      participant_id = VALUES(participant_id),
+      was_in_initial_baseline = COALESCE(
+        wa_account_group_binding.was_in_initial_baseline,
+        VALUES(was_in_initial_baseline)
+      ),
+      baseline_subject_snapshot = COALESCE(
+        wa_account_group_binding.baseline_subject_snapshot,
+        VALUES(baseline_subject_snapshot)
+      ),
+      membership_active_since_at = <include refid="earliestMembershipActiveSince"/>,
+      last_observed_at = GREATEST(
+        COALESCE(wa_account_group_binding.last_observed_at, VALUES(last_observed_at)),
+        VALUES(last_observed_at)
+      ),
+      first_post_control_observed_at = COALESCE(
+        wa_account_group_binding.first_post_control_observed_at,
+        VALUES(first_post_control_observed_at)
+      ),
+      updated_at = GREATEST(wa_account_group_binding.updated_at, VALUES(updated_at))
+  </insert>
+
+  <update id="clearControlledMembershipActiveSinceForAcceptedExits">
+    UPDATE wa_account_group_binding binding
+    SET membership_active_since_at = NULL,
+        updated_at = GREATEST(binding.updated_at, CASE
+          <foreach collection="rows" item="item">
+            WHEN binding.account_id = #{item.accountId} AND binding.group_id = #{item.row.groupId}
+              THEN #{item.row.now}
+          </foreach>
+          ELSE binding.updated_at END)
+    WHERE binding.tenant_id = #{tenantId}
+      AND (binding.account_id, binding.group_id) IN
+      <foreach collection="rows" item="item" open="(" separator="," close=")">
+        (#{item.accountId}, #{item.row.groupId})
+      </foreach>
+      AND EXISTS (
+        SELECT 1 FROM wa_group_participant participant
+        WHERE participant.tenant_id = #{tenantId}
+          AND participant.id = binding.participant_id
+          AND participant.group_id = binding.group_id
+          AND participant.presence_status = 2
+          AND (
+            <foreach collection="rows" item="item" separator=" OR ">
+              (binding.account_id = #{item.accountId}
+               AND binding.group_id = #{item.row.groupId}
+               AND #{item.row.presenceStatus} = 2
+               AND participant.presence_source = #{item.row.presenceSource}
+               AND participant.presence_observed_at = #{item.row.occurredAt})
+            </foreach>
+          )
+      )
+  </update>
 
   <update id="clearMembershipActiveSinceForAcceptedExit">
     UPDATE wa_account_group_binding binding

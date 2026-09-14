@@ -1,6 +1,8 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.model.dto.GroupMetadataPatch;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledObservation;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupWriteContext;
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
@@ -81,14 +83,14 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         try {
             Long groupLinkId = registerGroupLink(event);
             // 任何 PROFILE/P/B 写之前先统一取得 GL→G(PRIMARY)；groupCreatedAt 为空也不能跳过。
-            snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
+            GroupWriteContext group = snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
             writeCreator(event, groupLinkId);
             queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
-            snapshotPersistence.fillGroupCreatedAt(event.groupJid(), event.groupCreatedAt());
+            snapshotPersistence.fillGroupCreatedAt(group, event.groupCreatedAt());
             applyProfileFields(event);
-            applyMembers(event);
-            writeControlledBindings(event);
+            Set<String> writtenPnJids = applyMembers(event, group);
+            writeControlledBindings(event, group, writtenPnJids);
             if (event.commandId() != null && !event.commandId().isBlank()) {
                 taskMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
                 batchItemMapper.markScopeCompleted(event.commandId(), 1, event.occurredAt());
@@ -237,7 +239,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
      * <p>放在成员落库之后：绑定与成员事实同属一次观察，先落成员再对齐绑定。
      * 失败只告警，不让整条资料事件重投。</p>
      */
-    private void writeControlledBindings(ProtocolGroupProfileReportedEvent event) {
+    private void writeControlledBindings(ProtocolGroupProfileReportedEvent event,
+            GroupWriteContext group, Set<String> writtenPnJids) {
         if (!event.membersComplete() || event.members() == null || event.members().isEmpty()) {
             return;
         }
@@ -255,17 +258,19 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
             if (accounts == null || accounts.isEmpty()) {
                 return;
             }
+            List<ControlledObservation> observations = new ArrayList<>(accounts.size());
             for (Account account : accounts) {
                 ProtocolGroupProfileReportedEvent.Member member =
                         findMemberByPhone(event, account.getWsPhone());
                 if (member == null || account.getId() == null) {
                     continue;
                 }
-                snapshotPersistence.applyControlledParticipantObservation(
-                        account.getId(), event.groupJid(), true,
+                observations.add(new ControlledObservation(
+                        account.getId(), true,
                         Boolean.TRUE.equals(member.admin()) || Boolean.TRUE.equals(member.owner()),
-                        event.occurredAt(), event.eventId(), "FULL_SNAPSHOT");
+                        event.occurredAt(), event.eventId(), "FULL_SNAPSHOT"));
             }
+            snapshotPersistence.reconcileProfileSnapshotBindings(group, observations, writtenPnJids);
         } catch (RuntimeException e) {
             log.warn("协议群资料上报写账号群绑定失败,其余事实照常落库 eventId={} groupJid={}",
                     event.eventId(), event.groupJid(), e);
@@ -288,11 +293,11 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
     }
 
     /** 写完整成员快照；只有协议授权列表完整时才执行，因为它会判定缺失成员已退群。 */
-    private void applyMembers(ProtocolGroupProfileReportedEvent event) {
+    private Set<String> applyMembers(ProtocolGroupProfileReportedEvent event, GroupWriteContext group) {
         if (!event.membersComplete()) {
             log.info("协议群成员列表未声明完整,跳过成员落库以免误判退群 eventId={} groupJid={} count={}",
                     event.eventId(), event.groupJid(), event.members().size());
-            return;
+            return Set.of();
         }
         List<GroupParticipantResult> participants = new ArrayList<>(event.members().size());
         for (ProtocolGroupProfileReportedEvent.Member member : event.members()) {
@@ -308,8 +313,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
                     member.owner(),
                     member.role()));
         }
-        snapshotPersistence.replaceCompleteParticipantSnapshot(
-                event.groupJid(),
+        return snapshotPersistence.replaceCompleteParticipantSnapshot(
+                group,
                 participants,
                 event.occurredAt(),
                 // 事件 ID 作为快照版本，使同一次协议观察的重放天然幂等。

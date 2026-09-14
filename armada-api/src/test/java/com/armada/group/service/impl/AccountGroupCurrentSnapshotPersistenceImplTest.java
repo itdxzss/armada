@@ -277,7 +277,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 .thenThrow(new DuplicateKeyException("split identity"));
 
         assertThatThrownBy(() -> persistence.replaceCompleteParticipantSnapshot(
-                GROUP_JID,
+                persistence.lockGroupWriteBoundary(null, GROUP_JID),
                 List.of(new GroupParticipantResult(
                         lidJid, pnJid, "15550000003", false, false, null)),
                 6_000L,

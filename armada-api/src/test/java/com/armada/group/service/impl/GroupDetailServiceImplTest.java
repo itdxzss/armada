@@ -120,6 +120,7 @@ class GroupDetailServiceImplTest {
         GroupLinkPreview preview = preview("120363detail@g.us");
         preview.setWaSubject("真实群名");
         preview.setMetadataObservedAt(1_722_470_400_000L);
+        preview.setMemberSnapshotVersion("complete-v1");
         preview.setAdminOnlyEditInfo(false);
         preview.setAnnounceOnly(true);
         preview.setMemberAddMode(true);
@@ -151,18 +152,104 @@ class GroupDetailServiceImplTest {
     }
 
     @Test
-    void detailWithoutCompletedSnapshotReturnsPendingState() {
+    void detailWithoutMemberSnapshotStillShowsExistingProfile() {
         when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "本地备注"));
         when(snapshotReader.profile(10L)).thenReturn(preview("120363detail@g.us"));
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.PENDING));
 
         GroupDetailVO result = service.detail(10L);
 
-        assertUnavailable(result, "详情待同步");
-        assertThat(result.groupName()).isEqualTo("本地群名");
+        assertThat(result.liveStateAvailable()).isTrue();
+        assertThat(result.membersAvailable()).isFalse();
+        assertThat(result.membersUnavailableReason()).isEqualTo("成员列表待同步");
+        assertThat(result.members()).isEmpty();
+        assertThat(result.permissions().sendMessages()).isNull();
+        assertThat(result.groupName()).isEqualTo("预览群名");
         assertThat(result.remark()).isEqualTo("本地备注");
         assertThat(result.avatarUrl()).isEqualTo("https://pps.whatsapp.net/current.jpg");
         assertThat(result.metadataSyncStatus()).isEqualTo("PENDING");
+        verifyNoInteractions(groupMetadataPort, selector);
+        verify(snapshotReader, never()).members(10L);
+    }
+
+    @Test
+    void profileReportWithoutLegacyMarkerDisplaysFifteenMembersAndFourAdmins() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "备注"));
+        GroupLinkPreview preview = preview("120363detail@g.us");
+        preview.setMemberSnapshotVersion("profile-report-v1");
+        preview.setAdminOnlyEditInfo(false);
+        preview.setAnnounceOnly(false);
+        preview.setMemberAddMode(false);
+        when(snapshotReader.profile(10L)).thenReturn(preview);
+        when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.PENDING));
+        List<WhatsappGroupMemberSnapshot> members = java.util.stream.IntStream.range(0, 15)
+                .mapToObj(index -> {
+                    WhatsappGroupMemberSnapshot member = snapshotMember();
+                    member.setParticipantJid("1555000" + index + "@s.whatsapp.net");
+                    member.setIsOwner(index == 0);
+                    member.setIsAdmin(index < 4);
+                    member.setRole(index == 0 ? "OWNER" : index < 4 ? "ADMIN" : "MEMBER");
+                    return member;
+                }).toList();
+        when(snapshotReader.members(10L)).thenReturn(members);
+
+        GroupDetailVO result = service.detail(10L);
+
+        assertThat(result.liveStateAvailable()).isTrue();
+        assertThat(result.membersAvailable()).isTrue();
+        assertThat(result.membersUnavailableReason()).isNull();
+        assertThat(result.members()).hasSize(15);
+        assertThat(result.members().stream().filter(member -> member.admin()).count()).isEqualTo(4);
+        assertThat(result.permissions().sendMessages()).isTrue();
+        assertThat(result.permissions().editGroupSettings()).isTrue();
+        assertThat(result.permissions().addMembers()).isFalse();
+        assertThat(result.permissions().inviteViaLink()).isNull();
+        assertThat(result.permissions().adminApproveNewMembers()).isNull();
+        assertThat(result.timedMessageMode()).isNull();
+        assertThat(result.metadataSyncStatus()).isEqualTo("PENDING");
+        assertThat(preview.getMetadataObservedAt()).isNull();
+        assertThat(service.members(10L).members()).hasSize(15);
+        verifyNoInteractions(groupMetadataPort, selector, metadataSyncTaskService, currentSnapshotPersistence);
+    }
+
+    @Test
+    void legacyMetadataMarkerDoesNotClaimMissingMembersAreAnEmptySnapshot() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
+        GroupLinkPreview preview = preview("120363detail@g.us");
+        preview.setMetadataObservedAt(1_722_470_400_000L);
+        when(snapshotReader.profile(10L)).thenReturn(preview);
+
+        GroupDetailVO result = service.detail(10L);
+
+        assertThat(result.liveStateAvailable()).isTrue();
+        assertThat(result.membersAvailable()).isFalse();
+        assertThat(result.members()).isEmpty();
+        assertThatThrownBy(() -> service.members(10L)).hasMessage("成员列表待同步");
+        verify(snapshotReader, never()).members(10L);
+    }
+
+    @Test
+    void completeEmptyMemberSnapshotIsAvailableEvenWithoutMetadataMarker() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", null));
+        GroupLinkPreview preview = preview("120363detail@g.us");
+        preview.setMemberSnapshotVersion("complete-empty");
+        when(snapshotReader.profile(10L)).thenReturn(preview);
+        when(snapshotReader.members(10L)).thenReturn(List.of());
+
+        assertThat(service.detail(10L).membersAvailable()).isTrue();
+        assertThat(service.members(10L).members()).isEmpty();
+        verifyNoInteractions(groupMetadataPort, selector);
+    }
+
+    @Test
+    void detailWithoutCurrentGroupKeepsLocalProfileAndUnknownState() {
+        when(groupLinkMapper.selectActiveById(10L)).thenReturn(activeLink(10L, "本地群名", "备注"));
+
+        GroupDetailVO result = service.detail(10L);
+
+        assertUnavailable(result, "详情待同步");
+        assertThat(result.groupName()).isEqualTo("本地群名");
+        verify(snapshotReader, never()).members(10L);
         verifyNoInteractions(groupMetadataPort, selector);
     }
 
@@ -189,7 +276,6 @@ class GroupDetailServiceImplTest {
         preview.setMetadataObservedAt(1_722_470_400_000L);
         preview.setEphemeralDurationSeconds(123);
         when(snapshotReader.profile(10L)).thenReturn(preview);
-        when(snapshotReader.members(10L)).thenReturn(List.of());
         when(snapshotReader.task(10L)).thenReturn(syncTask(GroupMetadataSyncStatus.SUCCEEDED));
 
         GroupDetailVO result = service.detail(10L);
@@ -206,7 +292,7 @@ class GroupDetailServiceImplTest {
 
         assertThatThrownBy(() -> service.members(10L))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("详情待同步");
+                .hasMessage("成员列表待同步");
     }
 
     @Test

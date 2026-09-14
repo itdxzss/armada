@@ -791,7 +791,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<?> profileReport = executor.submit(() -> inTransaction(() -> {
-                persistence.lockGroupWriteBoundary(981L, groupJid);
+                var group = persistence.lockGroupWriteBoundary(981L, groupJid);
                 metadataPatchService.applyPatch(new GroupMetadataPatch(
                         TENANT_ID,
                         groupJid,
@@ -802,7 +802,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         2_000L,
                         "profile-report-null-created-at"));
                 persistence.replaceCompleteParticipantSnapshot(
-                        groupJid, List.of(), 2_000L, "profile-report-null-created-at");
+                        group, List.of(), 2_000L, "profile-report-null-created-at");
                 return null;
             }));
             awaitMysqlLockWait(profileReport);
@@ -1768,7 +1768,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(transaction ->
                     persistence.replaceCompleteParticipantSnapshot(
-                            groupJid, participants, snapshotAt, snapshotVersion));
+                            persistence.lockGroupWriteBoundary(null, groupJid),
+                            participants, snapshotAt, snapshotVersion));
         } finally {
             TenantContext.clear();
         }

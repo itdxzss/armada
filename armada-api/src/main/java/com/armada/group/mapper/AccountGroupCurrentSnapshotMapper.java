@@ -1,6 +1,8 @@
 package com.armada.group.mapper;
 
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Context;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledExisting;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledWrite;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.Existing;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupId;
 import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.LegacyGroupHandle;
@@ -25,6 +27,19 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountGroupCurrentSnapshotMapper {
 
     Context selectContext(@Param("accountId") Long accountId);
+
+    /** 显式限定租户，一次读取同群受控账号及各自 baseline 上下文。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Context> selectContexts(
+            @Param("tenantId") Long tenantId,
+            @Param("accountIds") List<Long> accountIds);
+
+    /** 群 PRIMARY 锁已持有后，按 G→P→B 批量读取并锁定各账号当前事实。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<ControlledExisting> selectControlledExistingAfterGroupLock(
+            @Param("tenantId") Long tenantId,
+            @Param("groupId") Long groupId,
+            @Param("rows") List<ControlledWrite> rows);
 
     /** 在账号群回报写事务内锁定账号绑定与已接受完整快照水位。 */
     default Context selectContextForUpdate(Long accountId) {
@@ -207,6 +222,18 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("row") ParticipantPresenceWrite row);
+
+    /** 按账号独立保留事实接受、baseline 和周期规则，批量补写同群账号绑定。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int upsertControlledBindings(
+            @Param("tenantId") Long tenantId,
+            @Param("rows") List<ControlledWrite> rows);
+
+    /** 仅按每个账号、群及仍被接受的退出来源和时间清空对应在群周期。 */
+    @InterceptorIgnore(tenantLine = "true")
+    int clearControlledMembershipActiveSinceForAcceptedExits(
+            @Param("tenantId") Long tenantId,
+            @Param("rows") List<ControlledWrite> rows);
 
     /** 仅当 participant 当前仍是指定退出事实时，清空这些群的当前在群周期起点。 */
     @InterceptorIgnore(tenantLine = "true")

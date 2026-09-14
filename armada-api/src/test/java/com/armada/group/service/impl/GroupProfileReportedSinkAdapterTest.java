@@ -9,6 +9,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.armada.group.model.dto.GroupMetadataPatch;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledObservation;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.GroupWriteContext;
 import com.armada.group.mapper.GroupMetadataSyncTaskMapper;
 import com.armada.group.mapper.GroupBatchTaskItemMapper;
 import com.armada.group.model.dto.GroupMetadataPatchField;
@@ -41,6 +43,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class GroupProfileReportedSinkAdapterTest {
 
+    private static final GroupWriteContext GROUP = new GroupWriteContext(1L, 88L, "120363-abc@g.us");
+
     @Mock
     private GroupMetadataPatchService patchService;
 
@@ -72,6 +76,8 @@ class GroupProfileReportedSinkAdapterTest {
 
     @org.junit.jupiter.api.BeforeEach
     void buildAdapter() {
+        org.mockito.Mockito.when(snapshotPersistence.lockGroupWriteBoundary(any(), anyString()))
+                .thenReturn(GROUP);
         adapter = new GroupProfileReportedSinkAdapter(
                 patchService, snapshotPersistence, taskMapper, batchItemMapper,
                 groupLinkRegistryService, creatorWriter, accountMapper,
@@ -149,7 +155,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), captor.capture(), anyLong(), anyString());
+                any(GroupWriteContext.class), captor.capture(), anyLong(), anyString());
         List<GroupParticipantResult> participants = captor.getValue();
         assertThat(participants).hasSize(2);
         assertThat(participants.get(0).phone()).isEqualTo("919000000001");
@@ -168,7 +174,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), captor.capture(), anyLong(), anyString());
+                any(GroupWriteContext.class), captor.capture(), anyLong(), anyString());
 
         assertThat(captor.getValue()).singleElement().satisfies(participant -> {
             assertThat(participant.pnJid()).isEqualTo("919000000001@s.whatsapp.net");
@@ -185,7 +191,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), captor.capture(), anyLong(), anyString());
+                any(GroupWriteContext.class), captor.capture(), anyLong(), anyString());
 
         assertThat(captor.getValue()).singleElement().satisfies(participant ->
                 assertThat(participant.pnJid()).isEqualTo("123456789012345@lid"));
@@ -198,7 +204,7 @@ class GroupProfileReportedSinkAdapterTest {
         adapter.handleProfileReported(event);
 
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                eq(event.groupJid()), eq(List.of()), eq(event.occurredAt()), eq(event.eventId()));
+                eq(GROUP), eq(List.of()), eq(event.occurredAt()), eq(event.eventId()));
     }
 
     @Test
@@ -209,7 +215,7 @@ class GroupProfileReportedSinkAdapterTest {
                         false, false, null))));
 
         verify(snapshotPersistence, never())
-                .replaceCompleteParticipantSnapshot(anyString(), any(), anyLong(), anyString());
+                .replaceCompleteParticipantSnapshot(any(GroupWriteContext.class), any(), anyLong(), anyString());
         // 资料字段仍须写入：成员不可信不代表资料不可信。
         verify(patchService).applyPatch(any());
     }
@@ -236,7 +242,7 @@ class GroupProfileReportedSinkAdapterTest {
         adapter.handleProfileReported(event(false, List.of()));
 
         verify(snapshotPersistence, never())
-                .replaceCompleteParticipantSnapshot(anyString(), any(), anyLong(), anyString());
+                .replaceCompleteParticipantSnapshot(any(GroupWriteContext.class), any(), anyLong(), anyString());
         verify(patchService).applyPatch(any());
     }
 
@@ -258,7 +264,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         ArgumentCaptor<List<GroupParticipantResult>> captor = ArgumentCaptor.captor();
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), captor.capture(), anyLong(), anyString());
+                any(GroupWriteContext.class), captor.capture(), anyLong(), anyString());
         assertThat(captor.getValue().get(0).pnJid())
                 .as("协议侧已把号码还原成完整 JID 时不得再拼一次后缀："
                         + "绑定按 pn_jid 等值关联，双后缀会让受控账号永远匹配不上自己的群")
@@ -290,7 +296,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         verify(patchService).applyPatch(any(GroupMetadataPatch.class));
         verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), any(), anyLong(), anyString());
+                any(GroupWriteContext.class), any(), anyLong(), anyString());
     }
 
     private static ProtocolGroupProfileReportedEvent event(
@@ -340,9 +346,53 @@ class GroupProfileReportedSinkAdapterTest {
                         "916360432840@s.whatsapp.net", null, "916360432840", false, false, null))));
 
         // 只给受控账号建绑定；外部号码查不到账号自然不写。
-        verify(snapshotPersistence).applyControlledParticipantObservation(
-                eq(1649L), eq("120363-abc@g.us"), eq(true), eq(true),
-                anyLong(), anyString(), anyString());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ControlledObservation>> batch = ArgumentCaptor.forClass(List.class);
+        verify(snapshotPersistence).reconcileProfileSnapshotBindings(
+                eq(GROUP), batch.capture(), any());
+        assertThat(batch.getValue()).singleElement().satisfies(value -> {
+            assertThat(value.accountId()).isEqualTo(1649L);
+            assertThat(value.inGroup()).isTrue();
+            assertThat(value.admin()).isTrue();
+            assertThat(value.source()).isEqualTo("FULL_SNAPSHOT");
+        });
+    }
+
+    @Test
+    void completeProfileDoesNotRunSingleAccountPersistenceForEveryMember() {
+        List<Account> accounts = new java.util.ArrayList<>();
+        List<ProtocolGroupProfileReportedEvent.Member> members = new java.util.ArrayList<>();
+        for (int index = 0; index < 15; index++) {
+            String phone = "9190000000" + String.format("%02d", index);
+            Account account = new Account();
+            account.setId(100L + index);
+            account.setWsPhone(phone);
+            accounts.add(account);
+            members.add(new ProtocolGroupProfileReportedEvent.Member(
+                    phone + "@s.whatsapp.net", null, phone, index < 3, false, null));
+        }
+        org.mockito.Mockito.when(accountMapper.selectActiveByWsPhones(any()))
+                .thenReturn(accounts);
+
+        java.util.Set<String> written = members.stream().map(member -> member.phone() + "@s.whatsapp.net")
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        org.mockito.Mockito.when(snapshotPersistence.replaceCompleteParticipantSnapshot(
+                eq(GROUP), any(), anyLong(), anyString())).thenReturn(written);
+
+        adapter.handleProfileReported(event(true, members));
+
+        verify(snapshotPersistence, never()).applyControlledParticipantObservation(
+                anyLong(), anyString(), org.mockito.ArgumentMatchers.anyBoolean(),
+                org.mockito.ArgumentMatchers.anyBoolean(), anyLong(), anyString(), anyString());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ControlledObservation>> batch = ArgumentCaptor.forClass(List.class);
+        verify(snapshotPersistence).reconcileProfileSnapshotBindings(
+                eq(GROUP), batch.capture(), eq(written));
+        assertThat(batch.getValue()).hasSize(15);
+        assertThat(batch.getValue()).extracting(ControlledObservation::accountId)
+                .containsExactlyElementsOf(accounts.stream().map(Account::getId).toList());
+        assertThat(batch.getValue()).allMatch(ControlledObservation::inGroup);
+        assertThat(batch.getValue().stream().filter(ControlledObservation::admin).count()).isEqualTo(3);
     }
 
     @Test
@@ -361,7 +411,7 @@ class GroupProfileReportedSinkAdapterTest {
     void creationTimeIsPersistedSoTheListCanShowIt() {
         adapter.handleProfileReported(event(true, List.of(), 1_787_096_047_000L));
 
-        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", 1_787_096_047_000L);
+        verify(snapshotPersistence).fillGroupCreatedAt(GROUP, 1_787_096_047_000L);
     }
 
     @Test
@@ -369,7 +419,7 @@ class GroupProfileReportedSinkAdapterTest {
         // 未观察写 null 而不是 0：0 会被当成 1970 年建群。
         adapter.handleProfileReported(event(true, List.of()));
 
-        verify(snapshotPersistence).fillGroupCreatedAt("120363-abc@g.us", null);
+        verify(snapshotPersistence).fillGroupCreatedAt(GROUP, null);
     }
 
     @Test
@@ -383,10 +433,10 @@ class GroupProfileReportedSinkAdapterTest {
         order.verify(snapshotPersistence)
                 .lockGroupWriteBoundary(77L, "120363-abc@g.us");
         order.verify(snapshotPersistence)
-                .fillGroupCreatedAt("120363-abc@g.us", null);
+                .fillGroupCreatedAt(GROUP, null);
         order.verify(patchService).applyPatch(any(GroupMetadataPatch.class));
         order.verify(snapshotPersistence).replaceCompleteParticipantSnapshot(
-                anyString(), any(), anyLong(), anyString());
+                any(GroupWriteContext.class), any(), anyLong(), anyString());
     }
 
     private static ProtocolGroupProfileReportedEvent event(

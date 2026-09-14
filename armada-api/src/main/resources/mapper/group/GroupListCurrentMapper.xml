@@ -441,6 +441,7 @@
              ELSE FLOOR(current_profile.wa_created_at / 1000) END AS groupCreatedAt,
            current_group.avatar_url AS avatarUrl,
            current_profile.metadata_observed_at AS metadataObservedAt,
+           current_profile.member_snapshot_version AS memberSnapshotVersion,
            current_profile.created_at AS createdAt,
            current_profile.updated_at AS updatedAt
     FROM group_link handle

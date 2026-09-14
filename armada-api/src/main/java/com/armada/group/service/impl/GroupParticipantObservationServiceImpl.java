@@ -3,6 +3,7 @@ package com.armada.group.service.impl;
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.model.entity.Account;
 import com.armada.group.mapper.WhatsappGroupMemberCacheMapper;
+import com.armada.group.model.dto.AccountGroupCurrentSnapshotRows.ControlledObservation;
 import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.GroupParticipantObservation;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
@@ -141,20 +142,16 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
             if (accounts == null || accounts.isEmpty()) {
                 return List.of();
             }
-            List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
+            List<ControlledObservation> observations = new ArrayList<>(accounts.size());
             for (Account account : accounts) {
                 if (account.getId() == null) {
                     continue;
                 }
-                boolean newlyInGroup = currentSnapshotPersistence.applyControlledParticipantObservation(
-                        account.getId(), normalizedGroupJid, true, false,
-                        observedAt, sourceEventId, "WGP2_ADD");
-                if (newlyInGroup) {
-                    transitions.add(new ControlledAccountGroupTransition(
-                            account.getId(), normalizedGroupJid));
-                }
+                observations.add(new ControlledObservation(account.getId(), true, false,
+                        observedAt, sourceEventId, "WGP2_ADD"));
             }
-            return List.copyOf(transitions);
+            return currentSnapshotPersistence.applyControlledParticipantObservations(
+                    normalizedGroupJid, observations);
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();
@@ -182,23 +179,19 @@ public class GroupParticipantObservationServiceImpl implements GroupParticipantO
         if (accounts == null || accounts.isEmpty()) {
             return List.of();
         }
-        List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
+        List<ControlledObservation> observations = new ArrayList<>(accounts.size());
         for (Account account : accounts) {
             String phone = normalizedPhone(account.getWsPhone());
             WhatsappGroupMemberStateVO winner = winnerByPhone.get(phone);
             if (winner == null || account.getId() == null) {
                 continue;
             }
-            boolean newlyInGroup = currentSnapshotPersistence.applyControlledParticipantObservation(
-                    account.getId(), groupJid, Boolean.TRUE.equals(winner.inGroup()),
+            observations.add(new ControlledObservation(
+                    account.getId(), Boolean.TRUE.equals(winner.inGroup()),
                     Boolean.TRUE.equals(winner.admin()), winner.stateUpdatedAt(),
-                    winner.sourceEventId(), membershipStatusSource(winner));
-            if (newlyInGroup) {
-                transitions.add(new ControlledAccountGroupTransition(
-                        account.getId(), groupJid));
-            }
+                    winner.sourceEventId(), membershipStatusSource(winner)));
         }
-        return List.copyOf(transitions);
+        return currentSnapshotPersistence.applyControlledParticipantObservations(groupJid, observations);
     }
 
     private static String membershipStatusSource(WhatsappGroupMemberStateVO winner) {

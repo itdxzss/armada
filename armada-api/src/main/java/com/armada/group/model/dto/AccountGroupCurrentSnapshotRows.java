@@ -37,8 +37,49 @@ public final class AccountGroupCurrentSnapshotRows {
             Long deletedAt) {
     }
 
+    /** 同一群本次观察到的受控账号事实；各账号仍独立保留状态和事件时间。 */
+    public record ControlledObservation(
+            Long accountId,
+            boolean inGroup,
+            boolean admin,
+            long observedAt,
+            String eventId,
+            String source) {
+    }
+
+    /** 受控账号与规范化后的成员事实写入行，用于一次更新多账号群关系。 */
+    public record ControlledWrite(Long accountId, ParticipantPresenceWrite row) {
+    }
+
+    /** 已持有群锁后批量读取的账号 G/P/B 当前事实。 */
+    public record ControlledExisting(
+            Long accountId,
+            String groupJid,
+            Long groupId,
+            Long participantId,
+            Integer presenceStatus,
+            String presenceSource,
+            Long presenceObservedAt,
+            Long bindingId,
+            Integer wasInInitialBaseline,
+            Long firstPostControlObservedAt,
+            Long membershipActiveSinceAt,
+            Long deletedAt) {
+
+        /** 复用单账号路径已有的事实时间、baseline 和周期判定。 */
+        public Existing existing() {
+            return new Existing(groupJid, groupId, participantId, presenceStatus,
+                    presenceSource, presenceObservedAt, bindingId, wasInInitialBaseline,
+                    firstPostControlObservedAt, membershipActiveSinceAt, deletedAt);
+        }
+    }
+
     /** 群 JID 到新模型群主键。 */
     public record GroupId(String groupJid, Long groupId) {
+    }
+
+    /** 已取得 GL→G 写锁的单群上下文；只允许在取得锁的同一事务中复用。 */
+    public record GroupWriteContext(Long tenantId, Long groupId, String groupJid) {
     }
 
     /** 按本次明确 PN/LID 锁定的现有成员身份行。 */

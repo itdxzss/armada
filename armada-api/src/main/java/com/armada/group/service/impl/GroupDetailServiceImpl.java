@@ -60,7 +60,7 @@ import org.springframework.web.multipart.MultipartFile;
  * 群详情抽屉业务的默认编排实现。
  *
  * <p>详情 GET 只读取当前群资料与成员事实，不在页面加载时调用协议层。
- * 尚无完整快照时明确返回待同步状态，避免把空成员数组误认为群内无人。</p>
+ * 群资料按已持久化字段展示，成员独立按完整快照版本判断可用性，避免把未同步误认为群内无人。</p>
  *
  * <p>群资料、限时消息、权限和成员写操作均由后端自动选号。协议调用超时时不会换号重试，
  * 而是使用同一账号回读 WhatsApp 状态确认结果，避免同一操作被不同账号重复执行。
@@ -161,8 +161,8 @@ public class GroupDetailServiceImpl implements GroupDetailService {
     /**
      * 聚合 Armada 本地群资料和当前 WhatsApp 群事实。
      *
-     * <p>只读取本地当前事实。群 JID 或 metadata 尚未落库时返回
-     * {@code liveStateAvailable=false} 的降级详情；本地备注和头像仍然保留。</p>
+     * <p>只读取本地当前事实，不以整行 metadata 时间戳拦截字段级上报的资料。
+     * 缺失权限保持未知，成员列表是否可用独立取决于完整成员快照版本。</p>
      *
      * @param id 群链接 ID
      * @return 包含本地资料、实时权限、限时消息和成员快照的群详情
@@ -177,12 +177,13 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 target.link().getGroupName(),
                 preview == null ? null : preview.getWaSubject());
         String avatarUrl = preview == null ? null : preview.getAvatarUrl();
-        if (preview == null || preview.getMetadataObservedAt() == null) {
+        if (preview == null) {
             return unavailable(target, localName, avatarUrl, "详情待同步", task);
         }
-        List<GroupLinkMemberVO> members = snapshotReader.members(id).stream()
+        boolean membersAvailable = preview.getMemberSnapshotVersion() != null;
+        List<GroupLinkMemberVO> members = membersAvailable ? snapshotReader.members(id).stream()
                 .map(GroupDetailServiceImpl::memberVO)
-                .toList();
+                .toList() : List.of();
         log.debug("群详情本地快照读取成功 groupLinkId={} memberCount={}", id, members.size());
         return new GroupDetailVO(
                 id,
@@ -204,10 +205,10 @@ public class GroupDetailServiceImpl implements GroupDetailService {
                 new GroupDetailVO.Capabilities(new GroupDetailVO.Capability(
                         preview.getMemberLinkMode() != null,
                         preview.getMemberLinkMode() == null
-                                ? "本地快照尚未观察到 member_link_mode"
+                                ? "链接邀请权限尚未获取"
                                 : null)),
-                true,
-                null,
+                membersAvailable,
+                membersAvailable ? null : "成员列表待同步",
                 members,
                 syncStatus(task),
                 task == null ? null : task.getLastSuccessAt(),

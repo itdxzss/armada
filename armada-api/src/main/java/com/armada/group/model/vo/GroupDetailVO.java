@@ -7,13 +7,13 @@ import java.util.List;
  *
  * @param groupLinkId               群链接 ID
  * @param groupJid                  WhatsApp 群 JID
- * @param groupName                 最后成功快照群名;不可用时回退本地群名
+ * @param groupName                 已持久化群名；缺失时回退本地群名
  * @param remark                    Armada 本地备注
  * @param avatarUrl                 已持久化的最近群头像
- * @param liveStateAvailable        完整 metadata 快照是否可用（兼容旧字段名）
- * @param liveStateUnavailableReason metadata 快照不可用原因
+ * @param liveStateAvailable        当前群资料是否可读取；不代表每项权限已知或成员快照完整
+ * @param liveStateUnavailableReason 当前群资料不可读取的原因
  * @param timedMessageMode          限时消息模式 wire 值
- * @param permissions               最后成功快照中的群权限
+ * @param permissions               已持久化的各项群权限；缺失项保留 null
  * @param capabilities              当前详情读取可表达的协议能力声明
  * @param membersAvailable          完整成员快照是否可用
  * @param membersUnavailableReason  成员列表不可用原因

@@ -73,9 +73,17 @@ final class GrizzlySmsResponseParser {
         }
         List<GrizzlyService> services = new ArrayList<>();
         for (JsonNode item : items) {
-            services.add(new GrizzlyService(text(item.get("code"), false), text(item.get("name"), false)));
+            services.add(new GrizzlyService(text(item.get("code"), false), serviceName(item.get("name"))));
         }
         return List.copyOf(services);
+    }
+
+    private String serviceName(JsonNode node) {
+        if (node == null || (!node.isTextual() && !node.isNumber())) {
+            throw invalid(false);
+        }
+        // 供应商展示名称可能带首尾制表符；清理边界空白后仍拒绝内部控制字符。
+        return checkedText(node.asText().strip(), false, false);
     }
 
     List<GrizzlyCountry> countries(String body) {

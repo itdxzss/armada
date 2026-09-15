@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -396,6 +397,60 @@ class GrizzlySmsClientTest {
             assertThat(country.id()).isEqualTo("0");
             assertThat(country.chineseName()).isEmpty();
         });
+        server.verify();
+    }
+
+    @Test
+    void serviceDisplayNameWhitespaceDoesNotBlockWhatsappCatalog() {
+        server.expect(queryParam("action", "getServicesList")).andRespond(withSuccess("""
+                {"status":"success","services":[
+                    {"code":"bik","name":"Hanwha Life\\t"},
+                    {"code":"wa","name":"\\t Whatsapp \\r\\n"}
+                ]}
+                """, MediaType.APPLICATION_JSON));
+
+        var services = client.getServices();
+
+        assertThat(services).hasSize(2);
+        assertThat(services.get(0).name()).isEqualTo("Hanwha Life");
+        assertThat(services).filteredOn(service -> "wa".equals(service.code()))
+                .singleElement().satisfies(service -> assertThat(service.name()).isEqualTo("Whatsapp"));
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Hanwha\tLife", "What\nsapp", "What\u0000sapp", "\t \r\n"})
+    void serviceDisplayNameStillRejectsInternalControlsAndBlankNames(String name) throws Exception {
+        String response = new ObjectMapper().writeValueAsString(List.of(Map.of("code", "wa", "name", name)));
+        server.expect(queryParam("action", "getServicesList"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(client::getServices).isInstanceOfSatisfying(GrizzlySmsException.class,
+                exception -> assertThat(exception.getReason()).isEqualTo(GrizzlySmsFailure.INVALID_RESPONSE));
+        server.verify();
+    }
+
+    @Test
+    void serviceDisplayNameStillRejectsNamesOverTheFieldLimit() throws Exception {
+        String response = new ObjectMapper().writeValueAsString(
+                List.of(Map.of("code", "wa", "name", "a".repeat(257))));
+        server.expect(queryParam("action", "getServicesList"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(client::getServices).isInstanceOfSatisfying(GrizzlySmsException.class,
+                exception -> assertThat(exception.getReason()).isEqualTo(GrizzlySmsFailure.INVALID_RESPONSE));
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wa\t", "\twa"})
+    void serviceCodesAreNotNormalizedWithDisplayNames(String code) throws Exception {
+        String response = new ObjectMapper().writeValueAsString(List.of(Map.of("code", code, "name", "Whatsapp")));
+        server.expect(queryParam("action", "getServicesList"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(client::getServices).isInstanceOfSatisfying(GrizzlySmsException.class,
+                exception -> assertThat(exception.getReason()).isEqualTo(GrizzlySmsFailure.INVALID_RESPONSE));
         server.verify();
     }
 

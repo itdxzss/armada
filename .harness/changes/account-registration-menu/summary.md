@@ -39,3 +39,13 @@ Grizzly、Cobalt client、注册编排、H2 Mapper、菜单和 Flyway 共 150 �
 提交、远端版本与部署产物以本次发布日志及最终验收记录为准；不把页面发布视为真实购号注册通过。
 
 首次 test1 启动验证发现 `AccountRegistrationLease` 的 `StringRedisTemplate` 注入歧义：运行配置同时注册认证与业务 Redis。补充 `groupCreateIdempotencyRedisTemplate` 限定并新增双 Redis 装配回归测试，再单独重发后端；V193/V194 在首轮已成功执行，无须重复更改迁移。
+
+## Grizzly 查询配置与真实目录验收
+
+用户随后提供 API 密钥并授权配置 test1 查询。部署编排补充 `GRIZZLY_SMS_ENABLED`、`GRIZZLY_SMS_PURCHASES_ENABLED`、`GRIZZLY_SMS_API_KEY` 映射；真实密钥仅保存在服务器私有环境配置，示例文件保留空值。查询启用，采购、注册、注册调度和 Cobalt 保持关闭。
+
+只读余额查询确认密钥有效；真实目录返回美国（187）与美国虚拟（12）两个渠道。美国 WhatsApp V2 报价返回六档，V3 供应商结构与现有解析契约一致。
+
+页面验收发现真实服务目录中其他服务名称 `Hanwha Life` 末尾带制表符，导致整份服务目录被严格文本校验拒绝。修复范围限定为服务展示名称首尾空白规范化；服务代码、名称内部控制字符、号码、金额等字段仍沿用原校验。修复需通过针对性回归及重新发布后的页面验收，不以只读供应商查询代替 Armada 页面验证。
+
+回归先复现真实目录失败，再完成最小修复。`GrizzlySmsClientTest`（66 项）与 `GrizzlySmsPriceTiersTest`（37 项）共 103 项通过，0 失败、错误、跳过；`git diff --check` 与部署脚本回归通过。配置及解析 diff 评审无阻断项。

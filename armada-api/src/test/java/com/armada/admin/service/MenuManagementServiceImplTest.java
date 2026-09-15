@@ -105,6 +105,24 @@ class MenuManagementServiceImplTest {
     }
 
     @Test
+    void createAcceptsAccountRegistrationUnderAccountManagement() {
+        SysMenu accountDirectory = menu(1L, 0L, "D", 1, "AccountManagement");
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(accountDirectory));
+
+        var created = service.create(new MenuCreateDTO(
+                1L, "新号注册", "AccountRegistration", "M",
+                "/account/registration", "account/registration/index",
+                "tenant:account:edit", null, 40));
+
+        assertThat(created.parentId()).isEqualTo(1L);
+        assertThat(created.componentPath()).isEqualTo("account/registration/index");
+        assertThat(created.permKey()).isEqualTo("tenant:account:edit");
+        verify(menuMapper).insert(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.getRoutePath().equals("/account/registration")
+                        && saved.getMenuName().equals("新号注册")));
+    }
+
+    @Test
     void createAcceptsGroupDataPackageUnderTaskCenter() {
         SysMenu taskCenter = menu(1L, 0L, "D", 1, "TaskCenter");
         when(menuMapper.findById(1L)).thenReturn(Optional.of(taskCenter));
@@ -220,6 +238,39 @@ class MenuManagementServiceImplTest {
             assertThat(page.meta().auths()).containsExactly(
                     "tenant:enabled:view", "tenant:enabled:edit");
         });
+    }
+
+    @Test
+    void effectiveRoutesIncludeRegistrationForTenantAdminWithoutExplicitGrants() {
+        SysUser user = new SysUser();
+        user.setId(7L);
+        user.setStatus(1);
+        when(userMapper.findById(7L)).thenReturn(Optional.of(user));
+        when(userMapper.findEnabledRoleIdsByUserId(7L)).thenReturn(List.of(101L));
+        when(roleMapper.findById(101L)).thenReturn(Optional.of(role(101L, "TENANT_ADMIN")));
+
+        SysMenu directory = menu(10L, 0L, "D", 1, "AccountManagement");
+        directory.setMenuName("账号管理");
+        directory.setRoutePath("/account");
+        SysMenu registration = menu(11L, 10L, "M", 1, "AccountRegistration");
+        registration.setMenuName("新号注册");
+        registration.setRoutePath("/account/registration");
+        registration.setComponentPath("account/registration/index");
+        registration.setPermKey("tenant:account:edit");
+        when(menuMapper.findAllOrdered()).thenReturn(List.of(directory, registration));
+
+        assertThat(service.findEffectiveRoutesForUser(7L)).singleElement().satisfies(account -> {
+            assertThat(account.name()).isEqualTo("AccountManagement");
+            assertThat(account.path()).isEqualTo("/account");
+            assertThat(account.children()).singleElement().satisfies(page -> {
+                assertThat(page.name()).isEqualTo("AccountRegistration");
+                assertThat(page.path()).isEqualTo("/account/registration");
+                assertThat(page.component()).isEqualTo("account/registration/index");
+                assertThat(page.meta().title()).isEqualTo("新号注册");
+                assertThat(page.meta().auths()).containsExactly("tenant:account:edit");
+            });
+        });
+        verify(roleMapper, never()).findMenuIdsByRoleId(101L);
     }
 
     @Test

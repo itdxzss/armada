@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountRegistrationMapper">
+  <select id="findByRequestId" resultType="com.armada.account.model.entity.AccountRegistrationTask">
+    SELECT * FROM account_registration_task WHERE request_id = #{requestId}
+  </select>
+  <select id="findTask" resultType="com.armada.account.model.entity.AccountRegistrationTask">
+    SELECT * FROM account_registration_task WHERE id = #{id}
+  </select>
+  <insert id="insertTask" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_registration_task
+      (request_id, service_code, country_id, unit_price, quantity, account_group_id, account_type,
+       ip_allocation_mode, ip_region, cancel_requested, created_at, updated_at)
+    VALUES (#{requestId}, #{serviceCode}, #{countryId}, #{unitPrice}, #{quantity}, #{accountGroupId}, #{accountType},
+       #{ipAllocationMode}, #{ipRegion}, #{cancelRequested}, #{createdAt}, #{updatedAt})
+  </insert>
+  <insert id="insertItems">
+    INSERT INTO account_registration_item (task_id, ordinal, state, created_at, updated_at) VALUES
+    <foreach collection="items" item="item" separator=",">
+      (#{item.taskId}, #{item.ordinal}, #{item.state}, #{item.createdAt}, #{item.updatedAt})
+    </foreach>
+  </insert>
+  <select id="countTasks" resultType="long">SELECT COUNT(*) FROM account_registration_task</select>
+  <select id="listTasks" resultType="com.armada.account.model.entity.AccountRegistrationTask">
+    SELECT * FROM account_registration_task ORDER BY created_at DESC, id DESC LIMIT #{pageSize} OFFSET #{offset}
+  </select>
+  <resultMap id="countsMap" type="com.armada.account.model.vo.AccountRegistrationCountsVO">
+    <constructor>
+      <arg column="pending" javaType="_int"/>
+      <arg column="processing" javaType="_int"/>
+      <arg column="succeeded" javaType="_int"/>
+      <arg column="failed" javaType="_int"/>
+      <arg column="unknown" javaType="_int"/>
+      <arg column="cancelled" javaType="_int"/>
+    </constructor>
+  </resultMap>
+  <select id="counts" resultMap="countsMap">
+    SELECT COALESCE(SUM(CASE WHEN state=1 THEN 1 ELSE 0 END),0) pending,
+      COALESCE(SUM(CASE WHEN state BETWEEN 2 AND 6 THEN 1 ELSE 0 END),0) processing,
+      COALESCE(SUM(CASE WHEN state=7 THEN 1 ELSE 0 END),0) succeeded,
+      COALESCE(SUM(CASE WHEN state=8 THEN 1 ELSE 0 END),0) failed,
+      COALESCE(SUM(CASE WHEN state=9 THEN 1 ELSE 0 END),0) `unknown`,
+      COALESCE(SUM(CASE WHEN state=10 THEN 1 ELSE 0 END),0) cancelled
+    FROM account_registration_item WHERE task_id=#{taskId}
+  </select>
+  <select id="listItems" resultType="com.armada.account.model.entity.AccountRegistrationItem">
+    SELECT * FROM account_registration_item WHERE task_id=#{taskId} ORDER BY ordinal
+  </select>
+  <select id="findItem" resultType="com.armada.account.model.entity.AccountRegistrationItem">
+    SELECT * FROM account_registration_item WHERE id=#{id}
+  </select>
+  <update id="requestCancel">
+    UPDATE account_registration_task SET cancel_requested=1,updated_at=#{now} WHERE id=#{taskId}
+  </update>
+  <update id="cancelPending">
+    UPDATE account_registration_item SET state=10,lease_token=NULL,lease_until=NULL,updated_at=#{now}
+    WHERE task_id=#{taskId} AND state=1
+  </update>
+  <select id="nextWork" resultType="com.armada.account.model.entity.AccountRegistrationItem">
+    SELECT i.id,i.tenant_id FROM account_registration_item i
+    INNER JOIN account_registration_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
+    WHERE i.state BETWEEN 1 AND 6 AND (i.state &lt;&gt; 1 OR t.cancel_requested=0)
+    ORDER BY CASE WHEN i.state=1 THEN 1 ELSE 0 END,i.id LIMIT 1
+  </select>
+  <update id="claim">
+    UPDATE account_registration_item SET lease_token=#{item.leaseToken},lease_until=#{item.leaseUntil}
+    WHERE id=#{item.id} AND state=#{item.state} AND (lease_until IS NULL OR lease_until &lt; #{now})
+  </update>
+  <update id="updateClaimed">
+    UPDATE account_registration_item SET state=#{state},activation_id=#{activationId},phone_number=#{phoneNumber},
+      actual_cost=#{actualCost},currency=#{currency},registration_id=#{registrationId},import_batch_id=#{importBatchId},
+      account_id=#{accountId},failure_code=#{failureCode},started_at=#{startedAt},updated_at=#{updatedAt}
+    WHERE id=#{id} AND lease_token=#{leaseToken} AND lease_until &gt;= #{updatedAt}
+  </update>
+  <update id="release">
+    UPDATE account_registration_item SET lease_token=NULL,lease_until=NULL WHERE id=#{id} AND lease_token=#{token}
+  </update>
+</mapper>

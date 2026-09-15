@@ -1,0 +1,3 @@
+-- 本变更仅新增菜单数据，无表结构变更。
+-- 唯一执行来源：armada-api/src/main/resources/db/migration/V194__account_registration_menu.sql。
+-- 请通过 Flyway 执行该版本，禁止绕过迁移历史手工写共享数据库。

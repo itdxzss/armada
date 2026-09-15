@@ -41,6 +41,12 @@ public enum ErrorCode {
     /** 超链任务审计落点未配置或不可写。 */
     HYPERLINK_AUDIT_UNAVAILABLE(50312, "超链任务审计服务暂不可用"),
 
+    /** 接码供应商未启用、请求被拒绝或订单操作结果尚不能确认。 */
+    SMS_PROVIDER_UNAVAILABLE(50313, "接码服务暂不可用"),
+
+    /** 接码注册流程的 Cobalt 服务未配置、不可用或结果需核对。 */
+    ACCOUNT_REGISTRATION_UNAVAILABLE(50314, "账号注册服务暂不可用"),
+
     /** 当前执行线程缺少服务端认证建立的租户上下文。 */
     TENANT_MISSING(40101, "缺少租户上下文，请重新登录"),
 

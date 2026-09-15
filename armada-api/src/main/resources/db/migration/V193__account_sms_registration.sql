@@ -1,0 +1,46 @@
+-- 接码采购任务与固定次数明细；六段仍只进入现有 account_credential。
+CREATE TABLE IF NOT EXISTS account_registration_task (
+  id BIGINT NOT NULL AUTO_INCREMENT COMMENT '采购任务主键',
+  tenant_id BIGINT NOT NULL COMMENT '租户ID',
+  request_id VARCHAR(36) NOT NULL COMMENT '租户内创建请求幂等UUID',
+  service_code VARCHAR(64) NOT NULL COMMENT 'WhatsApp服务目录代码',
+  country_id VARCHAR(16) NOT NULL COMMENT '供应商美国国家目录ID',
+  unit_price DECIMAL(30,12) NOT NULL COMMENT '每次采购固定单价,不隐含币种',
+  quantity INT NOT NULL COMMENT '固定采购尝试次数,失败不补购',
+  account_group_id BIGINT NOT NULL COMMENT '目标现有账号分组ID',
+  account_type TINYINT NOT NULL COMMENT '注册申报类型:1个人2商业',
+  ip_allocation_mode VARCHAR(16) NOT NULL COMMENT '现有上线IP模式:smart或mixed',
+  ip_region VARCHAR(100) DEFAULT NULL COMMENT '现有上线地区字段',
+  cancel_requested TINYINT NOT NULL DEFAULT 0 COMMENT '是否停止未采购条目:0否1是',
+  created_at BIGINT NOT NULL COMMENT '创建时间epoch毫秒',
+  updated_at BIGINT NOT NULL COMMENT '变更时间epoch毫秒',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_registration_request (tenant_id, request_id),
+  KEY idx_registration_task_page (tenant_id, created_at, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定次数接码注册任务';
+
+CREATE TABLE IF NOT EXISTS account_registration_item (
+  id BIGINT NOT NULL AUTO_INCREMENT COMMENT '注册明细主键',
+  tenant_id BIGINT NOT NULL COMMENT '租户ID',
+  task_id BIGINT NOT NULL COMMENT '采购任务ID',
+  ordinal INT NOT NULL COMMENT '任务内采购序号',
+  state TINYINT NOT NULL DEFAULT 1 COMMENT '1待采购2采购中3等码4注册中5导入中6等待在线7成功8失败9结果不明10已取消',
+  activation_id VARCHAR(40) DEFAULT NULL COMMENT 'Grizzly订单ID',
+  phone_number VARCHAR(32) DEFAULT NULL COMMENT '已购完整号码,禁止日志输出',
+  actual_cost DECIMAL(30,12) DEFAULT NULL COMMENT '平台回报实际成本',
+  currency INT DEFAULT NULL COMMENT '平台回报ISO4217数字币种',
+  registration_id VARCHAR(100) DEFAULT NULL COMMENT '稳定Cobalt注册ID',
+  import_batch_id BIGINT DEFAULT NULL COMMENT '现有账号导入批次ID',
+  account_id BIGINT DEFAULT NULL COMMENT '现有账号主键',
+  failure_code VARCHAR(64) DEFAULT NULL COMMENT '固定安全错误分类,无供应商原文',
+  lease_token VARCHAR(36) DEFAULT NULL COMMENT '当前执行令牌',
+  lease_until BIGINT DEFAULT NULL COMMENT '执行租约截止epoch毫秒',
+  started_at BIGINT DEFAULT NULL COMMENT '首次采购意图落库epoch毫秒',
+  created_at BIGINT NOT NULL COMMENT '创建时间epoch毫秒',
+  updated_at BIGINT NOT NULL COMMENT '变更时间epoch毫秒',
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_registration_item_ordinal (tenant_id, task_id, ordinal),
+  UNIQUE KEY uq_registration_activation (activation_id),
+  KEY idx_registration_item_scan (state, id),
+  KEY idx_registration_item_task (tenant_id, task_id, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='一次采购注册状态,不存OTP或六段';

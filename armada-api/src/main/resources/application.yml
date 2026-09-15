@@ -42,6 +42,20 @@ server:
   port: 8080
 
 armada:
+  registration:
+    cobalt:
+      enabled: ${COBALT_CLIENT_ENABLED:false}
+      base-url: ${COBALT_BASE_URL:http://cobalt-registration:8080}
+      api-token: ${COBALT_API_TOKEN:}
+      connect-timeout: ${COBALT_CONNECT_TIMEOUT:5s}
+      read-timeout: ${COBALT_READ_TIMEOUT:10s}
+  sms:
+    grizzly:
+      enabled: ${GRIZZLY_SMS_ENABLED:false}
+      purchases-enabled: ${GRIZZLY_SMS_PURCHASES_ENABLED:false}
+      api-key: ${GRIZZLY_SMS_API_KEY:}
+      connect-timeout: ${GRIZZLY_SMS_CONNECT_TIMEOUT:5s}
+      read-timeout: ${GRIZZLY_SMS_READ_TIMEOUT:20s}
   hyperlink:
     # 默认失败关闭；ZERO_TEST 只供测试环境在未接真实钱包时跑通业务闭环。
     billing-mode: ${ARMADA_HYPERLINK_BILLING_MODE:UNAVAILABLE}

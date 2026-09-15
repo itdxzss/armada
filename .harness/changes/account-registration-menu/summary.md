@@ -59,3 +59,11 @@ Grizzly、Cobalt client、注册编排、H2 Mapper、菜单和 Flyway 共 150 �
 - 真实密钥只写 test1 服务器环境文件；HTTP 端口只绑定回环，通过 Armada Docker 网络和 Bearer 鉴权连接。
 - 后端注册/Cobalt 相关 35 项测试通过，部署脚本测试通过；独立 Java 25 Cobalt 包 16 项离线测试通过。
 - 发布前评审：上述调度缺失和无限等待问题已修复，无新增 SQL/迁移；未知采购结果不重购、固定注册 ID 幂等、真实 ONLINE 回调才成功的边界保持。真实 WhatsApp 注册及六段导入上线仍须通过实际任务验收，健康检查不能替代。
+
+### 启动验收结果
+
+- test1 后端执行版本 `1695e7aa` 已推送并部署，运行 Jar SHA-256 `2afec26092771f8fee8b65396aeedbeb83cb32761b2f3cc52c9ff6729f1c6499` 与固定发布 worktree 一致。
+- Cobalt 镜像 `cobalt-registration:cb9fbf1-http-20260915-28d48541`，运行 Jar SHA-256 `28d48541014691e1e4a0212cb9be9fceea3473a53c94cb6daebf76db50091889`；健康状态 UP、注册开启、可用槽位 1，未授权健康请求返回 401，宿主端口仅回环。
+- Grizzly 集成/采购、Armada 注册/调度、Cobalt 客户端五项开关在运行容器中均为 true；两容器运行且重启计数 0，启动后未观察到注册调度错误。
+- 登录浏览器打开 test1 新号注册页面，`REGISTRATION_DISABLED` 提示消失，`提交采购与注册` 按钮可用；浏览器会话已结束。
+- 本次没有提交付费采购任务。端到端实号注册、凭据导入及首次上线仍待用户选择实际档位/数量后验收。

@@ -129,6 +129,24 @@ public class PullTaskGroupExecution {
     /** 更新时间(epoch 毫秒)。 */
     private Long updatedAt;
 
+    /** 独立数据包来源；原文件上传为空。 */
+    private Long sourcePackageId;
+
+    /** 草稿冻结的数据包代次；覆盖导入后旧草稿不得提交。 */
+    private Integer sourcePackageGeneration;
+
+    /** 独立数据包来源；原文件上传为空。 */
+    public Long getSourcePackageId() { return sourcePackageId; }
+
+    /** 设置独立数据包来源；原文件上传为空。 */
+    public void setSourcePackageId(Long sourcePackageId) { this.sourcePackageId = sourcePackageId; }
+
+    /** 草稿冻结的数据包代次；覆盖导入后旧草稿不得提交。 */
+    public Integer getSourcePackageGeneration() { return sourcePackageGeneration; }
+
+    /** 设置草稿冻结的数据包代次；覆盖导入后旧草稿不得提交。 */
+    public void setSourcePackageGeneration(Integer sourcePackageGeneration) { this.sourcePackageGeneration = sourcePackageGeneration; }
+
     public Long getId() {
         return id;
     }

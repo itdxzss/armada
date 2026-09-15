@@ -93,6 +93,19 @@ class PullTaskStandardControllerTest {
     }
 
     @Test
+    void packageSelectionCarriesLinksAndTrustedOperatorIntoDraft() throws Exception {
+        var request = new ObjectMapper().readValue("""
+                {"creationMode":"PASTED_LINK","packageIds":[81,82],
+                 "groupFolderId":18,"linksText":"chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA"}
+                """, com.armada.task.model.dto.PullTaskStandardDataPackagesDTO.class);
+        when(draftService.planDataPackages(request, 501L, "小王")).thenReturn(EMPTY_VIEW);
+        assertThat(controller.dataPackages(request, principal("小王", "wang")).data()).isEqualTo(EMPTY_VIEW);
+        verify(draftService).planDataPackages(request, 501L, "小王");
+        assertThat(request.packageIds()).containsExactly(81L, 82L);
+        assertThat(request.groupFolderId()).isEqualTo(18L);
+    }
+
+    @Test
     void planPassesEmptyListWhenNoFileUploaded() {
         when(draftService.plan(any(), any(), anyString(), any(), anyLong(), anyString()))
                 .thenReturn(EMPTY_VIEW);

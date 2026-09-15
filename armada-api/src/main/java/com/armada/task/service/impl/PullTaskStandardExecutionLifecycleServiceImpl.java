@@ -218,6 +218,8 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
         retry.setSourceFileIndex(failed.getSourceFileIndex());
         retry.setAttemptNo(failed.getAttemptNo() == null ? 2 : failed.getAttemptNo() + 1);
         retry.setSourceFileName(failed.getSourceFileName());
+        retry.setSourcePackageId(failed.getSourcePackageId());
+        retry.setSourcePackageGeneration(failed.getSourcePackageGeneration());
         retry.setTotalLineCount(failed.getTotalLineCount());
         retry.setValidMemberCount(failed.getValidMemberCount());
         retry.setInvalidLineCount(failed.getInvalidLineCount());
@@ -237,6 +239,7 @@ public class PullTaskStandardExecutionLifecycleServiceImpl
             throw new IllegalStateException("群封禁后创建 TXT 重试记录失败");
         }
         resources.pull().materialMapper().copyForRetry(failed.getId(), retry.getId(), now);
+        resources.pull().dataPackages().synchronizeExecution(retry.getId());
         dispatchIfRunning(parent);
     }
 

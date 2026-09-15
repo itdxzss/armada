@@ -4,6 +4,7 @@ import com.armada.shared.response.ApiResponse;
 import com.armada.shared.response.PageResult;
 import com.armada.shared.security.AuthPrincipal;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
+import com.armada.task.model.dto.PullTaskStandardDataPackagesDTO;
 import com.armada.task.model.dto.PullTaskManagerSupplementDTO;
 import com.armada.task.model.dto.PullTaskPullerSupplementDTO;
 import com.armada.task.model.dto.PullTaskStationSupplementDTO;
@@ -89,6 +90,16 @@ public class PullTaskStandardController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         return ApiResponse.ok(draftService.plan(creationMode, groupFolderId, linksText, toList(files),
                 principal.userId(), displayName(principal)));
+    }
+
+    /** 把数据包未使用号码按包追加为草稿执行单元，提交时才原子领取。 */
+    @PostMapping("/draft/data-packages")
+    @PreAuthorize("hasAuthority('tenant:pull_task:create') and hasAuthority('tenant:group_data_package:view')")
+    public ApiResponse<PullTaskStandardDraftVO> dataPackages(
+            @RequestBody PullTaskStandardDataPackagesDTO request,
+            @AuthenticationPrincipal AuthPrincipal principal) {
+        return ApiResponse.ok(draftService.planDataPackages(
+                request, principal.userId(), displayName(principal)));
     }
 
     /**

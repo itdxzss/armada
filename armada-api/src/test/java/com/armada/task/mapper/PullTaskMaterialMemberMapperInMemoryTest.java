@@ -79,6 +79,21 @@ class PullTaskMaterialMemberMapperInMemoryTest {
     }
 
     @Test
+    void retryPreservesDataPackageSourceIdentity() {
+        PullTaskMaterialMember source = member(1, "66812345678", 1);
+        source.setSourcePackagePhoneId(81L);
+        source.setSourceAllocationVersion(3L);
+        mapper.batchInsert(List.of(source));
+        mapper.copyForRetry(EXECUTION, EXECUTION + 1, 1100L);
+        PullTaskMaterialMember copied = mapper.selectByExecution(EXECUTION + 1).get(0);
+        assertThat(copied.getSourcePackagePhoneId()).isEqualTo(81L);
+        assertThat(copied.getSourceAllocationVersion()).isEqualTo(3L);
+        assertThat(copied.getMemberSeq()).isEqualTo(1);
+        assertThat(copied.getSourceLineNo()).isEqualTo(13);
+        assertThat(copied.getAdminRequired()).isEqualTo(1);
+    }
+
+    @Test
     void duplicatePhoneWithinOneExecutionIsRejected() {
         mapper.batchInsert(List.of(member(1, "8613800000001", 0)));
 

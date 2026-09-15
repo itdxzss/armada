@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.resource.mapper.GroupDataPackagePhoneMapper">
+
+ <insert id="insertBatch">INSERT INTO group_data_package_phone(package_id,generation,source_import_id,phone,country_iso2,member_seq,source_line_no,admin_required,status,allocation_version,created_at,updated_at) VALUES
+ <foreach collection="rows" item="r" separator=",">(#{r.packageId},#{r.generation},#{r.sourceImportId},#{r.phone},#{r.countryIso2},#{r.memberSeq},#{r.sourceLineNo},#{r.adminRequired},1,0,#{r.createdAt},#{r.updatedAt})</foreach></insert>
+ <select id="existing" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE package_id=#{id} AND generation=#{generation} AND phone IN <foreach collection="phones" item="phone" open="(" separator="," close=")">#{phone}</foreach></select>
+ <sql id="Filter">package_id=#{id} AND generation=#{generation}
+ <if test="query.phone != null and query.phone != ''">AND phone LIKE CONCAT('%',#{query.phone},'%')</if>
+ <if test="query.statusCode != null">AND status=#{query.statusCode}</if></sql>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM group_data_package_phone WHERE <include refid="Filter"/></select>
+ <select id="page" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE <include refid="Filter"/> ORDER BY member_seq LIMIT #{query.pageSize} OFFSET #{query.offset}</select>
+ <select id="activeCount" resultType="long">SELECT COUNT(*) FROM group_data_package_phone WHERE package_id=#{id} AND status IN(2,7)</select>
+ <select id="primaryCountry" resultType="string">SELECT country_iso2 FROM group_data_package_phone WHERE package_id=#{id} AND generation=#{generation}
+ GROUP BY country_iso2 ORDER BY COUNT(*) DESC,CASE WHEN country_iso2 IS NULL THEN 1 ELSE 0 END,country_iso2 LIMIT 1</select>
+ <select id="maxSeq" resultType="int">SELECT COALESCE(MAX(member_seq),0) FROM group_data_package_phone WHERE package_id=#{id} AND generation=#{generation}</select>
+ <update id="promoteAdmin">UPDATE group_data_package_phone SET admin_required=1 WHERE status=1 AND claimed_task_id IS NULL AND id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach></update>
+ <select id="privacyHistory" resultType="string">SELECT DISTINCT phone FROM group_data_package_phone WHERE status=5 AND updated_at &gt;= #{cutoff}
+ AND phone IN <foreach collection="phones" item="phone" open="(" separator="," close=")">#{phone}</foreach></select>
+ <select id="export" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE package_id=#{id} AND generation=#{generation}
+ <if test="statuses != null and !statuses.isEmpty()">AND status IN <foreach collection="statuses" item="s" open="(" separator="," close=")">#{s}</foreach></if> ORDER BY member_seq</select>
+ <update id="resetFailed">UPDATE group_data_package_phone SET status=1,claimed_task_id=NULL,claimed_execution_seq=NULL,updated_at=#{now}
+ WHERE package_id=#{id} AND generation=#{generation} AND status=4</update>
+ <select id="snapshot" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE package_id=#{id} AND generation=#{generation} AND status=1 AND claimed_task_id IS NULL ORDER BY member_seq LIMIT #{limit}</select>
+ <select id="byIds" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach> ORDER BY member_seq</select>
+ <select id="lockByIds" resultType="com.armada.resource.model.entity.GroupDataPackagePhone">SELECT * FROM group_data_package_phone WHERE id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach> FOR UPDATE</select>
+ <update id="claimBatch">UPDATE group_data_package_phone SET status=2,claimed_task_id=#{request.taskId},claimed_execution_seq=#{request.executionSeq},allocation_version=allocation_version+1,updated_at=#{now}
+ WHERE package_id=#{request.packageId} AND generation=#{request.generation} AND status=1 AND claimed_task_id IS NULL
+ AND id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach></update>
+ <update id="transitionBatch">UPDATE group_data_package_phone SET status=#{target},updated_at=#{now}
+ <if test="target == 1">,claimed_task_id=NULL,claimed_execution_seq=NULL</if>
+ WHERE status=#{expected} AND (
+ <foreach collection="rows" item="row" separator=" OR ">
+ (id=#{row.id} AND claimed_task_id=#{row.claimedTaskId} AND claimed_execution_seq=#{row.claimedExecutionSeq} AND allocation_version=#{row.allocationVersion})
+ </foreach>)</update>
+</mapper>

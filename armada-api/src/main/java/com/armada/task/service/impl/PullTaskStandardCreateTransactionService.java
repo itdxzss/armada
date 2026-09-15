@@ -43,21 +43,20 @@ public class PullTaskStandardCreateTransactionService {
     private final PullTaskStandardGroupSettingWriter groupSettingWriter;
     private final PullTaskGroupAvatarService avatarService;
     private final GroupLinkRegistryService groupLinkRegistryService;
+    private final PullTaskDataPackageSourceService dataPackageSourceService;
 
     /** 创建提交事务服务。 */
     public PullTaskStandardCreateTransactionService(
             PullTaskMapper pullTaskMapper,
             PullTaskGroupExecutionMapper executionMapper,
-            PullTaskStandardSettingWriter settingWriter,
-            PullTaskStandardGroupSettingWriter groupSettingWriter,
-            PullTaskGroupAvatarService avatarService,
-            GroupLinkRegistryService groupLinkRegistryService) {
+            PullTaskStandardCreateResources resources) {
         this.pullTaskMapper = pullTaskMapper;
         this.executionMapper = executionMapper;
-        this.settingWriter = settingWriter;
-        this.groupSettingWriter = groupSettingWriter;
-        this.avatarService = avatarService;
-        this.groupLinkRegistryService = groupLinkRegistryService;
+        this.settingWriter = resources.settingWriter();
+        this.groupSettingWriter = resources.groupSettingWriter();
+        this.avatarService = resources.avatarService();
+        this.groupLinkRegistryService = resources.groupLinkRegistryService();
+        this.dataPackageSourceService = resources.dataPackageSourceService();
     }
 
     /** 校验并把完整大表单一次冻结到数据库。 */
@@ -85,6 +84,7 @@ public class PullTaskStandardCreateTransactionService {
                                     : "至少需要一条群链接与 TXT 的匹配");
         }
         validateExecutionRows(rows, creationMode(request));
+        dataPackageSourceService.claim(rows);
 
         PullTaskStandardGroupSettingDTO groupSetting = groupSettingWithModeDefault(request);
         validateAvatar(groupSetting);
@@ -159,7 +159,7 @@ public class PullTaskStandardCreateTransactionService {
     }
 
     private PullTask requireOwnTask(long taskId, long userId) {
-        PullTask task = pullTaskMapper.selectLifecycle(taskId);
+        PullTask task = pullTaskMapper.selectLifecycleForUpdate(taskId);
         if (task == null || task.getCreatedBy() == null || !task.getCreatedBy().equals(userId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "草稿不存在或不属于当前用户");
         }

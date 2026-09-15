@@ -253,8 +253,10 @@ class PullTaskStandardDraftServiceReadEditTest {
                                                   PullTaskMaterialTxtParser txtParser,
                                                   PullTaskLinkProbeService probeService) {
             return new PullTaskStandardDraftServiceImpl(
-                    pullTaskMapper, executionMapper, writer, txtParser, probeService,
-                    mock(com.armada.group.service.GroupFolderService.class));
+                    pullTaskMapper, executionMapper, writer, txtParser,
+                    new com.armada.task.service.impl.PullTaskStandardDraftSources( probeService,
+                    mock(com.armada.group.service.GroupFolderService.class),
+                    mock(com.armada.task.service.impl.PullTaskDataPackageSourceService.class)));
         }
     }
 }

@@ -61,7 +61,7 @@ class PullTaskGroupBanTerminationServiceTest {
                         executionMapper, settingMapper, actionMapper, memberQueryMapper,
                         new PullTaskLifecyclePullResources(
                                 accountMapper, pullCallMapper, attemptMapper,
-                                materialMapper, waveMapper),
+                                materialMapper, waveMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class)),
                         outboxService);
         service = new PullTaskStandardExecutionLifecycleServiceImpl(
                 taskMapper, resources, completionService, dispatchTrigger,

@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.model.entity.PullTask;
@@ -15,6 +16,7 @@ public class PullTaskParentCompletionService {
 
     private final PullTaskMapper taskMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
+    private final GroupDataPackageTaskProjectionService dataPackages;
 
     /**
      * @param taskMapper 父任务 Mapper
@@ -22,9 +24,11 @@ public class PullTaskParentCompletionService {
      */
     public PullTaskParentCompletionService(
             PullTaskMapper taskMapper,
-            PullTaskGroupExecutionMapper executionMapper) {
+            PullTaskGroupExecutionMapper executionMapper,
+            GroupDataPackageTaskProjectionService dataPackages) {
         this.taskMapper = taskMapper;
         this.executionMapper = executionMapper;
+        this.dataPackages = dataPackages;
     }
 
     /** 全部执行行进入终态时，以乐观锁把父任务从执行中推进为完成。 */
@@ -32,6 +36,10 @@ public class PullTaskParentCompletionService {
         PullTaskGroupExecution execution = executionMapper.selectById(executionId);
         if (execution == null || execution.getTaskId() == null) {
             throw new IllegalStateException("终态执行行不存在");
+        }
+        // 单执行终态立即结算，不等待兄弟执行结束，也不扩锁其他任务或执行行。
+        if (terminal(execution) && execution.getSourcePackageId() != null) {
+            dataPackages.synchronizeExecution(executionId);
         }
         completeIfTerminalByTaskId(execution.getTaskId(), now);
     }

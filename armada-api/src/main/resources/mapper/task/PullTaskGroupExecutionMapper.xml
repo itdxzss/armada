@@ -5,6 +5,7 @@
   <sql id="BaseColumns">
     id, tenant_id, task_id, seq, group_link_id, normalized_link, invite_code,
     source_link_line_no, group_jid, source_file_index, attempt_no, source_file_name,
+    source_package_id, source_package_generation,
     total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
     execution_status, stage, create_step, create_operation_id, create_attempt_count, group_subject,
     manual_paused, wait_resource_type, reason_code, reason_message,
@@ -20,6 +21,7 @@
     execution_row.group_link_id, execution_row.normalized_link, execution_row.invite_code,
     execution_row.source_link_line_no, execution_row.group_jid,
     execution_row.source_file_index, execution_row.attempt_no, execution_row.source_file_name,
+    execution_row.source_package_id, execution_row.source_package_generation,
     execution_row.total_line_count, execution_row.valid_member_count,
     execution_row.invalid_line_count, execution_row.duplicate_line_count,
     execution_row.execution_status, execution_row.stage, execution_row.create_step,
@@ -39,7 +41,8 @@
   <insert id="insertDraftInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
       task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
-      source_file_index, attempt_no, source_file_name, total_line_count, valid_member_count,
+      source_file_index, attempt_no, source_file_name, source_package_id, source_package_generation,
+      total_line_count, valid_member_count,
       invalid_line_count, duplicate_line_count, execution_status, stage,
       create_step, create_operation_id, create_attempt_count, group_subject, manual_paused,
       next_manager_index, next_puller_index, active_pull_wave_id,
@@ -48,7 +51,8 @@
     ) VALUES (
       #{taskId}, #{seq}, #{groupLinkId}, #{normalizedLink}, #{inviteCode},
       #{sourceLinkLineNo}, #{groupJid},
-      #{sourceFileIndex}, #{attemptNo}, #{sourceFileName}, #{totalLineCount}, #{validMemberCount},
+      #{sourceFileIndex}, #{attemptNo}, #{sourceFileName}, #{sourcePackageId}, #{sourcePackageGeneration},
+      #{totalLineCount}, #{validMemberCount},
       #{invalidLineCount}, #{duplicateLineCount}, #{executionStatus}, #{stage},
       #{createStep}, #{createOperationId}, #{createAttemptCount}, #{groupSubject},
       #{manualPaused}, #{nextManagerIndex}, #{nextPullerIndex}, #{activePullWaveId},
@@ -59,13 +63,13 @@
 
   <insert id="insertRetryInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
-      task_id, seq, source_file_index, attempt_no, source_file_name,
+      task_id, seq, source_file_index, attempt_no, source_file_name, source_package_id, source_package_generation,
       total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
       execution_status, stage, group_subject, manual_paused,
       next_manager_index, next_puller_index, puller_assignment_seq,
       next_run_at, version, created_at, updated_at
     ) VALUES (
-      #{taskId}, #{seq}, #{sourceFileIndex}, #{attemptNo}, #{sourceFileName},
+      #{taskId}, #{seq}, #{sourceFileIndex}, #{attemptNo}, #{sourceFileName}, #{sourcePackageId}, #{sourcePackageGeneration},
       #{totalLineCount}, #{validMemberCount}, #{invalidLineCount}, #{duplicateLineCount},
       #{executionStatus}, #{stage}, #{groupSubject}, #{manualPaused},
       #{nextManagerIndex}, #{nextPullerIndex}, #{pullerAssignmentSeq},

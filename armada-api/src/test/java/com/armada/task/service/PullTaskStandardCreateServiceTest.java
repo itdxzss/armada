@@ -819,8 +819,10 @@ class PullTaskStandardCreateServiceTest {
                                                   PullTaskLinkProbeService probeService,
                                                   GroupFolderService groupFolderService) {
             return new PullTaskStandardDraftServiceImpl(
-                    pullTaskMapper, executionMapper, writer, txtParser, probeService,
-                    groupFolderService);
+                    pullTaskMapper, executionMapper, writer, txtParser,
+                    new com.armada.task.service.impl.PullTaskStandardDraftSources( probeService,
+                    groupFolderService,
+                    mock(com.armada.task.service.impl.PullTaskDataPackageSourceService.class)));
         }
 
         @Bean
@@ -908,8 +910,10 @@ class PullTaskStandardCreateServiceTest {
                 PullTaskGroupAvatarService avatarService,
                 GroupLinkRegistryService groupLinkRegistryService) {
             return new PullTaskStandardCreateTransactionService(
-                    pullTaskMapper, executionMapper, settingWriter, groupSettingWriter,
-                    avatarService, groupLinkRegistryService);
+                    pullTaskMapper, executionMapper,
+                    new com.armada.task.service.impl.PullTaskStandardCreateResources( settingWriter, groupSettingWriter,
+                    avatarService, groupLinkRegistryService,
+                    mock(com.armada.task.service.impl.PullTaskDataPackageSourceService.class)));
         }
 
         @Bean

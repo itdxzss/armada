@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.resource.mapper.GroupDataPackageStatMapper">
+
+ <insert id="insert">INSERT INTO group_data_package_stat(package_id,generation) VALUES(#{id},1)</insert>
+ <select id="select" resultType="com.armada.resource.model.entity.GroupDataPackageStat">SELECT * FROM group_data_package_stat WHERE package_id=#{id}</select>
+ <select id="selectByIds" resultType="com.armada.resource.model.entity.GroupDataPackageStat">
+ SELECT * FROM group_data_package_stat WHERE package_id IN <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+ </select>
+ <update id="reset">UPDATE group_data_package_stat SET generation=#{generation},primary_country_iso2=NULL,continent=NULL,
+ total_count=0,unused_count=0,claimed_count=0,success_count=0,failed_count=0,privacy_rejected_count=0,unregistered_count=0,unknown_count=0
+ WHERE package_id=#{id}</update>
+ <update id="addImported">UPDATE group_data_package_stat SET total_count=total_count+#{count},unused_count=unused_count+#{count} WHERE package_id=#{id}</update>
+ <update id="move">
+ UPDATE group_data_package_stat SET
+ unused_count=unused_count+#{count}*(CASE WHEN #{to}=1 THEN 1 ELSE 0 END-CASE WHEN #{from}=1 THEN 1 ELSE 0 END),
+ claimed_count=claimed_count+#{count}*(CASE WHEN #{to}=2 THEN 1 ELSE 0 END-CASE WHEN #{from}=2 THEN 1 ELSE 0 END),
+ success_count=success_count+#{count}*(CASE WHEN #{to}=3 THEN 1 ELSE 0 END-CASE WHEN #{from}=3 THEN 1 ELSE 0 END),
+ failed_count=failed_count+#{count}*(CASE WHEN #{to} IN(4,5,6) THEN 1 ELSE 0 END-CASE WHEN #{from} IN(4,5,6) THEN 1 ELSE 0 END),
+ privacy_rejected_count=privacy_rejected_count+#{count}*(CASE WHEN #{to}=5 THEN 1 ELSE 0 END-CASE WHEN #{from}=5 THEN 1 ELSE 0 END),
+ unregistered_count=unregistered_count+#{count}*(CASE WHEN #{to}=6 THEN 1 ELSE 0 END-CASE WHEN #{from}=6 THEN 1 ELSE 0 END),
+ unknown_count=unknown_count+#{count}*(CASE WHEN #{to}=7 THEN 1 ELSE 0 END-CASE WHEN #{from}=7 THEN 1 ELSE 0 END)
+ WHERE package_id=#{id} AND generation=#{generation}
+ </update>
+ <update id="country">UPDATE group_data_package_stat SET primary_country_iso2=#{country},continent=#{continent} WHERE package_id=#{id}</update>
+
+</mapper>

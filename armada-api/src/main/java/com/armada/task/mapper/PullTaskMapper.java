@@ -181,6 +181,9 @@ public interface PullTaskMapper {
      */
     PullTask selectLifecycle(@Param("id") long id);
 
+    /** 草稿增删和正式提交共享父任务锁，防止提交中清空料子。 */
+    PullTask selectLifecycleForUpdate(@Param("id") long id);
+
     /**
      * 用父任务版本号与当前运行数原子竞争一个执行槽位。
      *

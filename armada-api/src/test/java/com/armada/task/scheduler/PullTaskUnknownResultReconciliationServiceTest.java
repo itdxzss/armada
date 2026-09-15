@@ -85,7 +85,7 @@ class PullTaskUnknownResultReconciliationServiceTest {
                         executionMapper,
                         mock(PullTaskPullCallReconciliationService.class),
                         waveProgress,
-                        groupAccountSelector));
+                        groupAccountSelector), org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
     }
 
     @Test

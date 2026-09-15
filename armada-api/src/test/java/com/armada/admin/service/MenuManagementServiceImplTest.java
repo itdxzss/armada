@@ -105,6 +105,49 @@ class MenuManagementServiceImplTest {
     }
 
     @Test
+    void createAcceptsGroupDataPackageUnderTaskCenter() {
+        SysMenu taskCenter = menu(1L, 0L, "D", 1, "TaskCenter");
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(taskCenter));
+
+        var created = service.create(new MenuCreateDTO(
+                1L, "拉群数据包", "GroupDataPackage", "M",
+                "/resource/group-data-package", "resource/group-data-package/index",
+                "tenant:group_data_package:view", "ep:files", 51));
+
+        assertThat(created.parentId()).isEqualTo(1L);
+        assertThat(created.componentPath()).isEqualTo("resource/group-data-package/index");
+        assertThat(created.permKey()).isEqualTo("tenant:group_data_package:view");
+        verify(menuMapper).insert(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.getRoutePath().equals("/resource/group-data-package")
+                        && saved.getParentId().equals(1L)));
+    }
+
+    @Test
+    void updateMigratedGroupDataPackageKeepsItsComponentAndPermission() {
+        SysMenu taskCenter = menu(1L, 0L, "D", 1, "TaskCenter");
+        SysMenu dataPackage = menu(20L, 1L, "M", 1, "GroupDataPackage");
+        dataPackage.setMenuName("拉群数据包");
+        dataPackage.setRoutePath("/resource/group-data-package");
+        dataPackage.setComponentPath("resource/group-data-package/index");
+        dataPackage.setPermKey("tenant:group_data_package:view");
+        when(menuMapper.findById(20L)).thenReturn(Optional.of(dataPackage));
+        when(menuMapper.findById(1L)).thenReturn(Optional.of(taskCenter));
+        when(menuMapper.findAllOrdered()).thenReturn(List.of(taskCenter, dataPackage));
+
+        var updated = service.update(20L, new MenuUpdateDTO(
+                1L, "客户号码包", "GroupDataPackage", "M",
+                "/resource/group-data-package", "resource/group-data-package/index",
+                "tenant:group_data_package:view", "ep:files", 51));
+
+        assertThat(updated.id()).isEqualTo(20L);
+        assertThat(updated.menuName()).isEqualTo("客户号码包");
+        assertThat(updated.componentPath()).isEqualTo("resource/group-data-package/index");
+        assertThat(updated.permKey()).isEqualTo("tenant:group_data_package:view");
+        verify(menuMapper).update(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.getMenuName().equals("客户号码包") && saved.getSortNo().equals(51)));
+    }
+
+    @Test
     void createAcceptsHyperlinkPhaseOneComponents() {
         SysMenu hyperlinkDirectory = menu(1L, 0L, "D", 1, "HyperlinkMarketing");
         when(menuMapper.findById(1L)).thenReturn(Optional.of(hyperlinkDirectory));

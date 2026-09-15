@@ -408,7 +408,7 @@ class PullTaskPullWaveDispatchIntegrationTest {
                 PullTaskGroupAccountMapper accounts,
                 PullTaskPullWavePlanningResources resources) {
             return new PullTaskPullWavePlanningTransactionService(
-                    tasks, settings, materials, accounts, resources);
+                    tasks, settings, materials, accounts, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean PullTaskStickyPullerTransactionService stickyPullers(
@@ -448,7 +448,7 @@ class PullTaskPullWaveDispatchIntegrationTest {
                 PullTaskMaterialMemberMapper materials,
                 PullTaskBatchAddResources resources) {
             return new PullTaskBatchAddProcessor(new PullTaskBatchAddTransactionService(
-                    tasks, settings, accounts, materials, resources));
+                    tasks, settings, accounts, materials, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class)));
         }
 
         @Bean PullTaskPullerStationContactProcessor contacts() {

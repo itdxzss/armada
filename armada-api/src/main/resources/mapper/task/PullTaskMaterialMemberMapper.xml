@@ -6,15 +6,30 @@
   <insert id="batchInsertInitialized">
     INSERT INTO pull_task_material_member (
       group_execution_id, member_seq, source_line_no, normalized_phone, admin_required,
+      source_package_phone_id, source_allocation_version,
       pull_status, admin_status, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (#{row.groupExecutionId}, #{row.memberSeq}, #{row.sourceLineNo},
        #{row.normalizedPhone}, #{row.adminRequired},
+       #{row.sourcePackagePhoneId}, #{row.sourceAllocationVersion},
        #{row.pullStatus}, #{row.adminStatus},
        #{row.createdAt}, #{row.updatedAt})
     </foreach>
   </insert>
+
+  <update id="bindSourceAllocations">
+    UPDATE pull_task_material_member
+    SET source_allocation_version = CASE source_package_phone_id
+      <foreach collection="rows" item="row">
+        WHEN #{row.sourcePackagePhoneId} THEN #{row.sourceAllocationVersion}
+      </foreach>
+      END
+    WHERE group_execution_id = #{executionId}
+      AND source_allocation_version IS NULL
+      AND source_package_phone_id IN
+      <foreach collection="rows" item="row" open="(" separator="," close=")">#{row.sourcePackagePhoneId}</foreach>
+  </update>
 
   <select id="selectByExecution" resultType="com.armada.task.model.entity.PullTaskMaterialMember">
     SELECT *
@@ -26,10 +41,11 @@
   <insert id="copyForRetryInitialized">
     INSERT INTO pull_task_material_member (
       group_execution_id, member_seq, source_line_no, normalized_phone, admin_required,
+      source_package_phone_id, source_allocation_version,
       pull_status, admin_status, created_at, updated_at
     )
     SELECT #{targetExecutionId}, member_seq, source_line_no, normalized_phone, admin_required,
-           #{pullStatus},
+           source_package_phone_id, source_allocation_version, #{pullStatus},
            CASE WHEN admin_required = 1
              THEN #{adminPendingStatus} ELSE #{adminNotRequiredStatus} END,
            #{now}, #{now}

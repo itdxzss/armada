@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
@@ -14,5 +15,6 @@ public record PullTaskLifecyclePullResources(
         PullTaskPullCallMapper pullCallMapper,
         PullTaskPullCallMemberAttemptMapper attemptMapper,
         PullTaskMaterialMemberMapper materialMapper,
-        PullTaskPullWaveMapper waveMapper) {
+        PullTaskPullWaveMapper waveMapper,
+        GroupDataPackageTaskProjectionService dataPackages) {
 }

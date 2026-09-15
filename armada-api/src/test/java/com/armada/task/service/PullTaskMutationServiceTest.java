@@ -28,8 +28,10 @@ class PullTaskMutationServiceTest {
     private final PullTaskStandardGroupSettingMapper settingMapper =
             mock(PullTaskStandardGroupSettingMapper.class);
     private final PullTaskGroupAvatarService avatarService = mock(PullTaskGroupAvatarService.class);
+    private final GroupDataPackageTaskProjectionService dataPackages =
+            mock(GroupDataPackageTaskProjectionService.class);
     private final PullTaskMutationService service =
-            new PullTaskMutationServiceImpl(mapper, settingMapper, avatarService);
+            new PullTaskMutationServiceImpl(mapper, settingMapper, avatarService, dataPackages);
 
     @AfterEach
     void clearTransactionSynchronization() {
@@ -58,6 +60,8 @@ class PullTaskMutationServiceTest {
         ArgumentCaptor<Long> timeCaptor = ArgumentCaptor.forClass(Long.class);
         verify(mapper).batchSoftDeleteAllowed(idsCaptor.capture(), timeCaptor.capture());
         assertThat(idsCaptor.getValue()).containsExactly(3L, 2L);
+        verify(dataPackages).synchronizeTask(2L);
+        verify(dataPackages).synchronizeTask(3L);
         assertThat(timeCaptor.getValue()).isPositive();
     }
 

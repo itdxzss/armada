@@ -69,6 +69,24 @@ public class PullTaskMaterialMember {
     /** 更新时间(epoch 毫秒)。 */
     private Long updatedAt;
 
+    /** 独立数据包号码来源；原文件上传为空。 */
+    private Long sourcePackagePhoneId;
+
+    /** 任务领取时的资源分配版本；草稿为空。 */
+    private Long sourceAllocationVersion;
+
+    /** 独立数据包号码来源；原文件上传为空。 */
+    public Long getSourcePackagePhoneId() { return sourcePackagePhoneId; }
+
+    /** 设置独立数据包号码来源；原文件上传为空。 */
+    public void setSourcePackagePhoneId(Long sourcePackagePhoneId) { this.sourcePackagePhoneId = sourcePackagePhoneId; }
+
+    /** 任务领取时的资源分配版本；草稿为空。 */
+    public Long getSourceAllocationVersion() { return sourceAllocationVersion; }
+
+    /** 设置任务领取时的资源分配版本；草稿为空。 */
+    public void setSourceAllocationVersion(Long sourceAllocationVersion) { this.sourceAllocationVersion = sourceAllocationVersion; }
+
     public Long getId() {
         return id;
     }

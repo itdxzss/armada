@@ -37,6 +37,7 @@ import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.service.PullTaskRetryPolicy;
 import java.util.List;
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Map;
@@ -64,6 +65,8 @@ public class PullTaskBatchAddTransactionService {
     private final PullTaskMaterialMemberMapper materialMapper;
     private final PullTaskBatchAddResources resources;
 
+    private final GroupDataPackageTaskProjectionService dataPackageProjection;
+
     /**
      * @param taskMapper 父任务 Mapper
      * @param settingMapper 普通任务配置 Mapper
@@ -76,12 +79,14 @@ public class PullTaskBatchAddTransactionService {
             PullTaskStandardSettingMapper settingMapper,
             PullTaskGroupAccountMapper groupAccountMapper,
             PullTaskMaterialMemberMapper materialMapper,
-            PullTaskBatchAddResources resources) {
+            PullTaskBatchAddResources resources,
+            GroupDataPackageTaskProjectionService dataPackageProjection) {
         this.taskMapper = taskMapper;
         this.settingMapper = settingMapper;
         this.groupAccountMapper = groupAccountMapper;
         this.materialMapper = materialMapper;
         this.resources = resources;
+        this.dataPackageProjection = dataPackageProjection;
     }
 
     /** 领取拉手前修复未提交计划；仍有成员返回 ready，空批在本地推进后返回 completed。 */
@@ -386,6 +391,10 @@ public class PullTaskBatchAddTransactionService {
                 : groupAccountMapper.transitionMembershipAttempt(aggregate);
         if (changed != 1) {
             throw new IllegalStateException("清除已取消计划的参与者占用失败");
+        }
+        if (attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()) {
+            dataPackageProjection.synchronizeMaterialMembers(
+                    attempt.getGroupExecutionId(), List.of(attempt.getParticipantRefId()));
         }
     }
 

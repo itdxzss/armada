@@ -28,6 +28,8 @@ public class PullTaskStandardDraftWriter {
 
     /** 草稿期的占位任务名；正式名称在提交时才写入。 */
     private static final String DRAFT_TASK_NAME = "未命名草稿";
+    /** 数据包可达十万号码，限制单条 INSERT 参数数量。 */
+    private static final int MEMBER_INSERT_BATCH_SIZE = 500;
 
     private final PullTaskMapper pullTaskMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
@@ -81,6 +83,7 @@ public class PullTaskStandardDraftWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public void append(long taskId, List<AppendRow> rows, long now) {
+        requireMutableDraft(taskId);
         for (AppendRow row : rows) {
             PullTaskGroupExecution execution = row.execution();
             execution.setTaskId(taskId);
@@ -112,6 +115,7 @@ public class PullTaskStandardDraftWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public void removeRow(long taskId, long rowId) {
+        requireMutableDraft(taskId);
         materialMapper.deleteByExecution(rowId);
         if (executionMapper.deleteDraftRow(taskId, rowId) == 0) {
             throw new BusinessException(ErrorCode.VALIDATION, "该执行行不存在或已提交，无法移除");
@@ -125,10 +129,20 @@ public class PullTaskStandardDraftWriter {
      */
     @Transactional(rollbackFor = Exception.class)
     public void clearAll(long taskId) {
+        requireMutableDraft(taskId);
         for (PullTaskGroupExecution row : executionMapper.selectByTaskId(taskId)) {
             materialMapper.deleteByExecution(row.getId());
         }
         executionMapper.deleteDraftByTaskId(taskId);
+    }
+
+    /** 与提交共享父任务锁，已冻结任务的号码快照不再允许删除。 */
+    private void requireMutableDraft(long taskId) {
+        PullTask task = pullTaskMapper.selectLifecycleForUpdate(taskId);
+        if (task == null || !com.armada.task.model.enums.PullTaskStandardStatus.DRAFT.name()
+                .equals(task.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "草稿已提交或不存在，请刷新后重试");
+        }
     }
 
     /**
@@ -151,7 +165,10 @@ public class PullTaskStandardDraftWriter {
             member.setCreatedAt(now);
             member.setUpdatedAt(now);
         }
-        materialMapper.batchInsert(members);
+        for (int offset = 0; offset < members.size(); offset += MEMBER_INSERT_BATCH_SIZE) {
+            materialMapper.batchInsert(members.subList(offset,
+                    Math.min(offset + MEMBER_INSERT_BATCH_SIZE, members.size())));
+        }
     }
 
     /**

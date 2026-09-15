@@ -332,7 +332,7 @@ class PullTaskParticipantResultRecoveryH2Test {
                     new PullTaskPullCallResultCoordination(
                             mock(PullTaskStickyPullerTransactionService.class),
                             mock(PullTaskGroupExecutionFailureService.class),
-                            mock(PullTaskPullWaveProgressService.class)), publisher);
+                            mock(PullTaskPullWaveProgressService.class), org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class)), publisher);
         }
     }
 }

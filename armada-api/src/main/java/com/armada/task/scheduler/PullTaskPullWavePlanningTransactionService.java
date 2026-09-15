@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
@@ -61,6 +62,8 @@ public class PullTaskPullWavePlanningTransactionService {
     private final PullTaskGroupAccountMapper groupAccountMapper;
     private final PullTaskPullWavePlanningResources resources;
 
+    private final GroupDataPackageTaskProjectionService dataPackageProjection;
+
     /**
      * @param taskMapper 父任务 Mapper
      * @param settingMapper 普通任务配置 Mapper
@@ -73,12 +76,14 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskStandardSettingMapper settingMapper,
             PullTaskMaterialMemberMapper materialMapper,
             PullTaskGroupAccountMapper groupAccountMapper,
-            PullTaskPullWavePlanningResources resources) {
+            PullTaskPullWavePlanningResources resources,
+            GroupDataPackageTaskProjectionService dataPackageProjection) {
         this.taskMapper = taskMapper;
         this.settingMapper = settingMapper;
         this.materialMapper = materialMapper;
         this.groupAccountMapper = groupAccountMapper;
         this.resources = resources;
+        this.dataPackageProjection = dataPackageProjection;
     }
 
     /**
@@ -201,6 +206,13 @@ public class PullTaskPullWavePlanningTransactionService {
                     PullTaskRetryPolicy.historicalNormalization(executionId, PullTaskParticipantType.MATERIAL, outcome, now));
             stations += groupAccountMapper.normalizeHistoricalRetryResult(
                     PullTaskRetryPolicy.historicalNormalization(executionId, PullTaskParticipantType.STATION, outcome, now));
+        }
+        if (materials > 0) {
+            dataPackageProjection.synchronizeMaterialMembers(executionId,
+                    materialMapper.selectByExecution(executionId).stream()
+                            .filter(row -> row.getSourcePackagePhoneId() != null
+                                    && Objects.equals(row.getUpdatedAt(), now))
+                            .map(PullTaskMaterialMember::getId).toList());
         }
         if (materials + stations > 0) {
             log.info("event=pull_historical_result_normalized executionId={} materials={} stations={}",

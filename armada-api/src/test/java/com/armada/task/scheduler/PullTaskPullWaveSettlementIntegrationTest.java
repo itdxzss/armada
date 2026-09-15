@@ -452,7 +452,7 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 PullTaskGroupAccountMapper accounts,
                 PullTaskPullWavePlanningResources resources) {
             return new PullTaskPullWavePlanningTransactionService(
-                    tasks, settings, materials, accounts, resources);
+                    tasks, settings, materials, accounts, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean PullTaskPullWaveSettlementResources settlementResources(

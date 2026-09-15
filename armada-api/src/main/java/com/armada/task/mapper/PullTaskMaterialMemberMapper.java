@@ -39,6 +39,10 @@ public interface PullTaskMaterialMemberMapper {
         return batchInsertInitialized(rows);
     }
 
+    /** 正式提交时把资源分配版本绑定到已冻结的来源号码。 */
+    int bindSourceAllocations(@Param("executionId") long executionId,
+            @Param("rows") List<PullTaskMaterialMember> rows);
+
     /**
      * 读取执行行的全部料子，按 memberSeq 升序。
      *

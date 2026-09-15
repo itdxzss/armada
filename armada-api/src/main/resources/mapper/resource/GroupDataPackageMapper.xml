@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.resource.mapper.GroupDataPackageMapper">
+
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+ INSERT INTO group_data_package (name,remark,generation,version,created_by,created_at,updated_at)
+ VALUES (#{name},#{remark},1,1,#{createdBy},#{createdAt},#{updatedAt})
+ </insert>
+ <select id="selectActive" resultType="com.armada.resource.model.entity.GroupDataPackage">
+ SELECT * FROM group_data_package WHERE id=#{id} AND deleted_at IS NULL
+ </select>
+ <select id="lockActive" resultType="com.armada.resource.model.entity.GroupDataPackage">
+ SELECT * FROM group_data_package WHERE id=#{id} AND deleted_at IS NULL FOR UPDATE
+ </select>
+ <sql id="Filter">
+ p.deleted_at IS NULL
+ <if test="query.name != null and query.name != ''">AND p.name LIKE CONCAT('%',#{query.name},'%')</if>
+ <if test="query.countryIso2 != null and query.countryIso2 != ''">
+ <choose><when test="query.countryIso2 == 'UNKNOWN'">AND s.primary_country_iso2 IS NULL</when>
+ <otherwise>AND s.primary_country_iso2=#{query.countryIso2}</otherwise></choose></if>
+ <if test="query.continent != null and query.continent != ''">AND s.continent=#{query.continent}</if>
+ <if test="query.usageBusiness != null and query.usageBusiness != ''">AND p.last_used_at IS NOT NULL</if>
+ <if test="query.createdFrom != null">AND p.created_at &gt;= #{query.createdFrom}</if>
+ <if test="query.createdTo != null">AND p.created_at &lt;= #{query.createdTo}</if>
+ <if test="query.forTask != null and query.forTask">AND s.unused_count &gt; 0</if>
+ </sql>
+ <select id="count" resultType="long">
+ SELECT COUNT(*) FROM group_data_package p JOIN group_data_package_stat s
+ ON s.package_id=p.id AND s.tenant_id=p.tenant_id WHERE <include refid="Filter"/>
+ </select>
+ <select id="page" resultType="com.armada.resource.model.entity.GroupDataPackage">
+ SELECT p.* FROM group_data_package p JOIN group_data_package_stat s
+ ON s.package_id=p.id AND s.tenant_id=p.tenant_id WHERE <include refid="Filter"/>
+ ORDER BY p.id DESC LIMIT #{query.pageSize} OFFSET #{query.offset}
+ </select>
+ <update id="updateMetadata">
+ UPDATE group_data_package SET name=#{name},remark=#{remark},version=version+1,updated_at=#{updatedAt}
+ WHERE id=#{id} AND version=#{version} AND deleted_at IS NULL
+ </update>
+ <update id="switchGeneration">
+ UPDATE group_data_package SET generation=generation+1,updated_at=#{now}
+ WHERE id=#{id} AND generation=#{generation} AND deleted_at IS NULL
+ </update>
+ <update id="markUsed">UPDATE group_data_package SET last_used_at=#{now} WHERE id=#{id}</update>
+ <update id="delete">UPDATE group_data_package SET deleted_at=#{now},updated_at=#{now}
+ WHERE id=#{id} AND deleted_at IS NULL</update>
+
+</mapper>

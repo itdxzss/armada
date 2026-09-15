@@ -752,7 +752,7 @@ class PullTaskPullWavePlanningIntegrationTest {
                 PullTaskGroupAccountMapper groupAccountMapper,
                 PullTaskPullWavePlanningResources resources) {
             return new PullTaskPullWavePlanningTransactionService(
-                    taskMapper, settingMapper, materialMapper, groupAccountMapper, resources);
+                    taskMapper, settingMapper, materialMapper, groupAccountMapper, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
     }
 }

@@ -1,6 +1,8 @@
 package com.armada.task.service.impl;
 
 import com.armada.group.service.GroupFolderService;
+import com.armada.resource.service.GroupDataPackageAllocationService.Snapshot;
+import com.armada.task.model.dto.PullTaskStandardDataPackagesDTO;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -58,6 +60,9 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
     /** 单次上传允许的最大文件数。 */
     private static final int MAX_FILE_COUNT = 50;
 
+    /** 独立数据包一次冻结的号码上限，与菜单导入上限一致。 */
+    private static final int MAX_PACKAGE_PHONE_COUNT = 100_000;
+
     /** 单个文件允许的最大字节数。 */
     private static final long MAX_FILE_BYTES = 2L * 1024 * 1024;
 
@@ -73,6 +78,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
     private final PullTaskMaterialTxtParser txtParser;
     private final PullTaskLinkProbeService probeService;
     private final GroupFolderService groupFolderService;
+    private final PullTaskDataPackageSourceService dataPackageSourceService;
 
     /**
      * 创建草稿编排服务。
@@ -81,21 +87,20 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
      * @param executionMapper 执行行数据访问
      * @param writer          草稿事务写入组件
      * @param txtParser       TXT 料子解析器
-     * @param probeService    链接判定服务
-     * @param groupFolderService 群组运营分组服务
+     * @param sources         链接、群分组和数据包来源服务
      */
     public PullTaskStandardDraftServiceImpl(PullTaskMapper pullTaskMapper,
                                             PullTaskGroupExecutionMapper executionMapper,
                                             PullTaskStandardDraftWriter writer,
                                             PullTaskMaterialTxtParser txtParser,
-                                            PullTaskLinkProbeService probeService,
-                                            GroupFolderService groupFolderService) {
+                                            PullTaskStandardDraftSources sources) {
         this.pullTaskMapper = pullTaskMapper;
         this.executionMapper = executionMapper;
         this.writer = writer;
         this.txtParser = txtParser;
-        this.probeService = probeService;
-        this.groupFolderService = groupFolderService;
+        this.probeService = sources.probeService();
+        this.groupFolderService = sources.groupFolderService();
+        this.dataPackageSourceService = sources.dataPackageSourceService();
     }
 
     @Override
@@ -106,12 +111,48 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(creationMode);
         String mergedLinksText = mode == PullTaskCreationMode.PASTED_LINK
                 ? mergeSourceLinks(groupFolderId, linksText) : null;
-        List<ParsedUpload> uploads = parseUploads(files);
+        return planPrepared(mode, mergedLinksText, parseUploads(files), userId, operatorName);
+    }
 
+    @Override
+    public PullTaskStandardDraftVO planDataPackages(PullTaskStandardDataPackagesDTO request,
+            long userId, String operatorName) {
+        if (request == null || request.packageIds() == null || request.packageIds().isEmpty()
+                || request.packageIds().size() > MAX_FILE_COUNT
+                || request.packageIds().stream().anyMatch(id -> id == null || id <= 0)
+                || new LinkedHashSet<>(request.packageIds()).size() != request.packageIds().size()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "请选择 1-50 个不重复的数据包");
+        }
+        PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(request.creationMode());
+        String links = mode == PullTaskCreationMode.PASTED_LINK
+                ? mergeSourceLinks(request.groupFolderId(), request.linksText()) : null;
+        List<ParsedUpload> uploads = dataPackageSourceService
+                .snapshots(request.packageIds(), MAX_PACKAGE_PHONE_COUNT).stream().map(snapshot -> {
+            if (snapshot.phones().isEmpty()) {
+                throw new BusinessException(ErrorCode.CONFLICT, "数据包「" + snapshot.name() + "」没有未使用号码");
+            }
+            List<ParsedMember> members = snapshot.phones().stream().map(phone ->
+                    new ParsedMember(phone.memberSeq(), phone.sourceLineNo(),
+                            phone.phone(), phone.adminRequired())).toList();
+            ParseResult parsed = new ParseResult(snapshot.name() + ".txt", members.size(),
+                    0, 0, members, List.of());
+            return new ParsedUpload(parsed, null, snapshot);
+        }).toList();
+        return planPrepared(mode, links, uploads, userId, operatorName);
+    }
+
+    private PullTaskStandardDraftVO planPrepared(PullTaskCreationMode mode, String mergedLinksText,
+            List<ParsedUpload> uploads, long userId, String operatorName) {
         long now = System.currentTimeMillis();
         PullTask draft = writer.ensureDraft(userId, operatorName, now);
         List<PullTaskGroupExecution> existingRows = executionMapper.selectByTaskId(draft.getId());
         requireConsistentMode(existingRows, mode);
+        Set<Long> existingPackages = new LinkedHashSet<>();
+        existingRows.forEach(row -> existingPackages.add(row.getSourcePackageId()));
+        if (uploads.stream().anyMatch(upload -> upload.snapshot() != null
+                && existingPackages.contains(upload.snapshot().packageId()))) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该数据包已在草稿中，请勿重复添加");
+        }
 
         if (mode.isNewGroup() || mode.isResourcePool()) {
             return appendUnboundExecutions(draft, uploads, existingRows, mode, now, userId);
@@ -156,9 +197,8 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         List<PullTaskStandardDraftWriter.AppendRow> rows = new ArrayList<>(accepted.size());
         for (int index = 0; index < accepted.size(); index++) {
             ParseResult parsed = accepted.get(index).parsed();
-            rows.add(new PullTaskStandardDraftWriter.AppendRow(
-                    toUnboundExecution(maxSeq + index + 1, parsed, mode),
-                    toMembers(parsed.members())));
+            rows.add(appendRow(toUnboundExecution(maxSeq + index + 1, parsed, mode),
+                    accepted.get(index)));
         }
         writer.append(draft.getId(), rows, now);
         log.info("创建页追加 TXT 执行行 taskId={} mode={} rows={} rejectedFiles={} operatorId={}",
@@ -240,7 +280,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                     "文件 " + fileName + " 超过 2MB，请拆分后重新上传");
         }
         ParseResult parsed = txtParser.parse(fileName, readUtf8(file, fileName));
-        return new ParsedUpload(parsed, parsed.hasValidMember() ? null : ZERO_VALID_REASON);
+        return new ParsedUpload(parsed, parsed.hasValidMember() ? null : ZERO_VALID_REASON, null);
     }
 
     /**
@@ -298,11 +338,25 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         List<PullTaskStandardDraftWriter.AppendRow> rows = new ArrayList<>(match.pairings().size());
         for (Pairing pairing : match.pairings()) {
             ParseResult parsed = accepted.get(Integer.parseInt(pairing.fileKey())).parsed();
-            rows.add(new PullTaskStandardDraftWriter.AppendRow(
-                    toLinkedExecution(pairing, parsed, lineNoByLink),
-                    toMembers(parsed.members())));
+            rows.add(appendRow(toLinkedExecution(pairing, parsed, lineNoByLink),
+                    accepted.get(Integer.parseInt(pairing.fileKey()))));
         }
         return rows;
+    }
+
+    /** 来源跟随执行与号码快照写入，原文件路径保持为空。 */
+    private static PullTaskStandardDraftWriter.AppendRow appendRow(
+            PullTaskGroupExecution execution, ParsedUpload upload) {
+        List<PullTaskMaterialMember> members = toMembers(upload.parsed().members());
+        if (upload.snapshot() != null) {
+            Snapshot snapshot = upload.snapshot();
+            execution.setSourcePackageId(snapshot.packageId());
+            execution.setSourcePackageGeneration(snapshot.generation());
+            for (int index = 0; index < members.size(); index++) {
+                members.get(index).setSourcePackagePhoneId(snapshot.phones().get(index).id());
+            }
+        }
+        return new PullTaskStandardDraftWriter.AppendRow(execution, members);
     }
 
     private static PullTaskGroupExecution toLinkedExecution(
@@ -390,7 +444,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
      * @param parsed       TXT 解析结果
      * @param rejectReason 未进入匹配池的原因；进入时为 null
      */
-    private record ParsedUpload(ParseResult parsed, String rejectReason) {
+    private record ParsedUpload(ParseResult parsed, String rejectReason, Snapshot snapshot) {
 
         /** 是否进入随机匹配池。 */
         private boolean accepted() {
@@ -475,6 +529,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
         return new PullTaskStandardExecutionRowVO(row.getId(), row.getSeq(),
                 row.getNormalizedLink(), row.getSourceLinkLineNo(), row.getSourceFileName(),
                 row.getTotalLineCount(), row.getValidMemberCount(),
-                row.getInvalidLineCount(), row.getDuplicateLineCount());
+                row.getInvalidLineCount(), row.getDuplicateLineCount(),
+                row.getSourcePackageId(), row.getSourcePackageGeneration());
     }
 }

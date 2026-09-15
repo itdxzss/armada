@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -74,13 +75,17 @@ public class PullTaskUnknownResultReconciliationService {
     private final PullTaskPullWaveProgressService waveProgress;
     private final GroupExecutionAccountSelector groupAccountSelector;
 
+    private final GroupDataPackageTaskProjectionService dataPackageProjection;
+
     /** 构造未知结果收敛服务。 */
     public PullTaskUnknownResultReconciliationService(
             PullTaskUnknownResultResources resources,
             AccountProtocolLookupService accountLookup,
             PullTaskMemberQueryService memberQueryService,
-            PullTaskUnknownResultCoordination coordination) {
+            PullTaskUnknownResultCoordination coordination,
+            GroupDataPackageTaskProjectionService dataPackageProjection) {
         this.resources = resources;
+        this.dataPackageProjection = dataPackageProjection;
         this.accountLookup = accountLookup;
         this.memberQueryService = memberQueryService;
         this.executionMapper = coordination.executionMapper();
@@ -298,6 +303,14 @@ public class PullTaskUnknownResultReconciliationService {
                         PullTaskMaterialPullStatus.UNKNOWN.code(), PullTaskFactResult.reason(
                                 UNCONFIRMED, "成员入群结果待查询或回调确认"), context.now())));
             }
+        }
+        List<Long> sourceMemberIds = materials.stream()
+                .filter(row -> row.getSourcePackagePhoneId() != null
+                        && Objects.equals(row.getPullCallId(), call.getId())
+                        && PULL_OPEN.contains(row.getPullStatus()))
+                .map(PullTaskMaterialMember::getId).toList();
+        if (!sourceMemberIds.isEmpty()) {
+            dataPackageProjection.synchronizeMaterialMembers(call.getGroupExecutionId(), sourceMemberIds);
         }
     }
 

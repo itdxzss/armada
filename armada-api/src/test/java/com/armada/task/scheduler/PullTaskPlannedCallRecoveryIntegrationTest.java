@@ -272,7 +272,7 @@ class PullTaskPlannedCallRecoveryIntegrationTest {
                 PullTaskMapper tasks, PullTaskStandardSettingMapper settings,
                 PullTaskGroupAccountMapper accounts, PullTaskMaterialMemberMapper materials,
                 PullTaskBatchAddResources resources) {
-            return new PullTaskBatchAddTransactionService(tasks, settings, accounts, materials, resources);
+            return new PullTaskBatchAddTransactionService(tasks, settings, accounts, materials, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean

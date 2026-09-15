@@ -142,6 +142,8 @@ public final class PullTaskNormalLinkSchema {
                 source_file_index INT NOT NULL,
                 attempt_no INT NOT NULL DEFAULT 1,
                 source_file_name VARCHAR(255) NOT NULL,
+                source_package_id BIGINT,
+                source_package_generation INT,
                 total_line_count INT NOT NULL DEFAULT 0,
                 valid_member_count INT NOT NULL DEFAULT 0,
                 invalid_line_count INT NOT NULL DEFAULT 0,
@@ -229,6 +231,8 @@ public final class PullTaskNormalLinkSchema {
                 member_seq INT NOT NULL,
                 source_line_no INT NOT NULL,
                 normalized_phone VARCHAR(32) NOT NULL,
+                source_package_phone_id BIGINT,
+                source_allocation_version BIGINT,
                 admin_required TINYINT NOT NULL DEFAULT 0,
                 pull_call_id BIGINT,
                 pull_status TINYINT NOT NULL DEFAULT 0,
@@ -474,6 +478,10 @@ public final class PullTaskNormalLinkSchema {
             PULL_TASK, STANDARD_SETTING, STANDARD_GROUP_SETTING, GROUP_EXECUTION,
             MATERIAL_MEMBER, GROUP_ACCOUNT, ACCOUNT_ACTION, PULL_WAVE,
             PULL_CALL, PULL_CALL_MEMBER_ATTEMPT, MEMBER_QUERY,
+            "CREATE INDEX idx_execution_package_source ON pull_task_group_execution "
+                    + "(tenant_id, source_package_id, task_id, seq, attempt_no)",
+            "CREATE INDEX idx_material_package_source ON pull_task_material_member "
+                    + "(tenant_id, group_execution_id, source_package_phone_id, source_allocation_version)",
         };
     }
 }

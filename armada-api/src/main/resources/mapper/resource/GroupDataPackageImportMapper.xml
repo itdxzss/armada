@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.resource.mapper.GroupDataPackageImportMapper">
+
+ <insert id="insert" useGeneratedKeys="true" keyProperty="id">INSERT INTO group_data_package_import(package_id,mode,file_name,status,created_by,created_at)
+ VALUES(#{packageId},#{mode},#{fileName},1,#{createdBy},#{createdAt})</insert>
+ <update id="finish">UPDATE group_data_package_import SET generation=#{generation},status=#{status},total_rows=#{totalRows},accepted_rows=#{acceptedRows},invalid_rows=#{invalidRows},duplicated_rows=#{duplicatedRows},privacy_filtered_rows=#{privacyFilteredRows},failure_reason=#{failureReason},finished_at=#{finishedAt} WHERE id=#{id} AND status=1</update>
+ <select id="count" resultType="long">SELECT COUNT(*) FROM group_data_package_import WHERE package_id=#{id}</select>
+ <select id="page" resultType="com.armada.resource.model.entity.GroupDataPackageImport">SELECT * FROM group_data_package_import WHERE package_id=#{id} ORDER BY id DESC LIMIT #{query.pageSize} OFFSET #{query.offset}</select>
+
+</mapper>

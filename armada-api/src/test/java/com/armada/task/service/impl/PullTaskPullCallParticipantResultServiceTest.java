@@ -77,6 +77,7 @@ class PullTaskPullCallParticipantResultServiceTest {
     private PullTaskPullWaveProgressService waveProgress;
     private ApplicationEventPublisher eventPublisher;
     private PullTaskPullCallParticipantResultService service;
+    private com.armada.task.service.GroupDataPackageTaskProjectionService dataPackages;
 
     @BeforeEach
     void setUp() {
@@ -90,13 +91,14 @@ class PullTaskPullCallParticipantResultServiceTest {
         groupFailure = mock(PullTaskGroupExecutionFailureService.class);
         waveProgress = mock(PullTaskPullWaveProgressService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        dataPackages = mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class);
         service = new PullTaskPullCallParticipantResultService(
                 new PullTaskUnknownResultResources(
                         mock(PullTaskAccountActionMapper.class), callMapper, attemptMapper,
                         materialMapper, accountMapper),
                 executionMapper, pullerRestrictionService,
                 new PullTaskPullCallResultCoordination(
-                        stickyPullers, groupFailure, waveProgress), eventPublisher);
+                        stickyPullers, groupFailure, waveProgress, dataPackages), eventPublisher);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call());
         when(materialMapper.clearSuccessfulPullAttempt(any(), anyInt())).thenReturn(1);
         when(accountMapper.clearSuccessfulPullAttempt(any(), anyInt())).thenReturn(1);
@@ -136,6 +138,27 @@ class PullTaskPullCallParticipantResultServiceTest {
         assertThat(aggregate.target().failureCount()).isEqualTo(2L);
         assertThat(aggregate.target().pullCallId()).isEqualTo(31L);
         assertThat(aggregate.target().activeAttemptId()).isNull();
+    }
+
+    @ParameterizedTest
+    @EnumSource(PullTaskParticipantType.class)
+    void packageCallbackSynchronizesOnlyTheChangedMaterial(PullTaskParticipantType type) {
+        var execution = execution();
+        execution.setSourcePackageId(81L);
+        when(executionMapper.selectByIdForUpdate(21L)).thenReturn(execution);
+        stubAttempt(type, 0L, PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        stubAggregateChange(type, 1);
+
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.SUCCESS,
+                PullTaskParticipantExecutionState.STARTED, false))).isTrue();
+
+        if (type == PullTaskParticipantType.MATERIAL) {
+            verify(dataPackages).synchronizeMaterialMembers(21L, List.of(PARTICIPANT_ID));
+        } else {
+            org.mockito.Mockito.verifyNoInteractions(dataPackages);
+        }
+        verify(dataPackages, never()).synchronizeTask(anyLong());
     }
 
     @Test

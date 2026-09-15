@@ -12,9 +12,12 @@ package com.armada.task.model.vo;
  * @param validMemberCount   去重后的有效料子数
  * @param invalidLineCount   非法行数
  * @param duplicateLineCount 文件内重复号码行数
+ * @param sourceDataPackageId 独立数据包来源；原文件上传为空
+ * @param sourceDataPackageGeneration 冻结的数据包代次
  */
 public record PullTaskStandardExecutionRowVO(Long rowId, int seq, String normalizedLink,
                                              Integer sourceLinkLineNo, String sourceFileName,
                                              int totalLineCount, int validMemberCount,
-                                             int invalidLineCount, int duplicateLineCount) {
+                                             int invalidLineCount, int duplicateLineCount,
+                                             Long sourceDataPackageId, Integer sourceDataPackageGeneration) {
 }

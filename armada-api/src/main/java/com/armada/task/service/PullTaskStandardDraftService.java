@@ -2,6 +2,7 @@ package com.armada.task.service;
 
 import com.armada.shared.exception.BusinessException;
 import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.dto.PullTaskStandardDataPackagesDTO;
 import com.armada.task.model.vo.PullTaskStandardDraftVO;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
@@ -34,6 +35,10 @@ public interface PullTaskStandardDraftService {
                                  List<MultipartFile> files,
                                  long userId,
                                  String operatorName);
+
+    /** 冻结选中数据包的未使用号码快照；正式提交前不占用资源。 */
+    PullTaskStandardDraftVO planDataPackages(PullTaskStandardDataPackagesDTO request,
+            long userId, String operatorName);
 
     /**
      * 回读当前用户的草稿。

@@ -574,7 +574,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         @Bean
         PullTaskParentCompletionService completionService(
                 PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper);
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean
@@ -603,7 +603,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 PullTaskMaterialMemberMapper materialMapper,
                 PullTaskPullWaveMapper waveMapper) {
             return new PullTaskLifecyclePullResources(
-                    accountMapper, pullCallMapper, attemptMapper, materialMapper, waveMapper);
+                    accountMapper, pullCallMapper, attemptMapper, materialMapper, waveMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean

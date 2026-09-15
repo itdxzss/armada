@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import com.armada.task.scheduler.PullTaskPullWaveProgressService;
 import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
 import com.armada.task.service.PullTaskGroupExecutionFailureService;
@@ -10,5 +11,6 @@ import org.springframework.stereotype.Component;
 public record PullTaskPullCallResultCoordination(
         PullTaskStickyPullerTransactionService stickyPullers,
         PullTaskGroupExecutionFailureService groupFailure,
-        PullTaskPullWaveProgressService waveProgress) {
+        PullTaskPullWaveProgressService waveProgress,
+        GroupDataPackageTaskProjectionService dataPackages) {
 }

@@ -1115,7 +1115,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean PullTaskParentCompletionService parentCompletion(
                 PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper);
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean PullTaskExecutionTransactionService executionTransactions(
@@ -1313,7 +1313,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskPullWavePlanningResources resources) {
             return new PullTaskPullWavePlanningTransactionService(
-                    taskMapper, settingMapper, materialMapper, accountMapper, resources);
+                    taskMapper, settingMapper, materialMapper, accountMapper, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean PullTaskStickyPullerTransactionService stickyPullers(
@@ -1390,7 +1390,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskMaterialMemberMapper materialMapper,
                 PullTaskBatchAddResources resources) {
             return new PullTaskBatchAddProcessor(new PullTaskBatchAddTransactionService(
-                    taskMapper, settingMapper, accountMapper, materialMapper, resources));
+                    taskMapper, settingMapper, accountMapper, materialMapper, resources, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class)));
         }
 
         @Bean PullTaskClosingTransactionService pullClosing(
@@ -1468,7 +1468,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return new PullTaskPullCallResultCoordination(
                     stickyPullers,
                     mock(PullTaskGroupExecutionFailureService.class),
-                    waveProgress);
+                    waveProgress, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
         }
 
         @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {

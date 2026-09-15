@@ -128,6 +128,7 @@ public class PullTaskStandardLifecycleServiceImpl
                 PullTaskExecutionStatus.ABANDONED.code(), NOT_PAUSED, now, now));
         cancelNotSubmitted(taskId, now);
         releasePullers(taskId, now);
+        resources.pull().dataPackages().synchronizeTask(taskId);
     }
 
     private void cancelNotSubmitted(long taskId, long now) {

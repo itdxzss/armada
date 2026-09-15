@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
@@ -30,6 +31,7 @@ public class PullTaskMutationServiceImpl implements PullTaskMutationService {
     private final PullTaskMapper mapper;
     private final PullTaskStandardGroupSettingMapper standardGroupSettingMapper;
     private final PullTaskGroupAvatarService avatarService;
+    private final GroupDataPackageTaskProjectionService dataPackages;
 
     /**
      * 装配拉群任务公共变更服务。
@@ -39,10 +41,12 @@ public class PullTaskMutationServiceImpl implements PullTaskMutationService {
     public PullTaskMutationServiceImpl(
             PullTaskMapper mapper,
             PullTaskStandardGroupSettingMapper standardGroupSettingMapper,
-            PullTaskGroupAvatarService avatarService) {
+            PullTaskGroupAvatarService avatarService,
+            GroupDataPackageTaskProjectionService dataPackages) {
         this.mapper = mapper;
         this.standardGroupSettingMapper = standardGroupSettingMapper;
         this.avatarService = avatarService;
+        this.dataPackages = dataPackages;
     }
 
     /**
@@ -73,6 +77,9 @@ public class PullTaskMutationServiceImpl implements PullTaskMutationService {
         List<PullTaskAvatarReference> avatarReferences =
                 standardGroupSettingMapper.selectActiveAvatarReferencesByTaskIds(taskIds);
         int deleted = mapper.batchSoftDeleteAllowed(taskIds, System.currentTimeMillis());
+        if (deleted > 0) {
+            taskIds.stream().sorted().forEach(dataPackages::synchronizeTask);
+        }
         if (deleted > 0 && avatarReferences != null && !avatarReferences.isEmpty()) {
             deleteAvatarsAfterCommit(List.copyOf(avatarReferences));
         }

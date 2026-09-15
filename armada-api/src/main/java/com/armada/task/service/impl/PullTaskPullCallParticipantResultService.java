@@ -120,6 +120,9 @@ public class PullTaskPullCallParticipantResultService {
             }
             if (finalUnknownAttempt(attempt)) {
                 boolean handled = applyLateFinalUnknownAttempt(attempt, callback);
+                if (handled) {
+                    synchronizeDataPackage(execution, attempt);
+                }
                 closeCallIfReady(call, execution, callback.tenantId(), callback.occurredAt());
                 return handled;
             }
@@ -137,6 +140,7 @@ public class PullTaskPullCallParticipantResultService {
                 return false;
             }
             applyAccountFailure(puller, call, execution, callback);
+            synchronizeDataPackage(execution, attempt);
             closeCallIfReady(
                     call, execution, callback.tenantId(), callback.occurredAt());
             return true;
@@ -187,10 +191,20 @@ public class PullTaskPullCallParticipantResultService {
                     throw new IllegalStateException("逐成员收口结果与参与者聚合状态不一致");
                 }
             }
+            synchronizeDataPackage(execution, attempt);
             closeCallIfReady(call, execution, tenantId, now);
             return true;
         } finally {
             restoreTenant(previousTenant);
+        }
+    }
+
+    /** 单条回执仅同步该料子，避免大包每个号码回执都扫描整个任务。 */
+    private void synchronizeDataPackage(
+            PullTaskGroupExecution execution, PullTaskPullCallMemberAttempt attempt) {
+        if (execution.getSourcePackageId() != null && isMaterial(attempt)) {
+            coordination.dataPackages().synchronizeMaterialMembers(
+                    execution.getId(), List.of(attempt.getParticipantRefId()));
         }
     }
 

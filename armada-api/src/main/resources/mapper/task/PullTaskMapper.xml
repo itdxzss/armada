@@ -164,6 +164,11 @@
       AND deleted_at IS NULL
   </select>
 
+  <select id="selectLifecycleForUpdate" resultType="com.armada.task.model.entity.PullTask">
+    SELECT * FROM pull_task WHERE id = #{id} AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
   <!-- 条件 UPDATE 同时承担父任务串行化与槽位复核；不使用显式悲观锁查询。 -->
   <update id="acquireExecutionSlot">
     UPDATE pull_task

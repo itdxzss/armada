@@ -75,16 +75,61 @@ class PullTaskStandardDraftServicePlanTest {
     @Autowired
     private PullTaskMaterialMemberMapper materialMapper;
 
+    @Autowired
+    private com.armada.task.service.impl.PullTaskDataPackageSourceService dataPackageSourceService;
+
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
-        org.mockito.Mockito.reset(groupFolderService);
+        org.mockito.Mockito.reset(groupFolderService, dataPackageSourceService);
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void dataPackageDraftPersistsUnclaimedSourceAndPreservesAdminOrder() {
+        var phones = List.of(
+                new com.armada.resource.service.GroupDataPackageAllocationService.Phone(
+                        91L, "66812345678", true, 3, 7, "TH", 0L),
+                new com.armada.resource.service.GroupDataPackageAllocationService.Phone(
+                        95L, "66822345678", false, 8, 12, "TH", 2L));
+        when(dataPackageSourceService.snapshots(List.of(81L), 100_000)).thenReturn(List.of(
+                new com.armada.resource.service.GroupDataPackageAllocationService.Snapshot(
+                        81L, "泰国数据", 4, phones)));
+        var request = new com.armada.task.model.dto.PullTaskStandardDataPackagesDTO(
+                PullTaskCreationMode.RESOURCE_POOL, List.of(81L), null, null);
+        PullTaskStandardDraftVO view = service.planDataPackages(request, CREATOR, OPERATOR);
+        assertThat(view.rows()).hasSize(1);
+        assertThat(view.rows().get(0).sourceDataPackageId()).isEqualTo(81L);
+        assertThat(view.rows().get(0).sourceDataPackageGeneration()).isEqualTo(4);
+        var members = materialMapper.selectByExecution(view.rows().get(0).rowId());
+        assertThat(members).extracting(PullTaskMaterialMember::getMemberSeq).containsExactly(3, 8);
+        assertThat(members).extracting(PullTaskMaterialMember::getSourceLineNo).containsExactly(7, 12);
+        assertThat(members).extracting(PullTaskMaterialMember::getSourcePackagePhoneId).containsExactly(91L, 95L);
+        assertThat(members).extracting(PullTaskMaterialMember::getAdminRequired).containsExactly(1, 0);
+        assertThat(members).allMatch(row -> row.getSourceAllocationVersion() == null);
+        assertThatThrownBy(() -> service.planDataPackages(request, CREATOR, OPERATOR))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("已在草稿");
+        assertThat(service.current(CREATOR).rows()).hasSize(1);
+    }
+
+    @Test
+    void pastedLinkDataPackagePlansWithTheSameMatchingRules() {
+        when(dataPackageSourceService.snapshots(List.of(81L), 100_000)).thenReturn(List.of(
+                new com.armada.resource.service.GroupDataPackageAllocationService.Snapshot(
+                        81L, "泰国数据", 1, List.of(
+                        new com.armada.resource.service.GroupDataPackageAllocationService.Phone(
+                                91L, "66812345678", false, 1, 1, "TH", 0L)))));
+        var request = new com.armada.task.model.dto.PullTaskStandardDataPackagesDTO(
+                PullTaskCreationMode.PASTED_LINK, List.of(81L), null, LINK_A);
+        PullTaskStandardDraftVO view = service.planDataPackages(request, CREATOR, OPERATOR);
+        assertThat(view.rows()).hasSize(1);
+        assertThat(view.rows().get(0).normalizedLink()).endsWith("AAAAAAAAAAAAAAAAAAAAAA");
+        assertThat(view.rows().get(0).sourceDataPackageId()).isEqualTo(81L);
     }
 
     @Test
@@ -392,15 +437,22 @@ class PullTaskStandardDraftServicePlanTest {
         }
 
         @Bean
+        com.armada.task.service.impl.PullTaskDataPackageSourceService dataPackageSourceService() {
+            return mock(com.armada.task.service.impl.PullTaskDataPackageSourceService.class);
+        }
+
+        @Bean
         PullTaskStandardDraftService draftService(PullTaskMapper pullTaskMapper,
                                                   PullTaskGroupExecutionMapper executionMapper,
                                                   PullTaskStandardDraftWriter writer,
                                                   PullTaskMaterialTxtParser txtParser,
                                                   PullTaskLinkProbeService probeService,
-                                                  GroupFolderService groupFolderService) {
+                                                  GroupFolderService groupFolderService,
+                                                  com.armada.task.service.impl.PullTaskDataPackageSourceService dataPackageSourceService) {
             return new PullTaskStandardDraftServiceImpl(
                     pullTaskMapper, executionMapper, writer, txtParser,
-                    probeService, groupFolderService);
+                    new com.armada.task.service.impl.PullTaskStandardDraftSources(
+                    probeService, groupFolderService, dataPackageSourceService));
         }
     }
 }

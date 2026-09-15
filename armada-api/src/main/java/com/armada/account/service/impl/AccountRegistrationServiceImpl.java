@@ -25,6 +25,8 @@ import java.util.Locale;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 
 /** 目录/报价校验与租户注册任务查询，不在HTTP请求中购买号码。 */
@@ -46,11 +48,14 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
     private final CobaltRegistrationClient cobalt;
     /** 显式业务采购开关。 */
     private final boolean enabled;
+    /** 调度器启用条件，与实际定时任务的属性和 Profile 保持一致。 */
+    private final Environment environment;
 
     /** 装配注册任务依赖，默认禁止采购。 */
     public AccountRegistrationServiceImpl(AccountRegistrationMapper mapper, AccountRegistrationConverter converter,
             AccountRegistrationStore store, GrizzlySmsClient grizzly, GrizzlySmsProperties grizzlyProperties,
-            CobaltRegistrationClient cobalt, @Value("${armada.account.registration.enabled:false}") boolean enabled) {
+            CobaltRegistrationClient cobalt, @Value("${armada.account.registration.enabled:false}") boolean enabled,
+            Environment environment) {
         this.mapper = mapper;
         this.converter = converter;
         this.store = store;
@@ -58,6 +63,7 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
         this.grizzlyProperties = grizzlyProperties;
         this.cobalt = cobalt;
         this.enabled = enabled;
+        this.environment = environment;
     }
 
     @Override
@@ -135,6 +141,8 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
     /** 每次实际采购前重新检查能力；暂时不可用保留PENDING，不产生号码费用。 */
     public String orderingDisabledReason() {
         if (!enabled) { return "REGISTRATION_DISABLED"; }
+        if (!environment.getProperty("armada.account.registration.scheduler.enabled", Boolean.class, false)
+                || !environment.acceptsProfiles(Profiles.of("kafka"))) { return "REGISTRATION_SCHEDULER_DISABLED"; }
         if (!grizzlyProperties.isEnabled() || !grizzlyProperties.isPurchasesEnabled()) { return "GRIZZLY_PURCHASE_DISABLED"; }
         if (!cobalt.isEnabled()) { return "COBALT_DISABLED"; }
         try {

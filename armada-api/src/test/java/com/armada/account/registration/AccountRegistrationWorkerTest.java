@@ -150,6 +150,16 @@ class AccountRegistrationWorkerTest {
         worker.tick(); assertThat(item.getState()).isEqualTo(7);
     }
 
+    @Test void expiredCredentialImportDoesNotBlockTheQueueForever() {
+        item.setState(5);
+        item.setStartedAt(System.currentTimeMillis() - java.time.Duration.ofMinutes(31).toMillis());
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(9);
+        assertThat(item.getFailureCode()).isEqualTo("ACCOUNT_IMPORT_TIMEOUT");
+        verify(cobalt, never()).exportSix(anyString());
+        verify(importer, never()).importOne(any(), any(), any());
+    }
+
     private GrizzlyActivation activation(String cost) {
         var empty = Optional.<String>empty();
         return new GrizzlyActivation("9001", "12025550123", new BigDecimal(cost), 643,

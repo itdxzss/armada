@@ -202,6 +202,9 @@ public class AccountRegistrationWorker {
     }
 
     private void importRegistered(AccountRegistrationTask task, AccountRegistrationItem item) {
+        if (System.currentTimeMillis() - item.getStartedAt() > ONLINE_TIMEOUT) {
+            finish(item, AccountRegistrationState.UNKNOWN, "ACCOUNT_IMPORT_TIMEOUT"); return;
+        }
         try {
             var credential = cobalt.exportSix(item.getRegistrationId());
             importService.importOne(task, item, credential);

@@ -36,6 +36,8 @@ public class AccountRegistrationItem {
     private Long leaseUntil;
     /** 采购意图首次落库时间。 */
     private Long startedAt;
+    /** 本地最早取消时间epoch毫秒，与采购意图和执行租约独立。 */
+    private Long cancelAfter;
     /** 创建时间毫秒。 */
     private Long createdAt;
     /** 变更时间毫秒。 */
@@ -104,6 +106,10 @@ public class AccountRegistrationItem {
     public Long getStartedAt() { return startedAt; }
     /** @param value 采购意图首次落库时间 */
     public void setStartedAt(Long value) { startedAt = value; }
+    /** @return 本地最早取消时间epoch毫秒 */
+    public Long getCancelAfter() { return cancelAfter; }
+    /** @param value 本地最早取消时间epoch毫秒 */
+    public void setCancelAfter(Long value) { cancelAfter = value; }
     /** @return 创建时间毫秒 */
     public Long getCreatedAt() { return createdAt; }
     /** @param value 创建时间毫秒 */

@@ -1,0 +1,2 @@
+{"variant": "no_min", "cancel_outcome": "CONFIRMED", "cancel_result": "ACCESS_CANCEL"}
+{"after_cancel_balance": {"http": 200, "elapsed_seconds": 0.226, "date": "Tue, 15 Sep 2026 03:58:51 GMT", "available": "50.3542", "reserved": "0.0000"}}

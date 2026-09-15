@@ -55,6 +55,15 @@ class AccountRegistrationMapperH2Test {
             String migration = new ClassPathResource("db/migration/V193__account_sms_registration.sql")
                     .getContentAsString(StandardCharsets.UTF_8);
             for (String sql : migration.split(";")) { if (!sql.isBlank()) { statement.execute(sql); } }
+            String cancellationMigration = new ClassPathResource("db/migration/V195__registration_price_cancellation.sql")
+                    .getContentAsString(StandardCharsets.UTF_8);
+            // H2 不支持 MySQL PREPARE；执行迁移内同一份 ADD COLUMN，另断言幂等守卫。
+            assertThat(cancellationMigration).contains("information_schema.columns", "column_name = 'cancel_after'",
+                    "PREPARE stmt FROM @sql", "11等待取消");
+            var ddl = java.util.regex.Pattern.compile("'(ALTER TABLE account_registration_item ADD COLUMN .*?)', 'SELECT 1'",
+                    java.util.regex.Pattern.DOTALL).matcher(cancellationMigration);
+            assertThat(ddl.find()).isTrue();
+            statement.execute(ddl.group(1).replace("''", "'"));
         }
     }
     @AfterEach void clearTenant() { TenantContext.clear(); }
@@ -103,7 +112,7 @@ class AccountRegistrationMapperH2Test {
         claim(item, "old", 100);
         item.setState(2); item.setUpdatedAt(101L);
         mapper.updateClaimed(item);
-        assertThat(mapper.nextWork().getId()).isEqualTo(item.getId());
+        assertThat(mapper.nextWork(101).getId()).isEqualTo(item.getId());
         var replacement = mapper.findItem(item.getId());
         replacement.setLeaseToken("new"); replacement.setLeaseUntil(500L);
         assertThat(mapper.claim(replacement, 250)).isEqualTo(1);
@@ -170,7 +179,31 @@ class AccountRegistrationMapperH2Test {
             throw new IllegalStateException("rollback");
         })).isInstanceOf(IllegalStateException.class);
         assertThat(mapper.findByRequestId("rollback")).isNull();
-        assertThat(mapper.nextWork()).isNull();
+        assertThat(mapper.nextWork(100)).isNull();
+    }
+
+    @Test
+    void cancellationDelayIsPersistentCountsAsProcessingAndDoesNotBuyMoreFromSameTask() {
+        var task = task("cancel-delay"); mapper.insertTask(task); insertItems(task.getId(), 2);
+        var first = mapper.listItems(task.getId()).get(0);
+        claim(first, "owner", 100);
+        first.setState(11); first.setCancelAfter(500L); first.setUpdatedAt(101L);
+        first.setActivationId("cancel-delay-activation");
+        assertThat(mapper.updateClaimed(first)).isEqualTo(1);
+        assertThat(mapper.findItem(first.getId()).getCancelAfter()).isEqualTo(500L);
+        assertThat(mapper.counts(task.getId()).processing()).isEqualTo(1);
+        assertThat(mapper.nextWork(499)).isNull();
+        assertThat(mapper.nextWork(500).getId()).isEqualTo(first.getId());
+        TenantContext.set(8L);
+        var other = task("other-tenant"); mapper.insertTask(other); insertItems(other.getId(), 1);
+        var otherItem = mapper.listItems(other.getId()).get(0);
+        assertThat(mapper.nextWork(499).getId()).isEqualTo(otherItem.getId());
+        assertThat(mapper.findItem(first.getId())).isNull();
+        TenantContext.set(7L);
+        mapper.requestCancel(task.getId(), 200);
+        mapper.cancelPending(task.getId(), 200);
+        assertThat(mapper.nextWork(500).getId()).isEqualTo(first.getId());
+        assertThat(mapper.counts(task.getId()).cancelled()).isEqualTo(1);
     }
 
     private void claim(AccountRegistrationItem item, String token, long now) {

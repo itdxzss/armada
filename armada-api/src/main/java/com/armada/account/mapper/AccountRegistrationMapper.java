@@ -34,9 +34,9 @@ public interface AccountRegistrationMapper {
     int requestCancel(@Param("taskId") Long taskId, @Param("now") long now);
     /** 仅取消仍待采购的明细，已采购不宣称退款。 */
     int cancelPending(@Param("taskId") Long taskId, @Param("now") long now);
-    /** 跨租户后台只扫描一条ID及租户ID；已在途项优先，随后恢复租户上下文。 */
+    /** 跨租户只扫描ID及租户ID；在途项优先，未到取消时间不占用队列。 */
     @InterceptorIgnore(tenantLine = "true")
-    AccountRegistrationItem nextWork();
+    AccountRegistrationItem nextWork(@Param("now") long now);
     /** 使用原状态与过期租约条件抢占单条工作；租户插件继续生效。 */
     int claim(@Param("item") AccountRegistrationItem item, @Param("now") long now);
     /** 每次外部调用前/后按令牌且租约未过期保存，防止旧worker覆盖新结果。 */

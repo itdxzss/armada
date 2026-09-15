@@ -3,6 +3,7 @@ package com.armada.account.registration;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -28,7 +29,9 @@ import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.exception.GrizzlySmsException;
 import com.armada.platform.sms.grizzly.exception.GrizzlySmsFailure;
 import com.armada.platform.sms.grizzly.model.GrizzlyActivation;
+import com.armada.platform.sms.grizzly.model.GrizzlyPriceTier;
 import com.armada.platform.sms.grizzly.model.GrizzlySmsStatus;
+import com.armada.platform.sms.grizzly.model.GrizzlyStatusUpdate;
 import com.armada.shared.tenant.TenantContext;
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -62,9 +65,10 @@ class AccountRegistrationWorkerTest {
         item.setPhoneNumber("12025550123"); item.setActivationId("1001"); item.setAccountId(71L);
         task.setId(4L); task.setServiceCode("wa"); task.setCountryId("12");
         task.setUnitPrice(new BigDecimal("1.35")); task.setAccountType(1); task.setCancelRequested(false);
-        when(mapper.nextWork()).thenReturn(item); when(mapper.findItem(10L)).thenReturn(item);
+        when(mapper.nextWork(anyLong())).thenReturn(item); when(mapper.findItem(10L)).thenReturn(item);
         when(mapper.findTask(4L)).thenReturn(task); when(mapper.claim(any(), anyLong())).thenReturn(1);
         when(lease.acquire()).thenReturn("lease"); when(service.orderingDisabledReason()).thenReturn("");
+        when(grizzly.getPriceTiers("wa", "12")).thenReturn(List.of(tier("1.35", "20")));
         when(mapper.updateClaimed(any())).thenAnswer(invocation -> {
             AccountRegistrationItem saved = invocation.getArgument(0); savedStates.add(saved.getState()); return 1;
         });
@@ -78,7 +82,8 @@ class AccountRegistrationWorkerTest {
             assertThat(savedStates).containsExactly(2);
             var request = (com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest) invocation.getArgument(0);
             assertThat(request.maxPrice()).isEqualByComparingTo("1.35");
-            assertThat(request.options().minPrice()).isEqualByComparingTo("1.35");
+            assertThat(request.options().minPrice()).isNull();
+            assertThat(request.options().providerIds()).containsExactly("20");
             return activation("1.35");
         });
         worker.tick();
@@ -104,10 +109,144 @@ class AccountRegistrationWorkerTest {
 
     @Test void overpricePreservesActivationAndActualCostBeforeStopping() {
         when(grizzly.acquireNumber(any())).thenReturn(activation("5.00")); worker.tick();
-        assertThat(item.getState()).isEqualTo(9);
+        assertThat(item.getState()).isEqualTo(11);
         assertThat(item.getActivationId()).isEqualTo("9001");
         assertThat(item.getActualCost()).isEqualByComparingTo("5.00");
         verify(store).cancel(4L);
+    }
+
+    @Test void selectedTierExcludesProvidersAlsoOfferingCheaperNumbers() {
+        when(grizzly.getPriceTiers("wa", "12")).thenReturn(List.of(
+                tier("0.15", "10"), tier("1.35", "10", "20")));
+        when(grizzly.acquireNumber(any())).thenAnswer(invocation -> {
+            var request = (com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest) invocation.getArgument(0);
+            assertThat(request.options().minPrice()).isNull();
+            assertThat(request.options().providerIds()).containsExactly("20");
+            assertThat(request.maxPrice()).isEqualByComparingTo("1.35");
+            return activation("1.35");
+        });
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(3);
+    }
+
+    @Test void ambiguousTierStopsBeforeAnyPaidRequestInsteadOfFallingBackToCheapest() {
+        when(grizzly.getPriceTiers("wa", "12")).thenReturn(List.of(tier("0.15", "10"), tier("1.35", "10")));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(8);
+        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_TIER_UNAVAILABLE");
+        verify(grizzly, never()).acquireNumber(any());
+        verify(store).cancel(4L);
+    }
+
+    @Test void cheaperUnexpectedAllocationIsCancelledWithoutStartingRegistration() {
+        when(grizzly.acquireNumber(any())).thenReturn(activation("0.15"));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(11);
+        assertThat(item.getActualCost()).isEqualByComparingTo("0.15");
+        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_PRICE_MISMATCH");
+        verify(store).cancel(4L);
+        verify(cobalt, never()).create(anyString(), anyString(), anyInt());
+    }
+
+    @Test void priceMismatchCancellationChecksExistingOrderAndNeverRepurchases() {
+        item.setState(11); item.setFailureCode("PURCHASE_PRICE_MISMATCH");
+        when(grizzly.getStatus("1001")).thenReturn(new GrizzlySmsStatus(GrizzlySmsStatus.State.WAITING_CODE,
+                Optional.empty(), Optional.empty()));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(8);
+        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_PRICE_MISMATCH_CANCELLED");
+        verify(grizzly).setStatus("1001", GrizzlyStatusUpdate.CANCEL);
+        verify(grizzly, never()).acquireNumber(any());
+        verify(cobalt, never()).status(anyString());
+    }
+
+    @Test void cancellationWaitIsPersistedFromRelativeVendorWindow() {
+        var empty = Optional.<String>empty();
+        var details = new GrizzlyActivation.Details(Optional.of("12"), Optional.of("2026-09-15 03:53:24"),
+                empty, Optional.of("2026-09-15 03:58:24"), empty);
+        when(grizzly.acquireNumber(any())).thenReturn(new GrizzlyActivation("9001", "12025550123",
+                new BigDecimal("0.15"), 643, details));
+        long before = System.currentTimeMillis();
+        worker.tick();
+        assertThat(item.getCancelAfter()).isBetween(before + 305_000, System.currentTimeMillis() + 305_000);
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(11);
+        verify(grizzly, never()).getStatus(anyString());
+    }
+
+    @Test void alreadyCancelledOrderIsSettledWithoutRepeatingCancellation() {
+        item.setState(11);
+        when(grizzly.getStatus("1001")).thenReturn(new GrizzlySmsStatus(GrizzlySmsStatus.State.CANCELLED,
+                Optional.empty(), Optional.empty()));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(8);
+        verify(grizzly, never()).setStatus(anyString(), any());
+        verify(grizzly, never()).acquireNumber(any());
+    }
+
+    @Test void uncertainCancellationRetainsActivationForReviewAndNeverRetriesPurchase() {
+        item.setState(11);
+        when(grizzly.getStatus("1001")).thenReturn(new GrizzlySmsStatus(GrizzlySmsStatus.State.WAITING_CODE,
+                Optional.empty(), Optional.empty()));
+        org.mockito.Mockito.doThrow(new GrizzlySmsException(GrizzlySmsFailure.TRANSPORT_ERROR, true))
+                .when(grizzly).setStatus("1001", GrizzlyStatusUpdate.CANCEL);
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(9);
+        assertThat(item.getActivationId()).isEqualTo("1001");
+        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_CANCELLATION_UNCONFIRMED");
+        worker.tick();
+        verify(grizzly).setStatus("1001", GrizzlyStatusUpdate.CANCEL);
+        verify(grizzly, never()).acquireNumber(any());
+    }
+
+    @Test void receivedSmsOnMispricedOrderRequiresReviewInsteadOfRegistrationOrCancellation() {
+        item.setState(11);
+        when(grizzly.getStatus("1001")).thenReturn(new GrizzlySmsStatus(GrizzlySmsStatus.State.RECEIVED,
+                Optional.of("001234"), Optional.empty()));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(9);
+        verify(grizzly, never()).setStatus(anyString(), any());
+        verify(cobalt, never()).status(anyString());
+    }
+
+    @Test void expiredCancellationDoesNotBlockOtherWorkIndefinitely() {
+        item.setState(11);
+        item.setStartedAt(System.currentTimeMillis() - java.time.Duration.ofMinutes(26).toMillis());
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(9);
+        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_CANCELLATION_TIMEOUT");
+        verify(grizzly, never()).setStatus(anyString(), any());
+    }
+
+    @Test void recordedSupplierQuoteBuildsAProviderBoundPurchaseWithoutMinimumPrice() {
+        var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://api.grizzlysms.com");
+        var http = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        var properties = new com.armada.platform.sms.grizzly.GrizzlySmsProperties();
+        properties.setEnabled(true); properties.setPurchasesEnabled(true); properties.setApiKey("test-only-key");
+        var client = new GrizzlySmsClient(builder.build(), new com.fasterxml.jackson.databind.ObjectMapper(), properties);
+        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getPricesV2"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        "{\"12\":{\"wa\":{\"0.1500\":125310}}}", org.springframework.http.MediaType.APPLICATION_JSON));
+        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getPricesV3"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        "{\"12\":{\"wa\":{\"price\":0.15,\"count\":125310,\"providers\":{\"362\":{\"count\":125310,\"price\":[0.15],\"provider_id\":362}}}}}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getNumberV2"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("country", "12"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("service", "wa"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("providerIds", "362"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("maxPrice", "0.150000000000"))
+                .andExpect(request -> assertThat(request.getURI().getQuery()).doesNotContain("minPrice"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        "{\"activationId\":\"9001\",\"phoneNumber\":\"12025550123\",\"activationCost\":0.15,\"currency\":643}",
+                        org.springframework.http.MediaType.APPLICATION_JSON));
+        task.setUnitPrice(new BigDecimal("0.150000000000"));
+        new AccountRegistrationWorker(mapper, lease, service, store, client, cobalt, importer, imports, accounts).tick();
+        http.verify();
+        assertThat(item.getState()).isEqualTo(3);
+        assertThat(item.getActualCost()).isEqualByComparingTo("0.15");
+        assertThat(item.getCurrency()).isEqualTo(643);
+        verify(cobalt, never()).create(anyString(), anyString(), anyInt());
     }
 
     @Test void disabledCapabilityMakesNoPurchaseAndDoesNotConsumeAttempt() {
@@ -164,6 +303,9 @@ class AccountRegistrationWorkerTest {
         var empty = Optional.<String>empty();
         return new GrizzlyActivation("9001", "12025550123", new BigDecimal(cost), 643,
                 new GrizzlyActivation.Details(empty, empty, empty, empty, empty));
+    }
+    private GrizzlyPriceTier tier(String cost, String... providers) {
+        return new GrizzlyPriceTier("12", "wa", new BigDecimal(cost), 100, List.of(providers));
     }
     private CobaltRegistrationSnapshot snapshot(CobaltRegistrationState state) {
         return new CobaltRegistrationSnapshot("reg_7_10", "12025550123", state, Optional.empty());

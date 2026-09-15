@@ -1,0 +1,3 @@
+-- 正式变更仅由 Flyway V195__registration_price_cancellation.sql 执行。
+-- account_registration_item 新增 cancel_after BIGINT NULL（最早取消时间epoch毫秒）。
+-- state 增加 11=等待取消，现有值不迁移，不重启或重置历史失败订单。

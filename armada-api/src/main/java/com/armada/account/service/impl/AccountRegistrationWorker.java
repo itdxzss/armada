@@ -14,6 +14,7 @@ import com.armada.platform.registration.cobalt.model.CobaltRegistrationSnapshot;
 import com.armada.platform.registration.cobalt.model.CobaltRegistrationState;
 import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.exception.GrizzlySmsException;
+import com.armada.platform.sms.grizzly.model.GrizzlyActivation;
 import com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest;
 import com.armada.platform.sms.grizzly.model.GrizzlySmsStatus;
 import com.armada.platform.sms.grizzly.model.GrizzlyStatusUpdate;
@@ -21,8 +22,12 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -36,6 +41,10 @@ public class AccountRegistrationWorker {
     private static final long REGISTRATION_TIMEOUT = Duration.ofMinutes(25).toMillis();
     /** 导入后等待协议首次结果的上限。 */
     private static final long ONLINE_TIMEOUT = Duration.ofMinutes(30).toMillis();
+    /** 供应商无时区时间仅用于求取消窗口的相对长度。 */
+    private static final DateTimeFormatter ACTIVATION_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /** 避免请求传输与秒级供应商时间造成提前取消。 */
+    private static final long CANCEL_MARGIN = Duration.ofSeconds(5).toMillis();
     /** 现有账号登录状态在线值。 */
     private static final int ONLINE = 1;
     /** 注册聚合SQL。 */
@@ -80,7 +89,7 @@ public class AccountRegistrationWorker {
         if (token.isEmpty()) { return; }
         Long previousTenant = TenantContext.get();
         try {
-            var next = mapper.nextWork();
+            var next = mapper.nextWork(System.currentTimeMillis());
             if (next == null) { return; }
             TenantContext.set(next.getTenantId());
             advance(next.getId(), token);
@@ -116,6 +125,7 @@ public class AccountRegistrationWorker {
             case WAITING_CODE, REGISTERING -> registration(task, item);
             case IMPORTING -> importRegistered(task, item);
             case WAITING_ONLINE -> settleOnline(item);
+            case CANCELLING -> cancelMispriced(task, item);
             default -> { /* 已终态不再执行外部请求。 */ }
         }
     }
@@ -123,28 +133,84 @@ public class AccountRegistrationWorker {
     private void purchase(AccountRegistrationTask task, AccountRegistrationItem item) {
         if (Boolean.TRUE.equals(task.getCancelRequested())) { finish(item, AccountRegistrationState.CANCELLED, ""); return; }
         if (!service.orderingDisabledReason().isEmpty()) { return; }
-        item.setState(AccountRegistrationState.PURCHASING.code());
-        item.setStartedAt(System.currentTimeMillis());
-        save(item);
         try {
-            var request = new GrizzlyNumberRequest(task.getServiceCode(), task.getCountryId(), task.getUnitPrice(),
-                    new GrizzlyNumberRequest.Options(task.getUnitPrice(), List.of(), List.of(), List.of()));
-            var activation = grizzly.acquireNumber(request);
+            var request = selectedPriceRequest(task);
+            if (request.isEmpty()) {
+                finish(item, AccountRegistrationState.FAILED, "PURCHASE_TIER_UNAVAILABLE");
+                store.cancel(task.getId());
+                return;
+            }
+            item.setState(AccountRegistrationState.PURCHASING.code());
+            item.setStartedAt(System.currentTimeMillis());
+            save(item);
+            var activation = grizzly.acquireNumber(request.orElseThrow());
             item.setActivationId(activation.activationId());
             item.setPhoneNumber(activation.phoneNumber());
             item.setActualCost(activation.cost());
             item.setCurrency(activation.currency());
-            item.setRegistrationId("reg_" + item.getTenantId() + "_" + item.getId());
-            if (activation.cost().compareTo(task.getUnitPrice()) > 0) {
-                finish(item, AccountRegistrationState.UNKNOWN, "PURCHASE_PRICE_EXCEEDED");
+            if (activation.cost().compareTo(task.getUnitPrice()) != 0) {
+                item.setCancelAfter(cancellationTime(activation, System.currentTimeMillis()));
+                finish(item, AccountRegistrationState.CANCELLING, "PURCHASE_PRICE_MISMATCH");
                 store.cancel(task.getId());
                 return;
             }
+            item.setRegistrationId("reg_" + item.getTenantId() + "_" + item.getId());
             finish(item, AccountRegistrationState.WAITING_CODE, "");
         } catch (GrizzlySmsException exception) {
             finish(item, exception.isOutcomeUnknown() ? AccountRegistrationState.UNKNOWN : AccountRegistrationState.FAILED,
                     "SMS_" + exception.getReason().name());
             if (exception.isOutcomeUnknown()) { store.cancel(task.getId()); }
+        }
+    }
+
+    private Optional<GrizzlyNumberRequest> selectedPriceRequest(AccountRegistrationTask task) {
+        var tiers = grizzly.getPriceTiers(task.getServiceCode(), task.getCountryId());
+        var selected = tiers.stream().filter(tier -> tier.cost().compareTo(task.getUnitPrice()) == 0
+                && tier.count() > 0).findFirst();
+        if (selected.isEmpty()) { return Optional.empty(); }
+        var cheaperProviders = tiers.stream().filter(tier -> tier.cost().compareTo(task.getUnitPrice()) < 0)
+                .flatMap(tier -> tier.providerIds().stream()).toList();
+        var providers = selected.orElseThrow().providerIds().stream()
+                .filter(id -> !cheaperProviders.contains(id)).toList();
+        if (providers.isEmpty()) { return Optional.empty(); }
+        // 同价上下限在真实 Grizzly 请求中无法取号；仅选无更低报价的供应商，并在成交后再次核价。
+        return Optional.of(new GrizzlyNumberRequest(task.getServiceCode(), task.getCountryId(), task.getUnitPrice(),
+                new GrizzlyNumberRequest.Options(null, providers, List.of(), List.of())));
+    }
+
+    private long cancellationTime(GrizzlyActivation activation, long receivedAt) {
+        var details = activation.details();
+        if (details.activationTime().isEmpty() || details.activationCancel().isEmpty()) { return receivedAt; }
+        try {
+            long delay = Duration.between(LocalDateTime.parse(details.activationTime().orElseThrow(), ACTIVATION_TIME),
+                    LocalDateTime.parse(details.activationCancel().orElseThrow(), ACTIVATION_TIME)).toMillis();
+            if (delay >= 0 && delay < REGISTRATION_TIMEOUT) { return receivedAt + delay + CANCEL_MARGIN; }
+        } catch (DateTimeParseException exception) {
+            // 无法确认窗口时只按实时订单状态申请一次；失败后保留待核对，不猜时区或无限重试。
+            return receivedAt;
+        }
+        return receivedAt;
+    }
+
+    private void cancelMispriced(AccountRegistrationTask task, AccountRegistrationItem item) {
+        store.cancel(task.getId());
+        long now = System.currentTimeMillis();
+        if (now - item.getStartedAt() > REGISTRATION_TIMEOUT) {
+            finish(item, AccountRegistrationState.UNKNOWN, "PURCHASE_CANCELLATION_TIMEOUT"); return;
+        }
+        if (item.getCancelAfter() != null && now < item.getCancelAfter()) { return; }
+        try {
+            var status = grizzly.getStatus(item.getActivationId());
+            if (status.state() == GrizzlySmsStatus.State.CANCELLED) {
+                finish(item, AccountRegistrationState.FAILED, "PURCHASE_PRICE_MISMATCH_CANCELLED"); return;
+            }
+            if (status.state() == GrizzlySmsStatus.State.RECEIVED || status.previousCode().isPresent()) {
+                finish(item, AccountRegistrationState.UNKNOWN, "PURCHASE_CANCELLATION_CODE_RECEIVED"); return;
+            }
+            grizzly.setStatus(item.getActivationId(), GrizzlyStatusUpdate.CANCEL);
+            finish(item, AccountRegistrationState.FAILED, "PURCHASE_PRICE_MISMATCH_CANCELLED");
+        } catch (GrizzlySmsException exception) {
+            finish(item, AccountRegistrationState.UNKNOWN, "PURCHASE_CANCELLATION_UNCONFIRMED");
         }
     }
 

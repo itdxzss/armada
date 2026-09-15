@@ -36,7 +36,7 @@
   </resultMap>
   <select id="counts" resultMap="countsMap">
     SELECT COALESCE(SUM(CASE WHEN state=1 THEN 1 ELSE 0 END),0) pending,
-      COALESCE(SUM(CASE WHEN state BETWEEN 2 AND 6 THEN 1 ELSE 0 END),0) processing,
+      COALESCE(SUM(CASE WHEN state BETWEEN 2 AND 6 OR state=11 THEN 1 ELSE 0 END),0) processing,
       COALESCE(SUM(CASE WHEN state=7 THEN 1 ELSE 0 END),0) succeeded,
       COALESCE(SUM(CASE WHEN state=8 THEN 1 ELSE 0 END),0) failed,
       COALESCE(SUM(CASE WHEN state=9 THEN 1 ELSE 0 END),0) `unknown`,
@@ -59,7 +59,11 @@
   <select id="nextWork" resultType="com.armada.account.model.entity.AccountRegistrationItem">
     SELECT i.id,i.tenant_id FROM account_registration_item i
     INNER JOIN account_registration_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
-    WHERE i.state BETWEEN 1 AND 6 AND (i.state &lt;&gt; 1 OR t.cancel_requested=0)
+    WHERE (i.state BETWEEN 1 AND 6 OR (i.state=11 AND (i.cancel_after IS NULL OR i.cancel_after &lt;= #{now})))
+      AND (i.state &lt;&gt; 1 OR (t.cancel_requested=0 AND NOT EXISTS (
+        SELECT 1 FROM account_registration_item cancelling
+        WHERE cancelling.tenant_id=i.tenant_id AND cancelling.task_id=i.task_id AND cancelling.state=11
+      )))
     ORDER BY CASE WHEN i.state=1 THEN 1 ELSE 0 END,i.id LIMIT 1
   </select>
   <update id="claim">
@@ -69,7 +73,7 @@
   <update id="updateClaimed">
     UPDATE account_registration_item SET state=#{state},activation_id=#{activationId},phone_number=#{phoneNumber},
       actual_cost=#{actualCost},currency=#{currency},registration_id=#{registrationId},import_batch_id=#{importBatchId},
-      account_id=#{accountId},failure_code=#{failureCode},started_at=#{startedAt},updated_at=#{updatedAt}
+      account_id=#{accountId},failure_code=#{failureCode},started_at=#{startedAt},cancel_after=#{cancelAfter},updated_at=#{updatedAt}
     WHERE id=#{id} AND lease_token=#{leaseToken} AND lease_until &gt;= #{updatedAt}
   </update>
   <update id="release">

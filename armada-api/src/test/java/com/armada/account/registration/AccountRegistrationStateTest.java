@@ -10,6 +10,7 @@ class AccountRegistrationStateTest {
     void onlyActualOnlineStateIsSuccessAndUnknownIsTerminal() {
         assertThat(AccountRegistrationState.WAITING_ONLINE.isTerminal()).isFalse();
         assertThat(AccountRegistrationState.IMPORTING.isTerminal()).isFalse();
+        assertThat(AccountRegistrationState.CANCELLING.isTerminal()).isFalse();
         assertThat(AccountRegistrationState.UNKNOWN.isTerminal()).isTrue();
         assertThat(AccountRegistrationState.SUCCEEDED.isTerminal()).isTrue();
         assertThat(AccountRegistrationState.fromCode(2)).isEqualTo(AccountRegistrationState.PURCHASING);

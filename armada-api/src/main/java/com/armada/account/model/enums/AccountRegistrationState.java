@@ -11,7 +11,8 @@ public enum AccountRegistrationState {
     /** Android 协议实际回报在线。 */ SUCCEEDED(7),
     /** 已知失败，不补购。 */ FAILED(8),
     /** 外部结果不明，需要核对，不补购。 */ UNKNOWN(9),
-    /** 尚未采购的条目已取消。 */ CANCELLED(10);
+    /** 尚未采购的条目已取消。 */ CANCELLED(10),
+    /** 成交价格不符，等待供应商允许取消并核对结果。 */ CANCELLING(11);
 
     /** 数据库存储值。 */
     private final int code;
@@ -19,7 +20,9 @@ public enum AccountRegistrationState {
     /** @return 数据库存储值 */
     public int code() { return code; }
     /** @return 是否不再被自动执行 */
-    public boolean isTerminal() { return code >= SUCCEEDED.code; }
+    public boolean isTerminal() {
+        return this == SUCCEEDED || this == FAILED || this == UNKNOWN || this == CANCELLED;
+    }
     /** @param code 数据库值 @return 对应工作流状态 */
     public static AccountRegistrationState fromCode(int code) {
         for (var state : values()) { if (state.code == code) { return state; } }

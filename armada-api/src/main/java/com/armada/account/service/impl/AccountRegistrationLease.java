@@ -3,6 +3,7 @@ package com.armada.account.service.impl;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -19,8 +20,8 @@ public class AccountRegistrationLease {
             "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", Long.class);
     /** 复用当前部署的Redis连接。 */
     private final StringRedisTemplate redis;
-    /** 装配Redis，服务不可用时worker保持关闭式失败。 */
-    public AccountRegistrationLease(StringRedisTemplate redis) { this.redis = redis; }
+    /** 明确使用业务互斥Redis，避免与认证Redis实例产生装配歧义。 */
+    public AccountRegistrationLease(@Qualifier("groupCreateIdempotencyRedisTemplate") StringRedisTemplate redis) { this.redis = redis; }
     /** @return 已取得的令牌；未取得返回空字符串，不执行外部操作 */
     public String acquire() {
         String token = UUID.randomUUID().toString();

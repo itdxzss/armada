@@ -37,3 +37,5 @@ Grizzly、Cobalt client、注册编排、H2 Mapper、菜单和 Flyway 共 150 �
 `deploy-test.test.sh` 通过；生产离线包测试因仓库缺少 `prod/scripts/inspect-production-host.sh` 失败，与 test1 本次范围无关。
 部署前评审在采购关闭范围内无新阻断；启用采购前仍需补调度可用性门禁、导入阶段超时及真实链路验收。
 提交、远端版本与部署产物以本次发布日志及最终验收记录为准；不把页面发布视为真实购号注册通过。
+
+首次 test1 启动验证发现 `AccountRegistrationLease` 的 `StringRedisTemplate` 注入歧义：运行配置同时注册认证与业务 Redis。补充 `groupCreateIdempotencyRedisTemplate` 限定并新增双 Redis 装配回归测试，再单独重发后端；V193/V194 在首轮已成功执行，无须重复更改迁移。

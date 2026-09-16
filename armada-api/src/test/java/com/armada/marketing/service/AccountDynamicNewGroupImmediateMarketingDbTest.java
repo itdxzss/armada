@@ -13,7 +13,7 @@ import com.armada.marketing.scheduler.MarketingRoundWorker;
 import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedSink;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -51,7 +51,7 @@ class AccountDynamicNewGroupImmediateMarketingDbTest extends DbTestBase {
     private AccountGroupMembershipStatusService membershipStatusService;
 
     @Autowired
-    private MessageSendPort messageSendPort;
+    private MarketingMessageSendService messageSendPort;
 
     @Autowired
     private JdbcTemplate jdbc;

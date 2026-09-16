@@ -209,6 +209,30 @@ class MarketingTaskServiceImplLifecycleTest {
                         .satisfies(item -> assertThat(item.membershipStatus()).isEqualTo(reasonCode)));
     }
 
+    @Test
+    void currentGroupBanOverridesSuccessfulAttemptWithoutChangingExecutionOrCounts() {
+        MarketingTaskAccountGroupStatRow group = new MarketingTaskAccountGroupStatRow();
+        group.setAccountId(31L);
+        group.setGroupJid("120363031@g.us");
+        group.setMembershipStatus(1);
+        group.setCurrentGroupBanned(true);
+        group.setLatestAttemptStatus(MarketingSendAttemptStatus.SUCCESS.code());
+        group.setGroupStatus("NORMAL");
+        group.setLatestExecutionStatus(MarketingSendAttemptStatus.SUCCESS.code());
+        group.setSentMessageCount(27);
+        stubDetail(detailTask(), detailTarget(), group);
+
+        var item = service.getDetail(TASK_ID).accountTargets().get(0).groups().get(0);
+        assertThat(item.groupStatus()).isEqualTo("GROUP_BANNED");
+        assertThat(item.membershipStatus()).isEqualTo("IN_GROUP");
+        assertThat(item.executionResult()).isEqualTo("SUCCESS");
+        assertThat(item.sentMessageCount()).isEqualTo(27);
+
+        group.setCurrentGroupBanned(false);
+        assertThat(service.getDetail(TASK_ID).accountTargets().get(0).groups().get(0).groupStatus())
+                .isEqualTo("NORMAL");
+    }
+
     private void stubDetail(MarketingTask task,
                             MarketingTaskTarget target,
                             MarketingTaskAccountGroupStatRow group) {

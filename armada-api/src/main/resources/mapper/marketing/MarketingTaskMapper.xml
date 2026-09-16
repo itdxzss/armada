@@ -451,6 +451,7 @@
                  END
                  ELSE NULL
                END AS membershipStatus,
+               current_health.banned AS currentGroupBanned,
                protocol.attemptStatus AS latestAttemptStatus,
                protocol.reasonCode AS reasonCode,
                protocol.reasonMessage AS reasonMessage,
@@ -487,6 +488,9 @@
         LEFT JOIN wa_group current_group
           ON current_group.tenant_id = d.tenant_id
          AND current_group.group_jid = COALESCE(a.groupJid, f.groupJid)
+        LEFT JOIN wa_group_profile current_health
+          ON current_health.tenant_id = d.tenant_id
+         AND current_health.group_id = current_group.id
         LEFT JOIN wa_account_group_binding binding
           ON binding.tenant_id = d.tenant_id
          AND binding.account_id = d.accountId
@@ -913,6 +917,21 @@
         WHERE id = #{attemptId}
           AND command_id = #{commandId}
           AND status = 0
+    </update>
+
+    <update id="markAttemptGroupBannedSkipped">
+        UPDATE marketing_task_send_attempt
+        SET status = 3,
+            reason_code = #{reasonCode},
+            reason_message = #{reasonMessage},
+            group_status = 'BANNED',
+            group_status_reason = #{reasonCode},
+            group_status_checked_at = #{resultAt},
+            result_at = #{resultAt}
+        WHERE id = #{attemptId}
+          AND command_id = #{commandId}
+          AND status = 0
+          AND outbox_accepted_at IS NULL
     </update>
 
     <update id="markAttemptFailed">
@@ -1524,4 +1543,14 @@
         LIMIT 1
     </select>
 
+    <select id="selectBannedGroupJids" resultType="java.lang.String">
+        SELECT g.group_jid
+        FROM wa_group g
+        JOIN wa_group_profile p ON p.tenant_id = g.tenant_id AND p.group_id = g.id
+        WHERE g.deleted_at IS NULL AND p.banned = 1
+          AND g.group_jid IN
+          <foreach collection="groupJids" item="jid" open="(" separator="," close=")">
+              #{jid}
+          </foreach>
+    </select>
 </mapper>

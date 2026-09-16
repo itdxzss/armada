@@ -34,7 +34,7 @@ import com.armada.marketing.service.impl.MarketingNewGroupImmediateSendServiceIm
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +48,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
     private final MarketingTaskMapper mapper = mock(MarketingTaskMapper.class);
     private final MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
     private final MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-    private final MessageSendPort messagePort = mock(MessageSendPort.class);
+    private final MarketingMessageSendService messagePort = mock(MarketingMessageSendService.class);
     private final MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
     private final AccountGroupMembershipStatusService membershipStatusService =
             mock(AccountGroupMembershipStatusService.class);
@@ -67,6 +67,21 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         when(templateMapper.selectById(77L)).thenReturn(textTemplate());
         when(mapper.markAttemptOutboxAccepted(anyLong(), any(), anyLong())).thenReturn(1);
         when(membershipStatusService.findCurrentMessageSendPermissions(any())).thenReturn(List.of());
+    }
+
+    @Test
+    void newGroupBanIsSkippedWithoutIncreasingFailedCount() {
+        stubOwnedSendingTask();
+        assignAttemptIds(9000L);
+        when(messagePort.enqueue(any())).thenAnswer(invocation -> {
+            List<MessageSendCommand> commands = invocation.getArgument(0);
+            return new MessageSendEnqueueResult(List.of(MessageSendEnqueueItem.rejected(
+                    commands.get(0).commandId(), "GROUP_BANNED", "群组已封禁")));
+        });
+        service.enqueueNewGroups(5001L, List.of(new MarketingNewGroupDTO(301L, "120363a@g.us", "群A")), 2000L);
+        verify(mapper).markAttemptGroupBannedSkipped(any());
+        verify(mapper, never()).markWaitingAttemptFailed(anyLong(), any(), any(), anyLong());
+        verify(mapper, never()).incrementTaskSendCounters(any(), any(int.class), any(int.class), anyLong());
     }
 
     @Test

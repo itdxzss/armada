@@ -11,7 +11,7 @@ import com.armada.marketing.service.impl.MarketingAccountOccupancyService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.testsupport.DbTestBase;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -104,7 +104,7 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
         assertThat(batches).isEmpty();
     }
 
-    private MarketingRoundWorker worker(MessageSendPort messageSendPort) {
+    private MarketingRoundWorker worker(MarketingMessageSendService messageSendPort) {
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
@@ -122,8 +122,8 @@ class MarketingRoundWorkerDbTest extends DbTestBase {
                 Clock.systemUTC());
     }
 
-    private MessageSendPort recordingOutbox(List<List<MessageSendCommand>> batches) {
-        MessageSendPort outbox = mock(MessageSendPort.class);
+    private MarketingMessageSendService recordingOutbox(List<List<MessageSendCommand>> batches) {
+        MarketingMessageSendService outbox = mock(MarketingMessageSendService.class);
         doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<MessageSendCommand> commands = invocation.getArgument(0, List.class);

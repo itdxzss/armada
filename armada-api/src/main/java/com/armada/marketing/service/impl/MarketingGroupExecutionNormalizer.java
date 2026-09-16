@@ -93,7 +93,7 @@ final class MarketingGroupExecutionNormalizer {
      * 从一条最后有效发送尝试归一页面需要的三个同源字段。
      *
      * <p>判定优先级固定为账号封禁、被踢出群聊、群组封禁、没有权限、正常、未确认，
-     * 避免原始群状态和失败原因分别取自不同记录。成功尝试始终返回 {@code NORMAL/SUCCESS}
+     * 避免原始群状态和失败原因分别取自不同记录。成功尝试保留 {@code SUCCESS}，但不得覆盖同次回执中的明确封禁事实
      * 且失败原因为空；非成功/失败记录返回 {@code UNCONFIRMED} 且不产生执行结果。</p>
      *
      * @param attemptStatus 最后有效尝试状态：1=成功、2=失败；为空或其他值表示没有有效结果
@@ -109,7 +109,11 @@ final class MarketingGroupExecutionNormalizer {
                                           String rawGroupStatus,
                                           String groupStatusReason) {
         if (Integer.valueOf(MarketingSendAttemptStatus.SUCCESS.code()).equals(attemptStatus)) {
-            return new NormalizedExecution(STATUS_NORMAL, RESULT_SUCCESS, null);
+            return new NormalizedExecution(
+                    matches(rawGroupStatus, REASON_LEGACY_BANNED)
+                            || matches(groupStatusReason, REASON_CHAT_SUSPENDED, REASON_CHAT_TERMINATED)
+                            ? STATUS_GROUP_BANNED : STATUS_NORMAL,
+                    RESULT_SUCCESS, null);
         }
         if (!Integer.valueOf(MarketingSendAttemptStatus.FAILED.code()).equals(attemptStatus)) {
             return new NormalizedExecution(STATUS_UNCONFIRMED, null, null);
@@ -138,6 +142,11 @@ final class MarketingGroupExecutionNormalizer {
         }
         String fallback = firstText(reasonMessage, reasonCode, MESSAGE_UNKNOWN);
         return failed(STATUS_UNCONFIRMED, fallback);
+    }
+
+    /** 当前明确封禁优先于历史发送快照；不改变该次消息的执行结果。 */
+    static String currentGroupStatus(Boolean banned, NormalizedExecution execution) {
+        return Boolean.TRUE.equals(banned) ? STATUS_GROUP_BANNED : execution.groupStatus();
     }
 
     /** 将最后已结束 attempt 状态映射为独立执行结果。 */

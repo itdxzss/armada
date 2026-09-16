@@ -23,7 +23,7 @@ import com.armada.marketing.service.impl.MarketingMembershipSendPolicy;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -58,7 +58,7 @@ public class MarketingRoundWorker {
     private final MarketingAccountOccupancyService occupancyService;
     private final AccountGroupMembershipStatusService membershipStatusService;
     private final MarketingMessageCommandFactory messageFactory;
-    private final MessageSendPort messageSendPort;
+    private final MarketingMessageSendService messageSendPort;
     private final MarketingRoundSchedulerProperties properties;
     private final Clock clock;
 
@@ -69,7 +69,7 @@ public class MarketingRoundWorker {
                                 MarketingAccountOccupancyService occupancyService,
                                 AccountGroupMembershipStatusService membershipStatusService,
                                 MarketingMessageCommandFactory messageFactory,
-                                MessageSendPort messageSendPort,
+                                MarketingMessageSendService messageSendPort,
                                 MarketingRoundSchedulerProperties properties,
                                 Clock clock) {
         this.taskMapper = taskMapper;
@@ -611,6 +611,10 @@ public class MarketingRoundWorker {
                     null,
                     null,
                     resultAt);
+            if (MarketingMessageSendService.GROUP_BANNED.equals(item.reasonCode())) {
+                taskMapper.markAttemptGroupBannedSkipped(attemptResult);
+                continue;
+            }
             int updated = taskMapper.markAttemptFailed(attemptResult);
             if (updated > 0) {
                 taskMapper.markTargetFailedFromAttempt(

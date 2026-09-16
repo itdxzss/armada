@@ -32,7 +32,7 @@ import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -115,7 +115,7 @@ public class GroupCreationMarketingWorker {
     private final MarketingMessageComposer messageComposer;
 
     /** 协议无关消息发送端口,负责按账号当前协议事实路由。 */
-    private final MessageSendPort messageSendPort;
+    private final MarketingMessageSendService messageSendPort;
 
     /** 联系人协议端口,用于建群前预保存目标号码。 */
     private final ContactPort contactPort;
@@ -158,7 +158,7 @@ public class GroupCreationMarketingWorker {
                                         MarketingTemplateMapper templateMapper,
                                         MarketingTemplateFileMapper fileMapper,
                                         MarketingMessageComposer messageComposer,
-                                        MessageSendPort messageSendPort,
+                                        MarketingMessageSendService messageSendPort,
                                         ContactPort contactPort,
                                         GroupCreatePort groupCreatePort,
                                         GroupMemberListPort groupMemberListPort,
@@ -483,7 +483,7 @@ public class GroupCreationMarketingWorker {
      * 组装建群营销的统一消息命令并交给消息发送端口入队。
      *
      * <p>账号的协议类型、协议账号 ID 和登录号码均取自当前候选账号事实；本方法不判断 Web/Android，
-     * 具体协议的能力校验、请求结构转换和 outbox 写入由 {@link MessageSendPort} 的路由实现负责。
+     * 具体协议的能力校验、请求结构转换和 outbox 写入由 {@link MarketingMessageSendService} 的路由实现负责。
      * 返回 {@code accepted} 只表示命令已写入本地协议 outbox，不表示 WhatsApp 已发送成功。</p>
      *
      * <p>当前只提交一条命令，因此会严格校验返回项数量和 commandId，避免批次结果错位后更新错误的执行项。</p>

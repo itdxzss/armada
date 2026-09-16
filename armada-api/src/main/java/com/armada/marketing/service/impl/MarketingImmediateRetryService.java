@@ -18,7 +18,7 @@ import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultRepor
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.shared.exception.BusinessException;
 import java.util.List;
 import java.util.Locale;
@@ -44,7 +44,7 @@ public class MarketingImmediateRetryService {
     private final MarketingTaskMapper taskMapper;
     private final MarketingAccountOccupancyService occupancyService;
     private final MarketingMessageCommandFactory messageFactory;
-    private final MessageSendPort messageSendPort;
+    private final MarketingMessageSendService messageSendPort;
 
     /**
      * 创建即时营销重试服务。
@@ -57,7 +57,7 @@ public class MarketingImmediateRetryService {
     public MarketingImmediateRetryService(MarketingTaskMapper taskMapper,
                                           MarketingAccountOccupancyService occupancyService,
                                           MarketingMessageCommandFactory messageFactory,
-                                          MessageSendPort messageSendPort) {
+                                          MarketingMessageSendService messageSendPort) {
         this.taskMapper = taskMapper;
         this.occupancyService = occupancyService;
         this.messageFactory = messageFactory;
@@ -234,6 +234,10 @@ public class MarketingImmediateRetryService {
                 null,
                 null,
                 resultAt);
+        if (MarketingMessageSendService.GROUP_BANNED.equals(item.reasonCode())) {
+            taskMapper.markAttemptGroupBannedSkipped(result);
+            return;
+        }
         if (taskMapper.markAttemptFailed(result) <= 0) {
             return;
         }

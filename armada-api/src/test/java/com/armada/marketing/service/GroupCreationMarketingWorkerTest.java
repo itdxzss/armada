@@ -29,7 +29,7 @@ import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.ContactPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupMemberListPort;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -75,7 +75,7 @@ class GroupCreationMarketingWorkerTest {
     @Mock
     private MarketingMessageComposer messageComposer;
     @Mock
-    private MessageSendPort messageSendPort;
+    private MarketingMessageSendService messageSendPort;
     @Mock
     private ContactPort contactPort;
     @Mock

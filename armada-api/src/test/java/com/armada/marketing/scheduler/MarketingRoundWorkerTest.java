@@ -30,7 +30,7 @@ import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -62,10 +62,34 @@ class MarketingRoundWorkerTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    void bannedGroupIsRecordedAsSkipWithoutOutboxOrFailureCounters() throws JsonProcessingException {
+        MarketingTaskMapper mapper = mock(MarketingTaskMapper.class);
+        var rawPort = mock(com.armada.platform.protocol.port.MessageSendPort.class);
+        var guard = new MarketingMessageSendService(mapper, rawPort);
+        var targets = targets(1);
+        when(mapper.selectTaskById(42L)).thenReturn(task());
+        when(mapper.selectTargetsByTaskId(42L)).thenReturn(targets);
+        when(mapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
+        when(mapper.selectBannedGroupJids(any())).thenReturn(List.of(targets.get(0).getGroupJid()));
+        assignAttemptIds(mapper, 9800L);
+        var templateMapper = mock(MarketingTemplateMapper.class);
+        var files = mock(MarketingTemplateFileMapper.class);
+        when(templateMapper.selectById(77L)).thenReturn(buttonTemplateWithTwoLinks());
+        var worker = new MarketingRoundWorker(mapper, defaultOccupancyService(),
+                defaultMembershipStatusService(), messageFactory(templateMapper, files), guard,
+                new MarketingRoundSchedulerProperties(), Clock.systemUTC());
+        worker.runRound(1L, 42L);
+        verify(mapper).markAttemptGroupBannedSkipped(argThat(result -> "GROUP_BANNED".equals(result.reasonCode())));
+        verify(mapper, never()).markAttemptFailed(any());
+        verify(mapper, never()).incrementTaskSendCounters(any(), anyInt(), anyInt(), anyLong());
+        org.mockito.Mockito.verifyNoInteractions(rawPort);
+    }
+
+    @Test
     void mixedProtocolTargetsKeepWebSubmittedAndFailAndroidInvalidButtonLocally()
             throws JsonProcessingException {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort messageSendPort = mock(MessageSendPort.class);
+        MarketingMessageSendService messageSendPort = mock(MarketingMessageSendService.class);
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         List<MarketingTaskTarget> targets = targets(2);
         targets.get(0).setProtocolId("WEB");
@@ -132,7 +156,7 @@ class MarketingRoundWorkerTest {
     @Test
     void futureSendingTaskReturnsToWaitingWithoutGeneratingMessages() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingTask task = task();
         task.setTaskStartAt(System.currentTimeMillis() + 60_000L);
@@ -153,7 +177,7 @@ class MarketingRoundWorkerTest {
     @Test
     void taskCrossingEndTimeDuringTargetResolutionDoesNotClaimOrGenerateMessages() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         Clock clock = mock(Clock.class);
         when(clock.millis()).thenReturn(1_000L, 2_000L);
         MarketingTask task = task();
@@ -177,7 +201,7 @@ class MarketingRoundWorkerTest {
     @Test
     void backlogAtThresholdPostponesRoundWithoutOutbox() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -199,7 +223,7 @@ class MarketingRoundWorkerTest {
     @Test
     void dueRoundCreatesSubmittedAttemptsAndOutboxCommands() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
@@ -256,7 +280,7 @@ class MarketingRoundWorkerTest {
     @Test
     void dueRound_sendsOwnedAccountAndRecordsOccupiedAccountAsSkipped() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         List<MarketingTaskTarget> targets = targets(2);
@@ -300,7 +324,7 @@ class MarketingRoundWorkerTest {
     @Test
     void occupiedAccount_releasedBeforeLaterRound_isAcquiredAndSent() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         MarketingTask firstRoundTask = task();
@@ -337,7 +361,7 @@ class MarketingRoundWorkerTest {
     @Test
     void fixedGroupTargetMissingCurrentMembershipStillUsesSavedSnapshot() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -372,7 +396,7 @@ class MarketingRoundWorkerTest {
     @Test
     void kickedOutMembershipCreatesSkippedAttemptWithoutProtocolCommandBeforeOccupancyReason() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         AccountGroupMembershipStatusService membershipStatusService =
                 mock(AccountGroupMembershipStatusService.class);
@@ -418,7 +442,7 @@ class MarketingRoundWorkerTest {
     @Test
     void membershipQueryFailureStopsBeforeOccupancyClaimAndProtocolCommand() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         AccountGroupMembershipStatusService membershipStatusService =
                 mock(AccountGroupMembershipStatusService.class);
@@ -451,7 +475,7 @@ class MarketingRoundWorkerTest {
     @Test
     void fixedGroupTargetMissingSavedGroupJidPostponesWithoutAttempt() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -473,7 +497,7 @@ class MarketingRoundWorkerTest {
     @Test
     void accountDynamicTargetExpandsCurrentGroupsBeforeSending() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -525,7 +549,7 @@ class MarketingRoundWorkerTest {
     @Test
     void accountDynamicTargetWithoutResolvedGroupsPostponesRound() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
 
         MarketingTask task = task();
@@ -551,7 +575,7 @@ class MarketingRoundWorkerTest {
         logger.addAppender(appender);
         try {
             MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-            MessageSendPort outbox = acceptingMessagePort();
+            MarketingMessageSendService outbox = acceptingMessagePort();
             MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
             properties.setBacklogMultiplier(2);
 
@@ -590,7 +614,7 @@ class MarketingRoundWorkerTest {
     @Test
     void imageRoundUsesTwoHundredCommandBatchSize() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setOutboxBatchSize(500);
@@ -641,7 +665,7 @@ class MarketingRoundWorkerTest {
     @Test
     void normalLinkCardRoundEnqueuesLinkCardCommand() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
         properties.setImageOutboxBatchSize(200);
@@ -689,7 +713,7 @@ class MarketingRoundWorkerTest {
     @Test
     void buttonCardRoundEnqueuesButtonCardCommand() throws JsonProcessingException {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -734,7 +758,7 @@ class MarketingRoundWorkerTest {
     @Test
     void invalidButtonTemplateCreatesLocalFailuresWithoutOutbox() {
         MarketingTaskMapper taskMapper = mock(MarketingTaskMapper.class);
-        MessageSendPort outbox = acceptingMessagePort();
+        MarketingMessageSendService outbox = acceptingMessagePort();
         MarketingRoundSchedulerProperties properties = new MarketingRoundSchedulerProperties();
         properties.setBacklogMultiplier(2);
 
@@ -784,20 +808,20 @@ class MarketingRoundWorkerTest {
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        MessageSendPort outbox,
+                                        MarketingMessageSendService outbox,
                                         MarketingRoundSchedulerProperties properties) {
         return worker(taskMapper, outbox, properties, Clock.systemUTC());
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        MessageSendPort outbox,
+                                        MarketingMessageSendService outbox,
                                         MarketingRoundSchedulerProperties properties,
                                         Clock clock) {
         return worker(taskMapper, outbox, properties, clock, defaultOccupancyService());
     }
 
     private MarketingRoundWorker worker(MarketingTaskMapper taskMapper,
-                                        MessageSendPort outbox,
+                                        MarketingMessageSendService outbox,
                                         MarketingRoundSchedulerProperties properties,
                                                Clock clock,
                                                MarketingAccountOccupancyService occupancyService) {
@@ -836,8 +860,8 @@ class MarketingRoundWorkerTest {
         return service;
     }
 
-    private static MessageSendPort acceptingMessagePort() {
-        MessageSendPort port = mock(MessageSendPort.class);
+    private static MarketingMessageSendService acceptingMessagePort() {
+        MarketingMessageSendService port = mock(MarketingMessageSendService.class);
         when(port.enqueue(any())).thenAnswer(invocation -> {
             @SuppressWarnings("unchecked")
             List<MessageSendCommand> commands = invocation.getArgument(0, List.class);

@@ -20,6 +20,13 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface MarketingTaskMapper {
 
+    /** 查询当前租户指定群中已明确封禁的群；调用方必须传非空集合。 */
+    List<String> selectBannedGroupJids(@Param("groupJids") List<String> groupJids);
+
+
+    /** 群封禁在 outbox 入队前拦截时记为业务跳过，不篡改已接受或已完成的发送。 */
+    int markAttemptGroupBannedSkipped(MarketingSendAttemptResult result);
+
     /** 插入营销任务主表并回填 id。 */
     int insertTask(MarketingTask task);
 

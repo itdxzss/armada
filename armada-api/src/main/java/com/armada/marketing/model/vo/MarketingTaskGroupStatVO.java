@@ -8,7 +8,7 @@ package com.armada.marketing.model.vo;
  * @param groupLinkUrl 实际发送群的邀请链接
  * @param groupName 实际发送群的最新可用名称
  * @param membershipStatus 当前账号群关系状态
- * @param groupStatus 最后有效尝试归一出的群组状态，值为 NORMAL、ACCOUNT_BANNED、GROUP_BANNED、
+ * @param groupStatus 当前封禁优先、否则按最后有效尝试归一出的群组状态，值为 NORMAL、ACCOUNT_BANNED、GROUP_BANNED、
  *                    NO_PERMISSION、KICKED_OUT 或 UNCONFIRMED
  * @param executionResult 按轮次、尝试次数和记录 ID 确定的最后可展示结果：{@code SUCCESS}、
  *                        {@code FAILED}、{@code SKIPPED} 或 {@code WAITING}；无记录时为空

@@ -29,7 +29,7 @@ import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultRepor
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +42,7 @@ class MarketingImmediateRetryServiceTest {
     private final MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
     private final MarketingTemplateMapper templateMapper = mock(MarketingTemplateMapper.class);
     private final MarketingTemplateFileMapper fileMapper = mock(MarketingTemplateFileMapper.class);
-    private final MessageSendPort messagePort = mock(MessageSendPort.class);
+    private final MarketingMessageSendService messagePort = mock(MarketingMessageSendService.class);
     private final MarketingMessageCommandFactory messageFactory = new MarketingMessageCommandFactory(
             templateMapper,
             fileMapper,
@@ -56,6 +56,21 @@ class MarketingImmediateRetryServiceTest {
     @BeforeEach
     void setUp() {
         when(templateMapper.selectById(77L)).thenReturn(textTemplate());
+    }
+
+    @Test
+    void banDetectedBeforeRetryIsSkippedWithoutFailureCounters() {
+        stubEligibleAttempt(1);
+        when(mapper.resubmitImmediateAttempt(eq(9_001L), eq("cmd_first"), anyString(), eq(2_000L))).thenReturn(1);
+        when(messagePort.enqueue(any())).thenAnswer(invocation -> {
+            List<MessageSendCommand> commands = invocation.getArgument(0);
+            return new MessageSendEnqueueResult(List.of(MessageSendEnqueueItem.rejected(
+                    commands.get(0).commandId(), "GROUP_BANNED", "群组已封禁")));
+        });
+        assertThat(service.retryIfEligible(failedEvent(0L, "cmd_first"), 2_000L)).isTrue();
+        verify(mapper).markAttemptGroupBannedSkipped(any());
+        verify(mapper, never()).markAttemptFailed(any());
+        verify(mapper, never()).incrementTaskSendCounters(any(), any(int.class), any(int.class), any(long.class));
     }
 
     @Test

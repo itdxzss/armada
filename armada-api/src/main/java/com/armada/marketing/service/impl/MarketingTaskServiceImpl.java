@@ -825,7 +825,8 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         }
         AccountGroupMembershipStatus membershipStatus = resolveMembershipStatus(row, execution);
         return new MarketingTaskGroupStatVO(row.getGroupLinkId(), row.getGroupJid(), row.getGroupLinkUrl(),
-                row.getGroupName(), membershipStatus.apiValue(), execution.groupStatus(), executionResult,
+                row.getGroupName(), membershipStatus.apiValue(),
+                MarketingGroupExecutionNormalizer.currentGroupStatus(row.getCurrentGroupBanned(), execution), executionResult,
                 executionReason, zero(row.getSentMessageCount()), zero(row.getFailedMessageCount()),
                 zero(row.getSkippedMessageCount()),
                 row.getLastAttemptAt(), row.getLastSentAt(), row.getLastReason());

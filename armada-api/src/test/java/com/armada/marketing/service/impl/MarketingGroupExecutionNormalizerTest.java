@@ -13,11 +13,11 @@ import org.junit.jupiter.params.provider.MethodSource;
 class MarketingGroupExecutionNormalizerTest {
 
     @Test
-    void successAlwaysOverridesStalePrecheckStatus() {
+    void successfulAckPreservesExplicitGroupBanAndSendSuccess() {
         var result = MarketingGroupExecutionNormalizer.normalize(
                 MarketingSendAttemptStatus.SUCCESS.code(), null, null, "BANNED", "CHAT_SUSPENDED");
 
-        assertThat(result.groupStatus()).isEqualTo("NORMAL");
+        assertThat(result.groupStatus()).isEqualTo("GROUP_BANNED");
         assertThat(result.executionResult()).isEqualTo("SUCCESS");
         assertThat(result.executionReason()).isNull();
     }

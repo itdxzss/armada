@@ -24,7 +24,7 @@ import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueItem;
 import com.armada.platform.protocol.model.result.MessageSendEnqueueResult;
-import com.armada.platform.protocol.port.MessageSendPort;
+import com.armada.marketing.service.MarketingMessageSendService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
@@ -76,7 +76,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
     private final MarketingMessageCommandFactory messageFactory;
 
     /** 统一消息发送端口，负责持久化协议 outbox。 */
-    private final MessageSendPort messageSendPort;
+    private final MarketingMessageSendService messageSendPort;
 
     /** 复用普通营销 outbox 分批参数。 */
     private final MarketingRoundSchedulerProperties schedulerProperties;
@@ -99,7 +99,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
      */
     public MarketingNewGroupImmediateSendServiceImpl(MarketingTaskMapper taskMapper,
                                                      MarketingMessageCommandFactory messageFactory,
-                                                     MessageSendPort messageSendPort,
+                                                     MarketingMessageSendService messageSendPort,
                                                      MarketingRoundSchedulerProperties schedulerProperties,
                                                      MarketingAccountOccupancyService occupancyService,
                                                      AccountGroupMembershipStatusService membershipStatusService) {
@@ -614,6 +614,10 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                                          String reasonMessage,
                                          long resultAt) {
         if (Integer.valueOf(MarketingSendAttemptStatus.WAITING.code()).equals(attempt.getStatus())) {
+            if (MarketingMessageSendService.GROUP_BANNED.equals(reasonCode)) {
+                taskMapper.markWaitingAttemptSkipped(attempt.getId(), reasonCode, reasonMessage, resultAt);
+                return false;
+            }
             int updated = taskMapper.markWaitingAttemptFailed(
                     attempt.getId(), reasonCode, reasonMessage, resultAt);
             if (updated == 0) {
@@ -634,6 +638,10 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                 null,
                 null,
                 resultAt);
+        if (MarketingMessageSendService.GROUP_BANNED.equals(reasonCode)) {
+            taskMapper.markAttemptGroupBannedSkipped(result);
+            return false;
+        }
         int updated = taskMapper.markAttemptFailed(result);
         if (updated == 0) {
             return false;

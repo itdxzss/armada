@@ -40,6 +40,19 @@ public class MarketingTaskAccountGroupStatRow {
     /** 当前账号群关系状态码。 */
     private Integer membershipStatus;
 
+    /** 群资料中的当前明确封禁事实，与发送结果及成员关系独立。 */
+    private Boolean currentGroupBanned;
+
+    /** 获取群资料中的当前封禁标记。 */
+    public Boolean getCurrentGroupBanned() {
+        return currentGroupBanned;
+    }
+
+    /** 设置查询得到的当前封禁标记。 */
+    public void setCurrentGroupBanned(Boolean value) {
+        currentGroupBanned = value;
+    }
+
     /** 最近一次有效群状态证据对应的尝试状态:1=成功,2=失败;没有发送结果时为空。 */
     private Integer latestAttemptStatus;
 

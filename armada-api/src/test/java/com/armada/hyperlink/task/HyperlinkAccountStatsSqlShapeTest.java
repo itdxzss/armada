@@ -37,6 +37,25 @@ class HyperlinkAccountStatsSqlShapeTest {
     }
 
     @Test
+    void accountUsageJoinAvoidsMySql84ReservedAlias() throws IOException {
+        String projection = select(resource(
+                "mapper/hyperlink/task/HyperlinkTaskAccountStatMapper.xml"),
+                "selectAccountStats");
+        String ranged = select(resource(
+                "mapper/hyperlink/task/HyperlinkTaskRecipientMapper.xml"),
+                "selectAccountStats");
+
+        assertThat(projection).contains(
+                "LEFT JOIN hyperlink_task_account_usage account_usage",
+                "account_usage.account_phone_snapshot");
+        assertThat(ranged).contains(
+                "LEFT JOIN hyperlink_task_account_usage account_usage",
+                "account_usage.account_phone_snapshot");
+        assertThat(projection).doesNotContain("hyperlink_task_account_usage usage");
+        assertThat(ranged).doesNotContain("hyperlink_task_account_usage usage");
+    }
+
+    @Test
     void ordinaryMarketingWorkerCannotClaimHyperlinkExportJobs() throws IOException {
         String xml = resource("mapper/marketing/MarketingTaskExportMapper.xml");
         assertThat(select(xml, "selectProcessableJobs"))

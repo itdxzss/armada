@@ -70,10 +70,10 @@
             resultType="com.armada.hyperlink.task.model.vo.HyperlinkAccountStatRow">
         SELECT page.account_bucket_key AS bucketKey,
                page.account_id AS accountId,
-               usage.account_phone_snapshot AS senderPhone,
-               usage.sender_country_iso2_snapshot AS senderCountryIso2,
-               usage.account_type_snapshot AS accountTypeCode,
-               usage.account_created_at_snapshot AS accountCreatedAt,
+               account_usage.account_phone_snapshot AS senderPhone,
+               account_usage.sender_country_iso2_snapshot AS senderCountryIso2,
+               account_usage.account_type_snapshot AS accountTypeCode,
+               account_usage.account_created_at_snapshot AS accountCreatedAt,
                page.send_total AS sendTotal,
                page.success_num AS successNum,
                page.delivered_num AS deliveredNum,
@@ -88,9 +88,9 @@
           <include refid="AccountStatGroupedOrder"/>
           LIMIT #{criteria.pageSize} OFFSET #{criteria.offset}
         ) page
-        LEFT JOIN hyperlink_task_account_usage usage
-          ON usage.hyperlink_task_id = #{criteria.taskId}
-         AND usage.account_id = page.account_id
+        LEFT JOIN hyperlink_task_account_usage account_usage
+          ON account_usage.hyperlink_task_id = #{criteria.taskId}
+         AND account_usage.account_id = page.account_id
         <include refid="AccountStatGroupedOrder"/>
     </select>
 

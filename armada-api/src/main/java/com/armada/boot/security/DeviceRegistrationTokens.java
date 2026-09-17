@@ -1,6 +1,7 @@
 package com.armada.boot.security;
 
 import com.armada.account.model.dto.DeviceRegistrationIdentity;
+import com.armada.account.model.vo.CloudRegistrationDeviceVO;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,7 +23,7 @@ public final class DeviceRegistrationTokens {
     public static final String TEST_ENVIRONMENT_VARIABLE = "ARMADA_DEVICE_REGISTRATION_TEST_CLIENTS_JSON";
     private static final Set<String> TEST_FIELDS = Set.of("tenantId", "deviceId");
     private final List<DeviceRegistrationIdentity> testDevices;
-    private static final Set<String> FIELDS = Set.of("token", "tenantId", "deviceId");
+    private static final Set<String> FIELDS = Set.of("token", "tenantId", "deviceId", "cloudPhoneId", "displayName");
     private final List<Entry> entries;
 
     /** 默认空列表；启用时严格解析，任何异常均不包含原文。 */
@@ -38,7 +39,9 @@ public final class DeviceRegistrationTokens {
                 Entry next = parse(row);
                 if (parsed.stream().anyMatch(old -> MessageDigest.isEqual(old.digest(), next.digest())
                         || (old.permit().tenantId() == next.permit().tenantId()
-                        && old.permit().deviceId().equals(next.permit().deviceId())))) {
+                        && old.permit().deviceId().equals(next.permit().deviceId()))
+                        || (next.cloudDevice().isPresent() && old.cloudDevice().isPresent()
+                        && old.cloudDevice().get().cloudPhoneId().equals(next.cloudDevice().get().cloudPhoneId())))) {
                     throw invalid();
                 }
                 parsed.add(next);
@@ -46,6 +49,13 @@ public final class DeviceRegistrationTokens {
             entries = List.copyOf(parsed);
             testDevices = parseTestDevices(testInput);
         } catch (Exception exception) { throw invalid(); }
+    }
+
+    /** 仅返回已绑定的本租户云手机；不返回秘密、普通手机或免令牌测试身份。 */
+    public List<CloudRegistrationDeviceVO> cloudDevices(Long tenantId) {
+        if (tenantId == null || tenantId <= 0) { return List.of(); }
+        return entries.stream().filter(entry -> entry.permit().tenantId() == tenantId)
+                .flatMap(entry -> entry.cloudDevice().stream()).toList();
     }
 
     /** 正常设备校验令牌；显式配置的自测设备仅在完全不带令牌时按设备标识匹配。 */
@@ -82,12 +92,21 @@ public final class DeviceRegistrationTokens {
     }
 
     private Entry parse(JsonNode row) {
-        if (!row.isObject() || row.size() != FIELDS.size()) { throw invalid(); }
+        if (!row.isObject() || (row.size() != 3 && row.size() != FIELDS.size())) { throw invalid(); }
         row.fieldNames().forEachRemaining(name -> { if (!FIELDS.contains(name)) { throw invalid(); } });
         String token = row.path("token").asText("");
         if (!token.matches("[A-Za-z0-9_-]{43,256}")) { throw invalid(); }
         var permit = new DeviceRegistrationIdentity(positive(row, "tenantId"), uuid(row, "deviceId"));
-        return new Entry(digest(token), permit);
+        Optional<CloudRegistrationDeviceVO> cloud = Optional.empty();
+        if (row.has("cloudPhoneId") || row.has("displayName")) {
+            String phone = row.path("cloudPhoneId").asText("");
+            String name = row.path("displayName").asText("");
+            if (!row.path("cloudPhoneId").isTextual() || !phone.matches("[1-9][0-9]{0,18}")
+                    || !row.path("displayName").isTextual() || name.isBlank() || name.length() > 80
+                    || !name.equals(name.strip()) || name.codePoints().anyMatch(Character::isISOControl)) { throw invalid(); }
+            cloud = Optional.of(new CloudRegistrationDeviceVO(permit.deviceId(), phone, name));
+        }
+        return new Entry(digest(token), permit, cloud);
     }
     private String uuid(JsonNode row, String field) {
         String value = row.path(field).asText("");
@@ -104,5 +123,5 @@ public final class DeviceRegistrationTokens {
         catch (NoSuchAlgorithmException exception) { throw invalid(); }
     }
     private static IllegalStateException invalid() { return new IllegalStateException(ENVIRONMENT_VARIABLE + " 配置无效"); }
-    private record Entry(byte[] digest, DeviceRegistrationIdentity permit) { }
+    private record Entry(byte[] digest, DeviceRegistrationIdentity permit, Optional<CloudRegistrationDeviceVO> cloudDevice) { }
 }

@@ -2,6 +2,8 @@ package com.armada.boot.config;
 
 import com.armada.account.controller.DeviceRegistrationController;
 import com.armada.account.service.DeviceRegistrationPermitService;
+import com.armada.account.service.CloudRegistrationDeviceService;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.boot.security.DeviceRegistrationAuthenticationFilter;
 import com.armada.boot.security.DeviceRegistrationTokens;
 import com.armada.platform.tenant.mapper.TenantMapper;
@@ -18,6 +20,10 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 /** 手机注册默认无许可；不改变旧导入令牌和管理员权限。 */
 @Configuration
 public class DeviceRegistrationConfig {
+    /** 将注册配置中的公开目录接入业务域；租户在每次调用时解析。 */
+    @Bean public CloudRegistrationDeviceService cloudRegistrationDeviceService(DeviceRegistrationTokens tokens) {
+        return () -> tokens.cloudDevices(TenantContext.get());
+    }
     /** 只在进程环境注入秘密，避免配置绑定异常携带原文。 */
     @Bean public DeviceRegistrationTokens deviceRegistrationTokens(Environment environment) {
         return new DeviceRegistrationTokens(environment.getProperty(DeviceRegistrationTokens.ENVIRONMENT_VARIABLE, "[]"),

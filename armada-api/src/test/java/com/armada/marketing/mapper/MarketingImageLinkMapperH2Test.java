@@ -85,7 +85,11 @@ class MarketingImageLinkMapperH2Test {
         var payload = new MarketingMessageComposer().compose(stored, image);
         assertThat(payload.messageType()).isEqualTo("LINK_CARD");
         assertThat(payload.linkCard().url()).isEqualTo("https://example.com/card");
-        assertThat(payload.linkCard().title()).isEqualTo("卡片标题");
+        assertThat(payload.linkCard().title()).isEqualTo("example.com");
+        assertThat(payload.linkCard().description()).isNull();
+        assertThat(payload.text()).isEqualTo("卡片标题\n卡片说明\nhttps://example.com/card");
+        assertThat(stored.getContent()).isEqualTo("卡片标题");
+        assertThat(stored.getBodyText()).isEqualTo("卡片说明");
     }
 
     @Test

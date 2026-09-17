@@ -11,6 +11,7 @@ import com.armada.shared.util.HttpUrlValidator;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
 import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -61,15 +62,18 @@ public class MarketingMessageComposer {
         if ((mode == LinkMode.NORMAL || mode == LinkMode.IMAGE_LINK)
                 && thumbnail != null
                 && HttpUrlValidator.isHttpUrl(template.getPromotionLink())) {
+            boolean imageLink = mode == LinkMode.IMAGE_LINK;
+            // 图片链接卡片的完整文案走正文，预览元数据只标识目标站点，避免漏字或重复整段文案。
             return new ComposedMessage(
                     "LINK_CARD",
-                    linkCardText(template),
+                    imageLink ? text : linkCardText(template),
                     null,
                     null,
                     new LinkCardPayload(
                             template.getPromotionLink().trim(),
-                            linkCardTitle(template),
-                            trimToNull(template.getBodyText()),
+                            imageLink ? URI.create(template.getPromotionLink().trim()).getHost()
+                                    : linkCardTitle(template),
+                            imageLink ? null : trimToNull(template.getBodyText()),
                             thumbnail),
                     null,
                     mentionAll);

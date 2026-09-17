@@ -35,14 +35,35 @@ class MarketingMessageComposerTest {
         var payload = MarketingMessageCommandFactory.payload(message);
 
         assertThat(payload.type().name()).isEqualTo("LINK_CARD");
-        assertThat(message.text()).isEqualTo("https://example.com/image-link");
+        assertThat(message.text()).isEqualTo("卡片标题\n卡片说明\nhttps://example.com/image-link");
         assertThat(message.imageBytes()).isNull();
         assertThat(message.buttonCard()).isNull();
         assertThat(payload.content().linkCard().url()).isEqualTo("https://example.com/image-link");
-        assertThat(payload.content().linkCard().title()).isEqualTo("卡片标题");
-        assertThat(payload.content().linkCard().description()).isEqualTo("卡片说明");
+        assertThat(payload.content().linkCard().title()).isEqualTo("example.com");
+        assertThat(payload.content().linkCard().description()).isNull();
         assertThat(payload.content().linkCard().thumbnail().bytes()).containsExactly(9, 8, 7);
         assertThat(message.mentionAll()).isTrue();
+    }
+
+    @Test
+    void imageLinkKeepsLongCopyInBodyWithoutRepeatingItInPreviewMetadata() {
+        MarketingTemplate template = template(LinkMode.IMAGE_LINK.code(), 99L);
+        String content = "💰 开头\n\n" + "完整文案".repeat(100) + "\n最后一行";
+        template.setContent(content);
+        template.setBodyText("补充说明\n第二行");
+        template.setPromotionLink("https://promo.example.com/path?source=test");
+        MarketingTemplateFile file = new MarketingTemplateFile();
+        file.setContent(new byte[] {9, 8, 7});
+        file.setContentType("image/jpeg");
+
+        var payload = MarketingMessageCommandFactory.payload(composer.compose(template, file));
+
+        assertThat(payload.content().text()).isEqualTo(content
+                + "\n补充说明\n第二行\nhttps://promo.example.com/path?source=test");
+        assertThat(payload.content().linkCard().title()).isEqualTo("promo.example.com");
+        assertThat(payload.content().linkCard().description()).isNull();
+        assertThat(template.getContent()).isEqualTo(content);
+        assertThat(template.getBodyText()).isEqualTo("补充说明\n第二行");
     }
 
     @Test

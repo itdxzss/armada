@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.DeviceRegistrationPermitMapper">
+  <resultMap id="permit" type="com.armada.account.model.dto.DeviceRegistrationPermit">
+    <constructor>
+      <arg column="tenant_id" javaType="_long"/>
+      <arg column="device_id" javaType="java.lang.String"/>
+      <arg column="request_id" javaType="java.lang.String"/>
+      <arg column="country_id" javaType="java.lang.String"/>
+      <arg column="unit_price" javaType="java.math.BigDecimal"/>
+      <arg column="expires_at" javaType="_long"/>
+      <arg column="provider_id" javaType="java.lang.String"/>
+      <arg column="replaces_request_id" javaType="java.lang.String"/>
+    </constructor>
+  </resultMap>
+  <select id="find" resultMap="permit">
+    SELECT * FROM account_registration_device_permit WHERE device_id=#{deviceId}
+  </select>
+  <select id="lock" resultMap="permit">
+    SELECT * FROM account_registration_device_permit WHERE device_id=#{deviceId} FOR UPDATE
+  </select>
+  <insert id="insert">
+    INSERT INTO account_registration_device_permit
+      (device_id,request_id,country_id,unit_price,provider_id,replaces_request_id,expires_at,created_at,updated_at)
+    VALUES (#{permit.deviceId},#{permit.requestId},#{permit.countryId},#{permit.unitPrice},#{permit.providerId},
+      #{permit.replacesRequestId},#{permit.expiresAt},#{now},#{now})
+  </insert>
+  <update id="update">
+    UPDATE account_registration_device_permit SET request_id=#{permit.requestId},country_id=#{permit.countryId},
+      unit_price=#{permit.unitPrice},provider_id=#{permit.providerId},replaces_request_id=#{permit.replacesRequestId},
+      expires_at=#{permit.expiresAt},updated_at=#{now} WHERE device_id=#{permit.deviceId}
+  </update>
+</mapper>

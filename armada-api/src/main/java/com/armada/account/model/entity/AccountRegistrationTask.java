@@ -4,6 +4,30 @@ import java.math.BigDecimal;
 
 /** 接码注册任务持久化实体，不保存验证码或六段。 */
 public class AccountRegistrationTask {
+    /** 执行端，旧任务默认为 Cobalt。 */
+    private Integer executionMode = com.armada.account.model.enums.RegistrationExecutionMode.COBALT.code();
+    /** 手机任务绑定的设备 UUID。 */
+    private String deviceId;
+    /** 手机许可允许采购的截止毫秒。 */
+    private Long purchaseBefore;
+    /** 明确指定的唯一接码商家；NULL 表示按价格目录选择。 */
+    private String providerId;
+    /** @return 不可变的指定商家约束 */
+    public String getProviderId() { return providerId; }
+    /** @param value 创建任务时固定的商家码 */
+    public void setProviderId(String value) { providerId = value; }
+    /** @return 执行端 */
+    public Integer getExecutionMode() { return executionMode; }
+    /** @param value 执行端 */
+    public void setExecutionMode(Integer value) { executionMode = value; }
+    /** @return 绑定设备 */
+    public String getDeviceId() { return deviceId; }
+    /** @param value 绑定设备 */
+    public void setDeviceId(String value) { deviceId = value; }
+    /** @return 采购截止毫秒 */
+    public Long getPurchaseBefore() { return purchaseBefore; }
+    /** @param value 采购截止毫秒 */
+    public void setPurchaseBefore(Long value) { purchaseBefore = value; }
     /** 任务主键。 */
     private Long id;
     /** 所属租户。 */

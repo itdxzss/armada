@@ -1,0 +1,116 @@
+{
+  "totals": {
+    "tests": 103,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "name": "AccountRegistrationAvailabilityTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationLeaseConfigurationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationMapperH2Test",
+      "tests": 19,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationMenuMigrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationMerchantSelectionTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationStateTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationWorkerTest",
+      "tests": 33,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "DeviceIngestTokensTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "DeviceRegistrationPermitServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "DeviceRegistrationServiceTest",
+      "tests": 18,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "DeviceRegistrationTokensTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "sourceSHA256": {
+    "armada-api/src/main/java/com/armada/account/model/dto/DeviceRegistrationResultDTO.java": "df0f8d1ef9366bdc12794388e664f5d439cd29d1dd6cc0046da8ef00b419ffdd",
+    "armada-api/src/main/java/com/armada/account/model/vo/DeviceRegistrationVO.java": "b50a93af395c12a2c840cd4ac122c3bf71b4b164dcf84b6d0f62bdad88fe3ba3",
+    "armada-api/src/main/java/com/armada/account/model/enums/DeviceRegistrationFailureKind.java": "a48faaf5d351622ec4ef4531af6e7f5d67e6bf6321b857f78392b71d9aa58fb1",
+    "armada-api/src/main/java/com/armada/account/model/entity/AccountRegistrationItem.java": "609499fd5f9e3c2c943913a7188fe67dfe6f7ce3161adcef21b4845973958611",
+    "armada-api/src/main/java/com/armada/account/service/impl/DeviceRegistrationServiceImpl.java": "e50fb2adc2acca62e176dc2f259549657d889bcbcc231564a19daf759399ab8a",
+    "armada-api/src/main/java/com/armada/boot/security/DeviceRegistrationAuthenticationFilter.java": "5e3c05fb7a09efbd9a87e8b34de1b03c2973c777f4735533859c9cfc265b734c",
+    "armada-api/src/main/resources/mapper/account/AccountRegistrationMapper.xml": "182abaee2160320cf32b180272044d6df55c585d46d264f73b2893616405f28e",
+    "armada-api/src/main/resources/db/migration/V200__device_registration_failure.sql": "3fac870452d5aed47d49b0c1755b518ced71aecc26bf58f65214ae36bed007dd",
+    "armada-api/src/test/java/com/armada/account/registration/DeviceRegistrationServiceTest.java": "b2468e223a059426c3085788a875c307da32e54cf774066549c32d479d1f0d02",
+    "armada-api/src/test/java/com/armada/account/registration/AccountRegistrationMapperH2Test.java": "a54fd447209d2e963a2f612c90f3140efa608398f1c26be65efb1f59cc7d566c",
+    "armada-api/src/test/java/com/armada/boot/security/DeviceRegistrationTokensTest.java": "6cc933af54d291b9eb8ac171fb1b27fbc4f4c2aa89d1198b16767e29de95bf69"
+  },
+  "redTest": {
+    "name": "DeviceRegistrationTokensTest#failedResultAcceptsBoundedFailureMetadata",
+    "before": "expected 200, actual 400",
+    "exitCode": 1
+  },
+  "commands": [
+    "mvn -q -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest='DeviceRegistration*Test,AccountRegistration*Test,DeviceIngestTokensTest' test",
+    "mvn -q -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest=DeviceRegistrationTokensTest test",
+    "mvn -q -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest=DeviceRegistrationServiceTest,AccountRegistrationMapperH2Test test"
+  ],
+  "checks": {
+    "mapperXML": "passed",
+    "apiDocsTests": 1,
+    "diffCheck": "passed"
+  },
+  "scope": "Local only; H2 MySQL mode executes extracted migration DDL and real Mapper; MySQL PREPARE guarded structure asserted; no remote database or deployment."
+}

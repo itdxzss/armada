@@ -100,9 +100,7 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
             throw new BusinessException(ErrorCode.VALIDATION, "接码注册尚未开放，请检查服务配置与注册进程能力");
         }
         requireCountry(catalog, request.countryId());
-        boolean available = grizzly.getPriceTiers(catalog.serviceCode(), request.countryId()).stream()
-                .anyMatch(tier -> tier.cost().compareTo(request.unitPrice()) == 0 && tier.count() >= request.quantity());
-        if (!available) { throw new BusinessException(ErrorCode.VALIDATION, "所选价格档位或库存已变化，请刷新"); }
+        requireAvailableTier(catalog.serviceCode(), request.countryId(), request.unitPrice(), request.quantity(), request.providerId());
         Long id;
         try { id = store.create(request, catalog.serviceCode()); }
         catch (DuplicateKeyException exception) {
@@ -140,16 +138,39 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
 
     /** 每次实际采购前重新检查能力；暂时不可用保留PENDING，不产生号码费用。 */
     public String orderingDisabledReason() {
-        if (!enabled) { return "REGISTRATION_DISABLED"; }
-        if (!environment.getProperty("armada.account.registration.scheduler.enabled", Boolean.class, false)
-                || !environment.acceptsProfiles(Profiles.of("kafka"))) { return "REGISTRATION_SCHEDULER_DISABLED"; }
-        if (!grizzlyProperties.isEnabled() || !grizzlyProperties.isPurchasesEnabled()) { return "GRIZZLY_PURCHASE_DISABLED"; }
+        String common = smsOrderingDisabledReason();
+        if (!common.isEmpty()) { return common; }
         if (!cobalt.isEnabled()) { return "COBALT_DISABLED"; }
         try {
             var health = cobalt.health();
             if (!health.registrationEnabled()) { return "COBALT_REGISTRATION_DISABLED"; }
             return health.availableSlots() > 0 ? "" : "COBALT_BUSY";
         } catch (BusinessException exception) { return "COBALT_UNAVAILABLE"; }
+    }
+
+    /** 手机执行端只要求采购和调度条件，不依赖 Cobalt。 */
+    public String deviceOrderingDisabledReason() {
+        if (!environment.getProperty("armada.account.registration.device-enabled", Boolean.class, false)) {
+            return "DEVICE_REGISTRATION_DISABLED";
+        }
+        return smsOrderingDisabledReason();
+    }
+
+    private String smsOrderingDisabledReason() {
+        if (!enabled) { return "REGISTRATION_DISABLED"; }
+        if (!environment.getProperty("armada.account.registration.scheduler.enabled", Boolean.class, false)
+                || !environment.acceptsProfiles(Profiles.of("kafka"))) { return "REGISTRATION_SCHEDULER_DISABLED"; }
+        if (!grizzlyProperties.isEnabled() || !grizzlyProperties.isPurchasesEnabled()) { return "GRIZZLY_PURCHASE_DISABLED"; }
+        return "";
+    }
+
+    /** 复用实时 WhatsApp/美国目录，不允许配置任意供应商服务。 */
+    public String deviceServiceCode(String countryId) {
+        requireTenant();
+        if (grizzly.getCountries().stream().noneMatch(country -> country.id().equals(countryId) && isUnitedStates(country))) {
+            throw new BusinessException(ErrorCode.VALIDATION, "注册许可渠道不在当前美国目录中");
+        }
+        return whatsapp().code();
     }
 
     private AccountRegistrationTaskVO toTask(AccountRegistrationTask task) {
@@ -168,6 +189,17 @@ public class AccountRegistrationServiceImpl implements AccountRegistrationServic
     private GrizzlyService whatsapp() {
         return grizzly.getServices().stream().filter(service -> "whatsapp".equalsIgnoreCase(service.name().strip()))
                 .findFirst().orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION, "平台未返回WhatsApp服务目录"));
+    }
+
+    /** 核对当前价格档位及可选商家；历史商家码不能替代实时报价。 */
+    public void requireAvailableTier(String service, String country, java.math.BigDecimal price, int quantity, String providerId) {
+        if (providerId != null && !providerId.matches("[1-9][0-9]{0,31}")) {
+            throw new BusinessException(ErrorCode.VALIDATION, "商家码必须是一个有效数字标识");
+        }
+        boolean available = grizzly.getPriceTiers(service, country).stream()
+                .anyMatch(tier -> tier.cost().compareTo(price) == 0 && tier.count() >= quantity
+                        && (providerId == null || tier.providerIds().contains(providerId)));
+        if (!available) { throw new BusinessException(ErrorCode.VALIDATION, "所选商家、价格或库存已变化，请刷新报价"); }
     }
 
     private static boolean isUnitedStates(GrizzlyCountry country) {

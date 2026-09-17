@@ -75,6 +75,146 @@ class AccountRegistrationWorkerTest {
     }
     @AfterEach void clear() { TenantContext.clear(); }
 
+    @Test void deviceNeverCallsCobaltOrImportsWhileWaitingForNativeResult() {
+        task.setExecutionMode(2); item.setState(3);
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(3);
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+
+    @Test void expiredDevicePermitCannotPurchase() {
+        task.setExecutionMode(2); task.setPurchaseBefore(1L);
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(8);
+        verify(grizzly, never()).acquireNumber(any());
+    }
+
+    @Test void invalidDeviceImportStateFailsClosed() {
+        task.setExecutionMode(2); item.setState(5);
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(9);
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+
+    @Test void devicePurchasesOneNumberWithoutCobaltCapability() {
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE);
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        when(grizzly.acquireNumber(any())).thenReturn(activation("1.35"));
+        worker.tick(); worker.tick();
+        assertThat(item.getState()).isEqualTo(3);
+        verify(grizzly, org.mockito.Mockito.times(1)).acquireNumber(any());
+        verify(service, never()).orderingDisabledReason();
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+    @Test void pinnedMerchantIgnoresUnrelatedCatalogAndIsNeverReplacedAfterNoNumbers() {
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE); task.setProviderId("222");
+        task.setCountryId("187"); task.setUnitPrice(new BigDecimal("0.88"));
+        item.setPhoneNumber(null); item.setActivationId(null);
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        when(grizzly.acquireNumber(any())).thenAnswer(invocation -> {
+            var request = (com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest) invocation.getArgument(0);
+            assertThat(request.country()).isEqualTo("187");
+            assertThat(request.maxPrice()).isEqualByComparingTo("0.88");
+            assertThat(request.options().providerIds()).containsExactly("222");
+            assertThat(request.options().minPrice()).isNull();
+            throw new GrizzlySmsException(GrizzlySmsFailure.NO_NUMBERS, false);
+        });
+        worker.tick(); worker.tick();
+        assertThat(item.getState()).isEqualTo(1); assertThat(item.getFailureCode()).isEqualTo("SMS_NO_NUMBERS_RETRY");
+        verify(grizzly, org.mockito.Mockito.times(1)).acquireNumber(any());
+        verify(grizzly, never()).getPriceTiers(anyString(), anyString());
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+    @Test void noNumbersRetriesAtMostFiftyTimesWithFiveSecondDelay() {
+        task.setProviderId("202");
+        when(grizzly.acquireNumber(any())).thenThrow(new GrizzlySmsException(GrizzlySmsFailure.NO_NUMBERS, false));
+        for (int attempt = 1; attempt <= 50; attempt++) {
+            item.setNextPurchaseAt(null);
+            long before = System.currentTimeMillis();
+            worker.tick();
+            assertThat(item.getPurchaseAttempts()).isEqualTo(attempt);
+            if (attempt < 50) {
+                assertThat(item.getState()).isEqualTo(1);
+                assertThat(item.getNextPurchaseAt()).isBetween(before + 5000, System.currentTimeMillis() + 5000);
+                worker.tick();
+            }
+            verify(grizzly, org.mockito.Mockito.times(attempt)).acquireNumber(any());
+        }
+        assertThat(item.getState()).isEqualTo(8);
+        assertThat(item.getFailureCode()).isEqualTo("SMS_NO_NUMBERS_EXHAUSTED");
+        worker.tick();
+        verify(grizzly, org.mockito.Mockito.times(50)).acquireNumber(any());
+    }
+
+    @Test void retrySuccessStopsFurtherPurchases() {
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE); task.setProviderId("202");
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        when(grizzly.acquireNumber(any())).thenThrow(new GrizzlySmsException(GrizzlySmsFailure.NO_NUMBERS, false))
+                .thenReturn(activation("1.35"));
+        worker.tick(); item.setNextPurchaseAt(null); worker.tick(); worker.tick();
+        assertThat(item.getState()).isEqualTo(3);
+        assertThat(item.getPurchaseAttempts()).isEqualTo(2);
+        verify(grizzly, org.mockito.Mockito.times(2)).acquireNumber(any());
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer);
+    }
+
+    @Test void cancellationWhileWaitingDoesNotPurchaseAgain() {
+        task.setProviderId("202");
+        when(grizzly.acquireNumber(any())).thenThrow(new GrizzlySmsException(GrizzlySmsFailure.NO_NUMBERS, false));
+        worker.tick(); task.setCancelRequested(true); item.setNextPurchaseAt(null); worker.tick();
+        assertThat(item.getState()).isEqualTo(10);
+        verify(grizzly).acquireNumber(any());
+    }
+
+    @Test void knownNonInventoryErrorDoesNotRetry() {
+        task.setProviderId("202");
+        when(grizzly.acquireNumber(any())).thenThrow(new GrizzlySmsException(GrizzlySmsFailure.NO_BALANCE, false));
+        worker.tick(); worker.tick();
+        assertThat(item.getState()).isEqualTo(8);
+        verify(grizzly).acquireNumber(any());
+    }
+
+    @Test void expiredPermitDuringRetryStopsBeforeNextRequest() {
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE); task.setProviderId("202");
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        when(grizzly.acquireNumber(any())).thenThrow(new GrizzlySmsException(GrizzlySmsFailure.NO_NUMBERS, false));
+        worker.tick(); task.setPurchaseBefore(1L); item.setNextPurchaseAt(null); worker.tick();
+        assertThat(item.getFailureCode()).isEqualTo("DEVICE_PERMIT_EXPIRED");
+        verify(grizzly).acquireNumber(any());
+    }
+
+    @Test void pinnedMerchantStillRejectsUnexpectedActualPrice() {
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE); task.setProviderId("222");
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        when(grizzly.acquireNumber(any())).thenReturn(activation("0.88"));
+        worker.tick();
+        assertThat(item.getState()).isEqualTo(11); assertThat(item.getFailureCode()).isEqualTo("PURCHASE_PRICE_MISMATCH");
+        verify(store).cancel(4L);
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+    @Test void explicitMerchantProducesExactHttpQueryAndNoFallbackPurchase() {
+        var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://api.grizzlysms.com");
+        var http = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
+        var properties = new com.armada.platform.sms.grizzly.GrizzlySmsProperties();
+        properties.setEnabled(true); properties.setPurchasesEnabled(true); properties.setApiKey("test-only-key");
+        var client = new GrizzlySmsClient(builder.build(), new com.fasterxml.jackson.databind.ObjectMapper(), properties);
+        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getNumberV2"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("country", "187"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("service", "wa"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("providerIds", "222"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("maxPrice", "0.88"))
+                .andExpect(request -> assertThat(request.getURI().getQuery()).doesNotContain("minPrice", "exceptProviderIds"))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                        "NO_NUMBERS", org.springframework.http.MediaType.TEXT_PLAIN));
+        task.setExecutionMode(2); task.setPurchaseBefore(Long.MAX_VALUE); task.setProviderId("222");
+        task.setCountryId("187"); task.setUnitPrice(new BigDecimal("0.88"));
+        when(service.deviceOrderingDisabledReason()).thenReturn("");
+        var pinned = new AccountRegistrationWorker(mapper, lease, service, store, client, cobalt, importer, imports, accounts);
+        pinned.tick(); pinned.tick(); http.verify();
+        assertThat(item.getState()).isEqualTo(1); assertThat(item.getFailureCode()).isEqualTo("SMS_NO_NUMBERS_RETRY");
+        org.mockito.Mockito.verifyNoInteractions(cobalt, importer, imports, accounts);
+    }
+
     @Test void purchasePersistsIntentBeforeHttpUsesExactPriceAndRestoresTenant() {
         TenantContext.set(99L);
         when(grizzly.acquireNumber(any())).thenAnswer(invocation -> {
@@ -82,8 +222,8 @@ class AccountRegistrationWorkerTest {
             assertThat(savedStates).containsExactly(2);
             var request = (com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest) invocation.getArgument(0);
             assertThat(request.maxPrice()).isEqualByComparingTo("1.35");
-            assertThat(request.options().minPrice()).isNull();
-            assertThat(request.options().providerIds()).containsExactly("20");
+            assertThat(request.options().minPrice()).isEqualByComparingTo("1.35");
+            assertThat(request.options().providerIds()).isEmpty();
             return activation("1.35");
         });
         worker.tick();
@@ -115,13 +255,13 @@ class AccountRegistrationWorkerTest {
         verify(store).cancel(4L);
     }
 
-    @Test void selectedTierExcludesProvidersAlsoOfferingCheaperNumbers() {
+    @Test void automaticSelectionLeavesMerchantChoiceToSupplier() {
         when(grizzly.getPriceTiers("wa", "12")).thenReturn(List.of(
                 tier("0.15", "10"), tier("1.35", "10", "20")));
         when(grizzly.acquireNumber(any())).thenAnswer(invocation -> {
             var request = (com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest) invocation.getArgument(0);
-            assertThat(request.options().minPrice()).isNull();
-            assertThat(request.options().providerIds()).containsExactly("20");
+            assertThat(request.options().minPrice()).isEqualByComparingTo("1.35");
+            assertThat(request.options().providerIds()).isEmpty();
             assertThat(request.maxPrice()).isEqualByComparingTo("1.35");
             return activation("1.35");
         });
@@ -129,13 +269,12 @@ class AccountRegistrationWorkerTest {
         assertThat(item.getState()).isEqualTo(3);
     }
 
-    @Test void ambiguousTierStopsBeforeAnyPaidRequestInsteadOfFallingBackToCheapest() {
-        when(grizzly.getPriceTiers("wa", "12")).thenReturn(List.of(tier("0.15", "10"), tier("1.35", "10")));
+    @Test void automaticSelectionDoesNotDependOnMerchantCatalogDuringPurchase() {
+        when(grizzly.getPriceTiers("wa", "12")).thenThrow(new IllegalStateException("catalog unavailable"));
+        when(grizzly.acquireNumber(any())).thenReturn(activation("1.35"));
         worker.tick();
-        assertThat(item.getState()).isEqualTo(8);
-        assertThat(item.getFailureCode()).isEqualTo("PURCHASE_TIER_UNAVAILABLE");
-        verify(grizzly, never()).acquireNumber(any());
-        verify(store).cancel(4L);
+        assertThat(item.getState()).isEqualTo(3);
+        verify(grizzly, never()).getPriceTiers(anyString(), anyString());
     }
 
     @Test void cheaperUnexpectedAllocationIsCancelledWithoutStartingRegistration() {
@@ -218,25 +357,18 @@ class AccountRegistrationWorkerTest {
         verify(grizzly, never()).setStatus(anyString(), any());
     }
 
-    @Test void recordedSupplierQuoteBuildsAProviderBoundPurchaseWithoutMinimumPrice() {
+    @Test void automaticPurchaseSendsExactBoundsWithoutAnyMerchantFilters() {
         var builder = org.springframework.web.client.RestClient.builder().baseUrl("https://api.grizzlysms.com");
         var http = org.springframework.test.web.client.MockRestServiceServer.bindTo(builder).build();
         var properties = new com.armada.platform.sms.grizzly.GrizzlySmsProperties();
         properties.setEnabled(true); properties.setPurchasesEnabled(true); properties.setApiKey("test-only-key");
         var client = new GrizzlySmsClient(builder.build(), new com.fasterxml.jackson.databind.ObjectMapper(), properties);
-        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getPricesV2"))
-                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
-                        "{\"12\":{\"wa\":{\"0.1500\":125310}}}", org.springframework.http.MediaType.APPLICATION_JSON));
-        http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getPricesV3"))
-                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
-                        "{\"12\":{\"wa\":{\"price\":0.15,\"count\":125310,\"providers\":{\"362\":{\"count\":125310,\"price\":[0.15],\"provider_id\":362}}}}}",
-                        org.springframework.http.MediaType.APPLICATION_JSON));
         http.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("action", "getNumberV2"))
                 .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("country", "12"))
                 .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("service", "wa"))
-                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("providerIds", "362"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("minPrice", "0.150000000000"))
                 .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam("maxPrice", "0.150000000000"))
-                .andExpect(request -> assertThat(request.getURI().getQuery()).doesNotContain("minPrice"))
+                .andExpect(request -> assertThat(request.getURI().getQuery()).doesNotContain("providerIds", "exceptProviderIds"))
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
                         "{\"activationId\":\"9001\",\"phoneNumber\":\"12025550123\",\"activationCost\":0.15,\"currency\":643}",
                         org.springframework.http.MediaType.APPLICATION_JSON));

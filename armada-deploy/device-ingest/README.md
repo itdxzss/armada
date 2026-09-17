@@ -2,6 +2,8 @@
 
 本目录提供独立 TLS 网关，公网业务精确路径为 `POST /api/device-imports`、`POST /api/device-imports/logout-confirmed`，均使用 `X-Ingest-Token`。上传 `{groupName,phone,payload}` 返回 `200 {"batchId":123,"onlinePhase":"WAITING_LOGOUT"}`；手机核验官方退出后提交 `{batchId}`，返回 `200 {"batchId":123,"onlinePhase":"QUEUED"}` 才放行既有调度。错误为真实 4xx/5xx JSON message；两个路径各自支持 OPTIONS，无 CORS。设备入口不提供分组列表。
 
+2026-09-16 增加个人版原生注册的 `POST /api/device-registrations/{status,start,result,options}`，使用独立 `X-Registration-Token` 与 `X-Device-ID`，只允许 POST、2 KiB 请求体，不接受导入令牌或管理身份。这四个路径保留后端响应格式，沿用 HTTPS/no-store；其他路径仍不代理。注册许可和开关见 [原生注册说明](../../docs/business/ios-native-registration-20260916.md)。
+
 **历史部署：test1 曾部署 e603a129 交接门。当前源码已改为手输分组并移除列表入口，本次发布状态见 [手输分组记录](../../.harness/changes/2026-09-09-device-import-group-name.md)。**
 
 ## 1. 上线前输入

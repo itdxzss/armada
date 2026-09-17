@@ -14,6 +14,8 @@ import org.apache.ibatis.annotations.Param;
 public interface AccountRegistrationMapper {
     /** 按幂等键查询当前租户任务。 */
     AccountRegistrationTask findByRequestId(String requestId);
+    /** 查询本设备最近的任务，首次转为控端许可时保留旧任务关联。 */
+    AccountRegistrationTask latestDeviceTask(String deviceId);
     /** 查询当前租户任务。 */
     AccountRegistrationTask findTask(Long id);
     /** 保存任务定义并回填主键。 */

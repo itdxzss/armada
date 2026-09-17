@@ -5,6 +5,7 @@ import com.armada.account.model.dto.AccountImportDetailQuery;
 import com.armada.account.model.entity.AccountRegistrationItem;
 import com.armada.account.model.entity.AccountRegistrationTask;
 import com.armada.account.model.enums.AccountRegistrationState;
+import com.armada.account.model.enums.RegistrationExecutionMode;
 import com.armada.account.service.AccountImportService;
 import com.armada.account.service.AccountService;
 import com.armada.platform.registration.cobalt.CobaltRegistrationClient;
@@ -14,6 +15,7 @@ import com.armada.platform.registration.cobalt.model.CobaltRegistrationSnapshot;
 import com.armada.platform.registration.cobalt.model.CobaltRegistrationState;
 import com.armada.platform.sms.grizzly.GrizzlySmsClient;
 import com.armada.platform.sms.grizzly.exception.GrizzlySmsException;
+import com.armada.platform.sms.grizzly.exception.GrizzlySmsFailure;
 import com.armada.platform.sms.grizzly.model.GrizzlyActivation;
 import com.armada.platform.sms.grizzly.model.GrizzlyNumberRequest;
 import com.armada.platform.sms.grizzly.model.GrizzlySmsStatus;
@@ -27,7 +29,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,6 +38,10 @@ import org.springframework.stereotype.Service;
 public class AccountRegistrationWorker {
     /** 不记录原始异常、验证码、密钥或完整号码。 */
     private static final Logger LOG = LoggerFactory.getLogger(AccountRegistrationWorker.class);
+    /** 每个号码最多请求 50 次，只有明确无号码才再次请求。 */
+    public static final int MAX_PURCHASE_ATTEMPTS = 50;
+    /** 从无号码响应保存后等待五秒，不占用执行线程。 */
+    private static final long PURCHASE_RETRY_INTERVAL = Duration.ofSeconds(5).toMillis();
     /** 接码/注册等待上限；到期保留已购订单供核对，不补买。 */
     private static final long REGISTRATION_TIMEOUT = Duration.ofMinutes(25).toMillis();
     /** 导入后等待协议首次结果的上限。 */
@@ -119,6 +124,10 @@ public class AccountRegistrationWorker {
     }
 
     private void dispatch(AccountRegistrationTask task, AccountRegistrationItem item) {
+        if (Objects.equals(task.getExecutionMode(), RegistrationExecutionMode.IOS_DEVICE.code())
+                && (item.getState() == AccountRegistrationState.IMPORTING.code() || item.getState() == AccountRegistrationState.WAITING_ONLINE.code())) {
+            finish(item, AccountRegistrationState.UNKNOWN, "DEVICE_STATE_INVALID"); return;
+        }
         switch (AccountRegistrationState.fromCode(item.getState())) {
             case PENDING -> purchase(task, item);
             case PURCHASING -> { finish(item, AccountRegistrationState.UNKNOWN, "PURCHASE_RESULT_UNKNOWN"); store.cancel(task.getId()); }
@@ -132,18 +141,27 @@ public class AccountRegistrationWorker {
 
     private void purchase(AccountRegistrationTask task, AccountRegistrationItem item) {
         if (Boolean.TRUE.equals(task.getCancelRequested())) { finish(item, AccountRegistrationState.CANCELLED, ""); return; }
-        if (!service.orderingDisabledReason().isEmpty()) { return; }
+        if (item.getNextPurchaseAt() != null && System.currentTimeMillis() < item.getNextPurchaseAt()) { return; }
+        if (item.getPurchaseAttempts() >= MAX_PURCHASE_ATTEMPTS) {
+            finish(item, AccountRegistrationState.FAILED, "SMS_NO_NUMBERS_EXHAUSTED"); return;
+        }
+        boolean device = Objects.equals(task.getExecutionMode(), RegistrationExecutionMode.IOS_DEVICE.code());
+        if (device && (task.getPurchaseBefore() == null || System.currentTimeMillis() >= task.getPurchaseBefore())) {
+            finish(item, AccountRegistrationState.FAILED, "DEVICE_PERMIT_EXPIRED"); return;
+        }
+        if (!(device ? service.deviceOrderingDisabledReason() : service.orderingDisabledReason()).isEmpty()) { return; }
         try {
             var request = selectedPriceRequest(task);
-            if (request.isEmpty()) {
-                finish(item, AccountRegistrationState.FAILED, "PURCHASE_TIER_UNAVAILABLE");
-                store.cancel(task.getId());
-                return;
+            if (device && System.currentTimeMillis() >= task.getPurchaseBefore()) {
+                finish(item, AccountRegistrationState.FAILED, "DEVICE_PERMIT_EXPIRED"); return;
             }
             item.setState(AccountRegistrationState.PURCHASING.code());
             item.setStartedAt(System.currentTimeMillis());
+            item.setPurchaseAttempts(item.getPurchaseAttempts() + 1);
+            item.setNextPurchaseAt(null);
+            item.setFailureCode("");
             save(item);
-            var activation = grizzly.acquireNumber(request.orElseThrow());
+            var activation = grizzly.acquireNumber(request);
             item.setActivationId(activation.activationId());
             item.setPhoneNumber(activation.phoneNumber());
             item.setActualCost(activation.cost());
@@ -154,28 +172,29 @@ public class AccountRegistrationWorker {
                 store.cancel(task.getId());
                 return;
             }
-            item.setRegistrationId("reg_" + item.getTenantId() + "_" + item.getId());
+            if (!device) { item.setRegistrationId("reg_" + item.getTenantId() + "_" + item.getId()); }
             finish(item, AccountRegistrationState.WAITING_CODE, "");
         } catch (GrizzlySmsException exception) {
+            if (!exception.isOutcomeUnknown() && exception.getReason() == GrizzlySmsFailure.NO_NUMBERS
+                    && item.getState() == AccountRegistrationState.PURCHASING.code()) {
+                if (item.getPurchaseAttempts() < MAX_PURCHASE_ATTEMPTS) {
+                    item.setNextPurchaseAt(System.currentTimeMillis() + PURCHASE_RETRY_INTERVAL);
+                    finish(item, AccountRegistrationState.PENDING, "SMS_NO_NUMBERS_RETRY");
+                } else { finish(item, AccountRegistrationState.FAILED, "SMS_NO_NUMBERS_EXHAUSTED"); }
+                return;
+            }
             finish(item, exception.isOutcomeUnknown() ? AccountRegistrationState.UNKNOWN : AccountRegistrationState.FAILED,
                     "SMS_" + exception.getReason().name());
             if (exception.isOutcomeUnknown()) { store.cancel(task.getId()); }
         }
     }
 
-    private Optional<GrizzlyNumberRequest> selectedPriceRequest(AccountRegistrationTask task) {
-        var tiers = grizzly.getPriceTiers(task.getServiceCode(), task.getCountryId());
-        var selected = tiers.stream().filter(tier -> tier.cost().compareTo(task.getUnitPrice()) == 0
-                && tier.count() > 0).findFirst();
-        if (selected.isEmpty()) { return Optional.empty(); }
-        var cheaperProviders = tiers.stream().filter(tier -> tier.cost().compareTo(task.getUnitPrice()) < 0)
-                .flatMap(tier -> tier.providerIds().stream()).toList();
-        var providers = selected.orElseThrow().providerIds().stream()
-                .filter(id -> !cheaperProviders.contains(id)).toList();
-        if (providers.isEmpty()) { return Optional.empty(); }
-        // 同价上下限在真实 Grizzly 请求中无法取号；仅选无更低报价的供应商，并在成交后再次核价。
-        return Optional.of(new GrizzlyNumberRequest(task.getServiceCode(), task.getCountryId(), task.getUnitPrice(),
-                new GrizzlyNumberRequest.Options(null, providers, List.of(), List.of())));
+    private GrizzlyNumberRequest selectedPriceRequest(AccountRegistrationTask task) {
+        // 自动模式只限定价格，由平台选商家；手动指定时保留该商家约束，不做隐式回退。
+        var providers = task.getProviderId() == null ? List.<String>of() : List.of(task.getProviderId());
+        var minimum = task.getProviderId() == null ? task.getUnitPrice() : null;
+        return new GrizzlyNumberRequest(task.getServiceCode(), task.getCountryId(), task.getUnitPrice(),
+                new GrizzlyNumberRequest.Options(minimum, providers, List.of(), List.of()));
     }
 
     private long cancellationTime(GrizzlyActivation activation, long receivedAt) {
@@ -218,6 +237,7 @@ public class AccountRegistrationWorker {
         if (System.currentTimeMillis() - item.getStartedAt() > REGISTRATION_TIMEOUT) {
             finish(item, AccountRegistrationState.UNKNOWN, "REGISTRATION_TIMEOUT"); return;
         }
+        if (Objects.equals(task.getExecutionMode(), RegistrationExecutionMode.IOS_DEVICE.code())) { return; }
         try {
             CobaltRegistrationSnapshot snapshot;
             try { snapshot = cobalt.status(item.getRegistrationId()); }

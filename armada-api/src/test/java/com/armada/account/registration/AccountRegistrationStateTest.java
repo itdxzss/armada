@@ -15,4 +15,14 @@ class AccountRegistrationStateTest {
         assertThat(AccountRegistrationState.SUCCEEDED.isTerminal()).isTrue();
         assertThat(AccountRegistrationState.fromCode(2)).isEqualTo(AccountRegistrationState.PURCHASING);
     }
+
+    @Test
+    void onlyConfirmedStoppedFailuresCanStartAReplacement() {
+        assertThat(AccountRegistrationState.FAILED.canStartReplacement("SMS_CANCELLED")).isTrue();
+        assertThat(AccountRegistrationState.CANCELLED.canStartReplacement("")).isTrue();
+        assertThat(AccountRegistrationState.UNKNOWN.canStartReplacement("REGISTRATION_TIMEOUT")).isTrue();
+        assertThat(AccountRegistrationState.UNKNOWN.canStartReplacement("PURCHASE_RESULT_UNKNOWN")).isFalse();
+        assertThat(AccountRegistrationState.DEVICE_REGISTERED.canStartReplacement("")).isFalse();
+        assertThat(AccountRegistrationState.WAITING_CODE.canStartReplacement("")).isFalse();
+    }
 }

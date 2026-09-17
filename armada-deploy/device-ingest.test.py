@@ -55,6 +55,7 @@ server {
     }
     location = /read-test-body { internal; return 204; }
     location = /api/device-imports/logout-confirmed { proxy_pass http://127.0.0.1:8081; }
+    location ~ ^/api/device-registrations/(status|start|result|options|begin)$ { proxy_pass http://127.0.0.1:8081; }
     location / { return 500; }
 }
 server {
@@ -79,6 +80,14 @@ server {
         if ($http_x_ingest_token != "MARKER") { return 401 '{"message":"token rejected"}'; }
         if ($http_x_test_body != 'EXPECTED_UPLOAD') { return 422 '{"message":"upload body was changed"}'; }
         return 200 '{"batchId":123,"onlinePhase":"WAITING_LOGOUT"}';
+    }
+    location ~ ^/api/device-registrations/(status|start|result|options|begin)$ {
+        if ($http_authorization != "") { return 400; }
+        if ($http_cookie != "") { return 400; }
+        if ($http_x_tenant_code != "") { return 400; }
+        if ($http_x_registration_token != "MARKER") { return 401; }
+        if ($http_x_device_id != "test-device") { return 401; }
+        return 200 '{"code":0,"message":"ok","data":{"state":"NOT_STARTED"}}';
     }
     location / { return 500; }
 }
@@ -126,6 +135,28 @@ server {
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body), {"batchId": 123, "onlinePhase": "WAITING_LOGOUT"})
         self.assertIn("no-store", headers.get("Cache-Control", ""))
+
+    def test_registration_routes_require_separate_device_headers(self):
+        headers = {"X-Registration-Token": self.marker, "X-Device-ID": "test-device",
+                   "Authorization": self.marker, "Cookie": self.marker, "X-Tenant-Code": self.marker}
+        for operation in ["status", "start", "result", "options", "begin"]:
+            path = "/api/device-registrations/" + operation
+            status, response_headers, body = self.request("POST", path, b"{}", headers)
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["data"]["state"], "NOT_STARTED")
+            self.assertIn("no-store", response_headers.get("Cache-Control", ""))
+            self.assertEqual(self.request("POST", path, b"{}")[0], 401)
+            self.assertEqual(self.request("POST", path, b"{}", headers | {"X-Device-ID": "wrong"})[0], 401)
+        self.assertEqual(self.request("POST", path, b"x" * 2049, headers)[0], 413)
+        self.assertEqual(self.request("POST", path + "?token=x", b"{}", headers)[0], 400)
+        for method in ["GET", "PUT", "DELETE", "OPTIONS"]:
+            status, response_headers, _ = self.request(method, path, b"", headers)
+            self.assertEqual(status, 405)
+            self.assertEqual(response_headers.get("Allow"), "POST")
+        for path in ["/api/device-registrations/status/", "/api/device-registrations/list",
+                     "/api//device-registrations/status", "/api/device-registrations/%73tatus",
+                     "/api/a/../device-registrations/status"]:
+            self.assertEqual(self.request("POST", path, b"{}", headers)[0], 404)
 
     def test_logout_confirmation_is_an_exact_authenticated_post(self):
         path = "/api/device-imports/logout-confirmed"
@@ -279,6 +310,10 @@ class DeviceIngestComposeTest(unittest.TestCase):
                 "ARMADA_DEVICE_INGEST_CLIENTS_JSON"), "[]")
             self.assertEqual(base_model["services"]["backend"]["environment"].get(
                 "MYBATIS_PLUS_CONFIGURATION_LOG_IMPL"), "org.apache.ibatis.logging.nologging.NoLoggingImpl")
+            self.assertEqual(base_model["services"]["backend"]["environment"].get(
+                "ARMADA_DEVICE_REGISTRATION_CLIENTS_JSON"), "test-only")
+            self.assertEqual(base_model["services"]["backend"]["environment"].get(
+                "ARMADA_ACCOUNT_REGISTRATION_DEVICE_ENABLED"), "test-only")
             del env["ARMADA_DEVICE_INGEST_CLIENTS_JSON"]
             result = subprocess.run(arguments, env=env, capture_output=True)
             self.assertNotEqual(result.returncode, 0)

@@ -7,12 +7,16 @@
   <select id="findTask" resultType="com.armada.account.model.entity.AccountRegistrationTask">
     SELECT * FROM account_registration_task WHERE id = #{id}
   </select>
+  <select id="latestDeviceTask" resultType="com.armada.account.model.entity.AccountRegistrationTask">
+    SELECT * FROM account_registration_task WHERE execution_mode=2 AND device_id=#{deviceId}
+    ORDER BY id DESC LIMIT 1
+  </select>
   <insert id="insertTask" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_registration_task
       (request_id, service_code, country_id, unit_price, quantity, account_group_id, account_type,
-       ip_allocation_mode, ip_region, cancel_requested, created_at, updated_at)
+       ip_allocation_mode, ip_region, cancel_requested, created_at, updated_at, execution_mode, device_id, purchase_before, provider_id)
     VALUES (#{requestId}, #{serviceCode}, #{countryId}, #{unitPrice}, #{quantity}, #{accountGroupId}, #{accountType},
-       #{ipAllocationMode}, #{ipRegion}, #{cancelRequested}, #{createdAt}, #{updatedAt})
+       #{ipAllocationMode}, #{ipRegion}, #{cancelRequested}, #{createdAt}, #{updatedAt}, #{executionMode}, #{deviceId}, #{purchaseBefore}, #{providerId})
   </insert>
   <insert id="insertItems">
     INSERT INTO account_registration_item (task_id, ordinal, state, created_at, updated_at) VALUES
@@ -20,9 +24,9 @@
       (#{item.taskId}, #{item.ordinal}, #{item.state}, #{item.createdAt}, #{item.updatedAt})
     </foreach>
   </insert>
-  <select id="countTasks" resultType="long">SELECT COUNT(*) FROM account_registration_task</select>
+  <select id="countTasks" resultType="long">SELECT COUNT(*) FROM account_registration_task WHERE execution_mode=1</select>
   <select id="listTasks" resultType="com.armada.account.model.entity.AccountRegistrationTask">
-    SELECT * FROM account_registration_task ORDER BY created_at DESC, id DESC LIMIT #{pageSize} OFFSET #{offset}
+    SELECT * FROM account_registration_task WHERE execution_mode=1 ORDER BY created_at DESC, id DESC LIMIT #{pageSize} OFFSET #{offset}
   </select>
   <resultMap id="countsMap" type="com.armada.account.model.vo.AccountRegistrationCountsVO">
     <constructor>
@@ -60,7 +64,9 @@
     SELECT i.id,i.tenant_id FROM account_registration_item i
     INNER JOIN account_registration_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
     WHERE (i.state BETWEEN 1 AND 6 OR (i.state=11 AND (i.cancel_after IS NULL OR i.cancel_after &lt;= #{now})))
-      AND (i.state &lt;&gt; 1 OR (t.cancel_requested=0 AND NOT EXISTS (
+      AND (i.state &lt;&gt; 1 OR i.next_purchase_at IS NULL OR i.next_purchase_at &lt;= #{now})
+      AND (t.execution_mode=1 OR i.state IN (1,2,11) OR i.started_at + 1500000 &lt; #{now})
+      AND (i.state &lt;&gt; 1 OR (NOT EXISTS (
         SELECT 1 FROM account_registration_item cancelling
         WHERE cancelling.tenant_id=i.tenant_id AND cancelling.task_id=i.task_id AND cancelling.state=11
       )))
@@ -73,7 +79,9 @@
   <update id="updateClaimed">
     UPDATE account_registration_item SET state=#{state},activation_id=#{activationId},phone_number=#{phoneNumber},
       actual_cost=#{actualCost},currency=#{currency},registration_id=#{registrationId},import_batch_id=#{importBatchId},
-      account_id=#{accountId},failure_code=#{failureCode},started_at=#{startedAt},cancel_after=#{cancelAfter},updated_at=#{updatedAt}
+      purchase_attempts=#{purchaseAttempts},next_purchase_at=#{nextPurchaseAt},
+      account_id=#{accountId},failure_code=#{failureCode},failure_kind=#{failureKind},failure_detail=#{failureDetail},
+      started_at=#{startedAt},cancel_after=#{cancelAfter},updated_at=#{updatedAt}
     WHERE id=#{id} AND lease_token=#{leaseToken} AND lease_until &gt;= #{updatedAt}
   </update>
   <update id="release">

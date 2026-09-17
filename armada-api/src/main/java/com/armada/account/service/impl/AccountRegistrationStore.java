@@ -2,6 +2,8 @@ package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountRegistrationMapper;
 import com.armada.account.model.dto.AccountRegistrationCreateDTO;
+import com.armada.account.model.dto.DeviceRegistrationPermit;
+import com.armada.account.model.enums.RegistrationExecutionMode;
 import com.armada.account.model.entity.AccountRegistrationItem;
 import com.armada.account.model.entity.AccountRegistrationTask;
 import com.armada.account.model.enums.AccountRegistrationState;
@@ -37,6 +39,7 @@ public class AccountRegistrationStore {
         task.setServiceCode(serviceCode);
         task.setCountryId(request.countryId());
         task.setUnitPrice(request.unitPrice());
+        task.setProviderId(request.providerId());
         task.setQuantity(request.quantity());
         task.setAccountGroupId(request.accountGroupId());
         task.setAccountType(request.accountType());
@@ -69,7 +72,9 @@ public class AccountRegistrationStore {
     }
     /** 幂等键不能被复用为另一张采购订单。 */
     public static void requireSame(AccountRegistrationTask task, AccountRegistrationCreateDTO request) {
-        boolean same = Objects.equals(task.getCountryId(), request.countryId())
+        boolean same = Objects.equals(task.getExecutionMode(), RegistrationExecutionMode.COBALT.code())
+                && Objects.equals(task.getCountryId(), request.countryId())
+                && Objects.equals(task.getProviderId(), request.providerId())
                 && task.getUnitPrice().compareTo(request.unitPrice()) == 0
                 && Objects.equals(task.getQuantity(), request.quantity())
                 && Objects.equals(task.getAccountGroupId(), request.accountGroupId())
@@ -77,5 +82,23 @@ public class AccountRegistrationStore {
                 && Objects.equals(task.getIpAllocationMode(), request.ipAllocationMode())
                 && Objects.equals(task.getIpRegion(), request.ipRegion());
         if (!same) { throw new BusinessException(ErrorCode.CONFLICT, "创建请求ID已经用于不同参数"); }
+    }
+
+    /** 手机许可固定创建一个明细；唯一请求键使断线重试不增加采购次数。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void createDevice(DeviceRegistrationPermit permit, String serviceCode) {
+        AccountRegistrationTask task = new AccountRegistrationTask();
+        task.setRequestId(permit.requestId()); task.setServiceCode(serviceCode);
+        task.setCountryId(permit.countryId()); task.setUnitPrice(permit.unitPrice());
+        task.setQuantity(1); task.setAccountType(1); task.setCancelRequested(false);
+        task.setExecutionMode(RegistrationExecutionMode.IOS_DEVICE.code());
+        task.setDeviceId(permit.deviceId()); task.setPurchaseBefore(permit.expiresAt());
+        task.setProviderId(permit.providerId());
+        long now = System.currentTimeMillis(); task.setCreatedAt(now); task.setUpdatedAt(now);
+        mapper.insertTask(task);
+        AccountRegistrationItem item = new AccountRegistrationItem();
+        item.setTaskId(task.getId()); item.setOrdinal(1); item.setState(AccountRegistrationState.PENDING.code());
+        item.setCreatedAt(now); item.setUpdatedAt(now);
+        mapper.insertItems(List.of(item));
     }
 }

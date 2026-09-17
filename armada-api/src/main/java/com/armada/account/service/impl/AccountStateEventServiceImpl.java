@@ -150,10 +150,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
 
         // occurredAt 是状态收敛的业务时间。协议未上报时退回本机时间,保证仍可更新 last_state_sync_time。
         long occurredAt = event.occurredAt() == null ? System.currentTimeMillis() : event.occurredAt();
-        // 时间水位检查和后续状态更新必须持有同一行锁；否则两个 Kafka Topic 并发时，
-        // 旧事件可能在检查通过后晚于新 ONLINE 提交并把账号反向覆盖为离线。
-        AccountState currentState = stateMapper.selectByTenantAndAccountIdForUpdate(
-                event.tenantId(), account.getId());
+        // 普通读取已提交的状态做时间水位检查，不在读取阶段申请排他行锁。
+        AccountState currentState = stateMapper.selectByAccountId(account.getId());
 
         // 延迟到达的旧离线/解绑事件不能覆盖更新的在线或抢登状态。
         if (isStaleEvent(currentState, occurredAt)) {
@@ -163,8 +161,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                     occurredAt, currentState.getLastStateSyncTime());
             return false;
         }
-        // 普群失败结果是一次低置信度运行态探测。同一毫秒已有正式 ONLINE 时，ONLINE 优先，
-        // 避免派生 OFFLINE 因抢锁顺序覆盖真实上线事件。
+        // 普群失败结果是一次低置信度运行态探测；读取到同一毫秒的正式 ONLINE 时忽略派生 OFFLINE。
         if (isLowerPriorityNormalGroupOffline(currentState, event, occurredAt)) {
             log.warn("普群运行态离线结果跳过,同一时间水位已有在线状态 accountId={} protocolAccountId={} "
                             + "occurredAt={}",

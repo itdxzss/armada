@@ -33,27 +33,12 @@ public interface AccountStateMapper {
     /**
      * 按 account_id 查状态行。
      *
-     * <p>DbTest 验链路使用;生产代码通过 account LEFT JOIN account_state 联表查询。</p>
+     * <p>普通读取账号状态；租户范围由租户拦截器注入。</p>
      *
      * @param accountId 账号主键
      * @return 对应的账号状态行;不存在时返回 null
      */
     AccountState selectByAccountId(@Param("accountId") Long accountId);
-
-    /**
-     * 按 account_id 锁定状态行并返回当前时间水位。
-     *
-     * <p>账号状态事件必须在同一事务内先调用本方法再更新，防止旧事件完成 Java 水位检查后，
-     * 被并发的新事件提交并反向覆盖。调用方不得在事务外使用。</p>
-     *
-     * @param tenantId  租户 ID
-     * @param accountId 账号主键
-     * @return 已加排他锁的账号状态行；不存在时返回 null
-     */
-    @InterceptorIgnore(tenantLine = "true")
-    AccountState selectByTenantAndAccountIdForUpdate(
-            @Param("tenantId") Long tenantId,
-            @Param("accountId") Long accountId);
 
     /**
      * 批量读取账号状态行。

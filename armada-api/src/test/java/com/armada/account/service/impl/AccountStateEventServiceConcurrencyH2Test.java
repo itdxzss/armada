@@ -38,7 +38,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -61,7 +60,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/** 账号状态事件时间水位与行锁的 H2 并发回归测试。 */
+/** 账号状态事件普通读取、时间水位与事务写入的 H2 回归测试。 */
 @SpringJUnitConfig(AccountStateEventServiceConcurrencyH2Test.TestConfig.class)
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
@@ -203,105 +202,51 @@ class AccountStateEventServiceConcurrencyH2Test {
     }
 
     @Test
-    void newerOnlineCommitPreventsWaitingOlderOfflineFromOverwritingState() throws Exception {
-        CountDownLatch newerApplied = new CountDownLatch(1);
-        CountDownLatch releaseNewer = new CountDownLatch(1);
-        CountDownLatch olderAttempting = new CountDownLatch(1);
-        CountDownLatch olderFinished = new CountDownLatch(1);
-        AtomicReference<Boolean> olderResult = new AtomicReference<>();
+    void staleEventReadsCommittedStateWithoutWaitingForAnotherWriter() throws Exception {
+        assertThat(service.applyStateChanged(event("OFFLINE", "ONLINE", 3_000L))).isTrue();
+        reset(ipProxyService, sideEffect);
+        CountDownLatch writerApplied = new CountDownLatch(1);
+        CountDownLatch releaseWriter = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         TransactionTemplate transactions = new TransactionTemplate(transactionManager);
         try {
-            Future<?> newer = executor.submit(() -> transactions.executeWithoutResult(status -> {
-                assertThat(service.applyStateChanged(event("OFFLINE", "ONLINE", 3_000L)))
-                        .isTrue();
-                newerApplied.countDown();
-                await(releaseNewer);
+            Future<?> writer = executor.submit(() -> transactions.executeWithoutResult(status -> {
+                new JdbcTemplate(dataSource).update(
+                        "UPDATE account_state SET updated_at = 4000 WHERE tenant_id = 1 AND account_id = 100");
+                writerApplied.countDown();
+                await(releaseWriter);
             }));
-            if (!newerApplied.await(2, TimeUnit.SECONDS)) {
-                newer.get(2, TimeUnit.SECONDS);
-                throw new IllegalStateException("较新 ONLINE 事件未进入持锁阶段");
-            }
-
-            Future<?> older = executor.submit(() -> {
-                try {
-                    transactions.executeWithoutResult(status -> {
-                        olderAttempting.countDown();
-                        olderResult.set(service.applyStateChanged(
-                                event("ONLINE", "OFFLINE", 2_000L)));
-                    });
-                } finally {
-                    olderFinished.countDown();
-                }
-            });
-            assertThat(olderAttempting.await(2, TimeUnit.SECONDS)).isTrue();
-            assertThat(olderFinished.await(200, TimeUnit.MILLISECONDS)).isFalse();
-
-            releaseNewer.countDown();
-            newer.get(2, TimeUnit.SECONDS);
-            older.get(2, TimeUnit.SECONDS);
-
-            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-            assertThat(jdbc.queryForObject(
-                    "SELECT login_state FROM account_state WHERE account_id = 100",
-                    Integer.class)).isEqualTo(AccountLoginStateCode.ONLINE);
-            assertThat(jdbc.queryForObject(
-                    "SELECT last_state_sync_time FROM account_state WHERE account_id = 100",
-                    Long.class)).isEqualTo(3_000L);
-            assertThat(olderResult.get()).isFalse();
-            verifyNoInteractions(ipProxyService);
+            assertThat(writerApplied.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<Boolean> stale = executor.submit(() ->
+                    service.applyStateChanged(event("ONLINE", "OFFLINE", 2_000L)));
+            // 写事务尚未提交，普通查询应读取已提交水位并直接丢弃旧事件，而非等待行锁。
+            assertThat(stale.get(1, TimeUnit.SECONDS)).isFalse();
+            verifyNoInteractions(ipProxyService, sideEffect);
+            releaseWriter.countDown();
+            writer.get(2, TimeUnit.SECONDS);
+            assertOnlineAt(3_000L);
         } finally {
-            releaseNewer.countDown();
+            releaseWriter.countDown();
             executor.shutdownNow();
+            assertThat(executor.awaitTermination(3, TimeUnit.SECONDS)).isTrue();
         }
     }
 
     @Test
-    void sameTimestampOnlineFirstPreventsDerivedOfflineFromOverwritingState() throws Exception {
-        CountDownLatch onlineApplied = new CountDownLatch(1);
-        CountDownLatch releaseOnline = new CountDownLatch(1);
-        CountDownLatch offlineAttempting = new CountDownLatch(1);
-        CountDownLatch offlineFinished = new CountDownLatch(1);
-        AtomicReference<Boolean> offlineResult = new AtomicReference<>();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        TransactionTemplate transactions = new TransactionTemplate(transactionManager);
-        try {
-            Future<?> online = executor.submit(() -> transactions.executeWithoutResult(status -> {
-                assertThat(service.applyStateChanged(event("OFFLINE", "ONLINE", 3_000L)))
-                        .isTrue();
-                onlineApplied.countDown();
-                await(releaseOnline);
-            }));
-            if (!onlineApplied.await(2, TimeUnit.SECONDS)) {
-                online.get(2, TimeUnit.SECONDS);
-                throw new IllegalStateException("同水位 ONLINE 事件未进入持锁阶段");
-            }
+    void committedNewerOnlinePreventsLaterOlderOfflineFromOverwritingState() {
+        assertThat(service.applyStateChanged(event("OFFLINE", "ONLINE", 3_000L))).isTrue();
+        assertThat(service.applyStateChanged(event("ONLINE", "OFFLINE", 2_000L))).isFalse();
+        assertOnlineAt(3_000L);
+        verifyNoInteractions(ipProxyService);
+    }
 
-            Future<?> offline = executor.submit(() -> {
-                try {
-                    transactions.executeWithoutResult(status -> {
-                        offlineAttempting.countDown();
-                        offlineResult.set(service.applyStateChanged(normalGroupOfflineEvent(3_000L)));
-                    });
-                } finally {
-                    offlineFinished.countDown();
-                }
-            });
-            assertThat(offlineAttempting.await(2, TimeUnit.SECONDS)).isTrue();
-            assertThat(offlineFinished.await(200, TimeUnit.MILLISECONDS)).isFalse();
-
-            releaseOnline.countDown();
-            online.get(2, TimeUnit.SECONDS);
-            offline.get(2, TimeUnit.SECONDS);
-
-            assertOnlineAt(3_000L);
-            assertThat(offlineResult.get()).isFalse();
-            verifyNoInteractions(ipProxyService);
-            assertNoNormalGroupSideEffects();
-        } finally {
-            releaseOnline.countDown();
-            executor.shutdownNow();
-        }
+    @Test
+    void committedSameTimestampOnlinePreventsLaterDerivedOfflineFromOverwritingState() {
+        assertThat(service.applyStateChanged(event("OFFLINE", "ONLINE", 3_000L))).isTrue();
+        assertThat(service.applyStateChanged(normalGroupOfflineEvent(3_000L))).isFalse();
+        assertOnlineAt(3_000L);
+        verifyNoInteractions(ipProxyService);
+        assertNoNormalGroupSideEffects();
     }
 
     @Test

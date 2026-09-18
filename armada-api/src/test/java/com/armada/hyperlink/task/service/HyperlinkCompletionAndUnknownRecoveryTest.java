@@ -72,7 +72,7 @@ class HyperlinkCompletionAndUnknownRecoveryTest {
     }
 
     @Test
-    void expiredAndroidRetentionNeverCreatesOrReplaysAnotherCommand() {
+    void expiredAndroidRetentionStillQueriesOriginalCommandWithoutSending() {
         HyperlinkTaskRecipientMapper recipients = mock(HyperlinkTaskRecipientMapper.class);
         MessageCommandRecoveryPort recovery = mock(MessageCommandRecoveryPort.class);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
@@ -86,9 +86,9 @@ class HyperlinkCompletionAndUnknownRecoveryTest {
 
         service.recover(candidate);
 
-        verify(recovery, never()).replay(7L, "hl:7:11:13", NOW);
+        verify(recovery).replay(7L, "hl:7:11:13", NOW);
         verify(dispatchGuard).renew(17L, "hl:7:11:13");
         verify(recipients).scheduleReconciliation(
-                "hl:7:11:13", NOW + 24L * 60 * 60 * 1_000, NOW);
+                "hl:7:11:13", NOW + 30_000L, NOW);
     }
 }

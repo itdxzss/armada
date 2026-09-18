@@ -204,8 +204,7 @@ class HyperlinkProtocolUnknownResultTest {
         usage.setId(19L);
         when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
-        when(recipients.requeueAfterAccountRestriction(
-                eq(13L), eq("hl:7:11:13"), anyLong())).thenReturn(1);
+        when(recipients.requeueAfterSystemFailure(any())).thenReturn(1);
         when(usages.markOperationRestricted(
                 eq(19L), eq(6), any(), any(), anyLong())).thenReturn(1);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
@@ -224,9 +223,8 @@ class HyperlinkProtocolUnknownResultTest {
                 "FAILED", true));
 
         verify(restrictionService).restrictMessageSending(
-                eq(17L), eq("ACCOUNT_REACHOUT_RESTRICTED"), eq(2_000L), anyLong());
-        verify(recipients).requeueAfterAccountRestriction(
-                eq(13L), eq("hl:7:11:13"), anyLong());
+                eq(17L), eq("ACCOUNT_REACHOUT_RESTRICTED"), anyLong(), anyLong());
+        verify(recipients).requeueAfterSystemFailure(any());
         verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verify(usages).markOperationRestricted(eq(19L), eq(6),
                 eq("ACCOUNT_REACHOUT_RESTRICTED"), eq("reachout restricted"), anyLong());
@@ -237,7 +235,7 @@ class HyperlinkProtocolUnknownResultTest {
     }
 
     @Test
-    void terminalRateLimitIsRecordedAsThisAttemptFailureWithoutFreezingTheAccount() {
+    void terminalRateLimitRequeuesWithCooldownWithoutFreezingTheAccount() {
         HyperlinkTaskRecipientMapper recipients = mock(HyperlinkTaskRecipientMapper.class);
         HyperlinkTaskAccountUsageMapper usages = mock(HyperlinkTaskAccountUsageMapper.class);
         DataPackageRecipientClaimService data = mock(DataPackageRecipientClaimService.class);
@@ -246,7 +244,7 @@ class HyperlinkProtocolUnknownResultTest {
         usage.setId(19L);
         when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
-        when(recipients.applyResult(any(HyperlinkTaskRecipient.class))).thenReturn(1);
+        when(recipients.requeueAfterSystemFailure(any(HyperlinkTaskRecipient.class))).thenReturn(1);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
         AccountOperationRestrictionService restrictionService =
                 mock(AccountOperationRestrictionService.class);
@@ -262,11 +260,8 @@ class HyperlinkProtocolUnknownResultTest {
                 "8613800000000@s.whatsapp.net", "PRIVATE", 11L, 13L,
                 "FAILED", true));
 
-        verify(recipients).applyResult(argThat(value -> value.getSendStatus() == 6
-                && "RATE_LIMITED".equals(value.getFailCode())));
-        verify(usages).completeSlot(19L, false, 2_000L);
-        verify(recipients, never()).requeueAfterAccountRestriction(
-                anyLong(), anyString(), anyLong());
+        verify(recipients).requeueAfterSystemFailure(argThat(value -> "RATE_LIMITED".equals(value.getFailCode())));
+        verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verify(usages, never()).markOperationRestricted(
                 anyLong(), anyInt(), any(), any(), anyLong());
         verify(restrictionService, never()).restrictMessageSending(

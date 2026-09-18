@@ -24,14 +24,17 @@ public class HyperlinkRecipientCsvWriter {
     }
 
     public void writeRow(Writer writer, HyperlinkRecipientRow row) throws IOException {
+        HyperlinkRecipientStatus status = HyperlinkRecipientStatus.fromCode(row.getStatusCode());
         writeCells(writer,
                 excelPhone(row.getRecipientPhone()),
                 row.getRecipientCountryIso2(),
                 row.getSenderPhone() == null ? "未分配" : excelPhone(row.getSenderPhone()),
                 row.getSenderCountryIso2(),
-                statusText(HyperlinkRecipientStatus.fromCode(row.getStatusCode())),
-                row.getFailCode(),
-                row.getFailReason(),
+                "RESULT_PENDING".equals(status.businessCode(row.getFailCode())) ? "结果确认中"
+                        : "TARGET_UNAVAILABLE".equals(status.businessCode(row.getFailCode()))
+                        ? "目标无法发送" : statusText(status),
+                status.businessCode(row.getFailCode()),
+                status.businessMessage(row.getFailCode()),
                 formatTime(row.getStatusAt()));
     }
 
@@ -55,12 +58,12 @@ public class HyperlinkRecipientCsvWriter {
 
     private static String statusText(HyperlinkRecipientStatus status) {
         return switch (status) {
-            case PENDING -> "待发送";
-            case SENDING -> "发送中";
-            case SUCCESS -> "单钩";
-            case DELIVERED -> "双钩";
-            case READ -> "已读";
-            case FAILED, UNREGISTERED -> "失败";
+            case PENDING, SENDING -> "处理中";
+            case SUCCESS -> "发送成功";
+            case DELIVERED -> "发送成功（已送达）";
+            case READ -> "发送成功（已读）";
+            case FAILED -> "未完成";
+            case UNREGISTERED -> "目标无法发送";
         };
     }
 

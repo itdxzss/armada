@@ -242,7 +242,7 @@ class HyperlinkRuntimeConcurrencyMySqlTest {
                 mock(HyperlinkProvisionFactService.class), roundMapper,
                 mock(HyperlinkCleanupStartService.class), mock(HyperlinkTaskAuditPort.class),
                 mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
 
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {

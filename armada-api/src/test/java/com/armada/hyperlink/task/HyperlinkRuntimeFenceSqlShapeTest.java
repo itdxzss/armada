@@ -54,7 +54,7 @@ class HyperlinkRuntimeFenceSqlShapeTest {
                 "LIMIT #{limit}")
                 .doesNotContain("FOR UPDATE", "GROUP BY");
         assertThat(locked).contains(
-                "WHERE needs_metrics_projection=1 AND id IN",
+                "WHERE needs_metrics_projection=1 AND send_status&lt;&gt;1 AND id IN",
                 "collection=\"recipientIds\"",
                 "FOR UPDATE SKIP LOCKED");
         assertThat(rounds).contains(

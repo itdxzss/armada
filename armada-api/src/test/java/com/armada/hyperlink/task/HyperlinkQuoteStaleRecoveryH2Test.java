@@ -276,7 +276,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
         HyperlinkTaskActionService service = new HyperlinkTaskActionService(store,
                 quoteGuard, provisionFacts, roundMapper, cleanupStartService,
                 new RecordingAudit(), new HyperlinkShortLinkGuard(""),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
         assertThat(jdbc().update("UPDATE hyperlink_billing_reservation "
                 + "SET external_reservation_no='wallet-existing',reserved_amount=90 "
                 + "WHERE hyperlink_task_id=?", TASK_ID)).isEqualTo(1);
@@ -348,7 +348,7 @@ class HyperlinkQuoteStaleRecoveryH2Test {
         HyperlinkTaskActionService competingAction = new HyperlinkTaskActionService(barrierStore,
                 quoteGuard, provisionFacts, roundMapper, cleanupStartService,
                 new RecordingAudit(), new HyperlinkShortLinkGuard(""),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Boolean> first = executor.submit(() -> startOnce(competingAction, quoteToken));

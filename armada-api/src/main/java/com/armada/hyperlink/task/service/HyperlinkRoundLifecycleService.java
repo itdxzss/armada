@@ -111,6 +111,15 @@ public class HyperlinkRoundLifecycleService {
             }
             return;
         }
+        if (recipientMapper.hasRecoveryHold(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD)) {
+            if (runtimeMapper.transition(taskId, true, HyperlinkTaskRunStatus.RUNNING.code(),
+                    true, HyperlinkTaskRunStatus.PAUSED.code(), runtime.getProvisionStatus(), now) != 1) {
+                throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT);
+            }
+            roundMapper.pauseActive(taskId, now);
+            recipientMapper.releaseRecoveryHolds(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD, now);
+            return;
+        }
         if (round.getRoundStatus() == HyperlinkTaskRoundStatus.PLANNED.code()) {
             if (round.getScheduledAt() > now) {
                 return;

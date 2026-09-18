@@ -6,8 +6,8 @@ public interface MessageCommandRecoveryPort {
     /**
      * 把已投递或死信的原消息命令重新放回 outbox 扫描队列。
      *
-     * <p>协议执行端必须以 commandId 持久幂等；调用方只允许在对应幂等 tombstone
-     * 的保留窗口内调用。该动作不会插入新 outbox 行。</p>
+     * <p>Android 原行改为只读结果查询类型，缓存丢失也不能执行发送。
+     * Web 沿用原命令的协议幂等恢复。该动作不会插入新 outbox 行。</p>
      *
      * @param tenantId 命令所属租户
      * @param commandId 原稳定命令 ID

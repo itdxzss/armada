@@ -121,7 +121,7 @@ class HyperlinkShortLinkMutationGuardTest {
         HyperlinkTaskActionService service = new HyperlinkTaskActionService(store,
                 mock(HyperlinkTaskQuoteGuardService.class), provision, rounds,
                 mock(HyperlinkCleanupStartService.class), audit, new HyperlinkShortLinkGuard(""),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
 
         assertGuardUnavailable(() -> service.action(11L,
                 new HyperlinkTaskActionDTO(HyperlinkTaskAction.START, 3, "quote"), principal()));

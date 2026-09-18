@@ -91,7 +91,7 @@ class HyperlinkTaskCleanupFlowTest {
                 mock(HyperlinkTaskQuoteGuardService.class), mock(HyperlinkProvisionFactService.class),
                 mock(HyperlinkTaskRoundMapper.class), cleanup, audit,
                 mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
 
         HyperlinkTaskMutationReceiptVO result = service.action(11L,
                 new HyperlinkTaskActionDTO(HyperlinkTaskAction.STOP, 3, null), principal());
@@ -122,7 +122,7 @@ class HyperlinkTaskCleanupFlowTest {
         HyperlinkTaskActionService service = new HyperlinkTaskActionService(store, quote,
                 provision, rounds, mock(HyperlinkCleanupStartService.class),
                 audit, mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
 
         HyperlinkTaskMutationReceiptVO result = service.action(11L,
                 new HyperlinkTaskActionDTO(HyperlinkTaskAction.START, 3, "quote"), principal());
@@ -159,7 +159,7 @@ class HyperlinkTaskCleanupFlowTest {
         HyperlinkTaskActionService service = new HyperlinkTaskActionService(store, quote,
                 provision, rounds, mock(HyperlinkCleanupStartService.class), audit,
                 mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
 
         HyperlinkTaskMutationReceiptVO result = service.action(11L,
                 new HyperlinkTaskActionDTO(HyperlinkTaskAction.START, 3, "new-quote"), principal());
@@ -178,6 +178,7 @@ class HyperlinkTaskCleanupFlowTest {
             int nextStatus) {
         HyperlinkTaskStoreService store = mock(HyperlinkTaskStoreService.class);
         HyperlinkTaskAuditPort audit = mock(HyperlinkTaskAuditPort.class);
+        var recipients = mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class);
         HyperlinkTaskAction action = HyperlinkTaskAction.valueOf(actionName);
         when(store.requireTask(11L)).thenReturn(task(11L, 1));
         when(store.requireRuntime(11L)).thenReturn(runtime(true, currentStatus, 2));
@@ -188,10 +189,15 @@ class HyperlinkTaskCleanupFlowTest {
                 mock(HyperlinkTaskQuoteGuardService.class), mock(HyperlinkProvisionFactService.class),
                 mock(HyperlinkTaskRoundMapper.class), mock(HyperlinkCleanupStartService.class), audit,
                 mock(HyperlinkShortLinkGuard.class),
-                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class));
+                mock(com.armada.hyperlink.task.service.HyperlinkProtocolCapacityService.class), recipients);
 
         service.action(11L, new HyperlinkTaskActionDTO(action, 3, null), principal());
 
+        if (action == HyperlinkTaskAction.RESUME) {
+            verify(recipients).releaseRecoveryHolds(eq(11L), eq(Long.MAX_VALUE), anyLong());
+        } else {
+            verify(recipients, never()).releaseRecoveryHolds(anyLong(), anyLong(), anyLong());
+        }
         verify(audit).record(org.mockito.ArgumentMatchers.argThat(event ->
                 event.action().name().equals(actionName)
                         && event.eventId().equals("hyperlink-task:action:11:" + actionName

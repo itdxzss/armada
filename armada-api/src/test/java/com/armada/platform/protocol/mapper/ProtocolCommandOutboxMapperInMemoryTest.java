@@ -199,6 +199,23 @@ public class ProtocolCommandOutboxMapperInMemoryTest {
                 + " WHERE command_id = '" + commandId + "'");
     }
 
+    @Test
+    void androidReconciliationBecomesPersistentReadOnlyCommandAndRemainsTenantScoped() throws SQLException {
+        insertHyperlinkRow("hl-query", 100L);
+        execute("UPDATE protocol_command_outbox SET protocol_backend='ANDROID' WHERE command_id='hl-query'");
+        assertThat(mapper.replayMessageCommand(8L, "hl-query", "message.send.requested",
+                List.of(2), 0, 200L)).isZero();
+        assertThat(mapper.replayMessageCommand(7L, "hl-query", "message.send.requested",
+                List.of(2), 0, 200L)).isEqualTo(1);
+        assertThat(value("SELECT command_type FROM protocol_command_outbox WHERE command_id='hl-query'"))
+                .isEqualTo("message.send_result.query");
+        execute("UPDATE protocol_command_outbox SET status=2, last_error=NULL WHERE command_id='hl-query'");
+        assertThat(mapper.replayMessageCommand(7L, "hl-query", "message.send.requested",
+                List.of(2), 0, 300L)).isEqualTo(1);
+        assertThat(value("SELECT command_type FROM protocol_command_outbox WHERE command_id='hl-query'"))
+                .isEqualTo("message.send_result.query");
+    }
+
     private String value(String sql) throws SQLException {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement();

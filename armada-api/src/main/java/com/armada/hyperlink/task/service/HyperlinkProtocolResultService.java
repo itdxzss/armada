@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class HyperlinkProtocolResultService
         implements ProtocolMessageSendResultReportedSink, ProtocolMessageAckSink {
     private static final String SOURCE = "hyperlink_task";
+    private static final String LEGACY_UNKNOWN_RESULT_CODE = "SEND_RESULT_UNKNOWN";
     private static final Set<String> RECOVERABLE_RESTRICTION_CODES =
             Set.of("ACCOUNT_REACHOUT_RESTRICTED");
     private static final Set<String> BANNED_CODES = Set.of("ACCOUNT_BANNED");
@@ -73,7 +74,10 @@ public class HyperlinkProtocolResultService
             long now = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
             String outcome = event.outcome() == null ? null
                     : event.outcome().toUpperCase(Locale.ROOT);
-            if ("UNKNOWN".equals(outcome)) {
+            // Android 旧事件没有 outcome/terminal，仅通过失败码表达未知，沿用原命令对账。
+            if ("UNKNOWN".equals(outcome)
+                    || (outcome == null && !event.success()
+                    && LEGACY_UNKNOWN_RESULT_CODE.equals(event.reasonCode()))) {
                 reconcileIfStillSending(event, recipient, now);
                 return;
             }
@@ -82,8 +86,16 @@ public class HyperlinkProtocolResultService
                 return;
             }
             boolean successful = outcome == null ? event.success() : "SUCCESS".equals(outcome);
-            if (outcome != null && !successful && !"FAILED".equals(outcome)) {
+            if (outcome != null && !successful && !"FAILED".equals(outcome) && !"NOT_SENT".equals(outcome)) {
                 throw new BusinessException(ErrorCode.VALIDATION, "超链发送 outcome 非法");
+            }
+            if (!successful && !HyperlinkSendFailurePolicy.targetFailure(event.reasonCode())) {
+                if (HyperlinkSendFailurePolicy.definitelyNotSent(outcome, event.reasonCode())) {
+                    requeueSystemFailure(recipient, event.reasonCode(), event.reasonMessage(), now);
+                } else {
+                    reconcileIfStillSending(event, recipient, now);
+                }
+                return;
             }
             int status = successful ? HyperlinkRecipientStatus.SUCCESS.code()
                     : failureStatus(event.reasonCode()).code();
@@ -93,11 +105,6 @@ public class HyperlinkProtocolResultService
             recipient.setFailReason(safe(event.reasonMessage(), 255));
             recipient.setUpdatedAt(now);
             HyperlinkTaskAccountUsage usage = lockUsage(recipient);
-            if (!successful && isRecoverableRestriction(event.reasonCode())
-                    && requeueRestrictedRecipient(
-                    recipient, usage, event.reasonCode(), event.reasonMessage(), now)) {
-                return;
-            }
             int updated = recipientMapper.applyResult(recipient);
             if (updated == 1) {
                 if (usage != null) {
@@ -114,7 +121,7 @@ public class HyperlinkProtocolResultService
 
     private void reconcileIfStillSending(ProtocolMessageSendResultReportedEvent event,
             HyperlinkTaskRecipient observedRecipient, long now) {
-        lockUsage(observedRecipient);
+        HyperlinkTaskAccountUsage usage = lockUsage(observedRecipient);
         HyperlinkTaskRecipient recipient = recipientMapper.selectByIdentityForUpdate(
                 event.tenantId(), event.hyperlinkTaskId(), event.hyperlinkRecipientId(),
                 observedRecipient.getCommandId());
@@ -122,8 +129,44 @@ public class HyperlinkProtocolResultService
         if (recipient.getSendStatus() != HyperlinkRecipientStatus.SENDING.code()) {
             return;
         }
+        if (usage != null) {
+            invalidateUsageIfNeeded(usage, event.reasonCode(), event.reasonMessage(), now);
+        }
         renewGuard(recipient);
+        recipient.setProtocolMessageId(event.messageId());
+        recipient.setFailCode(LEGACY_UNKNOWN_RESULT_CODE);
+        recipient.setFailReason(safe(event.reasonMessage(), 255));
+        recipient.setUpdatedAt(now);
+        recipientMapper.rememberUnknownResult(recipient);
         recipientMapper.scheduleReconciliation(recipient.getCommandId(), now + 30_000L, now);
+    }
+
+    private void requeueSystemFailure(HyperlinkTaskRecipient recipient, String code, String reason, long occurredAt) {
+        HyperlinkTaskAccountUsage usage = lockUsage(recipient);
+        if (usage == null || recipient.getAccountId() == null) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT, "恢复发送缺少账号占用事实");
+        }
+        long now = System.currentTimeMillis();
+        recipient.setFailCode(safe(code, 64));
+        recipient.setFailReason(safe(reason, 255));
+        recipient.setUpdatedAt(now);
+        recipient.setNextDispatchAt(HyperlinkSendFailurePolicy.nextRetryAt(recipient.getDispatchAttempt(), code, now));
+        if (recipientMapper.requeueAfterSystemFailure(recipient) != 1) { return; }
+        usageMapper.completeSlot(usage.getId(), false, now);
+        if (isRecoverableRestriction(code)) {
+            operationRestrictionService.restrictMessageSending(recipient.getAccountId(), code, occurredAt, now);
+        }
+        if (code != null && (BANNED_CODES.contains(code) || INVALID_CODES.contains(code))) {
+            invalidateUsageIfNeeded(usage, code, reason, now);
+        } else if (HyperlinkSendFailurePolicy.unavailableAccount(code)) {
+            // 只退出当前任务；账号全局状态仍由原账号事件维护。
+            usageMapper.markOperationRestricted(usage.getId(),
+                    HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(), code, safe(reason, 255), now);
+        } else {
+            long previousNext = usage.getNextSendAt() == null ? 0L : usage.getNextSendAt();
+            usageMapper.scheduleNextSend(usage.getId(), Math.max(previousNext, now + 60_000L), now);
+        }
+        releaseGuardAfterCommit(recipient);
     }
 
     @Override
@@ -156,16 +199,16 @@ public class HyperlinkProtocolResultService
             requireIdentity(recipient, event.hyperlinkTaskId(), event.hyperlinkRecipientId());
             HyperlinkRecipientStatus current = HyperlinkRecipientStatus.fromCode(
                     recipient.getSendStatus());
+            if (incoming.terminalFailure() && !HyperlinkSendFailurePolicy.targetFailure(event.reasonCode())) {
+                if (current == HyperlinkRecipientStatus.SENDING) {
+                    long occurredAt = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
+                    requeueSystemFailure(recipient, event.reasonCode(), event.reasonMessage(), occurredAt);
+                }
+                return;
+            }
             HyperlinkRecipientStatus next = stateMachine.advance(current, incoming);
             if (next == current) { return; }
             long now = event.timestamp() == null ? System.currentTimeMillis() : event.timestamp();
-            if (current == HyperlinkRecipientStatus.SENDING
-                    && incoming.terminalFailure()
-                    && isRecoverableRestriction(event.reasonCode())
-                    && requeueRestrictedRecipient(
-                    recipient, usage, event.reasonCode(), event.reasonMessage(), now)) {
-                return;
-            }
             recipient.setSendStatus(next.code());
             recipient.setProtocolMessageId(event.messageId());
             recipient.setFailCode(safe(event.reasonCode(), 64));
@@ -193,30 +236,6 @@ public class HyperlinkProtocolResultService
         if (recipient.getAccountId() == null) { return null; }
         return usageMapper.selectByTaskAndAccountForUpdate(
                 recipient.getHyperlinkTaskId(), recipient.getAccountId());
-    }
-
-    private boolean requeueRestrictedRecipient(HyperlinkTaskRecipient recipient,
-            HyperlinkTaskAccountUsage usage, String reasonCode, String reason, long occurredAt) {
-        if (recipient.getAccountId() == null || usage == null) {
-            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
-                    "账号受限换号缺少账号占用事实");
-        }
-        long processedAt = System.currentTimeMillis();
-        operationRestrictionService.restrictMessageSending(
-                recipient.getAccountId(), reasonCode, occurredAt, processedAt);
-        if (recipientMapper.requeueAfterAccountRestriction(
-                recipient.getId(), recipient.getCommandId(), processedAt) != 1) {
-            return false;
-        }
-        usageMapper.completeSlot(usage.getId(), false, processedAt);
-        if (usageMapper.markOperationRestricted(
-                usage.getId(), HyperlinkTaskAccountUsageStatus.OPERATION_RESTRICTED.code(),
-                reasonCode, safe(reason, 255), processedAt) != 1) {
-            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
-                    "账号受限后的当前任务账号退出失败");
-        }
-        releaseGuardAfterCommit(recipient);
-        return true;
     }
 
     private boolean isRecoverableRestriction(String reasonCode) {
@@ -307,8 +326,7 @@ public class HyperlinkProtocolResultService
     }
 
     private HyperlinkRecipientStatus failureStatus(String reasonCode) {
-        String value = reasonCode == null ? "" : reasonCode.toUpperCase(Locale.ROOT);
-        return value.contains("404") || value.contains("UNREGISTERED")
+        return "RECIPIENT_UNREGISTERED".equals(reasonCode)
                 ? HyperlinkRecipientStatus.UNREGISTERED : HyperlinkRecipientStatus.FAILED;
     }
 

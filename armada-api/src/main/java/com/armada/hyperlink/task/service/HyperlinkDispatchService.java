@@ -119,6 +119,7 @@ public class HyperlinkDispatchService {
         }
         HyperlinkTaskRuntime runtime = runtimeMapper.selectByTaskIdForShare(tenantId, taskId);
         if (runtime == null || runtime.getRunStatus() != 1) { return false; }
+        if (recipientMapper.hasRecoveryHold(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD)) { return false; }
         HyperlinkTaskRound round = roundMapper.selectActiveForUpdate(tenantId, taskId);
         if (round == null || (round.getRoundStatus() != HyperlinkTaskRoundStatus.READY.code()
                 && round.getRoundStatus() != HyperlinkTaskRoundStatus.DISPATCHING.code())) {
@@ -181,12 +182,16 @@ public class HyperlinkDispatchService {
                 MessageSendEnqueueResult result = messageSendPort.enqueue(List.of(command));
                 MessageSendEnqueueItem item = result == null || result.items().size() != 1
                         ? null : result.items().get(0);
-                if (item == null || !item.accepted()) {
-                    String code = item == null ? "LOCAL_ADAPTER_REJECTED" : item.reasonCode();
-                    String reason = item == null ? "本地协议适配器拒绝" : item.reasonMessage();
+                if (item == null) {
+                    // 适配器未返回确定结果，不代表命令没有入队；保留原命令等待确认。
+                    recipientMapper.scheduleReconciliation(commandId, now + RESULT_RECONCILIATION_DELAY_MS, now);
+                    retainAfterCommit.set(true);
+                } else if (!item.accepted()) {
+                    String code = item.reasonCode();
+                    String reason = item.reasonMessage();
                     if (isRecoverableRestriction(code)) {
                         requeueAfterAccountRestriction(recipient, usage, code, reason, now);
-                    } else {
+                    } else if (HyperlinkSendFailurePolicy.targetFailure(code)) {
                         recipient.setSendStatus(HyperlinkRecipientStatus.FAILED.code());
                         recipient.setProtocolMessageId(null);
                         recipient.setFailCode(code);
@@ -197,6 +202,15 @@ public class HyperlinkDispatchService {
                                 recipient.getDataPackageId(), recipient.getDataPackageGeneration(),
                                 recipient.getRecipientPhoneSnapshot(),
                                 DataPackagePoolStatus.RETRYABLE_FAILED, now);
+                    } else {
+                        recipient.setFailCode(code);
+                        recipient.setFailReason(reason);
+                        recipient.setNextDispatchAt(HyperlinkSendFailurePolicy.nextRetryAt(
+                                recipient.getDispatchAttempt(), code, now));
+                        if (recipientMapper.requeueAfterSystemFailure(recipient) != 1) {
+                            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT);
+                        }
+                        usageMapper.completeSlot(usage.getId(), false, now);
                     }
                 } else {
                     recipientMapper.markSubmitted(commandId, now,
@@ -235,8 +249,11 @@ public class HyperlinkDispatchService {
             HyperlinkTaskAccountUsage usage, String reasonCode, String reason, long now) {
         operationRestrictionService.restrictMessageSending(
                 usage.getAccountId(), reasonCode, now, now);
-        if (recipientMapper.requeueAfterAccountRestriction(
-                recipient.getId(), recipient.getCommandId(), now) != 1) {
+        recipient.setFailCode(reasonCode);
+        recipient.setFailReason(reason);
+        recipient.setNextDispatchAt(HyperlinkSendFailurePolicy.nextRetryAt(
+                recipient.getDispatchAttempt(), reasonCode, now));
+        if (recipientMapper.requeueAfterSystemFailure(recipient) != 1) {
             throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
                     "账号受限后的料子换号释放失败");
         }

@@ -103,10 +103,14 @@ public interface HyperlinkTaskRecipientMapper {
             @Param("submittedAt") long submittedAt,
             @Param("nextReconciliationAt") long nextReconciliationAt);
     int applyResult(HyperlinkTaskRecipient entity);
-    /** 明确账号受限且未发送成功时，把同一料子原子释放回待发并递增尝试号。 */
-    int requeueAfterAccountRestriction(
-            @Param("id") long id,
-            @Param("commandId") String commandId,
+    /** 待确认只保存原命令证据，不推进失败、投影或计费。 */
+    int rememberUnknownResult(HyperlinkTaskRecipient entity);
+    /** 已确定未发送的 attempt 释放为待发，保存诊断原因与退避时间。 */
+    int requeueAfterSystemFailure(HyperlinkTaskRecipient entity);
+    /** 是否有自动恢复预算耗尽的目标；供持有 runtime 锁的轮次调度暂停任务。 */
+    boolean hasRecoveryHold(@Param("taskId") long taskId, @Param("holdAt") long holdAt);
+    /** 暂停事务内释放本批 hold；只有任务恢复后才会重新派发。 */
+    int releaseRecoveryHolds(@Param("taskId") long taskId, @Param("holdAt") long holdAt,
             @Param("now") long now);
     int scheduleReconciliation(@Param("commandId") String commandId,
             @Param("nextDispatchAt") long nextDispatchAt, @Param("now") long now);

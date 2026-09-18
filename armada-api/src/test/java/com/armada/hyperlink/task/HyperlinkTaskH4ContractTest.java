@@ -74,6 +74,19 @@ class HyperlinkTaskH4ContractTest {
     }
 
     @Test
+    void csvDoesNotExposeInternalAccountOrSessionErrors() throws Exception {
+        for (String code : List.of("ACCOUNT_BANNED", "LID_TARGET_CIPHERTEXT_MISSING", "SEND_RESULT_UNKNOWN")) {
+            HyperlinkRecipientRow row = new HyperlinkRecipientRow();
+            row.setStatusCode("SEND_RESULT_UNKNOWN".equals(code) ? 2 : 1);
+            row.setFailCode(code);
+            row.setFailReason("安卓设备内部错误详情");
+            StringWriter output = new StringWriter();
+            new HyperlinkRecipientCsvWriter().writeRow(output, row);
+            assertThat(output.toString()).doesNotContain(code, "安卓设备内部错误详情");
+        }
+    }
+
+    @Test
     void writesBomAndEveryCompetitorCsvColumnInFixedOrder() throws Exception {
         HyperlinkRecipientRow row = new HyperlinkRecipientRow();
         row.setId(1L);
@@ -96,8 +109,8 @@ class HyperlinkTaskH4ContractTest {
         assertThat(lines[0]).isEqualTo(
                 "\ufeff收信号码,收信国家,发送账号,发信国家,状态,失败码,失败原因,状态时间");
         assertThat(lines[1]).isEqualTo(
-                "\"=\"\"+628123456789\"\"\",ID,\"=\"\"+12025550123\"\"\",US,失败,"
-                        + "NOT_REGISTERED,号码未注册,1970-01-01 08:00:00");
+                "\"=\"\"+628123456789\"\"\",ID,\"=\"\"+12025550123\"\"\",US,目标无法发送,"
+                        + "TARGET_UNAVAILABLE,目标数据导致无法发送,1970-01-01 08:00:00");
     }
 
     private static List<String> componentNames(Class<?> type) {

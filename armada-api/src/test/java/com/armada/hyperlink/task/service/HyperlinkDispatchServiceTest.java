@@ -192,6 +192,7 @@ class HyperlinkDispatchServiceTest {
     @Test
     void localAdapterRejectionReleasesAfterDatabaseCommit() {
         Fixture fixture = new Fixture(false);
+        when(fixture.recipientMapper.requeueAfterSystemFailure(any())).thenReturn(1);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
         when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
                 List.of(MessageSendEnqueueItem.rejected(
@@ -212,8 +213,7 @@ class HyperlinkDispatchServiceTest {
     void localAccountRestrictionRequeuesMaterialWithoutRecordingTerminalFailure() {
         Fixture fixture = new Fixture(false);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
-        when(fixture.recipientMapper.requeueAfterAccountRestriction(
-                13L, "hl:7:11:13", 1_000L)).thenReturn(1);
+        when(fixture.recipientMapper.requeueAfterSystemFailure(any())).thenReturn(1);
         when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
                 List.of(MessageSendEnqueueItem.rejected(
                         "hl:7:11:13", "ACCOUNT_REACHOUT_RESTRICTED", "restricted"))));
@@ -222,8 +222,7 @@ class HyperlinkDispatchServiceTest {
 
         verify(fixture.restrictionService).restrictMessageSending(
                 51L, "ACCOUNT_REACHOUT_RESTRICTED", 1_000L, 1_000L);
-        verify(fixture.recipientMapper).requeueAfterAccountRestriction(
-                13L, "hl:7:11:13", 1_000L);
+        verify(fixture.recipientMapper).requeueAfterSystemFailure(any());
         verify(fixture.usageMapper).completeSlot(41L, false, 1_000L);
         verify(fixture.usageMapper).markOperationRestricted(
                 41L, 6, "ACCOUNT_REACHOUT_RESTRICTED", "restricted", 1_000L);

@@ -50,6 +50,8 @@ class HyperlinkMetricsProjectionH2Test {
     private DataSource dataSource;
     @Autowired
     private HyperlinkMetricsProjectionService service;
+    @Autowired
+    private HyperlinkTaskRecipientMapper recipients;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -134,6 +136,33 @@ class HyperlinkMetricsProjectionH2Test {
             throw new IllegalStateException("等待并发投影开始超时");
         }
         return service.projectNextBatch();
+    }
+
+    @Test
+    void retryPendingMustNotResetAlreadyCountedSubmission() throws SQLException {
+        insertRuntimeAndRound(7L, 11L, 21L);
+        execute("INSERT INTO hyperlink_task_recipient (id,tenant_id,hyperlink_task_id,hyperlink_task_round_id,account_id,send_status,metrics_projected_status,submitted_at,created_at,updated_at) VALUES (1,7,11,21,41,2,1,1000,100,200)");
+        assertThat(service.projectNextBatch()).isEqualTo(1);
+        execute("UPDATE hyperlink_task_recipient SET send_status=1,hyperlink_task_round_id=NULL,account_id=NULL WHERE id=1");
+        assertThat(service.projectNextBatch()).isZero();
+        execute("UPDATE hyperlink_task_recipient SET send_status=3,hyperlink_task_round_id=21,account_id=42 WHERE id=1");
+        assertThat(service.projectNextBatch()).isEqualTo(1);
+        assertThat(queryRow("SELECT send_total,success_num,fail_num FROM hyperlink_task_runtime WHERE hyperlink_task_id=11"))
+                .containsExactly(1L, 1L, 0L);
+    }
+
+    @Test
+    void fullReconciliationMarksPendingRetrySubmissionAsAlreadyCounted() throws SQLException {
+        insertRuntimeAndRound(7L, 11L, 21L);
+        execute("INSERT INTO hyperlink_task_recipient (id,tenant_id,hyperlink_task_id,send_status,metrics_projected_status,submitted_at,created_at,updated_at) VALUES (1,7,11,1,1,1000,100,200)");
+        com.armada.shared.tenant.TenantContext.set(7L);
+        try {
+            recipients.markProjected(11L, 300L);
+        } finally {
+            com.armada.shared.tenant.TenantContext.clear();
+        }
+        assertThat(queryLong("SELECT metrics_projected_status FROM hyperlink_task_recipient WHERE id=1"))
+                .isEqualTo(2L);
     }
 
     private void insertRuntimeAndRound(long tenantId, long taskId, long roundId) throws SQLException {

@@ -124,7 +124,7 @@ public class HyperlinkTaskDetailService {
         return new HyperlinkRecipientItemVO(
                 row.getId(), row.getRecipientPhone(), row.getRecipientCountryIso2(),
                 row.getAccountId(), row.getSenderPhone(), row.getSenderCountryIso2(), status,
-                row.getFailCode(), row.getFailReason(), row.getStatusAt());
+                status.businessCode(row.getFailCode()), status.businessMessage(row.getFailCode()), row.getStatusAt());
     }
 
     private void requireTask(long taskId) {

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
+import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -97,8 +98,9 @@ class HyperlinkAccountRestrictionRequeueMapperH2Test {
 
     @Test
     void requeueClearsAccountAssignmentKeepsLogicalSendFactAndIncrementsAttempt() {
-        assertThat(mapper.requeueAfterAccountRestriction(
-                13L, "hl:7:11:13", 2_000L)).isEqualTo(1);
+        HyperlinkTaskRecipient retry = retry();
+        retry.setNextDispatchAt(2_000L);
+        assertThat(mapper.requeueAfterSystemFailure(retry)).isEqualTo(1);
 
         assertThat(jdbc.queryForMap("""
                 SELECT hyperlink_task_round_id, account_id, command_id,
@@ -114,8 +116,7 @@ class HyperlinkAccountRestrictionRequeueMapperH2Test {
                 .containsEntry("hyperlink_task_round_id", null)
                 .containsEntry("account_id", null)
                 .containsEntry("command_id", null);
-        assertThat(mapper.requeueAfterAccountRestriction(
-                13L, "hl:7:11:13", 3_000L)).isZero();
+        assertThat(mapper.requeueAfterSystemFailure(retry)).isZero();
     }
 
     private void execute(String sql) throws SQLException {
@@ -123,6 +124,56 @@ class HyperlinkAccountRestrictionRequeueMapperH2Test {
              Statement statement = connection.createStatement()) {
             statement.execute(sql);
         }
+    }
+
+    @Test
+    void systemRetryIsDelayedIdempotentAndKeepsLogicalSubmission() {
+        HyperlinkTaskRecipient retry = retry();
+        assertThat(mapper.requeueAfterSystemFailure(retry)).isEqualTo(1);
+        assertThat(mapper.requeueAfterSystemFailure(retry)).isZero();
+        assertThat(jdbc.queryForMap("SELECT send_status, dispatch_attempt, next_dispatch_at, submitted_at, fail_code FROM hyperlink_task_recipient WHERE id=13"))
+                .containsEntry("send_status", 1).containsEntry("dispatch_attempt", 2)
+                .containsEntry("next_dispatch_at", 32000L).containsEntry("submitted_at", 1000L)
+                .containsEntry("fail_code", "RECIPIENT_SESSION_UNAVAILABLE");
+        assertThat(mapper.countUnsettledByTaskId(11L)).isEqualTo(1);
+    }
+
+    @Test
+    void recoveryHoldRemainsPendingAndTenantCannotReleaseOthers() {
+        HyperlinkTaskRecipient retry = retry();
+        retry.setNextDispatchAt(Long.MAX_VALUE);
+        assertThat(mapper.requeueAfterSystemFailure(retry)).isEqualTo(1);
+        assertThat(mapper.hasRecoveryHold(11L, Long.MAX_VALUE)).isTrue();
+        TenantContext.set(8L);
+        assertThat(mapper.hasRecoveryHold(11L, Long.MAX_VALUE)).isFalse();
+        assertThat(mapper.releaseRecoveryHolds(11L, Long.MAX_VALUE, 9000L)).isZero();
+        TenantContext.set(7L);
+        assertThat(mapper.releaseRecoveryHolds(11L, Long.MAX_VALUE, 9000L)).isEqualTo(1);
+        assertThat(mapper.countUnsettledByTaskId(11L)).isEqualTo(1);
+    }
+
+    @Test
+    void successAndForeignTenantCannotBeRequeued() {
+        TenantContext.set(8L);
+        assertThat(mapper.requeueAfterSystemFailure(retry())).isZero();
+        TenantContext.set(7L);
+        jdbc.update("UPDATE hyperlink_task_recipient SET send_status=3 WHERE id=13");
+        assertThat(mapper.requeueAfterSystemFailure(retry())).isZero();
+    }
+
+    private HyperlinkTaskRecipient retry() {
+        HyperlinkTaskRecipient row = new HyperlinkTaskRecipient();
+        row.setId(13L); row.setCommandId("hl:7:11:13"); row.setUpdatedAt(2000L);
+        row.setNextDispatchAt(32000L); row.setFailCode("RECIPIENT_SESSION_UNAVAILABLE");
+        row.setFailReason("internal session failure");
+        return row;
+    }
+
+    @Test
+    void submittingNewAttemptDoesNotReopenAlreadyProjectedLogicalSend() {
+        assertThat(mapper.markSubmitted("hl:7:11:13", 9000L, 39000L)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT metrics_projected_status FROM hyperlink_task_recipient WHERE id=13", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT submitted_at FROM hyperlink_task_recipient WHERE id=13", Long.class)).isEqualTo(1000L);
     }
 
     @Configuration(proxyBeanMethods = false)

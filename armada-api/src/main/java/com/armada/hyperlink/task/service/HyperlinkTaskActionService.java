@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.service;
 
 import com.armada.hyperlink.task.mapper.HyperlinkTaskRoundMapper;
+import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.model.dto.HyperlinkTaskActionDTO;
 import com.armada.hyperlink.task.model.entity.HyperlinkTask;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRuntime;
@@ -24,6 +25,7 @@ public class HyperlinkTaskActionService {
     private final HyperlinkTaskQuoteGuardService quoteGuard;
     private final HyperlinkProvisionFactService provisionFactService;
     private final HyperlinkTaskRoundMapper roundMapper;
+    private final HyperlinkTaskRecipientMapper recipientMapper;
     private final HyperlinkCleanupStartService cleanupStartService;
     private final HyperlinkTaskAuditPort auditPort;
     private final HyperlinkShortLinkGuard shortLinkGuard;
@@ -34,7 +36,7 @@ public class HyperlinkTaskActionService {
             HyperlinkProvisionFactService provisionFactService, HyperlinkTaskRoundMapper roundMapper,
             HyperlinkCleanupStartService cleanupStartService, HyperlinkTaskAuditPort auditPort,
             HyperlinkShortLinkGuard shortLinkGuard,
-            HyperlinkProtocolCapacityService capacityService) {
+            HyperlinkProtocolCapacityService capacityService, HyperlinkTaskRecipientMapper recipientMapper) {
         this.store = store;
         this.quoteGuard = quoteGuard;
         this.provisionFactService = provisionFactService;
@@ -43,6 +45,7 @@ public class HyperlinkTaskActionService {
         this.auditPort = auditPort;
         this.shortLinkGuard = shortLinkGuard;
         this.capacityService = capacityService;
+        this.recipientMapper = recipientMapper;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -99,6 +102,8 @@ public class HyperlinkTaskActionService {
                 roundMapper.pauseActive(taskId, now);
             } else if (request.action() == HyperlinkTaskAction.RESUME) {
                 roundMapper.resumePaused(taskId, now);
+                // 包含任务暂停期间才返回的在途失败，恢复一次即可重新进入有限重试。
+                recipientMapper.releaseRecoveryHolds(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD, now);
             }
         }
         auditPort.record(new AuditEvent("hyperlink-task:action:" + taskId + ":"

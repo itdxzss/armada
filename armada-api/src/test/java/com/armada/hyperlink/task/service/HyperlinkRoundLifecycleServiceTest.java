@@ -102,6 +102,24 @@ class HyperlinkRoundLifecycleServiceTest {
     }
 
     @Test
+    void exhaustedSystemRecoveryPausesWithoutSettlingOrDiscardingRecipients() {
+        HyperlinkTaskRuntime runtime = runtime();
+        runtime.setProvisionStatus(2);
+        when(runtimes.selectByTaskIdForUpdate(7L, 11L)).thenReturn(runtime);
+        when(tasks.selectById(11L)).thenReturn(task(HyperlinkTaskMode.INSTANT));
+        when(rounds.selectActive(11L)).thenReturn(round(HyperlinkTaskRoundStatus.READY));
+        when(recipients.hasRecoveryHold(11L, Long.MAX_VALUE)).thenReturn(true);
+        when(runtimes.transition(11L, true, 1, true, 3, 2, NOW)).thenReturn(1);
+        service.advance(11L);
+        InOrder order = inOrder(runtimes, rounds, recipients);
+        order.verify(runtimes).transition(11L, true, 1, true, 3, 2, NOW);
+        order.verify(rounds).pauseActive(11L, NOW);
+        order.verify(recipients).releaseRecoveryHolds(11L, Long.MAX_VALUE, NOW);
+        verify(rounds, never()).markCompleted(anyLong(), anyLong());
+        org.mockito.Mockito.verifyNoInteractions(cleanup);
+    }
+
+    @Test
     void rollingZeroAccountLeavesTheSameRecipientAndRoundForLaterSelection() {
         HyperlinkTask task = task(HyperlinkTaskMode.ROLLING);
         task.setTaskPlannedEndAt(NOW + 600_000L);

@@ -169,7 +169,7 @@ class HyperlinkProtocolCapacityActivationTest {
         return new HyperlinkTaskActionService(store, quote,
                 mock(HyperlinkProvisionFactService.class), mock(HyperlinkTaskRoundMapper.class),
                 mock(HyperlinkCleanupStartService.class), mock(HyperlinkTaskAuditPort.class),
-                new HyperlinkShortLinkGuard(""), capacity);
+                new HyperlinkShortLinkGuard(""), capacity, mock(com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper.class));
     }
 
     private HyperlinkProtocolCapacityService rejectingCapacity() {

@@ -16,9 +16,11 @@
   <update id="replayMessageCommand">
     UPDATE protocol_command_outbox
     SET status=#{pendingStatus}, next_retry_at=#{now}, locked_by=NULL, locked_at=NULL,
+        command_type=CASE WHEN protocol_backend='ANDROID' THEN 'message.send_result.query' ELSE command_type END,
         last_error='HYPERLINK_RESULT_RECONCILIATION', updated_at=#{now}
     WHERE tenant_id=#{tenantId} AND command_id=#{commandId}
-      AND command_type=#{messageCommandType} AND deleted_at IS NULL
+      AND command_type IN (#{messageCommandType}, 'message.send_result.query') AND deleted_at IS NULL
+      AND aggregate_type='HYPERLINK_TASK_RECIPIENT'
       AND status IN
     <foreach collection="replayableStatuses" item="status" open="(" separator="," close=")">
       #{status}

@@ -61,7 +61,7 @@ class JoinTaskReadDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
         return service.createTask(req);
     }
 
@@ -76,7 +76,7 @@ class JoinTaskReadDbTest extends DbTestBase {
                 "FIXED_ACCOUNT_MULTI_LINK",
                 null, 2, 3,
                 null, null, 5, 15,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
         return service.createTask(req);
     }
 
@@ -165,7 +165,7 @@ class JoinTaskReadDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
         service.createTask(extra);
 
         List<String> opts = service.intervalOptions();

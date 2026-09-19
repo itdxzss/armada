@@ -27,6 +27,7 @@
            END) AS adminInGroup,
            MAX(CASE
              WHEN relation.presence_status = 1
+              AND legacy_preview.creator_phone_source &lt;&gt; 1
               AND REPLACE(SUBSTRING_INDEX(relation.ws_phone, '@', 1), '+', '')
                   = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
              THEN 1 ELSE 0
@@ -240,6 +241,7 @@
      AND handle.deleted_at IS NULL
     LEFT JOIN group_link_preview legacy_preview
       ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.creator_phone_source &lt;&gt; 1
      AND legacy_preview.group_link_id = handle.id
     WHERE a.tenant_id = #{tenantId}
       AND a.account_group_id = #{accountGroupId}
@@ -296,6 +298,7 @@
      AND handle.deleted_at IS NULL
     LEFT JOIN group_link_preview legacy_preview
       ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.creator_phone_source &lt;&gt; 1
      AND legacy_preview.group_link_id = handle.id
     WHERE a.tenant_id = #{tenantId}
       AND current_group.group_jid = #{groupJid}
@@ -320,6 +323,56 @@
              END,
              COALESCE(binding.last_observed_at, 0) DESC,
              a.id ASC
+  </select>
+
+  <!-- 进群任务只使用任务归属用户的原有管理员，不能扩大到同租户其他用户。 -->
+  <select id="selectJoinTaskAdminCandidatesByTenant"
+          resultType="com.armada.group.model.vo.GroupExecutionAccount">
+    <bind name="onlineLoginState"
+          value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE"/>
+    <bind name="executableAccountStates"
+          value="@com.armada.group.service.GroupExecutableAccountStates@executable()"/>
+    SELECT a.id AS accountId,
+           a.protocol_id AS protocolId,
+           a.protocol_account_id AS protocolAccountId,
+           a.ws_phone AS wsPhone,
+           TRUE AS groupAdmin
+    FROM wa_account_group_binding binding
+    INNER JOIN wa_group current_group
+      ON current_group.tenant_id = binding.tenant_id
+     AND current_group.id = binding.group_id
+    INNER JOIN wa_group_participant self_participant
+      ON self_participant.tenant_id = binding.tenant_id
+     AND self_participant.group_id = binding.group_id
+     AND self_participant.id = binding.participant_id
+     AND self_participant.presence_status = 1
+     AND self_participant.role IN (2, 3)
+    INNER JOIN account a
+      ON a.tenant_id = binding.tenant_id
+     AND a.id = binding.account_id
+    INNER JOIN account_state s
+      ON s.tenant_id = a.tenant_id
+     AND s.account_id = a.id
+    WHERE a.tenant_id = #{tenantId}
+      AND current_group.group_jid = #{groupJid}
+      AND (a.owner_user_id = #{ownerUserId} OR a.owner_user_id IS NULL)
+      AND a.deleted_at IS NULL
+      AND a.id &lt;&gt; #{managerAccountId}
+      AND a.protocol_id IS NOT NULL
+      AND TRIM(a.protocol_id) &lt;&gt; ''
+      AND a.protocol_account_id IS NOT NULL
+      AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND a.ws_phone IS NOT NULL
+      AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND s.login_state = #{onlineLoginState}
+      AND s.account_state IN
+        <foreach collection="executableAccountStates" item="executableState"
+                 open="(" separator="," close=")">#{executableState}</foreach>
+      AND (s.risk_status IS NULL OR s.risk_status = 1)
+      AND (s.mute_status IS NULL OR s.mute_status = 1)
+    ORDER BY CASE WHEN self_participant.role = 3 THEN 0 ELSE 1 END,
+             COALESCE(binding.last_observed_at, 0) DESC, a.id ASC
+    LIMIT 10
   </select>
 
   <select id="selectPullTaskAdminDiscoveryCandidatesByTenant"
@@ -478,6 +531,7 @@
   <select id="selectGroupOwnerExecutionAccount"
           resultType="com.armada.group.model.vo.GroupExecutionAccount">
     <include refid="groupExecutionAccountColumnsAndJoins"/>
+      AND owner_preview.creator_phone_source &lt;&gt; 1
       AND owner_preview.owner_phone IS NOT NULL
       AND TRIM(owner_preview.owner_phone) &lt;&gt; ''
       AND REPLACE(SUBSTRING_INDEX(TRIM(a.ws_phone), '@', 1), '+', '')

@@ -24,6 +24,8 @@ import java.util.List;
  * @param multiIntervalMaxSec  方式二进群间隔上限(秒)
  * @param retryEnabled         失败是否自动重试
  * @param retryLimit           重试次数上限
+ * @param clearAdminsAndLeaveEnabled 提权成功后踢出其他管理员并由原号退群
+ * @param setAdminEnabled      进群成功后是否由原有管理员设置管理员
  * @param failurePolicy        失败处理策略快照(标签/JSON,编辑回填)
  */
 public record CreateJoinTaskDTO(
@@ -42,5 +44,7 @@ public record CreateJoinTaskDTO(
         Integer multiIntervalMaxSec,
         Boolean retryEnabled,
         Integer retryLimit,
-        String failurePolicy) {
+        String failurePolicy,
+        Boolean setAdminEnabled,
+        Boolean clearAdminsAndLeaveEnabled) {
 }

@@ -6,12 +6,28 @@ package com.armada.task.model.entity;
  * 时间列为 BIGINT epoch 毫秒，insert 时由应用层显式传入。
  */
 public class JoinTask {
+    /** 提权成功后由新号踢出其他管理员，再由原号退群。 */
+    private boolean clearAdminsAndLeaveEnabled;
+    /** 返回清理退群开关。 */
+    public boolean isClearAdminsAndLeaveEnabled() { return clearAdminsAndLeaveEnabled; }
+    /** 设置清理退群开关。 */
+    public void setClearAdminsAndLeaveEnabled(boolean value) { clearAdminsAndLeaveEnabled = value; }
+
 
     /** 主键。 */
     private Long id;
 
     /** 租户 ID（拦截器注入，不手写 SQL）。 */
     private Long tenantId;
+
+    /** 后台执行使用的任务数据归属。 */
+    private Long ownerUserId;
+
+    /** 返回任务归属用户。 */
+    public Long getOwnerUserId() { return ownerUserId; }
+
+    /** 设置任务归属用户。 */
+    public void setOwnerUserId(Long value) { ownerUserId = value; }
 
     /** 任务名称。 */
     private String name;
@@ -54,6 +70,15 @@ public class JoinTask {
 
     /** 进群间隔展示（如 10-20s），筛选下拉去重源。 */
     private String intervalLabel;
+
+    /** 是否在进群后设置管理员。 */
+    private boolean isSetAdminEnabled;
+
+    /** 返回群管理配置。 */
+    public boolean isSetAdminEnabled() { return isSetAdminEnabled; }
+
+    /** 保存群管理配置。 */
+    public void setSetAdminEnabled(boolean value) { this.isSetAdminEnabled = value; }
 
     /** 失败是否自动重试。 */
     private boolean retryEnabled;

@@ -53,6 +53,14 @@ public final class AndroidGroupOperationErrorMapper {
             String operationId,
             boolean groupCreate) {
         ProtocolErrorCode code = errorCode(response, groupCreate);
+        if (code == ProtocolErrorCode.UNKNOWN && operation.startsWith("group.")) {
+            String message = response.message() == null ? "" : response.message().toLowerCase(Locale.ROOT);
+            if (message.contains("chat_suspended") || message.contains("chat_terminated")) {
+                code = ProtocolErrorCode.GROUP_BANNED;
+            } else if (message.contains("group not found") || message.contains("group-not-found")) {
+                code = ProtocolErrorCode.GROUP_UNAVAILABLE;
+            }
+        }
         ProtocolException.Metadata metadata = ProtocolException.Metadata.of(
                 APPLICATION_ERROR_HTTP_STATUS,
                 response.rawProtocolCode(),

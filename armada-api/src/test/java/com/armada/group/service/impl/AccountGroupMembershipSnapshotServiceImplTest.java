@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.platform.country.service.CountryService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +30,27 @@ class AccountGroupMembershipSnapshotServiceImplTest {
     @Mock private GroupLinkPreviewMapper previewMapper;
     @Mock private GroupLinkRegistryService registry;
     @Mock private GroupClassificationService classification;
+
+    @Test
+    void initialHistoricalGroupListWithOnlyLidFallsBackToLegacyGroupJid() {
+        String jid = "916375552817-1517537054@g.us";
+        when(registry.registerAccountObservedGroups(org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.eq(ProtocolBackend.ANDROID), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(Map.of(jid, 20L));
+        GroupLink handle = new GroupLink();
+        handle.setId(20L);
+        when(groupLinkMapper.selectActiveByIds(List.of(20L))).thenReturn(List.of(handle));
+        service().replaceVisibleGroups(10L, List.of(new AccountGroupsReportedEvent.Group(
+                jid, "历史群", 20, "47970506555552@lid", null, false, false, null)),
+                true, 2_000L, "evt", "online_full_metadata", ProtocolBackend.ANDROID);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<GroupLinkPreview>> rows = ArgumentCaptor.forClass(List.class);
+        verify(previewMapper).upsertCreatorCompatibility(rows.capture());
+        assertThat(rows.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getOwnerPhone()).isEqualTo("916375552817");
+            assertThat(row.getCreatorPhoneSource()).isEqualTo(1);
+        });
+    }
 
     @Test
     void resolvesStableHandleAndWritesOnlyCreatorCompatibility() {
@@ -67,8 +90,23 @@ class AccountGroupMembershipSnapshotServiceImplTest {
                 org.mockito.ArgumentMatchers.anyLong());
     }
 
+    @Test
+    void unresolvedLidDoesNotWriteAnEmptyCreator() {
+        when(registry.registerAccountObservedGroups(
+                org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.eq(ProtocolBackend.ANDROID),
+                org.mockito.ArgumentMatchers.anyLong())).thenReturn(Map.of("120363001@g.us", 20L));
+        GroupLink handle = new GroupLink();
+        handle.setId(20L);
+        when(groupLinkMapper.selectActiveByIds(List.of(20L))).thenReturn(List.of(handle));
+        service().replaceVisibleGroups(10L, List.of(new AccountGroupsReportedEvent.Group(
+                "120363001@g.us", "群一", 20, "47970506555552@lid", null, true, false, null)),
+                true, 2_000L, "evt", "test", ProtocolBackend.ANDROID);
+        org.mockito.Mockito.verifyNoInteractions(previewMapper);
+    }
+
     private AccountGroupMembershipSnapshotServiceImpl service() {
         return new AccountGroupMembershipSnapshotServiceImpl(
-                groupLinkMapper, previewMapper, registry, classification);
+                groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)), registry, classification);
     }
 }

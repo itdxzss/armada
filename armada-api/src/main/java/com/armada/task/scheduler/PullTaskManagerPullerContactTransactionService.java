@@ -102,7 +102,7 @@ public class PullTaskManagerPullerContactTransactionService {
             if (setting == null) {
                 return waitForPuller(candidate, PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
             }
-            List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
+            List<PullTaskGroupAccount> managers = availableManagers(candidate.getId(), now);
             if (managers.isEmpty()) {
                 return waitForManager(candidate, now);
             }
@@ -170,7 +170,7 @@ public class PullTaskManagerPullerContactTransactionService {
             PullTaskGroupExecution candidate,
             List<PullTaskAccountAction> existingActions,
             long now) {
-        List<PullTaskGroupAccount> managers = availableManagers(candidate.getId());
+        List<PullTaskGroupAccount> managers = availableManagers(candidate.getId(), now);
         if (managers.isEmpty()) {
             return waitForManager(candidate, now);
         }
@@ -260,8 +260,8 @@ public class PullTaskManagerPullerContactTransactionService {
                 : PullTaskExecutionDispatchResult.LOST;
     }
 
-    private List<PullTaskGroupAccount> availableManagers(long executionId) {
-        return groupAccountMapper.selectByExecutionAndRole(
+    private List<PullTaskGroupAccount> availableManagers(long executionId, long now) {
+        List<PullTaskGroupAccount> managers = groupAccountMapper.selectByExecutionAndRole(
                         executionId, PullTaskGroupAccountRole.MANAGER.code())
                 .stream()
                 .filter(PullTaskManagerPullerContactTransactionService::available)
@@ -270,6 +270,16 @@ public class PullTaskManagerPullerContactTransactionService {
                 .filter(row -> Objects.equals(row.getAdminStatus(),
                         PullTaskGroupAccountAdminStatus.SUCCESS.code()))
                 .toList();
+        Set<Long> eligible = resources.accountLookup().findEligibleManagerProtocolRefs(
+                        managers.stream().map(PullTaskGroupAccount::getAccountId).toList()).stream()
+                .map(ProtocolAccountRef::armadaAccountId).collect(java.util.stream.Collectors.toSet());
+        for (PullTaskGroupAccount manager : managers) {
+            if (!eligible.contains(manager.getAccountId())) {
+                groupAccountMapper.markUnavailable(manager.getId(),
+                        PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_UNAVAILABLE", null, now);
+            }
+        }
+        return managers.stream().filter(row -> eligible.contains(row.getAccountId())).toList();
     }
 
     private List<PullTaskGroupAccount> ensurePullers(

@@ -256,6 +256,7 @@ class GroupDetailMemberRemovalIdentityTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 false,
                 false,

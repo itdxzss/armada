@@ -22,18 +22,24 @@
   <insert id="insertResults">
     INSERT INTO join_task_result
       (join_task_id, account, account_id, link, status, dispatch_state, next_execute_at,
-       command_id, attempt_no, reason, created_at, updated_at)
+       command_id, attempt_no, reason, created_at, updated_at, admin_status)
     VALUES
     <foreach collection="rows" item="r" separator=",">
       (#{r.joinTaskId}, #{r.account}, #{r.accountId}, #{r.link}, #{r.status},
        COALESCE(#{r.dispatchState}, CASE WHEN #{r.status} = 'PENDING' THEN 'WAITING' ELSE 'TERMINAL' END),
-       #{r.nextExecuteAt}, #{r.commandId}, #{r.attemptNo}, #{r.reason}, #{r.createdAt}, #{r.updatedAt})
+       #{r.nextExecuteAt}, #{r.commandId}, #{r.attemptNo}, #{r.reason}, #{r.createdAt}, #{r.updatedAt}, #{r.adminStatus})
     </foreach>
   </insert>
 
   <!-- ORDER BY id 保持建任务时的分配顺序。resultMap 处理 is_admin 映射陷阱。 -->
   <select id="selectResultsByTask" resultMap="resultRow">
-    SELECT * FROM join_task_result WHERE join_task_id = #{joinTaskId} ORDER BY id
+    SELECT r.*, COALESCE(c.status,0) AS cleanup_status, c.reason AS cleanup_reason,
+      c.context_json AS cleanup_context_json,COALESCE(a.stage,0) AS approval_stage,
+      a.reason AS approval_reason,a.actor_account_id AS approval_actor_account_id
+    FROM join_task_result r
+    LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+    LEFT JOIN join_task_approval a ON a.result_id=r.id AND a.tenant_id=r.tenant_id
+    WHERE r.join_task_id = #{joinTaskId} ORDER BY r.id
   </select>
 
   <!-- 引擎取待执行行；ORDER BY id 保持计划顺序。 -->
@@ -113,8 +119,10 @@
         WHERE active.tenant_id = #{tenantId}
           AND active.join_task_id = r.join_task_id
           AND active.account_id = r.account_id
-          AND active.status = 'PENDING'
-          AND active.dispatch_state = 'SUBMITTED'
+          AND ((active.status = 'PENDING' AND active.dispatch_state = 'SUBMITTED')
+            OR (active.status = 'SUCCESS' AND (active.admin_status IN (1, 2, 5)
+              OR EXISTS (SELECT 1 FROM join_task_cleanup c WHERE c.result_id=active.id
+                AND c.tenant_id=#{tenantId} AND c.status IN (1,2,3,4,5,6)))))
       )
     ORDER BY r.id
     FOR UPDATE SKIP LOCKED
@@ -142,20 +150,14 @@
       AND r.next_execute_at IS NULL
   </update>
 
-  <!--
-    协议结果幂等闸门：明细、command_id、attempt_no 必须同时命中当前 SUBMITTED 尝试。
-    重复消费、旧尝试迟到结果和 outbox 历史 DEAD 命令均返回空。
-    id 是主键，不写冗余 LIMIT 1；否则租户拦截器会把 FOR UPDATE 重写到 LIMIT 之前，
-    生成 MySQL 非法语序。
-  -->
-  <select id="selectSubmittedForUpdate" resultMap="resultRow">
+  <!-- 普通读取当前尝试；成功、失败和重试更新均再次比较 command_id/attempt_no，防止旧结果覆盖新尝试。 -->
+  <select id="selectSubmitted" resultMap="resultRow">
     SELECT * FROM join_task_result
     WHERE id = #{id}
       AND status = 'PENDING'
       AND dispatch_state = 'SUBMITTED'
       AND command_id = #{commandId}
       AND attempt_no = #{attemptNo}
-    FOR UPDATE
   </select>
 
   <!-- outbox 已在同一事务写入后切到 SUBMITTED，并清空到期时间，避免再次进入到期扫描。 -->
@@ -176,14 +178,20 @@
     SET dispatch_state = 'WAITING', command_id = NULL, next_execute_at = #{nextExecuteAt},
         reason = #{reason}, updated_at = #{now}
     WHERE id = #{id} AND status = 'PENDING' AND dispatch_state = 'SUBMITTED'
+      AND attempt_no = #{attemptNo}
+      AND (command_id = #{commandId} OR (command_id IS NULL AND #{commandId} IS NULL))
   </update>
 
   <!-- 只有当前 SUBMITTED 尝试可进入成功终态；group_jid 供后续管理员事件关联。 -->
   <update id="markTerminalSuccess">
     UPDATE join_task_result
     SET status = 'SUCCESS', dispatch_state = 'TERMINAL', reason = '', group_jid = #{groupJid},
-        joined_at = COALESCE(joined_at, #{now}), next_execute_at = NULL, updated_at = #{now}
+        joined_at = COALESCE(joined_at, #{now}), next_execute_at = NULL,
+        admin_next_execute_at = CASE WHEN admin_status = 1 THEN #{now} ELSE NULL END,
+        updated_at = #{now}
     WHERE id = #{id} AND status = 'PENDING' AND dispatch_state = 'SUBMITTED'
+      AND attempt_no = #{attemptNo}
+      AND (command_id = #{commandId} OR (command_id IS NULL AND #{commandId} IS NULL))
   </update>
 
   <!-- 前置校验失败可从 WAITING 终结，协议/传输重试耗尽可从 SUBMITTED 终结。 -->
@@ -192,6 +200,8 @@
     SET status = 'FAILED', dispatch_state = 'TERMINAL', reason = #{reason},
         next_execute_at = NULL, updated_at = #{now}
     WHERE id = #{id} AND status = 'PENDING' AND dispatch_state IN ('WAITING', 'SUBMITTED')
+      AND attempt_no = #{attemptNo}
+      AND (command_id = #{commandId} OR (command_id IS NULL AND #{commandId} IS NULL))
   </update>
 
   <!--

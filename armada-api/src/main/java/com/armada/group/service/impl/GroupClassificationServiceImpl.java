@@ -179,9 +179,8 @@ public class GroupClassificationServiceImpl implements GroupClassificationServic
         if (requestedIds.isEmpty()) {
             return Set.of();
         }
-        // canonical 行可能尚不存在；仅按 group_jid 排序的并发 INSERT 仍会因唯一键间隙锁
-        // 形成环。先按已经存在的兼容句柄 PRIMARY 顺序锁定，同群候选便会在建档前串行化。
-        return groupLinkMapper.selectActiveByIdsForUpdate(requestedIds.stream()
+        // 这里只筛选当前租户的活跃群；首次分类由 UPDATE 的未分类条件决定。
+        return groupLinkMapper.selectActiveByIds(requestedIds.stream()
                         .distinct()
                         .sorted()
                         .toList()).stream()

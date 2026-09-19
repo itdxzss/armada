@@ -1,6 +1,6 @@
 package com.armada.hyperlink.task.model.vo;
 
-/** 到期 UNKNOWN/SENDING 使用原命令恢复的租户定位。 */
+/** 到期发送的租户定位；commandCreatedAt 为当前命令固定起点，旧记录回退首次提交时间。 */
 public record HyperlinkReconciliationCandidate(
         long tenantId,
         long taskId,
@@ -8,5 +8,5 @@ public record HyperlinkReconciliationCandidate(
         long accountId,
         String commandId,
         int protocolBackend,
-        Long submittedAt) {
+        Long commandCreatedAt) {
 }

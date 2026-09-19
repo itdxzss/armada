@@ -1,12 +1,19 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.armada.group.service.GroupInviteLinkService;
+import com.armada.shared.tenant.TenantContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -26,6 +33,74 @@ class PullTaskManagerJoinProtocolExecutorTest {
     private final GroupInviteLinkService inviteLinkService = mock(GroupInviteLinkService.class);
     private final PullTaskManagerJoinProtocolExecutor executor =
             new PullTaskManagerJoinProtocolExecutor(joinPort, inviteLinkService);
+
+    @AfterEach
+    void clearTenant() {
+        TenantContext.clear();
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(longs = {99L})
+    void scopesRefreshJoinAndBindingToWorkTenantThenRestoresCaller(Long previousTenant) {
+        TenantContext.set(previousTenant);
+        PullTaskGroupExecution candidate = revokedCandidate();
+        PullTaskManagerJoinWork work = work(ProtocolBackend.ANDROID);
+        when(inviteLinkService.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "OldInviteCode"))
+                .thenAnswer(invocation -> {
+                    assertThat(TenantContext.get()).isEqualTo(work.tenantId());
+                    return Optional.of("NewInviteCode");
+                });
+        when(joinPort.join(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            assertThat(TenantContext.get()).isEqualTo(work.tenantId());
+            return new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED);
+        });
+        doAnswer(invocation -> {
+            assertThat(TenantContext.get()).isEqualTo(work.tenantId());
+            return null;
+        }).when(inviteLinkService).bindGroupJid(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+
+        assertThat(executor.join(candidate, work))
+                .isEqualTo(PullTaskManagerJoinOutcome.confirmed("120363group@g.us"));
+        assertThat(TenantContext.get()).isEqualTo(previousTenant);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"refresh", "join", "bind"})
+    void restoresCallerWhenAnyRecoveryStepThrows(String failureStep) {
+        TenantContext.set(99L);
+        RuntimeException failure = new IllegalStateException("internal failure");
+        when(inviteLinkService.refreshCurrentInviteCode(
+                51L, "120363group@g.us", "OldInviteCode")).thenAnswer(invocation -> {
+                    assertThat(TenantContext.get()).isEqualTo(7L);
+                    if (failureStep.equals("refresh")) {
+                        throw failure;
+                    }
+                    return Optional.of("NewInviteCode");
+                });
+        when(joinPort.join(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
+            assertThat(TenantContext.get()).isEqualTo(7L);
+            if (failureStep.equals("join")) {
+                throw failure;
+            }
+            return new GroupJoinResult("120363group@g.us", GroupJoinOutcome.JOINED);
+        });
+        doAnswer(invocation -> {
+            assertThat(TenantContext.get()).isEqualTo(7L);
+            throw failure;
+        }).when(inviteLinkService).bindGroupJid(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong());
+
+        assertThatThrownBy(() -> executor.join(revokedCandidate(), work(ProtocolBackend.ANDROID)))
+                .isSameAs(failure);
+        assertThat(TenantContext.get()).isEqualTo(99L);
+    }
 
     @Test
     void revokedInviteUsesRefreshedCurrentCodeForOneWebRetry() {

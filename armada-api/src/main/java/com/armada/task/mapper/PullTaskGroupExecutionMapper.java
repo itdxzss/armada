@@ -44,8 +44,12 @@ public interface PullTaskGroupExecutionMapper {
      */
     int insertDraftInitialized(PullTaskGroupExecution row);
 
-    /** 群组封禁后写入同一 TXT 的下一次待启动执行记录。 */
+    /** 群级失败换群后写入同一 TXT 的下一次待启动执行记录。 */
     int insertRetryInitialized(PullTaskGroupExecution row);
+
+    /** 调用方持有原执行行锁时，检查同一料子是否已经生成后继轮次。 */
+    int countLaterAttempts(@Param("taskId") long taskId,
+            @Param("seq") int seq, @Param("attemptNo") int attemptNo);
 
     /** 初始化草稿行后写入，避免 Mapper XML 固化业务值。 */
     default int insertDraft(PullTaskGroupExecution row) {

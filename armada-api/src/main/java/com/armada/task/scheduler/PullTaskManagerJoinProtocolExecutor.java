@@ -6,6 +6,7 @@ import com.armada.platform.protocol.model.command.GroupJoinCommand;
 import com.armada.platform.protocol.model.result.GroupJoinOutcome;
 import com.armada.platform.protocol.model.result.GroupJoinResult;
 import com.armada.platform.protocol.port.GroupJoinPort;
+import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskManagerJoinWork;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
@@ -42,12 +43,29 @@ public class PullTaskManagerJoinProtocolExecutor {
 
     /**
      * 执行普通进群，或在上次邀请码失效后用当前邀请码执行唯一一次恢复重试。
+     * 后台恢复使用工作项的租户身份完成群信息读写，并在退出时恢复调用方上下文。
      *
      * @param candidate 当前执行行及上次失败原因
      * @param work 已持久化的管理员进群工作项
      * @return 可由事务服务收敛的进群结果
      */
     public PullTaskManagerJoinOutcome join(
+            PullTaskGroupExecution candidate,
+            PullTaskManagerJoinWork work) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(work.tenantId());
+        try {
+            return joinWithinTenant(candidate, work);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
+    }
+
+    private PullTaskManagerJoinOutcome joinWithinTenant(
             PullTaskGroupExecution candidate,
             PullTaskManagerJoinWork work) {
         GroupJoinCommand command = work.joinCommand();

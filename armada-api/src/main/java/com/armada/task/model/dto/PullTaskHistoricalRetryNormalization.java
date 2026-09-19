@@ -1,5 +1,7 @@
 package com.armada.task.model.dto;
 
+import java.util.List;
+
 /** 按最新 attempt 的真实协议结果修复历史待执行投影，状态码由业务层提供。 */
 public record PullTaskHistoricalRetryNormalization(
         Scope scope,
@@ -20,9 +22,9 @@ public record PullTaskHistoricalRetryNormalization(
     public record AttemptState(int closed, int released, String unknownOutcome, String failedOutcome) {
     }
 
-    /** 总尝试预算及允许未知重试所必需的未执行或名单事实。 */
+    /** 总尝试预算及允许未知重试的未执行、名单或账号受限事实。 */
     public record RetryRule(
             int maxAttempts, String notStarted, String uncertain, String confirmedAbsenceReason,
-            String retryableFailureReason) {
+            String retryableFailureReason, List<String> retryableAccountRiskReasons) {
     }
 }

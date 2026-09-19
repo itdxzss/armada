@@ -51,7 +51,11 @@ class GroupPullRetryPolicyTest {
     @Test
     void recognizesExplicitGroupBanFromUnifiedOrProtocolCode() {
         assertThat(GroupPullRetryPolicy.isGroupBanned(new ProtocolException(
-                ProtocolErrorCode.GROUP_UNAVAILABLE, "群不可用"))).isTrue();
+                ProtocolErrorCode.GROUP_UNAVAILABLE, "群不可用"))).isFalse();
+        assertThat(GroupPullRetryPolicy.isGroupBanned(new ProtocolException(
+                ProtocolErrorCode.GROUP_BANNED, "群组已封禁"))).isTrue();
+        assertThat(GroupPullRetryPolicy.isGroupBanned(new ProtocolException(
+                ProtocolErrorCode.GROUP_FULL, "群人数已满"))).isFalse();
         assertThat(GroupPullRetryPolicy.isGroupBanned(new ProtocolException(
                 ProtocolErrorCode.HTTP_ERROR,
                 ProtocolException.Metadata.of(400, "CHAT_TERMINATED", null, null),

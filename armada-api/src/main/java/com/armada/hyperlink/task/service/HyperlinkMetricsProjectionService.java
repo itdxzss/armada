@@ -19,6 +19,7 @@ import java.util.TreeSet;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 /** recipient 唯一事实到 runtime/round/account_stat 的幂等投影与 reconciliation。 */
 @Service
@@ -70,6 +71,16 @@ public class HyperlinkMetricsProjectionService {
         if (recipients.isEmpty()) { return 0; }
         long now = clock.millis();
         ProjectionBatch batch = aggregate(recipients);
+        applyProjection(batch, now);
+        List<Long> recipientIds = recipients.stream().map(HyperlinkTaskRecipient::getId).toList();
+        if (recipientMapper.markProjectionBatch(recipientIds, now) != recipients.size()) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
+                    "超链 recipient 指标投影状态冲突");
+        }
+        return recipients.size();
+    }
+
+    private void applyProjection(ProjectionBatch batch, long now) {
         for (HyperlinkMetricsDelta delta : batch.rounds()) {
             requireUpdated(roundMapper.incrementProjection(delta, now), "超链轮次指标投影目标不存在");
         }
@@ -79,12 +90,69 @@ public class HyperlinkMetricsProjectionService {
         for (HyperlinkMetricsDelta delta : batch.tasks()) {
             requireUpdated(runtimeMapper.incrementProjection(delta, now), "超链任务指标投影目标不存在");
         }
-        List<Long> recipientIds = recipients.stream().map(HyperlinkTaskRecipient::getId).toList();
-        if (recipientMapper.markProjectionBatch(recipientIds, now) != recipients.size()) {
-            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT,
-                    "超链 recipient 指标投影状态冲突");
+    }
+
+    /** 重试回调在锁 usage/recipient 前取得任务、轮次锁，和派发及异步投影保持顺序一致。 */
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
+    public void lockRetryScope(HyperlinkTaskRecipient recipient) {
+        lockProjectionScopes(List.of(recipient));
+    }
+
+    /** 调用方已锁定 runtime、round、usage、recipient；只结清这一条后迁移到未分配桶。 */
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
+    public void requeueSystemFailure(HyperlinkTaskRecipient recipient) {
+        long now = recipient.getUpdatedAt();
+        if (recipient.getSendStatus() != HyperlinkRecipientStatus.SENDING.code()) {
+            throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT);
         }
-        return recipients.size();
+        if (recipient.getMetricsProjectedStatus() != HyperlinkRecipientStatus.SENDING.code()) {
+            applyProjection(aggregate(List.of(recipient)), now);
+            requireUpdated(recipientMapper.markProjectionBatch(List.of(recipient.getId()), now),
+                    "重试前单条发送投影冲突");
+            recipient.setMetricsProjectedStatus(HyperlinkRecipientStatus.SENDING.code());
+            recipient.setMetricsProjectedAt(now);
+        }
+        requireUpdated(recipientMapper.requeueAfterSystemFailure(recipient), "重试目标已被并发推进");
+        requireUpdated(roundMapper.removeRetryAssignment(recipient, now), "旧轮次重试归属不存在");
+        if (recipient.getSubmittedAt() != null) {
+            removeAccountSubmission(recipient, recipient.getAccountId(), now);
+            accountStatMapper.incrementProjection(List.of(scopeDelta(recipient, null, null, 0, 1)), now);
+        }
+        refreshTaskUsage(recipient, now);
+    }
+
+    /** 重试目标重新分配后同步补回新归属；2→2 不依赖生成列触发异步投影。 */
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
+    public void restoreRetryAssignment(HyperlinkTaskRecipient recipient, long now) {
+        if (recipient.getMetricsProjectedAt() == null) { return; }
+        int sent = recipient.getSubmittedAt() == null ? 0 : 1;
+        requireUpdated(roundMapper.incrementProjection(scopeDelta(recipient,
+                recipient.getHyperlinkTaskRoundId(), recipient.getAccountId(), 1, sent), now),
+                "重试的新轮次不存在");
+        if (sent != 0) {
+            removeAccountSubmission(recipient, null, now);
+            accountStatMapper.incrementProjection(List.of(scopeDelta(recipient,
+                    null, recipient.getAccountId(), 0, sent)), now);
+        }
+        refreshTaskUsage(recipient, now);
+    }
+
+    private void removeAccountSubmission(HyperlinkTaskRecipient recipient, Long accountId, long now) {
+        requireUpdated(accountStatMapper.removeRetrySubmission(recipient, accountId, now),
+                "重试的旧账号提交投影不存在");
+        accountStatMapper.deleteEmptyRetryBucket(recipient.getHyperlinkTaskId(), accountId);
+    }
+
+    private void refreshTaskUsage(HyperlinkTaskRecipient recipient, long now) {
+        requireUpdated(runtimeMapper.incrementProjection(scopeDelta(recipient, null, null, 0, 0), now),
+                "重试的任务投影不存在");
+    }
+
+    private HyperlinkMetricsDelta scopeDelta(HyperlinkTaskRecipient recipient,
+            Long roundId, Long accountId, int assigned, int sent) {
+        Long submitted = sent == 0 ? null : recipient.getSubmittedAt();
+        return new HyperlinkMetricsDelta(recipient.getTenantId(), recipient.getHyperlinkTaskId(),
+                roundId, accountId, assigned, sent, 0, 0, 0, 0, 0, submitted, submitted);
     }
 
     /** 按指定任务从 recipient 事实全量校准三个投影；不用于分钟级主路径。 */

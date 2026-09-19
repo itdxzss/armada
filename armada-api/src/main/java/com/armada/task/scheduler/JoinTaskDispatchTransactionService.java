@@ -183,7 +183,8 @@ public class JoinTaskDispatchTransactionService {
                                        Map<Long, JoinTask> tasks,
                                        long now) {
         JoinTask task = tasks.computeIfAbsent(row.getJoinTaskId(), taskMapper::selectByTenantAndId);
-        if (task == null || resultMapper.markTerminalFailure(row.getId(), reason, now) != 1) {
+        if (task == null || resultMapper.markTerminalFailure(
+                row.getId(), reason, now, row.getCommandId(), row.getAttemptNo()) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "进群任务明细状态已变化");
         }
         resultMapper.activateNextPending(

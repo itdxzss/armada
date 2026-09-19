@@ -1,5 +1,6 @@
 package com.armada.task.mapper;
 
+import com.armada.task.model.dto.JoinTaskRetryTransition;
 import com.armada.boot.Application;
 import com.armada.task.model.dto.JoinTaskDeadCommandCandidate;
 import com.armada.task.model.dto.JoinTaskDispatchCandidate;
@@ -85,9 +86,9 @@ class JoinTaskDispatchMapperDbTest extends DbTestBase {
 
         assertThat(resultMapper.markSubmitted(
                 account101First.getId(), "join-command-1", 1, now + 10)).isEqualTo(1);
-        assertThat(resultMapper.selectSubmittedForUpdate(
+        assertThat(resultMapper.selectSubmitted(
                 account101First.getId(), "stale-command", 1)).isNull();
-        assertThat(resultMapper.selectSubmittedForUpdate(
+        assertThat(resultMapper.selectSubmitted(
                 account101First.getId(), "join-command-1", 1)).isNotNull();
 
         // 这个时间通常由前一条终态后的 activateNextPending 设置；直接写入用于隔离验证 lane 闸门。
@@ -119,7 +120,7 @@ class JoinTaskDispatchMapperDbTest extends DbTestBase {
         assertThat(resultMapper.markSubmitted(first.getId(), "attempt-1", 1, now)).isEqualTo(1);
 
         long retryAt = now + 5_000;
-        assertThat(resultMapper.markRetry(first.getId(), "NETWORK_ERROR", retryAt, now + 100)).isEqualTo(1);
+        assertThat(resultMapper.markRetry(new JoinTaskRetryTransition(first.getId(), "NETWORK_ERROR", retryAt, now + 100, "attempt-1", 1))).isEqualTo(1);
         JoinTaskResult waitingRetry = rows(task.getId()).get(0);
         assertThat(waitingRetry.getDispatchState()).isEqualTo(JoinTaskDispatchState.WAITING);
         assertThat(waitingRetry.getCommandId()).isNull();
@@ -130,9 +131,9 @@ class JoinTaskDispatchMapperDbTest extends DbTestBase {
         assertThat(resultMapper.markSubmitted(first.getId(), "too-early", 2, retryAt - 1)).isZero();
         assertThat(resultMapper.markSubmitted(first.getId(), "attempt-2", 2, retryAt)).isEqualTo(1);
         assertThat(resultMapper.markTerminalSuccess(
-                first.getId(), "120363000001@g.us", retryAt + 100)).isEqualTo(1);
+                first.getId(), "120363000001@g.us", retryAt + 100, "attempt-2", 2)).isEqualTo(1);
         assertThat(resultMapper.markTerminalFailure(
-                first.getId(), "LATE_FAILURE", retryAt + 101)).isZero();
+                first.getId(), "LATE_FAILURE", retryAt + 101, "attempt-2", 2)).isZero();
 
         long nextLaneAt = retryAt + 3_000;
         assertThat(resultMapper.activateNextPending(
@@ -149,7 +150,7 @@ class JoinTaskDispatchMapperDbTest extends DbTestBase {
 
         assertThat(taskMapper.markDoneWhenNoPending(task.getId(), nextLaneAt)).isZero();
         assertThat(resultMapper.markTerminalFailure(
-                second.getId(), "INVALID_INVITE", nextLaneAt + 1)).isEqualTo(1);
+                second.getId(), "INVALID_INVITE", nextLaneAt + 1, null, 0)).isEqualTo(1);
         assertThat(taskMapper.markDoneWhenNoPending(task.getId(), nextLaneAt + 2)).isEqualTo(1);
         assertThat(taskMapper.selectByTenantAndId(task.getId()).getStatus()).isEqualTo("DONE");
     }

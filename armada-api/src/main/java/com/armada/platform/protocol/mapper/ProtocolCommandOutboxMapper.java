@@ -15,6 +15,11 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface ProtocolCommandOutboxMapper {
+    /** 查询当前租户管理员命令状态。 */
+    Integer selectJoinTaskAdminCommandStatus(@Param("commandId") String commandId);
+    /** 当前租户管理员命令取消；发送中的命令只请求收口。 */
+    int cancelJoinTaskAdminCommand(@Param("commandId") String commandId, @Param("now") long now);
+
 
     /** 按租户插件、账号及上线尝试精确读取冻结代理 ID，不读取凭据。 */
     Long selectOnlineAttemptProxyId(@Param("accountId") Long accountId,

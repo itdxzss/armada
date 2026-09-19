@@ -2,6 +2,8 @@ package com.armada.group.model.dto;
 
 import com.armada.shared.paging.PageQuery;
 import com.armada.group.model.enums.GroupListType;
+import com.armada.group.model.enums.GroupControlRelation;
+import java.util.List;
 
 /**
  * 群链接列表查询参数(可变 class extends PageQuery,供 @ModelAttribute 绑定)。
@@ -43,6 +45,27 @@ public class GroupLinkQuery extends PageQuery {
 
     /** 是否存在严格可执行的在线管理员账号。 */
     private Boolean availableAdmin;
+
+    /** 控制关系多选，选项之间 OR，与其余条件 AND；空集合表示不筛选。 */
+    private List<GroupControlRelation> controlRelations = List.of();
+
+    /** 返回已去重的控制关系筛选项。 */
+    public List<GroupControlRelation> getControlRelations() {
+        return controlRelations;
+    }
+
+    /** 保存绑定后的枚举集合；非法枚举由请求参数绑定拒绝。 */
+    public void setControlRelations(List<GroupControlRelation> values) {
+        if (values != null && values.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("控制关系筛选项不能为空");
+        }
+        controlRelations = values == null ? List.of() : values.stream().distinct().toList();
+    }
+
+    /** SQL 条件化 JOIN 与筛选共享此开关。 */
+    public boolean isControlRelationFiltered() {
+        return !controlRelations.isEmpty();
+    }
 
     /** 最小成员数，含端点。 */
     private Integer memberCountMin;

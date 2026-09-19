@@ -17,6 +17,22 @@ import org.springframework.web.client.RestClient;
 class HttpGroupMetadataAdapterTest {
 
     @Test
+    void declaredSizeMismatchCannotBecomeACompleteSnapshot() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GroupMetadataPort port = new HttpGroupMetadataAdapter(new ProtocolHttpExecutor(builder.build()));
+        server.expect(requestTo("http://protocol-master.internal/v1/groups/test@g.us/metadata?accountId=acc_7"))
+                .andRespond(withSuccess("""
+                        {"id":"test@g.us","owner":"123456@lid","ownerPn":"10000000001@s.whatsapp.net",
+                         "size":2,"participants":[{"id":"10000000002@s.whatsapp.net","admin":"admin"}]}
+                        """, MediaType.APPLICATION_JSON));
+        GroupMetadataResult result = port.getMetadata("acc_7", "test@g.us");
+        assertThat(result.participantsComplete()).isFalse();
+        assertThat(result.creatorPhone()).isEqualTo("10000000001");
+        server.verify();
+    }
+
+    @Test
     void getMetadataMapsStableGroupDetailAndParticipantIdentity() {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://protocol-master.internal");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();

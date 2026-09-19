@@ -62,10 +62,10 @@ public final class GroupPullRetryPolicy {
      * 判断协议异常是否明确表示目标群已封禁或终止。
      *
      * @param exception 协议调用异常
-     * @return 统一错误码或协议原始码明确表示群不可用时返回 true
+     * @return 统一错误码或协议原始码明确表示群封禁时返回 true
      */
     public static boolean isGroupBanned(ProtocolException exception) {
-        if (exception.errorCode() == ProtocolErrorCode.GROUP_UNAVAILABLE) {
+        if (exception.errorCode() == ProtocolErrorCode.GROUP_BANNED) {
             return true;
         }
         return exception.protocolCode()

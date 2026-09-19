@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.group.mapper.GroupLinkPreviewMapper;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
@@ -57,6 +59,84 @@ class GroupMetadataSnapshotServiceImplTest {
 
     @Mock
     private CountryService countryService;
+
+    @Test
+    void httpSnapshotWithMissingPnUsesLegacyJidWithoutPromotingMembers() {
+        GroupMetadataSyncTask task = task();
+        task.setGroupJid("916375552817-1517537054@g.us");
+        GroupExecutionAccount reader = account(false);
+        GroupMetadataResult metadata = new GroupMetadataResult(
+                task.getGroupJid(), "历史群", null, "47970506555552@lid", null,
+                1_722_470_400L, true, false, null, null, null, null, null,
+                false, null, false, true,
+                List.of(new GroupParticipantResult("916375552817@s.whatsapp.net", null,
+                        "916375552817", false, false, "participant")));
+        when(metadataPort.getMetadata(reader.protocolRef(), task.getGroupJid())).thenReturn(metadata);
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("916375552817")))
+                .thenReturn(Map.of("916375552817", new CountryReferenceVO(1L, "IN", "印度", "+91", "", "ASIA")));
+        service().execute(task, reader);
+        ArgumentCaptor<GroupLinkPreview> preview = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WhatsappGroupMemberSnapshot>> members = ArgumentCaptor.forClass(List.class);
+        verify(persistence).persist(preview.capture(), members.capture());
+        assertThat(preview.getValue().getOwnerPhone()).isEqualTo("916375552817");
+        assertThat(preview.getValue().getCreatorPhoneSource()).isEqualTo(1);
+        assertThat(preview.getValue().getCreatorCountryIso2()).isEqualTo("IN");
+        assertThat(preview.getValue().getCreatorContinentCode()).isEqualTo("ASIA");
+        assertThat(members.getValue()).singleElement().satisfies(member -> {
+            assertThat(member.getIsAdmin()).isFalse();
+            assertThat(member.getIsOwner()).isFalse();
+        });
+    }
+
+    @Test
+    void resolvedHistoricalCreatorDoesNotPromoteOrdinaryMemberToAdmin() {
+        GroupMetadataSyncTask task = task();
+        GroupExecutionAccount reader = account(false);
+        GroupMetadataResult metadata = new GroupMetadataResult(
+                task.getGroupJid(), "历史群", null, "47970506555552@lid", "2348083697499",
+                1_722_470_400L, true, false, null, null, null, null, null,
+                false, null, false, true,
+                List.of(new GroupParticipantResult("47970506555552@lid", null,
+                        "2348083697499", false, false, "participant")));
+        when(metadataPort.getMetadata(reader.protocolRef(), task.getGroupJid())).thenReturn(metadata);
+        when(countryService.resolveActiveCountriesByPhoneNumbers(List.of("2348083697499")))
+                .thenReturn(Map.of());
+        service().execute(task, reader);
+        ArgumentCaptor<GroupLinkPreview> preview = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<WhatsappGroupMemberSnapshot>> members = ArgumentCaptor.forClass(List.class);
+        verify(persistence).persist(preview.capture(), members.capture());
+        assertThat(preview.getValue().getOwnerPhone()).isEqualTo("2348083697499");
+        assertThat(preview.getValue().getCreatorCountryObserved()).isFalse();
+        assertThat(members.getValue()).singleElement().satisfies(member -> {
+            assertThat(member.getIsAdmin()).isFalse();
+            assertThat(member.getIsOwner()).isFalse();
+        });
+        verifyNoInteractions(invitePort);
+    }
+
+    @Test
+    void unresolvedCreatorDoesNotUseSuperadminPhoneOrAdvertiseDeletion() {
+        GroupMetadataSyncTask task = task();
+        GroupExecutionAccount reader = account(false);
+        GroupMetadataResult metadata = new GroupMetadataResult(
+                task.getGroupJid(), "历史群", null, "47970506555552@lid", null,
+                1_722_470_400L, true, false, null, null, null, null, null,
+                false, null, false, true,
+                List.of(new GroupParticipantResult("8613800000000@s.whatsapp.net", null,
+                        "8613800000000", true, true, "superadmin")));
+        when(metadataPort.getMetadata(reader.protocolRef(), task.getGroupJid())).thenReturn(metadata);
+
+        service().execute(task, reader);
+
+        ArgumentCaptor<GroupLinkPreview> preview = ArgumentCaptor.forClass(GroupLinkPreview.class);
+        verify(persistence).persist(preview.capture(), org.mockito.ArgumentMatchers.anyList());
+        assertThat(preview.getValue().getOwnerPhone()).isNull();
+        assertThat(preview.getValue().getOwnerPhoneObserved()).isFalse();
+        assertThat(preview.getValue().getCreatorCountryObserved()).isFalse();
+        verifyNoInteractions(countryService);
+    }
 
     @Test
     void administratorPersistsCompleteMetadataInviteGeoAndOwnerFirstSnapshot() {
@@ -263,7 +343,7 @@ class GroupMetadataSnapshotServiceImplTest {
                 new GroupMetadataSyncProtocolPorts(metadataPort, invitePort),
                 persistence,
                 selector,
-                countryService,
+                new GroupCreatorCompatibilityWriter(org.mockito.Mockito.mock(GroupLinkPreviewMapper.class), countryService),
                 new GroupMetadataSyncMetrics());
     }
 
@@ -286,6 +366,7 @@ class GroupMetadataSnapshotServiceImplTest {
                 "历史群",
                 "群说明",
                 "8613800000000@s.whatsapp.net",
+                "8613800000000",
                 creation,
                 complete,
                 false,

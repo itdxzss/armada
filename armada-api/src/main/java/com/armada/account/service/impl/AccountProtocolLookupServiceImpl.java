@@ -297,6 +297,29 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
                 .toList();
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public List<ProtocolAccountRef> findOnlineEligibleManagersByGroupId(Long groupId) {
+        if (groupId == null) {
+            return List.of();
+        }
+        return accountMapper.selectEligibleManagers(groupId, List.of(), PullTaskAccountEligibility.ACCOUNT_STATES)
+                .stream().map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
+                .flatMap(Optional::stream).toList();
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public List<ProtocolAccountRef> findEligibleManagerProtocolRefs(List<Long> accountIds) {
+        List<Long> ids = normalizeIds(accountIds);
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return accountMapper.selectEligibleManagers(null, ids, PullTaskAccountEligibility.ACCOUNT_STATES)
+                .stream().map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
+                .flatMap(Optional::stream).toList();
+    }
+
     private static List<Long> normalizeIds(List<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             return List.of();

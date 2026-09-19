@@ -21,6 +21,9 @@ public enum JoinTaskFailureReason {
     /** 群设置需要管理员审核,协议层已提交进群申请但未立即入群。 */
     JOIN_PENDING_APPROVAL("JOIN_PENDING_APPROVAL", "进群待审核"),
 
+    /** 具体失败阶段和原因由审核恢复记录提供。 */
+    JOIN_APPROVAL_FAILED("JOIN_APPROVAL_FAILED", "进群审核自动处理失败"),
+
     /** 协议层或 worker 返回了未细分的内部错误。 */
     INTERNAL_ERROR("INTERNAL_ERROR", "进群失败，请检查群链接或稍后重试"),
 
@@ -93,8 +96,14 @@ public enum JoinTaskFailureReason {
     /** 群邀请链接已撤销或过期。 */
     INVITE_REVOKED("INVITE_REVOKED", "群邀请链接已失效"),
 
-    /** 群已封禁、满员、不存在或当前不可访问。 */
-    GROUP_UNAVAILABLE("GROUP_UNAVAILABLE", "群不可用或已封禁"),
+    /** 协议明确确认群组已封禁。 */
+    GROUP_BANNED("GROUP_BANNED", "群组已封禁"),
+
+    /** 群组人数已达到上限。 */
+    GROUP_FULL("GROUP_FULL", "群人数已满"),
+
+    /** 群不存在或当前不可访问，未确认具体原因。 */
+    GROUP_UNAVAILABLE("GROUP_UNAVAILABLE", "群组不可用"),
 
     /** 未识别的协议层失败。 */
     UNKNOWN("UNKNOWN", "进群失败");

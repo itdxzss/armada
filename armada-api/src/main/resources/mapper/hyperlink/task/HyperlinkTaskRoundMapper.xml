@@ -91,6 +91,19 @@
           updated_at=#{now}
         WHERE r.hyperlink_task_id=#{taskId}
     </update>
+    <update id="removeRetryAssignment">
+        UPDATE hyperlink_task_round SET assigned_recipient_count=assigned_recipient_count-1,
+          send_total=send_total-CASE WHEN #{recipient.submittedAt} IS NULL THEN 0 ELSE 1 END,
+          last_send_at=CASE WHEN last_send_at=#{recipient.submittedAt}
+            THEN (SELECT MAX(r.submitted_at) FROM hyperlink_task_recipient r
+              WHERE r.tenant_id=#{recipient.tenantId} AND r.hyperlink_task_id=#{recipient.hyperlinkTaskId}
+                AND r.hyperlink_task_round_id=#{recipient.hyperlinkTaskRoundId}
+                AND r.id&lt;&gt;#{recipient.id} AND r.metrics_projected_status&lt;&gt;1)
+            ELSE last_send_at END, updated_at=#{now}
+        WHERE tenant_id=#{recipient.tenantId} AND hyperlink_task_id=#{recipient.hyperlinkTaskId}
+          AND id=#{recipient.hyperlinkTaskRoundId} AND assigned_recipient_count&gt;0
+          AND send_total&gt;=CASE WHEN #{recipient.submittedAt} IS NULL THEN 0 ELSE 1 END
+    </update>
     <update id="incrementProjection">
         UPDATE hyperlink_task_round SET
           assigned_recipient_count=assigned_recipient_count+#{delta.assignedRecipientDelta},

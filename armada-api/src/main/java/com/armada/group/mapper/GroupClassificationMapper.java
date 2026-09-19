@@ -63,7 +63,7 @@ public interface GroupClassificationMapper {
             @Param("updatedAt") long updatedAt);
 
     /**
-     * 对已经由锁定 current read 确认为未分类的行批量写入首次分类。
+     * 对读取为未分类的行执行条件批量更新。
      *
      * @param tenantId 当前租户 ID
      * @param writes 已按群 JID 排序的首次分类参数
@@ -77,8 +77,7 @@ public interface GroupClassificationMapper {
             @Param("updatedAt") long updatedAt);
 
     /**
-     * 批量以 current read 读取当前租户 canonical 群的真实分类，供竞争输家收敛任务语义。
-     * 锁定读不能退化为 REPEATABLE READ 的事务早期快照，否则输家可能看不到刚提交的胜者。
+     * 普通读取当前租户 canonical 群分类；并发胜负由首次分类条件 UPDATE 决定。
      *
      * @param tenantId 当前租户 ID
      * @param groupJids 规范群 JID，不能为空集合

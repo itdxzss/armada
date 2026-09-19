@@ -102,21 +102,37 @@ class HyperlinkRoundLifecycleServiceTest {
     }
 
     @Test
-    void exhaustedSystemRecoveryPausesWithoutSettlingOrDiscardingRecipients() {
+    void legacyRecoveryHoldIsReleasedWithoutPausingOrDiscardingRecipients() {
         HyperlinkTaskRuntime runtime = runtime();
         runtime.setProvisionStatus(2);
         when(runtimes.selectByTaskIdForUpdate(7L, 11L)).thenReturn(runtime);
         when(tasks.selectById(11L)).thenReturn(task(HyperlinkTaskMode.INSTANT));
         when(rounds.selectActive(11L)).thenReturn(round(HyperlinkTaskRoundStatus.READY));
         when(recipients.hasRecoveryHold(11L, Long.MAX_VALUE)).thenReturn(true);
-        when(runtimes.transition(11L, true, 1, true, 3, 2, NOW)).thenReturn(1);
+        when(selection.selectionCap(any())).thenReturn(2);
+        when(rounds.beginSelection(21L, HyperlinkTaskRoundStatus.READY.code(), NOW)).thenReturn(1);
         service.advance(11L);
-        InOrder order = inOrder(runtimes, rounds, recipients);
-        order.verify(runtimes).transition(11L, true, 1, true, 3, 2, NOW);
-        order.verify(rounds).pauseActive(11L, NOW);
-        order.verify(recipients).releaseRecoveryHolds(11L, Long.MAX_VALUE, NOW);
+        verify(runtimes, never()).transition(11L, true, 1, true, 3, 2, NOW);
+        verify(rounds, never()).pauseActive(anyLong(), anyLong());
+        verify(recipients).releaseRecoveryHolds(11L, Long.MAX_VALUE, NOW);
+        verify(selection).select(any(), any(), org.mockito.ArgumentMatchers.eq(NOW));
         verify(rounds, never()).markCompleted(anyLong(), anyLong());
         org.mockito.Mockito.verifyNoInteractions(cleanup);
+    }
+
+    @Test
+    void manualPauseRemainsPausedEvenWithLegacyRecoveryHold() {
+        HyperlinkTaskRuntime paused = runtime();
+        paused.setRunStatus(HyperlinkTaskRunStatus.PAUSED.code());
+        when(runtimes.selectByTaskIdForUpdate(7L, 11L)).thenReturn(paused);
+        when(tasks.selectById(11L)).thenReturn(task(HyperlinkTaskMode.INSTANT));
+        when(rounds.selectActive(11L)).thenReturn(round(HyperlinkTaskRoundStatus.PAUSED));
+        when(recipients.hasRecoveryHold(11L, Long.MAX_VALUE)).thenReturn(true);
+
+        service.advance(11L);
+
+        verify(recipients, never()).releaseRecoveryHolds(anyLong(), anyLong(), anyLong());
+        org.mockito.Mockito.verifyNoInteractions(selection);
     }
 
     @Test
@@ -170,6 +186,55 @@ class HyperlinkRoundLifecycleServiceTest {
 
         verify(cleanup).begin(11L, true, NOW);
         verify(selection, never()).select(any(), any(), anyLong());
+    }
+
+    @Test
+    void bannedAccountsWithUnknownMessagesDoNotBlockInstantReplacement() {
+        HyperlinkTask task = task(HyperlinkTaskMode.INSTANT);
+        task.setMaxUseAccount(10);
+        HyperlinkTaskRound round = round(HyperlinkTaskRoundStatus.WAITING_RESULT);
+        when(tasks.selectById(11L)).thenReturn(task);
+        when(rounds.selectActive(11L)).thenReturn(round);
+        when(recipients.countSendingByRoundId(21L)).thenReturn(2);
+        when(rounds.beginSelection(21L, HyperlinkTaskRoundStatus.WAITING_RESULT.code(), NOW)).thenReturn(1);
+        when(selection.selectionCap(task)).thenReturn(2);
+        when(selection.select(task, round, NOW)).thenReturn(2);
+
+        service.advance(11L);
+
+        verify(selection).select(task, round, NOW);
+        verify(rounds).updateSelection(21L, 0, 2, HyperlinkTaskRoundStatus.READY.code(), NOW, NOW);
+        verify(rounds, never()).markWaitingResult(21L, NOW);
+    }
+
+    @Test
+    void partialLossReplenishesOneVacancyWhileTheSurvivorIsStillSending() {
+        HyperlinkTask task = task(HyperlinkTaskMode.INSTANT);
+        task.setMaxUseAccount(10);
+        HyperlinkTaskRound round = round(HyperlinkTaskRoundStatus.DISPATCHING);
+        when(tasks.selectById(11L)).thenReturn(task);
+        when(rounds.selectActive(11L)).thenReturn(round);
+        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(1);
+        when(roundAccounts.countExecutingByRoundId(21L)).thenReturn(1);
+        when(selection.selectionCap(task)).thenReturn(2);
+        when(recipients.countSendingByRoundId(21L)).thenReturn(3);
+        when(rounds.beginSelection(21L, HyperlinkTaskRoundStatus.DISPATCHING.code(), NOW)).thenReturn(1);
+        service.advance(11L);
+        verify(selection).select(task, round, NOW);
+    }
+
+    @Test
+    void activeReservedAccountsCannotOverfillConcurrencyWhileWaitingForAck() {
+        HyperlinkTask task = task(HyperlinkTaskMode.INSTANT);
+        HyperlinkTaskRound round = round(HyperlinkTaskRoundStatus.DISPATCHING);
+        when(tasks.selectById(11L)).thenReturn(task);
+        when(rounds.selectActive(11L)).thenReturn(round);
+        when(roundAccounts.countExecutingByRoundId(21L)).thenReturn(2);
+        when(selection.selectionCap(task)).thenReturn(2);
+        when(recipients.countSendingByRoundId(21L)).thenReturn(2);
+        service.advance(11L);
+        verify(selection, never()).select(any(), any(), anyLong());
+        verify(rounds).markWaitingResult(21L, NOW);
     }
 
     @Test

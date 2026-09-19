@@ -1,7 +1,6 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.dto.AccountGroupsReportedEvent;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
@@ -43,7 +42,7 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
     private static final int OWNER_PHONE_MAX_LENGTH = 32;
 
     private final GroupLinkMapper groupLinkMapper;
-    private final GroupLinkPreviewMapper previewMapper;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
     private final GroupLinkRegistryService groupLinkRegistryService;
     private final GroupClassificationService classificationService;
 
@@ -51,16 +50,16 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
      * 创建账号可见群关系快照写入服务。
      *
      * @param groupLinkMapper  群链接 mapper
-     * @param previewMapper 创建者字段兼容 mapper
+     * @param creatorWriter 创建者及地区统一解析和写入服务
      * @param groupLinkRegistryService 群组池登记服务
      * @param classificationService 历史群与上控后群分类服务
      */
     public AccountGroupMembershipSnapshotServiceImpl(GroupLinkMapper groupLinkMapper,
-                                                     GroupLinkPreviewMapper previewMapper,
+                                                     GroupCreatorCompatibilityWriter creatorWriter,
                                                      GroupLinkRegistryService groupLinkRegistryService,
                                                      GroupClassificationService classificationService) {
         this.groupLinkMapper = groupLinkMapper;
-        this.previewMapper = previewMapper;
+        this.creatorWriter = creatorWriter;
         this.groupLinkRegistryService = groupLinkRegistryService;
         this.classificationService = classificationService;
     }
@@ -215,13 +214,13 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
             long now) {
         List<GroupLinkPreview> rows = resolvedGroups.stream()
                 .map(resolved -> {
-                    OwnerPhoneObservation owner = ownerPhoneObservation(resolved.group());
-                    if (!owner.observed()) {
-                        return null;
-                    }
+                    WhatsappJids.OwnerIdentity owner = WhatsappJids.ownerIdentity(
+                            resolved.group().ownerPhone(), "pn");
                     GroupLinkPreview row = new GroupLinkPreview();
                     row.setGroupLinkId(resolved.groupLinkId());
-                    row.setOwnerPhone(clamp(owner.phone(), OWNER_PHONE_MAX_LENGTH));
+                    row.setGroupJid(resolved.groupJid());
+                    row.setOwnerPhone(clamp(
+                            owner.kind() == OwnerIdentityKind.PN ? owner.ownerPhone() : null, OWNER_PHONE_MAX_LENGTH));
                     row.setOwnerPhoneObserved(true);
                     row.setCreatorCountryObserved(false);
                     row.setLastPreviewAt(syncAt);
@@ -230,10 +229,9 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
                     row.setUpdatedAt(now);
                     return row;
                 })
-                .filter(java.util.Objects::nonNull)
                 .toList();
         if (!rows.isEmpty()) {
-            previewMapper.upsertCreatorCompatibility(rows);
+            creatorWriter.writeCreators(rows);
         }
     }
 
@@ -260,22 +258,6 @@ public class AccountGroupMembershipSnapshotServiceImpl implements AccountGroupMe
 
     private static String accountSyncLinkUrl(String groupJid) {
         return ACCOUNT_SYNC_LINK_PREFIX + groupJid;
-    }
-
-    private static OwnerPhoneObservation ownerPhoneObservation(
-            AccountGroupsReportedEvent.Group group) {
-        WhatsappJids.OwnerIdentity explicitPhone = WhatsappJids.ownerIdentity(group.ownerPhone(), "pn");
-        if (explicitPhone.kind() == OwnerIdentityKind.PN) {
-            return new OwnerPhoneObservation(explicitPhone.ownerPhone(), true);
-        }
-        WhatsappJids.OwnerIdentity owner = WhatsappJids.ownerIdentity(group.ownerJid(), null);
-        if (owner.kind() == OwnerIdentityKind.LID) {
-            return new OwnerPhoneObservation(null, true);
-        }
-        return new OwnerPhoneObservation(null, false);
-    }
-
-    private record OwnerPhoneObservation(String phone, boolean observed) {
     }
 
     private static String normalizeJid(String value) {

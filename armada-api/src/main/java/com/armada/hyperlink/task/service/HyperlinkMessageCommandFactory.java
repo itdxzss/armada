@@ -14,6 +14,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.net.URI;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
@@ -70,10 +71,15 @@ public class HyperlinkMessageCommandFactory {
             HyperlinkTaskContent content, HyperlinkTaskRecipient recipient) {
         String targetUrl = Boolean.TRUE.equals(task.getShortLinkEnabled())
                 ? shortLinkGuard.publicUrl(recipient.getShortCode()) : content.getPromotionLink();
+        String title = content.getTitle();
+        if (title == null || title.isBlank()) {
+            // 链接预览协议要求非空标题；业务留空时仅显示目标站点，不复制正文。
+            title = URI.create(targetUrl).getHost();
+        }
         return new MessageSendCommand.MessagePayload(MessageType.LINK_CARD,
                 new MessageSendCommand.MessageContent(content.getContent(), null,
                         new MessageSendCommand.MessageLinkCard(targetUrl,
-                                content.getTitle(), content.getLinkDescription(),
+                                title, content.getLinkDescription(),
                                 media(content.getLinkPreviewAssetId())), null), false, null);
     }
 

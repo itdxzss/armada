@@ -1,5 +1,7 @@
 package com.armada.group.model.entity;
 
+import com.armada.group.model.enums.GroupCreatorPhoneSource;
+
 /** 群链接协议预览元数据实体,映射 group_link_preview。 */
 public class GroupLinkPreview {
 
@@ -33,6 +35,9 @@ public class GroupLinkPreview {
 
     /** 群主号码。 */
     private String ownerPhone;
+
+    /** 创建者来源：1 老格式群 JID 推导，2 协议确认；旧调用默认为协议确认。 */
+    private Integer creatorPhoneSource = GroupCreatorPhoneSource.CONFIRMED.code();
 
     /** 本次响应是否明确观察到群主身份；仅供 Mapper 三态更新，不对应数据库列。 */
     private Boolean ownerPhoneObserved;
@@ -189,6 +194,14 @@ public class GroupLinkPreview {
 
     public void setOwnerPhone(String ownerPhone) {
         this.ownerPhone = ownerPhone;
+    }
+
+    public Integer getCreatorPhoneSource() {
+        return creatorPhoneSource;
+    }
+
+    public void setCreatorPhoneSource(Integer creatorPhoneSource) {
+        this.creatorPhoneSource = creatorPhoneSource;
     }
 
     public Boolean getOwnerPhoneObserved() {

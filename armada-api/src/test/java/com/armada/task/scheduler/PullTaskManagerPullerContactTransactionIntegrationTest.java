@@ -81,6 +81,8 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     @BeforeEach
     void setUp() throws SQLException {
         reset(accountLookup, outboxService);
+        when(accountLookup.findEligibleManagerProtocolRefs(org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(invocation -> accountLookup.findActiveProtocolRefs(invocation.getArgument(0)));
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         execute("INSERT INTO pull_task "
@@ -461,6 +463,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
 
     @Test
     void noAvailablePullerWaitsOnlyThisExecutionRow() {
+        seedProtocolAccounts();
         when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of());
         PullTaskGroupExecution candidate = claim("worker-1", 600L, 900L);
 

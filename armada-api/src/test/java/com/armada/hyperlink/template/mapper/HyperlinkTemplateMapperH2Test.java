@@ -116,6 +116,22 @@ class HyperlinkTemplateMapperH2Test {
         assertThat(replacement.getId()).isNotEqualTo(row.getId());
     }
 
+    @Test
+    void optionalTitleCanBeSavedAndClearedWithoutLosingBody() {
+        HyperlinkTemplate row = template("正文模板", 3, 100L);
+        row.setTitle("");
+        row.setContent("完整正文");
+        assertThat(mapper.insert(row)).isEqualTo(1);
+        assertThat(mapper.selectById(row.getId()).getTitle()).isEmpty();
+        row.setTitle("后填标题");
+        assertThat(mapper.updateByIdAndVersion(row, 1)).isEqualTo(1);
+        row.setTitle("");
+        assertThat(mapper.updateByIdAndVersion(row, 2)).isEqualTo(1);
+        HyperlinkTemplate found = mapper.selectById(row.getId());
+        assertThat(found.getTitle()).isEmpty();
+        assertThat(found.getContent()).isEqualTo("完整正文");
+    }
+
     private static HyperlinkTemplate template(String name, int type, long timestamp) {
         HyperlinkTemplate row = new HyperlinkTemplate();
         row.setTemplateName(name);

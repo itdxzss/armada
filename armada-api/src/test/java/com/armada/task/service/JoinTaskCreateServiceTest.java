@@ -47,12 +47,16 @@ class JoinTaskCreateServiceTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(1L);
+        var principal = new com.armada.shared.security.AuthPrincipal(90L, 1L, "test", "test", "test", "test", List.of(), List.of());
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(principal, null, List.of()));
         service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService);
     }
 
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -73,7 +77,7 @@ class JoinTaskCreateServiceTest {
                 null,
                 false,
                 0,
-                "SKIP");
+                "SKIP", false, false);
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
@@ -200,7 +204,7 @@ class JoinTaskCreateServiceTest {
                 10,
                 true,
                 2,
-                "RETRY_THEN_EXPORT");
+                "RETRY_THEN_EXPORT", false, false);
     }
 
     private static SelectedAccount account(long id) {

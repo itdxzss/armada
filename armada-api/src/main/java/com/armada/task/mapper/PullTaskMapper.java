@@ -185,13 +185,32 @@ public interface PullTaskMapper {
     PullTask selectLifecycleForUpdate(@Param("id") long id);
 
     /**
-     * 用父任务版本号与当前运行数原子竞争一个执行槽位。
+     * 普通快照读检查名额，再以父任务版本号竞争启动资格。
      *
-     * <p>返回 0 表示父任务状态/版本已变化或当前槽位已满。调用方随后仍需使用执行行自身的
-     * 状态、版本和租约守卫把 {@code WAIT_START} 推进到 {@code EXECUTING}。</p>
+     * <p>检查与版本更新必须和调用方的执行行启动/资源恢复处于同一事务。普通 SELECT 在
+     * 同一快照内绑定父任务版本与运行数，避免 UPDATE 子查询在执行表上取得共享范围锁。
+     * 另一个调度事务若抢先启动，会同时递增父任务版本，使本次条件更新返回 0；即便读取了
+     * REPEATABLE READ 的旧快照，也不能凭旧版本再次启动。调用方仍需按执行行的状态、
+     * 版本和租约复核启动，不能将两步拆到独立提交的事务。</p>
      *
      * @param claim 父任务状态、版本及执行槽位条件
      * @return 1 表示取得槽位串行化令牌；0 表示条件不满足
      */
-    int acquireExecutionSlot(@Param("claim") PullTaskExecutionSlotClaim claim);
+    default int acquireExecutionSlot(PullTaskExecutionSlotClaim claim) {
+        return countAvailableExecutionSlot(claim) == 1 ? advanceExecutionSlotVersion(claim) : 0;
+    }
+
+    /**
+     * 同一非锁定快照内检查父任务版本、候选租约与并发上限。
+     * @param claim 需要绑定在同一读取快照内的名额检查条件
+     * @return 条件满足为 1，否则为 0
+     */
+    int countAvailableExecutionSlot(@Param("claim") PullTaskExecutionSlotClaim claim);
+
+    /**
+     * 仅更新父任务行的版本；由 acquireExecutionSlot 在名额快照校验后调用。
+     * @param claim 本次读取到的父任务状态和版本条件
+     * @return 成功取得启动资格为 1，条件已变化为 0
+     */
+    int advanceExecutionSlotVersion(@Param("claim") PullTaskExecutionSlotClaim claim);
 }

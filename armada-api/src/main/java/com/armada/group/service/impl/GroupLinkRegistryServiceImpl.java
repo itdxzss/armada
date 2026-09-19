@@ -1,7 +1,6 @@
 package com.armada.group.service.impl;
 
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.model.entity.GroupLink;
 import com.armada.group.model.entity.GroupLinkPreview;
 import com.armada.group.model.enums.AccountGroupMembershipStatus;
@@ -47,7 +46,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
     private final GroupLinkMapper groupLinkMapper;
 
     /** 旧列表创建者字段兼容数据访问。 */
-    private final GroupLinkPreviewMapper previewMapper;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
 
     /** 新群模型当前关系写入。 */
     private final AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence;
@@ -56,14 +55,14 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
      * 创建群组池登记服务。
      *
      * @param groupLinkMapper 群入口数据访问
-     * @param previewMapper 旧列表创建者字段兼容数据访问
+     * @param creatorWriter 创建者及地区统一解析和写入服务
      * @param currentSnapshotPersistence 新群模型当前关系写入
      */
     public GroupLinkRegistryServiceImpl(GroupLinkMapper groupLinkMapper,
-                                        GroupLinkPreviewMapper previewMapper,
+                                        GroupCreatorCompatibilityWriter creatorWriter,
                                         AccountGroupCurrentSnapshotPersistenceImpl currentSnapshotPersistence) {
         this.groupLinkMapper = groupLinkMapper;
-        this.previewMapper = previewMapper;
+        this.creatorWriter = creatorWriter;
         this.currentSnapshotPersistence = currentSnapshotPersistence;
     }
 
@@ -101,7 +100,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
             row.setCreatedAt(now);
             row.setUpdatedAt(now);
             groupLinkMapper.upsertAccountObservedGroup(row, normalizedName);
-            GroupLink resolved = groupLinkMapper.selectAnyByUrlForUpdate(row.getLinkUrl());
+            GroupLink resolved = groupLinkMapper.selectAnyByUrl(row.getLinkUrl());
             if (resolved == null || resolved.getId() == null) {
                 throw new BusinessException(ErrorCode.CONFLICT, "账号群入口登记失败");
             }
@@ -337,7 +336,7 @@ public class GroupLinkRegistryServiceImpl implements GroupLinkRegistryService {
         preview.setMetadataObservedAt(now);
         preview.setCreatedAt(now);
         preview.setUpdatedAt(now);
-        previewMapper.upsertCreatorCompatibility(List.of(preview));
+        creatorWriter.writeCreators(List.of(preview));
         currentSnapshotPersistence.applyConfirmedMetadata(preview);
         upsertKnownMembership(groupLinkId, normalizedJid, ownerAccountId, true, "SELF_BUILT", now);
         return groupLinkId;

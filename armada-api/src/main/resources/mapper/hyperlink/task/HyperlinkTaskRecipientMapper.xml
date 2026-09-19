@@ -293,12 +293,20 @@
           AND id=#{recipientId} AND command_id=#{commandId} FOR UPDATE
     </select>
     <select id="lockPending" resultType="com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient">
-        SELECT * FROM hyperlink_task_recipient
-        WHERE tenant_id=#{tenantId} AND hyperlink_task_id=#{taskId}
-          AND send_status=1 AND command_id IS NULL
-          AND hyperlink_task_round_id IS NULL AND next_dispatch_at&lt;=#{now}
-        ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
+        SELECT r.* FROM hyperlink_task_recipient r
+        WHERE r.tenant_id=#{tenantId} AND r.hyperlink_task_id=#{taskId}
+          AND r.send_status=1 AND r.command_id IS NULL
+          AND r.hyperlink_task_round_id IS NULL AND r.next_dispatch_at&lt;=#{now}
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_recipient_sender_rejection rejected
+            WHERE rejected.tenant_id=r.tenant_id AND rejected.recipient_id=r.id
+              AND rejected.account_id=#{accountId})
+        ORDER BY r.id LIMIT 1 FOR UPDATE SKIP LOCKED
     </select>
+    <insert id="rememberRejectedSender">
+        INSERT IGNORE INTO hyperlink_recipient_sender_rejection
+          (tenant_id, recipient_id, account_id, reason_code, created_at)
+        VALUES (#{tenantId}, #{id}, #{accountId}, #{failCode}, #{updatedAt})
+    </insert>
     <update id="assignCommand">
         UPDATE hyperlink_task_recipient SET hyperlink_task_round_id=#{hyperlinkTaskRoundId}, round_no=#{roundNo},
           account_id=#{accountId}, sender_phone_snapshot=#{senderPhoneSnapshot},
@@ -340,6 +348,17 @@
           send_status=1, next_dispatch_at=#{nextDispatchAt},
           fail_code=#{failCode}, fail_reason=#{failReason}, failed_at=NULL, updated_at=#{updatedAt}
         WHERE id=#{id} AND command_id=#{commandId} AND send_status=2
+    </update>
+    <update id="correctTimedOutResult">
+        UPDATE hyperlink_task_recipient SET send_status=#{sendStatus},
+          protocol_message_id=COALESCE(protocol_message_id, #{protocolMessageId}),
+          sent_at=COALESCE(sent_at, #{updatedAt}),
+          delivered_at=CASE WHEN #{sendStatus} IN (4,5) THEN COALESCE(delivered_at, #{updatedAt}) ELSE delivered_at END,
+          read_at=CASE WHEN #{sendStatus}=5 THEN COALESCE(read_at, #{updatedAt}) ELSE read_at END,
+          fail_code=NULL, fail_reason=NULL, failed_at=NULL, updated_at=#{updatedAt}
+        WHERE id=#{id} AND command_id=#{commandId} AND send_status=6
+          AND fail_code IN ('SEND_RESULT_TIMEOUT','BANNED_SEND_RESULT_TIMEOUT')
+          AND #{sendStatus} IN (3,4,5)
     </update>
     <update id="rememberUnknownResult">
         UPDATE hyperlink_task_recipient SET fail_code=#{failCode}, fail_reason=#{failReason},
@@ -403,10 +422,12 @@
     </update>
     <select id="selectReconciliationCandidates"
             resultType="com.armada.hyperlink.task.model.vo.HyperlinkReconciliationCandidate">
-        SELECT tenant_id, hyperlink_task_id AS task_id, id AS recipient_id,
-          account_id, command_id, protocol_backend, submitted_at
-        FROM hyperlink_task_recipient
-        WHERE send_status=2 AND command_id IS NOT NULL AND next_dispatch_at&lt;=#{now}
-        ORDER BY next_dispatch_at, id LIMIT #{limit}
+        SELECT r.tenant_id, r.hyperlink_task_id AS task_id, r.id AS recipient_id,
+          r.account_id, r.command_id, r.protocol_backend,
+          COALESCE(o.created_at, r.submitted_at, 0) AS command_created_at
+        FROM hyperlink_task_recipient r
+        LEFT JOIN protocol_command_outbox o ON o.tenant_id=r.tenant_id AND o.command_id=r.command_id
+        WHERE r.send_status=2 AND r.command_id IS NOT NULL AND r.next_dispatch_at&lt;=#{now}
+        ORDER BY r.next_dispatch_at, r.id LIMIT #{limit}
     </select>
 </mapper>

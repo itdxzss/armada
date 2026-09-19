@@ -144,7 +144,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 .thenReturn(List.of());
         when(mapper.selectGroupIdsWithoutLock(TENANT_ID, List.of(GROUP_JID)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
-        when(mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(100L)))
+        when(mapper.selectGroupIdsByIds(TENANT_ID, List.of(100L)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
         when(mapper.selectExistingAfterGroupLock(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", List.of(100L)))
@@ -188,11 +188,46 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     }
 
     @Test
+    void existingPhoneMemberDoesNotReenterInsertWhenNotificationCompletesLid() {
+        stubGroupId();
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of(new ParticipantIdentityRow(
+                        301L, 100L, "15550000001@s.whatsapp.net", null, "15550000001")));
+        when(mapper.updateParticipantFactsById(eq(TENANT_ID), eq(301L),
+                org.mockito.ArgumentMatchers.any(ParticipantPresenceWrite.class))).thenReturn(1);
+
+        persistence.applyParticipantObservations(List.of(new GroupParticipantObservation(
+                TENANT_ID, 20L, GROUP_JID, "213@lid", null, "15550000001", true, false,
+                WhatsappGroupMemberStateSource.ADD_EVENT, 5_000L, "add-shared")));
+
+        verify(mapper, org.mockito.Mockito.never()).upsertParticipantFacts(anyList());
+        ArgumentCaptor<ParticipantPresenceWrite> row = ArgumentCaptor.forClass(ParticipantPresenceWrite.class);
+        verify(mapper).updateParticipantFactsById(eq(TENANT_ID), eq(301L), row.capture());
+        assertThat(row.getValue().lidJid()).isEqualTo("213@lid");
+        assertThat(row.getValue().eventId()).isEqualTo("add-shared");
+    }
+
+    @Test
+    void concurrentlyChangedMemberAbortsInsteadOfLosingFactOrFallingBackToInsert() {
+        stubGroupId();
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
+                .thenReturn(List.of(new ParticipantIdentityRow(
+                        301L, 100L, "15550000001@s.whatsapp.net", null, "15550000001")));
+
+        assertThatThrownBy(() -> persistence.applyParticipantObservations(List.of(
+                new GroupParticipantObservation(
+                        TENANT_ID, 20L, GROUP_JID, "213@lid", null, "15550000001", true, false,
+                        WhatsappGroupMemberStateSource.ADD_EVENT, 5_000L, "add-shared"))))
+                .isInstanceOf(org.springframework.dao.ConcurrencyFailureException.class);
+        verify(mapper, org.mockito.Mockito.never()).upsertParticipantFacts(anyList());
+    }
+
+    @Test
     void identityMergeCollapsesExistingPnAndLidRowsBeforeCompletingIdentity() {
         String pnJid = "15550000002@s.whatsapp.net";
         String lidJid = "123456789012345@lid";
         stubGroupId();
-        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
                 .thenReturn(List.of(
                         new ParticipantIdentityRow(301L, 100L, pnJid, null, null),
                         new ParticipantIdentityRow(302L, 100L, null, lidJid, null)));
@@ -227,7 +262,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
         String pnJid = "15550000002@s.whatsapp.net";
         String lidJid = "123456789012345@lid";
         stubGroupId();
-        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
                 .thenReturn(List.of(
                         new ParticipantIdentityRow(
                                 301L, 100L, pnJid, "different@lid", null),
@@ -249,7 +284,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
         String pnJid = "15550000004@s.whatsapp.net";
         String lidJid = "323456789012345@lid";
         stubGroupId();
-        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
                 .thenReturn(List.of());
         when(mapper.mergeParticipantIdentities(anyList()))
                 .thenThrow(new DuplicateKeyException("split identity"));
@@ -260,7 +295,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                         5_000L, "modify-race"))))
                 .isInstanceOf(DuplicateKeyException.class);
 
-        verify(mapper).selectParticipantIdentityRowsForUpdate(
+        verify(mapper).selectParticipantIdentityRows(
                 eq(TENANT_ID), anyList());
         verify(mapper).mergeParticipantIdentities(anyList());
     }
@@ -271,20 +306,20 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
         String lidJid = "223456789012345@lid";
         stubGroupId();
         when(mapper.selectParticipantSnapshotVersionForUpdate(100L)).thenReturn("snapshot-1");
-        when(mapper.selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList()))
+        when(mapper.selectParticipantIdentityRows(eq(TENANT_ID), anyList()))
                 .thenReturn(List.of());
         when(mapper.upsertParticipantFacts(anyList()))
                 .thenThrow(new DuplicateKeyException("split identity"));
 
         assertThatThrownBy(() -> persistence.replaceCompleteParticipantSnapshot(
-                persistence.lockGroupWriteBoundary(null, GROUP_JID),
+                persistence.resolveGroupWriteContext(null, GROUP_JID),
                 List.of(new GroupParticipantResult(
                         lidJid, pnJid, "15550000003", false, false, null)),
                 6_000L,
                 "snapshot-1"))
                 .isInstanceOf(DuplicateKeyException.class);
 
-        verify(mapper).selectParticipantIdentityRowsForUpdate(
+        verify(mapper).selectParticipantIdentityRows(
                 eq(TENANT_ID), anyList());
         verify(mapper).upsertParticipantFacts(anyList());
     }
@@ -292,7 +327,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void controlledAddReturnsTrueOnlyForAcceptedInGroupTransition() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(2, "WGP2_REMOVE", 1_000L));
 
@@ -311,7 +346,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void controlledRepeatedAddDoesNotReturnAnotherTransition() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_ADD", 2_000L));
 
@@ -325,7 +360,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void preciseSelfAddRepairsMissingMembershipActiveSince() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_OBSERVATION", 2_000L));
 
@@ -342,7 +377,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void preciseSelfAddDoesNotOverwriteExistingMembershipActiveSince() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(new Existing(
                         GROUP_JID, 100L, 200L, 1, "WGP2_ADD", 2_000L,
@@ -361,7 +396,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void nonAddObservationDoesNotInventMissingMembershipActiveSince() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_OBSERVATION", 2_000L));
 
@@ -378,7 +413,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void delayedPreciseAddRepairsActiveSinceWithoutReplacingNewerInGroupObservation() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_PROMOTE", 4_000L));
 
@@ -397,7 +432,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void delayedPreciseAddCannotRepairAfterNewerExit() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(2, "WGP2_REMOVE", 4_000L));
 
@@ -415,7 +450,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     @Test
     void acceptedExitClearsCurrentMembershipCycleBeforeBindingUpsert() {
         stubPreciseSnapshotContext();
-        when(mapper.selectSelfMembershipExistingAfterGroupLock(
+        when(mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_ADD", 1_000L));
 
@@ -449,7 +484,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
     private void stubGroupId() {
         when(mapper.selectGroupIdsWithoutLock(TENANT_ID, List.of(GROUP_JID)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
-        when(mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(100L)))
+        when(mapper.selectGroupIdsByIds(TENANT_ID, List.of(100L)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
     }
 
@@ -465,7 +500,7 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 null,
                 null,
                 null));
-        when(mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(100L)))
+        when(mapper.selectGroupIdsByIds(TENANT_ID, List.of(100L)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, 100L)));
     }
 

@@ -9,6 +9,7 @@ import java.util.List;
  * @param subject                        WhatsApp 真实群名
  * @param description                    群说明
  * @param ownerJid                       WhatsApp 明确返回的群主 JID
+ * @param creatorPhone                   已确认的原始创建者裸号码；未知或冲突时为 null
  * @param createdAtSeconds               WhatsApp metadata creation Unix 秒
  * @param participantsComplete           是否明确返回完整成员数组
  * @param announce                       是否仅管理员可发言
@@ -28,6 +29,7 @@ public record GroupMetadataResult(
         String subject,
         String description,
         String ownerJid,
+        String creatorPhone,
         Long createdAtSeconds,
         boolean participantsComplete,
         Boolean announce,

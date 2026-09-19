@@ -62,7 +62,7 @@ class ProtocolGroupProfileReportedConsumerTest {
                 new ObjectMapper(), healthSink, joinResultSink, actionResultSink,
                 batchParticipantSink, membersResultSink, inviteLinkChangedSink,
                 participantChangedSink, metadataUpdatedSink, profileReportedSink,
-                snapshotResultReportedSink, riskEventSink);
+                snapshotResultReportedSink, riskEventSink, org.mockito.Mockito.mock(com.armada.platform.kafka.consumer.group.ProtocolJoinTaskAdminResultSink.class), event -> {});
     }
 
     @Test

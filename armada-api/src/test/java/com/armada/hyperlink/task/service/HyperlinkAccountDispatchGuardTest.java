@@ -100,7 +100,8 @@ class HyperlinkAccountDispatchGuardTest {
                 recipients, usages,
                 new HyperlinkRecipientStateMachine(),
                 mock(DataPackageRecipientClaimService.class), guard,
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class),
+                mock(HyperlinkMetricsProjectionService.class));
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "late-unknown", 7L, null, null, null, null, "acc51", null,

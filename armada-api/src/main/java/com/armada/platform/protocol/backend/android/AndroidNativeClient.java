@@ -8,6 +8,12 @@ import java.util.List;
  * <p>本接口保留原生响应包，具体状态、进群和成员语义由对应 adapter 解码。</p>
  */
 public interface AndroidNativeClient {
+    /** 待审核后只读解析邀请码，不发送入群请求。 */
+    AndroidResponseEnvelope previewGroup(String wsPhone, String inviteCode);
+    /** 读取本群当前待审申请。 */
+    AndroidResponseEnvelope pendingGroupMembers(String wsPhone, String groupJid);
+    /** 仅批准指定成员申请。 */
+    AndroidResponseEnvelope approveGroupMember(String wsPhone, String groupJid, String targetJid);
     /** 读取当前账号的云端联系人单页。 */
     AndroidResponseEnvelope cloudContacts(String wsPhone, String cursor);
 

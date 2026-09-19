@@ -21,6 +21,21 @@ class AndroidAccountParticipatingGroupMapperTest {
             new AndroidAccountParticipatingGroupMapper(new AndroidGroupMemberMapper());
 
     @Test
+    void resolvesExplicitCreatorPnAndRejectsConflictingParticipant() throws Exception {
+        JsonNode data = objectMapper.readTree("""
+                {"Count":2,"GroupInfos":[
+                {"group_id":"120363one@g.us","creator":"47970506555552@lid",
+                 "creator_pn":"2348083697499@s.whatsapp.net","participants":[]},
+                {"group_id":"120363two@g.us","creator":"47970506555552@lid",
+                 "creator_pn":"2348083697499@s.whatsapp.net","participants":[
+                 {"jid":"47970506555552@lid","phone_number":"919000000001"}]}]}
+                """);
+        var groups = mapper.mapGroups(data, "2348083697499");
+        assertThat(groups.get(0).ownerPhone()).isEqualTo("2348083697499");
+        assertThat(groups.get(1).ownerPhone()).isNull();
+    }
+
+    @Test
     void mapsCurrentGroupsAndRequestedSummariesFromExistingGroupListShape() throws Exception {
         JsonNode data = objectMapper.readTree("""
                 {

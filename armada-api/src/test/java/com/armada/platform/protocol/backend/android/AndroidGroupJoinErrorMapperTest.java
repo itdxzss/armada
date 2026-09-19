@@ -51,6 +51,17 @@ class AndroidGroupJoinErrorMapperTest {
     }
 
     @Test
+    void distinguishesGroupBanFullAndAmbiguousGoneFromInviteRevocation() {
+        assertThat(mappedCode("group banned", "410").name()).isEqualTo("GROUP_BANNED");
+        assertThat(mappedCode("chat_suspended", "410").name()).isEqualTo("GROUP_BANNED");
+        assertThat(mappedCode("chat_terminated", "410").name()).isEqualTo("GROUP_BANNED");
+        assertThat(mappedCode("group is full", "410").name()).isEqualTo("GROUP_FULL");
+        assertThat(mappedCode("gone", "410")).isEqualTo(ProtocolErrorCode.GROUP_UNAVAILABLE);
+        assertThat(mappedCode("invite revoked", "410")).isEqualTo(ProtocolErrorCode.INVITE_REVOKED);
+        assertThat(mappedCode("account banned", "403")).isEqualTo(ProtocolErrorCode.GROUP_JOIN_REJECTED);
+    }
+
+    @Test
     void preservesRawCodeAndAddsCanonicalContextForUnknownFailure() {
         ProtocolException exception = mapper.toException(
                 response("unexpected native failure", null, "999"),

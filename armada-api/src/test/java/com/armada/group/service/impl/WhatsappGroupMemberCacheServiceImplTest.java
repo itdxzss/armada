@@ -55,7 +55,8 @@ class WhatsappGroupMemberCacheServiceImplTest {
                         "15550000001@s.whatsapp.net", "15550000001",
                         true, false, "admin", true, "FULL_SNAPSHOT", 1_000L)));
         GroupMetadataResult metadata = new GroupMetadataResult(
-                "120363-test@g.us", "真实群", null, null, null,
+                "120363-test@g.us", "真实群", null, null,
+                null, null,
                 true, true, null, null, null,
                 null, null, false, null, false, true,
                 List.of(new GroupParticipantResult(

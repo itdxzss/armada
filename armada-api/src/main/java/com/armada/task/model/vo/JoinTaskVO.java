@@ -11,7 +11,7 @@ package com.armada.task.model.vo;
  * @param accountGroupNames 账号分组名快照(以 "/" 连接)
  * @param total             计划进群次数(= 实际生成的 PENDING 计划行数)
  * @param executed          已执行次数(引擎回写,建时 0)
- * @param success           成功进群数(引擎回写,建时 0)
+ * @param success           完整步骤成功数(引擎回写,建时 0)
  * @param failed            失败数(引擎回写,建时 0)
  * @param pending           待执行数(建时 = total)
  * @param intervalLabel     进群间隔展示标签(如 "10-20s")
@@ -21,6 +21,7 @@ package com.armada.task.model.vo;
  * @param retryLimit        重试次数上限
  * @param status            任务状态英文码(DRAFT/RUNNING/PAUSED/STOPPED/DONE/FAILED)
  * @param createdBy         创建人 user_id(暂无鉴权上下文,恒 null)
+ * @param setAdminEnabled   是否要求进群后设置管理员
  * @param createdAt         创建时间(epoch 毫秒,UTC)
  */
 public record JoinTaskVO(
@@ -39,5 +40,8 @@ public record JoinTaskVO(
         int retryLimit,
         String status,
         Long createdBy,
-        Long createdAt) {
+        Long createdAt,
+        boolean setAdminEnabled,
+        /** 提权成功后清空其他管理员并退出群组。 */
+        boolean clearAdminsAndLeaveEnabled) {
 }

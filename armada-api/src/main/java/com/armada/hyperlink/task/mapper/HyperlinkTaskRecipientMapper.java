@@ -95,8 +95,10 @@ public interface HyperlinkTaskRecipientMapper {
             @Param("commandId") String commandId);
     @InterceptorIgnore(tenantLine = "true")
     HyperlinkTaskRecipient lockPending(@Param("tenantId") long tenantId,
-            @Param("taskId") long taskId, @Param("roundId") long roundId,
+            @Param("taskId") long taskId, @Param("accountId") long accountId,
             @Param("now") long now);
+    /** 记录该目标需排除的发信人：明确463拒绝或用户允许的未知超时换号；原因码保留区别。 */
+    int rememberRejectedSender(HyperlinkTaskRecipient entity);
     int assignCommand(HyperlinkTaskRecipient entity);
     /** 记录协议接受时间；若极短窗口内已投影 SENDING，则重开一次发送量差分。 */
     int markSubmitted(@Param("commandId") String commandId,
@@ -105,13 +107,15 @@ public interface HyperlinkTaskRecipientMapper {
     int applyResult(HyperlinkTaskRecipient entity);
     /** 待确认只保存原命令证据，不推进失败、投影或计费。 */
     int rememberUnknownResult(HyperlinkTaskRecipient entity);
-    /** 已确定未发送的 attempt 释放为待发，保存诊断原因与退避时间。 */
+    /** 允许重试的 attempt 释放为待发，保存诊断原因与退避时间。 */
     int requeueAfterSystemFailure(HyperlinkTaskRecipient entity);
     /** 是否有自动恢复预算耗尽的目标；供持有 runtime 锁的轮次调度暂停任务。 */
     boolean hasRecoveryHold(@Param("taskId") long taskId, @Param("holdAt") long holdAt);
     /** 暂停事务内释放本批 hold；只有任务恢复后才会重新派发。 */
     int releaseRecoveryHolds(@Param("taskId") long taskId, @Param("holdAt") long holdAt,
             @Param("now") long now);
+    /** 原 command 的迟到成功纠正超时失败，普通最终失败不可覆盖。 */
+    int correctTimedOutResult(HyperlinkTaskRecipient entity);
     int scheduleReconciliation(@Param("commandId") String commandId,
             @Param("nextDispatchAt") long nextDispatchAt, @Param("now") long now);
     int advanceAck(@Param("entity") HyperlinkTaskRecipient entity,

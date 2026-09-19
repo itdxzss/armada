@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountStateMapper">
+  <!-- 导出预占与普通上线共用状态行互斥，防止检查离线后再次上线。 -->
+  <sql id="notExported">
+    <bind name="exportedState" value="@com.armada.account.model.entity.AccountStateCode@EXPORTED" />
+    AND (account_state IS NULL OR account_state != #{exportedState})
+  </sql>
+
 
   <!--
     step1 导入时插入默认状态行:
@@ -46,6 +52,7 @@
     <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
       #{accountId}
     </foreach>
+    <include refid="notExported" />
   </update>
 
   <!-- 用户手动上线在分配代理前原子预占；PENDING/ONLINE 或并发变化的行不会命中。 -->
@@ -63,6 +70,7 @@
     <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
       #{accountId}
     </foreach>
+    <include refid="notExported" />
   </update>
 
   <!-- 显式控制面命令更新期望状态；协议实际状态回写不触碰该列。 -->
@@ -74,6 +82,8 @@
     <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
       #{accountId}
     </foreach>
+    <bind name="offlineDesired" value="@com.armada.account.model.entity.AccountLoginStateCode@OFFLINE" />
+    <if test="desiredLoginState != offlineDesired"><include refid="notExported" /></if>
   </update>
 
   <!-- C 事务条件抢占：失败回滚后仍保持 OFFLINE/PROXY_FAILED，供下一轮继续恢复。 -->
@@ -88,6 +98,7 @@
       AND state_source = #{expectedStateSource}
       AND last_state_sync_time = #{failedAt}
       AND (desired_login_state IS NULL OR desired_login_state != #{desiredOfflineState})
+    <include refid="notExported" />
   </update>
 
   <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
@@ -95,7 +106,7 @@
     UPDATE account_state
     SET login_state = #{loginState},
         last_state_sync_time = #{lastStateSyncTime},
-        state_source = #{stateSource},
+        state_source = CASE WHEN account_state = 4 THEN state_source ELSE #{stateSource} END,
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
   </update>
@@ -109,6 +120,7 @@
         state_source = #{stateSource},
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
+    <include refid="notExported" />
   </update>
 
   <!-- 一键抢登只允许从“被抢登”转“抢登中”,且禁言账号不能进入抢登循环。 -->
@@ -136,6 +148,7 @@
         state_source = #{stateSource},
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
+    <include refid="notExported" />
   </update>
 
   <!-- 每批最多 100 个账号；派生表保持账号与多个快照字段的一一映射。 -->

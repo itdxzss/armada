@@ -52,6 +52,59 @@ class FullParamsToSixConverterTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"phone\":null}", "{\"phone\":\"\"}", "{\"phone\":\"  \"}"})
+    void convert_missingOrBlankPhone_usesJidWithoutMutatingInput(String phoneFields) throws Exception {
+        ObjectNode source = validSource();
+        source.remove("phone");
+        source.setAll((ObjectNode) mapper.readTree(phoneFields));
+        source.put("jid", " 5210000000001 ");
+        ObjectNode original = source.deepCopy();
+
+        FullParamsToSixConverter.Result result = converter.convert(source);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.phone()).isEqualTo("5210000000001");
+        assertThat(result.credential().path("phone").asText()).isEqualTo("5210000000001");
+        assertThat(result.credential()).hasSize(6);
+        assertThat(source).isEqualTo(original);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "12345678901", "{}", "\"\"", "\"123456\"",
+            "\"1234567890123456\"", "\"invalid-jid\"", "\"5210000000001@lid\"",
+            "\"5210000000001@s.whatsapp.net\""})
+    void convert_missingPhoneAndInvalidJid_rejectsWithoutExposingValues(String jid) throws Exception {
+        ObjectNode source = validSource();
+        source.remove("phone");
+        source.set("jid", mapper.readTree(jid));
+
+        FullParamsToSixConverter.Result result = converter.convert(source);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.phone()).isEmpty();
+        assertThat(result.credential()).isEmpty();
+        assertThat(result.error()).doesNotContain("5210000000001", "123456",
+                "invalid-jid", "static-private-test", "identity-private-test");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12345678901", "{}", "\"invalid-phone\"", "\"123456\""})
+    void convert_presentInvalidPhone_doesNotFallBackToJid(String phone) throws Exception {
+        ObjectNode source = validSource();
+        source.set("phone", mapper.readTree(phone));
+
+        assertThat(converter.convert(source).isSuccess()).isFalse();
+    }
+
+    @Test
+    void convert_validPhoneWithoutJid_stillSucceeds() {
+        ObjectNode source = validSource();
+        source.remove("jid");
+
+        assertThat(converter.convert(source).phone()).isEqualTo("5210000000001");
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {
             "phone",
             "clientStaticPublicKey",
@@ -63,6 +116,9 @@ class FullParamsToSixConverterTest {
     void convert_missingRequiredField_returnsSafeCredentialError(String field) {
         ObjectNode source = validSource();
         source.remove(field);
+        if ("phone".equals(field)) {
+            source.remove("jid");
+        }
 
         FullParamsToSixConverter.Result result = converter.convert(source);
 

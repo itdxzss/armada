@@ -48,6 +48,20 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
  */
 @ExtendWith(MockitoExtension.class)
 class GroupLinkControllerTest {
+    @Test
+    void bindsCommaSeparatedControlRelationsAndRejectsInvalidOptions() throws Exception {
+        mockMvc.perform(get("/api/group-links")
+                        .param("controlRelations", "CONTROLLED_OWNER,CONTROLLED_ADMIN_CREATOR_ABSENT,CONTROLLED_OWNER"))
+                .andExpect(status().isOk());
+        verify(groupLinkService).listByLabel(argThat(query -> query.getControlRelations().equals(List.of(
+                com.armada.group.model.enums.GroupControlRelation.CONTROLLED_OWNER,
+                com.armada.group.model.enums.GroupControlRelation.CONTROLLED_ADMIN_CREATOR_ABSENT))));
+        mockMvc.perform(get("/api/group-links").param("controlRelations", "NOT_A_RELATION"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/group-links").param("controlRelations", "CONTROLLED_OWNER,,UNKNOWN"))
+                .andExpect(status().isBadRequest());
+    }
+
 
     @Mock
     private GroupLinkService groupLinkService;

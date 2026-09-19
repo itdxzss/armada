@@ -120,7 +120,9 @@
         AND s.account_state IN
         <foreach collection="hyperlinkAccountStates" item="state"
                  open="(" separator="," close=")">#{state}</foreach>
-        AND (s.mute_status IS NULL OR s.mute_status = 2)
+        <!-- 平台主动触达限制保留展示；超链按实际463拒绝配对换号，不整体禁用。 -->
+        AND (s.mute_status IS NULL OR s.mute_status = 2
+          OR (s.platform_message_restriction_active=1 AND s.fallback_message_restriction_until IS NULL))
         AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
         AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
         AND a.protocol_id IS NOT NULL AND TRIM(a.protocol_id) &lt;&gt; ''
@@ -346,7 +348,8 @@
     WHERE a.tenant_id = #{tenantId}
       AND a.id = #{accountId}
       AND a.deleted_at IS NULL
-      AND (s.mute_status IS NULL OR s.mute_status = 2)
+      AND (s.mute_status IS NULL OR s.mute_status = 2
+        OR (s.platform_message_restriction_active=1 AND s.fallback_message_restriction_until IS NULL))
     LIMIT 1 FOR UPDATE
   </select>
 
@@ -512,6 +515,30 @@
       AND s.account_state IN
       <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
       AND s.login_state = #{onlineLoginState}
+    ORDER BY a.id ASC
+  </select>
+
+  <!-- 管理员需要主动进群、联系人和群管理能力，不能沿用允许消息受限的拉手口径。 -->
+  <select id="selectEligibleManagers" resultType="com.armada.account.model.entity.Account">
+    SELECT a.* FROM account a
+    INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL
+      AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
+      AND UPPER(TRIM(a.protocol_id)) IN ('WEB', 'ANDROID')
+      AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
+      AND s.account_state IN
+      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
+      AND s.login_state = 1
+      AND (s.risk_status IS NULL OR s.risk_status = 1)
+      AND s.mute_status IS NULL
+      <choose>
+        <when test="groupId != null">AND a.account_group_id = #{groupId}</when>
+        <when test="ids != null and ids.size() &gt; 0">
+          AND a.id IN
+          <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        </when>
+        <otherwise>AND 1=0</otherwise>
+      </choose>
     ORDER BY a.id ASC
   </select>
 
@@ -1055,7 +1082,7 @@
   -->
   <select id="selectStatesByIds" resultType="com.armada.account.model.entity.AccountDeleteGateRow">
     <if test="ids != null and ids.size() &gt; 0">
-    SELECT a.id, s.account_state AS accountState, a.dispatched_at AS dispatchedAt
+    SELECT a.id, s.account_state AS accountState, a.dispatched_at AS dispatchedAt, s.state_source AS stateSource
     FROM account a
     LEFT JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
@@ -1115,6 +1142,9 @@
     <if test="ids != null and ids.size() &gt; 0">
     UPDATE account SET deleted_at = #{deletedAt}
     WHERE deleted_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM account_state es
+        WHERE es.account_id = account.id AND es.tenant_id = account.tenant_id
+          AND es.state_source = 'ACCOUNT_EXPORT')
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountExportMapper">
+  <sql id="ids"><foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach></sql>
+  <select id="candidates" resultType="com.armada.account.model.dto.AccountExportCandidate">
+    SELECT a.id, a.account_group_id AS groupId, a.dispatched_at AS dispatchedAt,
+           s.account_state AS accountState, s.login_state AS loginState,
+           g.marketing_occupancy_task_id AS marketingTaskId, a.owner_user_id AS ownerUserId
+    FROM account a
+    JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
+    LEFT JOIN account_group g ON g.id = a.account_group_id AND g.tenant_id = a.tenant_id
+    WHERE a.deleted_at IS NULL AND a.id IN <include refid="ids" />
+    ORDER BY a.id
+  </select>
+  <select id="materials" resultType="com.armada.account.model.dto.AccountExportMaterial">
+    SELECT d.account_id AS accountId, b.import_format AS importFormat,
+           b.device_os AS deviceOs, d.raw_payload AS rawPayload
+    FROM account_import_detail d
+    JOIN account_import_batch b ON b.id = d.batch_id AND b.tenant_id = d.tenant_id
+    WHERE d.parse_result = 1 AND d.account_id IN <include refid="ids" />
+    ORDER BY d.account_id, d.id
+  </select>
+  <insert id="insertJob">
+    INSERT INTO account_export_job
+      (id, tenant_id, created_by, status, account_ids_json, account_count, filename, sha256, file_size, archive, created_at, expires_at)
+    VALUES (#{id}, #{tenantId}, #{createdBy}, #{status}, #{accountIdsJson}, #{accountCount},
+            #{filename}, #{sha256}, #{fileSize}, #{archive}, #{createdAt}, #{expiresAt})
+  </insert>
+  <insert id="insertItems">
+    INSERT INTO account_export_item (job_id, account_id, previous_state) VALUES
+    <foreach collection="rows" item="row" separator=",">(#{jobId}, #{row.id}, #{row.accountState})</foreach>
+  </insert>
+  <!-- 生成 ZIP 时只读快照；最后以 current-read 条件更新复核状态、归属及占用。 -->
+  <sql id="availableAccount">
+    a.deleted_at IS NULL AND a.dispatched_at IS NULL
+    AND NOT EXISTS (SELECT 1 FROM account_group ag
+      WHERE ag.id = a.account_group_id AND ag.tenant_id = a.tenant_id
+        AND ag.marketing_occupancy_task_id IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM group_pull_marketing_task bt
+      WHERE bt.builder_group_id = a.account_group_id AND bt.tenant_id = a.tenant_id
+        AND bt.resource_status IN (2, 3))
+  </sql>
+  <sql id="sameAccount">
+    a.id = #{row.id}
+    <choose><when test="row.groupId != null">AND a.account_group_id = #{row.groupId}</when>
+      <otherwise>AND a.account_group_id IS NULL</otherwise></choose>
+    <choose><when test="row.ownerUserId != null">AND a.owner_user_id = #{row.ownerUserId}</when>
+      <otherwise>AND a.owner_user_id IS NULL</otherwise></choose>
+  </sql>
+  <update id="reserve">
+    UPDATE account_state SET account_state = 4, desired_login_state = 2,
+      state_source = 'ACCOUNT_EXPORT', updated_at = #{now}, last_state_sync_time = #{now}
+    WHERE login_state = 2 AND (account_state IS NULL OR account_state != 4)
+      AND (
+      <foreach collection="rows" item="row" separator=" OR ">
+        (account_id = #{row.id}
+          <choose><when test="row.accountState != null">AND account_state = #{row.accountState}</when>
+            <otherwise>AND account_state IS NULL</otherwise></choose>
+          AND EXISTS (SELECT 1 FROM account a
+            WHERE a.tenant_id = account_state.tenant_id
+              AND <include refid="sameAccount" /> AND <include refid="availableAccount" />))
+      </foreach>)
+  </update>
+  <select id="findJob" resultType="com.armada.account.model.entity.AccountExportJob">
+    SELECT * FROM account_export_job WHERE id = #{id}
+  </select>
+  <select id="lockJob" resultType="com.armada.account.model.entity.AccountExportJob">
+    SELECT * FROM account_export_job WHERE id = #{id} FOR UPDATE
+  </select>
+  <select id="listJobs" resultType="com.armada.account.model.entity.AccountExportJob">
+    SELECT id, status, account_count, filename, sha256, file_size, created_at, expires_at
+    FROM account_export_job WHERE created_by = #{userId}
+    ORDER BY created_at DESC, id DESC LIMIT 50
+  </select>
+  <select id="expiredReady" resultType="string">
+    SELECT id FROM account_export_job
+    WHERE created_by = #{userId} AND status = 'READY' AND expires_at &lt;= #{now}
+    ORDER BY id
+  </select>
+  <update id="purgeArchives">
+    UPDATE account_export_job SET archive = NULL
+    WHERE created_by = #{userId} AND expires_at &lt;= #{now} AND status != 'READY'
+  </update>
+  <update id="purgeArchive">
+    UPDATE account_export_job SET archive = NULL
+    WHERE id = #{id} AND expires_at &lt;= #{now} AND status != 'READY'
+  </update>
+  <update id="restore">
+    UPDATE account_state SET account_state = (
+      SELECT i.previous_state FROM account_export_item i
+      WHERE i.job_id = #{id} AND i.account_id = account_state.account_id AND i.tenant_id = account_state.tenant_id
+    ), state_source = 'EXPORT_CANCELLED', updated_at = #{now}, last_state_sync_time = #{now}
+    WHERE account_state = 4 AND state_source = 'ACCOUNT_EXPORT'
+      AND account_id IN (SELECT i.account_id FROM account_export_item i WHERE i.job_id = #{id})
+  </update>
+  <update id="removeAccounts">
+    UPDATE account a SET deleted_at = #{now}, updated_at = #{now}
+    WHERE <include refid="availableAccount" />
+      AND EXISTS (SELECT 1 FROM account_state es
+        WHERE es.account_id = a.id AND es.tenant_id = a.tenant_id
+          AND es.account_state = 4 AND es.login_state = 2 AND es.state_source = 'ACCOUNT_EXPORT')
+      AND (<foreach collection="rows" item="row" separator=" OR ">(<include refid="sameAccount" />)</foreach>)
+  </update>
+  <update id="removeCredentials">
+    UPDATE account_credential SET deleted_at = #{now}, updated_at = #{now}
+    WHERE deleted_at IS NULL AND account_id IN <include refid="ids" />
+  </update>
+  <update id="complete">
+    UPDATE account_export_job SET status = 'COMPLETED', completed_at = #{now}
+    WHERE id = #{id} AND status = 'READY'
+  </update>
+  <update id="cancel">
+    UPDATE account_export_job SET status = 'CANCELLED', archive = NULL
+    WHERE id = #{id} AND status = 'READY'
+  </update>
+</mapper>

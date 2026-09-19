@@ -382,6 +382,7 @@ class GroupListCurrentMapperMySqlTest {
                 """);
         jdbc.execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL, group_jid VARCHAR(128),
                   invite_code VARCHAR(128), wa_subject VARCHAR(255), member_size INT,

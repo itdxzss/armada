@@ -29,6 +29,47 @@
       AND participant.role IN (2, 3)
   </sql>
 
+  <!-- 持有账号与在线可执行不同；角色探针不附加在线条件，后者由 availableAdmin 单独筛选。 -->
+  <sql id="controlledRoleProbe">
+    SELECT 1 FROM wa_group_participant control_member
+    INNER JOIN account control_account
+      ON control_account.tenant_id = control_member.tenant_id
+     AND control_account.ws_phone = control_member.phone
+     AND control_account.deleted_at IS NULL
+    WHERE control_member.tenant_id = handle.tenant_id
+      AND control_member.group_id = current_group.id
+      AND control_member.presence_status = 1
+      AND control_member.role IN (${roles})
+  </sql>
+
+  <!-- creator 是建群人，不通过 superadmin 推断其是否在群。未解析的 LID 可能就是建群人。 -->
+  <sql id="creatorPresence">
+    CASE
+      WHEN legacy_preview.creator_phone_source = 1
+        OR NULLIF(TRIM(legacy_preview.owner_phone), '') IS NULL THEN 'UNKNOWN'
+      WHEN EXISTS (
+        SELECT 1 FROM wa_group_participant creator_member
+        WHERE creator_member.tenant_id = handle.tenant_id
+          AND creator_member.group_id = current_group.id
+          AND creator_member.presence_status = 1
+          AND (creator_member.phone = legacy_preview.owner_phone
+            OR creator_member.pn_jid = CONCAT(legacy_preview.owner_phone, '@s.whatsapp.net'))
+      ) THEN 'PRESENT'
+      WHEN current_profile.member_snapshot_at IS NULL
+        OR NULLIF(TRIM(current_profile.member_snapshot_version), '') IS NULL
+        OR EXISTS (
+          SELECT 1 FROM wa_group_participant unresolved_member
+          WHERE unresolved_member.tenant_id = handle.tenant_id
+            AND unresolved_member.group_id = current_group.id
+            AND (unresolved_member.presence_status = 0
+              OR (unresolved_member.presence_status = 1
+                AND NULLIF(TRIM(unresolved_member.phone), '') IS NULL
+                AND NULLIF(TRIM(unresolved_member.pn_jid), '') IS NULL))
+        ) THEN 'UNKNOWN'
+      ELSE 'ABSENT'
+    END
+  </sql>
+
   <!-- group_link 保留现有数值 ID/alias；v1 建群人及国家字段继续使用 legacy preview 兼容投影。 -->
   <sql id="currentListFrom">
     <bind name="executableAccountStates"
@@ -46,18 +87,18 @@
               or (query.countryIso2 != null and query.countryIso2 != '')
               or (query.continentCode != null and query.continentCode != '')
               or query.ageDaysMin != null or query.ageDaysMax != null
-              or hasStatus or hasKeyword"/>
+              or hasStatus or hasKeyword or query.controlRelationFiltered"/>
     <bind name="needsProfile"
           value="query.memberCountMin != null or query.memberCountMax != null
               or query.ageDaysMin != null or query.ageDaysMax != null
-              or hasStatus or hasKeyword"/>
+              or hasStatus or hasKeyword or query.controlRelationFiltered"/>
     <bind name="needsInputInvite"
           value="query.memberCountMin != null or query.memberCountMax != null
               or hasStatus or hasKeyword"/>
     <bind name="needsLegacyPreview"
           value="(query.countryIso2 != null and query.countryIso2 != '')
               or (query.continentCode != null and query.continentCode != '')
-              or hasKeyword"/>
+              or hasKeyword or query.controlRelationFiltered"/>
     FROM group_link handle
     <if test="query.sourceFileName != null and query.sourceFileName != ''">
       LEFT JOIN group_link_import_batch source_batch
@@ -115,6 +156,31 @@
   <sql id="currentListFilter">
     handle.tenant_id = #{tenantId}
     AND handle.deleted_at IS NULL
+    <if test="query.controlRelationFiltered">
+      AND
+      <foreach collection="query.controlRelations" item="relation" open="(" separator=" OR " close=")">
+        <choose>
+          <when test="relation.name() == 'CONTROLLED_OWNER'">
+            EXISTS (<include refid="controlledRoleProbe"><property name="roles" value="3"/></include>)
+          </when>
+          <when test="relation.name() == 'CONTROLLED_ADMIN_CREATOR_ABSENT'">
+            (EXISTS (<include refid="controlledRoleProbe"><property name="roles" value="2, 3"/></include>)
+              AND (<include refid="creatorPresence"/>) = 'ABSENT')
+          </when>
+          <when test="relation.name() == 'EXTERNAL_CREATOR_PRESENT'">
+            ((<include refid="creatorPresence"/>) = 'PRESENT'
+              AND NOT EXISTS (
+                SELECT 1 FROM account creator_account
+                WHERE creator_account.tenant_id = handle.tenant_id
+                  AND legacy_preview.creator_phone_source &lt;&gt; 1
+                  AND creator_account.ws_phone = legacy_preview.owner_phone
+                  AND creator_account.deleted_at IS NULL
+              ))
+          </when>
+          <otherwise>(<include refid="creatorPresence"/>) = 'UNKNOWN'</otherwise>
+        </choose>
+      </foreach>
+    </if>
     <if test="query.accountGroupId != null">
       AND EXISTS (
         SELECT 1 FROM wa_account_group_binding group_binding

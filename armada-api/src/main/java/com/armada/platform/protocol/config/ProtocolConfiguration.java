@@ -1,5 +1,11 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.routing.GroupApprovalBackend;
+import com.armada.platform.protocol.routing.RoutingGroupApprovalPort;
+import com.armada.platform.protocol.http.group.HttpGroupApprovalAdapter;
+import com.armada.platform.protocol.backend.android.AndroidNativeGroupApprovalAdapter;
+import com.armada.platform.protocol.port.GroupApprovalPort;
+
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.protocol.backend.android.AndroidAccountRuntimeStatusAdapter;
@@ -779,5 +785,26 @@ public class ProtocolConfiguration {
     @Bean
     public GroupPreviewPort groupPreviewPort(ProtocolHttpExecutor protocolHttpExecutor) {
         return new HttpGroupPreviewAdapter(protocolHttpExecutor);
+    }
+
+    /** 待审核处理复用 HTTP 能力，正常进群不调用。 */
+    @Bean
+    public GroupApprovalBackend webGroupApprovalBackend(ProtocolHttpExecutorRegistry registry) {
+        return new HttpGroupApprovalAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /** Android 邀请解析与指定申请处理。 */
+    @Bean
+    public GroupApprovalBackend androidGroupApprovalBackend(
+            AndroidNativeClient client, AndroidResponseDecoder decoder, AndroidGroupOperationErrorMapper errors) {
+        return new AndroidNativeGroupApprovalAdapter(client, decoder, errors);
+    }
+
+    /** 每次操作按实际执行账号协议路由。 */
+    @Bean
+    @Primary
+    public GroupApprovalPort groupApprovalPort(
+            List<GroupApprovalBackend> backends) {
+        return new RoutingGroupApprovalPort(backends);
     }
 }

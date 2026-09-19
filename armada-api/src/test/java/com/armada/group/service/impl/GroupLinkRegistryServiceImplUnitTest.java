@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.platform.country.service.CountryService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,7 +47,8 @@ class GroupLinkRegistryServiceImplUnitTest {
     void registerAccountObservedGroupRevivesArchivedGroupLinkMatchedByJid() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, previewMapper,
+                        groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)),
                         currentSnapshotPersistence);
         when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363001@g.us"))
                 .thenReturn(88L);
@@ -62,7 +65,8 @@ class GroupLinkRegistryServiceImplUnitTest {
     void registerAccountObservedGroupAtomicallyCreatesOrReusesDerivedLink() {
         GroupLinkRegistryServiceImpl service =
                 new GroupLinkRegistryServiceImpl(
-                        groupLinkMapper, previewMapper,
+                        groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)),
                         currentSnapshotPersistence);
         when(groupLinkMapper.selectIdByGroupJidIncludingDeleted("120363002@g.us"))
                 .thenReturn(null);
@@ -71,7 +75,7 @@ class GroupLinkRegistryServiceImplUnitTest {
                 org.mockito.ArgumentMatchers.eq("新群"));
         GroupLink resolved = new GroupLink();
         resolved.setId(99L);
-        when(groupLinkMapper.selectAnyByUrlForUpdate("wa://group/120363002@g.us"))
+        when(groupLinkMapper.selectAnyByUrl("wa://group/120363002@g.us"))
                 .thenReturn(resolved);
 
         Long result = service.registerAccountObservedGroup(
@@ -86,7 +90,7 @@ class GroupLinkRegistryServiceImplUnitTest {
         assertThat(rowCaptor.getValue().getOrigin()).isEqualTo(GroupLinkOrigin.ACCOUNT_SYNC.code());
         assertThat(rowCaptor.getValue().getMembershipState()).isEqualTo(GroupMembershipState.JOINED.code());
         assertThat(rowCaptor.getValue().getSyncProtocolMask()).isEqualTo(2);
-        verify(groupLinkMapper).selectAnyByUrlForUpdate("wa://group/120363002@g.us");
+        verify(groupLinkMapper).selectAnyByUrl("wa://group/120363002@g.us");
         verify(groupLinkMapper, never()).insert(org.mockito.ArgumentMatchers.any(GroupLink.class));
         verify(groupLinkMapper, never()).touchAccountObservedGroup(
                 org.mockito.ArgumentMatchers.anyLong(),
@@ -108,7 +112,8 @@ class GroupLinkRegistryServiceImplUnitTest {
         observed.put("120363003@g.us", "  ");
 
         Map<String, Long> result = new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, previewMapper, currentSnapshotPersistence)
+                groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)), currentSnapshotPersistence)
                 .registerAccountObservedGroups(observed, ProtocolBackend.WEB, 3_000L);
 
         assertThat(result).containsEntry("120363003@g.us", 103L);
@@ -125,7 +130,8 @@ class GroupLinkRegistryServiceImplUnitTest {
     @Test
     void knownMarketingMembershipIsWrittenToCurrentModel() {
         GroupLinkRegistryServiceImpl service = new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, previewMapper,
+                groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)),
                 currentSnapshotPersistence);
 
         service.registerKnownMembership(

@@ -243,7 +243,7 @@ class GroupClassificationMapperH2Test {
     }
 
     @Test
-    void winnerReadUsesLockingCurrentReadInsteadOfRepeatableReadSnapshot() throws Exception {
+    void winnerReadDoesNotAcquireExplicitLocks() throws Exception {
         String mapperXml;
         try (java.io.InputStream input = new ClassPathResource(
                 "mapper/group/GroupClassificationMapper.xml").getInputStream()) {
@@ -256,7 +256,7 @@ class GroupClassificationMapperH2Test {
                 mapperXml.indexOf("</select>", mapperXml.indexOf(
                         "<select id=\"selectByGroupJids\""))))
                 .contains("ORDER BY group_jid ASC")
-                .contains("FOR UPDATE");
+                .doesNotContain("FOR UPDATE");
     }
 
     private int classifyAfterBarrier(

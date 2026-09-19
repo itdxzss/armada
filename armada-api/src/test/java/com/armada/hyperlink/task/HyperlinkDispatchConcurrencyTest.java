@@ -27,6 +27,7 @@ import com.armada.hyperlink.task.model.entity.HyperlinkTaskRuntime;
 import com.armada.hyperlink.task.model.enums.HyperlinkTaskRoundStatus;
 import com.armada.hyperlink.task.port.HyperlinkPrivateCapabilityPort;
 import com.armada.hyperlink.task.service.HyperlinkDispatchService;
+import com.armada.hyperlink.task.service.HyperlinkMetricsProjectionService;
 import com.armada.hyperlink.task.service.HyperlinkAccountDispatchGuard;
 import com.armada.hyperlink.task.service.HyperlinkMessageCommandFactory;
 import com.armada.hyperlink.task.service.HyperlinkShortCodeGenerator;
@@ -57,19 +58,19 @@ class HyperlinkDispatchConcurrencyTest {
         Fixture fixture = fixture(1);
         when(fixture.usageMapper.reserveSlot(eq(31L), eq(4), eq(2), anyLong())).thenReturn(1);
         when(fixture.recipientMapper.lockPending(
-                eq(7L), eq(11L), eq(21L), anyLong())).thenReturn(null);
+                eq(7L), eq(11L), eq(51L), anyLong())).thenReturn(null);
 
         assertThat(fixture.service.dispatchOne(11L)).isFalse();
 
         InOrder order = inOrder(fixture.runtimeMapper, fixture.roundMapper, fixture.usageMapper,
                 fixture.accountService, fixture.recipientMapper);
-        order.verify(fixture.runtimeMapper).selectByTaskIdForShare(7L, 11L);
+        order.verify(fixture.runtimeMapper).selectByTaskIdForUpdate(7L, 11L);
         order.verify(fixture.roundMapper).selectActiveForUpdate(7L, 11L);
         order.verify(fixture.usageMapper).reserveSlot(eq(31L), eq(4), eq(2), anyLong());
         order.verify(fixture.accountService).lockForHyperlinkDispatch(51L);
         order.verify(fixture.recipientMapper).lockSendingIdsByAccount(7L, 51L, 20);
         order.verify(fixture.recipientMapper).lockPending(
-                eq(7L), eq(11L), eq(21L), anyLong());
+                eq(7L), eq(11L), eq(51L), anyLong());
         order.verify(fixture.usageMapper).completeSlot(eq(31L), eq(false), anyLong());
         verify(fixture.recipientMapper, never()).assignCommand(
                 org.mockito.ArgumentMatchers.any());
@@ -82,7 +83,7 @@ class HyperlinkDispatchConcurrencyTest {
 
         assertThat(fixture.service.dispatchOne(11L)).isFalse();
 
-        verify(fixture.runtimeMapper).selectByTaskIdForShare(7L, 11L);
+        verify(fixture.runtimeMapper).selectByTaskIdForUpdate(7L, 11L);
         verify(fixture.usageMapper, never()).selectAvailable(
                 anyLong(), anyLong(), anyLong(), anyInt(), anyInt());
         verifyNoInteractions(fixture.messageSendPort);
@@ -104,7 +105,7 @@ class HyperlinkDispatchConcurrencyTest {
 
         HyperlinkTaskRuntime runtime = new HyperlinkTaskRuntime();
         runtime.setRunStatus(runStatus);
-        when(runtimeMapper.selectByTaskIdForShare(7L, 11L)).thenReturn(runtime);
+        when(runtimeMapper.selectByTaskIdForUpdate(7L, 11L)).thenReturn(runtime);
 
         HyperlinkTask task = new HyperlinkTask();
         task.setTenantId(7L);
@@ -136,7 +137,7 @@ class HyperlinkDispatchConcurrencyTest {
                 contentMapper, runtimeMapper, roundMapper, usageMapper, recipientMapper,
                 commandFactory, mock(HyperlinkShortCodeGenerator.class), capability,
                 messageSendPort, data, accountService,
-                mock(AccountOperationRestrictionService.class), dispatchGuard);
+                mock(AccountOperationRestrictionService.class), dispatchGuard, mock(HyperlinkMetricsProjectionService.class));
         return new Fixture(service, runtimeMapper, roundMapper, usageMapper, accountService,
                 recipientMapper, messageSendPort);
     }

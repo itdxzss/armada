@@ -362,6 +362,9 @@ public class AccountServiceImpl implements AccountService {
         List<AccountDeleteGateRow> rows = accountMapper.selectStatesByIds(ids);
         // 全或无:先全量校验,任一不满足整批拒删
         for (AccountDeleteGateRow row : rows) {
+            if ("ACCOUNT_EXPORT".equals(row.getStateSource())) {
+                throw new BusinessException(ErrorCode.CONFLICT, "账号正在导出交付，请在导出记录中完成或取消，不能直接删除");
+            }
             if (!isDeletable(row)) {
                 throw new BusinessException(ErrorCode.VALIDATION,
                         "仅导出/封禁/解绑/被抢登状态且不在任务的账号可删除(账号 "
@@ -370,6 +373,9 @@ public class AccountServiceImpl implements AccountService {
         }
         long now = System.currentTimeMillis();
         int deleted = accountMapper.batchSoftDelete(ids, now);
+        if (deleted != ids.stream().distinct().count()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "账号不存在或正在导出交付，请刷新后重试");
+        }
         log.info("账号批量软删除 count={} ids={}", deleted, ids);
     }
 

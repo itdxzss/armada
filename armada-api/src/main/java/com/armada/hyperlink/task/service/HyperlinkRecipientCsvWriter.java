@@ -62,7 +62,7 @@ public class HyperlinkRecipientCsvWriter {
             case SUCCESS -> "发送成功";
             case DELIVERED -> "发送成功（已送达）";
             case READ -> "发送成功（已读）";
-            case FAILED -> "未完成";
+            case FAILED -> "发送失败";
             case UNREGISTERED -> "目标无法发送";
         };
     }

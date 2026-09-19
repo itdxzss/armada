@@ -50,6 +50,14 @@ class PullTaskManagerAdminResultServiceImplTest {
     }
 
     @Test
+    void replacedManagerPromotionReceiptCannotAdvanceItsReplacement() {
+        stubContext(action());
+        accountMapper.selectById(501L).setAvailabilityStatus(4);
+        assertThat(service.apply(callback(PullTaskManagerAdminProtocolOutcome.SUCCESS, null, false))).isFalse();
+        org.mockito.Mockito.verify(executionMapper, org.mockito.Mockito.never()).transitionManagerJoinResult(any());
+    }
+
+    @Test
     void successConfirmsManagerAndAdvancesWithoutRealtimeVerification() {
         stubContext(action());
         when(actionMapper.transitionManagerAdminResult(

@@ -1,11 +1,15 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.model.dto.JoinTaskRetryTransition;
 import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
 import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.JoinTaskMapper;
+import com.armada.task.mapper.JoinTaskApprovalMapper;
+import com.armada.task.model.entity.JoinTaskApproval;
+import com.armada.task.model.enums.JoinTaskApprovalStage;
 import com.armada.task.mapper.JoinTaskResultMapper;
 import com.armada.task.model.dto.JoinTaskResultReportedEvent;
 import com.armada.task.model.dto.JoinTaskDeadCommandCandidate;
@@ -20,12 +24,13 @@ import java.util.function.LongSupplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 
 /**
  * Web/Android 统一进群结果状态机实现。
  *
- * <p>每次处理先在事件租户上下文内锁定仍为 SUBMITTED 且 commandId、attemptNo 匹配的明细。重复事件、
- * 旧尝试迟到结果或已经被其它消费者处理的事件查不到可更新行，因此直接幂等返回。当前行需要重试时
+ * <p>每次处理先在事件租户上下文内读取仍为 SUBMITTED 且 commandId、attemptNo 匹配的明细。重复事件、
+ * 旧尝试迟到结果或并发竞争失败的事件在读取或条件更新阶段返回，不重复推进任务。当前行需要重试时
  * 只把它恢复为 WAITING 并设置随机执行时间；只有当前行进入终态后才激活同账号下一行。</p>
  *
  * <p>任务计数刷新、下一行激活和当前行状态迁移处于同一事务。任务排期使用 Armada 当前时间，避免协议
@@ -33,6 +38,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class JoinTaskResultServiceImpl implements JoinTaskResultService {
+
+    /** 待审核自动处理整体上限，明确失败不等待此期限。 */
+    private static final long APPROVAL_TIMEOUT_MS = 300_000L;
 
     /** 协议已成功加入目标群。 */
     private static final String OUTCOME_JOINED = "JOINED";
@@ -46,7 +54,7 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     /** 进群任务成功结果写入群关系时使用的事实来源。 */
     private static final String JOIN_TASK_RESULT_SOURCE = "JOIN_TASK_RESULT";
 
-    /** 目标群开启入群审批，本次命令已结束但未真正入群。 */
+    /** 本次命令已提交申请但未真正入群，交由独立恢复阶段处理。 */
     private static final String OUTCOME_PENDING_APPROVAL = "PENDING_APPROVAL";
 
     /** 协议明确报告本次尝试失败。 */
@@ -57,6 +65,9 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
 
     /** 任务持久化入口，用于读取重试配置并刷新聚合计数。 */
     private final JoinTaskMapper taskMapper;
+
+    /** 仅待审核回执触发的恢复持久化。 */
+    private final JoinTaskApprovalMapper approvalMapper;
 
     /** 同账号下一次执行时间的随机区间策略。 */
     private final JoinTaskIntervalPolicy intervalPolicy;
@@ -75,6 +86,7 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      *
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
+     * @param approvalMapper 待审核恢复进度 Mapper
      * @param intervalPolicy 随机执行间隔策略
      * @param membershipStatusService 账号群关系服务
      * @param marketingNewGroupService 新群延迟营销登记服务
@@ -82,10 +94,11 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     @Autowired
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
+                                     JoinTaskApprovalMapper approvalMapper,
                                      JoinTaskIntervalPolicy intervalPolicy,
                                      AccountGroupMembershipStatusService membershipStatusService,
                                      MarketingNewGroupImmediateSendService marketingNewGroupService) {
-        this(resultMapper, taskMapper, intervalPolicy, membershipStatusService,
+        this(resultMapper, taskMapper, approvalMapper, intervalPolicy, membershipStatusService,
                 marketingNewGroupService, System::currentTimeMillis);
     }
 
@@ -94,6 +107,7 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      *
      * @param resultMapper 进群明细 Mapper
      * @param taskMapper 进群任务 Mapper
+     * @param approvalMapper 待审核恢复进度 Mapper
      * @param intervalPolicy 随机执行间隔策略
      * @param membershipStatusService 账号群关系服务
      * @param marketingNewGroupService 新群延迟营销登记服务
@@ -101,12 +115,14 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      */
     public JoinTaskResultServiceImpl(JoinTaskResultMapper resultMapper,
                                      JoinTaskMapper taskMapper,
+                                     JoinTaskApprovalMapper approvalMapper,
                                      JoinTaskIntervalPolicy intervalPolicy,
                                      AccountGroupMembershipStatusService membershipStatusService,
                                      MarketingNewGroupImmediateSendService marketingNewGroupService,
                                      LongSupplier currentTimeMillis) {
         this.resultMapper = resultMapper;
         this.taskMapper = taskMapper;
+        this.approvalMapper = approvalMapper;
         this.intervalPolicy = intervalPolicy;
         this.membershipStatusService = membershipStatusService;
         this.marketingNewGroupService = marketingNewGroupService;
@@ -116,17 +132,18 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
     /**
      * {@inheritDoc}
      *
-     * <p>状态锁定条件同时包含明细 ID、命令 ID 和尝试序号；不匹配表示重复或迟到消息，按幂等成功
+     * <p>状态迁移条件同时包含明细 ID、命令 ID 和尝试序号；不匹配表示重复或迟到消息，按幂等成功
      * 返回。只有 FAILED 且任务开启重试、协议标记可重试、尝试次数未超过上限时才重新排期。</p>
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    // 普通读逐语句读取已提交事实；并发状态迁移仍由带尝试标识的条件 UPDATE 决定。
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void apply(JoinTaskResultReportedEvent event) {
         validate(event);
         Long previousTenant = TenantContext.get();
         TenantContext.set(event.tenantId());
         try {
-            JoinTaskResult row = resultMapper.selectSubmittedForUpdate(
+            JoinTaskResult row = resultMapper.selectSubmitted(
                     event.joinTaskResultId(), event.commandId(), event.attemptNo());
             if (row == null) {
                 return;
@@ -148,7 +165,10 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
                 long membershipOccurredAt = OUTCOME_JOINED.equals(outcome)
                         ? requiredMembershipOccurredAt(event.timestamp())
                         : 0L;
-                resultMapper.markTerminalSuccess(row.getId(), groupJid, now);
+                if (resultMapper.markTerminalSuccess(
+                        row.getId(), groupJid, now, event.commandId(), event.attemptNo()) != 1) {
+                    return;
+                }
                 if (OUTCOME_JOINED.equals(outcome)) {
                     membershipStatusService.applyMembershipChanged(
                             new AccountGroupMembershipChangedEvent(
@@ -165,13 +185,15 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
                             List.of(new MarketingNewGroupDTO(null, groupJid, null)),
                             now);
                 }
-                advanceAfterTerminal(task, row, now);
+                if (task.isSetAdminEnabled()) {
+                    taskMapper.refreshCounters(row.getJoinTaskId());
+                } else {
+                    advanceAfterTerminal(task, row, now);
+                }
                 return;
             }
             if (OUTCOME_PENDING_APPROVAL.equals(outcome)) {
-                resultMapper.markTerminalFailure(
-                        row.getId(), JoinTaskFailureReason.JOIN_PENDING_APPROVAL.code(), now);
-                advanceAfterTerminal(task, row, now);
+                beginApproval(row, event, now);
                 return;
             }
             if (!OUTCOME_FAILED.equals(outcome)) {
@@ -179,10 +201,15 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
             }
             String reason = failureReason(event.reasonCode());
             if (task.isRetryEnabled() && event.retryable() && event.attemptNo() <= task.getRetryLimit()) {
-                resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
+                resultMapper.markRetry(new JoinTaskRetryTransition(
+                        row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now,
+                        event.commandId(), event.attemptNo()));
                 return;
             }
-            resultMapper.markTerminalFailure(row.getId(), reason, now);
+            if (resultMapper.markTerminalFailure(
+                    row.getId(), reason, now, event.commandId(), event.attemptNo()) != 1) {
+                return;
+            }
             advanceAfterTerminal(task, row, now);
         } finally {
             if (previousTenant == null) {
@@ -193,6 +220,19 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
         }
     }
 
+    /** 同事务接管当前尝试，普通入群不创建恢复记录或查询审核设置。 */
+    private void beginApproval(JoinTaskResult row, JoinTaskResultReportedEvent event, long now) {
+        if (approvalMapper.begin(row, now) != 1) return;
+        var recovery = new JoinTaskApproval();
+        recovery.setResultId(row.getId()); recovery.setJoinTaskId(row.getJoinTaskId());
+        recovery.setTenantId(event.tenantId()); recovery.setStage(JoinTaskApprovalStage.RESOLVE.code());
+        recovery.setGroupJid(safe(event.groupJid())); recovery.setActorPhone("");
+        recovery.setTargetPhone(""); recovery.setTargetProtocolAccountId(event.protocolAccountId());
+        recovery.setPendingJid(""); recovery.setReason(JoinTaskApprovalStage.RESOLVE.label());
+        recovery.setNextExecuteAt(now); recovery.setDeadlineAt(now + APPROVAL_TIMEOUT_MS); recovery.setUpdatedAt(now);
+        if (approvalMapper.insert(recovery) != 1) throw new IllegalStateException("进群审核处理登记失败");
+    }
+
     /**
      * {@inheritDoc}
      *
@@ -200,7 +240,7 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
      * 它按可重试的 KAFKA_PUBLISH_FAILED 进入同一套任务重试规则；旧 DEAD 命令不会影响新尝试。</p>
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public void applyTransportFailure(JoinTaskDeadCommandCandidate candidate) {
         if (candidate == null || candidate.tenantId() == null || candidate.resultId() == null
                 || candidate.commandId() == null || candidate.commandId().isBlank()
@@ -210,7 +250,7 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
         Long previousTenant = TenantContext.get();
         TenantContext.set(candidate.tenantId());
         try {
-            JoinTaskResult row = resultMapper.selectSubmittedForUpdate(
+            JoinTaskResult row = resultMapper.selectSubmitted(
                     candidate.resultId(), candidate.commandId(), candidate.attemptNo());
             if (row == null) {
                 return;
@@ -222,9 +262,14 @@ public class JoinTaskResultServiceImpl implements JoinTaskResultService {
             long now = currentTimeMillis.getAsLong();
             String reason = JoinTaskFailureReason.KAFKA_PUBLISH_FAILED.code();
             if (task.isRetryEnabled() && candidate.attemptNo() <= task.getRetryLimit()) {
-                resultMapper.markRetry(row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now);
+                resultMapper.markRetry(new JoinTaskRetryTransition(
+                        row.getId(), reason, intervalPolicy.nextExecuteAt(task, now), now,
+                        candidate.commandId(), candidate.attemptNo()));
             } else {
-                resultMapper.markTerminalFailure(row.getId(), reason, now);
+                if (resultMapper.markTerminalFailure(
+                        row.getId(), reason, now, candidate.commandId(), candidate.attemptNo()) != 1) {
+                    return;
+                }
                 advanceAfterTerminal(task, row, now);
             }
         } finally {

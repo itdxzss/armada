@@ -83,6 +83,8 @@ class PullTaskPullerInviteTransactionIntegrationTest {
     @BeforeEach
     void setUp() throws SQLException {
         reset(accountLookup, outboxService);
+        when(accountLookup.findEligibleManagerProtocolRefs(org.mockito.ArgumentMatchers.anyList()))
+                .thenAnswer(invocation -> accountLookup.findActiveProtocolRefs(invocation.getArgument(0)));
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         execute("INSERT INTO pull_task "

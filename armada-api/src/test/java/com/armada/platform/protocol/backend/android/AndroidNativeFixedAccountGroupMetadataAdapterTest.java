@@ -277,6 +277,38 @@ class AndroidNativeFixedAccountGroupMetadataAdapterTest {
                 });
     }
 
+    @Test
+    void readsCreatorIdentityFromAndroidCreatorField() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{"GroupId":"120363001@g.us",
+                        "Creator":"47970506555552@lid","CreatorPN":"923206788780@s.whatsapp.net",
+                        "Count":0,"Participants":[]},"Msg":"ok"}
+                        """));
+        GroupMetadataResult result = adapter().getMetadata(account(), "120363001@g.us");
+        assertThat(result.ownerJid()).isEqualTo("47970506555552@lid");
+        assertThat(result.creatorPhone()).isEqualTo("923206788780");
+    }
+
+    @Test
+    void respectsResolvedPhoneAndExplicitUnresolvedResultFromNewProtocol() throws Exception {
+        when(client.members("919000000001", "120363001@g.us"))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{"GroupId":"120363001@g.us",
+                        "Creator":"47970506555552@lid","CreatorPhone":"2348083697499",
+                        "CreatorPhoneSource":"lid_mapping","Count":0,"Participants":[]},"Msg":"ok"}
+                        """))
+                .thenReturn(envelope("""
+                        {"Code":0,"Data":{"GroupId":"120363001@g.us",
+                        "Creator":"2348083697499@s.whatsapp.net","CreatorPhone":"",
+                        "CreatorPN":"919000000001","CreatorPhoneReason":"identity_conflict",
+                        "Count":0,"Participants":[]},"Msg":"ok"}
+                        """));
+        assertThat(adapter().getMetadata(account(), "120363001@g.us").creatorPhone())
+                .isEqualTo("2348083697499");
+        assertThat(adapter().getMetadata(account(), "120363001@g.us").creatorPhone()).isNull();
+    }
+
     private AndroidNativeFixedAccountGroupMetadataAdapter adapter() {
         return new AndroidNativeFixedAccountGroupMetadataAdapter(
                 client,

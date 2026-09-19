@@ -82,8 +82,8 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
         TenantContext.set(event.tenantId());
         try {
             Long groupLinkId = registerGroupLink(event);
-            // 任何 PROFILE/P/B 写之前先统一取得 GL→G(PRIMARY)；groupCreatedAt 为空也不能跳过。
-            GroupWriteContext group = snapshotPersistence.lockGroupWriteBoundary(groupLinkId, event.groupJid());
+            // 写资料和成员前统一解析群标识；groupCreatedAt 为空也不能跳过。
+            GroupWriteContext group = snapshotPersistence.resolveGroupWriteContext(groupLinkId, event.groupJid());
             writeCreator(event, groupLinkId);
             queueInviteCodeFetch(event, groupLinkId);
             // 建群时间先于资料字段写：后者可能因 fieldMask 为空而整个跳过。
@@ -177,11 +177,11 @@ public class GroupProfileReportedSinkAdapter implements ProtocolGroupProfileRepo
      * <p>与登记群入口同样只告警不抛出：创建者是展示字段，不该让整条资料事件因它重投。</p>
      */
     private void writeCreator(ProtocolGroupProfileReportedEvent event, Long groupLinkId) {
-        if (groupLinkId == null || event.creatorPhone() == null) {
+        if (groupLinkId == null) {
             return;
         }
         try {
-            creatorWriter.writeCreator(groupLinkId, event.creatorPhone(), event.occurredAt());
+            creatorWriter.writeCreator(groupLinkId, event.groupJid(), event.creatorPhone(), event.occurredAt());
         } catch (RuntimeException e) {
             log.warn("协议群资料上报写创建者失败,其余事实照常落库 eventId={} groupJid={}",
                     event.eventId(), event.groupJid(), e);

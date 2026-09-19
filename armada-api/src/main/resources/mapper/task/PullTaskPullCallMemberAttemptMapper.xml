@@ -142,7 +142,10 @@
         OR (attempt_row.lifecycle_status = 4
             AND attempt_row.protocol_outcome = 'UNKNOWN'
             AND attempt_row.execution_state = 'UNCERTAIN'
-            AND attempt_row.reason_code = #{confirmedAbsenceReasonCode}))
+            AND (attempt_row.reason_code = #{confirmedAbsenceReasonCode}
+              OR UPPER(TRIM(attempt_row.reason_code)) IN
+              <foreach collection="retryableAccountRiskReasons" item="reasonCode"
+                       open="(" separator="," close=")">#{reasonCode}</foreach>)))
     ORDER BY attempt_row.participant_type ASC,
              attempt_row.participant_ref_id ASC,
              attempt_row.id ASC

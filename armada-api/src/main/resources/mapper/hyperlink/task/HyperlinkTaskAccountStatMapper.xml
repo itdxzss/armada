@@ -48,6 +48,29 @@
           updated_at=VALUES(updated_at)
     </insert>
 
+    <sql id="RetryAccountRemaining">
+        FROM hyperlink_task_recipient r
+        WHERE r.tenant_id=#{recipient.tenantId} AND r.hyperlink_task_id=#{recipient.hyperlinkTaskId}
+          AND r.id&lt;&gt;#{recipient.id} AND r.metrics_projected_status&lt;&gt;1
+          AND (r.account_id=#{accountId} OR (r.account_id IS NULL AND #{accountId} IS NULL))
+    </sql>
+    <update id="removeRetrySubmission">
+        UPDATE hyperlink_task_account_stat SET send_total=send_total-1,
+          first_send_at=CASE WHEN first_send_at=#{recipient.submittedAt}
+            THEN (SELECT MIN(r.submitted_at) <include refid="RetryAccountRemaining"/>) ELSE first_send_at END,
+          last_send_at=CASE WHEN last_send_at=#{recipient.submittedAt}
+            THEN (SELECT MAX(r.submitted_at) <include refid="RetryAccountRemaining"/>) ELSE last_send_at END,
+          updated_at=#{now}
+        WHERE tenant_id=#{recipient.tenantId} AND hyperlink_task_id=#{recipient.hyperlinkTaskId}
+          AND account_bucket_key=COALESCE(#{accountId},0) AND send_total&gt;0
+    </update>
+    <delete id="deleteEmptyRetryBucket">
+        DELETE FROM hyperlink_task_account_stat
+        WHERE hyperlink_task_id=#{taskId} AND account_bucket_key=COALESCE(#{accountId},0)
+          AND send_total=0 AND success_num=0 AND delivered_num=0 AND read_num=0
+          AND failed_num=0 AND fail_404_num=0
+    </delete>
+
     <sql id="AccountStatFilters">
         s.hyperlink_task_id = #{criteria.taskId}
         <if test="criteria.snapshotAt != null">

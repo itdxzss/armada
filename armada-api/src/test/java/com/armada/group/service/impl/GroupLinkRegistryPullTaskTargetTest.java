@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.platform.country.service.CountryService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -125,7 +127,8 @@ class GroupLinkRegistryPullTaskTargetTest {
 
     private GroupLinkRegistryServiceImpl service() {
         return new GroupLinkRegistryServiceImpl(
-                groupLinkMapper, previewMapper,
+                groupLinkMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)),
                 currentSnapshotPersistence);
     }
 

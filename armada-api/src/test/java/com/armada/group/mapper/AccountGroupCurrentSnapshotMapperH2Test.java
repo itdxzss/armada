@@ -102,7 +102,7 @@ class AccountGroupCurrentSnapshotMapperH2Test {
 
     @Test
     void selfMembershipQueryReturnsPreciseMembershipActiveSinceForCurrentTenant() {
-        Existing existing = mapper.selectSelfMembershipExistingAfterGroupLock(
+        Existing existing = mapper.selectSelfMembershipExistingByTenant(
                 TENANT_ID, 1001L, "919118818029@s.whatsapp.net", "new-group@g.us");
 
         assertThat(existing).isNotNull();
@@ -116,6 +116,36 @@ class AccountGroupCurrentSnapshotMapperH2Test {
         assertThat(mapper.selectSelfMembershipExisting(
                 1001L, "919118818029@s.whatsapp.net", "other-tenant@g.us"))
                 .isNull();
+    }
+
+    @Test
+    void selfMembershipReadDoesNotWaitForParticipantOrBindingWriter() throws Exception {
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try (Connection writer = dataSource.getConnection()) {
+            writer.setAutoCommit(false);
+            try (Statement statement = writer.createStatement()) {
+                statement.executeUpdate("UPDATE wa_group_participant SET updated_at=900 WHERE id=301");
+                statement.executeUpdate("UPDATE wa_account_group_binding SET updated_at=900 WHERE id=501");
+            }
+            var read = executor.submit(() -> {
+                TenantContext.set(TENANT_ID);
+                try {
+                    var tx = new org.springframework.transaction.support.TransactionTemplate(
+                            new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+                    return tx.execute(status -> mapper.selectSelfMembershipExistingByTenant(
+                            TENANT_ID, 1001L, "919118818029@s.whatsapp.net", "new-group@g.us"));
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+            try {
+                assertThat(read.get(1, java.util.concurrent.TimeUnit.SECONDS)).isNotNull();
+            } finally {
+                writer.rollback();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -167,7 +197,7 @@ class AccountGroupCurrentSnapshotMapperH2Test {
                 "snapshot-1", "snapshot-1", null, null, null, null);
 
         List<ParticipantIdentityRow> identities =
-                mapper.selectParticipantIdentityRowsForUpdate(TENANT_ID, List.of(candidate));
+                mapper.selectParticipantIdentityRows(TENANT_ID, List.of(candidate));
 
         assertThat(identities).extracting(ParticipantIdentityRow::id)
                 .containsExactly(302L, 303L);
@@ -186,6 +216,103 @@ class AccountGroupCurrentSnapshotMapperH2Test {
                 .containsEntry("pn_jid", pnJid)
                 .containsEntry("lid_jid", lidJid)
                 .containsEntry("phone", "919000000002");
+    }
+
+    @Test
+    void primaryUpdateCompletesLidAndDuplicateOrOlderNotificationPreservesNewerFacts()
+            throws SQLException {
+        prepareParticipantFactColumns();
+        var jdbc = new JdbcTemplate(dataSource);
+        var tx = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        ParticipantPresenceWrite add = fact(101L, "213@lid", 1, "WGP2_ADD", 400L, 1);
+        tx.executeWithoutResult(status -> {
+            assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L, add)).isOne();
+            assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L, add)).isOne();
+            assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L,
+                    fact(101L, "213@lid", 2, "WGP2_REMOVE", 600L, 0))).isOne();
+            assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L, add)).isOne();
+        });
+        assertThat(jdbc.queryForMap("SELECT pn_jid,lid_jid,phone,presence_status,"
+                + "presence_observed_at,presence_event_id,last_join_event_at,last_exit_event_at "
+                + "FROM wa_group_participant WHERE id=301"))
+                .containsEntry("pn_jid", "919118818029@s.whatsapp.net")
+                .containsEntry("lid_jid", "213@lid")
+                .containsEntry("phone", "919118818029")
+                .containsEntry("presence_status", 2)
+                .containsEntry("presence_observed_at", 600L)
+                .containsEntry("presence_event_id", "event-600")
+                .containsEntry("last_join_event_at", 400L)
+                .containsEntry("last_exit_event_at", 600L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM wa_group_participant", Integer.class))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void primaryUpdateRejectsWrongTenantGroupOrConflictingIdentityAndSupportsRollback()
+            throws SQLException {
+        prepareParticipantFactColumns();
+        var jdbc = new JdbcTemplate(dataSource);
+        ParticipantPresenceWrite add = fact(101L, "213@lid", 1, "WGP2_ADD", 400L, 1);
+        assertThat(mapper.updateParticipantFactsById(8L, 301L, add)).isZero();
+        assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L,
+                fact(201L, "213@lid", 1, "WGP2_ADD", 400L, 1))).isZero();
+        var tx = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        tx.executeWithoutResult(status -> {
+            assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L, add)).isOne();
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT lid_jid FROM wa_group_participant WHERE id=301",
+                String.class)).isNull();
+        assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L, add)).isOne();
+        assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L,
+                fact(101L, "different@lid", 1, "WGP2_ADD", 500L, 1))).isZero();
+        assertThat(jdbc.queryForObject("SELECT lid_jid FROM wa_group_participant WHERE id=301",
+                String.class)).isEqualTo("213@lid");
+        assertThat(jdbc.queryForObject("SELECT presence_observed_at FROM wa_group_participant WHERE id=401",
+                Long.class)).isEqualTo(300L);
+    }
+
+    @Test
+    void primaryUpdateKeepsExactAdminAgainstNewerLightweightMemberSnapshot() throws SQLException {
+        prepareParticipantFactColumns();
+        assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L,
+                fact(101L, "213@lid", 1, "WGP2_PROMOTE", 400L, 2))).isOne();
+        assertThat(mapper.updateParticipantFactsById(TENANT_ID, 301L,
+                fact(101L, "213@lid", 1, "GROUP_SNAPSHOT", 600L, 1))).isOne();
+        assertThat(new JdbcTemplate(dataSource).queryForMap(
+                "SELECT role,role_source,role_observed_at FROM wa_group_participant WHERE id=301"))
+                .containsEntry("role", 2)
+                .containsEntry("role_source", "WGP2_PROMOTE")
+                .containsEntry("role_observed_at", 400L);
+    }
+
+    private static ParticipantPresenceWrite fact(
+            Long groupId, String lid, int presence, String source, long time, int role) {
+        return new ParticipantPresenceWrite(
+                groupId, "new-group@g.us", null, lid, "919118818029",
+                presence, source, "event-" + time, time, time,
+                presence == 1 ? time : null, presence == 2 ? "REMOVE" : null,
+                presence == 2 ? time : null, presence == 2 ? source : null,
+                role, source, time, "event-" + time, null, null, null, null, null);
+    }
+
+    private void prepareParticipantFactColumns() throws SQLException {
+        execute("ALTER TABLE wa_group_participant ADD presence_event_id VARCHAR(128)",
+                "ALTER TABLE wa_group_participant ADD last_joined_at BIGINT",
+                "ALTER TABLE wa_group_participant ADD last_join_event_at BIGINT",
+                "ALTER TABLE wa_group_participant ADD last_join_source_event_id VARCHAR(128)",
+                "ALTER TABLE wa_group_participant ADD last_exited_at BIGINT",
+                "ALTER TABLE wa_group_participant ADD last_exit_type VARCHAR(32)",
+                "ALTER TABLE wa_group_participant ADD last_exit_event_at BIGINT",
+                "ALTER TABLE wa_group_participant ADD last_exit_source_event_id VARCHAR(128)",
+                "ALTER TABLE wa_group_participant ADD last_exit_source_type VARCHAR(64)",
+                "ALTER TABLE wa_group_participant ADD role TINYINT DEFAULT 0",
+                "ALTER TABLE wa_group_participant ADD role_source VARCHAR(64)",
+                "ALTER TABLE wa_group_participant ADD role_observed_at BIGINT",
+                "ALTER TABLE wa_group_participant ADD role_event_id VARCHAR(128)",
+                "ALTER TABLE wa_group_participant ADD last_snapshot_version VARCHAR(128)");
     }
 
     private void execute(String... statements) throws SQLException {

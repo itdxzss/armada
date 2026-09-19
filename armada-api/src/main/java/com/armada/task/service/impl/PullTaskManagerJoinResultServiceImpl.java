@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.group.service.GroupInviteLinkService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -45,7 +46,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupAccountMembershipStatus.JOINING.code(),
             PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
     private static final Set<String> EXECUTION_FAILURE_CODES = Set.of(
-            "INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE");
+            "INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE",
+            "GROUP_BANNED", "GROUP_FULL");
     private static final Set<String> RECOVERABLE_INVITE_FAILURE_CODES = Set.of(
             "INVITE_INVALID", "INVITE_REVOKED");
     private static final Set<String> MANAGER_FAILURE_CODES = Set.of(
@@ -324,6 +326,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupExecution execution,
             PullTaskManagerJoinCallback callback) {
         return account != null && execution != null
+                && !(Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.MANAGER.code())
+                && Objects.equals(account.getAvailabilityStatus(), PullTaskGroupAccountAvailability.REMOVED.code()))
                 && (Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.MANAGER.code())
                 || Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.PULLER.code()))
                 && Objects.equals(action.getActorGroupAccountId(), account.getId())

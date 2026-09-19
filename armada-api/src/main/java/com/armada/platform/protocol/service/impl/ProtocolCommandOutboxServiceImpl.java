@@ -406,6 +406,56 @@ public class ProtocolCommandOutboxServiceImpl
         return insertPendingRows(batchId, commandIds, rows);
     }
 
+    /** {@inheritDoc} */
+    @Override
+    public boolean isJoinTaskAdminCommandSettled(String commandId) {
+        Integer status = mapper.selectJoinTaskAdminCommandStatus(commandId);
+        return status != null && List.of(ProtocolCommandOutboxStatus.SENT.code(),
+                ProtocolCommandOutboxStatus.DEAD.code(), ProtocolCommandOutboxStatus.CANCELED.code()).contains(status);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public int cancelJoinTaskAdminCommand(String commandId, long now) {
+        return commandId == null ? 0 : mapper.cancelJoinTaskAdminCommand(commandId, now);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueueJoinTaskAdminCommand(
+            com.armada.platform.protocol.model.command.ProtocolJoinTaskAdminCommandRequest command) {
+        if (command == null || command.tenantId() == null
+                || !command.tenantId().equals(TenantContext.get())
+                || command.joinTaskId() == null || command.joinTaskResultId() == null || command.actor() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION, "进群管理员命令关联无效");
+        }
+        long now = System.currentTimeMillis();
+        String commandId = newCommandId();
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(joinTaskBatchId(command.joinTaskId()));
+        row.setCommandType(COMMAND_TYPE_GROUP_PARTICIPANTS_REQUESTED);
+        row.setAggregateType(com.armada.platform.protocol.model.command.ProtocolJoinTaskAdminCommandRequest.AGGREGATE);
+        row.setAggregateId(command.joinTaskResultId());
+        row.setKafkaTopic(command.actor().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.actor().protocolAccountId());
+        row.setProtocolAccountId(command.actor().protocolAccountId());
+        row.setProtocolBackend(command.actor().backend().name());
+        row.setPayloadJson(payloadJson(java.util.Map.of(
+                "tenantId", command.tenantId(), "joinTaskId", command.joinTaskId(),
+                "joinTaskResultId", command.joinTaskResultId(),
+                "source", com.armada.platform.protocol.model.command.ProtocolJoinTaskAdminCommandRequest.SOURCE)));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return insertPendingRows(row.getBatchId(), List.of(commandId), List.of(row));
+    }
+
     /**
      * {@inheritDoc}
      *

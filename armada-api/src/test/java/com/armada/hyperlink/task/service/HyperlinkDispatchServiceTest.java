@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,6 +58,36 @@ class HyperlinkDispatchServiceTest {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    @Test
+    void anotherRecipientsLegacyHoldDoesNotBlockDispatch() {
+        Fixture fixture = new Fixture(false);
+        when(fixture.recipientMapper.hasRecoveryHold(11L, Long.MAX_VALUE)).thenReturn(true);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
+
+        assertThat(fixture.service.dispatchOne(11L)).isTrue();
+
+        verify(fixture.messageSendPort).enqueue(any());
+    }
+
+    @Test
+    void fourthSynchronous463StillRequeuesForAnotherSender() {
+        Fixture fixture = new Fixture(false);
+        fixture.recipient.setDispatchAttempt(4);
+        when(fixture.commandFactory.commandId(7L, 11L, 13L, 4)).thenReturn("hl:7:11:13:4");
+        when(fixture.dispatchGuard.tryAcquire(51L, "hl:7:11:13:4")).thenReturn(true);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
+        when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
+                List.of(MessageSendEnqueueItem.rejected("hl:7:11:13:4", "WA_ACK_REJECTED_463", "463"))));
+
+        assertThat(fixture.service.dispatchOne(11L)).isTrue();
+
+        verify(fixture.recipientMapper).rememberRejectedSender(fixture.recipient);
+        verify(fixture.metrics).requeueSystemFailure(fixture.recipient);
+        verify(fixture.recipientMapper, never()).applyResult(any());
+        org.mockito.Mockito.verifyNoInteractions(fixture.dataPackageService);
+        assertThat(fixture.recipient.getNextDispatchAt()).isEqualTo(121_000L);
     }
 
     @Test
@@ -157,6 +188,7 @@ class HyperlinkDispatchServiceTest {
                 .thenReturn(List.of(usage(), secondUsage()));
         when(fixture.accountService.lockForHyperlinkDispatch(51L)).thenReturn(false);
         when(fixture.accountService.lockForHyperlinkDispatch(52L)).thenReturn(true);
+        when(fixture.recipientMapper.lockPending(7L, 11L, 52L, 1_000L)).thenReturn(recipient());
         when(fixture.dispatchGuard.tryAcquire(52L, "hl:7:11:13")).thenReturn(true);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
 
@@ -192,7 +224,6 @@ class HyperlinkDispatchServiceTest {
     @Test
     void localAdapterRejectionReleasesAfterDatabaseCommit() {
         Fixture fixture = new Fixture(false);
-        when(fixture.recipientMapper.requeueAfterSystemFailure(any())).thenReturn(1);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
         when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
                 List.of(MessageSendEnqueueItem.rejected(
@@ -213,7 +244,6 @@ class HyperlinkDispatchServiceTest {
     void localAccountRestrictionRequeuesMaterialWithoutRecordingTerminalFailure() {
         Fixture fixture = new Fixture(false);
         when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
-        when(fixture.recipientMapper.requeueAfterSystemFailure(any())).thenReturn(1);
         when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
                 List.of(MessageSendEnqueueItem.rejected(
                         "hl:7:11:13", "ACCOUNT_REACHOUT_RESTRICTED", "restricted"))));
@@ -222,13 +252,30 @@ class HyperlinkDispatchServiceTest {
 
         verify(fixture.restrictionService).restrictMessageSending(
                 51L, "ACCOUNT_REACHOUT_RESTRICTED", 1_000L, 1_000L);
-        verify(fixture.recipientMapper).requeueAfterSystemFailure(any());
+        verify(fixture.metrics).requeueSystemFailure(any());
         verify(fixture.usageMapper).completeSlot(41L, false, 1_000L);
         verify(fixture.usageMapper).markOperationRestricted(
                 41L, 6, "ACCOUNT_REACHOUT_RESTRICTED", "restricted", 1_000L);
         verify(fixture.recipientMapper, never()).applyResult(any());
         verify(fixture.dataPackageService, never()).advanceDeliveryFact(
                 anyLong(), anyLong(), anyInt(), any(), any(), anyLong());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"UNREGISTERED", "RECIPIENT_UNREGISTERED"})
+    void localUnregisteredRecipientUsesTerminalDataClassification(String code) {
+        Fixture fixture = new Fixture(false);
+        when(fixture.recipientMapper.assignCommand(any())).thenReturn(1);
+        when(fixture.messageSendPort.enqueue(any())).thenReturn(new MessageSendEnqueueResult(
+                List.of(MessageSendEnqueueItem.rejected("hl:7:11:13", code, "unregistered"))));
+
+        assertThat(fixture.service.dispatchOne(11L)).isTrue();
+
+        verify(fixture.recipientMapper).applyResult(org.mockito.ArgumentMatchers.argThat(
+                row -> row.getSendStatus() == 7 && code.equals(row.getFailCode())));
+        verify(fixture.metrics, never()).requeueSystemFailure(any());
+        verify(fixture.dataPackageService).advanceDeliveryFact(eq(11L), anyLong(), anyInt(),
+                any(), eq(com.armada.hyperlink.data.model.enums.DataPackagePoolStatus.UNREGISTERED), eq(1_000L));
     }
 
     @Test
@@ -262,6 +309,8 @@ class HyperlinkDispatchServiceTest {
                 mock(AccountOperationRestrictionService.class);
         private final DataPackageRecipientClaimService dataPackageService =
                 mock(DataPackageRecipientClaimService.class);
+        private final HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
+        private final HyperlinkMessageCommandFactory commandFactory = mock(HyperlinkMessageCommandFactory.class);
         private final HyperlinkTaskRecipient recipient = recipient();
         private final HyperlinkDispatchService service;
 
@@ -270,14 +319,13 @@ class HyperlinkDispatchServiceTest {
             HyperlinkTaskContentMapper contentMapper = mock(HyperlinkTaskContentMapper.class);
             HyperlinkTaskRuntimeMapper runtimeMapper = mock(HyperlinkTaskRuntimeMapper.class);
             HyperlinkTaskRoundMapper roundMapper = mock(HyperlinkTaskRoundMapper.class);
-            HyperlinkMessageCommandFactory commandFactory = mock(HyperlinkMessageCommandFactory.class);
             HyperlinkPrivateCapabilityPort capabilityPort =
                     mock(HyperlinkPrivateCapabilityPort.class);
             HyperlinkTask task = task(shortLinkEnabled);
             when(taskMapper.selectById(11L)).thenReturn(task);
             var runtime = new com.armada.hyperlink.task.model.entity.HyperlinkTaskRuntime();
             runtime.setRunStatus(1);
-            when(runtimeMapper.selectByTaskIdForShare(7L, 11L)).thenReturn(runtime);
+            when(runtimeMapper.selectByTaskIdForUpdate(7L, 11L)).thenReturn(runtime);
             HyperlinkTaskRound round = round();
             when(roundMapper.selectActiveForUpdate(7L, 11L)).thenReturn(round);
             HyperlinkTaskAccountUsage usage = usage();
@@ -292,7 +340,7 @@ class HyperlinkDispatchServiceTest {
             when(accountService.lockForHyperlinkDispatch(51L)).thenReturn(true);
             when(recipientMapper.lockSendingIdsByAccount(7L, 51L, 20))
                     .thenReturn(List.of());
-            when(recipientMapper.lockPending(7L, 11L, 31L, 1_000L)).thenReturn(recipient);
+            when(recipientMapper.lockPending(7L, 11L, 51L, 1_000L)).thenReturn(recipient);
             MessageSendCommand command = mock(MessageSendCommand.class);
             when(commandFactory.commandId(7L, 11L, 13L, null))
                     .thenReturn("hl:7:11:13");
@@ -305,7 +353,7 @@ class HyperlinkDispatchServiceTest {
                     roundMapper, usageMapper, recipientMapper, commandFactory, shortCodeGenerator,
                     capabilityPort, messageSendPort, dataPackageService,
                     accountService, restrictionService, dispatchGuard,
-                    Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneOffset.UTC));
+                    Clock.fixed(Instant.ofEpochMilli(1_000L), ZoneOffset.UTC), metrics);
         }
     }
 

@@ -77,6 +77,19 @@ class PullTaskSupplementManagerTransactionIntegrationTest {
     }
 
     @Test
+    void automaticReplacementUsesNormalJoinProcessorInsteadOfManualSupplementProcessor() {
+        jdbc.update("UPDATE pull_task_group_account SET selection_mode=1 WHERE id=102");
+        assertThat(transactions.prepare(executionMapper.selectById(11L), "worker", NOW).handled()).isFalse();
+        assertThat(intColumn("action_status", "pull_task_account_action", 201L)).isEqualTo(1);
+    }
+
+    @Test
+    void removedManualSupplementCannotInterceptNewAutomaticManager() {
+        jdbc.update("UPDATE pull_task_group_account SET availability_status=4 WHERE id=102");
+        assertThat(transactions.prepare(executionMapper.selectById(11L), "worker", NOW).handled()).isFalse();
+    }
+
+    @Test
     void persistsEntryThenPromotionCheckpointsBeforeReturningToContactStage() {
         PullTaskGroupExecution candidate = executionMapper.selectById(11L);
 

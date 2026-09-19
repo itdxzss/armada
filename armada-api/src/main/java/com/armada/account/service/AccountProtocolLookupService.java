@@ -76,6 +76,12 @@ public interface AccountProtocolLookupService {
     /** 拉群管理员首次选号和资源恢复：在线可用生命周期，并保留风险和拉人限制校验。 */
     Optional<ProtocolAccountRef> findRandomOnlinePullTaskAccountByGroupId(Long groupId);
 
+    /** 管理员分组候选：在线、生命周期可用、协议明确，且没有风险或操作限制。 */
+    List<ProtocolAccountRef> findOnlineEligibleManagersByGroupId(Long groupId);
+
+    /** 管理员执行前复核；不以账号记录存在代替在线、封禁和受限检查。 */
+    List<ProtocolAccountRef> findEligibleManagerProtocolRefs(List<Long> accountIds);
+
     /**
      * 查询普通拉群任务当前可选拉手。
      *

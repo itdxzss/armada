@@ -17,6 +17,7 @@ public final class AndroidGroupJoinErrorMapper {
     private static final String RAW_CODE_BAD_REQUEST = "400";
     private static final String RAW_CODE_UNAUTHORIZED = "401";
     private static final String RAW_CODE_FORBIDDEN = "403";
+    private static final String RAW_CODE_GONE = "410";
     private static final String RAW_CODE_RATE_LIMITED = "429";
     private static final String MESSAGE_ACCOUNT_MISSING_OR_OFFLINE = "不存在或已下线";
     private static final String MESSAGE_ACCOUNT_NOT_ONLINE = "不在线";
@@ -25,6 +26,13 @@ public final class AndroidGroupJoinErrorMapper {
     private static final String MESSAGE_BAD_REQUEST = "bad-request";
     private static final String MESSAGE_GROUP = "group";
     private static final String MESSAGE_GROUP_BANNED = "banned";
+    private static final String MESSAGE_GROUP_SUSPENDED = "suspended";
+    private static final String MESSAGE_GROUP_TERMINATED = "terminated";
+    private static final String MESSAGE_CHAT_SUSPENDED = "chat_suspended";
+    private static final String MESSAGE_CHAT_TERMINATED = "chat_terminated";
+    private static final String MESSAGE_INVITE_REVOKED = "invite revoked";
+    private static final String MESSAGE_INVITE_EXPIRED = "invite expired";
+    private static final String MESSAGE_EXPIRED_INVITE = "expired invite";
     private static final String MESSAGE_GROUP_FULL = "full";
     private static final String MESSAGE_GROUP_GONE = "gone";
     private static final String MESSAGE_GROUP_NOT_FOUND = "not found";
@@ -88,8 +96,11 @@ public final class AndroidGroupJoinErrorMapper {
         if (message.contains(MESSAGE_INVITE_CODE_EMPTY)) {
             return ProtocolErrorCode.INVALID_GROUP_LINK;
         }
-        if (GROUP_JOIN_OPERATION.equals(operation) && isGroupUnavailable(message)) {
-            return ProtocolErrorCode.GROUP_UNAVAILABLE;
+        if (GROUP_JOIN_OPERATION.equals(operation)) {
+            ProtocolErrorCode groupFailure = explicitGroupFailure(message, response.rawProtocolCode());
+            if (groupFailure != ProtocolErrorCode.UNKNOWN) {
+                return groupFailure;
+            }
         }
         if (RAW_CODE_BAD_REQUEST.equals(response.rawProtocolCode())
                 && message.contains(MESSAGE_BAD_REQUEST)) {
@@ -127,12 +138,25 @@ public final class AndroidGroupJoinErrorMapper {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
-    private static boolean isGroupUnavailable(String message) {
-        return message.contains(MESSAGE_GROUP)
-                && (message.contains(MESSAGE_GROUP_BANNED)
-                || message.contains(MESSAGE_GROUP_FULL)
-                || message.contains(MESSAGE_GROUP_GONE)
+    private static ProtocolErrorCode explicitGroupFailure(String message, String rawCode) {
+        boolean groupMessage = message.contains(MESSAGE_GROUP);
+        if (message.contains(MESSAGE_CHAT_SUSPENDED) || message.contains(MESSAGE_CHAT_TERMINATED)
+                || (groupMessage && (message.contains(MESSAGE_GROUP_BANNED)
+                || message.contains(MESSAGE_GROUP_SUSPENDED) || message.contains(MESSAGE_GROUP_TERMINATED)))) {
+            return ProtocolErrorCode.GROUP_BANNED;
+        }
+        if (groupMessage && message.contains(MESSAGE_GROUP_FULL)) {
+            return ProtocolErrorCode.GROUP_FULL;
+        }
+        if (message.contains(MESSAGE_INVITE_REVOKED) || message.contains(MESSAGE_INVITE_EXPIRED)
+                || message.contains(MESSAGE_EXPIRED_INVITE)) {
+            return ProtocolErrorCode.INVITE_REVOKED;
+        }
+        if (RAW_CODE_GONE.equals(rawCode) || (groupMessage && (message.contains(MESSAGE_GROUP_GONE)
                 || message.contains(MESSAGE_GROUP_NOT_FOUND)
-                || message.contains(MESSAGE_GROUP_UNAVAILABLE));
+                || message.contains(MESSAGE_GROUP_UNAVAILABLE)))) {
+            return ProtocolErrorCode.GROUP_UNAVAILABLE;
+        }
+        return ProtocolErrorCode.UNKNOWN;
     }
 }

@@ -75,8 +75,9 @@ public interface PullTaskPullCallMemberAttemptMapper {
      * GROUP_JOIN_REJECTED 等）属于确定性终态，换拉手重试也不会成功。白名单让协议层
      * 未来新增的未知原因码默认不重试，与协议侧判定保持同向。</p>
      *
-     * <p>UNKNOWN 只有明确未开始，或成员名单核实不在群内时允许重试；限流、离线和缺失
-     * 回调不能证明原调用未生效。总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
+     * <p>UNKNOWN 允许明确未开始、名单核实不在群内，或原调用返回账号受限时有界重试；
+     * 受限不等于明确失败，原始事实仍保留。离线和缺失回调不自动重试，历史 CLOSED 未知
+     * 不重新开启。总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
      */
     default List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
             long pullWaveId, long maxFailureCount) {
@@ -85,7 +86,8 @@ public interface PullTaskPullCallMemberAttemptMapper {
                 maxFailureCount,
                 PullTaskRetryPolicy.MAX_ATTEMPTS,
                 List.of(ProtocolErrorCode.TIMEOUT.name()),
-                PullTaskRetryPolicy.CONFIRMED_ABSENCE_REASON);
+                PullTaskRetryPolicy.CONFIRMED_ABSENCE_REASON,
+                PullTaskRetryPolicy.RETRYABLE_ACCOUNT_RISK_REASONS);
     }
 
     /**
@@ -96,6 +98,7 @@ public interface PullTaskPullCallMemberAttemptMapper {
      * @param maxAttemptCount            单参与者包含首轮的自动尝试次数上限
      * @param retryableFailureReasonCodes 明确失败中仍允许重试的原因码
      * @param confirmedAbsenceReasonCode  成员名单明确不在群内的事实原因码
+     * @param retryableAccountRiskReasons 原调用账号受限的可重试原因码
      * @return 可进入下一波次的参与者
      */
     List<PullTaskPullWaveCandidate> selectRetryCandidatesByWaveInternal(
@@ -103,7 +106,8 @@ public interface PullTaskPullCallMemberAttemptMapper {
             @Param("maxFailureCount") long maxFailureCount,
             @Param("maxAttemptCount") int maxAttemptCount,
             @Param("retryableFailureReasonCodes") List<String> retryableFailureReasonCodes,
-            @Param("confirmedAbsenceReasonCode") String confirmedAbsenceReasonCode);
+            @Param("confirmedAbsenceReasonCode") String confirmedAbsenceReasonCode,
+            @Param("retryableAccountRiskReasons") List<String> retryableAccountRiskReasons);
 
     /** 统计波次内仍未关闭、释放或取消的 attempt。 */
     int countOpenByWave(

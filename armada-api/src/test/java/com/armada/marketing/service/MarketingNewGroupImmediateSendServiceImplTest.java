@@ -200,7 +200,6 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         task.setNewGroupDelayUnit(1);
         when(mapper.selectOwnedSendingDynamicTarget(5_001L, 2_000L)).thenReturn(dynamicTarget());
         when(mapper.selectTaskById(42L)).thenReturn(task);
-        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         assignAttemptIds(9_000L);
 
         service.enqueueDelayedNewGroups(
@@ -211,6 +210,7 @@ class MarketingNewGroupImmediateSendServiceImplTest {
         ArgumentCaptor<MarketingTaskSendAttempt> captor =
                 ArgumentCaptor.forClass(MarketingTaskSendAttempt.class);
         verify(mapper).insertSendAttempt(captor.capture());
+        verify(mapper, never()).selectTaskByIdForUpdate(anyLong());
         assertThat(captor.getValue().getStatus()).isEqualTo(MarketingSendAttemptStatus.WAITING.code());
         assertThat(captor.getValue().getScheduledSendAt()).isEqualTo(1_802_000L);
         verify(messagePort, never()).enqueue(any());

@@ -5,7 +5,7 @@ public enum PullTaskGroupAccountSource {
 
     /** 任务执行链路初次选择。 */
     INITIAL(1),
-    /** 用户在群详情中确认补充。 */
+    /** 执行行后续补充；由 selectionMode 区分自动替补与人工选择。 */
     SUPPLEMENT(2);
 
     private final int code;

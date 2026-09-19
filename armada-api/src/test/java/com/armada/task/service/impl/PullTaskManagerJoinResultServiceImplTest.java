@@ -57,6 +57,20 @@ class PullTaskManagerJoinResultServiceImplTest {
     }
 
     @Test
+    void replacedManagerLateCallbackCannotAdvanceCurrentExecution() {
+        PullTaskGroupAccount old = manager();
+        old.setAvailabilityStatus(4);
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(old);
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isFalse();
+        org.mockito.Mockito.verify(actionMapper, org.mockito.Mockito.never()).transitionResult(any());
+        org.mockito.Mockito.verify(executionMapper, org.mockito.Mockito.never()).transitionManagerJoinResult(any());
+    }
+
+    @Test
     void verifiedJoinWritesFactsAndAdvancesExecutionFromCallback() {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
@@ -211,6 +225,25 @@ class PullTaskManagerJoinResultServiceImplTest {
         assertThat(executionTransition.getValue().target().reasonMessage())
                 .isEqualTo("进群请求被限流，请稍后重试");
         assertThat(executionTransition.getValue().target().nextRunAt()).isEqualTo(35_000L);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"GROUP_BANNED,群组已封禁", "GROUP_FULL,群人数已满", "GROUP_UNAVAILABLE,群组不可用"})
+    void explicitGroupFailureTerminatesExecutionWithoutInviteRecovery(String reasonCode, String reasonMessage) {
+        stubOpenFacts();
+        boolean handled = service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1",
+                PullTaskManagerJoinProtocolOutcome.FAILED,
+                null, reasonCode, "raw protocol text", false, 5_000L));
+
+        assertThat(handled).isTrue();
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().executionStatus()).isEqualTo(PullTaskExecutionStatus.FAILED.code());
+        assertThat(transition.getValue().target().reasonCode()).isEqualTo(reasonCode);
+        assertThat(transition.getValue().target().reasonMessage()).isEqualTo(reasonMessage);
+        verify(completionService).completeIfTerminalByExecutionId(11L, 5_000L);
     }
 
     @Test

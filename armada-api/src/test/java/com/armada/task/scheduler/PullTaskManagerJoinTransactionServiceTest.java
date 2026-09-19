@@ -82,8 +82,8 @@ class PullTaskManagerJoinTransactionServiceTest {
         PullTaskGroupExecution candidate = candidate();
         seedDispatchableParent(candidate);
         when(groupAccountMapper.selectByExecutionAndRole(11L, 1)).thenReturn(List.of());
-        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
-                .thenReturn(Optional.of(account()));
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of(account()));
         doAnswer(invocation -> {
             invocation.<PullTaskGroupAccount>getArgument(0).setId(501L);
             return 1;
@@ -137,8 +137,8 @@ class PullTaskManagerJoinTransactionServiceTest {
         PullTaskGroupExecution candidate = candidate();
         seedDispatchableParent(candidate);
         when(groupAccountMapper.selectByExecutionAndRole(11L, 1)).thenReturn(List.of());
-        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
-                .thenReturn(Optional.empty());
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of());
         when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
 
@@ -268,7 +268,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.selectByExecutionAndType(
                 11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
                 .thenReturn(List.of(action));
-        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
 
         PullTaskManagerJoinPreparation prepared =
                 service.prepare(candidate, "worker-1", NOW);
@@ -293,7 +293,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.selectByExecutionAndType(
                 11L, PullTaskAccountActionType.JOIN_BY_LINK.code()))
                 .thenReturn(List.of(action));
-        when(accountLookup.findOnlineProtocolRefs(List.of(901L)))
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L)))
                 .thenReturn(List.of(androidAccount()));
 
         PullTaskManagerJoinPreparation prepared =
@@ -314,7 +314,7 @@ class PullTaskManagerJoinTransactionServiceTest {
                 .thenReturn(List.of(submittedAction()));
         // 账号在库里仍然活着，只是已经离线；恢复踩链接必须放弃本轮，不能把离线号交给协议层。
         when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account()));
-        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of());
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of());
         when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
                 eq(PullTaskExecutionStage.MANAGER_JOIN.code()))).thenReturn(1);
 
@@ -350,7 +350,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         when(actionMapper.reopenForVerification(
                 601L, PullTaskActionStatus.UNKNOWN.code(),
                 PullTaskActionStatus.SUBMITTED.code(), NOW)).thenReturn(1);
-        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
 
         PullTaskManagerJoinPreparation prepared =
                 service.prepare(candidate, "worker-1", NOW);
@@ -399,6 +399,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         parent.setMode("NORMAL_LINK");
         parent.setStatus(PullTaskStandardStatus.EXECUTING.name());
         when(taskMapper.selectLifecycle(candidate.getTaskId())).thenReturn(parent);
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(account()));
         PullTaskStandardSetting setting = new PullTaskStandardSetting();
         setting.setManagerGroupId(88L);
         when(settingMapper.selectByTaskId(candidate.getTaskId())).thenReturn(setting);
@@ -437,6 +438,7 @@ class PullTaskManagerJoinTransactionServiceTest {
         PullTaskGroupAccount row = new PullTaskGroupAccount();
         row.setId(501L);
         row.setAccountId(901L);
+        row.setAvailabilityStatus(1);
         row.setMembershipStatus(PullTaskGroupAccountMembershipStatus.JOINING.code());
         return row;
     }

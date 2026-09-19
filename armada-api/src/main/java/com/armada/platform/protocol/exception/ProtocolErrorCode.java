@@ -47,7 +47,13 @@ public enum ProtocolErrorCode {
     /** 群邀请链接已撤销或过期,属于永久失败。 */
     INVITE_REVOKED,
 
-    /** 群已封禁、满员、不存在或不可访问,属于永久失败。 */
+    /** 协议明确确认群组已封禁,属于永久失败。 */
+    GROUP_BANNED,
+
+    /** 群组人数已达到上限,属于本次进群的永久失败。 */
+    GROUP_FULL,
+
+    /** 群不存在或不可访问，但未确认封禁或链接撤销,属于永久失败。 */
     GROUP_UNAVAILABLE,
 
     /** WhatsApp 进群接口限流,可按策略重试。 */

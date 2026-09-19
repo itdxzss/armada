@@ -406,4 +406,14 @@
     LIMIT #{limit}
   </update>
 
+  <select id="selectJoinTaskAdminCommandStatus" resultType="java.lang.Integer">
+    SELECT status FROM protocol_command_outbox
+    WHERE command_id = #{commandId} AND aggregate_type = 'JOIN_TASK_ADMIN' AND deleted_at IS NULL
+  </select>
+  <update id="cancelJoinTaskAdminCommand">
+    UPDATE protocol_command_outbox
+    SET status = CASE WHEN status = 5 THEN 6 ELSE 4 END, updated_at = #{now}
+    WHERE command_id = #{commandId} AND aggregate_type = 'JOIN_TASK_ADMIN'
+      AND deleted_at IS NULL AND status IN (0, 1, 5)
+  </update>
 </mapper>

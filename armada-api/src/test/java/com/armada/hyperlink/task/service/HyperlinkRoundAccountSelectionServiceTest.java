@@ -46,7 +46,7 @@ class HyperlinkRoundAccountSelectionServiceTest {
         AccountHyperlinkCandidateVO second = candidate(2L);
         AccountHyperlinkCandidateVO third = candidate(3L);
         when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of());
-        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(0, 1);
+        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(1);
         when(candidates.select(task, null, null, 50, NOW))
                 .thenReturn(List.of(first, second, third));
         when(usages.selectByTaskAndAccount(11L, 1L)).thenReturn(usage(101L, 1L,
@@ -75,7 +75,7 @@ class HyperlinkRoundAccountSelectionServiceTest {
         HyperlinkTask task = task(1, 1);
         HyperlinkTaskRound round = round();
         when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of());
-        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(0, 1);
+        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(1);
         when(candidates.select(task, null, null, 50, NOW)).thenReturn(List.of(
                 candidate(1L), candidate(2L), candidate(3L), candidate(4L)));
         when(usages.selectByTaskAndAccount(11L, 1L)).thenReturn(usage(101L, 1L,
@@ -103,7 +103,7 @@ class HyperlinkRoundAccountSelectionServiceTest {
                 .mapToObj(this::candidate)
                 .toList();
         when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of());
-        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(0, 1);
+        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(1);
         when(candidates.select(task, null, null, 50, NOW)).thenReturn(firstPage);
         when(candidates.select(task, 0, 50L, 50, NOW)).thenReturn(List.of(candidate(51L)));
         when(usages.selectByTaskAndAccount(eq(11L), anyLong())).thenAnswer(invocation -> {
@@ -143,24 +143,52 @@ class HyperlinkRoundAccountSelectionServiceTest {
     }
 
     @Test
-    void operationRestrictedAccountDoesNotConsumeTheReplacementAccountCap() {
+    void operationRestrictedAccountStillConsumesTheStrictTotalCap() {
         HyperlinkTask task = task(1, 1);
-        HyperlinkTaskRound round = round();
         HyperlinkTaskRoundAccount restricted = new HyperlinkTaskRoundAccount();
         restricted.setAccountId(1L);
         when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of(restricted));
-        when(roundAccounts.countAvailableByRoundId(21L)).thenReturn(0, 1);
-        when(roundAccounts.countOperationRestrictedByRoundId(21L)).thenReturn(1);
-        when(candidates.select(task, null, null, 50, NOW))
-                .thenReturn(List.of(candidate(2L)));
-        when(usages.selectByTaskAndAccount(11L, 2L)).thenReturn(usage(102L, 2L,
-                HyperlinkTaskAccountUsageStatus.AVAILABLE));
-        when(usages.markSelectedRound(102L, 2L, NOW)).thenReturn(1);
-        when(roundAccounts.insertIgnore(any())).thenReturn(1);
+        assertThat(service.select(task, round(), NOW)).isZero();
+        verifyNoMoreInteractions(candidates);
+        verify(roundAccounts, never()).insertIgnore(any());
+    }
 
-        assertThat(service.select(task, round, NOW)).isEqualTo(1);
+    @Test
+    void healthyAccountWithAllQuotaReservedStillOccupiesConcurrency() {
+        HyperlinkTask task = task(1, 10);
+        HyperlinkTaskRoundAccount running = new HyperlinkTaskRoundAccount();
+        running.setAccountId(1L);
+        when(roundAccounts.selectByRoundId(21L)).thenReturn(List.of(running));
+        when(roundAccounts.countExecutingByRoundId(21L)).thenReturn(1);
+        service.select(task, round(), NOW);
+        verifyNoMoreInteractions(candidates);
+        verify(roundAccounts, never()).insertIgnore(any());
+    }
 
-        verify(roundAccounts).insertIgnore(any());
+    @Test
+    void concurrentTwoReplacesFiveBatchesAndStopsAtTenDistinctAccounts() {
+        HyperlinkTask task = task(2, 10);
+        HyperlinkTaskRound round = round();
+        java.util.ArrayList<HyperlinkTaskRoundAccount> selected = new java.util.ArrayList<>();
+        when(roundAccounts.selectByRoundId(21L)).thenAnswer(call -> List.copyOf(selected));
+        when(roundAccounts.countExecutingByRoundId(21L)).thenReturn(0);
+        when(candidates.select(task, null, null, 50, NOW)).thenReturn(
+                LongStream.rangeClosed(1, 20).mapToObj(this::candidate).toList());
+        when(usages.selectByTaskAndAccount(eq(11L), anyLong())).thenAnswer(call ->
+                usage(100L + (Long) call.getArgument(1), call.getArgument(1), HyperlinkTaskAccountUsageStatus.AVAILABLE));
+        when(usages.markSelectedRound(anyLong(), eq(2L), eq(NOW))).thenReturn(1);
+        when(roundAccounts.insertIgnore(any())).thenAnswer(call -> {
+            selected.add(call.getArgument(0));
+            return 1;
+        });
+        for (int batch = 1; batch <= 5; batch++) {
+            service.select(task, round, NOW);
+            assertThat(selected).hasSize(batch * 2);
+        }
+        service.select(task, round, NOW);
+        assertThat(selected).hasSize(10);
+        assertThat(selected.stream().map(HyperlinkTaskRoundAccount::getAccountId).distinct()).hasSize(10);
+        verify(candidates, times(5)).select(task, null, null, 50, NOW);
     }
 
     private HyperlinkTask task() {

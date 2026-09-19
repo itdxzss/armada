@@ -1,5 +1,7 @@
 package com.armada.group.service;
 
+import com.armada.group.service.impl.GroupCreatorCompatibilityWriter;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -120,7 +122,8 @@ class GroupLinkServiceImplTest {
     void setUp() {
         TenantContext.set(TENANT_ID);
         service = new GroupLinkServiceImpl(
-                groupLinkMapper, groupListCurrentMapper, folderMapper, previewMapper, labelMapper,
+                groupLinkMapper, groupListCurrentMapper, folderMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)), labelMapper,
                 converter, countryService, accountMapper, groupPreviewPort, groupProfilePort,
                 currentLocalPersistence, currentInvitePersistence, taskGroupOccupancyService);
     }
@@ -710,12 +713,11 @@ class GroupLinkServiceImplTest {
     }
 
     @Test
-    void previewBatch_clearsPhoneIntentForLidOwner() {
+    void previewBatch_preservesPhoneForUnresolvedLidOwner() {
         OwnerPreviewOutcome outcome = previewOwner("193088878297313@lid");
 
         assertThat(outcome.responsePhone()).isNull();
-        assertThat(outcome.persisted().getOwnerPhone()).isNull();
-        assertThat(outcome.persisted().getOwnerPhoneObserved()).isTrue();
+        assertThat(outcome.persisted()).isNull();
     }
 
     @Test
@@ -751,7 +753,7 @@ class GroupLinkServiceImplTest {
 
         GroupLinkPreviewBatchVO result = service.previewBatch(
                 new GroupLinkPreviewDTO(7L, List.of(10L)));
-        if (!ownerJid.endsWith("@lid") && !ownerJid.endsWith("@s.whatsapp.net")) {
+        if (!ownerJid.endsWith("@s.whatsapp.net")) {
             verify(previewMapper, never()).upsertCreatorCompatibility(any());
             return new OwnerPreviewOutcome(result.items().get(0).ownerPhone(), null);
         }

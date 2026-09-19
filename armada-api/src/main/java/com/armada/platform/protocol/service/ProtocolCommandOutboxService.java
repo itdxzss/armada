@@ -29,6 +29,15 @@ import java.util.Optional;
  * Kafka 发送由事务提交后的通用 dispatcher 触发，避免协议层执行一条最终被数据库回滚的命令。</p>
  */
 public interface ProtocolCommandOutboxService {
+    /** 当前管理员命令是否已发送、失败或取消，未发送不能新发重试。 */
+    boolean isJoinTaskAdminCommandSettled(String commandId);
+    /** 管理员阶段终结后取消尚未发送或正在收口的命令。 */
+    int cancelJoinTaskAdminCommand(String commandId, long now);
+
+
+    /** 将进群任务管理员阶段命令写入同事务 Outbox。 */
+    ProtocolCommandOutboxEnqueueResult enqueueJoinTaskAdminCommand(
+            com.armada.platform.protocol.model.command.ProtocolJoinTaskAdminCommandRequest command);
 
     /**
      * 按当前租户、账号和精确上线尝试追溯已冻结的代理 ID，兼容旧协议缺失 proxyId 的事件。

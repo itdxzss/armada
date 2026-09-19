@@ -19,6 +19,7 @@ import com.armada.hyperlink.task.mapper.HyperlinkTaskRecipientMapper;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
 import com.armada.hyperlink.task.service.HyperlinkProtocolResultService;
+import com.armada.hyperlink.task.service.HyperlinkMetricsProjectionService;
 import com.armada.hyperlink.task.service.HyperlinkRecipientStateMachine;
 import com.armada.hyperlink.task.service.HyperlinkAccountDispatchGuard;
 import com.armada.hyperlink.data.service.DataPackageRecipientClaimService;
@@ -41,6 +42,7 @@ class HyperlinkProtocolUnknownResultTest {
         HyperlinkTaskAccountUsageMapper usages = mock(HyperlinkTaskAccountUsageMapper.class);
         HyperlinkTaskRecipient recipient = new HyperlinkTaskRecipient();
         recipient.setId(13L);
+        recipient.setTenantId(7L);
         recipient.setHyperlinkTaskId(11L);
         recipient.setAccountId(17L);
         recipient.setDataPackageId(23L);
@@ -55,10 +57,11 @@ class HyperlinkProtocolUnknownResultTest {
         when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, "hl:7:11:13"))
                 .thenReturn(recipient);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(),
                 mock(DataPackageRecipientClaimService.class), dispatchGuard,
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleSendResultReported(event("UNKNOWN", false));
 
@@ -87,6 +90,7 @@ class HyperlinkProtocolUnknownResultTest {
         HyperlinkTaskAccountUsageMapper usages = mock(HyperlinkTaskAccountUsageMapper.class);
         HyperlinkTaskRecipient recipient = new HyperlinkTaskRecipient();
         recipient.setId(13L);
+        recipient.setTenantId(7L);
         recipient.setHyperlinkTaskId(11L);
         recipient.setAccountId(17L);
         recipient.setDataPackageId(23L);
@@ -103,9 +107,10 @@ class HyperlinkProtocolUnknownResultTest {
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
         DataPackageRecipientClaimService data = mock(DataPackageRecipientClaimService.class);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(),
-                data, dispatchGuard, mock(AccountOperationRestrictionService.class));
+                data, dispatchGuard, mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleAck(new ProtocolMessageAckEvent("ack1", 7L, "hyperlink_task",
                 11L, 13L, "hl:7:11:13", 17L, "web", "acc17",
@@ -145,9 +150,10 @@ class HyperlinkProtocolUnknownResultTest {
         when(recipients.advanceAck(any(HyperlinkTaskRecipient.class), eq(3))).thenReturn(1);
         DataPackageRecipientClaimService data = mock(DataPackageRecipientClaimService.class);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(), data, dispatchGuard,
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleAck(new ProtocolMessageAckEvent("ack-after-success", 7L, "hyperlink_task",
                 11L, 13L, "hl:7:11:13", 17L, "web", "acc17",
@@ -171,11 +177,13 @@ class HyperlinkProtocolUnknownResultTest {
         usage.setId(19L);
         when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
+        when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, "hl:7:11:13")).thenReturn(recipient);
         when(recipients.applyResult(any(HyperlinkTaskRecipient.class))).thenReturn(0);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(), data, dispatchGuard,
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "e2", 7L, null, null, null, null, "acc17", null,
@@ -204,15 +212,16 @@ class HyperlinkProtocolUnknownResultTest {
         usage.setId(19L);
         when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
-        when(recipients.requeueAfterSystemFailure(any())).thenReturn(1);
+        when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, "hl:7:11:13")).thenReturn(recipient);
         when(usages.markOperationRestricted(
                 eq(19L), eq(6), any(), any(), anyLong())).thenReturn(1);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
         AccountOperationRestrictionService restrictionService =
                 mock(AccountOperationRestrictionService.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(), data, dispatchGuard,
-                restrictionService);
+                restrictionService, metrics);
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "restricted", 7L, null, null, null, null, "acc17", null,
@@ -224,7 +233,7 @@ class HyperlinkProtocolUnknownResultTest {
 
         verify(restrictionService).restrictMessageSending(
                 eq(17L), eq("ACCOUNT_REACHOUT_RESTRICTED"), anyLong(), anyLong());
-        verify(recipients).requeueAfterSystemFailure(any());
+        verify(metrics).requeueSystemFailure(any());
         verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verify(usages).markOperationRestricted(eq(19L), eq(6),
                 eq("ACCOUNT_REACHOUT_RESTRICTED"), eq("reachout restricted"), anyLong());
@@ -244,13 +253,14 @@ class HyperlinkProtocolUnknownResultTest {
         usage.setId(19L);
         when(recipients.selectByCommandId("hl:7:11:13")).thenReturn(recipient);
         when(usages.selectByTaskAndAccountForUpdate(11L, 17L)).thenReturn(usage);
-        when(recipients.requeueAfterSystemFailure(any(HyperlinkTaskRecipient.class))).thenReturn(1);
+        when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, "hl:7:11:13")).thenReturn(recipient);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
         AccountOperationRestrictionService restrictionService =
                 mock(AccountOperationRestrictionService.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(), data, dispatchGuard,
-                restrictionService);
+                restrictionService, metrics);
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "rate-limited", 7L, null, null, null, null, "acc17", null,
@@ -260,7 +270,7 @@ class HyperlinkProtocolUnknownResultTest {
                 "8613800000000@s.whatsapp.net", "PRIVATE", 11L, 13L,
                 "FAILED", true));
 
-        verify(recipients).requeueAfterSystemFailure(argThat(value -> "RATE_LIMITED".equals(value.getFailCode())));
+        verify(metrics).requeueSystemFailure(argThat(value -> "RATE_LIMITED".equals(value.getFailCode())));
         verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verify(usages, never()).markOperationRestricted(
                 anyLong(), anyInt(), any(), any(), anyLong());
@@ -276,11 +286,12 @@ class HyperlinkProtocolUnknownResultTest {
         current.setCommandId("hl:7:11:13:2");
         when(recipients.selectCurrentByIdentity(7L, 11L, 13L)).thenReturn(current);
         HyperlinkTaskAccountUsageMapper usages = mock(HyperlinkTaskAccountUsageMapper.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(),
                 mock(DataPackageRecipientClaimService.class),
                 mock(HyperlinkAccountDispatchGuard.class),
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "old", 7L, null, null, null, null, "acc17", null,
@@ -299,6 +310,7 @@ class HyperlinkProtocolUnknownResultTest {
     private HyperlinkTaskRecipient recipient() {
         HyperlinkTaskRecipient recipient = new HyperlinkTaskRecipient();
         recipient.setId(13L);
+        recipient.setTenantId(7L);
         recipient.setHyperlinkTaskId(11L);
         recipient.setAccountId(17L);
         recipient.setDataPackageId(23L);
@@ -322,10 +334,11 @@ class HyperlinkProtocolUnknownResultTest {
         when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, "hl:7:11:13"))
                 .thenReturn(latest);
         HyperlinkAccountDispatchGuard dispatchGuard = mock(HyperlinkAccountDispatchGuard.class);
+        HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
         HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
                 recipients, usages, new HyperlinkRecipientStateMachine(),
                 mock(DataPackageRecipientClaimService.class), dispatchGuard,
-                mock(AccountOperationRestrictionService.class));
+                mock(AccountOperationRestrictionService.class), metrics);
 
         service.handleSendResultReported(event(outcome, false));
 

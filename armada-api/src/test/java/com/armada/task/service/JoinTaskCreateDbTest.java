@@ -74,7 +74,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         JoinTaskVO vo = service.createTask(req);
 
@@ -113,7 +113,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNT_MULTI_LINK",
                 null, 2, 3,
                 null, null, 5, 15,
-                true, 2, "RETRY");
+                true, 2, "RETRY", false, false);
 
         JoinTaskVO vo = service.createTask(req);
 
@@ -143,7 +143,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
@@ -164,7 +164,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 null, null, null, null, null,
                 null, null, null,
                 null, null, null, null,
-                false, 0, null);
+                false, 0, null, false, false);
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
@@ -186,7 +186,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
@@ -210,7 +210,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         assertThatThrownBy(() -> service.createTask(req))
                 .isInstanceOf(BusinessException.class)
@@ -237,7 +237,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         JoinTaskVO vo = service.createTask(req);
 
@@ -261,7 +261,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         JoinTaskVO vo = service.createTask(req);
         Long taskId = vo.id();
@@ -296,7 +296,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         service.createTask(req);
 
@@ -332,7 +332,7 @@ class JoinTaskCreateDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         service.createTask(req);
 

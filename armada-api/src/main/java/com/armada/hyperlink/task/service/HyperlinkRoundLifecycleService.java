@@ -112,13 +112,8 @@ public class HyperlinkRoundLifecycleService {
             return;
         }
         if (recipientMapper.hasRecoveryHold(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD)) {
-            if (runtimeMapper.transition(taskId, true, HyperlinkTaskRunStatus.RUNNING.code(),
-                    true, HyperlinkTaskRunStatus.PAUSED.code(), runtime.getProvisionStatus(), now) != 1) {
-                throw new BusinessException(ErrorCode.HYPERLINK_TASK_STATE_CONFLICT);
-            }
-            roundMapper.pauseActive(taskId, now);
+            // 已运行任务释放旧版本的单条挂起；人工暂停任务在入口处返回，不会被自动恢复。
             recipientMapper.releaseRecoveryHolds(taskId, HyperlinkSendFailurePolicy.RECOVERY_HOLD, now);
-            return;
         }
         if (round.getRoundStatus() == HyperlinkTaskRoundStatus.PLANNED.code()) {
             if (round.getScheduledAt() > now) {
@@ -129,6 +124,7 @@ public class HyperlinkRoundLifecycleService {
             round = roundMapper.selectActive(taskId);
         }
         roundAccountMapper.syncUnavailableFromUsage(round.getId(), now);
+        roundAccountMapper.releaseRejectedPairsOnly(round.getId(), now);
         int pending = recipientMapper.countPendingUnassigned(taskId);
         int sending = recipientMapper.countSendingByRoundId(round.getId());
         int available = roundAccountMapper.countAvailableByRoundId(round.getId());
@@ -136,7 +132,15 @@ public class HyperlinkRoundLifecycleService {
             settleRound(round, sending, now);
             return;
         }
+        if (mode != HyperlinkTaskMode.CYCLE
+                && roundAccountMapper.countExecutingByRoundId(round.getId()) < selectionService.selectionCap(task)) {
+            replenish(task, round, now);
+            return;
+        }
         if (available > 0) {
+            if (round.getRoundStatus() == HyperlinkTaskRoundStatus.WAITING_RESULT.code()) {
+                replenish(task, round, now);
+            }
             return;
         }
         if (sending > 0) {

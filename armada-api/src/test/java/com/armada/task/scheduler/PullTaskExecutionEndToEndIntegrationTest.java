@@ -186,26 +186,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     @EnumSource(ProtocolProfile.class)
     void executesOneLinkAndOneMaterialThroughClosing(ProtocolProfile profile) throws SQLException {
         PROTOCOL_PROFILE.set(profile);
-        for (int round = 0; round < 50 && !"COMPLETED".equals(taskStatus()); round++) {
-            long now = 1_000L + round * 1_000L;
-            coordinator.dispatchOnce(now);
-            sendPendingOutbox(now + 50L);
-            applyManagerJoinCallbackIfSubmitted(now + 100L);
-            sendPendingOutbox(now + 125L);
-            applyManagerAdminCallbackIfSubmitted(now + 150L);
-            sendPendingOutbox(now + 165L);
-            applyGroupSettingsCallback(PullTaskAccountActionType.OPEN_MEMBER_ADD, now + 175L);
-            sendPendingOutbox(now + 180L);
-            applyGroupSettingsCallback(PullTaskAccountActionType.CLOSE_JOIN_APPROVAL, now + 185L);
-            sendPendingOutbox(now + 190L);
-            applyContactCallbacksIfSubmitted(now + 200L);
-            sendPendingOutbox(now + 250L);
-            applyPullerInviteCallbacksIfSubmitted(now + 300L);
-            sendPendingOutbox(now + 350L);
-            applyBatchCallbacksIfSubmitted(now + 400L);
-            sendPendingOutbox(now + 450L);
-            applyMaterialAdminCallbackIfSubmitted(now + 500L);
-        }
+        driveToCompletion();
 
         TenantContext.set(7L);
         PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
@@ -227,6 +208,68 @@ class PullTaskExecutionEndToEndIntegrationTest {
         org.mockito.Mockito.verify(outboxDispatchTrigger,
                 org.mockito.Mockito.atLeastOnce()).dispatchAfterCommit(anyList());
         verifyNoInteractions(memberQueryAwaitService);
+    }
+
+    @ParameterizedTest(name = "{0} 管理员失败自动换号后完成全链路")
+    @EnumSource(ProtocolProfile.class)
+    void replacesFailedManagerAndCompletesJoinPromotionAndPull(ProtocolProfile profile) throws SQLException {
+        PROTOCOL_PROFILE.set(profile);
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        PullTaskGroupAccount old = new PullTaskGroupAccount();
+        old.setTaskId(100L);
+        old.setGroupExecutionId(execution.getId());
+        old.setAccountId(899L);
+        old.setAccountPhone("8613800000899");
+        old.setRoleType(1);
+        old.setRoleSeq(1);
+        old.setSourceType(1);
+        old.setSelectionMode(1);
+        old.setEntryMode(1);
+        old.setCreatedAt(100L);
+        old.setUpdatedAt(100L);
+        accountMapper.insert(old);
+        accountMapper.updateMembership(old.getId(), 3, null, 500L);
+        execute("UPDATE pull_task_group_execution SET execution_status=3,stage=2,wait_resource_type=1,"
+                + "reason_code='ACCOUNT_REACHOUT_RESTRICTED',next_run_at=0 WHERE id=" + execution.getId());
+
+        driveToCompletion();
+
+        TenantContext.set(7L);
+        assertThat(taskStatus()).isEqualTo("COMPLETED");
+        assertThat(accountMapper.selectById(old.getId()).getMembershipStatus()).isEqualTo(3);
+        assertThat(accountMapper.selectById(old.getId()).getAvailabilityStatus()).isEqualTo(4);
+        assertThat(accountMapper.selectByExecutionAndRole(execution.getId(), 1))
+                .filteredOn(row -> row.getAvailabilityStatus() == 1)
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getAccountId()).isEqualTo(901L);
+                    assertThat(row.getSourceType()).isEqualTo(2);
+                    assertThat(row.getSelectionMode()).isEqualTo(1);
+                    assertThat(row.getAdminStatus()).isEqualTo(3);
+                });
+        assertPersistedOutboxChain(execution.getId(), profile);
+    }
+
+    private void driveToCompletion() throws SQLException {
+        for (int round = 0; round < 50 && !"COMPLETED".equals(taskStatus()); round++) {
+            long now = 1_000L + round * 1_000L;
+            coordinator.dispatchOnce(now);
+            sendPendingOutbox(now + 50L);
+            applyManagerJoinCallbackIfSubmitted(now + 100L);
+            sendPendingOutbox(now + 125L);
+            applyManagerAdminCallbackIfSubmitted(now + 150L);
+            sendPendingOutbox(now + 165L);
+            applyGroupSettingsCallback(PullTaskAccountActionType.OPEN_MEMBER_ADD, now + 175L);
+            sendPendingOutbox(now + 180L);
+            applyGroupSettingsCallback(PullTaskAccountActionType.CLOSE_JOIN_APPROVAL, now + 185L);
+            sendPendingOutbox(now + 190L);
+            applyContactCallbacksIfSubmitted(now + 200L);
+            sendPendingOutbox(now + 250L);
+            applyPullerInviteCallbacksIfSubmitted(now + 300L);
+            sendPendingOutbox(now + 350L);
+            applyBatchCallbacksIfSubmitted(now + 400L);
+            sendPendingOutbox(now + 450L);
+            applyMaterialAdminCallbackIfSubmitted(now + 500L);
+        }
     }
 
     @Test
@@ -384,7 +427,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
     /** PL-I01/I02 现状复现：已知 JID 时只循环查成员，不查新邀请码。 */
     @ParameterizedTest(name = "{0} 已知 JID 的失效邀请码恢复")
     @EnumSource(value = ProtocolProfile.class, names = {"WEB", "ANDROID"})
-    void revokedInviteWithKnownGroupJidCurrentlyNeverRefreshesInvite(
+    void revokedInviteWithKnownGroupJidRefreshesInviteBeforeMembershipCheck(
             ProtocolProfile profile) throws SQLException {
         PROTOCOL_PROFILE.set(profile);
         coordinator.dispatchOnce(1_000L);
@@ -411,31 +454,18 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 9_001L, GROUP_JID, "AAAA")).thenReturn(Optional.of("BBBB"));
         clearInvocations(inviteLinkService, memberQueryAwaitService, joinPort);
         int outboxBefore = queryInt("SELECT COUNT(*) FROM protocol_command_outbox");
-        List<Integer> observedStatuses = new ArrayList<>();
-        long now = retrying.getNextRunAt();
-        for (int cycle = 0; cycle < 6; cycle++) {
-            PullTaskExecutionDispatchStats stats = coordinator.dispatchOnce(now + cycle * 60_000L);
-            assertThat(stats.claimed()).isOne();
-            observedStatuses.add(executionMapper.selectById(execution.getId())
-                    .getExecutionStatus());
-        }
+        coordinator.dispatchOnce(retrying.getNextRunAt());
 
-        assertThat(observedStatuses).containsExactly(
-                PullTaskExecutionStatus.WAIT_RESOURCE.code(),
-                PullTaskExecutionStatus.EXECUTING.code(),
-                PullTaskExecutionStatus.WAIT_RESOURCE.code(),
-                PullTaskExecutionStatus.EXECUTING.code(),
-                PullTaskExecutionStatus.WAIT_RESOURCE.code(),
-                PullTaskExecutionStatus.EXECUTING.code());
-        assertThat(queryInt("SELECT COUNT(*) FROM protocol_command_outbox"))
-                .isEqualTo(outboxBefore);
-        verify(memberQueryAwaitService, times(3)).readOrDefer(
-                anyLong(), any(), org.mockito.ArgumentMatchers.anyInt(),
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyInt(), anyLong());
-        verify(inviteLinkService, org.mockito.Mockito.never())
-                .refreshCurrentInviteCode(anyLong(), any(), any());
-        verifyNoInteractions(joinPort);
+        PullTaskGroupExecution recovered = executionMapper.selectById(execution.getId());
+        assertThat(recovered.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(recovered.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        assertThat(queryInt("SELECT COUNT(*) FROM protocol_command_outbox")).isEqualTo(outboxBefore);
+        verify(inviteLinkService).refreshCurrentInviteCode(9_001L, GROUP_JID, "AAAA");
+        verifyNoInteractions(memberQueryAwaitService);
+        verify(joinPort).join(org.mockito.ArgumentMatchers.argThat(command ->
+                command.inviteLinkOrCode().equals(profile == ProtocolProfile.WEB
+                        ? "https://chat.whatsapp.com/BBBB" : "BBBB")));
+
     }
 
     @Test
@@ -1013,9 +1043,9 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean AccountProtocolLookupService accountLookup() {
             AccountProtocolLookupService lookup = mock(AccountProtocolLookupService.class);
-            when(lookup.findRandomOnlinePullTaskAccountByGroupId(88L))
+            when(lookup.findOnlineEligibleManagersByGroupId(88L))
                     .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
-                            ? Optional.of(manager()) : Optional.empty());
+                            ? List.of(manager()) : List.of());
             when(lookup.findOnlineEligiblePullersByGroupId(89L))
                     .thenAnswer(invocation -> List.of(puller()));
             when(lookup.findOnlinePullTaskAccountsByGroupId(90L))
@@ -1030,6 +1060,9 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     .thenAnswer(invocation -> List.of(manager(), puller(), station()));
             when(lookup.findEligiblePullerProtocolRefs(anyList()))
                     .thenAnswer(invocation -> List.of(puller()));
+            when(lookup.findEligibleManagerProtocolRefs(anyList()))
+                    .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
+                            ? List.of(manager()) : List.of());
             when(lookup.findOnlineProtocolRefs(anyList()))
                     .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
                             ? List.of(manager()) : List.of());
@@ -1115,7 +1148,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         @Bean PullTaskParentCompletionService parentCompletion(
                 PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), org.mockito.Mockito.mock(com.armada.task.service.impl.PullTaskGroupRetryService.class));
         }
 
         @Bean PullTaskExecutionTransactionService executionTransactions(
@@ -1508,6 +1541,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
         }
 
         @Bean PullTaskManagerAdminProcessor managerAdminProcessor(
+                AccountProtocolLookupService accountLookup,
                 PullTaskMapper taskMapper,
                 PullTaskGroupAccountMapper accountMapper,
                 PullTaskAccountActionMapper actionMapper,
@@ -1517,7 +1551,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskExecutionDispatchProperties properties,
                 PullTaskMemberQueryAwaitService memberQueryAwaitService) {
             PullTaskManagerAdminResources resources = new PullTaskManagerAdminResources(
-                    executionMapper, promoterSelector, outboxService, properties);
+                    executionMapper, promoterSelector, outboxService, properties, accountLookup);
             PullTaskManagerAdminTransactionService transactions =
                     new PullTaskManagerAdminTransactionService(
                             taskMapper, accountMapper, actionMapper,

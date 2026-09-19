@@ -7,7 +7,6 @@ import com.armada.group.converter.GroupConverter;
 import com.armada.group.mapper.GroupFolderMapper;
 import com.armada.group.mapper.GroupLinkLabelMapper;
 import com.armada.group.mapper.GroupLinkMapper;
-import com.armada.group.mapper.GroupLinkPreviewMapper;
 import com.armada.group.mapper.GroupListCurrentMapper;
 import com.armada.group.model.dto.GroupAnnouncementTextCommandDTO;
 import com.armada.group.model.dto.GroupCurrentLocalProfileWrite;
@@ -95,7 +94,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     private final GroupLinkMapper groupLinkMapper;
     private final GroupListCurrentMapper groupListCurrentMapper;
     private final GroupFolderMapper folderMapper;
-    private final GroupLinkPreviewMapper previewMapper;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
     private final GroupLinkLabelMapper labelMapper;
     private final GroupConverter converter;
     private final CountryService countryService;
@@ -109,7 +108,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
     public GroupLinkServiceImpl(GroupLinkMapper groupLinkMapper,
                                 GroupListCurrentMapper groupListCurrentMapper,
                                 GroupFolderMapper folderMapper,
-                                GroupLinkPreviewMapper previewMapper,
+                                GroupCreatorCompatibilityWriter creatorWriter,
                                 GroupLinkLabelMapper labelMapper,
                                 GroupConverter converter,
                                 CountryService countryService,
@@ -122,7 +121,7 @@ public class GroupLinkServiceImpl implements GroupLinkService {
         this.groupLinkMapper = groupLinkMapper;
         this.groupListCurrentMapper = groupListCurrentMapper;
         this.folderMapper = folderMapper;
-        this.previewMapper = previewMapper;
+        this.creatorWriter = creatorWriter;
         this.labelMapper = labelMapper;
         this.converter = converter;
         this.countryService = countryService;
@@ -684,16 +683,15 @@ public class GroupLinkServiceImpl implements GroupLinkService {
 
         GroupLinkPreview row = new GroupLinkPreview();
         row.setGroupLinkId(link.getId());
+        row.setGroupJid(preview.groupJid());
         row.setOwnerPhone(owner.ownerPhone());
-        row.setOwnerPhoneObserved(owner.kind() != OwnerIdentityKind.UNKNOWN);
+        row.setOwnerPhoneObserved(owner.kind() == OwnerIdentityKind.PN);
         row.setCreatorCountryObserved(false);
         row.setLastPreviewAt(previewAt);
         row.setMetadataObservedAt(previewAt);
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
-        if (Boolean.TRUE.equals(row.getOwnerPhoneObserved())) {
-            previewMapper.upsertCreatorCompatibility(List.of(row));
-        }
+        creatorWriter.writeCreators(List.of(row));
 
         if (preview.inviteCode() == null || preview.inviteCode().isBlank()) {
             currentInvitePersistence.bindGroup(link.getId(), preview.groupJid(), previewAt);

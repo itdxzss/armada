@@ -20,6 +20,12 @@ import org.apache.ibatis.annotations.Param;
 @Mapper
 public interface AccountGroupMembershipMapper {
 
+    /** 按任务归属范围查询当前在线的原有管理员候选。 */
+    List<com.armada.group.model.vo.GroupExecutionAccount> selectJoinTaskAdminCandidatesByTenant(
+            @Param("tenantId") Long tenantId, @Param("groupJid") String groupJid,
+            @Param("managerAccountId") Long targetAccountId, @Param("ownerUserId") Long ownerUserId);
+
+
     /**
      * 统计当前租户账号组历史群并集。
      *

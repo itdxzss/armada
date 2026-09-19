@@ -1,5 +1,6 @@
 package com.armada.task.service;
 
+import com.armada.task.model.dto.JoinTaskRetryTransition;
 import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.service.AccountGroupMembershipStatusService;
 import com.armada.marketing.model.dto.MarketingNewGroupDTO;
@@ -37,6 +38,8 @@ class JoinTaskResultServiceTest {
     @Mock
     private JoinTaskMapper taskMapper;
     @Mock
+    private com.armada.task.mapper.JoinTaskApprovalMapper approvalMapper;
+    @Mock
     private AccountGroupMembershipStatusService membershipStatusService;
     @Mock
     private MarketingNewGroupImmediateSendService marketingNewGroupService;
@@ -48,6 +51,7 @@ class JoinTaskResultServiceTest {
         service = new JoinTaskResultServiceImpl(
                 resultMapper,
                 taskMapper,
+                approvalMapper,
                 new JoinTaskIntervalPolicy(),
                 membershipStatusService,
                 marketingNewGroupService,
@@ -60,12 +64,24 @@ class JoinTaskResultServiceTest {
     }
 
     @Test
+    void joinedWithAdminEnabledDoesNotAdvanceBeforePromotion() {
+        JoinTask task = task(true, 2, 5);
+        task.setSetAdminEnabled(true);
+        stubSubmitted(task, row(1));
+        service.apply(event("JOINED", null, false, "120363@g.us", 1));
+        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L, "cmd-1", 1);
+        verify(resultMapper, never()).activateNextPending(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verify(taskMapper, never()).markDoneWhenNoPending(anyLong(), anyLong());
+        verify(taskMapper).refreshCounters(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void apply_joinedMarksSuccessAndSchedulesOnlyNextSameAccountRow() {
         stubSubmitted(task(true, 2, 5), row(1));
 
         service.apply(event("JOINED", null, false, "120363@g.us", 1));
 
-        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L, "cmd-1", 1);
         verify(membershipStatusService).applyMembershipChanged(
                 new AccountGroupMembershipChangedEvent(
                         1L,
@@ -91,7 +107,7 @@ class JoinTaskResultServiceTest {
 
         service.apply(event("ALREADY_JOINED", null, false, "120363@g.us", 1));
 
-        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L);
+        verify(resultMapper).markTerminalSuccess(26L, "120363@g.us", 10_000L, "cmd-1", 1);
         verifyNoInteractions(membershipStatusService);
         verifyNoInteractions(marketingNewGroupService);
     }
@@ -108,7 +124,7 @@ class JoinTaskResultServiceTest {
                 .hasMessage("进群成功结果 groupJid 非法");
 
         verify(resultMapper, never()).markTerminalSuccess(
-                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
+                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
         verify(resultMapper, never()).activateNextPending(
                 anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
         verifyNoInteractions(membershipStatusService);
@@ -126,7 +142,7 @@ class JoinTaskResultServiceTest {
                 .hasMessage("进群成功结果 timestamp 非法");
 
         verify(resultMapper, never()).markTerminalSuccess(
-                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong());
+                anyLong(), org.mockito.ArgumentMatchers.anyString(), anyLong(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
         verifyNoInteractions(membershipStatusService);
         verifyNoInteractions(marketingNewGroupService);
     }
@@ -137,7 +153,7 @@ class JoinTaskResultServiceTest {
 
         service.apply(event("FAILED", "TEMPORARY_FAILURE", true, null, 2));
 
-        verify(resultMapper).markRetry(26L, "TEMPORARY_FAILURE", 15_000L, 10_000L);
+        verify(resultMapper).markRetry(new JoinTaskRetryTransition(26L, "TEMPORARY_FAILURE", 15_000L, 10_000L, "cmd-1", 2));
         verify(resultMapper, never()).activateNextPending(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
         verify(taskMapper, never()).refreshCounters(anyLong());
     }
@@ -148,25 +164,42 @@ class JoinTaskResultServiceTest {
 
         service.apply(event("FAILED", "RATE_LIMITED", true, null, 3));
 
-        verify(resultMapper).markTerminalFailure(26L, "RATE_LIMITED", 10_000L);
+        verify(resultMapper).markTerminalFailure(26L, "RATE_LIMITED", 10_000L, "cmd-1", 3);
         verify(resultMapper).activateNextPending(9L, 382L, 26L, 15_000L, 10_000L);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"GROUP_BANNED", "GROUP_FULL", "GROUP_UNAVAILABLE", "INVITE_REVOKED"})
+    void apply_preservesPermanentGroupFailureAndAdvancesWithoutRetry(String reason) {
+        stubSubmitted(task(true, 2, 5), row(1));
+
+        service.apply(event("FAILED", reason, false, null, 1));
+
+        verify(resultMapper).markTerminalFailure(26L, reason, 10_000L, "cmd-1", 1);
+        verify(resultMapper).activateNextPending(9L, 382L, 26L, 15_000L, 10_000L);
+        verify(resultMapper, never()).markRetry(org.mockito.ArgumentMatchers.any(JoinTaskRetryTransition.class));
+        verifyNoInteractions(membershipStatusService);
+    }
+
     @Test
-    void apply_pendingApprovalIsTerminalEvenWhenMarkedRetryable() {
+    void apply_pendingApprovalDoesNotFailOrResubmitJoin() {
         stubSubmitted(task(true, 5, 5), row(1));
 
+        when(approvalMapper.begin(org.mockito.ArgumentMatchers.any(), anyLong())).thenReturn(1);
+        when(approvalMapper.insert(org.mockito.ArgumentMatchers.any())).thenReturn(1);
         service.apply(event("PENDING_APPROVAL", "IGNORED", true, null, 1));
+        verify(approvalMapper).insert(org.mockito.ArgumentMatchers.argThat(r ->
+                r.getStage() == 1 && r.getResultId() == 26L && r.getDeadlineAt() == 310_000L));
 
-        verify(resultMapper).markTerminalFailure(26L, "JOIN_PENDING_APPROVAL", 10_000L);
-        verify(resultMapper, never()).markRetry(anyLong(), org.mockito.ArgumentMatchers.anyString(),
-                anyLong(), anyLong());
+        verify(resultMapper, never()).markTerminalFailure(26L, "JOIN_PENDING_APPROVAL", 10_000L, "cmd-1", 1);
+        verify(resultMapper, never()).activateNextPending(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verify(resultMapper, never()).markRetry(org.mockito.ArgumentMatchers.any(JoinTaskRetryTransition.class));
     }
 
     @Test
     void apply_duplicateOrStaleEventIsIdempotentAndRestoresTenantContext() {
         TenantContext.set(99L);
-        when(resultMapper.selectSubmittedForUpdate(26L, "cmd-1", 1)).thenReturn(null);
+        when(resultMapper.selectSubmitted(26L, "cmd-1", 1)).thenReturn(null);
 
         service.apply(event("FAILED", "TEMPORARY_FAILURE", true, null, 1));
 
@@ -179,19 +212,51 @@ class JoinTaskResultServiceTest {
     @Test
     void applyTransportFailure_retriesOnlyTheStillMatchingDeadAttempt() {
         JoinTaskResult row = row(2);
-        when(resultMapper.selectSubmittedForUpdate(26L, "cmd-dead", 2)).thenReturn(row);
+        when(resultMapper.selectSubmitted(26L, "cmd-dead", 2)).thenReturn(row);
         when(taskMapper.selectByTenantAndId(9L)).thenReturn(task(true, 2, 5));
 
         service.applyTransportFailure(new JoinTaskDeadCommandCandidate(1L, 26L, "cmd-dead", 2));
 
-        verify(resultMapper).markRetry(26L, "KAFKA_PUBLISH_FAILED", 15_000L, 10_000L);
+        verify(resultMapper).markRetry(new JoinTaskRetryTransition(26L, "KAFKA_PUBLISH_FAILED", 15_000L, 10_000L, "cmd-dead", 2));
         verify(resultMapper, never()).markTerminalFailure(anyLong(),
-                org.mockito.ArgumentMatchers.anyString(), anyLong());
+                org.mockito.ArgumentMatchers.anyString(), anyLong(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyInt());
     }
 
     private void stubSubmitted(JoinTask task, JoinTaskResult row) {
-        when(resultMapper.selectSubmittedForUpdate(26L, "cmd-1", row.getAttemptNo())).thenReturn(row);
+        when(resultMapper.selectSubmitted(26L, "cmd-1", row.getAttemptNo())).thenReturn(row);
         when(taskMapper.selectByTenantAndId(9L)).thenReturn(task);
+        org.mockito.Mockito.lenient().when(resultMapper.markTerminalSuccess(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(1);
+        org.mockito.Mockito.lenient().when(resultMapper.markTerminalFailure(
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(1);
+    }
+
+    @Test
+    void competingResultThatLosesUpdateDoesNotApplyMembershipOrAdvanceTask() {
+        stubSubmitted(task(true, 2, 5), row(1));
+        when(resultMapper.markTerminalSuccess(26L, "120363@g.us", 10_000L, "cmd-1", 1)).thenReturn(0);
+
+        service.apply(event("JOINED", null, false, "120363@g.us", 1));
+
+        verifyNoInteractions(membershipStatusService, marketingNewGroupService);
+        verify(resultMapper, never()).activateNextPending(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verify(taskMapper, never()).refreshCounters(anyLong());
+        verify(taskMapper, never()).markDoneWhenNoPending(anyLong(), anyLong());
+    }
+
+    @Test
+    void competingFailureThatLosesUpdateDoesNotAdvanceTask() {
+        stubSubmitted(task(false, 0, 5), row(1));
+        when(resultMapper.markTerminalFailure(26L, "FAILED", 10_000L, "cmd-1", 1)).thenReturn(0);
+
+        service.apply(event("FAILED", "FAILED", false, null, 1));
+
+        verify(resultMapper, never()).activateNextPending(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        verify(taskMapper, never()).refreshCounters(anyLong());
     }
 
     private static JoinTask task(boolean retryEnabled, int retryLimit, int intervalSeconds) {

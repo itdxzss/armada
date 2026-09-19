@@ -115,7 +115,8 @@
 
       SELECT preview.id
       FROM group_link_preview preview
-      WHERE preview.owner_phone IS NOT NULL
+      WHERE preview.creator_phone_source &lt;&gt; 1
+        AND preview.owner_phone IS NOT NULL
         AND TRIM(preview.owner_phone) &lt;&gt; ''
         AND (
           LOWER(TRIM(preview.group_jid)) NOT LIKE '%@g.us'
@@ -1283,7 +1284,8 @@
       INNER JOIN wa_group resolved_group
         ON resolved_group.tenant_id = preview.tenant_id
        AND resolved_group.group_jid = LOWER(TRIM(preview.group_jid))
-      WHERE preview.owner_phone IS NOT NULL
+      WHERE preview.creator_phone_source &lt;&gt; 1
+        AND preview.owner_phone IS NOT NULL
         AND TRIM(preview.owner_phone) &lt;&gt; ''
     ) source
     LEFT JOIN wa_group_participant target

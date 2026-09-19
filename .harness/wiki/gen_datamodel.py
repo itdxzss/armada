@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """从 information_schema TSV 转储生成 数据模型.md（图片同款 per-table 格式）。
-结构 100% 取自真库；描述优先级：库内列注释 > 业务映射(D2) > 通用列 > 名称启发 > '-'。"""
-import csv, collections
+默认结构取自真库转储；ARMADA_MODEL_* 可指定离线迁移元数据输入和输出。
+描述优先级：库内列注释 > 业务映射(D2) > 通用列 > 名称启发 > '-'。"""
+import csv, collections, os
 
-COLS = "/tmp/wheel_columns.tsv"
-IDX = "/tmp/wheel_indexes.tsv"
-TBL = "/tmp/wheel_tables.tsv"
-OUT = "/tmp/datamodel_tables.md"
+COLS = os.environ.get("ARMADA_MODEL_COLS", "/tmp/wheel_columns.tsv")
+IDX = os.environ.get("ARMADA_MODEL_IDX", "/tmp/wheel_indexes.tsv")
+TBL = os.environ.get("ARMADA_MODEL_TBL", "/tmp/wheel_tables.tsv")
+OUT = os.environ.get("ARMADA_MODEL_OUT", "/tmp/datamodel_tables.md")
 
 # ---------------- 通用列（精确名命中） ----------------
 COMMON = {
@@ -329,10 +330,10 @@ ADMIN_ORDER = ["master_user","master_role","master_user_role","master_menu",
 TENANT_GROUPS = [
     ("租户 IAM / 设置 / 审计", ["tenant","tenant_user","tenant_role","tenant_user_role","tenant_menu_override","tenant_settings","tenant_webhook","op_log_tenant"]),
     ("标签", ["tag","account_tag"]),
-    ("账号与归属", ["account","account_history","account_group","account_group_baseline","account_credential","account_import_batch","account_import_detail","account_registration_task","account_registration_item","account_stat_daily","wa_login_session"]),
+    ("账号与归属", ["account","account_history","account_group","account_group_baseline","account_mutual_contact_task","account_mutual_contact_item","account_credential","account_import_batch","account_import_detail","account_registration_task","account_registration_item","account_registration_device_permit","account_stat_daily","wa_login_session"]),
     ("群组 / 群链接池", ["group_link_label","group_link","group_link_preview","group_link_health","account_group_membership","group_link_history","group_link_import_batch","group_link_import_detail"]),
     ("拉群任务族", ["task_template","task_batch","task_row","task_log","task_water_plan","material_phone"]),
-    ("进群任务", ["join_task","join_task_result"]),
+    ("进群任务", ["join_task","join_task_result","join_task_cleanup","join_task_approval"]),
     ("群组营销 / 素材", ["marketing_task","marketing_task_target","marketing_task_send_attempt","marketing_task_success_group","group_marketing_task","group_marketing_task_detail","group_material_template","marketing_template","material_template","material_audit"]),
     ("买量 / 推广 / 落地页", ["buyer_channel","buyer_daily_stat","promotion_channel","promotion_template","landing_page","visit_log"]),
     ("统计", ["channel_stat_daily","channel_ad_data","marketing_stat_daily"]),

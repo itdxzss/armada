@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -11,5 +12,6 @@ public record PullTaskManagerAdminResources(
         PullTaskGroupExecutionMapper executionMapper,
         GroupExecutionAccountSelector promoterSelector,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchProperties properties) {
+        PullTaskExecutionDispatchProperties properties,
+        AccountProtocolLookupService accountLookup) {
 }

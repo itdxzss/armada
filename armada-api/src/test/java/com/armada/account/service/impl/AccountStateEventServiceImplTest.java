@@ -43,6 +43,21 @@ class AccountStateEventServiceImplTest {
     private AccountStateChangedSideEffect sideEffect;
 
     @Test
+    void exportedAccountRetainsLifecycleButStillRecordsRealOnlineState() {
+        when(accountMapper.selectActiveById(100L)).thenReturn(account());
+        when(stateMapper.selectByAccountId(100L)).thenReturn(currentState(AccountStateCode.EXPORTED, 1_000L));
+        when(stateMapper.updateLoginState(any())).thenReturn(1);
+        assertThat(service().applyStateChanged(event("OFFLINE", "ONLINE", 2_000L,
+                "ONLINE", null, "batch_online", "late-attempt"))).isTrue();
+        var captor = ArgumentCaptor.forClass(AccountState.class);
+        verify(stateMapper).updateLoginState(captor.capture());
+        assertThat(captor.getValue().getLoginState()).isEqualTo(AccountLoginStateCode.ONLINE);
+        assertThat(captor.getValue().getAccountState()).isNull();
+        verify(stateMapper, never()).markOnlineNormalState(any());
+        verifyNoInteractions(sideEffect);
+    }
+
+    @Test
     void applyStateChanged_loginReplacedMarksAccountAsReplacedAndOffline() {
         Account account = account();
         AccountState currentState = currentState(AccountStateCode.NORMAL, 1_000L);

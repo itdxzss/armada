@@ -22,6 +22,9 @@ public class FullParamsToSixConverter {
     /**
      * 校验并转换单条全参 JSON 对象。
      *
+     * <p>phone 缺失、为 null 或空白时使用纯数字 jid；已有 phone 仍须与 jid 一致。
+     * 号码只在转换结果中补齐，不修改原始凭据。</p>
+     *
      * @param source 全参 JSON 对象
      * @return 成功时包含手机号和六段凭据；失败时只包含不泄露字段值的错误原因
      */
@@ -32,6 +35,11 @@ public class FullParamsToSixConverter {
         Map<String, String> values = new LinkedHashMap<>();
         for (String sourceField : FIELD_MAPPING.keySet()) {
             JsonNode value = source.get(sourceField);
+            if ("phone".equals(sourceField)
+                    && (value == null || value.isNull()
+                    || (value.isTextual() && value.asText().trim().isEmpty()))) {
+                value = source.get("jid");
+            }
             if (value == null || !value.isTextual() || value.asText().trim().isEmpty()) {
                 return Result.failure("凭据不全:缺 " + sourceField);
             }

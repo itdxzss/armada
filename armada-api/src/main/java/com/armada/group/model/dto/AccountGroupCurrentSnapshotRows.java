@@ -78,11 +78,11 @@ public final class AccountGroupCurrentSnapshotRows {
     public record GroupId(String groupJid, Long groupId) {
     }
 
-    /** 已取得 GL→G 写锁的单群上下文；只允许在取得锁的同一事务中复用。 */
+    /** 已解析租户与群主键的单群写入上下文，不表示持有读锁。 */
     public record GroupWriteContext(Long tenantId, Long groupId, String groupJid) {
     }
 
-    /** 按本次明确 PN/LID 锁定的现有成员身份行。 */
+    /** 按本次明确 PN/LID 查询的现有成员身份行。 */
     public record ParticipantIdentityRow(
             Long id,
             Long groupId,

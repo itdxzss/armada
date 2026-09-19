@@ -2,27 +2,33 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.JoinTaskMapper">
 
+  <resultMap id="taskRow" type="com.armada.task.model.entity.JoinTask" autoMapping="true">
+    <id column="id" property="id"/>
+    <result column="is_set_admin_enabled" property="setAdminEnabled"/>
+    <result column="is_clear_admins_and_leave_enabled" property="clearAdminsAndLeaveEnabled"/>
+  </resultMap>
+
   <!-- tenant_id 由租户拦截器注入，不出现在 INSERT/WHERE。时间列为 BIGINT epoch 毫秒，应用层写。 -->
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO join_task (
       name, account_group_ids, account_group_names, selected_account_ids, links_text,
       distribution_mode, accounts_per_link, executor_account_count, links_per_account,
       fixed_interval_min_sec, fixed_interval_max_sec, multi_interval_min_sec, multi_interval_max_sec,
-      interval_label, retry_enabled, retry_limit, failure_policy,
+      interval_label, retry_enabled, retry_limit, failure_policy, is_set_admin_enabled, is_clear_admins_and_leave_enabled,
       total, executed, success, failed, pending, status,
-      created_by, created_at, updated_at
+      owner_user_id, created_by, created_at, updated_at
     ) VALUES (
       #{name}, #{accountGroupIds}, #{accountGroupNames}, #{selectedAccountIds}, #{linksText},
       #{distributionMode}, #{accountsPerLink}, #{executorAccountCount}, #{linksPerAccount},
       #{fixedIntervalMinSec}, #{fixedIntervalMaxSec}, #{multiIntervalMinSec}, #{multiIntervalMaxSec},
-      #{intervalLabel}, #{retryEnabled}, #{retryLimit}, #{failurePolicy},
+      #{intervalLabel}, #{retryEnabled}, #{retryLimit}, #{failurePolicy}, #{setAdminEnabled}, #{clearAdminsAndLeaveEnabled},
       #{total}, #{executed}, #{success}, #{failed}, #{pending}, #{status},
-      #{createdBy}, #{createdAt}, #{updatedAt}
+      #{ownerUserId}, #{createdBy}, #{createdAt}, #{updatedAt}
     )
   </insert>
 
   <!-- deleted_at IS NULL 等价于有效行；LIMIT 1 防意外多行。 -->
-  <select id="selectByTenantAndId" resultType="com.armada.task.model.entity.JoinTask">
+  <select id="selectByTenantAndId" resultMap="taskRow">
     SELECT * FROM join_task WHERE id = #{id} AND deleted_at IS NULL LIMIT 1
   </select>
 
@@ -50,7 +56,7 @@
   </select>
 
   <!-- ORDER BY id DESC 保证新建排前；LIMIT/OFFSET SQL 下推，禁 Java 内存分页。 -->
-  <select id="selectPage" resultType="com.armada.task.model.entity.JoinTask">
+  <select id="selectPage" resultMap="taskRow">
     SELECT * FROM join_task WHERE <include refid="filter"/>
     ORDER BY id DESC LIMIT #{limit} OFFSET #{offset}
   </select>
@@ -70,7 +76,9 @@
       fixed_interval_min_sec=#{fixedIntervalMinSec}, fixed_interval_max_sec=#{fixedIntervalMaxSec},
       multi_interval_min_sec=#{multiIntervalMinSec}, multi_interval_max_sec=#{multiIntervalMaxSec},
       interval_label=#{intervalLabel}, retry_enabled=#{retryEnabled}, retry_limit=#{retryLimit},
-      failure_policy=#{failurePolicy}, total=#{total}, pending=#{pending}, updated_at=#{updatedAt}
+      failure_policy=#{failurePolicy}, is_set_admin_enabled=#{setAdminEnabled},
+      is_clear_admins_and_leave_enabled=#{clearAdminsAndLeaveEnabled}, owner_user_id=#{ownerUserId},
+      total=#{total}, pending=#{pending}, updated_at=#{updatedAt}
     WHERE id=#{id} AND deleted_at IS NULL
   </update>
 
@@ -87,30 +95,31 @@
   <update id="refreshCounters">
     UPDATE join_task SET
       executed = (
-        SELECT COUNT(*) FROM join_task_result
-        WHERE join_task_id = #{taskId}
-          AND account_id IS NOT NULL
-          AND status &lt;&gt; 'PENDING'
+        SELECT COUNT(*) FROM join_task_result r
+        LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+        WHERE r.join_task_id=#{taskId} AND r.account_id IS NOT NULL
+          AND (r.status='FAILED' OR (r.status='SUCCESS' AND r.admin_status=4)
+            OR (r.status='SUCCESS' AND r.admin_status IN (0,3) AND COALESCE(c.status,0) IN (0,7,8)))
       ),
       success = (
-        SELECT COUNT(*) FROM join_task_result
-        WHERE join_task_id = #{taskId}
-          AND account_id IS NOT NULL
-          AND status = 'SUCCESS'
+        SELECT COUNT(*) FROM join_task_result r
+        LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+        WHERE r.join_task_id=#{taskId} AND r.account_id IS NOT NULL
+          AND r.status='SUCCESS' AND r.admin_status IN (0,3) AND COALESCE(c.status,0) IN (0,7)
       ),
       failed = (
-        SELECT COUNT(*) FROM join_task_result
-        WHERE join_task_id = #{taskId}
-          AND account_id IS NOT NULL
-          AND status = 'FAILED'
+        SELECT COUNT(*) FROM join_task_result r
+        LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+        WHERE r.join_task_id=#{taskId} AND r.account_id IS NOT NULL
+          AND (r.status='FAILED' OR (r.status='SUCCESS' AND (r.admin_status=4 OR c.status=8)))
       ),
       pending = (
-        SELECT COUNT(*) FROM join_task_result
-        WHERE join_task_id = #{taskId}
-          AND account_id IS NOT NULL
-          AND status = 'PENDING'
+        SELECT COUNT(*) FROM join_task_result r
+        LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+        WHERE r.join_task_id=#{taskId} AND r.account_id IS NOT NULL
+          AND (r.status='PENDING' OR (r.status='SUCCESS' AND (r.admin_status IN (1,2,5) OR c.status IN (1,2,3,4,5,6))))
       )
-    WHERE id = #{taskId} AND deleted_at IS NULL
+    WHERE id=#{taskId} AND deleted_at IS NULL
   </update>
 
   <!-- 批量软删除（幂等）：仅 deleted_at IS NULL 的行被置删，updated_at 同步刷新。 -->
@@ -127,15 +136,16 @@
   </update>
 
   <!--
-    任务完成条件只看是否仍有 PENDING 明细；WAITING 和 SUBMITTED 都属于 PENDING，
-    因此业务重试和等待协议结果期间不会提前结束任务。
+    进群、提权、清理或退群仍在处理时均阻止结单。
   -->
   <update id="markDoneWhenNoPending">
     UPDATE join_task t SET t.status = 'DONE', t.updated_at = #{now}
     WHERE t.id = #{id} AND t.deleted_at IS NULL AND t.status = 'RUNNING'
       AND NOT EXISTS (
         SELECT 1 FROM join_task_result r
-        WHERE r.join_task_id = t.id AND r.status = 'PENDING'
+        LEFT JOIN join_task_cleanup c ON c.result_id=r.id AND c.tenant_id=r.tenant_id
+        WHERE r.join_task_id = t.id AND (r.status = 'PENDING'
+          OR (r.status = 'SUCCESS' AND (r.admin_status IN (1, 2, 5) OR c.status IN (1,2,3,4,5,6))))
       )
   </update>
 

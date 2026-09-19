@@ -17,7 +17,9 @@ class JoinTaskFailureReasonTest {
     void labelOfReturnsExplicitLabelsForPermanentGroupJoinFailures() {
         assertThat(labelOf("INVITE_INVALID")).isEqualTo("群邀请码无效");
         assertThat(labelOf("INVITE_REVOKED")).isEqualTo("群邀请链接已失效");
-        assertThat(labelOf("GROUP_UNAVAILABLE")).isEqualTo("群不可用或已封禁");
+        assertThat(labelOf("GROUP_UNAVAILABLE")).isEqualTo("群组不可用");
+        assertThat(labelOf("GROUP_BANNED")).isEqualTo("群组已封禁");
+        assertThat(labelOf("GROUP_FULL")).isEqualTo("群人数已满");
     }
 
     @Test

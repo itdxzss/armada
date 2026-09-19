@@ -22,6 +22,13 @@ public class AccountDeleteGateRow {
      */
     private Long dispatchedAt;
 
+    /** ACCOUNT_EXPORT 表示文件待交付，普通删除不得绕过下载回执。 */
+    private String stateSource;
+
+    public String getStateSource() { return stateSource; }
+
+    public void setStateSource(String stateSource) { this.stateSource = stateSource; }
+
     public Long getId() {
         return id;
     }

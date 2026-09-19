@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.JoinTaskCleanupMapper">
+  <select id="scan" resultType="com.armada.task.model.dto.JoinTaskDispatchCandidate">
+    SELECT c.tenant_id AS tenantId, c.result_id AS resultId
+    FROM join_task_cleanup c
+    WHERE c.status IN (1,2,3,4,5,6) AND c.next_execute_at &lt;= #{now}
+      AND NOT EXISTS (SELECT 1 FROM join_task_cleanup active
+        WHERE active.tenant_id=c.tenant_id AND active.active_group_jid=c.group_jid
+          AND active.result_id &lt;&gt; c.result_id)
+    ORDER BY c.next_execute_at,c.result_id LIMIT 20
+  </select>
+  <insert id="insert">
+    INSERT INTO join_task_cleanup
+      (result_id,join_task_id,group_jid,status,context_json,reason,next_execute_at,updated_at)
+    VALUES (#{resultId},#{joinTaskId},#{groupJid},#{status},#{contextJson},#{reason},#{nextExecuteAt},#{updatedAt})
+  </insert>
+  <select id="lock" resultType="com.armada.task.model.entity.JoinTaskCleanup">
+    SELECT * FROM join_task_cleanup WHERE result_id=#{resultId} FOR UPDATE
+  </select>
+  <update id="update">
+    UPDATE join_task_cleanup SET status=#{status},context_json=#{contextJson},reason=#{reason},
+      next_execute_at=#{nextExecuteAt},active_group_jid=#{activeGroupJid},updated_at=#{updatedAt}
+    WHERE result_id=#{resultId}
+  </update>
+</mapper>

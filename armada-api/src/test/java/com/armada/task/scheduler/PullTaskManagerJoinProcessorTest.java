@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -8,6 +9,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.task.model.dto.PullTaskMemberFact;
 import com.armada.task.model.dto.PullTaskMemberQueryResult;
@@ -36,6 +41,41 @@ class PullTaskManagerJoinProcessorTest {
             new PullTaskManagerJoinProcessor(
                     executionTransactions, transactions,
                     supplementProcessor, protocolExecutor, memberQueryAwaitService);
+
+    @Test
+    void internalFailureEscapesToSchedulerWithoutWritingManagerShortage() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskManagerJoinWork work = work();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        BusinessException failure = new BusinessException(ErrorCode.TENANT_MISSING);
+        when(protocolExecutor.join(candidate, work)).thenThrow(failure);
+
+        assertThatThrownBy(() -> processor.process(candidate, "worker-1", 1_000L))
+                .isSameAs(failure);
+        verify(transactions, never()).complete(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void protocolOfflineFailureStillUsesManagerFailureOutcome() {
+        PullTaskGroupExecution candidate = candidate();
+        PullTaskManagerJoinWork work = work();
+        when(transactions.prepare(candidate, "worker-1", 1_000L))
+                .thenReturn(PullTaskManagerJoinPreparation.ready(work));
+        when(protocolExecutor.join(candidate, work)).thenThrow(
+                new ProtocolException(ProtocolErrorCode.ACCOUNT_NOT_ONLINE, "offline"));
+        PullTaskManagerJoinOutcome failed =
+                PullTaskManagerJoinOutcome.managerFailed("ACCOUNT_NOT_ONLINE");
+        when(transactions.complete(work, failed, 1_000L))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(transactions).complete(work, failed, 1_000L);
+    }
 
     @Test
     void startsNewManagerJoinRowBeforeSubmittingTheProtocolCommand() {

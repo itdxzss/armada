@@ -68,7 +68,7 @@ class GroupClassificationServiceImplTest {
                         existing("120363-new@g.us", 0, 1_500L)));
         GroupLink historical = activeLink(101L);
         GroupLink postControl = activeLink(102L);
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L, 102L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(101L, 102L)))
                 .thenReturn(List.of(historical, postControl));
         when(classificationMapper.selectByGroupJids(
                 7L, List.of("120363-new@g.us", "120363-old@g.us")))
@@ -121,7 +121,7 @@ class GroupClassificationServiceImplTest {
                 "15550000001@s.whatsapp.net",
                 List.of("120363-old@g.us")))
                 .thenReturn(List.of(existing("120363-old@g.us", 1, null)));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
                 .thenReturn(List.of(activeLink(101L)));
         when(classificationMapper.selectByGroupJids(7L, List.of("120363-old@g.us")))
                 .thenReturn(List.of(classification(
@@ -146,7 +146,7 @@ class GroupClassificationServiceImplTest {
         when(currentSnapshotMapper.selectSelfMembershipExisting(
                 ACCOUNT_ID, "15550000001@s.whatsapp.net", "120363-new@g.us"))
                 .thenReturn(null);
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(102L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(102L)))
                 .thenReturn(List.of(activeLink(102L)));
         when(classificationMapper.selectByGroupJids(7L, List.of("120363-new@g.us")))
                 .thenReturn(List.of(classification(
@@ -177,7 +177,7 @@ class GroupClassificationServiceImplTest {
                 java.util.Map.of("120363-old@g.us", "历史群"),
                 ProtocolBackend.WEB,
                 2_000L)).thenReturn(java.util.Map.of("120363-old@g.us", 101L));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
                 .thenReturn(List.of(activeLink(101L)));
         when(classificationMapper.selectByGroupJids(7L, List.of("120363-old@g.us")))
                 .thenReturn(List.of(classification(
@@ -209,7 +209,7 @@ class GroupClassificationServiceImplTest {
                 java.util.Map.of("120363-old@g.us", "历史群"),
                 ProtocolBackend.WEB,
                 2_000L)).thenReturn(java.util.Map.of("120363-old@g.us", 101L));
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(101L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(101L)))
                 .thenReturn(List.of(activeLink(101L)));
         when(classificationMapper.selectByGroupJids(7L, List.of("120363-old@g.us")))
                 .thenReturn(List.of(classification(
@@ -230,7 +230,7 @@ class GroupClassificationServiceImplTest {
 
     @Test
     void reliablePostCutoffEvidenceCanBeStagedBeforeBaselineCommit() {
-        when(groupLinkMapper.selectActiveByIdsForUpdate(List.of(102L)))
+        when(groupLinkMapper.selectActiveByIds(List.of(102L)))
                 .thenReturn(List.of(activeLink(102L)));
         when(classificationMapper.selectByGroupJids(7L, List.of("120363-new@g.us")))
                 .thenReturn(List.of(classification(

@@ -60,12 +60,18 @@ class HyperlinkTenantLockMapperH2Test {
     @Autowired
     private PlatformTransactionManager transactionManager;
 
+    @Autowired
+    private com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper usageMapper;
+    @Autowired
+    private com.armada.hyperlink.task.mapper.HyperlinkTaskRoundAccountMapper roundAccounts;
+
     private ExecutorService executor;
 
     @BeforeEach
     void setUp() throws SQLException {
         executor = Executors.newFixedThreadPool(2);
         execute("DROP ALL OBJECTS");
+        execute("CREATE TABLE protocol_command_outbox (tenant_id BIGINT, command_id VARCHAR(128), created_at BIGINT)");
         execute("""
                 CREATE TABLE hyperlink_task_recipient_claim (
                   id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL,
@@ -87,6 +93,9 @@ class HyperlinkTenantLockMapperH2Test {
                   claimed_by_hyperlink_task_id BIGINT, claimed_at BIGINT,
                   created_at BIGINT, updated_at BIGINT)
                 """);
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                new ClassPathResource("db/migration/V205__hyperlink_recipient_sender_rejection.sql"))
+                .execute(dataSource);
         execute("INSERT INTO hyperlink_task_recipient_claim VALUES (1,7,100,2),(2,8,100,2)");
         execute("INSERT INTO hyperlink_task_recipient VALUES "
                 + "(1,7,100,1,NULL,NULL,0,NULL,NULL,NULL),"
@@ -180,6 +189,92 @@ class HyperlinkTenantLockMapperH2Test {
                 });
     }
 
+    @Test
+    void rejectedPairSkipsAForSenderOneButAllowsBAndOtherSenders() throws SQLException {
+        execute("INSERT INTO hyperlink_task_recipient VALUES (4,7,100,1,NULL,NULL,0,NULL,NULL,NULL)");
+        com.armada.shared.tenant.TenantContext.set(7L);
+        try {
+            var rejected = new com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient();
+            rejected.setTenantId(7L);
+            rejected.setId(1L);
+            rejected.setAccountId(51L);
+            rejected.setFailCode("WA_ACK_REJECTED_463");
+            rejected.setUpdatedAt(10L);
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                assertThat(recipientMapper.rememberRejectedSender(rejected)).isEqualTo(1);
+                assertThat(recipientMapper.rememberRejectedSender(rejected)).isZero();
+                assertThat(recipientMapper.lockPending(7L, 100L, 51L, 10L).getId()).isEqualTo(4L);
+                assertThat(recipientMapper.lockPending(7L, 100L, 52L, 10L).getId()).isEqualTo(1L);
+                assertThat(recipientMapper.lockPending(8L, 100L, 51L, 10L).getId()).isEqualTo(2L);
+            });
+            execute("DELETE FROM hyperlink_task_recipient WHERE id=4");
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                assertThat(recipientMapper.lockPending(7L, 100L, 51L, 10L)).isNull();
+                assertThat(recipientMapper.lockPending(7L, 100L, 52L, 10L).getId()).isEqualTo(1L);
+            });
+        } finally {
+            com.armada.shared.tenant.TenantContext.clear();
+        }
+    }
+
+    @Test
+    void fourRejectedSendersStillAllowTheFifthSenderForTheSameTarget() throws SQLException {
+        com.armada.shared.tenant.TenantContext.set(7L);
+        try {
+            for (long account = 51; account <= 54; account++) {
+                execute("INSERT INTO hyperlink_recipient_sender_rejection VALUES (7,1," + account
+                        + ",'WA_ACK_REJECTED_463',1)");
+            }
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                for (long account = 51; account <= 54; account++) {
+                    assertThat(recipientMapper.lockPending(7L, 100L, account, 10L)).isNull();
+                }
+                assertThat(recipientMapper.lockPending(7L, 100L, 55L, 10L).getId()).isEqualTo(1L);
+                assertThat(recipientMapper.lockPending(8L, 100L, 51L, 10L).getId()).isEqualTo(2L);
+            });
+        } finally {
+            com.armada.shared.tenant.TenantContext.clear();
+        }
+    }
+
+    @Test
+    void dispatchSkipsRejectedSendersBeforeLimitAndRotatesOnlyWhenNoOtherTargetRemains() throws SQLException {
+        execute("CREATE TABLE hyperlink_task_account_usage (id BIGINT PRIMARY KEY, tenant_id BIGINT, "
+                + "hyperlink_task_id BIGINT, account_id BIGINT, usage_status INT, next_send_at BIGINT, "
+                + "in_flight_count INT, success_limit INT, successful_send_count INT, reserved_success_slot_count INT)");
+        execute("CREATE TABLE hyperlink_task_round_account (id BIGINT PRIMARY KEY, tenant_id BIGINT, "
+                + "hyperlink_task_id BIGINT, hyperlink_task_round_id BIGINT, task_account_usage_id BIGINT, "
+                + "account_id BIGINT, assignment_status INT, selection_no INT, released_at BIGINT, updated_at BIGINT)");
+        for (long account = 1; account <= 25; account++) {
+            execute("INSERT INTO hyperlink_task_account_usage VALUES (" + account + ",7,100," + account + ",1,0,0,0,0,0)");
+            execute("INSERT INTO hyperlink_task_round_account VALUES (" + account + ",7,100,9," + account + "," + account + ",1," + account + ",NULL,0)");
+            if (account < 25) {
+                execute("INSERT INTO hyperlink_recipient_sender_rejection VALUES (7,1," + account + ",'WA_ACK_REJECTED_463',1)");
+            }
+        }
+        com.armada.shared.tenant.TenantContext.set(7L);
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                assertThat(usageMapper.selectAvailable(100L, 9L, 10L, 20, 20))
+                        .extracting(row -> row.getAccountId()).containsExactly(25L);
+                assertThat(roundAccounts.releaseRejectedPairsOnly(9L, 10L)).isEqualTo(24);
+                assertThat(roundAccounts.countAvailableByRoundId(9L)).isEqualTo(1);
+            });
+            execute("UPDATE hyperlink_task_round_account SET assignment_status=1");
+            execute("INSERT INTO hyperlink_task_recipient VALUES (4,7,100,1,NULL,NULL,0,NULL,NULL,NULL)");
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                assertThat(roundAccounts.releaseRejectedPairsOnly(9L, 11L)).isZero();
+                assertThat(recipientMapper.lockPending(7L, 100L, 1L, 10L).getId()).isEqualTo(4L);
+            });
+            execute("DELETE FROM hyperlink_task_recipient WHERE id=4");
+            execute("UPDATE hyperlink_task_account_usage SET in_flight_count=1 WHERE id=1");
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    assertThat(roundAccounts.releaseRejectedPairsOnly(9L, 12L)).isEqualTo(23));
+        } finally {
+            com.armada.shared.tenant.TenantContext.clear();
+        }
+    }
+
     private void await(CountDownLatch latch) {
         try {
             if (!latch.await(5, TimeUnit.SECONDS)) {
@@ -229,7 +324,9 @@ class HyperlinkTenantLockMapperH2Test {
             Resource[] locations = {
                     new ClassPathResource("mapper/hyperlink/task/HyperlinkTaskRecipientClaimMapper.xml"),
                     new ClassPathResource("mapper/hyperlink/task/HyperlinkTaskRecipientMapper.xml"),
-                    new ClassPathResource("mapper/hyperlink/data/DataPackagePhoneMapper.xml")
+                    new ClassPathResource("mapper/hyperlink/data/DataPackagePhoneMapper.xml"),
+                    new ClassPathResource("mapper/hyperlink/task/HyperlinkTaskAccountUsageMapper.xml"),
+                    new ClassPathResource("mapper/hyperlink/task/HyperlinkTaskRoundAccountMapper.xml")
             };
             factory.setMapperLocations(locations);
             return factory.getObject();
@@ -248,6 +345,16 @@ class HyperlinkTenantLockMapperH2Test {
         @Bean
         HyperlinkTaskRecipientMapper recipientMapper(SqlSessionTemplate template) {
             return template.getMapper(HyperlinkTaskRecipientMapper.class);
+        }
+
+        @Bean
+        com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper usageMapper(SqlSessionTemplate template) {
+            return template.getMapper(com.armada.hyperlink.task.mapper.HyperlinkTaskAccountUsageMapper.class);
+        }
+
+        @Bean
+        com.armada.hyperlink.task.mapper.HyperlinkTaskRoundAccountMapper roundAccounts(SqlSessionTemplate template) {
+            return template.getMapper(com.armada.hyperlink.task.mapper.HyperlinkTaskRoundAccountMapper.class);
         }
 
         @Bean

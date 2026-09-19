@@ -95,12 +95,37 @@ class PullTaskManagerJoinTransactionIntegrationTest {
         TenantContext.clear();
     }
 
-    @Test
-    void managerJoinPersistsSubmittedFactsAndReleasesLeaseForCallback() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void managerJoinPersistsSubmittedFactsAndReleasesLeaseForCallback(boolean replacement) {
+        if (replacement) {
+            long executionId = executionMapper.selectByTaskId(100L).get(0).getId();
+            for (int seq = 1; seq <= 2; seq++) {
+                PullTaskGroupAccount row = new PullTaskGroupAccount();
+                row.setTaskId(100L);
+                row.setGroupExecutionId(executionId);
+                row.setAccountId(seq == 1 ? 899L : 901L);
+                row.setAccountPhone(seq == 1 ? "8613800000899" : "8613800000901");
+                row.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+                row.setRoleSeq(seq);
+                row.setSourceType(seq);
+                row.setSelectionMode(1);
+                row.setEntryMode(1);
+                row.setCreatedAt(550L);
+                row.setUpdatedAt(550L);
+                groupAccountMapper.insert(row);
+                if (seq == 1) {
+                    groupAccountMapper.updateMembership(row.getId(), 3, null, 550L);
+                    groupAccountMapper.markUnavailable(row.getId(), 4, "ACCOUNT_REACHOUT_RESTRICTED", null, 550L);
+                }
+            }
+        }
         ProtocolAccountRef account = new ProtocolAccountRef(
                 901L, ProtocolBackend.WEB, "acc-901", "8613800000901");
-        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
-                .thenReturn(Optional.of(account));
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of(account));
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(account));
+        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account));
         when(outboxService.enqueuePullTaskGroupJoinCommands(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:100", List.of("cmd-pull-1"), 1));
@@ -129,7 +154,8 @@ class PullTaskManagerJoinTransactionIntegrationTest {
         assertThat(saved.getLockOwner()).isNull();
         List<PullTaskGroupAccount> managers = groupAccountMapper.selectByExecutionAndRole(
                 saved.getId(), PullTaskGroupAccountRole.MANAGER.code());
-        assertThat(managers).singleElement()
+        assertThat(managers).hasSize(replacement ? 2 : 1);
+        assertThat(managers).filteredOn(row -> row.getAvailabilityStatus() == 1).singleElement()
                 .extracting(PullTaskGroupAccount::getMembershipStatus)
                 .isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
         List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
@@ -253,7 +279,7 @@ class PullTaskManagerJoinTransactionIntegrationTest {
         PullTaskParentCompletionService parentCompletionService(
                 PullTaskMapper taskMapper,
                 PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), org.mockito.Mockito.mock(com.armada.task.service.impl.PullTaskGroupRetryService.class));
         }
 
         @Bean

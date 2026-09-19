@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * AccountImportParser 业务逻辑单测。
@@ -346,6 +348,25 @@ class AccountImportParserTest {
     }
 
     @Test
+    void params_fileWithoutPhone_usesJidAndPreservesRawPayload() {
+        String first = fullParams("5210000000001").replace("\"phone\":\"5210000000001\",", "");
+        String second = fullParams("5210000000002");
+        byte[] fileBytes = (first + "\n" + second).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        List<ParsedEntry> entries = parser.parse(ImportFormat.PARAMS, 1, null, fileBytes, null);
+
+        assertThat(entries).hasSize(2);
+        assertThat(entries.get(0).getParseError()).isNull();
+        assertThat(entries.get(0).getWid()).isEqualTo("5210000000001");
+        assertThat(entries.get(0).getData().path("phone").asText()).isEqualTo("5210000000001");
+        assertThat(entries.get(0).getData()).hasSize(6);
+        assertThat(entries.get(0).getRawPayload()).isEqualTo(first).doesNotContain("\"phone\"");
+        assertThat(entries.get(0).getSourceEntryName()).isEqualTo("params-input[1]");
+        assertThat(entries.get(1).getParseError()).isNull();
+        assertThat(entries.get(1).getWid()).isEqualTo("5210000000002");
+    }
+
+    @Test
     void params_invalidLineDoesNotBlockAdjacentValidRows() {
         String json = fullParams("5210000000011") + "\n{not-json}\n" + fullParams("5210000000012");
 
@@ -405,6 +426,84 @@ class AccountImportParserTest {
 
         assertThat(entry.getParseError()).isNull();
         assertThat(entry.getWid()).isEqualTo("447700900125");
+    }
+
+    @Test
+    void params_iosSupplierAliasesPreserveFullCredentialAndRawPayload() {
+        for (int accountType : new int[]{1, 2}) {
+            String platform = accountType == 1 ? "ios" : "smb_ios";
+            String json = iosNativeParams("447700900125", platform)
+                    .replace("\"phone\":\"447700900125\",", "")
+                    .replace("447700900125@s.whatsapp.net", "447700900125")
+                    .replace("\"platform\":\"" + platform + "\",", "")
+                    .replace("\"edgeRoutingInfo\":\"AQIDBA==\",", "");
+
+            ParsedEntry entry = parser.parse(ImportFormat.PARAMS, 2, accountType, null, json).get(0);
+
+            assertThat(entry.getParseError()).isNull();
+            assertThat(entry.getWid()).isEqualTo("447700900125");
+            assertThat(entry.getRawPayload()).isEqualTo(json);
+            assertThat(entry.getData().path("phone").asText()).isEqualTo("447700900125");
+            assertThat(entry.getData().path("jid").asText()).isEqualTo("447700900125@s.whatsapp.net");
+            assertThat(entry.getData().path("platform").asText()).isEqualTo(platform);
+            assertThat(entry.getData().has("edgeRoutingInfo")).isFalse();
+            assertThat(entry.getData().path("signPreKeySignature").asText()).isEqualTo(base64Bytes(64));
+            assertThat(entry.getData().path("supplierExtension").path("nested").asBoolean()).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "\"\"", "\"  \""})
+    void params_iosEmptyPhoneUsesTelephoneJid(String phone) {
+        String json = iosNativeParams("447700900125", "ios")
+                .replace("\"phone\":\"447700900125\"", "\"phone\":" + phone);
+
+        ParsedEntry entry = parser.parse(ImportFormat.PARAMS, 2, 1, null, json).get(0);
+
+        assertThat(entry.getParseError()).isNull();
+        assertThat(entry.getData().path("phone").asText()).isEqualTo("447700900125");
+        assertThat(entry.getRawPayload()).isEqualTo(json);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"447700900125@lid", "447700900125:0@s.whatsapp.net", "123456", "invalid"})
+    void params_iosMissingPhoneDoesNotInferFromInvalidJid(String jid) {
+        String json = iosNativeParams("447700900125", "ios")
+                .replace("\"phone\":\"447700900125\",", "")
+                .replace("447700900125@s.whatsapp.net", jid);
+
+        ParsedEntry entry = parser.parse(ImportFormat.PARAMS, 2, 1, null, json).get(0);
+
+        assertThat(entry.getParseError()).isNotBlank().doesNotContain(jid);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"12345678901", "{}", "\"invalid-phone\""})
+    void params_iosPresentInvalidPhoneDoesNotUseJid(String phone) {
+        String json = iosNativeParams("447700900125", "ios")
+                .replace("\"phone\":\"447700900125\"", "\"phone\":" + phone);
+
+        assertThat(parser.parse(ImportFormat.PARAMS, 2, 1, null, json).get(0).getParseError()).isNotBlank();
+    }
+
+    @Test
+    void params_iosMissingRoutingInfoAcceptsNullOrBlankValues() {
+        for (String value : new String[]{"null", "\"\"", "\"  \""}) {
+            String json = iosNativeParams("447700900125", "ios")
+                    .replace("\"edgeRoutingInfo\":\"AQIDBA==\"", "\"edgeRoutingInfo\":" + value);
+
+            assertThat(parser.parse(ImportFormat.PARAMS, 2, 1, null, json).get(0).getParseError()).isNull();
+        }
+    }
+
+    @Test
+    void params_iosPresentInvalidRoutingInfoIsStillRejected() {
+        String json = iosNativeParams("447700900125", "ios")
+                .replace("\"edgeRoutingInfo\":\"AQIDBA==\"",
+                        "\"edgeRoutingInfo\":\"invalid-routing-secret!\"");
+
+        assertThat(parser.parse(ImportFormat.PARAMS, 2, 1, null, json).get(0).getParseError())
+                .contains("edgeRoutingInfo").doesNotContain("invalid-routing-secret");
     }
 
     @Test

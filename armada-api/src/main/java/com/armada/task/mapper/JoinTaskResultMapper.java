@@ -1,5 +1,6 @@
 package com.armada.task.mapper;
 
+import com.armada.task.model.dto.JoinTaskRetryTransition;
 import com.armada.task.model.dto.JoinTaskDeadCommandCandidate;
 import com.armada.task.model.dto.JoinTaskDispatchCandidate;
 import com.armada.task.model.entity.JoinTaskResult;
@@ -126,14 +127,14 @@ public interface JoinTaskResultMapper {
             @Param("now") long now);
 
     /**
-     * 锁定仍等待指定命令结果的当前尝试。
+     * 普通读取仍等待指定命令结果的当前尝试；迁移 SQL 再校验命令与尝试次数。
      *
      * @param id 进群明细 ID
      * @param commandId 当前 outbox 命令 ID
      * @param attemptNo 当前业务尝试序号
      * @return 完全匹配且仍为 PENDING+SUBMITTED 的明细；重复或迟到事件返回 null
      */
-    JoinTaskResult selectSubmittedForUpdate(
+    JoinTaskResult selectSubmitted(
             @Param("id") Long id,
             @Param("commandId") String commandId,
             @Param("attemptNo") int attemptNo);
@@ -158,17 +159,10 @@ public interface JoinTaskResultMapper {
      *
      * <p>command_id 被清空但 attempt_no 保留，下一次派发会在原序号上递增。</p>
      *
-     * @param id 进群明细 ID
-     * @param reason 本次失败原因码
-     * @param nextExecuteAt 按任务随机间隔计算的下次允许执行时间
-     * @param now 状态更新时间（epoch 毫秒）
-     * @return 1 表示重新排期成功；0 表示当前行已不在 SUBMITTED
+     * @param transition 当前尝试标识、原因和重排时间
+     * @return 1 表示重新排期成功；0 表示当前尝试已经变化
      */
-    int markRetry(
-            @Param("id") Long id,
-            @Param("reason") String reason,
-            @Param("nextExecuteAt") long nextExecuteAt,
-            @Param("now") long now);
+    int markRetry(JoinTaskRetryTransition transition);
 
     /**
      * 把当前 SUBMITTED 尝试收敛为进群成功终态。
@@ -176,12 +170,16 @@ public interface JoinTaskResultMapper {
      * @param id 进群明细 ID
      * @param groupJid 协议层返回的 WhatsApp 群 JID；可为空串
      * @param now 状态更新时间（epoch 毫秒）
+     * @param commandId 读取时的命令 ID；前置失败允许为空
+     * @param attemptNo 读取时的尝试序号，条件更新必须仍匹配
      * @return 1 表示迁移成功；0 表示当前行已被其它结果处理
      */
     int markTerminalSuccess(
             @Param("id") Long id,
             @Param("groupJid") String groupJid,
-            @Param("now") long now);
+            @Param("now") long now,
+            @Param("commandId") String commandId,
+            @Param("attemptNo") int attemptNo);
 
     /**
      * 把 WAITING 前置失败或 SUBMITTED 执行失败收敛为业务失败终态。
@@ -189,12 +187,16 @@ public interface JoinTaskResultMapper {
      * @param id 进群明细 ID
      * @param reason 稳定失败原因码
      * @param now 状态更新时间（epoch 毫秒）
+     * @param commandId 读取时的命令 ID；前置失败允许为空
+     * @param attemptNo 读取时的尝试序号，条件更新必须仍匹配
      * @return 1 表示迁移成功；0 表示当前行已进入其它状态
      */
     int markTerminalFailure(
             @Param("id") Long id,
             @Param("reason") String reason,
-            @Param("now") long now);
+            @Param("now") long now,
+            @Param("commandId") String commandId,
+            @Param("attemptNo") int attemptNo);
 
     /**
      * 激活同任务同账号当前行之后 ID 最小的下一条 WAITING 明细。
@@ -220,7 +222,7 @@ public interface JoinTaskResultMapper {
      * 跨租户扫描 outbox 已进入 DEAD 且业务仍在等待的进群尝试。
      *
      * <p>查询同时匹配 tenant、聚合类型、明细 ID 和 commandId，避免把同一明细的历史 DEAD 命令误认
-     * 为当前尝试。调用方仍需进入租户事务再次锁定复核。</p>
+     * 为当前尝试。调用方仍需进入租户事务，用条件更新再次复核当前尝试。</p>
      *
      * @param deadStatus outbox DEAD 状态码
      * @param limit 单轮最大候选数

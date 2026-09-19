@@ -195,6 +195,15 @@ public final class GroupExecutionAccountSelector {
                 .toList();
     }
 
+    /** 进群任务按归属用户和当前角色选择原有管理员，排除本次目标账号。 */
+    public List<GroupExecutionAccount> findJoinTaskAdminCandidates(
+            Long tenantId, String groupJid, Long targetAccountId, Long ownerUserId) {
+        if (ownerUserId == null || groupJid == null || groupJid.isBlank()) return List.of();
+        List<GroupExecutionAccount> candidates = mapper.selectJoinTaskAdminCandidatesByTenant(
+                tenantId, groupJid, targetAccountId, ownerUserId);
+        return candidates == null ? List.of() : List.copyOf(candidates);
+    }
+
     private static Optional<GroupExecutionAccount> candidateAt(
             List<GroupExecutionAccount> candidates,
             int completedAttempts) {

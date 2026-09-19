@@ -19,6 +19,8 @@ import java.util.Map;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.web.multipart.MultipartFile;
 
 /** 共享超链消息内容归一化和素材绑定规则测试。 */
@@ -88,6 +90,29 @@ class HyperlinkMessageContentValidatorTest {
                 .hasMessageContaining("1024");
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {3, 4})
+    void imageButtonAllowsBlankTitleAndValidatesFieldsIndependently(int type) throws IOException {
+        fileService.put(12L, new MarketingTemplateFileContent("image/jpeg", jpegBytes()));
+        String body = "文".repeat(500);
+        String title = "";
+        HyperlinkMessageContent accepted = new HyperlinkMessageContent(
+                1, type, title, type == 3 ? body : "页脚", null, null,
+                List.of(button()), type == 4 ? body : null, null, 12L);
+
+        var normalized = validator.validateAndNormalize(accepted);
+
+        assertThat(normalized.title()).isEqualTo(title);
+        assertThat(normalized.content()).isEqualTo(accepted.content());
+        assertThat(normalized.cardText()).isEqualTo(accepted.cardText());
+        assertThat(fileService.lockCalls).isEqualTo(1);
+        HyperlinkMessageContent longTitle = new HyperlinkMessageContent(
+                1, type, "标".repeat(1024), accepted.content(), null, null,
+                List.of(button()), accepted.cardText(), null, 12L);
+        assertThat(validator.validateAndNormalize(longTitle).title()).hasSize(1024);
+        assertThat(fileService.lockCalls).isEqualTo(2);
+    }
+
     @Test
     void cardButtonFooterMatchesInteractiveMessageLimit() {
         HyperlinkMessageContent normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
@@ -100,6 +125,16 @@ class HyperlinkMessageContentValidatorTest {
                 List.of(button()), "卡片正文", null, null)))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("60");
+    }
+
+    @Test
+    void missingAndWhitespaceTitlesNormalizeToEmptyWithoutMovingCopy() {
+        for (String title : new String[] {null, "", "  "}) {
+            var normalized = validator.validateAndNormalize(new HyperlinkMessageContent(
+                    1, 3, title, "完整正文", null, null, List.of(button()), null, null, null));
+            assertThat(normalized.title()).isEmpty();
+            assertThat(normalized.content()).isEqualTo("完整正文");
+        }
     }
 
     @Test

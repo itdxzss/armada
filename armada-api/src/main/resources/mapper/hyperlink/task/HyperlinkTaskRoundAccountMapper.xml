@@ -28,10 +28,12 @@
           AND u.usage_status=1
           AND (u.success_limit=0 OR u.successful_send_count+u.reserved_success_slot_count&lt;u.success_limit)
     </select>
-    <select id="countOperationRestrictedByRoundId" resultType="int">
+    <select id="countExecutingByRoundId" resultType="int">
         SELECT COUNT(*) FROM hyperlink_task_round_account a
-        INNER JOIN hyperlink_task_account_usage u ON u.id=a.task_account_usage_id
-        WHERE a.hyperlink_task_round_id=#{roundId} AND u.usage_status=6
+        INNER JOIN hyperlink_task_account_usage u ON u.id=a.task_account_usage_id AND u.tenant_id=a.tenant_id
+        WHERE a.hyperlink_task_round_id=#{roundId} AND a.assignment_status=1 AND u.usage_status=1
+          AND (u.in_flight_count&gt;0 OR u.success_limit=0
+            OR u.successful_send_count+u.reserved_success_slot_count&lt;u.success_limit)
     </select>
     <update id="syncUnavailableFromUsage">
         UPDATE hyperlink_task_round_account a
@@ -41,5 +43,19 @@
           a.released_at=COALESCE(a.released_at,#{now}), a.updated_at=#{now}
         WHERE a.hyperlink_task_round_id=#{roundId} AND a.assignment_status=1
           AND u.usage_status IN (2,3,4,5,6)
+    </update>
+    <update id="releaseRejectedPairsOnly">
+        UPDATE hyperlink_task_round_account a SET assignment_status=5,
+          released_at=#{now}, updated_at=#{now}
+        WHERE a.hyperlink_task_round_id=#{roundId} AND a.assignment_status=1
+          AND EXISTS (SELECT 1 FROM hyperlink_task_account_usage u
+            WHERE u.tenant_id=a.tenant_id AND u.id=a.task_account_usage_id AND u.in_flight_count=0)
+          AND EXISTS (SELECT 1 FROM hyperlink_task_recipient r
+            WHERE r.tenant_id=a.tenant_id AND r.hyperlink_task_id=a.hyperlink_task_id AND r.send_status=1)
+          AND NOT EXISTS (SELECT 1 FROM hyperlink_task_recipient r
+            WHERE r.tenant_id=a.tenant_id AND r.hyperlink_task_id=a.hyperlink_task_id AND r.send_status=1
+              AND NOT EXISTS (SELECT 1 FROM hyperlink_recipient_sender_rejection rejected
+                WHERE rejected.tenant_id=r.tenant_id AND rejected.recipient_id=r.id
+                  AND rejected.account_id=a.account_id))
     </update>
 </mapper>

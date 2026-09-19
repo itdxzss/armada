@@ -6,6 +6,8 @@ import com.armada.boot.config.MyBatisConfig;
 import com.armada.hyperlink.task.model.dto.HyperlinkRecipientQuery;
 import com.armada.hyperlink.task.model.vo.HyperlinkRecipientRow;
 import com.armada.hyperlink.task.model.vo.HyperlinkTaskSummaryRow;
+import com.armada.hyperlink.task.service.HyperlinkRecipientCsvWriter;
+import com.armada.hyperlink.task.service.HyperlinkTaskDetailService;
 import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
@@ -13,6 +15,7 @@ import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.io.StringWriter;
 import java.util.List;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -152,6 +155,78 @@ class HyperlinkTaskDetailMapperH2Test {
         assertThat(mapper.selectSummary(9)).isNull();
     }
 
+    @Test
+    void stoppedRejectedRecipientShowsLastSenderAndReasonInPageAndExport() throws Exception {
+        insertStoppedRejections();
+        HyperlinkRecipientQuery query = query(9);
+        query.setSenderCountryIso2("GB");
+        assertThat(mapper.countRecipients(query)).isEqualTo(1);
+        var row = mapper.selectRecipients(query).get(0);
+        assertThat(row.getAccountId()).isEqualTo(102L);
+        assertThat(row.getSenderPhone()).isEqualTo("+442000000102");
+        assertThat(row.getSenderCountryIso2()).isEqualTo("GB");
+        assertThat(row.getFailCode()).isEqualTo("WA_ACK_REJECTED_463");
+        var item = new HyperlinkTaskDetailService(null, mapper).toItem(row);
+        assertThat(item.failReason()).isEqualTo("WhatsApp 拒绝发送");
+        var exported = mapper.selectRecipientExportBatch(query, 1000L, null, 20);
+        assertThat(exported).hasSize(1);
+        assertThat(exported.get(0).getAccountId()).isEqualTo(102L);
+        StringWriter csv = new StringWriter();
+        new HyperlinkRecipientCsvWriter().writeRow(csv, exported.get(0));
+        assertThat(csv.toString()).contains("+442000000102", "WhatsApp 拒绝发送")
+                .doesNotContain("未分配", "未完成");
+        query.setSenderCountryIso2("US");
+        assertThat(mapper.countRecipients(query)).isZero();
+    }
+
+    @Test
+    void currentSenderAndSuccessfulOrUnknownResultTakePrecedenceOverOldRejections() throws SQLException {
+        insertStoppedRejections();
+        for (int status : List.of(2, 3, 4, 5, 6)) {
+            execute("UPDATE hyperlink_task_recipient SET account_id=100, "
+                    + "sender_phone_snapshot='+12025550123', sender_country_iso2_snapshot='US', "
+                    + "send_status=" + status + ", fail_code='SEND_RESULT_TIMEOUT' WHERE id=1");
+            var row = mapper.selectRecipients(query(9)).get(0);
+            assertThat(row.getAccountId()).isEqualTo(100L);
+            assertThat(row.getSenderPhone()).isEqualTo("+12025550123");
+            assertThat(row.getFailCode()).isEqualTo("SEND_RESULT_TIMEOUT");
+        }
+        execute("UPDATE hyperlink_task_recipient SET account_id=NULL, sender_phone_snapshot=NULL, "
+                + "sender_country_iso2_snapshot=NULL, send_status=1, fail_code='SEND_RESULT_TIMEOUT' WHERE id=1");
+        assertThat(mapper.selectRecipients(query(9)).get(0).getFailCode()).isEqualTo("SEND_RESULT_TIMEOUT");
+    }
+
+    @Test
+    void pendingRejectionKeepsRetryStatusAndNeverAttemptedRowsStayUnassigned() throws SQLException {
+        insertStoppedRejections();
+        execute("UPDATE hyperlink_task_recipient SET send_status=1, fail_code='WA_ACK_REJECTED_463' WHERE id=1");
+        var row = mapper.selectRecipients(query(9)).get(0);
+        assertThat(row.getAccountId()).isEqualTo(102L);
+        assertThat(row.getStatusCode()).isEqualTo(1);
+        execute("DELETE FROM hyperlink_recipient_sender_rejection WHERE tenant_id=7");
+        execute("UPDATE hyperlink_task_recipient SET send_status=6, fail_code='TASK_STOPPED' WHERE id=1");
+        row = mapper.selectRecipients(query(9)).get(0);
+        assertThat(row.getAccountId()).isNull();
+        assertThat(row.getSenderPhone()).isNull();
+        assertThat(row.getFailCode()).isEqualTo("TASK_STOPPED");
+        // The later rejection belonging to tenant 8 must never supply an account or reason.
+        assertThat(mapper.countRecipients(query(9))).isEqualTo(1);
+        TenantContext.set(8L);
+        assertThat(mapper.selectRecipients(query(9))).isEmpty();
+    }
+
+    private void insertStoppedRejections() throws SQLException {
+        insertRecipient(7, 9, "+55123456789", "BR", "US", 6, "任务已停止", 1);
+        execute("UPDATE hyperlink_task_recipient SET account_id=NULL, sender_phone_snapshot=NULL, "
+                + "sender_country_iso2_snapshot=NULL, fail_code='TASK_STOPPED' WHERE id=1");
+        execute("INSERT INTO hyperlink_recipient_sender_rejection VALUES "
+                + "(7,1,101,'WA_ACK_REJECTED_463',200), (7,1,102,'WA_ACK_REJECTED_463',300), "
+                + "(8,1,103,'WA_ACK_REJECTED_463',400)");
+        execute("INSERT INTO hyperlink_task_account_usage VALUES "
+                + "(7,9,101,'+12000000101','US'), (7,9,102,'+442000000102','GB'), "
+                + "(8,9,103,'+861000000103','CN'), (7,10,102,'+811000000102','JP')");
+    }
+
     private static HyperlinkRecipientQuery query(long taskId) {
         HyperlinkRecipientQuery query = new HyperlinkRecipientQuery();
         query.setTaskId(taskId);
@@ -182,6 +257,12 @@ class HyperlinkTaskDetailMapperH2Test {
 
     private void resetSchema() throws SQLException {
         execute("DROP ALL OBJECTS");
+        execute("CREATE TABLE hyperlink_recipient_sender_rejection (tenant_id BIGINT, recipient_id BIGINT, "
+                + "account_id BIGINT, reason_code VARCHAR(64), created_at BIGINT, "
+                + "PRIMARY KEY(tenant_id,recipient_id,account_id))");
+        execute("CREATE TABLE hyperlink_task_account_usage (tenant_id BIGINT, hyperlink_task_id BIGINT, "
+                + "account_id BIGINT, account_phone_snapshot VARCHAR(32), sender_country_iso2_snapshot CHAR(2), "
+                + "PRIMARY KEY(tenant_id,hyperlink_task_id,account_id))");
         execute("""
                 CREATE TABLE hyperlink_task (
                     id BIGINT PRIMARY KEY,

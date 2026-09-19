@@ -22,6 +22,7 @@ import com.armada.hyperlink.task.model.entity.HyperlinkTaskAccountUsage;
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.service.HyperlinkAccountDispatchGuard;
 import com.armada.hyperlink.task.service.HyperlinkProtocolResultService;
+import com.armada.hyperlink.task.service.HyperlinkMetricsProjectionService;
 import com.armada.hyperlink.task.service.HyperlinkRecipientStateMachine;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageAckEvent;
 import com.armada.platform.kafka.consumer.message.ProtocolMessageSendResultReportedEvent;
@@ -41,13 +42,15 @@ class HyperlinkLegacyUnknownResultTest {
     private final HyperlinkAccountDispatchGuard guard = mock(HyperlinkAccountDispatchGuard.class);
     private final AccountOperationRestrictionService restrictions =
             mock(AccountOperationRestrictionService.class);
+    private final HyperlinkMetricsProjectionService metrics = mock(HyperlinkMetricsProjectionService.class);
     private final HyperlinkTaskRecipient recipient = new HyperlinkTaskRecipient();
     private final HyperlinkProtocolResultService service = new HyperlinkProtocolResultService(
-            recipients, usages, new HyperlinkRecipientStateMachine(), data, guard, restrictions);
+            recipients, usages, new HyperlinkRecipientStateMachine(), data, guard, restrictions, metrics);
 
     @BeforeEach
     void setUp() {
         recipient.setId(13L);
+        recipient.setTenantId(7L);
         recipient.setHyperlinkTaskId(11L);
         recipient.setAccountId(17L);
         recipient.setDataPackageId(23L);
@@ -132,9 +135,8 @@ class HyperlinkLegacyUnknownResultTest {
     @ValueSource(strings = {"ACCOUNT_OFFLINE", "SEND_PREPARE_FAILED", "RECIPIENT_SESSION_UNAVAILABLE", "LID_TARGET_CIPHERTEXT_MISSING"})
     void knownPreparationFailureRequeuesWithoutConsumingTarget(String code) {
         recipient.setDispatchAttempt(1);
-        when(recipients.requeueAfterSystemFailure(any())).thenReturn(1);
         service.handleSendResultReported(legacyEvent(false, code));
-        verify(recipients).requeueAfterSystemFailure(argThat(row -> code.equals(row.getFailCode())
+        verify(metrics).requeueSystemFailure(argThat(row -> code.equals(row.getFailCode())
                 && row.getNextDispatchAt() > row.getUpdatedAt()));
         verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verify(guard).releaseAfterCommit(17L, COMMAND_ID, 11L, 13L);
@@ -143,10 +145,26 @@ class HyperlinkLegacyUnknownResultTest {
     }
 
     @Test void duplicateRecoveryDoesNotReleaseCapacityTwice() {
-        when(recipients.requeueAfterSystemFailure(any())).thenReturn(0);
+        when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, COMMAND_ID)).thenReturn(null);
         service.handleSendResultReported(legacyEvent(false, "ACCOUNT_OFFLINE"));
         verify(usages, never()).completeSlot(anyLong(), anyBoolean(), anyLong());
         verify(recipients, never()).applyResult(any());
+        verifyNoInteractions(data, guard);
+    }
+
+    @Test
+    void successCommittedBeforeRetryLockMustNotBeRequeued() {
+        HyperlinkTaskRecipient completed = new HyperlinkTaskRecipient();
+        completed.setSendStatus(3);
+        when(recipients.selectByIdentityForUpdate(7L, 11L, 13L, COMMAND_ID))
+                .thenReturn(completed);
+        service.handleSendResultReported(legacyEvent(false, "ACCOUNT_OFFLINE"));
+        var order = org.mockito.Mockito.inOrder(metrics, usages, recipients);
+        order.verify(metrics).lockRetryScope(recipient);
+        order.verify(usages).selectByTaskAndAccountForUpdate(11L, 17L);
+        order.verify(recipients).selectByIdentityForUpdate(7L, 11L, 13L, COMMAND_ID);
+        verify(metrics, never()).requeueSystemFailure(any());
+        verify(usages, never()).completeSlot(anyLong(), anyBoolean(), anyLong());
         verifyNoInteractions(data, guard);
     }
 
@@ -166,17 +184,33 @@ class HyperlinkLegacyUnknownResultTest {
     @Test
     void confirmedNotSentBannedAccountRequeuesAndKeepsBanStatistics() {
         recipient.setDispatchAttempt(1);
-        when(recipients.requeueAfterSystemFailure(any())).thenReturn(1);
         service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
                 "e2", 7L, null, null, null, null, "acc17", null, COMMAND_ID, false, null,
                 "ACCOUNT_BANNED", "banned before dispatch", 1_000L, "worker", null, null,
                 "hyperlink_task", null, null, null, null, null,
                 "8613800000000@s.whatsapp.net", "PRIVATE", 11L, 13L, "NOT_SENT", true));
-        verify(recipients).requeueAfterSystemFailure(argThat(row ->
+        verify(metrics).requeueSystemFailure(argThat(row ->
                 row.getNextDispatchAt() != Long.MAX_VALUE));
         verify(usages).markInvalid(eq(19L), eq(3), eq("ACCOUNT_BANNED"), anyString(), anyLong());
         verify(usages).completeSlot(eq(19L), eq(false), anyLong());
         verifyNoInteractions(data, restrictions);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"UNREGISTERED", "RECIPIENT_UNREGISTERED"})
+    void authoritativeUnregisteredResultEndsOnlyThisRecipient(String code) {
+        when(recipients.applyResult(any())).thenReturn(1);
+        service.handleSendResultReported(new ProtocolMessageSendResultReportedEvent(
+                "unregistered", 7L, null, null, null, null, "acc17", null, COMMAND_ID, false, null,
+                code, "目标号码未注册 WhatsApp", 1_000L, "worker", null, null,
+                "hyperlink_task", null, null, null, null, null,
+                "8613800000000@s.whatsapp.net", "PRIVATE", 11L, 13L, "NOT_SENT", true));
+        assertEquals(7, recipient.getSendStatus());
+        verify(recipients).applyResult(argThat(row -> row.getSendStatus() == 7));
+        verify(data).advanceDeliveryFact(11L, 23L, 2, "8613800000000",
+                DataPackagePoolStatus.UNREGISTERED, 1_000L);
+        verify(recipients, never()).requeueAfterSystemFailure(any());
+        verify(recipients, never()).scheduleReconciliation(anyString(), anyLong(), anyLong());
     }
 
     private ProtocolMessageSendResultReportedEvent legacyEvent(boolean success, String code) {

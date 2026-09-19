@@ -84,12 +84,12 @@ class JoinTaskDispatchTransactionServiceTest {
         when(resultMapper.selectDueForUpdate(1L, List.of(26L), 10_000L)).thenReturn(List.of(row));
         when(accountLookupService.findActiveProtocolRefs(List.of(382L))).thenReturn(List.of());
         when(taskMapper.selectByTenantAndId(9L)).thenReturn(task(5));
-        when(resultMapper.markTerminalFailure(26L, "ACCOUNT_NOT_FOUND", 10_000L)).thenReturn(1);
+        when(resultMapper.markTerminalFailure(26L, "ACCOUNT_NOT_FOUND", 10_000L, null, 0)).thenReturn(1);
 
         JoinTaskDispatchStats stats = service.dispatchTenant(1L, List.of(26L), 10_000L);
 
         assertThat(stats).isEqualTo(new JoinTaskDispatchStats(1, 1, 0, 1));
-        verify(resultMapper).markTerminalFailure(26L, "ACCOUNT_NOT_FOUND", 10_000L);
+        verify(resultMapper).markTerminalFailure(26L, "ACCOUNT_NOT_FOUND", 10_000L, null, 0);
         verify(resultMapper).activateNextPending(9L, 382L, 26L, 15_000L, 10_000L);
         verify(outboxService, never()).enqueueGroupJoinCommands(anyList());
     }

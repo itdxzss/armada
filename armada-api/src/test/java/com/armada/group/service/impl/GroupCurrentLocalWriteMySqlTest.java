@@ -141,7 +141,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 )
                 """);
         GroupLinkPreview row = creatorCompatibility(
-                101L, 3_000L, "new-owner", "US", "NORTH_AMERICA");
+                101L, 3_000L, "old-owner", "US", "NORTH_AMERICA");
         row.setWaSubject("禁止写回的新群名");
         row.setMemberSize(99);
         row.setInviteCode("forbidden-code");
@@ -155,7 +155,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 FROM group_link_preview
                 WHERE tenant_id = 7 AND group_link_id = 101
                 """))
-                .containsEntry("owner_phone", "new-owner")
+                .containsEntry("owner_phone", "old-owner")
                 .containsEntry("creator_country_iso2", "US")
                 .containsEntry("creator_continent_code", "NORTH_AMERICA")
                 .containsEntry("wa_subject", "旧群名")
@@ -170,7 +170,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 FROM group_link_preview
                 WHERE tenant_id = 7 AND group_link_id = 101
                 """))
-                .containsEntry("owner_phone", "new-owner")
+                .containsEntry("owner_phone", "old-owner")
                 .containsEntry("creator_country_iso2", "US");
     }
 
@@ -1175,7 +1175,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 groupLinkMapper,
                 mock(GroupListCurrentMapper.class),
                 folderMapper,
-                previewMapper,
+                new GroupCreatorCompatibilityWriter(previewMapper, org.mockito.Mockito.mock(CountryService.class)),
                 labelMapper,
                 mock(GroupConverter.class),
                 mock(CountryService.class),
@@ -1454,6 +1454,7 @@ class GroupCurrentLocalWriteMySqlTest {
                 """);
         jdbc.execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL,

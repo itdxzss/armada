@@ -84,6 +84,7 @@
      AND handle.deleted_at IS NULL
     LEFT JOIN group_link_preview legacy_preview
       ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.creator_phone_source &lt;&gt; 1
      AND legacy_preview.group_link_id = handle.id
     LEFT JOIN wa_group_profile current_profile
       ON current_profile.tenant_id = binding.tenant_id
@@ -151,6 +152,7 @@
          AND filter_handle.deleted_at IS NULL
         LEFT JOIN group_link_preview filter_preview
           ON filter_preview.tenant_id = filter_handle.tenant_id
+         AND filter_preview.creator_phone_source &lt;&gt; 1
          AND filter_preview.group_link_id = filter_handle.id
         WHERE filter_binding.tenant_id = binding.tenant_id
           AND filter_binding.group_id = binding.group_id
@@ -259,6 +261,7 @@
      AND handle.deleted_at IS NULL
     LEFT JOIN group_link_preview legacy_preview
       ON legacy_preview.tenant_id = handle.tenant_id
+     AND legacy_preview.creator_phone_source &lt;&gt; 1
      AND legacy_preview.group_link_id = handle.id
     WHERE current_group.group_jid IN
       <foreach collection="groupJids" item="groupJid" open="(" separator="," close=")">

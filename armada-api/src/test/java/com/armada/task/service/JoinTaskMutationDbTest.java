@@ -105,7 +105,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
     }
 
     // =========================================================================
@@ -134,7 +134,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
         JoinTaskVO created = service.createTask(createReq);
         assertThat(created.total()).isEqualTo(4);
 
@@ -150,7 +150,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNT_MULTI_LINK",
                 null, 2, 3,
                 null, null, 5, 15,
-                true, 2, "RETRY");
+                true, 2, "RETRY", false, false);
         JoinTaskDetailVO detail = service.updateTask(created.id(), updateReq);
 
         // 配置字段已更新
@@ -241,7 +241,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         assertThatThrownBy(() -> service.updateTask(created.id(), updateReq))
                 .isInstanceOf(BusinessException.class)
@@ -270,7 +270,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP"));
+                false, 0, "SKIP", false, false));
 
         // 首次软删 → 返回 2
         int deleted = service.batchDelete(List.of(t1.id(), t2.id()));
@@ -316,7 +316,7 @@ class JoinTaskMutationDbTest extends DbTestBase {
                 "FIXED_ACCOUNTS_PER_LINK",
                 1, null, null,
                 5, 10, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         service.updateTask(created.id(), updateReq);
 

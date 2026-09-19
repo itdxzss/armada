@@ -1,6 +1,7 @@
 package com.armada.hyperlink.task.mapper;
 
 import com.armada.hyperlink.task.model.entity.HyperlinkTaskRound;
+import com.armada.hyperlink.task.model.entity.HyperlinkTaskRecipient;
 import com.armada.hyperlink.task.model.vo.HyperlinkMetricsDelta;
 import com.armada.hyperlink.task.model.vo.HyperlinkProvisionCandidate;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
@@ -11,6 +12,9 @@ import org.apache.ibatis.annotations.Param;
 /** 任务轮次 Mapper。 */
 @Mapper
 public interface HyperlinkTaskRoundMapper {
+    /** 目标退回队列时撤回旧轮次的分配和提交数，任务唯一提交数保持不变。 */
+    int removeRetryAssignment(@Param("recipient") HyperlinkTaskRecipient recipient,
+            @Param("now") long now);
     @InterceptorIgnore(tenantLine = "true")
     List<HyperlinkProvisionCandidate> selectDispatchCandidates(@Param("now") long now,
             @Param("limit") int limit);

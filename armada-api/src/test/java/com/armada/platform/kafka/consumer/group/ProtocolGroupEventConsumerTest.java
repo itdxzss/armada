@@ -59,6 +59,12 @@ class ProtocolGroupEventConsumerTest {
     @Mock
     private ProtocolRiskEventSink riskEventSink;
 
+    @Mock
+    private ProtocolJoinTaskAdminResultSink joinTaskAdminResultSink;
+
+    @Mock
+    private ProtocolMutualContactResultSink mutualContactResultSink;
+
     private ProtocolGroupEventConsumer consumer;
 
     @BeforeEach
@@ -67,7 +73,7 @@ class ProtocolGroupEventConsumerTest {
                 new ObjectMapper(), sink, joinResultSink, actionResultSink,
                 batchParticipantResultSink, membersResultSink, inviteLinkChangedSink,
                 participantChangedSink, metadataUpdatedSink, profileReportedSink,
-                snapshotResultReportedSink, riskEventSink);
+                snapshotResultReportedSink, riskEventSink, joinTaskAdminResultSink, mutualContactResultSink);
     }
 
     private void onMessage(String rawMessage) {
@@ -76,6 +82,44 @@ class ProtocolGroupEventConsumerTest {
 
     private void onMessage(String rawMessage, String headerTraceId) {
         consumer.onMessage(rawMessage, headerTraceId);
+    }
+
+    @Test
+    void mutualContactResultUsesIndependentCorrelationAndRejectsWrongEnvelope() {
+        String raw = """
+            {"eventId":"mutual-1","event":"group.action_result_reported","accountId":"actor-40",
+             "data":{"tenantId":7,"taskId":10,"itemId":20,"commandId":"cmd-1","attemptNo":1,
+              "accountId":40,"protocolAccountId":"actor-40","source":"account_group_mutual_contact",
+              "operation":"CONTACT_SAVE","outcome":"SUCCESS","reasonCode":"OK","retryable":false}}
+            """;
+        onMessage(raw);
+        verify(mutualContactResultSink).apply(new ProtocolMutualContactResult(7L, 10L, 20L, 40L,
+            "actor-40", "cmd-1", 1, "SUCCESS", "OK", false));
+        verifyNoInteractions(actionResultSink, joinTaskAdminResultSink);
+        var risk = ArgumentCaptor.forClass(com.armada.platform.protocol.risk.ProtocolRiskResultMetadata.class);
+        verify(riskEventSink).handleResult(risk.capture());
+        assertThat(risk.getValue().correlation().businessType()).isEqualTo("account_mutual_contact");
+        assertThat(risk.getValue().correlation().groupJid()).isNull();
+        assertThatThrownBy(() -> onMessage(raw.replace("\"protocolAccountId\":\"actor-40\"", "\"protocolAccountId\":\"wrong\"")))
+            .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void joinTaskAdminResultDoesNotRequirePullTaskFields() {
+        onMessage("""
+                {"eventId":"join-admin-1","event":"group.action_result_reported","version":"v1",
+                 "accountId":"actor-40","occurredAt":"2026-09-18T04:30:00Z","workerId":"worker-1",
+                 "data":{"tenantId":7,"joinTaskId":10,"joinTaskResultId":20,
+                   "commandId":"cmd-1","attemptNo":1,"accountId":40,"protocolAccountId":"actor-40",
+                   "source":"join_task_admin","operation":"PARTICIPANT_PROMOTE","groupJid":"123@g.us",
+                   "targetJid":"12345@s.whatsapp.net","outcome":"SUCCESS","reasonCode":"OK",
+                   "retryable":false,"timestamp":1789705800000}}
+                """);
+        var captured = ArgumentCaptor.forClass(ProtocolJoinTaskAdminResult.class);
+        verify(joinTaskAdminResultSink).apply(captured.capture());
+        assertThat(captured.getValue().joinTaskResultId()).isEqualTo(20L);
+        assertThat(captured.getValue().accountId()).isEqualTo(40L);
+        verifyNoInteractions(actionResultSink, joinResultSink);
     }
 
     @Test

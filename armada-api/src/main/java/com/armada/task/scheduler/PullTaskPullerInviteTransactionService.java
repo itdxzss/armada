@@ -135,7 +135,7 @@ public class PullTaskPullerInviteTransactionService {
                 .map(PullTaskGroupAccount::getAccountId).distinct().toList();
         Map<Long, ProtocolAccountRef> refs = new HashMap<>();
         for (ProtocolAccountRef ref : resources.accountLookup()
-                .findActiveProtocolRefs(accountIds)) {
+                .findEligibleManagerProtocolRefs(accountIds)) {
             if (ref != null) {
                 refs.putIfAbsent(ref.armadaAccountId(), ref);
             }

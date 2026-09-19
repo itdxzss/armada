@@ -254,7 +254,8 @@ class MarketingTaskWhatsAppMemberProviderTest {
         ProtocolAccountRef account = new ProtocolAccountRef(
                 10L, ProtocolBackend.ANDROID, "android-10", "15550000001");
         GroupMetadataResult metadata = new GroupMetadataResult(
-                "120363-test@g.us", "协议完整群名", null, null, null,
+                "120363-test@g.us", "协议完整群名", null, null,
+                null, null,
                 true, false, null, null, null, null, null,
                 false, null, false, true,
                 List.of(

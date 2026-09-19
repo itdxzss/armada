@@ -82,7 +82,7 @@ class PullTaskMaterialAdminTransactionIntegrationTest {
     @BeforeEach
     void setUp() throws SQLException {
         reset(accountLookup, outboxService);
-        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(MANAGER));
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(MANAGER));
         when(outboxService.enqueuePullTaskMaterialAdminCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:100", List.of("cmd-admin-1"), 1));
@@ -162,7 +162,7 @@ class PullTaskMaterialAdminTransactionIntegrationTest {
 
     @Test
     void missingActiveManagerWaitsForResourceWithoutSubmittingCommand() {
-        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of());
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of());
 
         assertThat(service.prepare(claim("worker-1", 600L), "worker-1", 610L))
                 .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);

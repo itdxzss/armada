@@ -36,7 +36,7 @@
       AND #{sourceCode} IN (1, 2)
   </update>
 
-  <!-- 调用方先按 group_jid 做 FOR UPDATE current read，因此这批行均由当前事务持锁。 -->
+  <!-- 首次分类由 group_classification = 0 的条件更新判定，不依赖显式锁定读。 -->
   <update id="classifyFirstBatch">
     UPDATE wa_group
     SET group_classification = CASE group_jid
@@ -74,7 +74,6 @@
       #{groupJid}
     </foreach>
     ORDER BY group_jid ASC
-    FOR UPDATE
   </select>
 
 </mapper>

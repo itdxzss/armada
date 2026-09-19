@@ -29,6 +29,7 @@ import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,7 +88,15 @@ public class PullTaskManagerJoinTransactionService {
             List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
                     candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
             if (!existing.isEmpty()) {
-                return prepareExisting(candidate, existing.get(0), now);
+                PullTaskGroupAccount current = existing.stream()
+                        .filter(row -> Objects.equals(row.getAvailabilityStatus(),
+                                PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                        .filter(row -> !Objects.equals(row.getMembershipStatus(),
+                                PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code()))
+                        .findFirst().orElse(null);
+                return current == null ? waitForManager(candidate,
+                        PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now)
+                        : prepareExisting(candidate, current, now);
             }
             return selectAndPrepare(candidate, now);
         } finally {
@@ -134,9 +143,10 @@ public class PullTaskManagerJoinTransactionService {
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
         }
         AccountProtocolLookupService accountLookup = resources.accountLookup();
-        ProtocolAccountRef selected = accountLookup
-                .findRandomOnlinePullTaskAccountByGroupId(setting.getManagerGroupId())
-                .orElse(null);
+        List<ProtocolAccountRef> candidates = accountLookup
+                .findOnlineEligibleManagersByGroupId(setting.getManagerGroupId());
+        ProtocolAccountRef selected = candidates.isEmpty() ? null
+                : candidates.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(candidates.size()));
         if (selected == null) {
             return waitForManager(candidate,
                     PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
@@ -150,6 +160,9 @@ public class PullTaskManagerJoinTransactionService {
             PullTaskGroupExecution candidate,
             PullTaskGroupAccount manager,
             long now) {
+        if (onlineManagerRef(manager) == null) {
+            return waitForManager(candidate, PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
+        }
         List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
                 candidate.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code());
         PullTaskAccountAction action = actions.stream()
@@ -217,7 +230,7 @@ public class PullTaskManagerJoinTransactionService {
      * 取本行管理员当前可用于同步踩链接的协议身份。
      *
      * <p>恢复分支会在事务外直接调用协议层进群，必须要求账号在线；{@code findActiveProtocolRef}
-     * 只保证租户、软删除和协议寻址事实，离线账号照样返回，由调用方自行决定是否发命令。
+     * 只保证租户、软删除和协议寻址事实；此处还须排除封禁、风控与操作限制。
      * 离线管理员在这里返回空，本行落到等待资源由恢复流程换人，不把离线号送进协议层。</p>
      *
      * @param manager 本行管理员角色行
@@ -228,7 +241,7 @@ public class PullTaskManagerJoinTransactionService {
         if (accountId == null) {
             return null;
         }
-        return resources.accountLookup().findOnlineProtocolRefs(List.of(accountId))
+        return resources.accountLookup().findEligibleManagerProtocolRefs(List.of(accountId))
                 .stream()
                 .findFirst()
                 .orElse(null);

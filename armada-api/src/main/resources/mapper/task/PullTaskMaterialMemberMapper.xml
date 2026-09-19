@@ -117,7 +117,10 @@
               AND (prior_attempt.lifecycle_status = #{normalization.attemptState.closed}
                 OR (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.notStarted}
                   AND (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.uncertain}
-                    OR COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason})))))
+                    OR (COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason}
+                      AND UPPER(TRIM(COALESCE(prior_attempt.reason_code, ''))) NOT IN
+                      <foreach collection="normalization.retryRule.retryableAccountRiskReasons" item="reasonCode"
+                               open="(" separator="," close=")">#{reasonCode}</foreach>))))))
           AND NOT EXISTS (
             SELECT 1 FROM pull_task_pull_call_member_attempt successor
             WHERE successor.group_execution_id = prior_attempt.group_execution_id

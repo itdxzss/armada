@@ -183,7 +183,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         if (candidateTask == null || !delayEnabled(candidateTask)) {
             return;
         }
-        MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
+        MarketingTask task = candidateTask;
         if (!canRegisterNewGroup(task, detectedAt) || !delayEnabled(task)) {
             return;
         }

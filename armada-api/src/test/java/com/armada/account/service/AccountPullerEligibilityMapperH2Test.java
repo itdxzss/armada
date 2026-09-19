@@ -172,6 +172,27 @@ class AccountPullerEligibilityMapperH2Test {
         }
     }
 
+    @Test
+    void managersExcludeOfflineBannedRestrictionsRiskDeletedAndOtherTenantOrGroup() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seed(jdbc, 1L, 40L, 100L, 3, 1, null, "ANDROID");
+        seed(jdbc, 1L, 41L, 100L, 2, 1, null, "WEB");
+        seed(jdbc, 1L, 42L, 100L, 2, 1, null, "WEB");
+        seed(jdbc, 1L, 43L, 101L, 2, 1, null, "WEB");
+        seed(jdbc, 1L, 44L, 100L, 6, 1, null, "ANDROID");
+        seed(jdbc, 1L, 45L, 100L, 7, 1, null, "WEB");
+        seed(jdbc, 1L, 46L, 100L, 2, 1, null, "UNKNOWN");
+        jdbc.update("UPDATE account_state SET risk_status=2 WHERE account_id=41");
+        jdbc.update("UPDATE account SET deleted_at=100 WHERE id=42");
+        assertThat(service.findOnlineEligibleManagersByGroupId(100L))
+                .extracting(ProtocolAccountRef::armadaAccountId).containsExactly(10L, 44L, 45L);
+        assertThat(service.findEligibleManagerProtocolRefs(
+                List.of(10L, 11L, 12L, 13L, 14L, 20L, 40L, 41L, 42L, 44L, 45L, 46L)))
+                .extracting(ProtocolAccountRef::armadaAccountId).containsExactly(10L, 44L, 45L);
+        assertThat(service.findOnlineEligibleManagersByGroupId(null)).isEmpty();
+        assertThat(service.findEligibleManagerProtocolRefs(List.of())).isEmpty();
+    }
+
     private static void seed(
             JdbcTemplate jdbc,
             long tenantId,

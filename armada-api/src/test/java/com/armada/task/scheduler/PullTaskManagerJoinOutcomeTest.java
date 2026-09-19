@@ -11,6 +11,6 @@ class PullTaskManagerJoinOutcomeTest {
         PullTaskManagerJoinOutcome outcome =
                 PullTaskManagerJoinOutcome.executionFailed("GROUP_UNAVAILABLE");
 
-        assertThat(outcome.reasonMessage()).isEqualTo("群不可用或已封禁");
+        assertThat(outcome.reasonMessage()).isEqualTo("群组不可用");
     }
 }

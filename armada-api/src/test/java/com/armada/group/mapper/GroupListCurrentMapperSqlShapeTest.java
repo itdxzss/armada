@@ -20,6 +20,22 @@ import org.junit.jupiter.api.Test;
 /** 新群当前事实列表查询必须 page-first，且不得重新全量聚合旧成员表。 */
 class GroupListCurrentMapperSqlShapeTest {
 
+    @Test
+    void allControlRelationsRenderAndParseInBothCountAndFullMysqlPage() throws Exception {
+        Configuration configuration = new Configuration();
+        try (InputStream input = getClass().getResourceAsStream("/mapper/group/GroupListCurrentMapper.xml")) {
+            new XMLMapperBuilder(input, configuration, MAPPER.toString(), configuration.getSqlFragments()).parse();
+        }
+        GroupLinkQuery query = new GroupLinkQuery();
+        query.setControlRelations(java.util.List.of(com.armada.group.model.enums.GroupControlRelation.values()));
+        for (String statement : java.util.List.of("count", "selectPage")) {
+            String sql = boundSql(configuration, statement, Map.of("tenantId", 7L, "query", query));
+            assertThat(sql).contains("legacy_preview.owner_phone", "current_profile.member_snapshot_at",
+                    "creator_member.presence_status = 1", "control_member.role IN (3)", " OR ");
+            assertThat(net.sf.jsqlparser.parser.CCJSqlParserUtil.parse(sql)).isNotNull();
+        }
+    }
+
     private static final Path MAPPER = Path.of(
             "src/main/resources/mapper/group/GroupListCurrentMapper.xml");
 

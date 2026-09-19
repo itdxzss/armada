@@ -171,6 +171,12 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
         long updatedAt = System.currentTimeMillis();
         String stateSource = stateSource(event);
 
+        // 已生成导出文件的账号保留业务预占；仍记录真实登录态，重新在线必须阻断交付。
+        if (currentState != null && Integer.valueOf(AccountStateCode.EXPORTED).equals(currentState.getAccountState())) {
+            return stateMapper.updateLoginState(updateRow(account.getId(), mapLoginState(event.to()), null,
+                    stateSource, null, occurredAt, updatedAt)) > 0;
+        }
+
         // 生命周期状态会同时影响 account_state 和 login_state,例如被抢登、封禁、解绑、抢登中续上线。
         // 这类状态必须先处理,不能落入下面只更新登录态的兜底分支。
         if (applyLifecycleTransition(account, currentState, event, stateSource, occurredAt, updatedAt)) {

@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.enums.PullTaskAccountEntryMode;
+import com.armada.task.model.enums.PullTaskSelectionMode;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.shared.tenant.TenantContext;
@@ -32,6 +34,7 @@ import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 /** SC-05 只恢复已通过真实可用性校验的资源等待行，不解除人工暂停。 */
 @Service
@@ -125,26 +128,70 @@ public class PullTaskResourceRecoveryTransactionService {
             long now) {
         List<PullTaskGroupAccount> stored = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
-        if (stored.isEmpty()) {
-            boolean ready = candidate.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code()
-                    && setting.getManagerGroupId() != null
-                    && resources.accountLookup()
-                    .findRandomOnlinePullTaskAccountByGroupId(
-                            setting.getManagerGroupId()).isPresent();
-            return ready ? ResourceCheck.available() : managerWaiting(0);
-        }
-        List<Long> activeIds = activeIds(stored);
-        restoreOffline(activeIds, PullTaskGroupAccountRole.MANAGER, now);
+        List<Long> eligibleIds = safe(resources.accountLookup().findEligibleManagerProtocolRefs(
+                stored.stream().map(PullTaskGroupAccount::getAccountId).distinct().toList()))
+                .stream().map(ProtocolAccountRef::armadaAccountId).toList();
+        restoreOffline(eligibleIds, PullTaskGroupAccountRole.MANAGER, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
-        if (candidate.getStage() == PullTaskExecutionStage.MANAGER_ADMIN.code()) {
-            return managerAdminCheck(candidate, refreshed, activeIds);
+        List<PullTaskGroupAccount> usable = refreshed.stream()
+                .filter(row -> eligibleIds.contains(row.getAccountId()))
+                .filter(row -> managerSupportsStage(row, PullTaskExecutionStage.MANAGER_JOIN.code()))
+                .filter(row -> !Objects.equals(row.getAdminStatus(), PullTaskGroupAccountAdminStatus.FAILED.code()))
+                .toList();
+        if (usable.isEmpty()) {
+            return replaceManager(candidate, setting, refreshed, now);
         }
-        int available = (int) refreshed.stream()
-                .filter(row -> activeIds.contains(row.getAccountId()))
-                .filter(row -> managerSupportsStage(row, candidate.getStage()))
-                .count();
-        return available > 0 ? ResourceCheck.available() : managerWaiting(available);
+        // 健康账号的未知进群结果必须先核实，不能因尚未确认在群而消耗下一个账号。
+        if (usable.stream().anyMatch(row -> !Objects.equals(row.getMembershipStatus(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code()))) {
+            return ResourceCheck.available();
+        }
+        if (candidate.getStage() == PullTaskExecutionStage.MANAGER_ADMIN.code()) {
+            return managerAdminCheck(candidate, usable, eligibleIds);
+        }
+        return usable.stream().anyMatch(row -> managerSupportsStage(row, candidate.getStage()))
+                ? ResourceCheck.available() : managerWaiting(0);
+    }
+
+    private ResourceCheck replaceManager(PullTaskGroupExecution candidate,
+            PullTaskStandardSetting setting, List<PullTaskGroupAccount> stored, long now) {
+        Set<Long> attempted = new LinkedHashSet<>(stored.stream()
+                .map(PullTaskGroupAccount::getAccountId).toList());
+        ProtocolAccountRef replacement = safe(resources.accountLookup()
+                .findOnlineEligibleManagersByGroupId(setting.getManagerGroupId())).stream()
+                .filter(account -> !attempted.contains(account.armadaAccountId()))
+                .findFirst().orElse(null);
+        if (replacement == null) {
+            return managerWaiting(0);
+        }
+        // 移出仅终止本执行行的角色使用，不删除原始入群/失败事实，也不修改账号本身。
+        for (PullTaskGroupAccount old : stored) {
+            if (!Objects.equals(old.getAvailabilityStatus(), PullTaskGroupAccountAvailability.REMOVED.code())) {
+                accountMapper.markUnavailable(old.getId(), PullTaskGroupAccountAvailability.REMOVED.code(),
+                        old.getUnavailableReasonCode() != null ? old.getUnavailableReasonCode()
+                                : old.getMembershipReasonCode() != null ? old.getMembershipReasonCode()
+                                : PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE.name(), null, now);
+            }
+        }
+        PullTaskGroupAccount row = new PullTaskGroupAccount();
+        row.setTaskId(candidate.getTaskId());
+        row.setGroupExecutionId(candidate.getId());
+        row.setAccountId(replacement.armadaAccountId());
+        row.setAccountPhone(replacement.wsPhone());
+        row.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+        row.setRoleSeq(stored.stream().map(PullTaskGroupAccount::getRoleSeq)
+                .filter(Objects::nonNull).max(Integer::compareTo).orElse(0) + 1);
+        row.setSourceType(stored.isEmpty() ? PullTaskGroupAccountSource.INITIAL.code()
+                : PullTaskGroupAccountSource.SUPPLEMENT.code());
+        row.setSelectionMode(PullTaskSelectionMode.AUTOMATIC.code());
+        row.setEntryMode(PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        if (accountMapper.insert(row) != 1) {
+            throw new IllegalStateException("自动替补管理员写入失败");
+        }
+        return ResourceCheck.available();
     }
 
     private ResourceCheck managerAdminCheck(
@@ -237,18 +284,6 @@ public class PullTaskResourceRecoveryTransactionService {
                 "当前可用站台不足，缺口人数=" + candidates.missingCount());
     }
 
-    private List<Long> activeIds(List<PullTaskGroupAccount> rows) {
-        List<Long> accountIds = rows.stream()
-                .map(PullTaskGroupAccount::getAccountId).distinct().toList();
-        if (accountIds.isEmpty()) {
-            return List.of();
-        }
-        return safe(resources.accountLookup().findActiveProtocolRefs(accountIds)).stream()
-                .filter(Objects::nonNull)
-                .map(ProtocolAccountRef::armadaAccountId)
-                .distinct().toList();
-    }
-
     private void restoreOffline(
             List<Long> validatedIds, PullTaskGroupAccountRole role, long now) {
         if (validatedIds.isEmpty()) {
@@ -299,6 +334,17 @@ public class PullTaskResourceRecoveryTransactionService {
     }
 
     private int recoveryStage(PullTaskGroupExecution candidate) {
+        if (Objects.equals(candidate.getWaitResourceType(), PullTaskWaitResourceType.MANAGER.code())) {
+            boolean needsEntry = accountMapper.selectByExecutionAndRole(candidate.getId(),
+                            PullTaskGroupAccountRole.MANAGER.code()).stream()
+                    .filter(row -> Objects.equals(row.getAvailabilityStatus(),
+                            PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                    .anyMatch(row -> !Objects.equals(row.getMembershipStatus(),
+                            PullTaskGroupAccountMembershipStatus.IN_GROUP.code())
+                            && !Objects.equals(row.getMembershipStatus(),
+                            PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code()));
+            return needsEntry ? PullTaskExecutionStage.MANAGER_JOIN.code() : candidate.getStage();
+        }
         if (!Objects.equals(candidate.getWaitResourceType(), PullTaskWaitResourceType.PULLER.code())
                 || !Objects.equals(candidate.getStage(), PullTaskExecutionStage.PULL_EXECUTION.code())) {
             return candidate.getStage();
@@ -375,9 +421,14 @@ public class PullTaskResourceRecoveryTransactionService {
             PullTaskGroupExecution update,
             int expectedStage,
             PullTaskExecutionDispatchResult success) {
-        return resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStatus.WAIT_RESOURCE.code(), expectedStage) == 1
-                ? success : PullTaskExecutionDispatchResult.LOST;
+        if (resources.executionMapper().transitionClaimed(
+                update, PullTaskExecutionStatus.WAIT_RESOURCE.code(), expectedStage) == 1) {
+            return success;
+        }
+        // 角色替换与执行行推进必须原子提交；租约/CAS 失效不能留下半次换号。
+        TransactionAspectSupport.currentTransactionStatus()
+                .setRollbackOnly();
+        return PullTaskExecutionDispatchResult.LOST;
     }
 
     private static PullTaskGroupExecution transition(

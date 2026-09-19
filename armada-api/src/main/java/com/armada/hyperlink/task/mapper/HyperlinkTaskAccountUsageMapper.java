@@ -32,6 +32,8 @@ public interface HyperlinkTaskAccountUsageMapper {
             @Param("reasonCode") String reasonCode,
             @Param("reason") String reason,
             @Param("now") long now);
+    /** 超时已经释放过槽位，迟到成功只补记成功数。 */
+    int recordLateSuccess(@Param("id") long id, @Param("now") long now);
     int deleteUnusedByTask(@Param("taskId") long taskId);
     int markInvalid(@Param("id") long id, @Param("usageStatus") int usageStatus,
             @Param("invalidCode") String invalidCode, @Param("invalidReason") String invalidReason,

@@ -481,7 +481,7 @@ class PullTaskPullCallParticipantResultServiceTest {
 
     @ParameterizedTest
     @MethodSource("accountRiskReasonCodes")
-    void uncertainAccountRiskPreservesUnknownAndRotatesPuller(
+    void uncertainAccountRiskPreservesFactAndRequeuesMaterialOnAnotherPuller(
             String reasonCode) {
         stubAccountFailure(reasonCode);
         when(pullerRestrictionService.restrictPulling(
@@ -495,12 +495,17 @@ class PullTaskPullCallParticipantResultServiceTest {
 
         PullTaskParticipantAttemptTransition attempt = capturedAttempt();
         assertThat(attempt.target().lifecycleStatus())
-                .isEqualTo(PullTaskParticipantAttemptStatus.CLOSED.code());
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
+        assertThat(attempt.target().protocolOutcome()).isEqualTo("UNKNOWN");
+        assertThat(attempt.target().executionState())
+                .isEqualTo(PullTaskParticipantExecutionState.UNCERTAIN);
+        assertThat(attempt.result().reasonCode()).isEqualTo(reasonCode);
         PullTaskParticipantAggregateTransition aggregate =
                 capturedAggregate(PullTaskParticipantType.MATERIAL);
         assertThat(aggregate.target().status())
-                .isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code());
-        assertThat(aggregate.target().pullCallId()).isEqualTo(31L);
+                .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+        assertThat(aggregate.target().pullCallId()).isNull();
+        assertThat(aggregate.target().failureCount()).isZero();
 
         verify(pullerRestrictionService).restrictPulling(
                 eq(71L), eq(reasonCode), eq(5_000L), anyLong());
@@ -512,6 +517,42 @@ class PullTaskPullCallParticipantResultServiceTest {
                 eq(reasonCode), eq(5_000L));
         verify(eventPublisher).publishEvent(new PullTaskPullerUnavailableEvent(
                 7L, 21L, 61L, 5_000L));
+    }
+
+    @ParameterizedTest
+    @MethodSource("accountRiskReasonCodes")
+    void fourthAccountRiskAttemptStaysUnknownAndDoesNotRequeue(String reasonCode) {
+        stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null).setAttemptNo(4);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN, true, reasonCode))).isTrue();
+
+        PullTaskParticipantAggregateTransition aggregate = capturedAggregate(PullTaskParticipantType.MATERIAL);
+        assertThat(aggregate.target().status()).isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code());
+        assertThat(aggregate.target().failureCount()).isZero();
+        assertThat(aggregate.target().pullCallId()).isEqualTo(31L);
+    }
+
+    @ParameterizedTest
+    @MethodSource("accountRiskReasonCodes")
+    void uncertainAccountRiskAlsoRequeuesStationWithoutFailureCount(String reasonCode) {
+        stubAttempt(PullTaskParticipantType.STATION, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(accountMapper.transitionMembershipAttempt(any())).thenReturn(1);
+
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN, true, reasonCode))).isTrue();
+
+        assertThat(capturedAttempt().target().lifecycleStatus())
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
+        PullTaskParticipantAggregateTransition aggregate = capturedAggregate(PullTaskParticipantType.STATION);
+        assertThat(aggregate.target().status()).isEqualTo(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
+        assertThat(aggregate.target().failureCount()).isZero();
+        assertThat(aggregate.target().pullCallId()).isNull();
     }
 
     @Test

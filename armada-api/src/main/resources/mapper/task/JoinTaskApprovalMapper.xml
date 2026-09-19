@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.JoinTaskApprovalMapper">
+  <select id="scan" resultType="com.armada.task.model.dto.JoinTaskDispatchCandidate">
+    SELECT tenant_id AS tenantId,result_id AS resultId FROM join_task_approval
+    WHERE stage IN (1,2,3,4,5,6) AND next_execute_at &lt;= #{now}
+    ORDER BY next_execute_at,result_id LIMIT 20
+  </select>
+  <update id="begin">
+    UPDATE join_task_result SET dispatch_state='APPROVAL',next_execute_at=NULL,updated_at=#{now}
+    WHERE id=#{row.id} AND status='PENDING' AND dispatch_state='SUBMITTED'
+      AND command_id=#{row.commandId} AND attempt_no=#{row.attemptNo}
+  </update>
+  <insert id="insert">
+    INSERT INTO join_task_approval
+      (result_id,join_task_id,stage,in_flight,version,group_jid,actor_account_id,actor_phone,
+       target_phone,target_protocol_account_id,pending_jid,reason,next_execute_at,deadline_at,updated_at)
+    VALUES (#{resultId},#{joinTaskId},#{stage},#{inFlight},#{version},#{groupJid},#{actorAccountId},#{actorPhone},
+       #{targetPhone},#{targetProtocolAccountId},#{pendingJid},#{reason},#{nextExecuteAt},#{deadlineAt},#{updatedAt})
+  </insert>
+  <select id="lock" resultType="com.armada.task.model.entity.JoinTaskApproval">
+    SELECT * FROM join_task_approval WHERE result_id=#{resultId} FOR UPDATE
+  </select>
+  <update id="update">
+    UPDATE join_task_approval SET stage=#{stage},in_flight=#{inFlight},version=#{version},group_jid=#{groupJid},
+      actor_account_id=#{actorAccountId},actor_phone=#{actorPhone},target_phone=#{targetPhone},
+      target_protocol_account_id=#{targetProtocolAccountId},pending_jid=#{pendingJid},reason=#{reason},
+      next_execute_at=#{nextExecuteAt},deadline_at=#{deadlineAt},updated_at=#{updatedAt}
+    WHERE result_id=#{resultId}
+  </update>
+  <update id="release">
+    UPDATE join_task_result SET dispatch_state='SUBMITTED'
+    WHERE id=#{row.id} AND status='PENDING' AND dispatch_state='APPROVAL'
+      AND command_id=#{row.commandId} AND attempt_no=#{row.attemptNo}
+  </update>
+</mapper>

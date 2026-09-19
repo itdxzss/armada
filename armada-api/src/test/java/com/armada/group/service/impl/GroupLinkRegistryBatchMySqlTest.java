@@ -1,5 +1,7 @@
 package com.armada.group.service.impl;
 
+import com.armada.platform.country.service.CountryService;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -127,7 +129,7 @@ class GroupLinkRegistryBatchMySqlTest {
                 session.getMapper(AccountGroupMembershipMapper.class));
         registry = new GroupLinkRegistryServiceImpl(
                 groupLinkMapper,
-                mock(GroupLinkPreviewMapper.class),
+                new GroupCreatorCompatibilityWriter(mock(GroupLinkPreviewMapper.class), org.mockito.Mockito.mock(CountryService.class)),
                 mock(AccountGroupCurrentSnapshotPersistenceImpl.class));
         metadataTaskMapper = session.getMapper(GroupMetadataSyncTaskMapper.class);
         metadataTaskService = new GroupMetadataSyncTaskServiceImpl(
@@ -141,7 +143,7 @@ class GroupLinkRegistryBatchMySqlTest {
         AccountGroupMembershipSnapshotServiceImpl snapshotService =
                 new AccountGroupMembershipSnapshotServiceImpl(
                         groupLinkMapper,
-                        mock(GroupLinkPreviewMapper.class),
+                new GroupCreatorCompatibilityWriter(mock(GroupLinkPreviewMapper.class), org.mockito.Mockito.mock(CountryService.class)),
                         registry,
                         classificationService);
         currentSnapshotPersistence = mock(AccountGroupCurrentSnapshotPersistenceImpl.class);
@@ -1089,6 +1091,7 @@ class GroupLinkRegistryBatchMySqlTest {
                 """);
         jdbc.execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL,

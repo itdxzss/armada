@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -160,6 +161,8 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
             PullTaskGroupExecution execution,
             PullTaskManagerAdminCallback callback) {
         return actor != null && manager != null && execution != null
+                && !Objects.equals(manager.getAvailabilityStatus(),
+                PullTaskGroupAccountAvailability.REMOVED.code())
                 && Objects.equals(actor.getId(), action.getActorGroupAccountId())
                 && Objects.equals(actor.getAccountId(), callback.accountId())
                 && Objects.equals(actor.getRoleType(), PullTaskGroupAccountRole.PROMOTER.code())

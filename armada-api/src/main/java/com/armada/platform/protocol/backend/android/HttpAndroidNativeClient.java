@@ -49,6 +49,26 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         this.httpExecutor = httpExecutor;
     }
 
+    @Override
+    public AndroidResponseEnvelope previewGroup(String wsPhone, String inviteCode) {
+        return httpExecutor.postTyped("/ws/v1/groups/preview/" + requireDigits(wsPhone),
+                new JoinRequest(requireText(inviteCode, INVITE_CODE_FIELD)), AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope pendingGroupMembers(String wsPhone, String groupJid) {
+        return httpExecutor.postTyped("/ws/v1/groups/members/pending/" + requireDigits(wsPhone),
+                new MembersRequest(requireText(groupJid, GROUP_JID_FIELD)), AndroidResponseEnvelope.class);
+    }
+
+    @Override
+    public AndroidResponseEnvelope approveGroupMember(String wsPhone, String groupJid, String targetJid) {
+        return httpExecutor.postTyped("/ws/v1/groups/members/approve/" + requireDigits(wsPhone),
+                java.util.Map.of("group_id", requireText(groupJid, GROUP_JID_FIELD),
+                        "participants", List.of(requireText(targetJid, "targetJid")), "state", true),
+                AndroidResponseEnvelope.class);
+    }
+
     /**
      * 调用 Android 原生账号状态接口。
      *

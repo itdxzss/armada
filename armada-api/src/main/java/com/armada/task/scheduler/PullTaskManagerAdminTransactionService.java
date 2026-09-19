@@ -97,7 +97,8 @@ public class PullTaskManagerAdminTransactionService {
                         PullTaskExecutionDispatchResult.LOST);
             }
             PullTaskGroupAccount manager = singleManager(candidate.getId());
-            if (!usableManager(manager)) {
+            if (!usableManager(manager) || resources.accountLookup()
+                    .findEligibleManagerProtocolRefs(List.of(manager.getAccountId())).isEmpty()) {
                 return waitForCandidate(candidate,
                         PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED, now);
             }
@@ -355,7 +356,12 @@ public class PullTaskManagerAdminTransactionService {
     private PullTaskGroupAccount singleManager(long executionId) {
         List<PullTaskGroupAccount> managers = accountMapper.selectByExecutionAndRole(
                 executionId, PullTaskGroupAccountRole.MANAGER.code());
-        return managers.size() == 1 ? managers.get(0) : null;
+        List<PullTaskGroupAccount> current = managers.stream()
+                .filter(row -> Objects.equals(row.getAvailabilityStatus(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                .filter(row -> Objects.equals(row.getMembershipStatus(),
+                        PullTaskGroupAccountMembershipStatus.IN_GROUP.code())).toList();
+        return current.size() == 1 ? current.get(0) : null;
     }
 
     private PullTaskGroupAccount insertPromoterRole(

@@ -2,71 +2,113 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.GroupLinkPreviewMapper">
 
-  <!--
-    旧预览表退役期间只兼容创建者手机号、国家和洲。owner 与国家各自沿用原观察时间，
-    禁止把群名称、成员数、邀请、头像、设置等当前事实重新双写回旧表。
-  -->
+  <!-- 来源：0未知、1 JID推导、2协议确认。来源升级优先于观察时间，反向降级禁止。 -->
+  <sql id="sourceUpgrade">
+    creator_phone_source = 1 AND COALESCE(#{row.creatorPhoneSource}, 2) = 2
+  </sql>
+  <sql id="confirmedCreator">
+    #{row.ownerPhoneObserved} = TRUE
+    AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+    AND (
+      NULLIF(TRIM(owner_phone), '') IS NULL
+      OR (<include refid="sourceUpgrade"/>)
+      OR (creator_phone_source = COALESCE(#{row.creatorPhoneSource}, 2)
+        AND TRIM(owner_phone) = TRIM(#{row.ownerPhone})
+        AND COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0) &gt;= COALESCE(last_preview_at, 0))
+    )
+  </sql>
+  <!-- 号码变化时国家和洲必须一起替换；无法解析时清掉旧号码对应的地区。 -->
+  <sql id="phoneChanged">
+    COALESCE(TRIM(owner_phone), '') &lt;&gt; TRIM(#{row.ownerPhone})
+  </sql>
+  <sql id="confirmedCountry">
+    <include refid="confirmedCreator"/>
+    AND #{row.creatorCountryObserved} = TRUE
+    AND NULLIF(TRIM(#{row.creatorCountryIso2}), '') IS NOT NULL
+    AND ((<include refid="sourceUpgrade"/>) OR
+      COALESCE(#{row.metadataObservedAt}, 0) &gt;= COALESCE(metadata_observed_at, 0))
+  </sql>
+
+  <!-- 只写创建者兼容列，其余群资料继续由当前模型承载。 -->
   <insert id="upsertCreatorCompatibility">
     INSERT INTO group_link_preview (
-      group_link_id, owner_phone, creator_country_iso2, creator_continent_code,
+      group_link_id, owner_phone, creator_phone_source, creator_country_iso2, creator_continent_code,
       last_preview_at, metadata_observed_at, created_at, updated_at
     ) VALUES
     <foreach collection="rows" item="row" separator=",">
       (
-        #{row.groupLinkId}, #{row.ownerPhone}, #{row.creatorCountryIso2},
-        #{row.creatorContinentCode},
-        COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0),
-        CASE WHEN #{row.creatorCountryObserved} = TRUE
+        #{row.groupLinkId},
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE THEN NULLIF(TRIM(#{row.ownerPhone}), '') ELSE NULL END,
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+          THEN COALESCE(#{row.creatorPhoneSource}, 2) ELSE 0 END,
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+          AND #{row.creatorCountryObserved} = TRUE THEN NULLIF(TRIM(#{row.creatorCountryIso2}), '') ELSE NULL END,
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+          AND #{row.creatorCountryObserved} = TRUE AND NULLIF(TRIM(#{row.creatorCountryIso2}), '') IS NOT NULL
+          THEN #{row.creatorContinentCode} ELSE NULL END,
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+          THEN COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0) ELSE NULL END,
+        CASE WHEN #{row.ownerPhoneObserved} = TRUE AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+          AND #{row.creatorCountryObserved} = TRUE AND NULLIF(TRIM(#{row.creatorCountryIso2}), '') IS NOT NULL
           THEN COALESCE(#{row.metadataObservedAt}, 0) ELSE NULL END,
         #{row.createdAt}, #{row.updatedAt}
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
-      owner_phone = CASE VALUES(group_link_id)
+      creator_country_iso2 = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCountry"/>
+            THEN TRIM(#{row.creatorCountryIso2})
+            WHEN <include refid="confirmedCreator"/> AND (<include refid="phoneChanged"/>)
+            THEN NULLIF(TRIM(#{row.creatorCountryIso2}), '') ELSE creator_country_iso2 END
+        </foreach>
+        ELSE creator_country_iso2 END,
+      creator_continent_code = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCountry"/>
+            AND NULLIF(TRIM(#{row.creatorContinentCode}), '') IS NOT NULL
+            THEN TRIM(#{row.creatorContinentCode})
+            WHEN <include refid="confirmedCreator"/> AND (<include refid="phoneChanged"/>)
+            THEN NULLIF(TRIM(#{row.creatorContinentCode}), '') ELSE creator_continent_code END
+        </foreach>
+        ELSE creator_continent_code END,
+      metadata_observed_at = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCountry"/>
+            THEN COALESCE(#{row.metadataObservedAt}, 0)
+            WHEN <include refid="confirmedCreator"/> AND (<include refid="phoneChanged"/>)
+            THEN NULL ELSE metadata_observed_at END
+        </foreach>
+        ELSE metadata_observed_at END,
+      updated_at = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCreator"/>
+            THEN GREATEST(updated_at, #{row.updatedAt}) ELSE updated_at END
+        </foreach>
+        ELSE updated_at END,
+      last_preview_at = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCreator"/>
+            THEN COALESCE(#{row.lastPreviewAt}, #{row.metadataObservedAt}, 0) ELSE last_preview_at END
+        </foreach>
+        ELSE last_preview_at END,
+      <!-- MySQL 顺序赋值：先地区及时间，再号码，最后升级来源；此前条件均使用原来源。 -->
+      owner_phone = CASE group_link_id
+        <foreach collection="rows" item="row">
+          WHEN #{row.groupLinkId} THEN CASE WHEN <include refid="confirmedCreator"/>
+            THEN TRIM(#{row.ownerPhone}) ELSE owner_phone END
+        </foreach>
+        ELSE owner_phone END,
+      creator_phone_source = CASE group_link_id
         <foreach collection="rows" item="row">
           WHEN #{row.groupLinkId} THEN CASE
             WHEN #{row.ownerPhoneObserved} = TRUE
-              AND VALUES(last_preview_at) &gt;= COALESCE(last_preview_at, 0)
-              THEN NULLIF(TRIM(VALUES(owner_phone)), '')
-            ELSE owner_phone
-          END
+              AND NULLIF(TRIM(#{row.ownerPhone}), '') IS NOT NULL
+              AND ((creator_phone_source = 0 AND (NULLIF(TRIM(owner_phone), '') IS NULL
+                    OR TRIM(owner_phone) = TRIM(#{row.ownerPhone})))
+                OR (<include refid="sourceUpgrade"/>))
+            THEN COALESCE(#{row.creatorPhoneSource}, 2) ELSE creator_phone_source END
         </foreach>
-        ELSE owner_phone
-      END,
-      creator_country_iso2 = CASE VALUES(group_link_id)
-        <foreach collection="rows" item="row">
-          WHEN #{row.groupLinkId} THEN CASE
-            WHEN #{row.creatorCountryObserved} = TRUE
-              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
-              THEN VALUES(creator_country_iso2)
-            ELSE creator_country_iso2
-          END
-        </foreach>
-        ELSE creator_country_iso2
-      END,
-      creator_continent_code = CASE VALUES(group_link_id)
-        <foreach collection="rows" item="row">
-          WHEN #{row.groupLinkId} THEN CASE
-            WHEN #{row.creatorCountryObserved} = TRUE
-              AND VALUES(metadata_observed_at) &gt;= COALESCE(metadata_observed_at, 0)
-              THEN VALUES(creator_continent_code)
-            ELSE creator_continent_code
-          END
-        </foreach>
-        ELSE creator_continent_code
-      END,
-      last_preview_at = GREATEST(COALESCE(last_preview_at, 0), VALUES(last_preview_at)),
-      metadata_observed_at = CASE VALUES(group_link_id)
-        <foreach collection="rows" item="row">
-          WHEN #{row.groupLinkId} THEN CASE
-            WHEN #{row.creatorCountryObserved} = TRUE
-              THEN GREATEST(COALESCE(metadata_observed_at, 0), VALUES(metadata_observed_at))
-            ELSE metadata_observed_at
-          END
-        </foreach>
-        ELSE metadata_observed_at
-      END,
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+        ELSE creator_phone_source END
   </insert>
-
 </mapper>

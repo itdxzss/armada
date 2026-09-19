@@ -378,11 +378,11 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
-    void uncertainAccountFailuresRequireConfirmedAbsenceBeforeRetry()
+    void releasedAccountRiskCanRetryButGenericOrHistoricallyClosedUnknownCannot()
             throws SQLException {
         PullTaskPullWave wave = preparedWave();
         List<PullTaskPullCallMemberAttempt> attempts = attemptsByWave(wave.getId());
-        // 拉手异常不能证明原调用未生效；没有名单核实就再次提交会重复拉人。
+        // 原调用账号受限按白名单有界补拉；通用未知和历史已关闭结果仍不重开。
         mutate(attempts.get(0), new AttemptFact(
                 4, "UNKNOWN", "UNCERTAIN", "RATE_LIMITED", 0));
         mutate(attempts.get(1), new AttemptFact(
@@ -391,10 +391,13 @@ class PullTaskPullWavePlanningIntegrationTest {
                 4, "UNKNOWN", "UNCERTAIN", "PROTOCOL_RESULT_UNCONFIRMED", 0));
         mutate(attempts.get(3), new AttemptFact(
                 4, "UNKNOWN", "UNCERTAIN", "ROSTER_NOT_PRESENT", 0));
+        mutate(attempts.get(4), new AttemptFact(
+                3, "UNKNOWN", "UNCERTAIN", "RATE_LIMITED", 0));
 
         assertThat(attemptMapper.selectRetryCandidatesByWave(wave.getId(), 4L))
                 .extracting(PullTaskPullWaveCandidate::participantRefId)
-                .containsExactly(attempts.get(3).getParticipantRefId());
+                .containsExactly(attempts.get(0).getParticipantRefId(),
+                        attempts.get(1).getParticipantRefId(), attempts.get(3).getParticipantRefId());
     }
 
     @Test

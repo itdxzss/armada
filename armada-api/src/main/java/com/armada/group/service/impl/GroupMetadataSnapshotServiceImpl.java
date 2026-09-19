@@ -10,8 +10,6 @@ import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.group.service.GroupMetadataSnapshotPersistence;
 import com.armada.group.service.GroupMetadataSnapshotService;
 import com.armada.group.service.GroupMetadataSyncProtocolPorts;
-import com.armada.platform.country.model.vo.CountryReferenceVO;
-import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
@@ -53,7 +51,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
     private final GroupMetadataSyncProtocolPorts ports;
     private final GroupMetadataSnapshotPersistence persistence;
     private final GroupExecutionAccountSelector executionAccountSelector;
-    private final CountryService countryService;
+    private final GroupCreatorCompatibilityWriter creatorWriter;
     private final GroupMetadataSyncMetrics metrics;
 
     /** 创建群详情快照执行器。 */
@@ -61,12 +59,12 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
             GroupMetadataSyncProtocolPorts ports,
             GroupMetadataSnapshotPersistence persistence,
             GroupExecutionAccountSelector executionAccountSelector,
-            CountryService countryService,
+            GroupCreatorCompatibilityWriter creatorWriter,
             GroupMetadataSyncMetrics metrics) {
         this.ports = ports;
         this.persistence = persistence;
         this.executionAccountSelector = executionAccountSelector;
-        this.countryService = countryService;
+        this.creatorWriter = creatorWriter;
         this.metrics = metrics;
     }
 
@@ -106,10 +104,10 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
                         request.groupLinkId(), freshAdminPhones, request.completedAttempts())
                 .orElseGet(() -> freshAdminPhones.isEmpty() && account.groupAdmin() ? account : null);
         String inviteCode = inviteAccount == null ? null : safeInviteCode(inviteAccount, groupJid);
-        String ownerPhone = confirmedOwnerPhone(metadata, members);
-        CountryReferenceVO country = resolveCountry(ownerPhone);
+        String ownerPhone = metadata.creatorPhone();
         GroupLinkPreview preview = preview(
-                request, metadata, inviteCode, ownerPhone, country, observedAt, completedAt);
+                request, metadata, inviteCode, ownerPhone, observedAt, completedAt);
+        creatorWriter.prepareCreators(List.of(preview));
         if (persistSerially(preview, members)) {
             metrics.recordSnapshotMembers(members.size());
         }
@@ -160,20 +158,11 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         }
     }
 
-    private CountryReferenceVO resolveCountry(String ownerPhone) {
-        if (ownerPhone == null) {
-            return null;
-        }
-        return countryService.resolveActiveCountriesByPhoneNumbers(List.of(ownerPhone))
-                .get(ownerPhone);
-    }
-
     private static GroupLinkPreview preview(
             GroupMetadataSnapshotRequest request,
             GroupMetadataResult metadata,
             String inviteCode,
             String ownerPhone,
-            CountryReferenceVO country,
             long observedAt,
             long completedAt) {
         GroupLinkPreview row = new GroupLinkPreview();
@@ -185,7 +174,7 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         row.setWaDescriptionObserved(true);
         row.setMemberSize(metadata.participants().size());
         row.setOwnerPhone(ownerPhone);
-        row.setOwnerPhoneObserved(true);
+        row.setOwnerPhoneObserved(ownerPhone != null);
         row.setAnnounceOnly(metadata.announce());
         row.setAnnounceOnlyObserved(metadata.announce() != null);
         row.setAdminOnlyEditInfo(metadata.restrict());
@@ -199,9 +188,6 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
         row.setEphemeralDurationSeconds(metadata.ephemeralDurationSeconds());
         row.setEphemeralDurationObserved(metadata.ephemeralDurationSeconds() != null);
         row.setGroupCreatedAt(validCreation(metadata.createdAtSeconds(), observedAt));
-        row.setCreatorCountryIso2(country == null ? null : country.iso2());
-        row.setCreatorContinentCode(country == null ? null : country.continentCode());
-        row.setCreatorCountryObserved(true);
         row.setLastPreviewAt(completedAt);
         row.setMetadataObservedAt(observedAt);
         row.setCreatedAt(completedAt);
@@ -215,12 +201,11 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
             GroupMetadataResult metadata,
             long completedAt) {
         Map<String, WhatsappGroupMemberSnapshot> unique = new LinkedHashMap<>();
-        String explicitOwnerJid = blankToNull(metadata.ownerJid());
         for (GroupParticipantResult participant : metadata.participants()) {
             String participantJid = stableParticipantJid(participant.jid());
             String phone = confirmedPhone(participant, participantJid);
-            boolean owner = Boolean.TRUE.equals(participant.owner())
-                    || sameIdentity(explicitOwnerJid, participantJid, phone);
+            // 历史创建者不一定仍有管理权限，成员角色只使用本次 participant 权限事实。
+            boolean owner = Boolean.TRUE.equals(participant.owner());
             boolean admin = owner || Boolean.TRUE.equals(participant.admin());
             WhatsappGroupMemberSnapshot row = member(
                     groupLinkId, groupJid, participantJid, phone, admin, owner, completedAt);
@@ -267,32 +252,6 @@ public class GroupMetadataSnapshotServiceImpl implements GroupMetadataSnapshotSe
             return 3;
         }
         return Boolean.TRUE.equals(row.getIsAdmin()) ? 2 : 1;
-    }
-
-    private static String confirmedOwnerPhone(
-            GroupMetadataResult metadata,
-            List<WhatsappGroupMemberSnapshot> members) {
-        String fromOwnerJid = phoneFromPnJid(metadata.ownerJid());
-        if (fromOwnerJid != null) {
-            return fromOwnerJid;
-        }
-        return members.stream()
-                .filter(row -> Boolean.TRUE.equals(row.getIsOwner()))
-                .map(WhatsappGroupMemberSnapshot::getPhone)
-                .filter(java.util.Objects::nonNull)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static boolean sameIdentity(String ownerJid, String participantJid, String phone) {
-        if (ownerJid == null) {
-            return false;
-        }
-        if (ownerJid.equals(participantJid)) {
-            return true;
-        }
-        String ownerPhone = phoneFromPnJid(ownerJid);
-        return ownerPhone != null && ownerPhone.equals(phone);
     }
 
     private static String confirmedPhone(GroupParticipantResult participant, String participantJid) {

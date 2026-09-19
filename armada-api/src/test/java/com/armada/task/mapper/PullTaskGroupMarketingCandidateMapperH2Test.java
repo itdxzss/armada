@@ -50,7 +50,7 @@ public class PullTaskGroupMarketingCandidateMapperH2Test {
         execute("CREATE TABLE wa_account_group_binding(tenant_id BIGINT, group_id BIGINT, participant_id BIGINT, account_id BIGINT, last_observed_at BIGINT)");
         execute("CREATE TABLE wa_group_participant(id BIGINT, tenant_id BIGINT, group_id BIGINT, presence_status INT, role INT)");
         execute("CREATE TABLE group_link(id BIGINT, tenant_id BIGINT, group_id BIGINT, deleted_at BIGINT)");
-        execute("CREATE TABLE group_link_preview(tenant_id BIGINT, group_link_id BIGINT, owner_phone VARCHAR(50))");
+        execute("CREATE TABLE group_link_preview(creator_phone_source TINYINT NOT NULL DEFAULT 2, tenant_id BIGINT, group_link_id BIGINT, owner_phone VARCHAR(50))");
         execute("CREATE TABLE wa_group_profile(tenant_id BIGINT, group_id BIGINT, subject VARCHAR(50), wa_created_at BIGINT, checked_member_count INT, member_count INT, announce_only BOOLEAN, metadata_observed_at BIGINT, last_checked_at BIGINT, health_status INT, banned BOOLEAN, last_error_code VARCHAR(50))");
         execute("CREATE TABLE join_task(id BIGINT, tenant_id BIGINT, name VARCHAR(50), deleted_at BIGINT)");
         execute("CREATE TABLE join_task_result(id BIGINT, tenant_id BIGINT, group_jid VARCHAR(50), join_task_id BIGINT, joined_at BIGINT, promoted_at BIGINT, status VARCHAR(20), is_admin INT)");
@@ -75,6 +75,18 @@ public class PullTaskGroupMarketingCandidateMapperH2Test {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void inferredCreatorDoesNotGrantAdministratorEligibility() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("UPDATE wa_group_participant SET role=1 WHERE tenant_id=7 AND id=721");
+        jdbc.update("INSERT INTO group_link_preview(tenant_id,group_link_id,owner_phone,creator_phone_source) VALUES(7,1,'phone721',1)");
+        assertThat(mapper.selectAccountsByGroupJids(List.of("group@g.us")))
+                .extracting(row -> row.getAccountId()).doesNotContain(721L);
+        jdbc.update("UPDATE group_link_preview SET creator_phone_source=2 WHERE tenant_id=7");
+        assertThat(mapper.selectAccountsByGroupJids(List.of("group@g.us")))
+                .extracting(row -> row.getAccountId()).contains(721L);
     }
 
     @Test

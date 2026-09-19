@@ -281,11 +281,167 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     }
 
     @Test
+    void failedManagerIsReplacedFromConfiguredGroupWithoutDeletingHistory() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN,
+                PullTaskWaitResourceType.MANAGER, "管理员进群失败");
+        PullTaskGroupAccount old = puller();
+        old.setAccountId(MANAGER.armadaAccountId());
+        old.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+        old.setEntryMode(1);
+        accountMapper.insert(old);
+        accountMapper.updateMembership(old.getId(),
+                PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code(), null, 550L);
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(MANAGER.armadaAccountId())))
+                .thenReturn(List.of(MANAGER));
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of(MANAGER, account(905L)));
+        PullTaskGroupExecution candidate = claim("worker-replace", 600L);
+
+        assertThat(service.recover(candidate, "worker-replace", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> saved = accountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.MANAGER.code());
+        assertThat(saved).hasSize(2);
+        assertThat(saved.get(0).getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code());
+        assertThat(saved.get(0).getAvailabilityStatus())
+                .isEqualTo(PullTaskGroupAccountAvailability.REMOVED.code());
+        assertThat(saved.get(1).getAccountId()).isEqualTo(905L);
+        assertThat(saved.get(1).getSelectionMode()).isEqualTo(PullTaskSelectionMode.AUTOMATIC.code());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = PullTaskExecutionStage.class,
+            names = {"MANAGER_JOIN", "MANAGER_ADMIN", "MANAGER_PULLER_CONTACT", "PULLER_INVITE",
+                    "PULL_EXECUTION", "MATERIAL_ADMIN"})
+    void unusableManagerAtAnyCheckpointReturnsToJoinWithNextAccount(PullTaskExecutionStage stage)
+            throws SQLException {
+        waitAt(stage, PullTaskWaitResourceType.MANAGER, "账号离线或封禁");
+        PullTaskGroupAccount old = storedManager(PullTaskGroupAccountMembershipStatus.IN_GROUP);
+        // 账号域已确认不可用；即使角色表还是 AVAILABLE，也必须换号。
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(account(905L)));
+        PullTaskGroupExecution candidate = claim("worker-replace", 600L);
+        assertThat(service.recover(candidate, "worker-replace", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectById(old.getId()).getAvailabilityStatus()).isEqualTo(4);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+    }
+
+    @Test
+    void exhaustedGroupWaitsAndLaterNewAccountWakesTheSameExecution() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "进群失败");
+        storedManager(PullTaskGroupAccountMembershipStatus.JOIN_FAILED);
+        // 即使账号又被候选查询返回，也不能重复使用本行已失败账号。
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(MANAGER));
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(1);
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isEqualTo("MANAGER_UNAVAILABLE");
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(MANAGER, account(905L)));
+        assertThat(service.recover(claim("worker-2", 2_601L), "worker-2", 2_601L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(2);
+    }
+
+    @Test
+    void healthyUnknownManagerIsVerifiedInsteadOfReplaced() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "结果未知");
+        storedManager(PullTaskGroupAccountMembershipStatus.UNKNOWN);
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(MANAGER.armadaAccountId())))
+                .thenReturn(List.of(MANAGER));
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(account(905L)));
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(1);
+    }
+
+    @Test
+    void secondFailureSkipsAllAttemptedAccountsAndContinuesWithThird() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "进群失败");
+        storedManager(PullTaskGroupAccountMembershipStatus.JOIN_FAILED);
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of(MANAGER, account(905L), account(906L)));
+        service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L);
+        TenantContext.set(7L);
+        PullTaskGroupAccount replacement = accountMapper.selectByExecutionAndRole(executionId, 1).get(1);
+        accountMapper.updateMembership(replacement.getId(), 3, null, 700L);
+        execute("UPDATE pull_task_group_execution SET execution_status=3, wait_resource_type=1, next_run_at=0 WHERE id=" + executionId);
+        assertThat(service.recover(claim("worker-2", 800L), "worker-2", 800L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        TenantContext.set(7L);
+        List<PullTaskGroupAccount> roles = accountMapper.selectByExecutionAndRole(executionId, 1);
+        assertThat(roles).extracting(PullTaskGroupAccount::getAccountId)
+                .containsExactly(MANAGER.armadaAccountId(), 905L, 906L);
+        assertThat(roles).extracting(PullTaskGroupAccount::getAvailabilityStatus).containsExactly(4, 4, 1);
+    }
+
+    @Test
+    void waitingForConcurrencyDoesNotAllocateRepeatedReplacementAccounts() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "进群失败");
+        storedManager(PullTaskGroupAccountMembershipStatus.JOIN_FAILED);
+        execute("UPDATE pull_task_standard_setting SET concurrent_group_count=0 WHERE task_id=100");
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(account(905L), account(906L)));
+        service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L);
+        when(accountLookup.findEligibleManagerProtocolRefs(org.mockito.ArgumentMatchers.anyList()))
+                .thenReturn(List.of(account(905L)));
+        assertThat(service.recover(claim("worker-2", 2_601L), "worker-2", 2_601L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(2);
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isEqualTo("EXECUTION_SLOT_UNAVAILABLE");
+    }
+
+    @Test
+    void pausedParentDoesNotAutomaticallyReplaceManager() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "进群失败");
+        storedManager(PullTaskGroupAccountMembershipStatus.JOIN_FAILED);
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(account(905L)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L);
+        execute("UPDATE pull_task SET status='PAUSED' WHERE id=100");
+        assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(1);
+    }
+
+    @Test
+    void staleLeaseRollsBackManagerReplacement() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_JOIN, PullTaskWaitResourceType.MANAGER, "进群失败");
+        PullTaskGroupAccount old = storedManager(PullTaskGroupAccountMembershipStatus.JOIN_FAILED);
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L)).thenReturn(List.of(account(905L)));
+        PullTaskGroupExecution candidate = claim("worker-1", 600L);
+        candidate.setVersion(candidate.getVersion() - 1);
+        assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(executionId, 1)).hasSize(1);
+        assertThat(accountMapper.selectById(old.getId()).getAvailabilityStatus()).isEqualTo(1);
+    }
+
+    private PullTaskGroupAccount storedManager(PullTaskGroupAccountMembershipStatus membership) {
+        PullTaskGroupAccount row = puller();
+        row.setAccountId(MANAGER.armadaAccountId());
+        row.setAccountPhone(MANAGER.wsPhone());
+        row.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+        row.setEntryMode(1);
+        accountMapper.insert(row);
+        accountMapper.updateMembership(row.getId(), membership.code(), null, 550L);
+        return row;
+    }
+
+    @Test
     void activeManagerCandidateRestoresInitialManagerJoinWait() throws SQLException {
         waitAt(PullTaskExecutionStage.MANAGER_JOIN,
                 PullTaskWaitResourceType.MANAGER, "当前没有可用管理员");
-        when(accountLookup.findRandomOnlinePullTaskAccountByGroupId(88L))
-                .thenReturn(Optional.of(MANAGER));
+        when(accountLookup.findOnlineEligibleManagersByGroupId(88L))
+                .thenReturn(List.of(MANAGER));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
 
         assertThat(service.recover(candidate, "worker-1", 600L, 2_000L))
@@ -319,7 +475,7 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
         GroupExecutionAccount promoter = new GroupExecutionAccount(
                 906L, "web", "promoter-906", "8613800000906", true);
-        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(MANAGER));
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(MANAGER));
         when(promoterSelector.findPullTaskAdminPromoterCandidates(
                 7L, "120363group@g.us", 901L)).thenReturn(List.of(promoter));
         PullTaskGroupExecution candidate = claim("worker-1", 600L);

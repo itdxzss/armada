@@ -153,6 +153,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 """);
         jdbc.execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                   id BIGINT NOT NULL AUTO_INCREMENT,
                   tenant_id BIGINT NOT NULL,
                   group_link_id BIGINT NOT NULL,
@@ -635,31 +636,31 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void reportJoinDeparturePreciseAndFullSnapshotSerializeOnSameGroupRow() throws Exception {
+    void ordinaryGroupReadDoesNotBlockReportJoinDeparturePreciseOrFullSnapshot() throws Exception {
         String groupJid = groupJid(71);
         long groupId = seedCurrentGroup(groupJid);
         seedCapturedAccount(171L, "15550000071", List.of());
 
-        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantJoins(List.of(
+        assertGroupReadDoesNotBlockWriter(groupJid, () -> writeParticipantJoins(List.of(
                 new WhatsappGroupJoinFact(
                         TENANT_ID, groupJid, "15550000072@s.whatsapp.net", "15550000072",
                         2_000L, 2_000L, "join-serialized", 171L))));
-        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantDepartures(List.of(
+        assertGroupReadDoesNotBlockWriter(groupJid, () -> writeParticipantDepartures(List.of(
                 new WhatsappGroupDepartureFact(
                         TENANT_ID, groupJid, "15550000072@s.whatsapp.net", "15550000072",
                         2_100L, "LEFT", 2_100L, "departure-serialized",
                         "WGP2_NOTIFICATION"))));
-        assertWriterWaitsForGroupLock(groupJid, () -> writeSelfMembership(
+        assertGroupReadDoesNotBlockWriter(groupJid, () -> writeSelfMembership(
                 171L, groupJid, AccountGroupMembershipStatus.IN_GROUP,
                 2_200L, "precise-serialized", "WGP2_ADD"));
-        assertWriterWaitsForGroupLock(groupJid, () -> writeParticipantSnapshot(
+        assertGroupReadDoesNotBlockWriter(groupJid, () -> writeParticipantSnapshot(
                 groupJid,
                 List.of(new GroupParticipantResult(
                         "15550000073@s.whatsapp.net", null, "15550000073",
                         false, false, "member")),
                 2_300L,
                 "full-snapshot-serialized"));
-        assertWriterWaitsForGroupLock(groupJid, () -> writeSnapshot(
+        assertGroupReadDoesNotBlockWriter(groupJid, () -> writeSnapshot(
                 171L,
                 List.of(new AccountGroupsReportedEvent.Group(
                         groupJid, "serialized", 3, null, null,
@@ -719,7 +720,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void metadataSnapshotLocksGroupBeforeProfile() throws Exception {
+    void ordinaryGroupReadDoesNotBlockMetadataSnapshot() throws Exception {
         String groupJid = groupJid(77);
         long groupId = seedCurrentGroup(groupJid);
         seedCurrentProfile(groupId);
@@ -734,7 +735,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
-                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                currentSnapshotMapper.selectGroupIdsByIds(
                         TENANT_ID, List.of(groupId));
                 groupLocked.countDown();
                 assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
@@ -749,7 +750,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
 
             Future<?> metadataSnapshot = executor.submit(() -> writeMetadataSnapshotChain(
                     977L, groupJid, "invite-metadata-order", 2_000L));
-            awaitMysqlLockWait(metadataSnapshot);
+            metadataSnapshot.get(5, TimeUnit.SECONDS);
             releaseCanonicalWriter.countDown();
 
             canonicalWriter.get(10, TimeUnit.SECONDS);
@@ -762,7 +763,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void profileReportWithoutCreatedAtLocksGroupBeforeProfileAndMembers() throws Exception {
+    void ordinaryGroupReadDoesNotBlockProfileReportWithoutCreatedAt() throws Exception {
         String groupJid = groupJid(81);
         long groupId = seedCurrentGroup(groupJid);
         seedCurrentProfile(groupId);
@@ -777,7 +778,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Void> canonicalWriter = executor.submit(() -> inTransaction(() -> {
-                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                currentSnapshotMapper.selectGroupIdsByIds(
                         TENANT_ID, List.of(groupId));
                 groupLocked.countDown();
                 assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
@@ -791,7 +792,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
             assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
 
             Future<?> profileReport = executor.submit(() -> inTransaction(() -> {
-                var group = persistence.lockGroupWriteBoundary(981L, groupJid);
+                var group = persistence.resolveGroupWriteContext(981L, groupJid);
                 metadataPatchService.applyPatch(new GroupMetadataPatch(
                         TENANT_ID,
                         groupJid,
@@ -805,7 +806,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         group, List.of(), 2_000L, "profile-report-null-created-at");
                 return null;
             }));
-            awaitMysqlLockWait(profileReport);
+            profileReport.get(5, TimeUnit.SECONDS);
             releaseCanonicalWriter.countDown();
 
             canonicalWriter.get(10, TimeUnit.SECONDS);
@@ -896,7 +897,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         """, Long.class, TENANT_ID);
                 legacyHandleLocked.countDown();
                 assertThat(releaseCanonicalWriter.await(15, TimeUnit.SECONDS)).isTrue();
-                currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                currentSnapshotMapper.selectGroupIdsByIds(
                         TENANT_ID, List.of(groupId));
                 return null;
             }));
@@ -1021,7 +1022,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void reportAndParticipantFactsUseExplicitPrimaryGroupLockBeforeJoinedOrParticipantWrite()
+    void reportAndParticipantFactsReadGroupWithoutExplicitPrimaryLock()
             throws Exception {
         String groupJid = groupJid(72);
         seedCurrentGroup(groupJid);
@@ -1032,10 +1033,11 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 TENANT_ID, groupJid, "15550000075@s.whatsapp.net", "15550000075",
                 2_000L, 2_000L, "join-primary-lock", 172L)));
         List<String> participantStatements = recordingDataSource.statements();
-        int participantGroupLock = firstExplicitGroupPrimaryLock(participantStatements);
+        int participantGroupLock = firstGroupPrimaryRead(participantStatements);
         int participantWrite = firstIndexContaining(
                 participantStatements, "WA_GROUP_PARTICIPANT", "INSERT");
         assertThat(participantGroupLock).isGreaterThanOrEqualTo(0);
+        assertThat(firstExplicitGroupPrimaryLock(participantStatements)).isEqualTo(-1);
         assertThat(participantWrite).isGreaterThan(participantGroupLock);
 
         jdbc.update(
@@ -1051,11 +1053,12 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 2_100L,
                 "report-primary-lock");
         List<String> reportStatements = recordingDataSource.statements();
-        int reportGroupLock = firstExplicitGroupPrimaryLock(reportStatements);
+        int reportGroupLock = firstGroupPrimaryRead(reportStatements);
         int reportGroupMutation = firstIndexContaining(
                 reportStatements, "WA_GROUP", "INSERT");
         int joinedRead = firstJoinedCurrentLock(reportStatements);
         assertThat(reportGroupLock).isGreaterThanOrEqualTo(0);
+        assertThat(firstExplicitGroupPrimaryLock(reportStatements)).isEqualTo(-1);
         assertThat(reportGroupMutation).isGreaterThan(reportGroupLock);
         assertThat(joinedRead).isGreaterThan(reportGroupLock);
         assertThat(reportStatements.get(joinedRead))
@@ -1064,7 +1067,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void groupLockThenJoinedReadUsesCurrentParticipantAndBindingFacts() throws Exception {
+    void joinedLockingReadStillUsesCurrentParticipantAndBindingFacts() throws Exception {
         String groupJid = groupJid(73);
         long groupId = seedCurrentGroup(groupJid);
         String concurrentGroupJid = groupJid(75);
@@ -1086,7 +1089,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                         staleReadEstablished.countDown();
                         assertThat(factsCommitted.await(10, TimeUnit.SECONDS)).isTrue();
 
-                        currentSnapshotMapper.selectGroupIdsByIdsForUpdate(
+                        currentSnapshotMapper.selectGroupIdsByIds(
                                 TENANT_ID, List.of(groupId));
                         return currentSnapshotMapper.selectExistingAfterGroupLock(
                                 TENANT_ID, 173L, pnJid, List.of(groupId));
@@ -1149,7 +1152,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
     }
 
     @Test
-    void missingGroupParticipantWriterLocksLegacyHandleBeforeCreatingGroup() throws Exception {
+    void ordinaryLegacyHandleReadDoesNotBlockMissingGroupParticipantWriter() throws Exception {
         String groupJid = groupJid(74);
         jdbc.update("""
                 INSERT INTO group_link (
@@ -1162,10 +1165,8 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Void> legacyThenGroup = executor.submit(() -> inTransaction(() -> {
-                transactionalJdbc.queryForObject("""
-                        SELECT id FROM group_link FORCE INDEX (PRIMARY)
-                        WHERE tenant_id = ? AND id = 974 FOR UPDATE
-                        """, Long.class, TENANT_ID);
+                currentSnapshotMapper.selectLegacyGroupHandleIdsByIds(
+                        TENANT_ID, List.of(974L));
                 legacyHandleLocked.countDown();
                 assertThat(letHolderCreateGroup.await(15, TimeUnit.SECONDS)).isTrue();
                 transactionalJdbc.update("""
@@ -1183,7 +1184,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                             TENANT_ID, groupJid,
                             "15550000077@s.whatsapp.net", "15550000077",
                             2_000L, 2_000L, "missing-group-lock-order", 174L))));
-            awaitMysqlLockWait(participantWriter);
+            participantWriter.get(5, TimeUnit.SECONDS);
             letHolderCreateGroup.countDown();
 
             legacyThenGroup.get(10, TimeUnit.SECONDS);
@@ -1652,6 +1653,57 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 });
     }
 
+    @Test
+    void concurrentObserversCompleteExistingPhoneMemberByPrimaryUpdate() throws Exception {
+        String groupJid = "member-gap-regression@g.us";
+        long groupId = seedCurrentGroup(groupJid);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 100; round++) {
+                jdbc.update("DELETE FROM wa_group_participant WHERE group_id = ?", groupId);
+                jdbc.update("INSERT INTO wa_group_participant "
+                        + "(tenant_id,group_id,pn_jid,phone,created_at,updated_at) "
+                        + "VALUES (?,?,'10001@s.whatsapp.net','10001',1000,1000)", TENANT_ID, groupId);
+                long id = jdbc.queryForObject("SELECT id FROM wa_group_participant WHERE group_id=?",
+                        Long.class, groupId);
+                recordingDataSource.reset();
+                var start = new java.util.concurrent.CyclicBarrier(2);
+                List<Future<?>> results = new ArrayList<>();
+                for (long observer : List.of(2570L, 2632L)) {
+                    results.add(workers.submit(() -> inTransaction(() -> {
+                        start.await(5, TimeUnit.SECONDS);
+                        persistence.applyParticipantObservations(List.of(
+                                new com.armada.group.model.dto.GroupParticipantObservation(
+                                        TENANT_ID, observer, groupJid, "213@lid", null, "10001",
+                                        true, false,
+                                        com.armada.group.model.enums.WhatsappGroupMemberStateSource.ADD_EVENT,
+                                        2000L, "same-member-notice")));
+                        return null;
+                    })));
+                }
+                for (Future<?> result : results) {
+                    result.get(10, TimeUnit.SECONDS);
+                }
+                assertThat(jdbc.queryForMap("SELECT id,pn_jid,lid_jid,phone,presence_status,"
+                        + "presence_event_id FROM wa_group_participant WHERE group_id=?", groupId))
+                        .containsEntry("id", id)
+                        .containsEntry("pn_jid", "10001@s.whatsapp.net")
+                        .containsEntry("lid_jid", "213@lid")
+                        .containsEntry("phone", "10001")
+                        .containsEntry("presence_status", 1)
+                        .containsEntry("presence_event_id", "same-member-notice");
+                assertThat(recordingDataSource.statements())
+                        .noneMatch(sql -> sql.startsWith("INSERT INTO WA_GROUP_PARTICIPANT"))
+                        .noneMatch(sql -> sql.contains("FOR UPDATE"));
+                assertThat(recordingDataSource.statements().stream()
+                        .filter(sql -> sql.startsWith("UPDATE WA_GROUP_PARTICIPANT")))
+                        .hasSize(2);
+            }
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
     private static void writeSnapshot(
             Long accountId,
             List<AccountGroupsReportedEvent.Group> groups,
@@ -1768,7 +1820,7 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         try {
             transactionTemplate.executeWithoutResult(transaction ->
                     persistence.replaceCompleteParticipantSnapshot(
-                            persistence.lockGroupWriteBoundary(null, groupJid),
+                            persistence.resolveGroupWriteContext(null, groupJid),
                             participants, snapshotAt, snapshotVersion));
         } finally {
             TenantContext.clear();
@@ -1948,22 +2000,23 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
                 """, TENANT_ID, groupId);
     }
 
-    private static void assertWriterWaitsForGroupLock(String groupJid, Runnable writer)
+    private static void assertGroupReadDoesNotBlockWriter(String groupJid, Runnable writer)
             throws Exception {
         CountDownLatch groupLocked = new CountDownLatch(1);
         CountDownLatch releaseGroup = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
             Future<Void> holder = executor.submit(() -> inTransaction(() -> {
-                currentSnapshotMapper.selectGroupIds(TENANT_ID, List.of(groupJid));
+                Long groupId = currentSnapshotMapper.selectGroupIdsWithoutLock(
+                        TENANT_ID, List.of(groupJid)).get(0).groupId();
+                currentSnapshotMapper.selectGroupIdsByIds(TENANT_ID, List.of(groupId));
                 groupLocked.countDown();
                 assertThat(releaseGroup.await(15, TimeUnit.SECONDS)).isTrue();
                 return null;
             }));
             assertThat(groupLocked.await(5, TimeUnit.SECONDS)).isTrue();
             Future<?> blockedWriter = executor.submit(writer);
-            awaitMysqlLockWait(blockedWriter);
-            assertThat(blockedWriter).isNotDone();
+            blockedWriter.get(5, TimeUnit.SECONDS);
 
             releaseGroup.countDown();
             holder.get(10, TimeUnit.SECONDS);
@@ -2031,6 +2084,19 @@ class AccountGroupCurrentSnapshotPersistenceMySqlTest {
         for (int index = 0; index < statements.size(); index++) {
             String sql = statements.get(index);
             if (sql.contains(normalizedTable) && sql.startsWith(verb)) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static int firstGroupPrimaryRead(List<String> statements) {
+        for (int index = 0; index < statements.size(); index++) {
+            String sql = statements.get(index);
+            if (sql.startsWith("SELECT")
+                    && sql.contains("FROM WA_GROUP FORCE INDEX (PRIMARY)")
+                    && sql.contains("ORDER BY ID ASC")
+                    && !sql.contains("FOR UPDATE")) {
                 return index;
             }
         }

@@ -30,6 +30,13 @@
         WHERE u.hyperlink_task_id=#{taskId}
           AND u.usage_status=1 AND u.next_send_at&lt;=#{now} AND u.in_flight_count&lt;#{maxInFlight}
           AND (u.success_limit=0 OR u.successful_send_count+u.reserved_success_slot_count&lt;u.success_limit)
+          AND EXISTS (SELECT 1 FROM hyperlink_task_recipient r
+            WHERE r.tenant_id=u.tenant_id AND r.hyperlink_task_id=u.hyperlink_task_id
+              AND r.send_status=1 AND r.command_id IS NULL AND r.hyperlink_task_round_id IS NULL
+              AND r.next_dispatch_at&lt;=#{now}
+              AND NOT EXISTS (SELECT 1 FROM hyperlink_recipient_sender_rejection rejected
+                WHERE rejected.tenant_id=r.tenant_id AND rejected.recipient_id=r.id
+                  AND rejected.account_id=u.account_id))
         ORDER BY u.next_send_at, a.selection_no, u.id LIMIT #{limit}
     </select>
     <select id="selectByTaskAndAccount"
@@ -61,6 +68,14 @@
           successful_send_count=successful_send_count+CASE WHEN #{successful} THEN 1 ELSE 0 END,
           usage_status=CASE WHEN success_limit&gt;0 AND successful_send_count+CASE WHEN #{successful} THEN 1 ELSE 0 END&gt;=success_limit THEN 2 ELSE usage_status END,
           version=version+1, updated_at=#{now} WHERE id=#{id}
+    </update>
+    <update id="recordLateSuccess">
+        UPDATE hyperlink_task_account_usage SET
+          usage_status=CASE WHEN usage_status=1 AND success_limit&gt;0
+            AND successful_send_count+1&gt;=success_limit THEN 2 ELSE usage_status END,
+          successful_send_count=successful_send_count+1,
+          version=version+1, updated_at=#{now}
+        WHERE id=#{id}
     </update>
     <update id="markOperationRestricted">
         UPDATE hyperlink_task_account_usage SET usage_status=#{usageStatus},

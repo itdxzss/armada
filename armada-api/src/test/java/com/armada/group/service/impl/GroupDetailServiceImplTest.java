@@ -989,6 +989,7 @@ class GroupDetailServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 announce,
                 restrict,
@@ -1016,6 +1017,7 @@ class GroupDetailServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 false,
                 false,
@@ -1034,6 +1036,7 @@ class GroupDetailServiceImplTest {
         return new GroupMetadataResult(
                 "120363detail@g.us",
                 "群名",
+                null,
                 null,
                 null,
                 null,

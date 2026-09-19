@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.enums.PullTaskSelectionMode;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
@@ -550,7 +551,11 @@ public class PullTaskSupplementManagerTransactionService {
     }
 
     private static boolean supplement(PullTaskGroupAccount row) {
-        return Objects.equals(row.getSourceType(), PullTaskGroupAccountSource.SUPPLEMENT.code());
+        // 自动替补沿用持久化入群命令和正常提权链路；此处理器仅负责仍有效的人工补充。
+        return Objects.equals(row.getSourceType(), PullTaskGroupAccountSource.SUPPLEMENT.code())
+                && Objects.equals(row.getSelectionMode(),
+                PullTaskSelectionMode.MANUAL.code())
+                && !Objects.equals(row.getAvailabilityStatus(), PullTaskGroupAccountAvailability.REMOVED.code());
     }
 
     private static boolean needsProcessing(PullTaskGroupAccount row) {

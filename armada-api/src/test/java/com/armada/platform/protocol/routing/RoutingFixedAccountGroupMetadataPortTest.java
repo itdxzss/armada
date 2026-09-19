@@ -77,6 +77,7 @@ class RoutingFixedAccountGroupMetadataPortTest {
                     backend + "-历史群",
                     null,
                     null,
+                null,
                     null,
                     true,
                     null,

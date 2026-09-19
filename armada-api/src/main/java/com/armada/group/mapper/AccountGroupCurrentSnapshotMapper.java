@@ -86,14 +86,9 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("pnJid") String pnJid,
             @Param("groupJid") String groupJid);
 
-    /**
-     * G 主键锁已持有后读取单群账号自身成员事实，串行化同群 ADD/EXIT 的周期判定。
-     *
-     * <p>调用前必须确保群行已经存在并已按 PRIMARY 锁定；本查询随后按 G→P→B
-     * 取得 current locks，确保 RR 下不会继续读取锁前的旧 participant/binding snapshot。</p>
-     */
+    /** 按显式租户普通读取单群账号自身成员事实，不提前锁定 G/P/B。 */
     @InterceptorIgnore(tenantLine = "true")
-    Existing selectSelfMembershipExistingAfterGroupLock(
+    Existing selectSelfMembershipExistingByTenant(
             @Param("tenantId") Long tenantId,
             @Param("accountId") Long accountId,
             @Param("pnJid") String pnJid,
@@ -115,9 +110,9 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
 
-    /** 按 wa_group PRIMARY 升序锁定同群写入边界。 */
+    /** 按 wa_group PRIMARY 升序查询现有群，写入由 SQL 条件和唯一键约束。 */
     @InterceptorIgnore(tenantLine = "true")
-    List<GroupId> selectGroupIdsByIdsForUpdate(
+    List<GroupId> selectGroupIdsByIds(
             @Param("tenantId") Long tenantId,
             @Param("groupIds") List<Long> groupIds);
 
@@ -127,13 +122,13 @@ public interface AccountGroupCurrentSnapshotMapper {
             @Param("tenantId") Long tenantId,
             @Param("groupJids") List<String> groupJids);
 
-    /** 在任何 wa_group 写入前按 PRIMARY 升序锁定已解析的旧句柄。 */
+    /** 按 PRIMARY 升序普通读取已解析的旧句柄。 */
     @InterceptorIgnore(tenantLine = "true")
-    List<Long> selectLegacyGroupHandleIdsByIdsForUpdate(
+    List<Long> selectLegacyGroupHandleIdsByIds(
             @Param("tenantId") Long tenantId,
             @Param("groupLinkIds") List<Long> groupLinkIds);
 
-    /** 按旧流程已锁定的群入口 ID 顺序补 canonical 引用，避免在热事务里扩锁同群别名。 */
+    /** 按已解析的群入口 ID 顺序补 canonical 引用。 */
     @InterceptorIgnore(tenantLine = "true")
     int updateSelectedLegacyGroupReferences(
             @Param("tenantId") Long tenantId,
@@ -145,9 +140,16 @@ public interface AccountGroupCurrentSnapshotMapper {
 
     int upsertParticipantFacts(@Param("rows") List<ParticipantPresenceWrite> rows);
 
-    /** 按本次明确给出的 PN/LID/phone 批量锁定现有成员行，供有证据的双行定点归并。 */
+    /** 对已解析的成员按租户、群和主键补身份并更新事实，避免经唯一键冲突转入更新。 */
     @InterceptorIgnore(tenantLine = "true")
-    List<ParticipantIdentityRow> selectParticipantIdentityRowsForUpdate(
+    int updateParticipantFactsById(
+            @Param("tenantId") Long tenantId,
+            @Param("participantId") Long participantId,
+            @Param("row") ParticipantPresenceWrite row);
+
+    /** 按本次明确给出的 PN/LID/phone 普通读取现有成员，供有证据的双行定点归并。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<ParticipantIdentityRow> selectParticipantIdentityRows(
             @Param("tenantId") Long tenantId,
             @Param("rows") List<ParticipantPresenceWrite> rows);
 

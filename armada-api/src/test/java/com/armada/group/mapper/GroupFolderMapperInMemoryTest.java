@@ -336,6 +336,7 @@ class GroupFolderMapperInMemoryTest {
                 """);
         execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     group_link_id BIGINT NOT NULL,

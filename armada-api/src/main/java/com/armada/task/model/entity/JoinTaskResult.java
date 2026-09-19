@@ -6,10 +6,110 @@ import com.armada.task.model.enums.JoinTaskDispatchState;
  * 进群任务明细实体，映射 {@code join_task_result} 表一行。
  *
  * <p>每账号每链接对应一行计划与执行结果。业务结果 {@code status} 与传输过程
- * {@code dispatchState} 分开保存：WAITING/SUBMITTED 仍是 PENDING，只有协议结果或重试耗尽才进入
+ * {@code dispatchState} 分开保存：WAITING/SUBMITTED/APPROVAL 仍是 PENDING，只有明确结果或处理耗尽才进入
  * SUCCESS/FAILED+TERMINAL。时间列均为 BIGINT epoch 毫秒。</p>
  */
 public class JoinTaskResult {
+    /** 详情查询投影：审核恢复阶段，0 表示未触发。 */
+    private int approvalStage;
+    /** 详情查询投影：审核处理说明。 */
+    private String approvalReason;
+    /** 详情查询投影：关闭审核的原管理员。 */
+    private Long approvalActorAccountId;
+    /** 读取审核恢复阶段。 */
+    public int getApprovalStage() { return approvalStage; }
+    /** 保存查询投影。 */
+    public void setApprovalStage(int value) { approvalStage = value; }
+    /** 读取处理原因。 */
+    public String getApprovalReason() { return approvalReason; }
+    /** 保存处理原因。 */
+    public void setApprovalReason(String value) { approvalReason = value; }
+    /** 读取关闭审核执行者。 */
+    public Long getApprovalActorAccountId() { return approvalActorAccountId; }
+    /** 保存关闭审核执行者。 */
+    public void setApprovalActorAccountId(Long value) { approvalActorAccountId = value; }
+    /** 查询投影：唯一事实存于 join_task_cleanup，不在进群明细表重复落库。 */
+    private int cleanupStatus;
+    /** 查询投影：清理失败原因。 */
+    private String cleanupReason;
+    /** 查询投影：固定名单与进度。 */
+    private String cleanupContextJson;
+    /** 返回清理阶段。 */
+    public int getCleanupStatus() { return cleanupStatus; }
+    /** 映射清理阶段投影。 */
+    public void setCleanupStatus(int value) { cleanupStatus = value; }
+    /** 返回清理原因。 */
+    public String getCleanupReason() { return cleanupReason; }
+    /** 映射清理原因投影。 */
+    public void setCleanupReason(String value) { cleanupReason = value; }
+    /** 返回固定清理名单。 */
+    public String getCleanupContextJson() { return cleanupContextJson; }
+    /** 映射固定清理名单投影。 */
+    public void setCleanupContextJson(String value) { cleanupContextJson = value; }
+
+
+    /** 管理员阶段：0无需设置，1待处理，2已提交，3成功，4失败，5结果待核实。 */
+    private int adminStatus;
+
+    /** 返回管理员阶段：0无需设置，1待处理，2已提交，3成功，4失败，5结果待核实。 */
+    public int getAdminStatus() { return adminStatus; }
+
+    /** 更新管理员阶段：0无需设置，1待处理，2已提交，3成功，4失败，5结果待核实。 */
+    public void setAdminStatus(int value) { this.adminStatus = value; }
+
+    /** 当前管理员命令 ID。 */
+    private String adminCommandId;
+
+    /** 返回当前管理员命令 ID。 */
+    public String getAdminCommandId() { return adminCommandId; }
+
+    /** 更新当前管理员命令 ID。 */
+    public void setAdminCommandId(String value) { this.adminCommandId = value; }
+
+    /** 已提交的管理员尝试次数。 */
+    private int adminAttemptNo;
+
+    /** 返回已提交的管理员尝试次数。 */
+    public int getAdminAttemptNo() { return adminAttemptNo; }
+
+    /** 更新已提交的管理员尝试次数。 */
+    public void setAdminAttemptNo(int value) { this.adminAttemptNo = value; }
+
+    /** 执行设置的原有管理员账号 ID。 */
+    private Long adminActorAccountId;
+
+    /** 返回执行设置的原有管理员账号 ID。 */
+    public Long getAdminActorAccountId() { return adminActorAccountId; }
+
+    /** 更新执行设置的原有管理员账号 ID。 */
+    public void setAdminActorAccountId(Long value) { this.adminActorAccountId = value; }
+
+    /** 管理员阶段下一次处理时间及抢占租约。 */
+    private Long adminNextExecuteAt;
+
+    /** 返回管理员阶段下一次处理时间及抢占租约。 */
+    public Long getAdminNextExecuteAt() { return adminNextExecuteAt; }
+
+    /** 更新管理员阶段下一次处理时间及抢占租约。 */
+    public void setAdminNextExecuteAt(Long value) { this.adminNextExecuteAt = value; }
+
+    /** 管理员阶段截止时间。 */
+    private Long adminDeadlineAt;
+
+    /** 返回管理员阶段截止时间。 */
+    public Long getAdminDeadlineAt() { return adminDeadlineAt; }
+
+    /** 更新管理员阶段截止时间。 */
+    public void setAdminDeadlineAt(Long value) { this.adminDeadlineAt = value; }
+
+    /** 管理员阶段失败或等待原因。 */
+    private String adminReason;
+
+    /** 返回管理员阶段失败或等待原因。 */
+    public String getAdminReason() { return adminReason; }
+
+    /** 更新管理员阶段失败或等待原因。 */
+    public void setAdminReason(String value) { this.adminReason = value; }
 
     /** 主键。 */
     private Long id;

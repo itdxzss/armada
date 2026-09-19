@@ -74,7 +74,7 @@ class JoinTaskControllerDbTest {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 10, 20, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
     }
 
     /**
@@ -215,7 +215,7 @@ class JoinTaskControllerDbTest {
                 "FIXED_ACCOUNTS_PER_LINK",
                 2, null, null,
                 5, 15, null, null,
-                false, 0, "SKIP");
+                false, 0, "SKIP", false, false);
 
         mockMvc.perform(put("/api/join-tasks/{id}", id)
                         .contentType(MediaType.APPLICATION_JSON)

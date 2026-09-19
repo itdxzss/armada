@@ -167,6 +167,18 @@ public interface AccountMapper {
             @Param("onlineLoginState") int onlineLoginState);
 
     /**
+     * 管理员候选与已选账号复核共用查询；groupId 和 ids 至少提供一项，租户由插件隔离。
+     * @param groupId 冻结管理员分组，按 ID 复核时为空
+     * @param ids 要复核的账号，按分组选取时为空
+     * @param accountStates 可用生命周期
+     * @return 在线且无风险、操作限制的账号
+     */
+    List<Account> selectEligibleManagers(
+            @Param("groupId") Long groupId,
+            @Param("ids") List<Long> ids,
+            @Param("accountStates") List<Integer> accountStates);
+
+    /**
      * 查询普通拉群任务可选的拉手账号，额外排除拉手专用限制状态。
      *
      * @param groupId 账号组 ID

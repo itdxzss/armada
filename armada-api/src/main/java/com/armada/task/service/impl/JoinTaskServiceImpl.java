@@ -95,13 +95,14 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         validateLinksForSave(links);
         validateDistributionForSave(req, links.valid().size());
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
+        task.setOwnerUserId(com.armada.task.service.JoinTaskAdminAccess.ownerForSave(null));
         task.setExecuted(0);
         task.setSuccess(0);
         task.setFailed(0);
         task.setStatus(JoinTaskStatus.DRAFT);
         task.setCreatedAt(now);
         joinTaskMapper.insert(task);
-        persistRows(task.getId(), rows, now);
+        persistRows(task.getId(), rows, now, task.isSetAdminEnabled());
         groupLinkRegistryService.registerJoinTaskTargets(links.valid());
         log.info("建进群任务完成 id={} total={} 计划行={}", task.getId(), task.getTotal(), rows.size());
         return toVO(joinTaskMapper.selectByTenantAndId(task.getId()));
@@ -138,9 +139,11 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         validateLinksForSave(links);
         validateDistributionForSave(req, links.valid().size());
         List<PlanRow> rows = populateConfigAndPlan(task, req, now, links);
+        task.setOwnerUserId(existing.getOwnerUserId());
+        task.setOwnerUserId(com.armada.task.service.JoinTaskAdminAccess.ownerForSave(existing.getOwnerUserId()));
         joinTaskMapper.update(task);
         resultMapper.deleteResultsByTask(id);
-        persistRows(id, rows, now);
+        persistRows(id, rows, now, task.isSetAdminEnabled());
         groupLinkRegistryService.registerJoinTaskTargets(links.valid());
         return toDetailVO(joinTaskMapper.selectByTenantAndId(id));
     }
@@ -263,6 +266,11 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         task.setMultiIntervalMinSec(n(req.multiIntervalMinSec()));
         task.setMultiIntervalMaxSec(n(req.multiIntervalMaxSec()));
         task.setIntervalLabel(intervalLabel(mode, req));
+        if (Boolean.TRUE.equals(req.clearAdminsAndLeaveEnabled()) && !Boolean.TRUE.equals(req.setAdminEnabled())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "清空其他管理员并退出群组必须开启设置管理员");
+        }
+        task.setClearAdminsAndLeaveEnabled(Boolean.TRUE.equals(req.clearAdminsAndLeaveEnabled()));
+        task.setSetAdminEnabled(Boolean.TRUE.equals(req.setAdminEnabled()));
         task.setRetryEnabled(Boolean.TRUE.equals(req.retryEnabled()));
         task.setRetryLimit(n(req.retryLimit()));
         task.setFailurePolicy(req.failurePolicy() == null ? "" : req.failurePolicy());
@@ -278,7 +286,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      * <p>有效执行行初始化为 PENDING+WAITING，但 next_execute_at 保持空值，必须等任务启动后按账号激活；
      * 建任务阶段的非法占位行直接初始化为 FAILED+TERMINAL，永不进入调度。</p>
      */
-    private void persistRows(Long taskId, List<PlanRow> rows, long now) {
+    private void persistRows(Long taskId, List<PlanRow> rows, long now, boolean setAdminEnabled) {
         if (rows == null || rows.isEmpty()) {
             return;
         }
@@ -292,6 +300,9 @@ public class JoinTaskServiceImpl implements JoinTaskService {
             e.setStatus(r.status());
             e.setDispatchState(JoinResultStatus.PENDING.equals(r.status())
                     ? JoinTaskDispatchState.WAITING : JoinTaskDispatchState.TERMINAL);
+            e.setAdminStatus(setAdminEnabled
+                    ? com.armada.task.model.enums.JoinTaskAdminStatus.WAITING.code()
+                    : com.armada.task.model.enums.JoinTaskAdminStatus.NOT_REQUIRED.code());
             e.setAttemptNo(0);
             e.setReason(r.reason());
             e.setCreatedAt(now);
@@ -333,7 +344,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
         return new JoinTaskVO(t.getId(), t.getName(), t.getAccountGroupNames(),
                 t.getTotal(), t.getExecuted(), t.getSuccess(), t.getFailed(), t.getPending(),
                 t.getIntervalLabel(), t.getDistributionMode(), t.getFailurePolicy(),
-                t.isRetryEnabled(), t.getRetryLimit(), t.getStatus(), t.getCreatedBy(), t.getCreatedAt());
+                t.isRetryEnabled(), t.getRetryLimit(), t.getStatus(), t.getCreatedBy(), t.getCreatedAt(), t.isSetAdminEnabled(), t.isClearAdminsAndLeaveEnabled());
     }
 
     /**
@@ -403,12 +414,26 @@ public class JoinTaskServiceImpl implements JoinTaskService {
                 t.getFixedIntervalMinSec(), t.getFixedIntervalMaxSec(), t.getMultiIntervalMinSec(), t.getMultiIntervalMaxSec(),
                 t.getIntervalLabel(), t.isRetryEnabled(), t.getRetryLimit(), t.getFailurePolicy(),
                 t.getTotal(), t.getExecuted(), t.getSuccess(), t.getFailed(), t.getPending(),
-                t.getStatus(), t.getCreatedBy(), t.getCreatedAt(), t.getUpdatedAt());
+                t.getStatus(), t.getCreatedBy(), t.getCreatedAt(), t.getUpdatedAt(), t.isSetAdminEnabled(), t.isClearAdminsAndLeaveEnabled());
+    }
+
+    private static int cleanupCount(JoinTaskResult row, boolean total) {
+        if (row.getCleanupContextJson() == null || row.getCleanupContextJson().isBlank()) return 0;
+        var context = com.armada.task.model.dto.JoinTaskCleanupContext.parse(row.getCleanupContextJson());
+        return total ? context.targets().size() : context.completed();
     }
 
     /** 明细实体 → 明细行 VO(群链接原样直出,不脱敏)。 */
     private static JoinResultRowVO toResultRowVO(JoinTaskResult r) {
         return new JoinResultRowVO(r.getAccount(), r.getLink(),
-                r.getStatus(), r.getReason(), JoinTaskFailureReason.labelOf(r.getReason()), r.isAdmin());
+                r.getStatus(), r.getReason(), "JOIN_APPROVAL_FAILED".equals(r.getReason())
+                        ? r.getApprovalReason() : JoinTaskFailureReason.labelOf(r.getReason()), r.isAdmin(),
+                r.getId(), com.armada.task.model.enums.JoinTaskAdminStatus.of(r.getAdminStatus()).name(),
+                r.getAdminReason(), r.getAdminActorAccountId(),
+                com.armada.task.model.enums.JoinTaskAdminStatus.stepStatus(r), r.getJoinedAt(), r.getPromotedAt(),
+                com.armada.task.model.enums.JoinTaskCleanupStatus.of(r.getCleanupStatus()).name(),
+                r.getCleanupReason(), cleanupCount(r, false), cleanupCount(r, true),
+                r.getApprovalStage() == 0 ? "" : com.armada.task.model.enums.JoinTaskApprovalStage.of(r.getApprovalStage()).name(),
+                r.getApprovalReason(), r.getApprovalActorAccountId());
     }
 }

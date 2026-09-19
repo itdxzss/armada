@@ -9,6 +9,9 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.model.vo.GroupExecutionAccount;
 import com.armada.group.service.GroupExecutionAccountSelector;
@@ -63,6 +66,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 class PullTaskManagerAdminTransactionIntegrationTest {
 
     @Autowired private DataSource dataSource;
+    @Autowired private AccountProtocolLookupService accountLookup;
     @Autowired private PullTaskGroupExecutionMapper executionMapper;
     @Autowired private PullTaskGroupAccountMapper accountMapper;
     @Autowired private PullTaskAccountActionMapper actionMapper;
@@ -74,7 +78,9 @@ class PullTaskManagerAdminTransactionIntegrationTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        reset(promoterSelector, outboxService);
+        reset(promoterSelector, outboxService, accountLookup);
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(
+                new ProtocolAccountRef(901L, ProtocolBackend.WEB, "manager-901", "8613800000901")));
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         execute("INSERT INTO pull_task "
@@ -99,6 +105,28 @@ class PullTaskManagerAdminTransactionIntegrationTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void removedManagerHistoryDoesNotBlockReplacementPromotion() {
+        PullTaskGroupAccount old = manager();
+        old.setAccountId(899L);
+        old.setRoleSeq(2);
+        old.setAvailabilityStatus(4);
+        accountMapper.insertInitialized(old);
+        PullTaskManagerAdminPreparation preparation = service.prepare(claim("worker-1", 600L), "worker-1", 600L);
+        assertThat(preparation.ready()).isTrue();
+    }
+
+    @Test
+    void offlineOrRestrictedManagerWaitsForAutomaticReplacementBeforePromotion() {
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of());
+        PullTaskManagerAdminPreparation preparation = service.prepare(claim("worker-1", 600L), "worker-1", 600L);
+        assertThat(preparation.ready()).isFalse();
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        verify(promoterSelector, never()).findPullTaskAdminPromoterCandidates(7L, "120363group@g.us", 901L);
     }
 
     @Test
@@ -330,13 +358,18 @@ class PullTaskManagerAdminTransactionIntegrationTest {
             return new PullTaskManagerAdminCandidateSelector();
         }
 
+        @Bean AccountProtocolLookupService accountLookup() {
+            return mock(AccountProtocolLookupService.class);
+        }
+
         @Bean PullTaskManagerAdminResources resources(
                 PullTaskGroupExecutionMapper executionMapper,
                 GroupExecutionAccountSelector promoterSelector,
                 ProtocolCommandOutboxService outboxService,
-                PullTaskExecutionDispatchProperties properties) {
+                PullTaskExecutionDispatchProperties properties,
+                AccountProtocolLookupService accountLookup) {
             return new PullTaskManagerAdminResources(
-                    executionMapper, promoterSelector, outboxService, properties);
+                    executionMapper, promoterSelector, outboxService, properties, accountLookup);
         }
 
         @Bean PullTaskManagerAdminTransactionService service(

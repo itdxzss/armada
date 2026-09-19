@@ -75,7 +75,9 @@ public class HyperlinkMessageContentValidator {
             throw new BusinessException(ErrorCode.VALIDATION, "一期暂不支持双图文");
         }
 
-        String title = required(input.title(), "标题不能为空", TITLE_MAX_LENGTH, "标题最长 1024 字符");
+        String title = optional(input.title(), TITLE_MAX_LENGTH, "标题最长 1024 字符");
+        // 保持存量 NOT NULL 字段合同，选填标题以空串持久化。
+        title = title == null ? "" : title;
         return switch (type) {
             case SINGLE_LINK_PREVIEW -> normalizeSingle(input, title);
             case NORMAL_BUTTON -> normalizeButton(input, title, false);

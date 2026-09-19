@@ -145,6 +145,10 @@ public class ProtocolGroupEventConsumer {
     /** 按需单群快照命令结算下游处理边界。 */
     private final ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink;
     private final ProtocolRiskEventSink riskEventSink;
+    /** 独立进群提管理员结果。 */
+    private final ProtocolJoinTaskAdminResultSink joinTaskAdminResultSink;
+    /** 账号分组互存的独立结果边界。 */
+    private final ProtocolMutualContactResultSink mutualContactResultSink;
 
     /**
      * 创建协议群组事件 consumer。
@@ -167,7 +171,9 @@ public class ProtocolGroupEventConsumer {
                                       ProtocolGroupMetadataUpdatedSink metadataUpdatedSink,
                                       ProtocolGroupProfileReportedSink profileReportedSink,
                                       ProtocolGroupSnapshotResultReportedSink snapshotResultReportedSink,
-                                      ProtocolRiskEventSink riskEventSink) {
+                                      ProtocolRiskEventSink riskEventSink,
+                                      ProtocolJoinTaskAdminResultSink joinTaskAdminResultSink,
+                                      ProtocolMutualContactResultSink mutualContactResultSink) {
         this.objectMapper = objectMapper;
         this.healthReportedSink = healthReportedSink;
         this.joinResultReportedSink = joinResultReportedSink;
@@ -180,6 +186,8 @@ public class ProtocolGroupEventConsumer {
         this.profileReportedSink = profileReportedSink;
         this.snapshotResultReportedSink = snapshotResultReportedSink;
         this.riskEventSink = riskEventSink;
+        this.joinTaskAdminResultSink = joinTaskAdminResultSink;
+        this.mutualContactResultSink = mutualContactResultSink;
     }
 
     /**
@@ -617,9 +625,10 @@ public class ProtocolGroupEventConsumer {
                 text(envelope, "workerId"),
                 text(data, "commandId"));
         log.info("协议群资料上报事件收到 eventId={} tenantId={} accountId={} backend={} "
-                        + "fields={} memberCount={} membersComplete={}",
+                        + "fields={} memberCount={} membersComplete={} creatorSource={} creatorReason={}",
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolBackend(),
-                event.fieldMask(), event.members().size(), event.membersComplete());
+                event.fieldMask(), event.members().size(), event.membersComplete(),
+                text(data, "creatorPhoneSource"), text(data, "creatorPhoneReason"));
         profileReportedSink.handleProfileReported(event);
     }
 
@@ -870,11 +879,47 @@ public class ProtocolGroupEventConsumer {
         return new BusinessException(ErrorCode.VALIDATION, message);
     }
 
+    /** 校验独立互存结果，命令投递成功不得作为保存成功。 */
+    private void handleMutualContactResult(JsonNode envelope, JsonNode data, String eventId, String operation) {
+        String outcome = requiredText(data, "outcome", "互存结果缺少 outcome");
+        String protocolAccountId = requiredText(data, "protocolAccountId", "互存结果缺少协议账号");
+        Integer attempt = integer(data, "attemptNo");
+        Boolean retryable = booleanValue(data, "retryable");
+        if (!"CONTACT_SAVE".equals(operation) || !SUPPORTED_ACTION_OUTCOMES.contains(outcome)
+                || attempt == null || attempt <= 0 || retryable == null
+                || !protocolAccountId.equals(text(envelope, "accountId"))
+                || data.hasNonNull("pullTaskId") || data.hasNonNull("groupExecutionId")) {
+            throw validation("互存结果来源或关联字段非法");
+        }
+        ProtocolMutualContactResult event = new ProtocolMutualContactResult(
+                requiredLong(data, "tenantId"), requiredLong(data, "taskId"), requiredLong(data, "itemId"),
+                requiredLong(data, "accountId"), protocolAccountId,
+                requiredText(data, "commandId", "互存结果缺少命令ID"), attempt, outcome,
+                text(data, "reasonCode"), retryable);
+        Long timestamp = longValue(data, "timestamp");
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(eventId, event.tenantId(), EVENT_GROUP_ACTION_RESULT_REPORTED,
+                        operation, timestamp == null ? 0L : timestamp, text(envelope, "workerId")),
+                new ProtocolRiskResultMetadata.Account(event.accountId(), protocolAccountId, text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation("account_mutual_contact", event.taskId(), event.itemId(),
+                        null, event.commandId(), null, "CONTACT", null, text(data, "rawCode")),
+                event.reasonCode(), text(data, "reasonMessage")));
+        mutualContactResultSink.apply(event);
+    }
+
     /** 校验拉群账号动作结果的完整关联字段并传给任务状态机。 */
     private void handleActionResultReported(JsonNode envelope, String eventId) {
         JsonNode data = dataNode(envelope);
         String source = requiredText(data, "source", "协议群动作结果缺少 data.source");
         String operation = requiredText(data, "operation", "协议群动作结果缺少 data.operation");
+        if ("account_group_mutual_contact".equals(source)) {
+            handleMutualContactResult(envelope, data, eventId, operation);
+            return;
+        }
+        if ("join_task_admin".equals(source)) {
+            handleJoinTaskAdminResult(envelope, data, eventId, operation);
+            return;
+        }
         if ("pull_task_batch_add".equals(source)) {
             handleBatchParticipantResultReported(envelope, data, eventId, operation);
             return;
@@ -948,6 +993,32 @@ public class ProtocolGroupEventConsumer {
                         null, "GROUP", text(data, "groupJid"), text(data, "rawCode")),
                 event.reasonCode(), event.reasonMessage()));
         actionResultReportedSink.handleActionResultReported(event);
+    }
+
+    /** 校验进群任务提权的独立关联，再交给业务短事务。 */
+    private void handleJoinTaskAdminResult(JsonNode envelope, JsonNode data, String eventId, String operation) {
+        if (!"PARTICIPANT_PROMOTE".equals(operation)) throw validation("进群管理员结果动作非法");
+        String protocolAccountId = requiredText(data, "protocolAccountId", "缺少管理员协议账号");
+        if (!protocolAccountId.equals(text(envelope, "accountId"))) throw validation("管理员协议账号不一致");
+        String outcome = requiredText(data, "outcome", "缺少管理员结果");
+        Integer attempt = integer(data, "attemptNo");
+        Long timestamp = longValue(data, "timestamp");
+        Boolean retryable = booleanValue(data, "retryable");
+        if (!SUPPORTED_ACTION_OUTCOMES.contains(outcome) || attempt == null || attempt <= 0
+                || timestamp == null || timestamp <= 0 || retryable == null) throw validation("管理员结果字段非法");
+        ProtocolJoinTaskAdminResult event = new ProtocolJoinTaskAdminResult(
+                requiredLong(data, "tenantId"), requiredLong(data, "joinTaskId"), requiredLong(data, "joinTaskResultId"),
+                requiredText(data, "commandId", "缺少管理员命令ID"), attempt, requiredLong(data, "accountId"),
+                protocolAccountId, requiredText(data, "groupJid", "缺少群身份"), requiredText(data, "targetJid", "缺少目标成员"),
+                outcome, text(data, "reasonCode"), retryable, timestamp, eventId);
+        riskEventSink.handleResult(riskMetadata(
+                new ProtocolRiskResultMetadata.Event(eventId, event.tenantId(), EVENT_GROUP_ACTION_RESULT_REPORTED,
+                        operation, timestamp, text(envelope, "workerId")),
+                new ProtocolRiskResultMetadata.Account(event.accountId(), protocolAccountId, text(data, "protocolBackend")),
+                new ProtocolRiskResultMetadata.Correlation("join_task", event.joinTaskId(), event.joinTaskResultId(),
+                        null, event.commandId(), null, "GROUP", event.groupJid(), text(data, "rawCode")),
+                event.reasonCode(), text(data, "reasonMessage")));
+        joinTaskAdminResultSink.apply(event);
     }
 
     /** 校验批量拉人的单成员结果并传给任务状态机。 */

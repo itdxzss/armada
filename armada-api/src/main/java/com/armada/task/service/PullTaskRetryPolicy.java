@@ -8,6 +8,7 @@ import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
+import java.util.List;
 
 /** 普通拉群逐号码自动重试预算与波次冷却，不把未知结果计为明确失败。 */
 public final class PullTaskRetryPolicy {
@@ -15,8 +16,12 @@ public final class PullTaskRetryPolicy {
     /** 每个群内每个参与者最多自动尝试四次，包含首轮。 */
     public static final int MAX_ATTEMPTS = 4;
 
-    /** 名单查询明确未在群内，才允许不确定的原调用进入有界重试。 */
+    /** 名单查询明确未在群内时允许不确定的原调用进入有界重试。 */
     public static final String CONFIRMED_ABSENCE_REASON = "ROSTER_NOT_PRESENT";
+
+    /** 原调用明确返回拉手受限时允许换健康拉手补拉，保留 UNKNOWN 事实。 */
+    public static final List<String> RETRYABLE_ACCOUNT_RISK_REASONS = List.of(
+            ProtocolErrorCode.RATE_LIMITED.name(), ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.name());
 
     private static final long INITIAL_RETRY_DELAY_MS = 60_000L;
     private static final int MAX_BACKOFF_EXPONENT = 2;
@@ -58,7 +63,8 @@ public final class PullTaskRetryPolicy {
                 new PullTaskHistoricalRetryNormalization.RetryRule(
                         PullTaskRetryPolicy.MAX_ATTEMPTS, PullTaskParticipantExecutionState.NOT_STARTED.name(),
                         PullTaskParticipantExecutionState.UNCERTAIN.name(),
-                        PullTaskRetryPolicy.CONFIRMED_ABSENCE_REASON, ProtocolErrorCode.TIMEOUT.name()), now);
+                        PullTaskRetryPolicy.CONFIRMED_ABSENCE_REASON, ProtocolErrorCode.TIMEOUT.name(),
+                        RETRYABLE_ACCOUNT_RISK_REASONS), now);
     }
 
 }

@@ -437,7 +437,7 @@ public class AccountImportParser {
         return result.isEmpty() ? makeErrorEntry("", "输入内容为空") : result;
     }
 
-    /** 校验 iOS 原生凭据；错误只包含字段名和规则，不回显字段值。 */
+    /** 归一化并校验 iOS 原生凭据；原文保留，错误不回显字段值。 */
     private ParsedEntry parseIosNativeNode(
             JsonNode node, String source, String rawPayload, Integer accountType) {
         ParsedEntry entry = new ParsedEntry();
@@ -445,14 +445,39 @@ public class AccountImportParser {
         entry.setRawPayload(rawPayload);
         entry.setSourceEntryName(source);
 
-        String error = validateIosNativeCredential(node, accountType);
+        ObjectNode normalized = normalizeIosNativeCredential(node, accountType);
+        String error = validateIosNativeCredential(normalized, accountType);
         if (error != null) {
             entry.setParseError(error);
             return entry;
         }
-        entry.setWid(node.path("phone").asText().trim());
-        entry.setData(node);
+        entry.setWid(normalized.path("phone").asText().trim());
+        entry.setData(normalized);
         return entry;
+    }
+
+    /** 供应方可仅提供数字 jid；仅补可由电话 JID 和显式导入选项确定的字段。 */
+    private ObjectNode normalizeIosNativeCredential(JsonNode node, Integer accountType) {
+        ObjectNode normalized = node.deepCopy();
+        String jid = node.path("jid").asText().trim();
+        if (node.path("jid").isTextual() && WID_PATTERN.matcher(jid).matches()) {
+            jid += "@s.whatsapp.net";
+            normalized.put("jid", jid);
+        }
+        if (isMissingOrBlankText(node, "phone")) {
+            java.util.regex.Matcher matcher = IOS_JID_PATTERN.matcher(jid);
+            if (matcher.matches()) {
+                normalized.put("phone", matcher.group(1));
+            }
+        }
+        if (isMissingOrBlankText(node, "platform")) {
+            if (Integer.valueOf(AccountTypeCode.PERSONAL).equals(accountType)) {
+                normalized.put("platform", "ios");
+            } else if (Integer.valueOf(AccountTypeCode.BUSINESS).equals(accountType)) {
+                normalized.put("platform", "smb_ios");
+            }
+        }
+        return normalized;
     }
 
     private String validateIosNativeCredential(JsonNode node, Integer accountType) {
@@ -477,9 +502,12 @@ public class AccountImportParser {
         if (signatureError != null) {
             return signatureError;
         }
-        String routingError = validateRequiredNonEmptyBase64(node, "edgeRoutingInfo");
-        if (routingError != null) {
-            return routingError;
+        // 原生握手支持省略路由前缀；有值时仍按原规则检查，不生成替代数据。
+        if (!isMissingOrBlankText(node, "edgeRoutingInfo")) {
+            String routingError = validateRequiredNonEmptyBase64(node, "edgeRoutingInfo");
+            if (routingError != null) {
+                return routingError;
+            }
         }
         for (String key : IOS_NATIVE_REQUIRED_POSITIVE_ID_KEYS) {
             JsonNode value = node.get(key);
@@ -521,6 +549,12 @@ public class AccountImportParser {
             return "platform 与账号类型不一致";
         }
         return null;
+    }
+
+    /** 缺失或空文本可按字段契约补齐/省略；错误类型不能当作缺失处理。 */
+    private boolean isMissingOrBlankText(JsonNode node, String key) {
+        JsonNode value = node.get(key);
+        return value == null || value.isNull() || (value.isTextual() && value.asText().isBlank());
     }
 
     private boolean hasNonBlankText(JsonNode node, String key) {

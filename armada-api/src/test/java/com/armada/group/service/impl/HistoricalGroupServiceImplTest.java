@@ -226,6 +226,7 @@ class HistoricalGroupServiceImplTest {
                 null,
                 null,
                 null,
+                null,
                 true,
                 null,
                 null,
@@ -569,6 +570,7 @@ class HistoricalGroupServiceImplTest {
         return new GroupMetadataResult(
                 groupJid,
                 subject,
+                null,
                 null,
                 null,
                 null,

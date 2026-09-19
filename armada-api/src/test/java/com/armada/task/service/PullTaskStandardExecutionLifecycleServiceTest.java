@@ -38,6 +38,9 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -66,6 +69,9 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     @Autowired private PullTaskExecutionDispatchTrigger dispatchTrigger;
     @Autowired private ProtocolCommandOutboxService outboxService;
     @Autowired private GroupFolderService groupFolderService;
+    @Autowired private PullTaskParentCompletionService completionService;
+    @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private PullTaskStandardExecutionLifecycleResources lifecycleResources;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -93,6 +99,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         reset(dispatchTrigger);
         reset(outboxService);
         reset(groupFolderService);
+        reset(lifecycleResources.pull().dataPackages());
     }
 
     @AfterEach
@@ -321,6 +328,144 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> lifecycleService.pause(3L, 31L))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE", "GROUP_FULL"})
+    void groupFailuresRetryWholeFileExactlyOnceBeforeParentCompletion(String reason) throws SQLException {
+        insertEndFacts();
+        jdbc.update("UPDATE pull_task_material_member SET pull_status = 2 WHERE id = 501");
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = ? WHERE id = 11", reason);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            completionService.completeIfTerminalByExecutionId(11L, 900L);
+            completionService.completeIfTerminalByExecutionId(11L, 901L);
+        });
+
+        Long retryId = jdbc.queryForObject("SELECT id FROM pull_task_group_execution "
+                + "WHERE task_id = 1 AND seq = 1 AND attempt_no = 2", Long.class);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", retryId)).isEqualTo(1);
+        assertThat(longColumn("group_link_id", "pull_task_group_execution", retryId)).isNull();
+        assertThat(jdbc.queryForList("SELECT pull_status FROM pull_task_material_member "
+                + "WHERE group_execution_id = ? ORDER BY member_seq", Integer.class, retryId))
+                .containsExactly(0, 0);
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        verify(groupFolderService, times(1)).moveToUngrouped(9011L);
+        verify(dispatchTrigger, times(1)).dispatchAfterCommit();
+    }
+
+    @Test
+    void consecutiveFailuresKeepRetryingAndOldCompletionCannotDuplicateRetry() {
+        long executionId = 21L;
+        for (String reason : java.util.List.of("GROUP_BANNED", "INVITE_INVALID", "GROUP_UNAVAILABLE")) {
+            jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = ? WHERE id = ?",
+                    reason, executionId);
+            long failedId = executionId;
+            new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                    completionService.completeIfTerminalByExecutionId(failedId, 900L));
+            executionId = jdbc.queryForObject("SELECT id FROM pull_task_group_execution "
+                    + "WHERE task_id = 2 ORDER BY attempt_no DESC LIMIT 1", Long.class);
+        }
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                completionService.completeIfTerminalByExecutionId(21L, 901L));
+
+        assertThat(jdbc.queryForList("SELECT attempt_no FROM pull_task_group_execution "
+                + "WHERE task_id = 2 ORDER BY attempt_no", Integer.class)).containsExactly(1, 2, 3, 4);
+        assertThat(taskMapper.selectLifecycle(2L).getStatus()).isEqualTo("EXECUTING");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE"})
+    void manualLinksWithoutFolderStillFinishOnGroupFailure(String reason) {
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = ? WHERE id = 61", reason);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                completionService.completeIfTerminalByExecutionId(61L, 900L));
+        assertThat(taskMapper.selectLifecycle(6L).getStatus()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 6",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"COMPLETED", "ENDED"})
+    void inactiveParentCannotBeRestartedByLateFailure(String parentStatus) {
+        jdbc.update("UPDATE pull_task SET status = ? WHERE id = 2", parentStatus);
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = 'INVITE_INVALID' WHERE id = 21");
+        completionService.completeIfTerminalByExecutionId(21L, 900L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 2",
+                Integer.class)).isEqualTo(1);
+        assertThat(taskMapper.selectLifecycle(2L).getStatus()).isEqualTo(parentStatus);
+    }
+
+    @Test
+    void retryCreationFailureRollsBackTerminalStateAndCopiedMaterial() throws SQLException {
+        insertEndFacts();
+        org.mockito.Mockito.doThrow(new IllegalStateException("projection failed"))
+                .when(lifecycleResources.pull().dataPackages())
+                .synchronizeExecution(org.mockito.ArgumentMatchers.anyLong());
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = 'INVITE_INVALID' WHERE id = 11");
+            completionService.completeIfTerminalByExecutionId(11L, 900L);
+        })).isInstanceOf(IllegalStateException.class).hasMessage("projection failed");
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 1 AND seq = 1",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_material_member",
+                Integer.class)).isEqualTo(3);
+        verify(dispatchTrigger, times(0)).dispatchAfterCommit();
+    }
+
+    @Test
+    void concurrentCompletionWaitsForRowLockAndCreatesOnlyOneRetry() throws Exception {
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status = 5, reason_code = 'INVITE_INVALID' WHERE id = 21");
+        var locked = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> {
+                TenantContext.set(7L);
+                try {
+                    new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                        lifecycleResources.executionMapper().selectByIdForUpdate(21L);
+                        locked.countDown();
+                        try {
+                            if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                                throw new IllegalStateException("test lock release timed out");
+                            }
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(interrupted);
+                        }
+                        completionService.completeIfTerminalByExecutionId(21L, 900L);
+                    });
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+            assertThat(locked.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var second = executor.submit(() -> {
+                TenantContext.set(7L);
+                try {
+                    entered.countDown();
+                    completionService.completeIfTerminalByExecutionId(21L, 901L);
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> second.get(150, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            first.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            second.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_execution WHERE task_id = 2",
+                    Integer.class)).isEqualTo(2);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private void insertEndFacts() throws SQLException {
@@ -573,8 +718,11 @@ class PullTaskStandardExecutionLifecycleServiceTest {
 
         @Bean
         PullTaskParentCompletionService completionService(
-                PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
+                PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper,
+                PullTaskStandardExecutionLifecycleResources resources,
+                GroupFolderService groupFolderService, PullTaskExecutionDispatchTrigger dispatchTrigger) {
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), new com.armada.task.service.impl.PullTaskGroupRetryService(
+                    taskMapper, resources, groupFolderService, dispatchTrigger));
         }
 
         @Bean
@@ -611,11 +759,9 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 PullTaskMapper taskMapper,
                 PullTaskStandardExecutionLifecycleResources resources,
                 PullTaskParentCompletionService completionService,
-                PullTaskExecutionDispatchTrigger dispatchTrigger,
-                GroupFolderService groupFolderService) {
+                PullTaskExecutionDispatchTrigger dispatchTrigger) {
             return new PullTaskStandardExecutionLifecycleServiceImpl(
-                    taskMapper, resources, completionService, dispatchTrigger,
-                    groupFolderService, () -> 900L);
+                    taskMapper, resources, completionService, dispatchTrigger, () -> 900L);
         }
 
         @Bean GroupFolderService groupFolderService() {

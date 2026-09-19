@@ -49,9 +49,6 @@ public class PullTaskPullCallParticipantResultService {
     static final int MAX_EXPLICIT_FAILURE_COUNT = MAX_FAILURE_RETRY_COUNT + 1;
     private static final String ROSTER_QUERY_UNAVAILABLE = "ROSTER_QUERY_UNAVAILABLE";
     private static final String PROTOCOL_RESULT_UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
-    private static final Set<String> RISK_REASON_CODES = Set.of(
-            ProtocolErrorCode.RATE_LIMITED.name(),
-            ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED.name());
     private static final Set<String> OFFLINE_REASON_CODES = Set.of(
             ProtocolErrorCode.ACCOUNT_NOT_FOUND.name(),
             ProtocolErrorCode.ACCOUNT_NOT_ONLINE.name(),
@@ -569,7 +566,7 @@ public class PullTaskPullCallParticipantResultService {
                             reasonCode, null, callback.occurredAt()));
             return;
         }
-        if (!RISK_REASON_CODES.contains(reasonCode)) {
+        if (!PullTaskRetryPolicy.RETRYABLE_ACCOUNT_RISK_REASONS.contains(reasonCode)) {
             return;
         }
         if (!pullerRestrictionService.restrictPulling(
@@ -656,7 +653,7 @@ public class PullTaskPullCallParticipantResultService {
                     retry ? pendingStatus(attempt) : failedStatus(attempt),
                     failureCount, retry ? null : attempt.getPullCallId());
         }
-        boolean retry = callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
+        boolean retry = attemptTarget(callback).lifecycleStatus() == PullTaskParticipantAttemptStatus.RELEASED.code()
                 && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
         return new AggregateTarget(retry ? pendingStatus(attempt) : unknownStatus(attempt),
                 failureBefore, retry ? null : attempt.getPullCallId());
@@ -666,7 +663,10 @@ public class PullTaskPullCallParticipantResultService {
         if (callback.outcome() != PullTaskBatchParticipantProtocolOutcome.UNKNOWN) {
             return new AttemptTarget(PullTaskParticipantAttemptStatus.CLOSED.code(), null);
         }
-        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED) {
+        String reason = normalizedReason(callback.reasonCode());
+        if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
+                || (callback.executionState() == PullTaskParticipantExecutionState.UNCERTAIN
+                    && reason != null && PullTaskRetryPolicy.RETRYABLE_ACCOUNT_RISK_REASONS.contains(reason))) {
             return new AttemptTarget(
                     PullTaskParticipantAttemptStatus.RELEASED.code(), callback.occurredAt());
         }

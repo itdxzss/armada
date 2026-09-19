@@ -284,6 +284,19 @@ class AccountServiceImplTest {
         verify(accountMapper, never()).batchSoftDelete(anyList(), anyLong());
     }
 
+    @Test
+    void batchDeleteCannotBypassExportDelivery() {
+        AccountDeleteGateRow row = new AccountDeleteGateRow();
+        row.setId(63L);
+        row.setAccountState(4);
+        row.setStateSource("ACCOUNT_EXPORT");
+        when(accountMapper.selectStatesByIds(List.of(63L))).thenReturn(List.of(row));
+        AccountServiceImpl service = new AccountServiceImpl(accountMapper, accountGroupMapper, accountConverter);
+        assertThatThrownBy(() -> service.batchDelete(List.of(63L)))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class);
+        verify(accountMapper, never()).batchSoftDelete(anyList(), anyLong());
+    }
+
     private static AccountState loginState(Long accountId, Integer loginState) {
         AccountState row = new AccountState();
         row.setAccountId(accountId);

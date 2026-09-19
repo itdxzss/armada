@@ -43,11 +43,14 @@
         x.id,
         x.recipient_phone_snapshot AS recipient_phone,
         x.recipient_country_iso2_snapshot AS recipient_country_iso2,
-        x.account_id,
-        x.sender_phone_snapshot AS sender_phone,
-        x.sender_country_iso2_snapshot AS sender_country_iso2,
+        COALESCE(x.account_id, last_rejection.account_id) AS account_id,
+        CASE WHEN x.account_id IS NOT NULL THEN x.sender_phone_snapshot
+             ELSE last_sender.account_phone_snapshot END AS sender_phone,
+        <include refid="DisplayedSenderCountry"/> AS sender_country_iso2,
         x.send_status AS status_code,
-        x.fail_code,
+        CASE WHEN x.send_status = 6 AND x.fail_code = 'TASK_STOPPED'
+                  AND last_rejection.account_id IS NOT NULL
+             THEN last_rejection.reason_code ELSE x.fail_code END AS fail_code,
         x.fail_reason,
         CASE x.send_status
             WHEN 3 THEN x.sent_at
@@ -57,6 +60,35 @@
             WHEN 7 THEN x.failed_at
             ELSE NULL
         END AS status_at
+    </sql>
+
+    <sql id="DisplayedSenderCountry">
+        CASE WHEN x.account_id IS NOT NULL THEN x.sender_country_iso2_snapshot
+             ELSE last_sender.sender_country_iso2_snapshot END
+    </sql>
+
+    <!-- 换号会清空当前分配；仅为463重试/停止记录恢复最后一个已拒绝发信人，
+         不修改调度事实，也不覆盖当前发送、成功或超时结果。号码使用任务内冻结快照。 -->
+    <sql id="RecipientFrom">
+        FROM hyperlink_task_recipient x
+        LEFT JOIN hyperlink_recipient_sender_rejection last_rejection
+          ON last_rejection.tenant_id = x.tenant_id
+         AND last_rejection.recipient_id = x.id
+         AND x.account_id IS NULL
+         AND x.send_status IN (1, 6)
+         AND x.fail_code IN ('WA_ACK_REJECTED_463', 'TASK_STOPPED')
+         AND last_rejection.account_id = (
+             SELECT rejection.account_id
+             FROM hyperlink_recipient_sender_rejection rejection
+             WHERE rejection.tenant_id = x.tenant_id AND rejection.recipient_id = x.id
+               AND rejection.reason_code = 'WA_ACK_REJECTED_463'
+             ORDER BY rejection.created_at DESC, rejection.account_id DESC
+             LIMIT 1
+         )
+        LEFT JOIN hyperlink_task_account_usage last_sender
+          ON last_sender.tenant_id = x.tenant_id
+         AND last_sender.hyperlink_task_id = x.hyperlink_task_id
+         AND last_sender.account_id = last_rejection.account_id
     </sql>
 
     <sql id="RecipientFilters">
@@ -71,10 +103,10 @@
             AND x.recipient_country_iso2_snapshot IS NULL
         </if>
         <if test="senderCountryIso2 != null and senderCountryIso2 != 'UNKNOWN'">
-            AND x.sender_country_iso2_snapshot = #{senderCountryIso2}
+            AND <include refid="DisplayedSenderCountry"/> = #{senderCountryIso2}
         </if>
         <if test="senderCountryIso2 == 'UNKNOWN'">
-            AND x.sender_country_iso2_snapshot IS NULL
+            AND <include refid="DisplayedSenderCountry"/> IS NULL
         </if>
         <if test="failReason != null">
             AND x.fail_reason = #{failReason}
@@ -93,10 +125,10 @@
             AND x.recipient_country_iso2_snapshot IS NULL
         </if>
         <if test="query.senderCountryIso2 != null and query.senderCountryIso2 != 'UNKNOWN'">
-            AND x.sender_country_iso2_snapshot = #{query.senderCountryIso2}
+            AND <include refid="DisplayedSenderCountry"/> = #{query.senderCountryIso2}
         </if>
         <if test="query.senderCountryIso2 == 'UNKNOWN'">
-            AND x.sender_country_iso2_snapshot IS NULL
+            AND <include refid="DisplayedSenderCountry"/> IS NULL
         </if>
         <if test="query.failReason != null">
             AND x.fail_reason = #{query.failReason}
@@ -132,13 +164,13 @@
 
     <select id="countRecipients" resultType="long">
         SELECT COUNT(*)
-        FROM hyperlink_task_recipient x
+        <include refid="RecipientFrom"/>
         WHERE <include refid="RecipientFilters"/>
     </select>
 
     <select id="selectRecipients" resultMap="RecipientMap">
         SELECT <include refid="RecipientColumns"/>
-        FROM hyperlink_task_recipient x
+        <include refid="RecipientFrom"/>
         WHERE <include refid="RecipientFilters"/>
         ORDER BY x.id
         <choose>
@@ -150,7 +182,7 @@
 
     <select id="selectRecipientExportBatch" resultMap="RecipientMap">
         SELECT <include refid="RecipientColumns"/>
-        FROM hyperlink_task_recipient x
+        <include refid="RecipientFrom"/>
         WHERE <include refid="RecipientExportFilters"/>
           AND x.created_at &lt;= #{snapshotAt}
         <if test="cursorId != null and query.sortOrder == 'asc'">

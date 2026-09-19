@@ -75,7 +75,7 @@ class AccountGroupControlledBatchPersistenceTest {
         verifySharedGroupReads(accountIds);
         verify(mapper).selectControlledExistingAfterGroupLock(
                 eq(TENANT_ID), eq(GROUP_ID), anyList());
-        verify(mapper).selectParticipantIdentityRowsForUpdate(eq(TENANT_ID), anyList());
+        verify(mapper).selectParticipantIdentityRows(eq(TENANT_ID), anyList());
         ArgumentCaptor<List<ParticipantPresenceWrite>> members = listCaptor();
         verify(mapper).upsertParticipantFacts(members.capture());
         ArgumentCaptor<List<ControlledWrite>> bindings = listCaptor();
@@ -95,7 +95,7 @@ class AccountGroupControlledBatchPersistenceTest {
             assertThat(row.membershipActiveSinceAt()).isNull();
         });
         InOrder order = inOrder(mapper);
-        order.verify(mapper).selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(GROUP_ID));
+        order.verify(mapper).selectGroupIdsByIds(TENANT_ID, List.of(GROUP_ID));
         order.verify(mapper).selectControlledExistingAfterGroupLock(
                 eq(TENANT_ID), eq(GROUP_ID), anyList());
         order.verify(mapper).upsertParticipantFacts(anyList());
@@ -117,7 +117,7 @@ class AccountGroupControlledBatchPersistenceTest {
         verify(mapper, times(2)).selectControlledExistingAfterGroupLock(
                 eq(TENANT_ID), eq(GROUP_ID), reads.capture());
         ArgumentCaptor<List<ParticipantPresenceWrite>> identities = listCaptor();
-        verify(mapper, times(2)).selectParticipantIdentityRowsForUpdate(
+        verify(mapper, times(2)).selectParticipantIdentityRows(
                 eq(TENANT_ID), identities.capture());
         ArgumentCaptor<List<ParticipantPresenceWrite>> members = listCaptor();
         verify(mapper, times(2)).upsertParticipantFacts(members.capture());
@@ -217,7 +217,7 @@ class AccountGroupControlledBatchPersistenceTest {
                         .toList());
         when(mapper.selectGroupIdsWithoutLock(TENANT_ID, List.of(GROUP_JID)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, GROUP_ID)));
-        when(mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(GROUP_ID)))
+        when(mapper.selectGroupIdsByIds(TENANT_ID, List.of(GROUP_ID)))
                 .thenReturn(List.of(new GroupId(GROUP_JID, GROUP_ID)));
         Map<Long, ControlledExisting> existing = existingRows.stream().collect(
                 Collectors.toMap(ControlledExisting::accountId, Function.identity()));
@@ -232,7 +232,7 @@ class AccountGroupControlledBatchPersistenceTest {
         verify(mapper).selectContexts(TENANT_ID, accountIds);
         verify(mapper).selectUnboundLegacyGroupHandlesWithoutLock(TENANT_ID, List.of(GROUP_JID));
         verify(mapper).selectGroupIdsWithoutLock(TENANT_ID, List.of(GROUP_JID));
-        verify(mapper).selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(GROUP_ID));
+        verify(mapper).selectGroupIdsByIds(TENANT_ID, List.of(GROUP_ID));
     }
 
     private static List<Long> accountIds(int count) {

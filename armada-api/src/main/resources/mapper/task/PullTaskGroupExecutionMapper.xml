@@ -77,6 +77,11 @@
     )
   </insert>
 
+  <select id="countLaterAttempts" resultType="int">
+    SELECT COUNT(*) FROM pull_task_group_execution
+    WHERE task_id = #{taskId} AND seq = #{seq} AND attempt_no &gt; #{attemptNo}
+  </select>
+
   <select id="selectByTaskId" resultType="com.armada.task.model.entity.PullTaskGroupExecution">
     SELECT <include refid="BaseColumns"/>
     FROM pull_task_group_execution

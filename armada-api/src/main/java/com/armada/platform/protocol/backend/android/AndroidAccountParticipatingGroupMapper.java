@@ -6,6 +6,7 @@ import com.armada.platform.protocol.model.enums.OwnerIdentityKind;
 import com.armada.platform.protocol.model.result.AccountGroupMetadataSummaryResult;
 import com.armada.platform.protocol.model.result.AccountParticipatingGroupResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
+import com.armada.platform.protocol.util.GroupCreatorPhones;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -27,8 +28,6 @@ public final class AndroidAccountParticipatingGroupMapper {
     private static final String CREATOR_FIELD = "creator";
     private static final String ADDRESSING_MODE_FIELD = "addressing_mode";
     private static final String PARTICIPANTS_FIELD = "participants";
-    private static final String PARTICIPANT_JID_FIELD = "jid";
-    private static final String PARTICIPANT_PHONE_FIELD = "phone_number";
     private static final String CREATION_FIELD = "creation";
     private static final String ANNOUNCE_ONLY_FIELD = "announce_only";
     private static final String GROUP_MISSING_ERROR = "Android 当前群列表缺少该群";
@@ -71,7 +70,7 @@ public final class AndroidAccountParticipatingGroupMapper {
             String selfPhone) {
         List<GroupParticipantResult> participants = memberMapper.map(group);
         String role = selfRole(participants, selfPhone);
-        WhatsappJids.OwnerIdentity owner = resolveOwner(group);
+        WhatsappJids.OwnerIdentity owner = resolveOwner(group, participants);
         return new AccountParticipatingGroupResult.Group(
                 requireGroupJid(group),
                 text(group.get(SUBJECT_FIELD)),
@@ -84,31 +83,19 @@ public final class AndroidAccountParticipatingGroupMapper {
                 longValue(group.get(CREATION_FIELD)));
     }
 
-    private static WhatsappJids.OwnerIdentity resolveOwner(JsonNode group) {
+    private static WhatsappJids.OwnerIdentity resolveOwner(
+            JsonNode group, List<GroupParticipantResult> participants) {
         WhatsappJids.OwnerIdentity creator = WhatsappJids.ownerIdentity(
-                text(group.get(CREATOR_FIELD)),
-                text(group.get(ADDRESSING_MODE_FIELD)));
-        if (creator.kind() != OwnerIdentityKind.LID) {
-            return creator;
+                text(group.get(CREATOR_FIELD)), text(group.get(ADDRESSING_MODE_FIELD)));
+        String phone = GroupCreatorPhones.resolve(
+                creator.kind() == OwnerIdentityKind.UNKNOWN ? null : creator.ownerJid(),
+                text(group.get("creator_pn")), participants);
+        if (phone != null) {
+            return WhatsappJids.ownerIdentity(phone, "pn");
         }
-        JsonNode participants = group.get(PARTICIPANTS_FIELD);
-        if (participants == null || !participants.isArray()) {
-            return creator;
-        }
-        for (JsonNode participant : participants) {
-            WhatsappJids.OwnerIdentity participantLid = WhatsappJids.ownerIdentity(
-                    text(participant.get(PARTICIPANT_JID_FIELD)), "lid");
-            if (participantLid.kind() != OwnerIdentityKind.LID
-                    || !creator.ownerJid().equals(participantLid.ownerJid())) {
-                continue;
-            }
-            WhatsappJids.OwnerIdentity participantPhone = WhatsappJids.ownerIdentity(
-                    text(participant.get(PARTICIPANT_PHONE_FIELD)), "pn");
-            if (participantPhone.kind() == OwnerIdentityKind.PN) {
-                return participantPhone;
-            }
-        }
-        return creator;
+        // 不将冲突的 PN 或无法解析的 LID 宣称为已确认号码。
+        return new WhatsappJids.OwnerIdentity(creator.ownerJid(), null,
+                creator.kind() == OwnerIdentityKind.LID ? OwnerIdentityKind.LID : OwnerIdentityKind.UNKNOWN);
     }
 
     /**

@@ -76,7 +76,7 @@ class GroupProfileReportedSinkAdapterTest {
 
     @org.junit.jupiter.api.BeforeEach
     void buildAdapter() {
-        org.mockito.Mockito.when(snapshotPersistence.lockGroupWriteBoundary(any(), anyString()))
+        org.mockito.Mockito.when(snapshotPersistence.resolveGroupWriteContext(any(), anyString()))
                 .thenReturn(GROUP);
         adapter = new GroupProfileReportedSinkAdapter(
                 patchService, snapshotPersistence, taskMapper, batchItemMapper,
@@ -99,6 +99,35 @@ class GroupProfileReportedSinkAdapterTest {
      * <p>入队 + 定时任务那条路虽然也能取,但要排队等轮询;实测积压时数小时不动。
      * 这里改为建档当场提交异步任务,进群几秒内即可落库。</p>
      */
+    @Test
+    void changedGroupProfileWithMissingPnPersistsDerivedPhoneCountryAndContinent() {
+        var mapper = org.mockito.Mockito.mock(com.armada.group.mapper.GroupLinkPreviewMapper.class);
+        var countries = org.mockito.Mockito.mock(com.armada.platform.country.service.CountryService.class);
+        org.mockito.Mockito.when(countries.resolveActiveCountriesByPhoneNumbers(List.of("916375552817")))
+                .thenReturn(java.util.Map.of("916375552817",
+                        new com.armada.platform.country.model.vo.CountryReferenceVO(1L, "IN", "印度", "+91", "", "ASIA")));
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
+        var realAdapter = new GroupProfileReportedSinkAdapter(
+                patchService, snapshotPersistence, taskMapper, batchItemMapper,
+                groupLinkRegistryService, new GroupCreatorCompatibilityWriter(mapper, countries), accountMapper,
+                inviteLinkService, inviteFetchExecutor);
+        var profile = new ProtocolGroupProfileReportedEvent(
+                "group-change", 1L, 100L, "account", "ANDROID", "916375552817-1517537054@g.us",
+                List.of("subject"), "历史群", null, null, null, null, null, null,
+                List.of(), false, "group_change_refresh", 2_000L, null, null, "worker", null);
+        realAdapter.handleProfileReported(profile);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<com.armada.group.model.entity.GroupLinkPreview>> rows = ArgumentCaptor.forClass(List.class);
+        verify(mapper).upsertCreatorCompatibility(rows.capture());
+        assertThat(rows.getValue()).singleElement().satisfies(row -> {
+            assertThat(row.getOwnerPhone()).isEqualTo("916375552817");
+            assertThat(row.getCreatorPhoneSource()).isEqualTo(1);
+            assertThat(row.getCreatorCountryIso2()).isEqualTo("IN");
+            assertThat(row.getCreatorContinentCode()).isEqualTo("ASIA");
+        });
+    }
+
     @Test
     void profileReportedTriggersActiveInviteCodeFetch() {
         org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
@@ -319,14 +348,16 @@ class GroupProfileReportedSinkAdapterTest {
 
         adapter.handleProfileReported(event(true, List.of(), null, "923206788780"));
 
-        verify(creatorWriter).writeCreator(eq(77L), eq("923206788780"), anyLong());
+        verify(creatorWriter).writeCreator(eq(77L), eq("120363-abc@g.us"), eq("923206788780"), anyLong());
     }
 
     @Test
-    void missingCreatorPhoneSkipsTheCompatibilityWrite() {
+    void missingCreatorPhoneStillReachesCentralJidFallback() {
+        org.mockito.Mockito.when(groupLinkRegistryService.registerAccountObservedGroup(
+                anyString(), any(), any(), anyLong())).thenReturn(77L);
         adapter.handleProfileReported(event(true, List.of()));
-
-        verify(creatorWriter, never()).writeCreator(anyLong(), anyString(), anyLong());
+        verify(creatorWriter).writeCreator(eq(77L), eq("120363-abc@g.us"),
+                org.mockito.ArgumentMatchers.isNull(), anyLong());
     }
 
     @Test
@@ -431,7 +462,7 @@ class GroupProfileReportedSinkAdapterTest {
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(snapshotPersistence, patchService);
         order.verify(snapshotPersistence)
-                .lockGroupWriteBoundary(77L, "120363-abc@g.us");
+                .resolveGroupWriteContext(77L, "120363-abc@g.us");
         order.verify(snapshotPersistence)
                 .fillGroupCreatedAt(GROUP, null);
         order.verify(patchService).applyPatch(any(GroupMetadataPatch.class));

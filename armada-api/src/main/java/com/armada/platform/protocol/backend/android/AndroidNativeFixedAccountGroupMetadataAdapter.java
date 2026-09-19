@@ -7,6 +7,7 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
+import com.armada.platform.protocol.util.GroupCreatorPhones;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -103,7 +104,8 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 responseGroupJid,
                 text(data.get("Subject")),
                 text(data.get("Desc")),
-                text(data.get("Owner")),
+                text(data.get("Creator")),
+                creatorPhone(data, participants),
                 positiveLong(data.get("Creation")),
                 true,
                 booleanValue(data.get("Announce")),
@@ -117,6 +119,15 @@ public final class AndroidNativeFixedAccountGroupMetadataAdapter
                 false,
                 true,
                 participants);
+    }
+
+    private static String creatorPhone(JsonNode data, List<GroupParticipantResult> participants) {
+        // 新协议明确给出解析结果时，以该结果为准，不能用原始字段绕过冲突判定。
+        if (data.has("CreatorPhone")) {
+            return GroupCreatorPhones.phone(text(data.get("CreatorPhone")));
+        }
+        return GroupCreatorPhones.resolve(
+                text(data.get("Creator")), text(data.get("CreatorPN")), participants);
     }
 
     /**

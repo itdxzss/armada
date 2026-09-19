@@ -691,6 +691,7 @@ class GroupMetadataSyncTaskMapperDbTest {
                 """);
         execute("""
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                     tenant_id BIGINT NOT NULL,
                     group_link_id BIGINT NOT NULL,
                     group_jid VARCHAR(128),

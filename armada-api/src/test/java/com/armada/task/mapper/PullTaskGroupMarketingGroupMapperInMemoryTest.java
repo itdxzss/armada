@@ -454,6 +454,7 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                     deleted_at BIGINT
                 );
                 CREATE TABLE group_link_preview (
+                    creator_phone_source TINYINT NOT NULL DEFAULT 2,
                     id BIGINT PRIMARY KEY, tenant_id BIGINT NOT NULL, group_link_id BIGINT,
                     group_jid VARCHAR(128), wa_subject VARCHAR(255), member_size INT,
                     owner_phone VARCHAR(32), announce_only TINYINT, group_created_at BIGINT,
@@ -534,7 +535,9 @@ public class PullTaskGroupMarketingGroupMapperInMemoryTest {
                   (1002, 7, 2002, '普通成员群', 1, NULL),
                   (1003, 7, 2003, '自收群三', 0, NULL),
                   (9001, 8, 2901, '巴西群', 1, NULL);
-                INSERT INTO group_link_preview VALUES
+                INSERT INTO group_link_preview
+                  (id, tenant_id, group_link_id, group_jid, wa_subject, member_size, owner_phone,
+                   announce_only, group_created_at, avatar_url, last_preview_at) VALUES
                   (1, 7, 1001, '120363001@g.us', '印度群一', 120, '919900000001', 0, 1700000000, NULL, 4000),
                   (2, 7, 1002, '120363002@g.us', '印度群二', 80, '919900000099', 0, 1700000100, NULL, 4000),
                   (3, 7, 1003, '120363003@g.us', '印度群三', 90, '919900000099', 1, 1700000200, NULL, 4000),

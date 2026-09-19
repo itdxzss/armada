@@ -224,7 +224,7 @@
     LIMIT 1
   </select>
 
-  <select id="selectSelfMembershipExistingAfterGroupLock"
+  <select id="selectSelfMembershipExistingByTenant"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$Existing">
     SELECT g.group_jid AS groupJid,
            g.id AS groupId,
@@ -249,7 +249,6 @@
     WHERE g.tenant_id = #{tenantId}
       AND g.group_jid = #{groupJid}
     LIMIT 1
-    FOR UPDATE
   </select>
 
   <insert id="insertMissingGroups">
@@ -300,7 +299,7 @@
     ORDER BY group_jid ASC
   </select>
 
-  <select id="selectGroupIdsByIdsForUpdate"
+  <select id="selectGroupIdsByIds"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$GroupId">
     SELECT group_jid AS groupJid, id AS groupId
     FROM wa_group FORCE INDEX (PRIMARY)
@@ -310,7 +309,6 @@
       #{groupId}
     </foreach>
     ORDER BY id ASC
-    FOR UPDATE
   </select>
 
   <select id="selectUnboundLegacyGroupHandlesWithoutLock"
@@ -327,7 +325,7 @@
     ORDER BY handle.id ASC
   </select>
 
-  <select id="selectLegacyGroupHandleIdsByIdsForUpdate" resultType="long">
+  <select id="selectLegacyGroupHandleIdsByIds" resultType="long">
     SELECT id
     FROM group_link FORCE INDEX (PRIMARY)
     WHERE tenant_id = #{tenantId}
@@ -336,7 +334,6 @@
       #{groupLinkId}
     </foreach>
     ORDER BY id ASC
-    FOR UPDATE
   </select>
 
   <update id="updateSelectedLegacyGroupReferences">
@@ -426,12 +423,20 @@
   </insert>
 
   <sql id="incomingPresenceWins">
+    <include refid="participantPresenceWins">
+      <property name="presence_observed_at" value="VALUES(presence_observed_at)"/>
+      <property name="presence_source" value="VALUES(presence_source)"/>
+      <property name="last_snapshot_version" value="VALUES(last_snapshot_version)"/>
+    </include>
+  </sql>
+
+  <sql id="participantPresenceWins">
     (
-      VALUES(presence_observed_at) &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
+      ${presence_observed_at} &gt; COALESCE(wa_group_participant.presence_observed_at, -1)
       OR (
-        VALUES(presence_observed_at) = wa_group_participant.presence_observed_at
+        ${presence_observed_at} = wa_group_participant.presence_observed_at
         AND (
-          CASE VALUES(presence_source)
+          CASE ${presence_source}
               WHEN 'WGP2_REMOVE' THEN 5 WHEN 'WGP2_LEAVE' THEN 5
               WHEN 'REMOVE_EVENT' THEN 5 WHEN 'LEAVE_EVENT' THEN 5
               WHEN 'UNKNOWN_EXIT_EVENT' THEN 5
@@ -457,9 +462,9 @@
               ELSE 0
             END
           OR (
-            VALUES(presence_source) IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
+            ${presence_source} IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
             AND wa_group_participant.presence_source IN ('FULL_SNAPSHOT', 'SNAPSHOT_ABSENT')
-            AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
+            AND CAST(COALESCE(${last_snapshot_version}, '') AS BINARY)
                 &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
           )
         )
@@ -472,7 +477,7 @@
     &gt; 账号轻量快照。分级口径见群组数据模型设计 §7.2 的 participant role 优先级。
   -->
   <sql id="incomingRoleTier">
-    CASE VALUES(role_source)
+    CASE ${role_source}
       WHEN 'WGP2_PROMOTE' THEN 4
       WHEN 'WGP2_DEMOTE' THEN 4
       WHEN 'WGP2_ADD' THEN 3
@@ -500,6 +505,14 @@
   </sql>
 
   <sql id="incomingRoleWins">
+    <include refid="participantRoleWins">
+      <property name="role_source" value="VALUES(role_source)"/>
+      <property name="role_observed_at" value="VALUES(role_observed_at)"/>
+      <property name="last_snapshot_version" value="VALUES(last_snapshot_version)"/>
+    </include>
+  </sql>
+
+  <sql id="participantRoleWins">
     (
       <!--
         §7.2：账号轻量快照的 admin 只是布尔值，最多表达管理员、表达不了群主，
@@ -511,15 +524,15 @@
         AND <include refid="incomingRoleTier"/> &lt; <include refid="existingRoleTier"/>
       )
       AND (
-        VALUES(role_observed_at) &gt; COALESCE(wa_group_participant.role_observed_at, -1)
+        ${role_observed_at} &gt; COALESCE(wa_group_participant.role_observed_at, -1)
         OR (
-          VALUES(role_observed_at) = wa_group_participant.role_observed_at
+          ${role_observed_at} = wa_group_participant.role_observed_at
           AND (
             <include refid="incomingRoleTier"/> &gt; <include refid="existingRoleTier"/>
             OR (
-              VALUES(role_source) = 'FULL_SNAPSHOT'
+              ${role_source} = 'FULL_SNAPSHOT'
               AND wa_group_participant.role_source = 'FULL_SNAPSHOT'
-              AND CAST(COALESCE(VALUES(last_snapshot_version), '') AS BINARY)
+              AND CAST(COALESCE(${last_snapshot_version}, '') AS BINARY)
                   &gt; CAST(COALESCE(wa_group_participant.last_snapshot_version, '') AS BINARY)
             )
           )
@@ -667,6 +680,104 @@
       updated_at = GREATEST(updated_at, VALUES(updated_at))
   </insert>
 
+  <!-- include 属性均为本文件静态 SQL，通知值仍通过 #{} 绑定。两条写路径共用事实优先级。 -->
+  <sql id="participantFactAssignments">
+      <!--
+        身份列只补空、不覆盖。命中的行可能只持有 PN 或只持有 LID：WhatsApp 群成员列表已逐步
+        只返回 LID，而账号快照按 self PN 建行，同一个人因此会分成两行。协议本次给出另一个
+        身份时补进同一行，使两种身份收敛到一条成员记录（设计 §3.2 硬不变量 3）。
+        已有值一律保留，避免把已确认身份改写成另一个人的。
+      -->
+      pn_jid = COALESCE(pn_jid, ${pn_jid}),
+      lid_jid = COALESCE(lid_jid, ${lid_jid}),
+      phone = COALESCE(${phone}, phone),
+      presence_status = CASE
+        WHEN <include refid="participantPresenceWins"/> THEN ${presence_status}
+        ELSE presence_status
+      END,
+      presence_source = CASE
+        WHEN <include refid="participantPresenceWins"/> THEN ${presence_source}
+        ELSE presence_source
+      END,
+      presence_event_id = CASE
+        WHEN <include refid="participantPresenceWins"/> THEN ${presence_event_id}
+        ELSE presence_event_id
+      END,
+      presence_observed_at = GREATEST(
+        COALESCE(presence_observed_at, ${presence_observed_at}),
+        ${presence_observed_at}
+      ),
+      last_joined_at = CASE
+        WHEN ${last_join_event_at} IS NOT NULL
+         AND (last_join_event_at IS NULL OR ${last_join_event_at} &gt;= last_join_event_at)
+          THEN ${last_joined_at}
+        ELSE last_joined_at
+      END,
+      last_join_source_event_id = CASE
+        WHEN ${last_join_event_at} IS NOT NULL
+         AND (last_join_event_at IS NULL OR ${last_join_event_at} &gt;= last_join_event_at)
+          THEN ${last_join_source_event_id}
+        ELSE last_join_source_event_id
+      END,
+      last_join_event_at = CASE
+        WHEN ${last_join_event_at} IS NOT NULL
+         AND (last_join_event_at IS NULL OR ${last_join_event_at} &gt;= last_join_event_at)
+          THEN ${last_join_event_at}
+        ELSE last_join_event_at
+      END,
+      last_exited_at = CASE
+        WHEN ${last_exit_event_at} IS NOT NULL
+         AND (last_exit_event_at IS NULL OR ${last_exit_event_at} &gt;= last_exit_event_at)
+          THEN ${last_exited_at}
+        ELSE last_exited_at
+      END,
+      last_exit_type = CASE
+        WHEN ${last_exit_event_at} IS NOT NULL
+         AND (last_exit_event_at IS NULL OR ${last_exit_event_at} &gt;= last_exit_event_at)
+          THEN ${last_exit_type}
+        ELSE last_exit_type
+      END,
+      last_exit_source_event_id = CASE
+        WHEN ${last_exit_event_at} IS NOT NULL
+         AND (last_exit_event_at IS NULL OR ${last_exit_event_at} &gt;= last_exit_event_at)
+          THEN ${last_exit_source_event_id}
+        ELSE last_exit_source_event_id
+      END,
+      last_exit_source_type = CASE
+        WHEN ${last_exit_event_at} IS NOT NULL
+         AND (last_exit_event_at IS NULL OR ${last_exit_event_at} &gt;= last_exit_event_at)
+          THEN ${last_exit_source_type}
+        ELSE last_exit_source_type
+      END,
+      last_exit_event_at = CASE
+        WHEN ${last_exit_event_at} IS NOT NULL
+         AND (last_exit_event_at IS NULL OR ${last_exit_event_at} &gt;= last_exit_event_at)
+          THEN ${last_exit_event_at}
+        ELSE last_exit_event_at
+      END,
+      role = CASE
+        WHEN ${role} &lt;&gt; 0 AND <include refid="participantRoleWins"/> THEN ${role}
+        ELSE role
+      END,
+      role_source = CASE
+        WHEN ${role} &lt;&gt; 0 AND <include refid="participantRoleWins"/> THEN ${role_source}
+        ELSE role_source
+      END,
+      role_observed_at = CASE
+        WHEN ${role} &lt;&gt; 0 AND <include refid="participantRoleWins"/>
+          THEN ${role_observed_at}
+        ELSE role_observed_at
+      END,
+      role_event_id = CASE
+        WHEN ${role} &lt;&gt; 0 AND <include refid="participantRoleWins"/> THEN ${role_event_id}
+        ELSE role_event_id
+      END,
+      last_snapshot_version = COALESCE(
+        ${last_snapshot_version}, last_snapshot_version
+      ),
+      updated_at = GREATEST(updated_at, ${updated_at})
+  </sql>
+
   <insert id="upsertParticipantFacts">
     INSERT INTO wa_group_participant (
       group_id, pn_jid, lid_jid, phone,
@@ -694,103 +805,63 @@
       )
     </foreach>
     ON DUPLICATE KEY UPDATE
-      <!--
-        身份列只补空、不覆盖。命中的行可能只持有 PN 或只持有 LID：WhatsApp 群成员列表已逐步
-        只返回 LID，而账号快照按 self PN 建行，同一个人因此会分成两行。协议本次给出另一个
-        身份时补进同一行，使两种身份收敛到一条成员记录（设计 §3.2 硬不变量 3）。
-        已有值一律保留，避免把已确认身份改写成另一个人的。
-      -->
-      pn_jid = COALESCE(pn_jid, VALUES(pn_jid)),
-      lid_jid = COALESCE(lid_jid, VALUES(lid_jid)),
-      phone = COALESCE(VALUES(phone), phone),
-      presence_status = CASE
-        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_status)
-        ELSE presence_status
-      END,
-      presence_source = CASE
-        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_source)
-        ELSE presence_source
-      END,
-      presence_event_id = CASE
-        WHEN <include refid="incomingPresenceWins"/> THEN VALUES(presence_event_id)
-        ELSE presence_event_id
-      END,
-      presence_observed_at = GREATEST(
-        COALESCE(presence_observed_at, VALUES(presence_observed_at)),
-        VALUES(presence_observed_at)
-      ),
-      last_joined_at = CASE
-        WHEN VALUES(last_join_event_at) IS NOT NULL
-         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
-          THEN VALUES(last_joined_at)
-        ELSE last_joined_at
-      END,
-      last_join_source_event_id = CASE
-        WHEN VALUES(last_join_event_at) IS NOT NULL
-         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
-          THEN VALUES(last_join_source_event_id)
-        ELSE last_join_source_event_id
-      END,
-      last_join_event_at = CASE
-        WHEN VALUES(last_join_event_at) IS NOT NULL
-         AND (last_join_event_at IS NULL OR VALUES(last_join_event_at) &gt;= last_join_event_at)
-          THEN VALUES(last_join_event_at)
-        ELSE last_join_event_at
-      END,
-      last_exited_at = CASE
-        WHEN VALUES(last_exit_event_at) IS NOT NULL
-         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
-          THEN VALUES(last_exited_at)
-        ELSE last_exited_at
-      END,
-      last_exit_type = CASE
-        WHEN VALUES(last_exit_event_at) IS NOT NULL
-         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
-          THEN VALUES(last_exit_type)
-        ELSE last_exit_type
-      END,
-      last_exit_source_event_id = CASE
-        WHEN VALUES(last_exit_event_at) IS NOT NULL
-         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
-          THEN VALUES(last_exit_source_event_id)
-        ELSE last_exit_source_event_id
-      END,
-      last_exit_source_type = CASE
-        WHEN VALUES(last_exit_event_at) IS NOT NULL
-         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
-          THEN VALUES(last_exit_source_type)
-        ELSE last_exit_source_type
-      END,
-      last_exit_event_at = CASE
-        WHEN VALUES(last_exit_event_at) IS NOT NULL
-         AND (last_exit_event_at IS NULL OR VALUES(last_exit_event_at) &gt;= last_exit_event_at)
-          THEN VALUES(last_exit_event_at)
-        ELSE last_exit_event_at
-      END,
-      role = CASE
-        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role)
-        ELSE role
-      END,
-      role_source = CASE
-        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_source)
-        ELSE role_source
-      END,
-      role_observed_at = CASE
-        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/>
-          THEN VALUES(role_observed_at)
-        ELSE role_observed_at
-      END,
-      role_event_id = CASE
-        WHEN VALUES(role) &lt;&gt; 0 AND <include refid="incomingRoleWins"/> THEN VALUES(role_event_id)
-        ELSE role_event_id
-      END,
-      last_snapshot_version = COALESCE(
-        VALUES(last_snapshot_version), last_snapshot_version
-      ),
-      updated_at = GREATEST(updated_at, VALUES(updated_at))
+    <include refid="participantFactAssignments">
+      <property name="pn_jid" value="VALUES(pn_jid)"/>
+      <property name="lid_jid" value="VALUES(lid_jid)"/>
+      <property name="phone" value="VALUES(phone)"/>
+      <property name="presence_status" value="VALUES(presence_status)"/>
+      <property name="presence_source" value="VALUES(presence_source)"/>
+      <property name="presence_event_id" value="VALUES(presence_event_id)"/>
+      <property name="presence_observed_at" value="VALUES(presence_observed_at)"/>
+      <property name="last_join_event_at" value="VALUES(last_join_event_at)"/>
+      <property name="last_joined_at" value="VALUES(last_joined_at)"/>
+      <property name="last_join_source_event_id" value="VALUES(last_join_source_event_id)"/>
+      <property name="last_exit_event_at" value="VALUES(last_exit_event_at)"/>
+      <property name="last_exited_at" value="VALUES(last_exited_at)"/>
+      <property name="last_exit_type" value="VALUES(last_exit_type)"/>
+      <property name="last_exit_source_event_id" value="VALUES(last_exit_source_event_id)"/>
+      <property name="last_exit_source_type" value="VALUES(last_exit_source_type)"/>
+      <property name="role" value="VALUES(role)"/>
+      <property name="role_source" value="VALUES(role_source)"/>
+      <property name="role_observed_at" value="VALUES(role_observed_at)"/>
+      <property name="role_event_id" value="VALUES(role_event_id)"/>
+      <property name="last_snapshot_version" value="VALUES(last_snapshot_version)"/>
+      <property name="updated_at" value="VALUES(updated_at)"/>
+    </include>
   </insert>
 
-  <select id="selectParticipantIdentityRowsForUpdate"
+  <update id="updateParticipantFactsById">
+    UPDATE wa_group_participant
+    SET <include refid="participantFactAssignments">
+      <property name="pn_jid" value="#{row.pnJid}"/>
+      <property name="lid_jid" value="#{row.lidJid}"/>
+      <property name="phone" value="#{row.phone}"/>
+      <property name="presence_status" value="#{row.presenceStatus}"/>
+      <property name="presence_source" value="#{row.presenceSource}"/>
+      <property name="presence_event_id" value="#{row.eventId}"/>
+      <property name="presence_observed_at" value="#{row.occurredAt}"/>
+      <property name="last_join_event_at" value="(CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.occurredAt} END)"/>
+      <property name="last_joined_at" value="#{row.lastJoinedAt}"/>
+      <property name="last_join_source_event_id" value="(CASE WHEN #{row.lastJoinedAt} IS NULL THEN NULL ELSE #{row.eventId} END)"/>
+      <property name="last_exit_event_at" value="(CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.occurredAt} END)"/>
+      <property name="last_exited_at" value="#{row.lastExitedAt}"/>
+      <property name="last_exit_type" value="#{row.lastExitType}"/>
+      <property name="last_exit_source_event_id" value="(CASE WHEN #{row.lastExitedAt} IS NULL THEN NULL ELSE #{row.eventId} END)"/>
+      <property name="last_exit_source_type" value="#{row.lastExitSourceType}"/>
+      <property name="role" value="COALESCE(#{row.role}, 0)"/>
+      <property name="role_source" value="#{row.roleSource}"/>
+      <property name="role_observed_at" value="#{row.roleObservedAt}"/>
+      <property name="role_event_id" value="#{row.roleEventId}"/>
+      <property name="last_snapshot_version" value="#{row.lastSnapshotVersion}"/>
+      <property name="updated_at" value="#{row.now}"/>
+    </include>
+    WHERE tenant_id = #{tenantId} AND group_id = #{row.groupId} AND id = #{participantId}
+      AND (#{row.pnJid} IS NULL OR pn_jid IS NULL OR pn_jid = #{row.pnJid})
+      AND (#{row.lidJid} IS NULL OR lid_jid IS NULL OR lid_jid = #{row.lidJid})
+      AND (#{row.phone} IS NULL OR phone IS NULL OR phone = #{row.phone})
+  </update>
+
+  <select id="selectParticipantIdentityRows"
           resultType="com.armada.group.model.dto.AccountGroupCurrentSnapshotRows$ParticipantIdentityRow">
     SELECT id, group_id AS groupId, pn_jid AS pnJid, lid_jid AS lidJid, phone
     FROM wa_group_participant
@@ -804,7 +875,6 @@
       </foreach>
       )
     ORDER BY group_id ASC, id ASC
-    FOR UPDATE
   </select>
 
   <update id="mergeSplitParticipantFacts">

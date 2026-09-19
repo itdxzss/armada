@@ -20,6 +20,16 @@ public enum HyperlinkRecipientStatus {
     /** 确认未开通 WhatsApp 的最终失败子类。 */
     UNREGISTERED(7, -1, true);
 
+    /** 原命令确认超时；运行任务可按用户确认的重复送达风险换号。 */
+    public static final String RESULT_TIMEOUT = "SEND_RESULT_TIMEOUT";
+    /** 账号封禁后的回执等待已到期。 */
+    public static final String BANNED_RESULT_TIMEOUT = "BANNED_SEND_RESULT_TIMEOUT";
+
+    /** 这两种原因的历史失败终态允许原命令的迟到成功纠正。 */
+    public static boolean isResultTimeout(String code) {
+        return RESULT_TIMEOUT.equals(code) || BANNED_RESULT_TIMEOUT.equals(code);
+    }
+
     private final int code;
     private final int rank;
     private final boolean terminalFailure;
@@ -36,9 +46,15 @@ public enum HyperlinkRecipientStatus {
 
     /** 面向租户的结果码，内部协议和账号错误留在后台诊断记录。 */
     public String businessCode(String internalCode) {
+        if ("WA_ACK_REJECTED_463".equals(internalCode)
+                && (this == FAILED || this == PENDING || this == SENDING)) {
+            return "WA_ACK_REJECTED_463";
+        }
         if (this == UNREGISTERED || this == FAILED && "INVALID_TARGET_JID".equals(internalCode)) {
             return "TARGET_UNAVAILABLE";
         }
+        if (this == FAILED && isResultTimeout(internalCode)) { return internalCode; }
+        if ((this == PENDING || this == SENDING) && isResultTimeout(internalCode)) { return "TIMEOUT_RETRY"; }
         if (this == FAILED) { return "INCOMPLETE"; }
         if (this == SENDING && "SEND_RESULT_UNKNOWN".equals(internalCode)) { return "RESULT_PENDING"; }
         if (this == PENDING && internalCode != null) { return "RECOVERY_PENDING"; }
@@ -50,9 +66,15 @@ public enum HyperlinkRecipientStatus {
         String business = businessCode(internalCode);
         if (business == null) { return null; }
         return switch (business) {
+            case "WA_ACK_REJECTED_463" -> this == FAILED
+                    ? "WhatsApp 拒绝发送"
+                    : "WhatsApp 拒绝发送（463），等待其他发信人重试；无可用发信人时等待资源";
             case "TARGET_UNAVAILABLE" -> "目标数据导致无法发送";
+            case RESULT_TIMEOUT -> "发送结果确认超时，已结束等待；实际发送结果未确认，不自动重发";
+            case BANNED_RESULT_TIMEOUT -> "账号封禁后回执超时，已结束等待；实际发送结果未确认，不自动重发";
             case "RESULT_PENDING" -> "结果确认中";
-            case "RECOVERY_PENDING" -> "等待恢复发送；任务暂停后可在修复完成时继续";
+            case "RECOVERY_PENDING" -> "等待发送条件恢复后继续重试";
+            case "TIMEOUT_RETRY" -> "原发送结果确认超时，等待其他发信人重试；可能重复送达";
             default -> "未完成";
         };
     }

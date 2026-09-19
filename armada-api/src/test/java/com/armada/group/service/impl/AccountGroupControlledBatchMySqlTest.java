@@ -130,7 +130,7 @@ class AccountGroupControlledBatchMySqlTest {
                         phone(id) + "@s.whatsapp.net", phone(id), id % 2 == 1, false, null))
                 .toList();
         tx.executeWithoutResult(status -> {
-            var group = persistence.lockGroupWriteBoundary(null, GROUP_JID);
+            var group = persistence.resolveGroupWriteContext(null, GROUP_JID);
             persistence.fillGroupCreatedAt(group, 100L);
             var written = persistence.replaceCompleteParticipantSnapshot(group, members, OBSERVED_AT, "profile-once");
             persistence.reconcileProfileSnapshotBindings(group, observations(15, OBSERVED_AT), written);
@@ -146,10 +146,10 @@ class AccountGroupControlledBatchMySqlTest {
         resetData();
         // 按上一版的调用顺序保留每一步重新解析群及绑定阶段成员补写，作为 SQL 对照。
         tx.executeWithoutResult(status -> {
-            persistence.lockGroupWriteBoundary(null, GROUP_JID);
-            persistence.fillGroupCreatedAt(persistence.lockGroupWriteBoundary(null, GROUP_JID), 100L);
+            persistence.resolveGroupWriteContext(null, GROUP_JID);
+            persistence.fillGroupCreatedAt(persistence.resolveGroupWriteContext(null, GROUP_JID), 100L);
             persistence.replaceCompleteParticipantSnapshot(
-                    persistence.lockGroupWriteBoundary(null, GROUP_JID), members, OBSERVED_AT, "profile-once");
+                    persistence.resolveGroupWriteContext(null, GROUP_JID), members, OBSERVED_AT, "profile-once");
             persistence.applyControlledParticipantObservations(GROUP_JID, observations(15, OBSERVED_AT));
         });
         int repeatedCount = recording.statements().size();
@@ -229,7 +229,7 @@ class AccountGroupControlledBatchMySqlTest {
         CountDownLatch attempted = new CountDownLatch(1);
         try {
             tx.executeWithoutResult(status -> {
-                mapper.selectGroupIdsByIdsForUpdate(TENANT_ID, List.of(GROUP_ID));
+                mapper.selectGroupIdsByIds(TENANT_ID, List.of(GROUP_ID));
                 mapper.selectControlledExistingAfterGroupLock(TENANT_ID, GROUP_ID, writes(1));
                 pending.set(executor.submit(() -> tx.execute(other -> {
                     attempted.countDown();
@@ -400,7 +400,7 @@ class AccountGroupControlledBatchMySqlTest {
     @Test
     void lockedContextCannotBeReusedUnderAnotherTenant() {
         tx.executeWithoutResult(status -> {
-            var group = persistence.lockGroupWriteBoundary(null, GROUP_JID);
+            var group = persistence.resolveGroupWriteContext(null, GROUP_JID);
             recording.reset();
             TenantContext.set(8L);
             try {
@@ -421,7 +421,7 @@ class AccountGroupControlledBatchMySqlTest {
 
     private Set<String> applyProfile(List<GroupParticipantResult> members, long at, String eventId) {
         return tx.execute(status -> {
-            var group = persistence.lockGroupWriteBoundary(null, GROUP_JID);
+            var group = persistence.resolveGroupWriteContext(null, GROUP_JID);
             var written = persistence.replaceCompleteParticipantSnapshot(group, members, at, eventId);
             List<ControlledObservation> accounts = members.stream().map(member -> {
                 long accountId = Long.parseLong(member.phone().substring(member.phone().length() - 2));

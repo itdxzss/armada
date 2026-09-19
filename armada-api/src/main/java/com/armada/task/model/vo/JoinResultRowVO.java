@@ -12,6 +12,9 @@ package com.armada.task.model.vo;
  * @param reason      失败原因码或摘要(原始库值)
  * @param reasonLabel 失败原因中文展示;成功或待执行时为空
  * @param isAdmin     是否已成管理员
+ * @param approvalStatus 待审核自动处理阶段，未触发时为空
+ * @param approvalReason 处理进度或明确失败说明
+ * @param approvalActorAccountId 关闭审核的原管理员，独立于提权执行者
  */
 public record JoinResultRowVO(
         String account,
@@ -19,5 +22,19 @@ public record JoinResultRowVO(
         String status,
         String reason,
         String reasonLabel,
-        boolean isAdmin) {
+        boolean isAdmin,
+        Long id,
+        String adminStatus,
+        String adminReason,
+        Long adminActorAccountId,
+        String stepStatus,
+        Long joinedAt,
+        Long promotedAt,
+        String cleanupStatus,
+        String cleanupReason,
+        int cleanupCompleted,
+        int cleanupTotal,
+        String approvalStatus,
+        String approvalReason,
+        Long approvalActorAccountId) {
 }

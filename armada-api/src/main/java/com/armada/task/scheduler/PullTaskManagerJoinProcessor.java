@@ -73,26 +73,18 @@ public class PullTaskManagerJoinProcessor {
             if (outcome == null) {
                 return PullTaskExecutionDispatchResult.DEFERRED;
             }
-        } catch (RuntimeException ex) {
-            outcome = exceptionOutcome(ex);
-            if (ex instanceof ProtocolException protocol) {
-                log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
-                                + "errorType={} errorCode={} protocolCode={} backend={} operation={} "
-                                + "operationId={} groupJid={} retryable={}",
-                        work.tenantId(), work.executionId(),
-                        work.payload().account().armadaAccountId(), ex.getClass().getSimpleName(),
-                        protocol.errorCode(), protocol.protocolCode().orElse(null),
-                        protocol.backend().map(Enum::name).orElse(null),
-                        protocol.operation().orElse(null), protocol.operationId().orElse(null),
-                        work.payload().knownGroupJid(), protocol.retryable().orElse(null));
-            } else {
-                // 非协议异常没有标准错误码，只打类名无法定位；带上栈供排查。
-                log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
-                                + "errorType={} groupJid={}",
-                        work.tenantId(), work.executionId(),
-                        work.payload().account().armadaAccountId(),
-                        ex.getClass().getSimpleName(), work.payload().knownGroupJid(), ex);
-            }
+        } catch (ProtocolException protocol) {
+            // 内部异常交给调度器记录并退避，不能将落库失败伪装成管理员在群未知。
+            outcome = exceptionOutcome(protocol);
+            log.warn("管理员踩链接或在群复核异常 tenantId={} executionId={} accountId={} "
+                            + "errorType={} errorCode={} protocolCode={} backend={} operation={} "
+                            + "operationId={} groupJid={} retryable={}",
+                    work.tenantId(), work.executionId(),
+                    work.payload().account().armadaAccountId(), protocol.getClass().getSimpleName(),
+                    protocol.errorCode(), protocol.protocolCode().orElse(null),
+                    protocol.backend().map(Enum::name).orElse(null),
+                    protocol.operation().orElse(null), protocol.operationId().orElse(null),
+                    work.payload().knownGroupJid(), protocol.retryable().orElse(null));
         }
         return transactions.complete(work, outcome, now);
     }
@@ -154,22 +146,22 @@ public class PullTaskManagerJoinProcessor {
                 PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());
     }
 
-    private static PullTaskManagerJoinOutcome exceptionOutcome(RuntimeException exception) {
-        if (exception instanceof ProtocolException protocol) {
-            ProtocolErrorCode code = protocol.errorCode();
-            if (code == ProtocolErrorCode.INVITE_INVALID
-                    || code == ProtocolErrorCode.INVITE_REVOKED
-                    || code == ProtocolErrorCode.INVALID_GROUP_LINK
-                    || code == ProtocolErrorCode.GROUP_UNAVAILABLE) {
-                return PullTaskManagerJoinOutcome.executionFailed(code.name());
-            }
-            if (code == ProtocolErrorCode.ACCOUNT_NOT_FOUND
-                    || code == ProtocolErrorCode.ACCOUNT_NOT_ONLINE
-                    || code == ProtocolErrorCode.NEED_REAUTH
-                    || code == ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED
-                    || code == ProtocolErrorCode.GROUP_JOIN_REJECTED) {
-                return PullTaskManagerJoinOutcome.managerFailed(code.name());
-            }
+    private static PullTaskManagerJoinOutcome exceptionOutcome(ProtocolException protocol) {
+        ProtocolErrorCode code = protocol.errorCode();
+        if (code == ProtocolErrorCode.INVITE_INVALID
+                || code == ProtocolErrorCode.INVITE_REVOKED
+                || code == ProtocolErrorCode.INVALID_GROUP_LINK
+                || code == ProtocolErrorCode.GROUP_BANNED
+                || code == ProtocolErrorCode.GROUP_FULL
+                || code == ProtocolErrorCode.GROUP_UNAVAILABLE) {
+            return PullTaskManagerJoinOutcome.executionFailed(code.name());
+        }
+        if (code == ProtocolErrorCode.ACCOUNT_NOT_FOUND
+                || code == ProtocolErrorCode.ACCOUNT_NOT_ONLINE
+                || code == ProtocolErrorCode.NEED_REAUTH
+                || code == ProtocolErrorCode.ACCOUNT_REACHOUT_RESTRICTED
+                || code == ProtocolErrorCode.GROUP_JOIN_REJECTED) {
+            return PullTaskManagerJoinOutcome.managerFailed(code.name());
         }
         return PullTaskManagerJoinOutcome.unconfirmed(
                 null, PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name());

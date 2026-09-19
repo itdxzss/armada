@@ -384,6 +384,26 @@ class AccountHyperlinkCandidateMapperH2Test {
     }
 
     @Test
+    void platformReachoutNoticeDoesNotPreventTryingOtherRecipients() throws SQLException {
+        execute("UPDATE account_state SET platform_message_restriction_active=1 "
+                + "WHERE tenant_id=7 AND account_id=3");
+        var query = new AccountHyperlinkCandidateQuery(
+                List.of(), List.of(), null, List.of(), List.of(), null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, null, null, null, null,
+                null, null, List.of("ANDROID", "WEB"), NOW);
+        assertThat(mapper.selectHyperlinkCandidates(7L, query, null, null, 20))
+                .extracting(AccountHyperlinkCandidateVO::accountId).contains(3L);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                assertThat(mapper.lockActiveForHyperlinkDispatch(7L, 3L)).isEqualTo(3L));
+        execute("UPDATE account_state SET fallback_message_restriction_until=" + (NOW + DAY)
+                + " WHERE tenant_id=7 AND account_id=3");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                assertThat(mapper.lockActiveForHyperlinkDispatch(7L, 3L)).isNull());
+    }
+
+    @Test
     void hyperlinkDispatchAccountRowLockSerializesConcurrentTasks() throws Exception {
         insertAccount(13, 7, "551243", 2, 1, 10, 20, "WEB", NOW - DAY, null);
         credential(13, 7, 3);
@@ -474,7 +494,8 @@ class AccountHyperlinkCandidateMapperH2Test {
         execute("""
                 CREATE TABLE account_state (
                   account_id BIGINT, tenant_id BIGINT, account_state INT,
-                  login_state INT, mute_status INT, PRIMARY KEY (tenant_id, account_id))
+                  login_state INT, mute_status INT, platform_message_restriction_active INT,
+                  fallback_message_restriction_until BIGINT, PRIMARY KEY (tenant_id, account_id))
                 """);
         execute("""
                 CREATE TABLE account_credential (
@@ -521,7 +542,7 @@ class AccountHyperlinkCandidateMapperH2Test {
 
     private void state(long accountId, long tenantId, int accountState, int loginState,
             Integer muteStatus) throws SQLException {
-        execute("INSERT INTO account_state VALUES (%d,%d,%d,%d,%s)"
+        execute("INSERT INTO account_state (account_id, tenant_id, account_state, login_state, mute_status) VALUES (%d,%d,%d,%d,%s)"
                 .formatted(accountId, tenantId, accountState, loginState,
                         muteStatus == null ? "NULL" : muteStatus));
     }

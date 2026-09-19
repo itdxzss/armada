@@ -9,6 +9,7 @@ import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.platform.protocol.model.result.GroupParticipantResult;
 import com.armada.platform.protocol.port.GroupMetadataPort;
 import com.armada.platform.protocol.routing.FixedAccountGroupMetadataBackend;
+import com.armada.platform.protocol.util.GroupCreatorPhones;
 import java.util.List;
 
 /**
@@ -80,8 +81,10 @@ public class HttpGroupMetadataAdapter
                 response.subject(),
                 response.desc(),
                 response.owner(),
+                GroupCreatorPhones.resolve(response.owner(), response.ownerPn(), participants),
                 response.creation(),
-                response.participants() != null,
+                response.participants() != null
+                        && (response.size() == null || response.size() == participants.size()),
                 response.announce(),
                 response.restrict(),
                 response.memberAddMode(),
@@ -158,6 +161,8 @@ public class HttpGroupMetadataAdapter
             String subject,
             String desc,
             String owner,
+            String ownerPn,
+            Integer size,
             Long creation,
             Boolean announce,
             Boolean restrict,

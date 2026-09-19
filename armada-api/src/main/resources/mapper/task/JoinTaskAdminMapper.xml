@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.JoinTaskAdminMapper">
+  <select id="scan" resultType="com.armada.task.model.dto.JoinTaskDispatchCandidate">
+    SELECT r.tenant_id AS tenantId, r.id AS resultId
+    FROM join_task_result r
+    JOIN join_task t ON t.id = r.join_task_id AND t.tenant_id = r.tenant_id
+    WHERE t.deleted_at IS NULL AND t.status = 'RUNNING' AND t.is_set_admin_enabled = 1
+      AND r.status = 'SUCCESS' AND r.admin_status IN (1, 2, 5)
+      AND r.admin_next_execute_at &lt;= #{now}
+    ORDER BY r.admin_next_execute_at, r.id LIMIT #{limit}
+  </select>
+  <select id="lock" resultMap="com.armada.task.mapper.JoinTaskResultMapper.resultRow">
+    SELECT * FROM join_task_result WHERE id = #{id} FOR UPDATE
+  </select>
+  <select id="find" resultMap="com.armada.task.mapper.JoinTaskResultMapper.resultRow">
+    SELECT * FROM join_task_result WHERE id = #{id}
+  </select>
+  <update id="update">
+    UPDATE join_task_result SET admin_status = #{adminStatus},
+      admin_command_id = #{adminCommandId}, admin_attempt_no = #{adminAttemptNo},
+      admin_actor_account_id = #{adminActorAccountId}, admin_next_execute_at = #{adminNextExecuteAt},
+      admin_deadline_at = #{adminDeadlineAt}, admin_reason = #{adminReason},
+      is_admin = #{admin}, promoted_at = #{promotedAt}, updated_at = #{updatedAt}
+    WHERE id = #{id} AND status = 'SUCCESS' AND admin_status IN (1, 2, 5)
+  </update>
+</mapper>

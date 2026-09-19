@@ -71,7 +71,7 @@ public record JoinTaskDetailVO(
         /** 已执行次数(引擎回写)。 */
         int executed,
 
-        /** 成功进群数(引擎回写)。 */
+        /** 完整步骤成功数(进群及所需管理员设置均成功)。 */
         int success,
 
         /** 失败数(引擎回写)。 */
@@ -90,5 +90,10 @@ public record JoinTaskDetailVO(
         Long createdAt,
 
         /** 更新时间(epoch 毫秒,UTC)。 */
-        Long updatedAt) {
+        Long updatedAt,
+
+        /** 进群成功后是否必须由原有管理员设置管理员。 */
+        boolean setAdminEnabled,
+        /** 提权成功后清空其他管理员并退出群组。 */
+        boolean clearAdminsAndLeaveEnabled) {
 }

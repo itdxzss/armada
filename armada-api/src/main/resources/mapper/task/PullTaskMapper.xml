@@ -169,17 +169,20 @@
     FOR UPDATE
   </select>
 
-  <!-- 条件 UPDATE 同时承担父任务串行化与槽位复核；不使用显式悲观锁查询。 -->
-  <update id="acquireExecutionSlot">
-    UPDATE pull_task
-    SET version = version + 1,
-        updated_at = #{claim.now}
+  <sql id="ExecutionSlotParentConditions">
     WHERE id = #{claim.candidate.taskId}
       AND deleted_at IS NULL
       AND task_type = #{claim.parent.taskType}
       AND mode = #{claim.parent.taskMode}
       AND status = #{claim.parent.taskStatus}
       AND version = #{claim.parent.expectedVersion}
+  </sql>
+
+  <!-- 必须是独立的普通 SELECT：UPDATE 的跨表子查询会在 RR 下锁住执行索引范围，
+       与封群事务更新旧执行并 INSERT 后继形成死锁。父版本和运行数使用同一快照。 -->
+  <select id="countAvailableExecutionSlot" resultType="int">
+    SELECT COUNT(*) FROM pull_task
+    <include refid="ExecutionSlotParentConditions"/>
       AND EXISTS (
         SELECT 1
         FROM pull_task_group_execution candidate_execution
@@ -200,6 +203,14 @@
           AND running_execution.id != #{claim.candidate.executionId}
           AND running_execution.execution_status = #{claim.policy.runningExecutionStatus}
       ) &lt; #{claim.policy.concurrentLimit}
+  </select>
+
+  <!-- CAS 只触及父任务主键行。竞争成功者在同一事务启动执行，失败者交由下一轮重试。 -->
+  <update id="advanceExecutionSlotVersion">
+    UPDATE pull_task
+    SET version = version + 1,
+        updated_at = #{claim.now}
+    <include refid="ExecutionSlotParentConditions"/>
   </update>
 
 </mapper>

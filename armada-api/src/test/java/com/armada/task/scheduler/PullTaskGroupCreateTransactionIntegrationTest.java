@@ -22,6 +22,9 @@ import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
+import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
@@ -76,7 +79,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
     void setUp() throws SQLException {
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(
-                dataSource, task(), standardSetting(), disabledGroupSetting(), execution());
+                dataSource, task(), standardSetting(), enabledGroupSetting(), execution());
         reset(accountLookup, groupRegistry, profileDispatcher);
         when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(16L))
                 .thenReturn(List.of(account(901L)));
@@ -138,9 +141,11 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 .isEqualTo(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
 
         PullTaskGroupExecution profileCandidate = reclaim(NOW + 2);
-        assertThat(transactions.applyProfile(
-                profileCandidate, PullTaskGroupCreateStep.CAPTURE_INVITE_LINK,
-                NOW + 5_000L, NOW + 2))
+        seedProfileAction(3, NOW);
+        var profile = transactions.prepareProfile(profileCandidate, 2_000L, NOW + 2);
+        assertThat(profile.ready()).isTrue();
+        assertThat(transactions.completeProfile(
+                profileCandidate, profile, metadata("完整简介"), NOW + 5_000L, NOW + 2))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(profileDispatcher).dispatchIfDue(
                 eq(profileCandidate), eq(com.armada.task.model.enums
@@ -160,9 +165,9 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 .isEqualTo("chat.whatsapp.com/Invite123");
 
         PullTaskGroupExecution settingsCandidate = reclaim(NOW + 4);
-        assertThat(transactions.applyProfile(
-                settingsCandidate, PullTaskGroupCreateStep.REGISTER_GROUP,
-                NOW + 7_000L, NOW + 4))
+        var finalCheck = transactions.prepareProfile(settingsCandidate, 2_000L, NOW + 4);
+        assertThat(transactions.completeProfile(
+                settingsCandidate, finalCheck, metadata("完整简介"), NOW + 7_000L, NOW + 4))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         when(groupRegistry.registerSelfBuiltGroup(
@@ -203,6 +208,129 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 .isEqualTo("ptgc:7:11");
         assertThat(stringColumn("reason_code", "pull_task_group_execution", 11L))
                 .isEqualTo("GROUP_CREATE_RESULT_UNCONFIRMED");
+    }
+
+    @Test
+    void submittedProfileDoesNotAdvanceUntilItsResultCanBeVerified() {
+        var candidate = profileCandidate(2, NOW);
+        var pending = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        assertThat(pending.ready()).isFalse();
+        assertThat(pending.completedResult()).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(intColumn("stage", "pull_task_group_execution", 11L)).isEqualTo(9);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_pull_call", Integer.class)).isZero();
+    }
+
+    @Test
+    void protocolSuccessWithWrongDescriptionNeverReleasesMaterialPulling() {
+        var candidate = profileCandidate(3, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        assertThat(ready.ready()).isTrue();
+        assertThat(transactions.completeProfile(candidate, ready, metadata("旧简介"), NOW + 35_000L, NOW + 31_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isOne();
+        assertThat(stringColumn("group_jid", "pull_task_group_execution", 11L)).isEqualTo("120363group@g.us");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_pull_call", Integer.class)).isZero();
+    }
+
+    @Test
+    void unknownProfileRequiresMatchingLiveMetadataAndKeepsUnknownActionFact() {
+        var candidate = profileCandidate(5, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"), NOW + 5_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(intColumn("action_status", "pull_task_account_action", 71L)).isEqualTo(5);
+        assertThat(stringColumn("profile_verified_command_id", "pull_task_group_execution", 11L)).isEqualTo("profile-1");
+        assertThat(longColumn("profile_verified_at", "pull_task_group_execution", 11L)).isEqualTo(NOW + 1);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(5);
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"), NOW + 5_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+    }
+
+    @Test
+    void expiredQueryAndLateAttemptCannotAdvanceTheExecution() {
+        var candidate = profileCandidate(3, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        jdbc.update("UPDATE pull_task_account_action SET command_id='new-attempt', attempt_no=2 WHERE id=71");
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"), NOW + 5_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+    }
+
+    @Test
+    void pausedOrCanceledExecutionCannotEnqueueAProfileCommand() {
+        var stale = profileCandidate(3, NOW);
+        jdbc.update("UPDATE pull_task_group_execution SET manual_paused=1,version=version+1 WHERE id=11");
+        org.mockito.Mockito.clearInvocations(profileDispatcher);
+        var result = transactions.prepareProfile(stale, 2_000L, NOW + 1);
+        assertThat(result.completedResult()).isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        org.mockito.Mockito.verifyNoInteractions(profileDispatcher);
+    }
+
+    @Test
+    void brokenActionIdentityPausesInsteadOfResettingItsTimeoutForever() {
+        var candidate = profileCandidate(2, NOW);
+        jdbc.update("UPDATE pull_task_account_action SET submitted_at=NULL WHERE id=71");
+        var result = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        assertThat(result.ready()).isFalse();
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isOne();
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+    }
+
+    @Test
+    void canceledActionAndExpiredLeaseCannotReleaseTheGate() {
+        var candidate = profileCandidate(3, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        jdbc.update("UPDATE pull_task_account_action SET action_status=6 WHERE id=71");
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"), NOW + 5_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        jdbc.update("UPDATE pull_task_account_action SET action_status=3 WHERE id=71");
+        jdbc.update("UPDATE pull_task_group_execution SET lock_expires_at=? WHERE id=11", NOW);
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"), NOW + 5_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+    }
+
+    @Test
+    void historicalRegisterStepWithoutEvidenceReturnsToVerificationWithoutRecreatingGroup() {
+        var candidate = profileCandidate(3, NOW);
+        jdbc.update("UPDATE pull_task_group_execution SET create_step=7 WHERE id=11");
+        assertThat(transactions.registerGroup(reclaim(NOW + 1), NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(6);
+        assertThat(stringColumn("group_jid", "pull_task_group_execution", 11L)).isEqualTo("120363group@g.us");
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+    }
+
+    @Test
+    void missingRequiredProfilePreventsCreatingAGroup() {
+        jdbc.update("UPDATE pull_task_standard_group_setting SET group_description=NULL WHERE task_id=1");
+        assertThat(transactions.prepareRoles(executionMapper.selectById(11L), NOW, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isOne();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_group_account", Integer.class)).isZero();
+    }
+
+    private PullTaskGroupExecution profileCandidate(int status, long submittedAt) {
+        transactions.prepareRoles(executionMapper.selectById(11L), NOW, 2_000L);
+        jdbc.update("UPDATE pull_task_group_execution SET create_step=4, group_jid='120363group@g.us' WHERE id=11");
+        seedProfileAction(status, submittedAt);
+        return reclaim(NOW + 31_000L);
+    }
+
+    private void seedProfileAction(int status, long submittedAt) {
+        long creatorRole = jdbc.queryForObject(
+                "SELECT id FROM pull_task_group_account WHERE group_execution_id=11 AND role_type=4", Long.class);
+        jdbc.update("INSERT INTO pull_task_account_action (id,tenant_id,task_id,group_execution_id,action_type,"
+                + "actor_group_account_id,target_group_account_id,action_status,command_id,attempt_no,submitted_at,created_at,updated_at)"
+                + " VALUES (71,7,1,11,7,?,?,?,'profile-1',1,?,100,100)", creatorRole, creatorRole, status, submittedAt);
+    }
+
+    private static GroupMetadataResult metadata(String description) {
+        return new GroupMetadataResult("120363group@g.us", "印度料子包", description,
+                null, null, null, false, null, null, null, null, null, null,
+                false, null, false, false, List.of());
     }
 
     private PullTaskGroupExecution reclaim(long now) {
@@ -266,12 +394,12 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 + "'管理', '拉手', '站台', '建群人', 100, 100)";
     }
 
-    private static String disabledGroupSetting() {
+    private static String enabledGroupSetting() {
         return "INSERT INTO pull_task_standard_group_setting "
                 + "(tenant_id, task_id, is_group_setting_enabled, setting_timing, group_name, "
-                + "is_material_filename_as_group_name, edit_permission_mode, mute_mode, "
+                + "group_description, is_material_filename_as_group_name, edit_permission_mode, mute_mode, "
                 + "link_permission_mode, disappearing_message_mode, created_at, updated_at) "
-                + "VALUES (7, 1, 0, 1, '配置群名', 0, 0, 0, 2, 0, 100, 100)";
+                + "VALUES (7, 1, 1, 1, '印度料子包', '完整简介', 0, 0, 0, 2, 0, 100, 100)";
     }
 
     private static String execution() {
@@ -307,7 +435,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                     "mapper/task/PullTaskGroupExecutionMapper.xml",
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskStandardSettingMapper.xml",
-                    "mapper/task/PullTaskStandardGroupSettingMapper.xml");
+                    "mapper/task/PullTaskStandardGroupSettingMapper.xml", "mapper/task/PullTaskAccountActionMapper.xml");
         }
 
         @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
@@ -351,13 +479,19 @@ class PullTaskGroupCreateTransactionIntegrationTest {
             return mock(PullTaskGroupProfileDispatcher.class);
         }
 
+        @Bean PullTaskAccountActionMapper actionMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskAccountActionMapper.class);
+        }
+
+        @Bean FixedAccountGroupMetadataPort metadataPort() { return mock(FixedAccountGroupMetadataPort.class); }
+
         @Bean PullTaskGroupCreatePersistence persistence(
                 PullTaskStandardSettingMapper settingMapper,
                 PullTaskStandardGroupSettingMapper groupSettingMapper,
                 PullTaskGroupExecutionMapper executionMapper,
-                PullTaskGroupAccountMapper accountMapper) {
+                PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper) {
             return new PullTaskGroupCreatePersistence(
-                    settingMapper, groupSettingMapper, executionMapper, accountMapper);
+                    settingMapper, groupSettingMapper, executionMapper, accountMapper, actionMapper);
         }
 
         @Bean PullTaskGroupCreateResources resources(
@@ -365,10 +499,10 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 GroupCreatePort groupCreatePort,
                 GroupInvitePort groupInvitePort,
                 GroupLinkRegistryService groupRegistry,
-                PullTaskGroupProfileDispatcher profileDispatcher) {
+                PullTaskGroupProfileDispatcher profileDispatcher, FixedAccountGroupMetadataPort metadataPort) {
             return new PullTaskGroupCreateResources(
                     accountLookup, groupCreatePort, groupInvitePort,
-                    groupRegistry, profileDispatcher);
+                    groupRegistry, profileDispatcher, metadataPort);
         }
 
         @Bean PullTaskGroupCreateTransactionService transactions(

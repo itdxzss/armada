@@ -1,6 +1,7 @@
 package com.armada.task.scheduler;
 
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
@@ -12,5 +13,6 @@ public record PullTaskGroupCreatePersistence(
         PullTaskStandardSettingMapper settingMapper,
         PullTaskStandardGroupSettingMapper groupSettingMapper,
         PullTaskGroupExecutionMapper executionMapper,
-        PullTaskGroupAccountMapper accountMapper) {
+        PullTaskGroupAccountMapper accountMapper,
+        PullTaskAccountActionMapper actionMapper) {
 }

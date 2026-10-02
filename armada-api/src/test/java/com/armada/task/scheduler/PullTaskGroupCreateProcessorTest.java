@@ -1,8 +1,13 @@
 package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
@@ -13,6 +18,8 @@ import com.armada.platform.protocol.model.command.GroupCreateCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
+import com.armada.platform.protocol.model.result.GroupMetadataResult;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.task.model.dto.PullTaskExecutionLease;
@@ -36,10 +43,12 @@ class PullTaskGroupCreateProcessorTest {
     private final PullTaskGroupCreateTransactionService groupTransactions =
             mock(PullTaskGroupCreateTransactionService.class);
     private final GroupCreatePort groupCreatePort = mock(GroupCreatePort.class);
+    private final FixedAccountGroupMetadataPort metadataPort = mock(FixedAccountGroupMetadataPort.class);
     private final PullTaskGroupCreateResources resources = new PullTaskGroupCreateResources(
             mock(AccountProtocolLookupService.class), groupCreatePort,
             mock(GroupInvitePort.class), mock(GroupLinkRegistryService.class),
-            mock(PullTaskGroupProfileDispatcher.class));
+            mock(PullTaskGroupProfileDispatcher.class),
+            metadataPort);
     private final PullTaskExecutionDispatchProperties properties =
             new PullTaskExecutionDispatchProperties();
     private final PullTaskGroupCreateProcessor processor = new PullTaskGroupCreateProcessor(
@@ -102,6 +111,63 @@ class PullTaskGroupCreateProcessorTest {
                 org.mockito.ArgumentMatchers.eq(NOW));
         assertThat(failure.getValue().errorCode())
                 .isEqualTo(ProtocolErrorCode.GROUP_CREATE_RESULT_UNCONFIRMED);
+    }
+
+    @Test
+    void inFlightProfileDoesNotQueryOrAdvance() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setCreateStep(PullTaskGroupCreateStep.APPLY_PROFILE.code());
+        prepareLease(candidate);
+        when(groupTransactions.prepareProfile(candidate, 2_000L, NOW)).thenReturn(
+                PullTaskGroupCreateTransactionService.ProfilePreparation.completed(
+                        PullTaskExecutionDispatchResult.DEFERRED));
+
+        assertThat(processor.process(candidate, "worker", NOW))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verifyNoInteractions(metadataPort);
+    }
+
+    @Test
+    void queriesFixedCreatorMetadataBeforeCompletingProfile() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setCreateStep(PullTaskGroupCreateStep.APPLY_BEFORE_PULL_SETTINGS.code());
+        candidate.setGroupJid("120363group@g.us");
+        prepareLease(candidate);
+        var prepared = new PullTaskGroupCreateTransactionService.ProfilePreparation(
+                command().account(), 3L, "profile-command", 1, "群名", "简介", NOW, null);
+        GroupMetadataResult metadata = new GroupMetadataResult(
+                candidate.getGroupJid(), "群名", "简介", null, null, null,
+                false, null, null, null, null, null, null, false, null, false, false, List.of());
+        when(groupTransactions.prepareProfile(candidate, 2_000L, NOW)).thenReturn(prepared);
+        when(metadataPort.getMetadata(prepared.account(), candidate.getGroupJid())).thenReturn(metadata);
+        when(groupTransactions.completeProfile(eq(candidate), eq(prepared), eq(metadata), anyLong(), anyLong()))
+                .thenReturn(PullTaskExecutionDispatchResult.ADVANCED);
+
+        assertThat(processor.process(candidate, "worker", NOW))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        var order = inOrder(groupTransactions, metadataPort);
+        order.verify(groupTransactions).prepareProfile(candidate, 2_000L, NOW);
+        order.verify(metadataPort).getMetadata(prepared.account(), candidate.getGroupJid());
+        order.verify(groupTransactions).completeProfile(eq(candidate), eq(prepared), eq(metadata), anyLong(), anyLong());
+    }
+
+    @Test
+    void metadataFailurePassesUnconfirmedEvidenceToGate() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setCreateStep(PullTaskGroupCreateStep.APPLY_PROFILE.code());
+        candidate.setGroupJid("120363group@g.us");
+        prepareLease(candidate);
+        var prepared = new PullTaskGroupCreateTransactionService.ProfilePreparation(
+                command().account(), 3L, "profile-command", 1, "群名", "简介", NOW, null);
+        when(groupTransactions.prepareProfile(candidate, 2_000L, NOW)).thenReturn(prepared);
+        when(metadataPort.getMetadata(prepared.account(), candidate.getGroupJid()))
+                .thenThrow(new IllegalStateException("query unavailable"));
+        when(groupTransactions.completeProfile(eq(candidate), eq(prepared), isNull(), anyLong(), anyLong()))
+                .thenReturn(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(processor.process(candidate, "worker", NOW))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        verify(groupTransactions).completeProfile(eq(candidate), eq(prepared), isNull(), anyLong(), anyLong());
     }
 
     private void prepareLease(PullTaskGroupExecution candidate) {

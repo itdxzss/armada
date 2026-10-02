@@ -163,6 +163,9 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
      */
     private static String subject(
             PullTaskStandardGroupSetting setting, PullTaskGroupExecution execution) {
+        if (execution.getCreateStep() != null) {
+            return trimToNull(execution.getGroupSubject());
+        }
         boolean useMaterialFileName = setting.getMaterialFilenameAsGroupName() != null
                 && setting.getMaterialFilenameAsGroupName() == MATERIAL_FILENAME_AS_GROUP_NAME;
         return useMaterialFileName

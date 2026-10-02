@@ -4,6 +4,7 @@ import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
+import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import org.springframework.stereotype.Component;
 
@@ -14,5 +15,6 @@ public record PullTaskGroupCreateResources(
         GroupCreatePort groupCreatePort,
         GroupInvitePort invitePort,
         GroupLinkRegistryService groupRegistry,
-        PullTaskGroupProfileDispatcher profileDispatcher) {
+        PullTaskGroupProfileDispatcher profileDispatcher,
+        FixedAccountGroupMetadataPort metadataPort) {
 }

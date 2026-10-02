@@ -21,6 +21,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCom
 import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
@@ -616,6 +617,31 @@ public class ProtocolCommandOutboxServiceImpl
 
     /** {@inheritDoc} */
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupProfileCommands(
+            List<ProtocolPullTaskGroupProfileCommandRequest> commands) {
+        validatePullTaskGroupProfileCommands(commands);
+        long now = System.currentTimeMillis();
+        List<String> commandIds = new ArrayList<>(commands.size());
+        List<ProtocolCommandOutbox> rows = new ArrayList<>(commands.size());
+        Set<String> uniqueCommandIds = new HashSet<>(commands.size());
+        for (ProtocolPullTaskGroupProfileCommandRequest command : commands) {
+            String commandId = newCommandId();
+            if (!uniqueCommandIds.add(commandId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "协议命令 ID 重复: " + commandId);
+            }
+            commandIds.add(commandId);
+            rows.add(toPullTaskGroupProfileOutboxRow(command, commandId, now));
+        }
+        Long firstTaskId = commands.get(0).pullTaskId();
+        String commonBatchId = commands.stream()
+                .allMatch(command -> firstTaskId.equals(command.pullTaskId()))
+                ? pullTaskBatchId(firstTaskId) : null;
+        return insertPendingRows(commonBatchId, commandIds, rows);
+    }
+
+    /** {@inheritDoc} */
+    @Override
     public ProtocolCommandOutboxEnqueueResult enqueuePullTaskManagerAdminCommands(
             List<ProtocolPullTaskManagerAdminCommandRequest> commands) {
         validatePullTaskManagerAdminCommands(commands);
@@ -1169,6 +1195,30 @@ public class ProtocolCommandOutboxServiceImpl
         row.setBatchId(pullTaskBatchId(command.pullTaskId()));
         row.setCommandType(COMMAND_TYPE_GROUP_SETTINGS_REQUESTED);
         row.setAggregateType(AGGREGATE_TYPE_PULL_TASK_ACCOUNT_ACTION);
+        row.setAggregateId(command.actionId());
+        row.setKafkaTopic(command.manager().backend() == ProtocolBackend.ANDROID
+                ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
+        row.setKafkaKey(command.manager().protocolAccountId());
+        row.setProtocolAccountId(command.manager().protocolAccountId());
+        row.setProtocolBackend(command.manager().backend().name());
+        row.setPayloadJson(payloadJson(command.reference()));
+        row.setStatus(ProtocolCommandOutboxStatus.PENDING.code());
+        row.setRetryCount(0);
+        row.setNextRetryAt(IMMEDIATE_RETRY_AT);
+        row.setCreatedAt(now);
+        row.setUpdatedAt(now);
+        return row;
+    }
+
+    /** 群资料引用必须进入资料执行器，不能复用权限单项命令。 */
+    private ProtocolCommandOutbox toPullTaskGroupProfileOutboxRow(
+            ProtocolPullTaskGroupProfileCommandRequest command, String commandId, long now) {
+        ProtocolCommandOutbox row = new ProtocolCommandOutbox();
+        row.setTenantId(command.tenantId());
+        row.setCommandId(commandId);
+        row.setBatchId(pullTaskBatchId(command.pullTaskId()));
+        row.setCommandType(ProtocolPullTaskGroupProfileCommandRequest.COMMAND_TYPE);
+        row.setAggregateType(ProtocolPullTaskGroupProfileCommandRequest.AGGREGATE_TYPE);
         row.setAggregateId(command.actionId());
         row.setKafkaTopic(command.manager().backend() == ProtocolBackend.ANDROID
                 ? androidCommandProperties.getGroupActionTopic() : masterCommandProperties.getTopic());
@@ -1848,6 +1898,25 @@ public class ProtocolCommandOutboxServiceImpl
                     || isBlank(command.manager().protocolAccountId())
                     || isBlank(command.manager().wsPhone())) {
                 throw new BusinessException(ErrorCode.VALIDATION, "普通拉群群设置协议命令字段非法");
+            }
+        }
+    }
+
+    /** 校验群资料命令的租户、动作关联和执行账号。 */
+    private void validatePullTaskGroupProfileCommands(
+            List<ProtocolPullTaskGroupProfileCommandRequest> commands) {
+        if (commands == null || commands.isEmpty() || commands.size() > MAX_COMMANDS_PER_BATCH) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群资料协议命令数量非法");
+        }
+        Long tenantId = TenantContext.get();
+        for (ProtocolPullTaskGroupProfileCommandRequest command : commands) {
+            if (command == null || command.tenantId() == null || !command.tenantId().equals(tenantId)
+                    || command.pullTaskId() == null || command.pullTaskId() <= 0
+                    || command.groupExecutionId() == null || command.groupExecutionId() <= 0
+                    || command.actionId() == null || command.actionId() <= 0
+                    || command.manager() == null || command.manager().armadaAccountId() <= 0
+                    || isBlank(command.manager().protocolAccountId()) || isBlank(command.manager().wsPhone())) {
+                throw new BusinessException(ErrorCode.VALIDATION, "群资料协议命令字段非法或租户不一致");
             }
         }
     }

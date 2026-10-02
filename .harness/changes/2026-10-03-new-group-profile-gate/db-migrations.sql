@@ -1,0 +1,4 @@
+-- 正式迁移由 Flyway 按顺序执行，禁止以本文件手工 ALTER 共享库。
+-- V210: armada-api/src/main/resources/db/migration/V210__pull_task_interval_range.sql
+-- V209: armada-api/src/main/resources/db/migration/V209__pull_task_group_profile_verification.sql
+-- V209 无历史数据回填：已有执行步骤、已入队命令和 HTTP 成功均不能生成核验证据。

@@ -17,6 +17,7 @@ public record PullTaskStandardSettingVO(
         int pullCountMin,
         int pullCountMax,
         int pullIntervalSeconds,
+        int pullIntervalMaxSeconds,
         int pullerCountPerGroup,
         int stationCountPerCall,
         int concurrentGroupCount,

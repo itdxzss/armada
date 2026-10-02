@@ -8,6 +8,10 @@ import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
 import com.armada.platform.protocol.model.result.GroupInviteResult;
+import com.armada.platform.protocol.model.result.GroupMetadataResult;
+import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskGroupCreateTransition;
@@ -41,6 +45,7 @@ public class PullTaskGroupCreateTransactionService {
 
     private static final int INITIAL_SOURCE = 1;
     private static final int GROUP_SUBJECT_MAX_LENGTH = 100;
+    private static final long PROFILE_RESULT_TIMEOUT_MS = 30_000L;
     private static final Set<String> PARTICIPANT_SUCCESS =
             Set.of("OK", "SUCCESS", "ALREADY_IN", "200");
     private static final Set<ProtocolErrorCode> DEFINITELY_NOT_CREATED = EnumSet.of(
@@ -71,7 +76,7 @@ public class PullTaskGroupCreateTransactionService {
             PullTaskStandardGroupSetting groupSetting =
                     persistence.groupSettingMapper().selectByTaskId(candidate.getTaskId());
             if (setting == null || setting.getCreatorGroupId() == null
-                    || setting.getManagerGroupId() == null) {
+                    || setting.getManagerGroupId() == null || !validProfileSetting(groupSetting)) {
                 return pauseInvalid(candidate, now);
             }
 
@@ -245,28 +250,130 @@ public class PullTaskGroupCreateTransactionService {
         });
     }
 
-    /** 步骤 4/6：复用既有群资料命令，并推进到下一个持久化步骤。 */
+    /** 步骤 4/6：事务内提交资料命令；在途等待，结果返回后允许事务外读取真实群资料。 */
     @Transactional(rollbackFor = Exception.class)
-    public PullTaskExecutionDispatchResult applyProfile(
-            PullTaskGroupExecution candidate,
-            PullTaskGroupCreateStep targetStep,
-            long nextRunAt,
-            long now) {
+    public ProfilePreparation prepareProfile(PullTaskGroupExecution candidate, long retryDelayMs, long now) {
         return withTenant(candidate.getTenantId(), () -> {
-            PullTaskGroupCreateTransition transition = transition(
-                    candidate,
-                    PullTaskExecutionStatus.EXECUTING.code(),
-                    PullTaskExecutionStage.GROUP_CREATE.code(),
-                    targetStep.code(),
-                    null, null, null, null, null, null, null,
-                    null, null, null, nextRunAt, now);
-            if (persistence.executionMapper().transitionGroupCreate(transition) != 1) {
+            PullTaskGroupExecution current = persistence.executionMapper().selectByIdForUpdate(candidate.getId());
+            if (current == null || !Objects.equals(current.getVersion(), candidate.getVersion())
+                    || !Objects.equals(current.getLockOwner(), candidate.getLockOwner())
+                    || !Objects.equals(current.getExecutionStatus(), PullTaskExecutionStatus.EXECUTING.code())
+                    || !Objects.equals(current.getStage(), PullTaskExecutionStage.GROUP_CREATE.code())
+                    || !Objects.equals(current.getCreateStep(), candidate.getCreateStep())
+                    || Integer.valueOf(1).equals(current.getManualPaused())
+                    || current.getLockExpiresAt() == null || current.getLockExpiresAt() <= now
+                    || step(current) != PullTaskGroupCreateStep.APPLY_PROFILE
+                    && step(current) != PullTaskGroupCreateStep.APPLY_BEFORE_PULL_SETTINGS) {
+                return ProfilePreparation.completed(PullTaskExecutionDispatchResult.LOST);
+            }
+            PullTaskStandardGroupSetting setting = persistence.groupSettingMapper()
+                    .selectByTaskId(candidate.getTaskId());
+            if (!validProfileSetting(setting) || !hasText(candidate.getGroupJid())
+                    || !Objects.equals(candidate.getGroupSubject(), setting.getGroupName().trim())) {
+                return ProfilePreparation.completed(pauseInvalid(candidate, now));
+            }
+            resources.profileDispatcher().dispatchIfDue(candidate, PullTaskGroupSettingTiming.BEFORE_PULL, now);
+            PullTaskAccountAction action = persistence.actionMapper().selectByExecutionAndType(
+                    candidate.getId(), PullTaskAccountActionType.APPLY_GROUP_SETTINGS.code())
+                    .stream().findFirst().orElse(null);
+            if (action == null) {
+                return ProfilePreparation.completed(defer(candidate,
+                        PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE, now + retryDelayMs, now));
+            }
+            if (!hasText(action.getCommandId()) || !verifiableProfileAction(action)) {
+                return ProfilePreparation.completed(pauseProfile(candidate, now));
+            }
+            long submittedAt = action.getSubmittedAt();
+            if (Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code())
+                    && now < submittedAt + PROFILE_RESULT_TIMEOUT_MS) {
+                return ProfilePreparation.completed(defer(candidate,
+                        PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, now + retryDelayMs, now));
+            }
+            PullTaskGroupAccount actor = persistence.accountMapper().selectById(action.getActorGroupAccountId());
+            ProtocolAccountRef account = actor == null ? null : resources.accountLookup()
+                    .findActiveProtocolRef(actor.getAccountId()).orElse(null);
+            if (account == null) {
+                return ProfilePreparation.completed(defer(candidate,
+                        PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE, now + retryDelayMs, now));
+            }
+            return new ProfilePreparation(account, action.getId(), action.getCommandId(),
+                    action.getAttemptNo(), candidate.getGroupSubject(), setting.getGroupDescription().trim(),
+                    submittedAt, null);
+        });
+    }
+
+    /** 真实群名、简介与冻结值全部相符才推进；超时读不到或不一致时保留同一群暂停。 */
+    @Transactional(rollbackFor = Exception.class)
+    public PullTaskExecutionDispatchResult completeProfile(
+            PullTaskGroupExecution candidate, ProfilePreparation prepared,
+            GroupMetadataResult metadata, long nextRunAt, long now) {
+        return withTenant(candidate.getTenantId(), () -> {
+            PullTaskAccountAction action = persistence.actionMapper().selectByCommandId(prepared.commandId());
+            if (action == null || !verifiableProfileAction(action)
+                    || !Objects.equals(action.getId(), prepared.actionId())
+                    || !Objects.equals(action.getGroupExecutionId(), candidate.getId())
+                    || Objects.equals(action.getActionStatus(), PullTaskActionStatus.CANCELED.code())
+                    || !Objects.equals(action.getCommandId(), prepared.commandId())
+                    || !Objects.equals(action.getAttemptNo(), prepared.attemptNo())) {
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            resources.profileDispatcher().dispatchIfDue(
-                    candidate, PullTaskGroupSettingTiming.BEFORE_PULL, now);
-            return PullTaskExecutionDispatchResult.ADVANCED;
+            boolean confirmed = metadata != null && !metadata.stateAbnormal()
+                    && Objects.equals(candidate.getGroupJid(), metadata.groupJid())
+                    && Objects.equals(prepared.subject(), metadata.subject())
+                    && Objects.equals(prepared.description(), metadata.description());
+            if (!confirmed) {
+                if (now < prepared.submittedAt() + PROFILE_RESULT_TIMEOUT_MS) {
+                    return defer(candidate, PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, nextRunAt, now);
+                }
+                return pauseProfile(candidate, now);
+            }
+            PullTaskGroupCreateStep target = step(candidate) == PullTaskGroupCreateStep.APPLY_PROFILE
+                    ? PullTaskGroupCreateStep.CAPTURE_INVITE_LINK : PullTaskGroupCreateStep.REGISTER_GROUP;
+            PullTaskGroupCreateTransition transition = transition(candidate,
+                    PullTaskExecutionStatus.EXECUTING.code(), PullTaskExecutionStage.GROUP_CREATE.code(),
+                    target.code(), null, null, null, null, null, null, null,
+                    null, null, null, nextRunAt, now).withProfileVerification(prepared.commandId());
+            return persistence.executionMapper().transitionGroupCreate(transition) == 1
+                    ? PullTaskExecutionDispatchResult.ADVANCED : PullTaskExecutionDispatchResult.LOST;
         });
+    }
+
+    private PullTaskExecutionDispatchResult pauseProfile(PullTaskGroupExecution candidate, long now) {
+        PullTaskExecutionReasonCode reason = PullTaskExecutionReasonCode.GROUP_PROFILE_VERIFICATION_FAILED;
+        PullTaskGroupCreateTransition transition = transition(candidate,
+                PullTaskExecutionStatus.EXECUTING.code(), PullTaskExecutionStage.GROUP_CREATE.code(),
+                step(candidate).code(), null, null, null, null, null, null, null,
+                1, reason.name(), reason.message(), now, now);
+        return persistence.executionMapper().transitionGroupCreate(transition) == 1
+                ? PullTaskExecutionDispatchResult.DEFERRED : PullTaskExecutionDispatchResult.LOST;
+    }
+
+    private static boolean validProfileSetting(PullTaskStandardGroupSetting setting) {
+        return setting != null && Integer.valueOf(1).equals(setting.getGroupSettingEnabled())
+                && Integer.valueOf(PullTaskGroupSettingTiming.BEFORE_PULL.code()).equals(setting.getSettingTiming())
+                && !Integer.valueOf(1).equals(setting.getMaterialFilenameAsGroupName())
+                && hasText(setting.getGroupName()) && setting.getGroupName().trim().length() <= GROUP_SUBJECT_MAX_LENGTH
+                && hasText(setting.getGroupDescription()) && setting.getGroupDescription().trim().length() <= 1024;
+    }
+
+    private static boolean verifiableProfileAction(PullTaskAccountAction action) {
+        return action.getActionStatus() != null && Set.of(PullTaskActionStatus.SUBMITTED.code(),
+                PullTaskActionStatus.SUCCESS.code(), PullTaskActionStatus.FAILED.code(),
+                PullTaskActionStatus.UNKNOWN.code()).contains(action.getActionStatus())
+                && action.getAttemptNo() != null && action.getAttemptNo() > 0
+                && action.getSubmittedAt() != null && action.getSubmittedAt() > 0;
+    }
+
+    /** 一次事务外资料核验绑定的不可变动作身份，防止旧查询覆盖新尝试。 */
+    public record ProfilePreparation(
+            ProtocolAccountRef account, Long actionId, String commandId, Integer attemptNo,
+            String subject, String description, long submittedAt, PullTaskExecutionDispatchResult completedResult) {
+        /** 只有已提交且可核验的动作才能读取群 metadata。 */
+        public boolean ready() { return account != null; }
+        /** 在途、资源缺失或配置错误不调用协议查询。 */
+        public static ProfilePreparation completed(PullTaskExecutionDispatchResult result) {
+            return new ProfilePreparation(null, null, null, null, null, null, 0L, result);
+        }
     }
 
     /** 步骤 5 调用前解析固定建群人协议身份。 */
@@ -351,6 +458,17 @@ public class PullTaskGroupCreateTransactionService {
             PullTaskGroupExecution candidate,
             long now) {
         return withTenant(candidate.getTenantId(), () -> {
+            if (candidate.getProfileVerifiedAt() == null || candidate.getProfileVerifiedAt() <= 0
+                    || !hasText(candidate.getProfileVerifiedCommandId())) {
+                PullTaskExecutionReasonCode reason = PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED;
+                PullTaskGroupCreateTransition verification = transition(candidate,
+                        PullTaskExecutionStatus.EXECUTING.code(), PullTaskExecutionStage.GROUP_CREATE.code(),
+                        PullTaskGroupCreateStep.APPLY_BEFORE_PULL_SETTINGS.code(),
+                        null, null, null, null, null, null, null, null,
+                        reason.name(), reason.message(), now, now);
+                return persistence.executionMapper().transitionGroupCreate(verification) == 1
+                        ? PullTaskExecutionDispatchResult.DEFERRED : PullTaskExecutionDispatchResult.LOST;
+            }
             List<PullTaskGroupAccount> creators = roles(
                     candidate.getId(), PullTaskGroupAccountRole.PROMOTER);
             if (creators.size() != 1 || !hasText(candidate.getGroupJid())
@@ -544,29 +662,9 @@ public class PullTaskGroupCreateTransactionService {
     }
 
     private static String groupSubject(
-            PullTaskGroupExecution candidate,
-            PullTaskStandardGroupSetting setting) {
-        String configured = setting != null
-                && Integer.valueOf(1).equals(setting.getGroupSettingEnabled())
-                && !Integer.valueOf(1).equals(setting.getMaterialFilenameAsGroupName())
-                ? trimToNull(setting.getGroupName()) : null;
-        String subject = configured == null
-                ? fileStem(candidate.getSourceFileName()) : configured;
-        if (!hasText(subject)) {
-            subject = "新群-" + value(candidate.getSeq());
-        }
-        String trimmed = subject.trim();
-        return trimmed.length() <= GROUP_SUBJECT_MAX_LENGTH
-                ? trimmed : trimmed.substring(0, GROUP_SUBJECT_MAX_LENGTH);
-    }
-
-    private static String fileStem(String fileName) {
-        String value = trimToNull(fileName);
-        if (value == null) {
-            return null;
-        }
-        return value.toLowerCase(Locale.ROOT).endsWith(".txt")
-                ? value.substring(0, value.length() - 4) : value;
+            PullTaskGroupExecution candidate, PullTaskStandardGroupSetting setting) {
+        // prepareRoles 已校验必填及长度；冻结后禁止重算文件名或静默截断。
+        return setting.getGroupName().trim();
     }
 
     private static String normalizeInvite(GroupInviteResult result) {
@@ -625,7 +723,7 @@ public class PullTaskGroupCreateTransactionService {
                 targetExecutionStatus, targetStage, targetStep,
                 operationId, attemptCount, groupSubject, groupJid,
                 normalizedLink, inviteCode, groupLinkId, manualPaused,
-                reasonCode, reasonMessage, nextRunAt, now);
+                reasonCode, reasonMessage, nextRunAt, now, null);
     }
 
     private static PullTaskGroupCreateStep step(PullTaskGroupExecution candidate) {

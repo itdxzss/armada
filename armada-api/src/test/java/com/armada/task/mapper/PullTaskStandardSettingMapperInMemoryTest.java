@@ -62,6 +62,7 @@ class PullTaskStandardSettingMapperInMemoryTest {
         assertThat(saved.getPullCountMin()).isEqualTo(3);
         assertThat(saved.getPullCountMax()).isEqualTo(8);
         assertThat(saved.getPullIntervalSeconds()).isEqualTo(30);
+        assertThat(saved.getPullIntervalMaxSeconds()).isEqualTo(45);
         assertThat(saved.getPullerCountPerGroup()).isEqualTo(2);
         assertThat(saved.getStationCountPerCall()).isEqualTo(2);
         assertThat(saved.getConcurrentGroupCount()).isEqualTo(1);
@@ -141,6 +142,7 @@ class PullTaskStandardSettingMapperInMemoryTest {
         row.setPullCountMin(3);
         row.setPullCountMax(8);
         row.setPullIntervalSeconds(30);
+        row.setPullIntervalMaxSeconds(45);
         row.setPullerCountPerGroup(2);
         row.setStationCountPerCall(2);
         row.setConcurrentGroupCount(1);

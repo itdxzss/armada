@@ -69,6 +69,12 @@ public class PullTaskGroupExecution {
     /** 本执行行最终用于建群的群名称。 */
     private String groupSubject;
 
+    /** 最近一次回读确认必填群名、简介与任务要求一致的时间；不代表可选设置全部成功。 */
+    private Long profileVerifiedAt;
+
+    /** 与必填资料核验绑定的群资料命令 ID；历史执行行未核验时为空。 */
+    private String profileVerifiedCommandId;
+
     /** 是否人工暂停：0 否 1 是；与资源等待独立。 */
     private Integer manualPaused;
 
@@ -321,6 +327,22 @@ public class PullTaskGroupExecution {
 
     public void setGroupSubject(String groupSubject) {
         this.groupSubject = groupSubject;
+    }
+
+    public Long getProfileVerifiedAt() {
+        return profileVerifiedAt;
+    }
+
+    public void setProfileVerifiedAt(Long profileVerifiedAt) {
+        this.profileVerifiedAt = profileVerifiedAt;
+    }
+
+    public String getProfileVerifiedCommandId() {
+        return profileVerifiedCommandId;
+    }
+
+    public void setProfileVerifiedCommandId(String profileVerifiedCommandId) {
+        this.profileVerifiedCommandId = profileVerifiedCommandId;
     }
 
     public Integer getManualPaused() {

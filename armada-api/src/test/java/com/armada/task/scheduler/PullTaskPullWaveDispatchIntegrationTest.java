@@ -51,6 +51,8 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -114,6 +116,82 @@ class PullTaskPullWaveDispatchIntegrationTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void verifiedNewGroupCanSubmitMaterials() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='NEW_GROUP' WHERE id=100");
+        execute("UPDATE pull_task_group_execution SET profile_verified_at=900, "
+                + "profile_verified_command_id='verified-profile-command' WHERE id=" + executionId);
+
+        PullTaskGroupExecution candidate = claim("worker-1", 1_000L, 6_000L);
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getManualPaused()).isZero();
+        assertThat(callMapper.selectByExecution(executionId).stream()
+                .filter(call -> call.getSubmittedAt() != null).count()).isOne();
+        org.mockito.Mockito.verify(outboxService).enqueuePullTaskBatchAddCommands(anyList());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "profile_verified_at=NULL, profile_verified_command_id=NULL",
+            "profile_verified_at=0, profile_verified_command_id='cmd-old'",
+            "profile_verified_at=900, profile_verified_command_id='   '"
+    })
+    void unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String proofColumns) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='NEW_GROUP' WHERE id=100");
+        execute("UPDATE pull_task_group_execution SET " + proofColumns + " WHERE id=" + executionId);
+        PullTaskGroupExecution candidate = claim("worker-1", 1_000L, 6_000L);
+
+        processor.process(candidate, "worker-1", 1_000L);
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution paused = executionMapper.selectById(executionId);
+        assertThat(paused.getManualPaused()).isOne();
+        assertThat(paused.getReasonCode()).isEqualTo("GROUP_PROFILE_UNCONFIRMED");
+        assertThat(paused.getStage()).isEqualTo(PullTaskExecutionStage.PULL_EXECUTION.code());
+        assertThat(paused.getGroupJid()).isEqualTo("120363group@g.us");
+        assertThat(paused.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(paused.getLockOwner()).isNull();
+        assertThat(callMapper.selectByExecution(executionId)).allSatisfy(call -> {
+            assertThat(call.getCommandId()).isNull();
+            assertThat(call.getSubmittedAt()).isNull();
+        });
+        assertThat(materialMapper.selectByExecution(executionId))
+                .allSatisfy(member -> assertThat(member.getPullStatus())
+                        .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code()));
+        verifyNoInteractions(outboxService);
+    }
+
+    @Test
+    void persistsRandomGroupIntervalAndDoesNotResampleBeforeTheFrozenDeadline() throws SQLException {
+        execute("UPDATE pull_task_standard_setting SET pull_interval_seconds=10, "
+                + "pull_interval_max_seconds=15 WHERE task_id=100");
+        PullTaskGroupExecution first = claim("worker-1", 1_000L, 6_000L);
+        assertThat(processor.process(first, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        PullTaskPullWave wave = waveMapper.selectActiveByExecution(executionId,
+                List.of(PullTaskPullWaveStatus.DISPATCHING.code()));
+        long deadline = wave.getNextDispatchAt();
+        assertThat(deadline).isBetween(11_000L, 16_000L);
+        assertThat(executionMapper.selectById(executionId).getNextRunAt()).isEqualTo(deadline);
+
+        waveProgress.wakeCollecting(7L, executionId, wave.getId(), deadline - 1L);
+
+        assertThat(waveMapper.selectById(wave.getId()).getNextDispatchAt()).isEqualTo(deadline);
+        assertThat(executionMapper.selectById(executionId).getNextRunAt()).isEqualTo(deadline);
+        assertThat(callMapper.selectByExecution(executionId).stream()
+                .filter(call -> call.getSubmittedAt() != null).count()).isOne();
+        PullTaskGroupExecution second = claim("worker-2", deadline, deadline + 5_000L);
+        assertThat(processor.process(second, "worker-2", deadline))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        assertThat(waveMapper.selectById(wave.getId()).getNextDispatchAt())
+                .isBetween(deadline + 10_000L, deadline + 15_000L);
     }
 
     @Test

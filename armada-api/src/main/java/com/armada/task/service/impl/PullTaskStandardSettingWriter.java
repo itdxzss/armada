@@ -66,6 +66,8 @@ public class PullTaskStandardSettingWriter {
         setting.setPullCountMin(request.pullCountMin());
         setting.setPullCountMax(request.pullCountMax());
         setting.setPullIntervalSeconds(request.pullIntervalSeconds());
+        setting.setPullIntervalMaxSeconds(request.pullIntervalMaxSeconds() == null
+                ? request.pullIntervalSeconds() : request.pullIntervalMaxSeconds());
         setting.setPullerCountPerGroup(request.pullerCountPerGroup());
         setting.setStationCountPerCall(request.stationCountPerCall());
         setting.setInitialStationCount(initialStationCount(request));

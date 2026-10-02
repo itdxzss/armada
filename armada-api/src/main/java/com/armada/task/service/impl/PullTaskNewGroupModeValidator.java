@@ -3,7 +3,9 @@ package com.armada.task.service.impl;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.model.dto.PullTaskStandardCreateDTO;
+import com.armada.task.model.dto.PullTaskStandardGroupSettingDTO;
 import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 
 /**
  * 新群模式创建入参的专属校验。
@@ -15,6 +17,13 @@ import com.armada.task.model.enums.PullTaskCreationMode;
  * 牵动既有测试的装配代码。</p>
  */
 public final class PullTaskNewGroupModeValidator {
+
+    private static final int GROUP_NAME_MAX_LENGTH = 100;
+    private static final int GROUP_DESCRIPTION_MAX_LENGTH = 1024;
+    private static final int PULL_COUNT_MIN = 1;
+    private static final int PULL_COUNT_MAX = 3;
+    private static final int INTERVAL_MIN_SECONDS = 10;
+    private static final int INTERVAL_MAX_SECONDS = 15;
 
     /** 工具类不实例化；测试为可读性保留 new，故构造器不设为 private。 */
     PullTaskNewGroupModeValidator() {
@@ -49,6 +58,47 @@ public final class PullTaskNewGroupModeValidator {
         if (initialStationCount > 0 && request.stationGroupId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "建群初始站台数量大于 0 时必须选择站台分组");
+        }
+        validateProfile(request.groupSetting());
+        validatePullParameters(request);
+    }
+
+    private static void validateProfile(PullTaskStandardGroupSettingDTO setting) {
+        if (setting == null || !Boolean.TRUE.equals(setting.enabled())
+                || setting.settingTiming() != PullTaskGroupSettingTiming.BEFORE_PULL) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "新群模式必须开启群信息设置，并在拉人前设置成功");
+        }
+        if (Boolean.TRUE.equals(setting.useMaterialFileNameAsGroupName())) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式必须填写群名称，不能使用料子文件名");
+        }
+        if (setting.groupName() == null || setting.groupName().trim().isEmpty()
+                || setting.groupName().trim().length() > GROUP_NAME_MAX_LENGTH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "新群模式群名称长度需在 1-" + GROUP_NAME_MAX_LENGTH + " 字符之间");
+        }
+        if (setting.groupDescription() == null || setting.groupDescription().trim().isEmpty()
+                || setting.groupDescription().trim().length() > GROUP_DESCRIPTION_MAX_LENGTH) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "新群模式群描述长度需在 1-" + GROUP_DESCRIPTION_MAX_LENGTH + " 字符之间");
+        }
+    }
+
+    private static void validatePullParameters(PullTaskStandardCreateDTO request) {
+        if (request.earlyPullCallCount() == null || request.earlyPullCallCount() != 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式从首次调用起使用人数范围，前期固定次数必须为 0");
+        }
+        if (request.pullCountMin() == null || request.pullCountMax() == null
+                || request.pullCountMin() < PULL_COUNT_MIN || request.pullCountMax() > PULL_COUNT_MAX
+                || request.pullCountMin() > request.pullCountMax()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式单次拉人数必须在 1-3 人范围内");
+        }
+        Integer minimum = request.pullIntervalSeconds();
+        Integer maximum = request.pullIntervalMaxSeconds() == null
+                ? minimum : request.pullIntervalMaxSeconds();
+        if (minimum == null || minimum < INTERVAL_MIN_SECONDS
+                || maximum > INTERVAL_MAX_SECONDS || maximum < minimum) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式拉人间隔必须在 10-15 秒范围内");
         }
     }
 

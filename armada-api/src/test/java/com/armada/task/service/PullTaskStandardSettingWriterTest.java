@@ -68,6 +68,8 @@ class PullTaskStandardSettingWriterTest {
         assertThat(saved.getPullerJoinByLink()).isEqualTo(1);
         assertThat(saved.getEarlyPullCount()).isEqualTo(1);
         assertThat(saved.getEarlyPullCallCount()).isEqualTo(2);
+        assertThat(saved.getPullIntervalSeconds()).isEqualTo(30);
+        assertThat(saved.getPullIntervalMaxSeconds()).isEqualTo(30);
         assertThat(saved.getManagerGroupName()).isEqualTo("管理组");
         assertThat(saved.getPullerGroupName()).isEqualTo("拉手组");
         assertThat(saved.getStationGroupId()).isNull();
@@ -180,6 +182,7 @@ class PullTaskStandardSettingWriterTest {
         when(request.pullCountMin()).thenReturn(3);
         when(request.pullCountMax()).thenReturn(8);
         when(request.pullIntervalSeconds()).thenReturn(30);
+        when(request.pullIntervalMaxSeconds()).thenReturn(null);
         when(request.pullerCountPerGroup()).thenReturn(2);
         when(request.stationCountPerCall()).thenReturn(stationCount);
         when(request.concurrentGroupCount()).thenReturn(1);

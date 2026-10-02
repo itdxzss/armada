@@ -576,7 +576,7 @@ class ProtocolGroupEventConsumerTest {
                 "manager-901:group.action_result_reported:cmd-contact-1",
                 7L, 100L, 11L, 601L, "pull_task_contact_save", "CONTACT_SAVE",
                 901L, "manager-901", "cmd-contact-1", 1, "SUCCESS",
-                null, "", "", false, 1782712801000L, "worker-a"));
+                null, "", "", false, 1782712801000L, "worker-a", null));
     }
 
     @Test
@@ -641,7 +641,7 @@ class ProtocolGroupEventConsumerTest {
                 7L, 100L, 11L, 701L, "pull_task_puller_invite", "PARTICIPANT_ADD",
                 901L, "manager-901", "cmd-invite-1", 1, "UNKNOWN",
                 "8613800000902@s.whatsapp.net", "PARTICIPANT_ADD_TIMEOUT", "timed out",
-                true, 5_000L, "worker-a"));
+                true, 5_000L, "worker-a", null));
     }
 
     @Test
@@ -673,7 +673,7 @@ class ProtocolGroupEventConsumerTest {
                 "manager-901:group.action_result_reported:cmd-admin-1",
                 7L, 100L, 11L, 601L, "pull_task_material_admin", "PARTICIPANT_PROMOTE",
                 901L, "manager-901", "cmd-admin-1", 1, "SUCCESS",
-                "8613900000001@s.whatsapp.net", "", "", false, 5_000L, "worker-a"));
+                "8613900000001@s.whatsapp.net", "", "", false, 5_000L, "worker-a", null));
     }
 
     @Test
@@ -706,7 +706,27 @@ class ProtocolGroupEventConsumerTest {
                 7L, 100L, 11L, 711L, "pull_task_manager_admin", "PARTICIPANT_PROMOTE",
                 903L, "promoter-903", "cmd-promote-2", 2, "FAILED",
                 "15@s.whatsapp.net", "GROUP_PERMISSION_DENIED", "raw",
-                false, 5_000L, "worker-a"));
+                false, 5_000L, "worker-a", null));
+    }
+
+    @Test
+    void onMessage_groupProfileResultPreservesDescriptionFailure() {
+        onMessage("""
+                {"eventId":"profile-failure","event":"group.action_result_reported",
+                 "accountId":"manager-901","workerId":"worker-a","data":{
+                   "tenantId":7,"pullTaskId":100,"groupExecutionId":11,"actionId":811,
+                   "source":"pull_task_group_profile","operation":"GROUP_PROFILE_APPLY",
+                   "accountId":901,"protocolAccountId":"manager-901","commandId":"cmd-profile-1",
+                   "attemptNo":2,"outcome":"UNKNOWN","retryable":true,"timestamp":5000,
+                   "failedItem":"DESCRIPTION","reasonCode":"GROUP_DESCRIPTION_SET_FAILED",
+                   "reasonMessage":"description rejected"}}
+                """);
+        ArgumentCaptor<ProtocolGroupActionResultReportedEvent> captor =
+                ArgumentCaptor.forClass(ProtocolGroupActionResultReportedEvent.class);
+        verify(actionResultSink).handleActionResultReported(captor.capture());
+        assertThat(captor.getValue().source()).isEqualTo("pull_task_group_profile");
+        assertThat(captor.getValue().failedItem()).isEqualTo("DESCRIPTION");
+        assertThat(captor.getValue().reasonCode()).isEqualTo("GROUP_DESCRIPTION_SET_FAILED");
     }
 
     @Test
@@ -737,7 +757,7 @@ class ProtocolGroupEventConsumerTest {
                 "manager-901:group.action_result_reported:cmd-settings-1",
                 7L, 100L, 11L, 811L, "pull_task_group_settings", "GROUP_SETTINGS_APPLY",
                 901L, "manager-901", "cmd-settings-1", 2, "SUCCESS",
-                null, null, null, false, 5_000L, "worker-a"));
+                null, null, null, false, 5_000L, "worker-a", null));
     }
 
     @Test
@@ -767,7 +787,7 @@ class ProtocolGroupEventConsumerTest {
                 "owner-901:group.action_result_reported:cmd-leave-1",
                 7L, 100L, 11L, 903L, "pull_task_creator_leave", "GROUP_LEAVE",
                 901L, "owner-901", "cmd-leave-1", 1, "SUCCESS",
-                null, null, null, false, 5_000L, "worker-a"));
+                null, null, null, false, 5_000L, "worker-a", null));
     }
 
     @Test

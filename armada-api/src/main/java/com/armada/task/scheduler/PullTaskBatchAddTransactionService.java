@@ -25,6 +25,8 @@ import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -54,10 +56,11 @@ public class PullTaskBatchAddTransactionService {
     private static final Logger log = LoggerFactory.getLogger(
             PullTaskBatchAddTransactionService.class);
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final long MILLIS_PER_SECOND = 1_000L;
     private static final String LATE_PARTICIPANT_SUCCESS = "LATE_PARTICIPANT_SUCCESS";
     private static final String RETRY_LIMIT_REACHED = "RETRY_LIMIT_REACHED";
     private static final String EMPTY_PLANNED_CALL = "EMPTY_PLANNED_CALL";
+    private static final int NOT_PAUSED = 0;
+    private static final int PAUSED = 1;
 
     private final PullTaskMapper taskMapper;
     private final PullTaskStandardSettingMapper settingMapper;
@@ -179,6 +182,11 @@ public class PullTaskBatchAddTransactionService {
             release(candidate.getId(), lockOwner, now);
             return Optional.empty();
         }
+        if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isNewGroup()
+                && !hasVerifiedProfile(execution)) {
+            pauseUnverifiedProfile(execution, now);
+            return Optional.empty();
+        }
         PullTaskStandardSetting setting = settingMapper.selectByTaskId(execution.getTaskId());
         if (setting == null) {
             release(execution.getId(), lockOwner, now);
@@ -192,6 +200,28 @@ public class PullTaskBatchAddTransactionService {
             return Optional.empty();
         }
         return Optional.of(new DispatchPlan(execution, call, wave, setting, scope.get()));
+    }
+
+    private static boolean hasVerifiedProfile(PullTaskGroupExecution execution) {
+        return execution.getProfileVerifiedAt() != null && execution.getProfileVerifiedAt() > 0
+                && execution.getProfileVerifiedCommandId() != null
+                && !execution.getProfileVerifiedCommandId().isBlank();
+    }
+
+    private void pauseUnverifiedProfile(PullTaskGroupExecution execution, long now) {
+        PullTaskGroupExecution pause = new PullTaskGroupExecution();
+        pause.setId(execution.getId());
+        pause.setVersion(execution.getVersion());
+        pause.setLockOwner(execution.getLockOwner());
+        pause.setManualPaused(PAUSED);
+        pause.setReasonCode(PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED.name());
+        pause.setReasonMessage(PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED.message());
+        pause.setUpdatedAt(now);
+        if (resources.persistence().executionMapper().pauseUnverifiedProfileClaimed(
+                pause, PullTaskExecutionStatus.EXECUTING.code(),
+                PullTaskExecutionStage.PULL_EXECUTION.code(), NOT_PAUSED) != 1) {
+            release(execution.getId(), execution.getLockOwner(), now);
+        }
     }
 
     private boolean skipEmptyPlan(DispatchPlan plan, long now) {
@@ -230,12 +260,8 @@ public class PullTaskBatchAddTransactionService {
     }
 
     private long nextSubmissionAt(PullTaskStandardSetting setting, long now) {
-        long intervalMs = Math.multiplyExact(
-                Math.max(0L, setting.getPullIntervalSeconds() == null
-                        ? 0L : setting.getPullIntervalSeconds().longValue()),
-                MILLIS_PER_SECOND);
         return Math.max(
-                Math.addExact(now, intervalMs),
+                PullTaskPullIntervalPolicy.nextSubmissionAt(setting, now),
                 resources.delayPolicy().nextSideEffectAt(now));
     }
 

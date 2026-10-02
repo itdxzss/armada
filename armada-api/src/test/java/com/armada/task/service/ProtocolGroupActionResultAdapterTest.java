@@ -15,6 +15,7 @@ import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
 import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
 import com.armada.task.model.dto.PullTaskManagerAdminCallback;
 import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
+import com.armada.task.model.enums.PullTaskGroupSettingItem;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskMaterialAdminProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
@@ -47,7 +48,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "event-leave-1", 7L, 100L, 11L, 903L,
                 "pull_task_creator_leave", "PARTICIPANT_PROMOTE", 901L, "owner-901",
                 "cmd-promote-1", 1, "SUCCESS", "919000000082@s.whatsapp.net",
-                null, null, false, 5_000L, "worker-a");
+                null, null, false, 5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -66,7 +67,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "event-leave-2", 7L, 100L, 11L, 904L,
                 "pull_task_creator_leave", "GROUP_LEAVE", 901L, "owner-901",
                 "cmd-leave-1", 1, "FAILED", null,
-                "GROUP_LEAVE_FAILED", "failed", false, 5_001L, "worker-a");
+                "GROUP_LEAVE_FAILED", "failed", false, 5_001L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -80,13 +81,28 @@ class ProtocolGroupActionResultAdapterTest {
     }
 
     @Test
+    void groupProfileEventPreservesItsFailureItemAndProtocolReason() {
+        adapter.handleActionResultReported(new ProtocolGroupActionResultReportedEvent(
+                "profile-event", 7L, 100L, 11L, 811L,
+                "pull_task_group_profile", "GROUP_PROFILE_APPLY", 901L, "manager-901",
+                "cmd-profile-1", 2, "UNKNOWN", null,
+                "GROUP_DESCRIPTION_SET_FAILED", "description rejected", true, 5_000L, "worker-a", "DESCRIPTION"));
+        ArgumentCaptor<PullTaskGroupSettingsCallback> captor =
+                ArgumentCaptor.forClass(PullTaskGroupSettingsCallback.class);
+        verify(groupSettingsResultService).apply(captor.capture());
+        assertThat(captor.getValue().failedItem()).isEqualTo(PullTaskGroupSettingItem.DESCRIPTION);
+        assertThat(captor.getValue().reasonCode()).isEqualTo("GROUP_DESCRIPTION_SET_FAILED");
+        assertThat(captor.getValue().outcome()).isEqualTo(PullTaskGroupSettingsProtocolOutcome.UNKNOWN);
+    }
+
+    @Test
     void groupSettingsEventRoutesToGroupSettingsStateMachine() {
         // 群设置结果没有 targetJid：它改的是群属性，不针对任何成员。
         ProtocolGroupActionResultReportedEvent event = new ProtocolGroupActionResultReportedEvent(
                 "event-9", 7L, 100L, 11L, 811L,
                 "pull_task_group_settings", "GROUP_SETTINGS_APPLY", 901L, "manager-901",
                 "cmd-settings-1", 2, "FAILED", null,
-                "GROUP_PERMISSION_DENIED", "denied", false, 5_000L, "worker-a");
+                "GROUP_PERMISSION_DENIED", "denied", false, 5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -105,7 +121,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "event-1", 7L, 100L, 11L, 601L,
                 "pull_task_contact_save", "CONTACT_SAVE", 901L, "manager-901",
                 "cmd-contact-1", 1, "UNKNOWN", null, "ACCOUNT_BUSY", "busy",
-                true, 5_000L, "worker-a");
+                true, 5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -123,7 +139,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "event-2", 7L, 100L, 11L, 701L,
                 "pull_task_puller_invite", "PARTICIPANT_ADD", 901L, "manager-901",
                 "cmd-invite-1", 1, "UNKNOWN", "8613800000902@s.whatsapp.net",
-                "PARTICIPANT_ADD_TIMEOUT", "timed out", true, 5_000L, "worker-a");
+                "PARTICIPANT_ADD_TIMEOUT", "timed out", true, 5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -143,7 +159,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "pull_task_material_admin", "PARTICIPANT_PROMOTE", 901L, "manager-901",
                 "cmd-admin-1", 1, "UNKNOWN", "8613900000001@s.whatsapp.net",
                 "MATERIAL_ADMIN_PERMISSION_UNCONFIRMED", "unconfirmed", true,
-                5_000L, "worker-a");
+                5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 
@@ -163,7 +179,7 @@ class ProtocolGroupActionResultAdapterTest {
                 "event-4", 7L, 100L, 11L, 711L,
                 "pull_task_manager_admin", "PARTICIPANT_PROMOTE", 903L, "promoter-903",
                 "cmd-promote-2", 2, "FAILED", "15@s.whatsapp.net",
-                "GROUP_PERMISSION_DENIED", "raw", false, 5_000L, "worker-a");
+                "GROUP_PERMISSION_DENIED", "raw", false, 5_000L, "worker-a", null);
 
         adapter.handleActionResultReported(event);
 

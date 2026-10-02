@@ -18,6 +18,8 @@ public class PullTaskStandardSetting {
     private Integer pullCountMin;
     private Integer pullCountMax;
     private Integer pullIntervalSeconds;
+    /** 同群拉人随机间隔上限；历史 NULL 按 pullIntervalSeconds 固定间隔。 */
+    private Integer pullIntervalMaxSeconds;
     private Integer pullerCountPerGroup;
     private Integer stationCountPerCall;
     /** 建群时作为初始成员加入的站台数量；默认 0 对齐列的 NOT NULL DEFAULT 0。 */
@@ -70,6 +72,8 @@ public class PullTaskStandardSetting {
     public void setPullCountMax(Integer pullCountMax) { this.pullCountMax = pullCountMax; }
     public Integer getPullIntervalSeconds() { return pullIntervalSeconds; }
     public void setPullIntervalSeconds(Integer value) { this.pullIntervalSeconds = value; }
+    public Integer getPullIntervalMaxSeconds() { return pullIntervalMaxSeconds; }
+    public void setPullIntervalMaxSeconds(Integer value) { this.pullIntervalMaxSeconds = value; }
     public Integer getPullerCountPerGroup() { return pullerCountPerGroup; }
     public void setPullerCountPerGroup(Integer value) { this.pullerCountPerGroup = value; }
     public Integer getStationCountPerCall() { return stationCountPerCall; }

@@ -17,6 +17,8 @@ import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
@@ -44,22 +46,26 @@ public class PullTaskPullerInviteTransactionService {
     private final PullTaskGroupAccountMapper groupAccountMapper;
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskPullerInviteResources resources;
+    private final PullTaskParentCompletionService completionService;
 
     /**
      * @param taskMapper         父任务 Mapper
      * @param groupAccountMapper 执行行角色账号 Mapper
      * @param actionMapper       账号动作 Mapper
      * @param resources          执行行与账号域依赖
+     * @param completionService  群失败后换群并聚合父任务终态
      */
     public PullTaskPullerInviteTransactionService(
             PullTaskMapper taskMapper,
             PullTaskGroupAccountMapper groupAccountMapper,
             PullTaskAccountActionMapper actionMapper,
-            PullTaskPullerInviteResources resources) {
+            PullTaskPullerInviteResources resources,
+            PullTaskParentCompletionService completionService) {
         this.taskMapper = taskMapper;
         this.groupAccountMapper = groupAccountMapper;
         this.actionMapper = actionMapper;
         this.resources = resources;
+        this.completionService = completionService;
     }
 
     /** 在短事务内按拉手冻结的进群方式预写并提交一条入群动作。 */
@@ -77,9 +83,19 @@ public class PullTaskPullerInviteTransactionService {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            List<PullTaskGroupAccount> pullers = availablePullers(candidate.getId());
             List<PullTaskAccountAction> linkActions = linkActions(candidate.getId());
-            if (!pullers.isEmpty() && hasSubmitted(linkActions)) {
+            if (directEntry(candidate) && linkActions.stream().anyMatch(action -> Objects.equals(
+                    action.getActionStatus(), PullTaskActionStatus.PENDING_APPROVAL.code()))) {
+                return stopApprovalRequiredGroup(candidate, now);
+            }
+            if (directEntry(candidate)) {
+                resources.pullerAllocation().allocateDirectPullers(candidate, now);
+            }
+            List<PullTaskGroupAccount> pullers = availablePullers(candidate.getId());
+            boolean unresolvedDirectJoin = directEntry(candidate) && linkActions.stream().anyMatch(action ->
+                    Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code())
+                            || Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code()));
+            if (hasSubmitted(linkActions) && (directEntry(candidate) || !pullers.isEmpty())) {
                 return deferLinkSubmitted(candidate, linkActions, pullers, now);
             }
             PullerSelection linkSelection = nextLinkPuller(
@@ -87,15 +103,25 @@ public class PullTaskPullerInviteTransactionService {
             if (linkSelection != null) {
                 ProtocolAccountRef pullerRef = activePullerRef(linkSelection.puller());
                 if (pullerRef == null) {
+                    if (unresolvedDirectJoin) {
+                        return deferLinkSubmitted(candidate, linkActions, pullers, now);
+                    }
                     return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
                             PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
                 }
                 return submitLink(candidate, linkSelection, pullerRef, now);
             }
+            if (unresolvedDirectJoin) {
+                return deferLinkSubmitted(candidate, linkActions, pullers, now);
+            }
             boolean hasManagerInvitePuller = pullers.stream()
                     .anyMatch(PullTaskPullerInviteTransactionService::requiresManagerInvite);
             if (!pullers.isEmpty() && !hasManagerInvitePuller) {
                 return finishInvites(candidate, pullers, now);
+            }
+            if (directEntry(candidate)) {
+                return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
+                        PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
             }
             ManagerPool managerPool = managerPool(candidate.getId());
             if (managerPool.managers().isEmpty()) {
@@ -179,13 +205,13 @@ public class PullTaskPullerInviteTransactionService {
         }
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(candidate.getStage());
         update.setNextManagerIndex((managerIndex + 1) % pool.managers().size());
         update.setNextPullerIndex((selection.index() + 1) % selection.poolSize());
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             throw new IllegalStateException("拉手邀请提交后执行行租约已变化");
         }
         return PullTaskExecutionDispatchResult.DEFERRED;
@@ -197,7 +223,10 @@ public class PullTaskPullerInviteTransactionService {
             ProtocolAccountRef account,
             long now) {
         PullTaskGroupAccount target = selection.puller();
-        PullTaskAccountAction action = insertLinkAction(candidate, target.getId(), now);
+        PullTaskAccountAction action = linkActions(candidate.getId()).stream()
+                .filter(row -> Objects.equals(row.getTargetGroupAccountId(), target.getId()))
+                .filter(row -> Objects.equals(row.getActionStatus(), PullTaskActionStatus.PENDING.code()))
+                .findFirst().orElseGet(() -> insertLinkAction(candidate, target.getId(), now));
         ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
                 .enqueuePullTaskGroupJoinCommands(List.of(
                         new ProtocolPullTaskGroupJoinCommandRequest(
@@ -211,12 +240,12 @@ public class PullTaskPullerInviteTransactionService {
         }
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(candidate.getStage());
         update.setNextPullerIndex((selection.index() + 1) % selection.poolSize());
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             throw new IllegalStateException("拉手踩链接提交后执行行租约已变化");
         }
         return PullTaskExecutionDispatchResult.DEFERRED;
@@ -285,7 +314,7 @@ public class PullTaskPullerInviteTransactionService {
             long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(candidate.getStage());
         update.setNextManagerIndex(nextManagerAfterLastAction(
                 actions, managers, candidate.getNextManagerIndex()));
         update.setNextPullerIndex(nextPullerAfterLastAction(
@@ -293,7 +322,7 @@ public class PullTaskPullerInviteTransactionService {
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
         return PullTaskExecutionDispatchResult.DEFERRED;
@@ -306,7 +335,14 @@ public class PullTaskPullerInviteTransactionService {
             long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(candidate.getStage());
+        if (directEntry(candidate)) {
+            PullTaskExecutionReasonCode reason = candidate.getGroupJid() == null || candidate.getGroupJid().isBlank()
+                    ? PullTaskExecutionReasonCode.PULLER_GROUP_ID_UNCONFIRMED
+                    : PullTaskExecutionReasonCode.PULLER_JOIN_UNCONFIRMED;
+            update.setReasonCode(reason.name());
+            update.setReasonMessage(reason.message());
+        }
         if (!pullers.isEmpty()) {
             update.setNextPullerIndex(nextPullerAfterLastAction(
                     actions, pullers, candidate.getNextPullerIndex()));
@@ -314,10 +350,28 @@ public class PullTaskPullerInviteTransactionService {
         update.setNextRunAt(Math.addExact(
                 now, resources.properties().getResultReconciliationDelayMs()));
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
         return PullTaskExecutionDispatchResult.DEFERRED;
+    }
+
+    /** 已存在的审批等待在下一次持租约调度时按群级失败收尾，不再申请入群。 */
+    private PullTaskExecutionDispatchResult stopApprovalRequiredGroup(
+            PullTaskGroupExecution candidate, long now) {
+        PullTaskGroupExecution update = transition(candidate, now);
+        update.setExecutionStatus(PullTaskExecutionStatus.FAILED.code());
+        update.setStage(candidate.getStage());
+        update.setReasonCode(PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name());
+        update.setReasonMessage(PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.message());
+        update.setFinishedAt(now);
+        update.setLastBusinessExecutedAt(null);
+        if (resources.executionMapper().transitionClaimed(update, candidate.getStage()) != 1) {
+            return PullTaskExecutionDispatchResult.LOST;
+        }
+        groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+        completionService.completeIfTerminalByExecutionId(candidate.getId(), now);
+        return PullTaskExecutionDispatchResult.FAILED;
     }
 
     private PullTaskExecutionDispatchResult finishInvites(
@@ -326,6 +380,12 @@ public class PullTaskPullerInviteTransactionService {
             long now) {
         boolean hasJoinedPuller = pullers.stream().anyMatch(row -> Objects.equals(
                 row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.IN_GROUP.code()));
+        if (directEntry(candidate)) {
+            if (pullers.stream().anyMatch(PullTaskPullerSlotPolicy::awaitingJoinResult)
+                    || hasJoinedPuller && (candidate.getGroupJid() == null || candidate.getGroupJid().isBlank())) {
+                return deferLinkSubmitted(candidate, linkActions(candidate.getId()), pullers, now);
+            }
+        }
         if (!hasJoinedPuller) {
             List<PullTaskGroupAccount> failedPullers = pullers.stream()
                     .filter(row -> Objects.equals(row.getMembershipStatus(),
@@ -338,7 +398,8 @@ public class PullTaskPullerInviteTransactionService {
                 }
             }
             return transitionStage(
-                    candidate, PullTaskExecutionStage.MANAGER_PULLER_CONTACT,
+                    candidate, directEntry(candidate) ? PullTaskExecutionStage.DIRECT_PULLER_JOIN
+                            : PullTaskExecutionStage.MANAGER_PULLER_CONTACT,
                     PullTaskExecutionDispatchResult.ADVANCED, now);
         }
         PullTaskGroupExecution update = transition(candidate, now);
@@ -347,7 +408,7 @@ public class PullTaskPullerInviteTransactionService {
         update.setNextPullerIndex(0);
         update.setNextRunAt(0L);
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
         return PullTaskExecutionDispatchResult.ADVANCED;
@@ -363,7 +424,7 @@ public class PullTaskPullerInviteTransactionService {
         update.setStage(targetStage.code());
         update.setNextRunAt(0L);
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             throw new IllegalStateException("拉手邀请完成后执行行租约已变化");
         }
         return success;
@@ -376,13 +437,13 @@ public class PullTaskPullerInviteTransactionService {
             long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(candidate.getStage());
         update.setWaitResourceType(resourceType.code());
         update.setReasonCode(reason.name());
         update.setReasonMessage(waitMessage(candidate.getId(), resourceType, reason));
         update.setLastBusinessExecutedAt(null);
         if (resources.executionMapper().transitionClaimed(
-                update, PullTaskExecutionStage.PULLER_INVITE.code()) != 1) {
+                update, candidate.getStage()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
         groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
@@ -425,7 +486,9 @@ public class PullTaskPullerInviteTransactionService {
             return null;
         }
         Set<Long> attemptedIds = new HashSet<>();
-        actions.stream().map(PullTaskAccountAction::getTargetGroupAccountId)
+        actions.stream()
+                .filter(action -> !Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING.code()))
+                .map(PullTaskAccountAction::getTargetGroupAccountId)
                 .forEach(attemptedIds::add);
         int start = Math.floorMod(storedIndex == null ? 0 : storedIndex, pullers.size());
         for (int offset = 0; offset < pullers.size(); offset++) {
@@ -538,7 +601,10 @@ public class PullTaskPullerInviteTransactionService {
                 && NORMAL_LINK_MODE.equals(parent.getMode())
                 && PullTaskStandardStatus.EXECUTING.name().equals(parent.getStatus())
                 && row.getExecutionStatus() == PullTaskExecutionStatus.EXECUTING.code()
-                && row.getStage() == PullTaskExecutionStage.PULLER_INVITE.code()
+                && (row.getStage() == PullTaskExecutionStage.PULLER_INVITE.code()
+                && !PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+                || directEntry(row)
+                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink())
                 && lockOwner != null && lockOwner.equals(row.getLockOwner());
     }
 
@@ -548,6 +614,10 @@ public class PullTaskPullerInviteTransactionService {
         } else {
             TenantContext.set(previousTenant);
         }
+    }
+
+    private static boolean directEntry(PullTaskGroupExecution candidate) {
+        return Objects.equals(candidate.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
     }
 
     private record ManagerPool(

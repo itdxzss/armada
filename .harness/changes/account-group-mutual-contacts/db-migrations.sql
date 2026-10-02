@@ -1,0 +1,1 @@
+../../../armada-api/src/main/resources/db/migration/V202__account_mutual_contacts.sql

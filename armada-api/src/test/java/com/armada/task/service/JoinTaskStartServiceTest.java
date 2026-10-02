@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.account.service.AccountService;
+
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -41,7 +43,7 @@ class JoinTaskStartServiceTest {
     @BeforeEach
     void setUp() {
         TenantContext.set(1L);
-        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService);
+        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService, org.mockito.Mockito.mock(AccountService.class));
     }
 
     @AfterEach

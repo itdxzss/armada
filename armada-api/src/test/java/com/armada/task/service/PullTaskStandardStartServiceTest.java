@@ -86,6 +86,18 @@ class PullTaskStandardStartServiceTest {
     }
 
     @Test
+    void directLinkStartsWithNoManagerRequirement() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=1");
+        execute("UPDATE pull_task_standard_setting SET manager_group_id=NULL, manager_group_name=NULL WHERE task_id=1");
+
+        startService.start(1L);
+
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        assertThat(settingMapper.selectByTaskId(1L).getRequiredManagerCount()).isZero();
+        verify(dispatchTrigger).dispatchAfterCommit();
+    }
+
+    @Test
     void missingSettingOrIllegalStateDoesNotStartTask() throws SQLException {
         assertThatThrownBy(() -> startService.start(2L))
                 .isInstanceOf(BusinessException.class);

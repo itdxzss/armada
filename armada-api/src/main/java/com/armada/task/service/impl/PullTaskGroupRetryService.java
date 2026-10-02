@@ -18,7 +18,7 @@ import java.util.Set;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
-/** 在终态事务内复用整份料子换群；邀请码恢复耗尽后与封群共用此入口。 */
+/** 在终态事务内复用整份料子换群；入群审批不可用、邀请码恢复耗尽后与封群共用此入口。 */
 @Service
 public class PullTaskGroupRetryService {
 
@@ -26,6 +26,7 @@ public class PullTaskGroupRetryService {
     private static final int NOT_PAUSED = 0;
     private static final Set<String> RETRY_REASONS = Set.of(
             PullTaskExecutionReasonCode.GROUP_BANNED.name(),
+            PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name(),
             ProtocolErrorCode.INVITE_INVALID.name(),
             ProtocolErrorCode.INVITE_REVOKED.name(),
             ProtocolErrorCode.INVALID_GROUP_LINK.name(),
@@ -102,7 +103,8 @@ public class PullTaskGroupRetryService {
         retry.setInvalidLineCount(failed.getInvalidLineCount());
         retry.setDuplicateLineCount(failed.getDuplicateLineCount());
         retry.setExecutionStatus(PullTaskExecutionStatus.WAIT_START.code());
-        retry.setStage(PullTaskExecutionStage.MANAGER_JOIN.code());
+        retry.setStage(PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+                ? PullTaskExecutionStage.DIRECT_PULLER_JOIN.code() : PullTaskExecutionStage.MANAGER_JOIN.code());
         retry.setGroupSubject(failed.getGroupSubject());
         retry.setManualPaused(NOT_PAUSED);
         retry.setNextManagerIndex(0);

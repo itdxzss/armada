@@ -1,0 +1,5 @@
+-- 可执行迁移：armada-api/src/main/resources/db/migration/V196__ios_device_registration.sql
+-- 指定商家新增迁移：armada-api/src/main/resources/db/migration/V197__device_registration_provider.sql
+-- 必须由 Flyway 执行；本文件只记录审查入口，不重复结构定义。
+-- 现有任务 execution_mode 默认1，不改动原采购次数和幂等键。
+-- 动态设备许可：armada-api/src/main/resources/db/migration/V198__device_registration_permit.sql

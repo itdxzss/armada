@@ -56,7 +56,7 @@ class PullTaskUnknownResultReconciliationCoordinatorTest {
         assertThat(criteria.getValue().scope().limit()).isEqualTo(25);
         assertThat(criteria.getValue().parent().taskType()).isEqualTo("STANDARD");
         assertThat(criteria.getValue().parent().taskMode()).isEqualTo("NORMAL_LINK");
-        assertThat(criteria.getValue().excludedReasonCodes()).containsExactly("GROUP_BANNED");
+        assertThat(criteria.getValue().excludedReasonCodes()).containsExactly("GROUP_BANNED", "GROUP_JOIN_APPROVAL_REQUIRED");
         assertThat(result).isEqualTo(new PullTaskUnknownResultReconciliationStats(2, 1));
         assertThat(TenantContext.get()).isEqualTo(99L);
     }

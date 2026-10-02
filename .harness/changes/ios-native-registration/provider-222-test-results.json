@@ -1,0 +1,66 @@
+{
+  "red": {
+    "permitErrors": 1,
+    "behaviorFailures": 4
+  },
+  "green": [
+    {
+      "name": "DeviceRegistrationServiceTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "DeviceRegistrationTokensTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationMapperH2Test",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationWorkerTest",
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationAvailabilityTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "AccountRegistrationStateTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "GrizzlySmsPriceTiersTest",
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "GrizzlySmsClientTest",
+      "tests": 66,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "totalTests": 169,
+  "livePurchases": 0
+}

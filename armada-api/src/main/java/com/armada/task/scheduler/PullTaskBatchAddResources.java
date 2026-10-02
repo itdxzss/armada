@@ -10,5 +10,6 @@ public record PullTaskBatchAddResources(
         PullTaskBatchAddPersistence persistence,
         AccountProtocolLookupService accountLookup,
         ProtocolCommandOutboxService outboxService,
-        PullTaskOperationDelayPolicy delayPolicy) {
+        PullTaskOperationDelayPolicy delayPolicy,
+        PullTaskUnknownRetryPreflight unknownRetryPreflight) {
 }

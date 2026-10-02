@@ -10,5 +10,7 @@ public enum PullTaskRosterObservation {
     /** 名单查询失败、跳过或缺少可用查询账号。 */
     UNAVAILABLE,
     /** 逐成员结果窗口结束仍无明确结论，不再发起名单查询。 */
-    UNCONFIRMED
+    UNCONFIRMED,
+    /** 未确认但已授权立即换号补拉一次，保留未知事实。 */
+    UNCONFIRMED_RETRY
 }

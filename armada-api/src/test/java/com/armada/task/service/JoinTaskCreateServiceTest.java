@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.account.service.AccountService;
+
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -50,7 +52,7 @@ class JoinTaskCreateServiceTest {
         var principal = new com.armada.shared.security.AuthPrincipal(90L, 1L, "test", "test", "test", "test", List.of(), List.of());
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(principal, null, List.of()));
-        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService);
+        service = new JoinTaskServiceImpl(joinTaskMapper, resultMapper, groupLinkRegistryService, org.mockito.Mockito.mock(AccountService.class));
     }
 
     @AfterEach

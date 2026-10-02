@@ -102,13 +102,16 @@ public class PullTaskUnknownResultReconciliationCoordinator {
                         properties.getResultReconciliationBatchSize(), cutoff,
                         participantCutoff),
                 executionStatuses,
-                List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name()),
+                List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name(),
+                        PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name()),
                 new PullTaskUnknownReconciliationCriteria.Parent(
                         PullTaskType.STANDARD.name(), NORMAL_LINK_MODE),
                 new PullTaskUnknownReconciliationCriteria.Facts(
                         new PullTaskUnknownReconciliationCriteria.Action(
                                 PullTaskActionStatus.SUBMITTED.code(),
-                                PullTaskActionStatus.UNKNOWN.code()),
+                                PullTaskActionStatus.UNKNOWN.code(),
+                                PullTaskActionStatus.PENDING_APPROVAL.code(),
+                                com.armada.task.model.enums.PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()),
                         new PullTaskUnknownReconciliationCriteria.Call(
                                 PullTaskPullCallStatus.SUBMITTED.code(),
                                 PullTaskPullCallStatus.UNKNOWN.code(),

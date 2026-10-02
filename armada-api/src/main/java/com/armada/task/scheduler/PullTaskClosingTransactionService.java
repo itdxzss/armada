@@ -1,7 +1,6 @@
 package com.armada.task.scheduler;
 
 import com.armada.shared.tenant.TenantContext;
-import com.armada.group.service.GroupFolderService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -27,30 +26,26 @@ public class PullTaskClosingTransactionService {
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskStandardSettingMapper settingMapper;
-    private final PullTaskParentCompletionService parentCompletionService;
-    private final GroupFolderService groupFolderService;
+    private final PullTaskClosingResources resources;
 
     /**
      * @param taskMapper      父任务 Mapper
      * @param executionMapper 执行行 Mapper
      * @param accountMapper   角色账号 Mapper
      * @param settingMapper   普通任务冻结配置 Mapper
-     * @param parentCompletionService 父任务终态聚合服务
-     * @param groupFolderService 群组分组服务
+     * @param resources 完成归档与父任务终态聚合服务
      */
     public PullTaskClosingTransactionService(
             PullTaskMapper taskMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskGroupAccountMapper accountMapper,
             PullTaskStandardSettingMapper settingMapper,
-            PullTaskParentCompletionService parentCompletionService,
-            GroupFolderService groupFolderService) {
+            PullTaskClosingResources resources) {
         this.taskMapper = taskMapper;
         this.executionMapper = executionMapper;
         this.accountMapper = accountMapper;
         this.settingMapper = settingMapper;
-        this.parentCompletionService = parentCompletionService;
-        this.groupFolderService = groupFolderService;
+        this.resources = resources;
     }
 
     /**
@@ -81,15 +76,18 @@ public class PullTaskClosingTransactionService {
                     completed(candidate, now), PullTaskExecutionStage.CLOSING.code()) != 1) {
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
             PullTaskStandardSetting setting = settingMapper.selectByTaskId(parent.getId());
+            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()) {
+                resources.directLinkFinishArchiveService().archive(candidate.getId(), setting);
+            }
+            accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
             Long sourceGroupFolderId = setting == null ? null : setting.getSourceGroupFolderId();
             if (candidate.getGroupLinkId() != null
                     && PullTaskCreationMode.fromNullable(parent.getCreationMode())
                     .usesSelectedGroupFolder(sourceGroupFolderId)) {
-                groupFolderService.moveToUsed(candidate.getGroupLinkId());
+                resources.groupFolderService().moveToUsed(candidate.getGroupLinkId());
             }
-            parentCompletionService.completeIfTerminalByExecutionId(candidate.getId(), now);
+            resources.parentCompletionService().completeIfTerminalByExecutionId(candidate.getId(), now);
             return PullTaskExecutionDispatchResult.ADVANCED;
         } finally {
             restoreTenant(previousTenant);

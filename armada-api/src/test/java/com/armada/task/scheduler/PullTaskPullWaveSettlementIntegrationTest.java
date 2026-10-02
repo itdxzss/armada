@@ -126,6 +126,24 @@ class PullTaskPullWaveSettlementIntegrationTest {
     }
 
     @Test
+    void unknownRetryCreatesSuccessorNowWithoutSixtySecondBackoff() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);
+        callMapper.markSubmitted(fixture.call().getId(), "cmd-unknown", 1_000L);
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=4, active_slot=NULL, "
+                + "protocol_outcome='UNKNOWN',execution_state='UNCERTAIN',released_at=1200, "
+                + "reason_code='UNKNOWN_RESULT_RETRY_ONCE' WHERE id=" + fixture.attempt().getId());
+        execute("UPDATE pull_task_material_member SET pull_status=0, pull_failure_count=0, "
+                + "pull_call_id=NULL, active_pull_attempt_id=NULL WHERE id=" + MATERIAL_ID);
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt()).isEqualTo(2_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(2_000L);
+        assertThat(materialMapper.selectByExecution(EXECUTION_ID).get(0).getPullFailureCount()).isZero();
+    }
+
+    @Test
     void explicitFailureCreatesOneRetryWaveAndPreservesStickyAssignment() throws SQLException {
         WaveFixture fixture = insertCollectingWave();
         attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);

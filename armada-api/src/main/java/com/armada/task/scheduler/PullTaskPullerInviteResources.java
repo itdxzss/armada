@@ -11,5 +11,6 @@ public record PullTaskPullerInviteResources(
         PullTaskGroupExecutionMapper executionMapper,
         AccountProtocolLookupService accountLookup,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchProperties properties) {
+        PullTaskExecutionDispatchProperties properties,
+        PullTaskManagerPullerContactTransactionService pullerAllocation) {
 }

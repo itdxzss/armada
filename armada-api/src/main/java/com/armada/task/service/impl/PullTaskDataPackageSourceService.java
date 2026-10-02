@@ -8,6 +8,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -16,7 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 把已审查的草稿号码原子领取为正式任务资源；不创建另一套执行引擎。 */
+/** 把已校验的来源号码原子领取为正式任务资源；供旧草稿提交与无草稿创建共用。 */
 @Service
 public class PullTaskDataPackageSourceService {
     /** 限制每条绑定 SQL 的参数规模，所有分批仍处于同一提交事务。 */
@@ -42,7 +43,7 @@ public class PullTaskDataPackageSourceService {
 
     /** 随父任务提交事务领取全部数据包，任一冲突回滚所有号码及任务设置。 */
     @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
-    public void claim(List<PullTaskGroupExecution> executions) {
+    public void claim(List<PullTaskGroupExecution> executions, PullTaskCreationMode creationMode) {
         List<PullTaskGroupExecution> packageExecutions = executions.stream()
                 .filter(row -> row.getSourcePackageId() != null)
                 .sorted(java.util.Comparator.comparing(PullTaskGroupExecution::getSourcePackageId))
@@ -57,8 +58,9 @@ public class PullTaskDataPackageSourceService {
             for (PullTaskMaterialMember material : materials) {
                 Phone phone = byId.get(material.getSourcePackagePhoneId());
                 if (phone == null || !phone.phone().equals(material.getNormalizedPhone())
-                        || phone.adminRequired() != Integer.valueOf(1).equals(material.getAdminRequired())) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "数据包号码已发生变化，请重新生成草稿");
+                        || (!PullTaskCreationMode.fromNullable(creationMode).isDirectLink()
+                        && phone.adminRequired() != Integer.valueOf(1).equals(material.getAdminRequired()))) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "数据包号码已发生变化，请重新选择数据包");
                 }
                 material.setSourceAllocationVersion(phone.allocationVersion());
             }
@@ -66,7 +68,7 @@ public class PullTaskDataPackageSourceService {
                 List<PullTaskMaterialMember> batch = materials.subList(
                         offset, Math.min(offset + BIND_BATCH_SIZE, materials.size()));
                 if (materialMapper.bindSourceAllocations(execution.getId(), batch) != batch.size()) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "数据包草稿已被并发修改，请刷新后重试");
+                    throw new BusinessException(ErrorCode.CONFLICT, "数据包绑定记录已被并发修改，请刷新后重试");
                 }
             }
         }

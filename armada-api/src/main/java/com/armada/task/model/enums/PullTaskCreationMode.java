@@ -3,15 +3,17 @@ package com.armada.task.model.enums;
 /**
  * 拉群任务的新建模式；与 {@code pull_task.creation_mode} 一一对应。
  *
- * <p>它表达的是「群从哪来」，与 {@code pull_task.mode} 无关——后者恒为
- * {@code NORMAL_LINK}，表达的是「走新 PRD 普通拉群执行链路」，硬编码在二十多处准入闸门
- * 与调度条件里，两个模式共用同一条链路。另请注意与同表 {@code group_source} 区分：
+ * <p>它表达群来源及创建流程：DIRECT_LINK 使用链接来源并省略管理链。
+ * {@code pull_task.mode=NORMAL_LINK} 仍表示共享普通拉群调度族。
+ * 另请注意与同表 {@code group_source} 区分：
  * 那是拉群营销的历史群/自收群来源，语义无关。</p>
  */
 public enum PullTaskCreationMode {
 
     /** 群链接模式：群链接由用户粘贴或从群组分组选择。 */
     PASTED_LINK,
+    /** 群链接模式（新）：普通成员拉手直接入群并拉人，不使用管理链。 */
+    DIRECT_LINK,
     /** 资源池模式：任务选择群组分组，执行时动态领取群组。 */
     RESOURCE_POOL,
     /** 新群模式：由建群人现场创建群，建群成功后回填链接。 */
@@ -37,6 +39,16 @@ public enum PullTaskCreationMode {
         return this == RESOURCE_POOL;
     }
 
+    /** @return 是否采用普通成员拉手直接入群流程 */
+    public boolean isDirectLink() {
+        return this == DIRECT_LINK;
+    }
+
+    /** @return 是否以分组或手工链接作为群来源 */
+    public boolean isLinkMode() {
+        return this == PASTED_LINK || this == DIRECT_LINK;
+    }
+
     /**
      * 判断普通任务是否由已选择的群组分组提供群组。
      *
@@ -47,6 +59,6 @@ public enum PullTaskCreationMode {
      * @return 是否使用已选择的群组分组
      */
     public boolean usesSelectedGroupFolder(Long sourceGroupFolderId) {
-        return this == RESOURCE_POOL || (this == PASTED_LINK && sourceGroupFolderId != null);
+        return this == RESOURCE_POOL || (isLinkMode() && sourceGroupFolderId != null);
     }
 }

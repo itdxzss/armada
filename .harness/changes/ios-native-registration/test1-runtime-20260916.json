@@ -1,0 +1,24 @@
+{
+  "status": "running",
+  "restartCount": 0,
+  "image": "sha256:c8523e4e0fcafd15a3b1d0237cabe34fca0e1206e6f597e633d3a9be99354cbe",
+  "startedAt": "2026-09-16T04:53:36.755178797Z",
+  "runningJarSHA256": "2f6e06a46ba37a15a65c838d66363dc2cf070e235633fb7b4e82026ec788f93f",
+  "deviceEnabled": "true",
+  "boundPermits": [
+    {
+      "tenantId": 1,
+      "deviceId": "cea2dd78-5fb1-4017-9ea8-00b35aea123f",
+      "requestId": "b5ee999e-c8f3-47e8-a4df-aa7ca6521661",
+      "countryId": "187",
+      "unitPrice": 0.88,
+      "expiresAt": 1789620406523
+    }
+  ],
+  "migration": "196\tios device registration\t1\n",
+  "deviceTasks": "0\n",
+  "thisRequestTasks": "0\n",
+  "registrationItemStates": "8\t13\n9\t1\n",
+  "startupFailureDetected": false,
+  "applicationStarted": true
+}

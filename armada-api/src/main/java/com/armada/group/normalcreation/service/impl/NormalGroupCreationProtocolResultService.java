@@ -564,7 +564,8 @@ public class NormalGroupCreationProtocolResultService
                     event.tenantId(), event.itemId(), event.accountId(), ex);
             return null;
         }
-        if (state == null) {
+        // 新建普群以当前在线状态准入，生命周期标签不能把未确认的协议结果直接判为失败。
+        if (state == null || Integer.valueOf(AccountLoginStateCode.ONLINE).equals(state.getLoginState())) {
             return null;
         }
         if (abnormalAccountState(state.getAccountState())) {

@@ -58,14 +58,14 @@ public interface AccountProtocolLookupService {
     List<ProtocolAccountRef> findOnlineNormalByGroupId(Long groupId);
 
     /**
-     * 查询普通群任务候选账号，并要求每个候选显式标明 WEB/ANDROID 后端。
+     * 查询普通群任务在线候选账号，不按账号生命周期标签筛选，并要求显式标明 WEB/ANDROID 后端。
      *
      * <p>空或未知 protocol_id 会立即失败，禁止跨后端副作用链路静默回退到 Web。</p>
      *
      * @param groupId 账号组 ID
-     * @return 在线正常、协议后端明确的账号引用
+     * @return 在线、协议身份完整且后端明确的账号引用
      */
-    List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId);
+    List<ProtocolAccountRef> findOnlineStrictByGroupId(Long groupId);
 
     /** 拉群管理员/站台候选：正常、被抢登、抢登中均允许，仍须在线且协议身份完整。 */
     List<ProtocolAccountRef> findOnlinePullTaskAccountsByGroupId(Long groupId);

@@ -1,0 +1,33 @@
+{
+  "environment": "test1",
+  "host": "65.2.123.53",
+  "backendDeployment": "SUCCESS",
+  "branch": "1.0.3-snapshot",
+  "baseCommit": "3493794f",
+  "workingTree": "uncommitted registration changes",
+  "jarSha256": "5d6c947a3632ed3a7526d5f48a6e2352e41db35c850712315dd0f5ac0e87878a",
+  "changedArchiveEntries": [
+    "BOOT-INF/classes/com/armada/boot/config/DeviceRegistrationConfig.class",
+    "BOOT-INF/classes/com/armada/boot/security/DeviceRegistrationAuthenticationFilter.class",
+    "BOOT-INF/classes/com/armada/boot/security/DeviceRegistrationTokens.class",
+    "BOOT-INF/classes/com/armada/boot/security/DeviceRegistrationTokens$Entry.class"
+  ],
+  "backup": "/home/app/armada-android-r2-backups/20260916-101623",
+  "ipaStatusHttp": 200,
+  "androidPermitRequestId": "c24f0f38-8dd2-472c-9c3e-12e6b83adfea",
+  "permitExpiresLocal": "2026-09-16 19:19:27 +0800",
+  "permitPriceUSD": "0.88",
+  "permitCountryId": "187",
+  "provider": "current price tier",
+  "purchaseStarted": false,
+  "androidStatusHttp": 200,
+  "androidState": "NOT_STARTED",
+  "unknownDeviceHttp": 401,
+  "backendRestartCount": 0,
+  "ipaOriginalAuthVerified": true,
+  "apkUploaded": true,
+  "apkUpdated": true,
+  "apkLaunched": true,
+  "phoneUi": "WhatsApp welcome / Agree and continue; awaiting legal acceptance confirmation",
+  "phoneEndToEndVerified": false
+}

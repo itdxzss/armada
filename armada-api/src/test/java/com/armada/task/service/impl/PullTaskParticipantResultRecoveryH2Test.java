@@ -70,10 +70,14 @@ class PullTaskParticipantResultRecoveryH2Test {
     @Autowired private PullTaskPullCallMapper callMapper;
     @Autowired private PullTaskPullCallMemberAttemptMapper attemptMapper;
     @Autowired private PullTaskMaterialMemberMapper materialMapper;
+    @Autowired private com.armada.group.service.WhatsappGroupMemberJoinFactService joins;
+    @Autowired private com.armada.task.mapper.PullTaskMapper tasks;
+    @Autowired private com.armada.task.scheduler.PullTaskUnknownRetryPreflight preflight;
     private JdbcTemplate jdbc;
 
     @BeforeEach
     void setUp() throws SQLException {
+        org.mockito.Mockito.reset(joins, tasks);
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         jdbc = new JdbcTemplate(dataSource);
@@ -95,6 +99,68 @@ class PullTaskParticipantResultRecoveryH2Test {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void localJoinCorrectsClosedUnknownAndPrunesUnsubmittedRetry() {
+        insertCalls(1, PullTaskPullCallStatus.PLANNED);
+        insertWinningMember(PullTaskMaterialPullStatus.UNCONSUMED, NEW_CALL_ID);
+        insertAttempts(PullTaskParticipantAttemptStatus.PLANNED);
+        jdbc.update("UPDATE pull_task_group_execution SET group_jid='target@g.us' WHERE id=501");
+        jdbc.update("UPDATE pull_task_pull_call_member_attempt SET reason_code=? WHERE id=41",
+                PullTaskUnknownParticipantRecovery.RETRY_REASON);
+        org.mockito.Mockito.when(joins.findRecentJoin(7L, "target@g.us", "8613800000601", 1000L, 6000L))
+                .thenReturn(java.util.Optional.of(new com.armada.group.model.vo.WhatsappGroupJoinFactVO(
+                        "target@g.us", "123@lid", "8613800000601", 1500L)));
+        preflight.confirmBeforeRetry(executionMapper.selectById(EXECUTION_ID), findCall(NEW_CALL_ID), 6000L);
+        assertSuccessfulMember(1500L);
+        assertThat(attemptMapper.selectById(NEW_ATTEMPT_ID).getLifecycleStatus()).isEqualTo(5);
+        assertThat(findCall(NEW_CALL_ID).getPlannedMaterialCount()).isZero();
+        assertThat(findCall(NEW_CALL_ID).getCommandId()).isNull();
+        preflight.confirmBeforeRetry(executionMapper.selectById(EXECUTION_ID), findCall(NEW_CALL_ID), 6000L);
+        assertSuccessfulMember(1500L);
+    }
+
+    @Test
+    void timeoutReleasesExactlyOneRetryAndMarkerSurvivesLateUnknown() {
+        insertCalls(1, PullTaskPullCallStatus.SUBMITTED);
+        insertWinningMember(PullTaskMaterialPullStatus.SUBMITTED, NEW_CALL_ID);
+        insertAttempts(PullTaskParticipantAttemptStatus.SUBMITTED);
+        jdbc.update("DELETE FROM pull_task_pull_call_member_attempt WHERE id=41");
+        jdbc.update("UPDATE pull_task_pull_call_member_attempt SET attempt_no=1 WHERE id=42");
+        com.armada.task.model.entity.PullTask parent = new com.armada.task.model.entity.PullTask();
+        parent.setId(100L); parent.setTenantId(7L); parent.setStatus("EXECUTING");
+        org.mockito.Mockito.when(tasks.selectLifecycle(100L)).thenReturn(parent);
+        assertThat(service.settleUncertain(staleSettlement(7L))).isTrue();
+        assertThat(attemptMapper.selectById(42L).getReasonCode())
+                .isEqualTo(PullTaskUnknownParticipantRecovery.RETRY_REASON);
+        assertThat(attemptMapper.selectById(42L).getLifecycleStatus()).isEqualTo(4);
+        assertThat(materialMapper.selectByExecution(501L).get(0).getPullStatus()).isZero();
+        assertThat(materialMapper.selectByExecution(501L).get(0).getPullFailureCount()).isZero();
+        PullTaskBatchParticipantCallback late = new PullTaskBatchParticipantCallback(7,100,501,32,500,
+                "acc_test","cmd-new",1,TARGET_JID,PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN,"TIMEOUT","late timeout",false,8000L);
+        assertThat(service.handle(late)).isTrue();
+        assertThat(attemptMapper.selectById(42L).getReasonCode())
+                .isEqualTo(PullTaskUnknownParticipantRecovery.RETRY_REASON);
+        assertThat(attemptMapper.selectRetryCandidatesByWave(22L, 4)).hasSize(1);
+        jdbc.update("INSERT INTO pull_task_pull_call_member_attempt "
+                + "(id,tenant_id,task_id,group_execution_id,pull_call_id,pull_wave_id,participant_type,"
+                + "participant_ref_id,target_phone,target_jid,puller_group_account_id,attempt_no,"
+                + "lifecycle_status,active_slot,submitted_at,created_at,updated_at) "
+                + "VALUES (43,7,100,501,31,23,1,601,'8613800000601',?,901,2,2,1,9000,1,1)", TARGET_JID);
+        jdbc.update("UPDATE pull_task_material_member SET pull_status=1,pull_call_id=31,"
+                + "active_pull_attempt_id=43 WHERE id=601");
+        jdbc.update("UPDATE pull_task_pull_call SET call_status=2 WHERE id=31");
+        PullTaskBatchParticipantCallback second = new PullTaskBatchParticipantCallback(7,100,501,31,500,
+                "acc_test","cmd-old",1,TARGET_JID,PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN,"TIMEOUT","again",false,10000L);
+        assertThat(service.handle(second)).isTrue();
+        assertThat(attemptMapper.selectById(43L).getLifecycleStatus()).isEqualTo(3);
+        assertThat(materialMapper.selectByExecution(501L).get(0).getPullStatus()).isEqualTo(4);
+        assertThat(attemptMapper.selectRetryCandidatesByWave(23L,4)).isEmpty();
+        TenantContext.set(8L);
+        assertThat(attemptMapper.selectParticipantHistory(501,1,601)).isEmpty();
     }
 
     @Test
@@ -323,16 +389,31 @@ class PullTaskParticipantResultRecoveryH2Test {
                     template.getMapper(PullTaskGroupAccountMapper.class));
         }
 
+        @Bean com.armada.group.service.WhatsappGroupMemberJoinFactService joins() {
+            return mock(com.armada.group.service.WhatsappGroupMemberJoinFactService.class);
+        }
+
+        @Bean com.armada.task.mapper.PullTaskMapper tasks() {
+            return mock(com.armada.task.mapper.PullTaskMapper.class);
+        }
+
+        @Bean com.armada.task.scheduler.PullTaskUnknownRetryPreflight preflight(
+                PullTaskUnknownResultResources resources, PullTaskPullCallParticipantResultService results) {
+            return new com.armada.task.scheduler.PullTaskUnknownRetryPreflight(resources, results);
+        }
+
         @Bean PullTaskPullCallParticipantResultService service(
                 PullTaskUnknownResultResources resources,
                 PullTaskGroupExecutionMapper executions,
-                ApplicationEventPublisher publisher) {
+                ApplicationEventPublisher publisher,
+                com.armada.group.service.WhatsappGroupMemberJoinFactService joins,
+                com.armada.task.mapper.PullTaskMapper tasks) {
             return new PullTaskPullCallParticipantResultService(resources, executions,
                     mock(AccountOperationRestrictionService.class),
                     new PullTaskPullCallResultCoordination(
                             mock(PullTaskStickyPullerTransactionService.class),
                             mock(PullTaskGroupExecutionFailureService.class),
-                            mock(PullTaskPullWaveProgressService.class), org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class)), publisher);
+                            mock(PullTaskPullWaveProgressService.class), org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), new PullTaskUnknownParticipantRecovery(joins, resources.attemptMapper(), tasks)), publisher);
         }
     }
 }

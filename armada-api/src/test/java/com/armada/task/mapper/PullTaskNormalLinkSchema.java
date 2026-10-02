@@ -39,6 +39,7 @@ public final class PullTaskNormalLinkSchema {
                 group_name VARCHAR(128),
                 mode VARCHAR(32) NOT NULL,
                 creation_mode VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK',
+                creation_request_id VARCHAR(36),
                 status VARCHAR(32) NOT NULL DEFAULT 'WAIT_START',
                 primary_stage VARCHAR(64),
                 blocking_reason VARCHAR(255),
@@ -54,7 +55,8 @@ public final class PullTaskNormalLinkSchema {
                 created_at BIGINT NOT NULL,
                 updated_at BIGINT NOT NULL,
                 last_business_executed_at BIGINT,
-                deleted_at BIGINT
+                deleted_at BIGINT,
+                CONSTRAINT uq_pull_task_creation_request UNIQUE (tenant_id, created_by, creation_request_id)
             )
             """;
 
@@ -81,12 +83,12 @@ public final class PullTaskNormalLinkSchema {
                 concurrent_group_count INT NOT NULL,
                 puller_risk_minutes INT NOT NULL DEFAULT 0,
                 required_manager_count INT NOT NULL DEFAULT 0,
-                manager_group_id BIGINT NOT NULL,
+                manager_group_id BIGINT,
                 puller_group_id BIGINT NOT NULL,
                 station_group_id BIGINT,
                 manager_finish_group_id BIGINT,
                 puller_finish_group_id BIGINT,
-                manager_group_name VARCHAR(100) NOT NULL,
+                manager_group_name VARCHAR(100),
                 puller_group_name VARCHAR(100) NOT NULL,
                 station_group_name VARCHAR(100),
                 manager_finish_group_name VARCHAR(100),

@@ -57,6 +57,198 @@ class PullTaskManagerJoinResultServiceImplTest {
     }
 
     @Test
+    void directPullerJoinBindsGroupIdentityWithoutManagerStages() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        direct.setGroupJid(null);
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().stage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(transition.getValue().target().groupJid()).isEqualTo("120363group@g.us");
+        verify(inviteLinkService).bindGroupJid(51L, "120363group@g.us", 5_000L);
+    }
+
+    @Test
+    void directJoinWithoutGroupIdentityStaysUnknownAndDoesNotBind() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        direct.setGroupJid(null);
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                null, null, null, false, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskFactTransition> membership = ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(accountMapper).transitionMembership(membership.capture());
+        assertThat(membership.getValue().targetStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().groupJid()).isNull();
+        assertThat(transition.getValue().target().stage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(transition.getValue().target().reasonMessage()).contains("群标识");
+        verify(inviteLinkService, never()).bindGroupJid(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void differentDirectJoinGroupCannotOverwriteBoundTargetOrCountAsJoined() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        direct.setGroupJid("expected@g.us");
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "unexpected@g.us", null, null, false, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().groupJid()).isEqualTo("expected@g.us");
+        assertThat(transition.getValue().target().reasonMessage()).contains("不一致");
+        ArgumentCaptor<PullTaskFactTransition> membership = ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(accountMapper).transitionMembership(membership.capture());
+        assertThat(membership.getValue().targetStatus()).isEqualTo(PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+        verify(inviteLinkService, never()).bindGroupJid(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void directPullerPendingApprovalStopsGroupAndReleasesPullers() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.PENDING_APPROVAL,
+                "120363group@g.us", "JOIN_PENDING_APPROVAL", null, false, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskFactTransition> membership = ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(accountMapper).transitionMembership(membership.capture());
+        assertThat(membership.getValue().targetStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
+        ArgumentCaptor<PullTaskManagerJoinResultTransition> transition =
+                ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
+        verify(executionMapper).transitionManagerJoinResult(transition.capture());
+        assertThat(transition.getValue().target().stage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(transition.getValue().target().executionStatus()).isEqualTo(PullTaskExecutionStatus.FAILED.code());
+        assertThat(transition.getValue().target().reasonCode()).isEqualTo("GROUP_JOIN_APPROVAL_REQUIRED");
+        assertThat(transition.getValue().target().finishedAt()).isEqualTo(5_000L);
+        assertThat(transition.getValue().target().nextRunAt()).isZero();
+        assertThat(transition.getValue().target().reasonMessage()).contains("审批", "停止");
+        verify(accountMapper).releaseAllPullersOfExecution(11L, 5_000L);
+        verify(completionService).completeIfTerminalByExecutionId(11L, 5_000L);
+        verify(inviteLinkService, never()).bindGroupJid(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void lateJoinCallbackCannotReviveApprovalStoppedGroup() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        direct.setExecutionStatus(PullTaskExecutionStatus.FAILED.code());
+        direct.setReasonCode("GROUP_JOIN_APPROVAL_REQUIRED");
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 6_000L))).isFalse();
+
+        verify(actionMapper, never()).transitionResult(any());
+        verify(accountMapper, never()).transitionMembership(any());
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+        verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
+    }
+
+    @Test
+    void legacyPendingApprovalCannotBeRevivedBeforeSchedulerStopsIt() {
+        PullTaskGroupExecution direct = execution();
+        direct.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        PullTaskGroupAccount puller = manager();
+        puller.setRoleType(PullTaskGroupAccountRole.PULLER.code());
+        puller.setMembershipStatus(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
+        PullTaskAccountAction pending = action();
+        pending.setActionStatus(PullTaskActionStatus.PENDING_APPROVAL.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(pending);
+        when(accountMapper.selectById(501L)).thenReturn(puller);
+        when(executionMapper.selectById(11L)).thenReturn(direct);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isFalse();
+
+        verify(actionMapper, never()).transitionResult(any());
+        verify(accountMapper, never()).transitionMembership(any());
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+    }
+
+    @Test
+    void oldManagerApprovalWaitKeepsItsExistingLateCallbackBoundary() {
+        PullTaskGroupExecution waiting = execution();
+        waiting.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        PullTaskAccountAction pending = action();
+        pending.setActionStatus(PullTaskActionStatus.PENDING_APPROVAL.code());
+        PullTaskGroupAccount manager = manager();
+        manager.setMembershipStatus(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(pending);
+        when(accountMapper.selectById(501L)).thenReturn(manager);
+        when(executionMapper.selectById(11L)).thenReturn(waiting);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isFalse();
+
+        ArgumentCaptor<PullTaskFactTransition> action = ArgumentCaptor.forClass(PullTaskFactTransition.class);
+        verify(actionMapper).transitionResult(action.capture());
+        assertThat(action.getValue().expectedStatuses())
+                .doesNotContain(PullTaskActionStatus.PENDING_APPROVAL.code());
+        verify(accountMapper, never()).transitionMembership(any());
+        verify(executionMapper, never()).transitionManagerJoinResult(any());
+    }
+
+    @Test
     void replacedManagerLateCallbackCannotAdvanceCurrentExecution() {
         PullTaskGroupAccount old = manager();
         old.setAvailabilityStatus(4);

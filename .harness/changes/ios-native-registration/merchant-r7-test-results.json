@@ -1,0 +1,85 @@
+{
+  "backend": [
+    {
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "DeviceRegistrationPermitServiceTest"
+    },
+    {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "AccountRegistrationMerchantSelectionTest"
+    },
+    {
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "DeviceRegistrationTokensTest"
+    },
+    {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "DeviceRegistrationServiceTest"
+    },
+    {
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "AccountRegistrationMapperH2Test"
+    },
+    {
+      "tests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "AccountRegistrationWorkerTest"
+    },
+    {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "AccountRegistrationAvailabilityTest"
+    },
+    {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "AccountRegistrationStateTest"
+    },
+    {
+      "tests": 66,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "GrizzlySmsClientTest"
+    },
+    {
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "suite": "GrizzlySmsPriceTiersTest"
+    }
+  ],
+  "frontend": {
+    "tests": 19,
+    "failures": 0,
+    "typecheck": true
+  },
+  "gateway": {
+    "tests": 13,
+    "failures": 0
+  },
+  "deployScriptTests": "passed",
+  "productionPackageTests": "pre-existing missing prod/scripts/inspect-production-host.sh; not a test1 deployment gate"
+}

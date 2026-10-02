@@ -61,6 +61,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 .contains(PullTaskExecutionStage.MANAGER_ADMIN.code(),
                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                         PullTaskExecutionStage.PULLER_INVITE.code(),
+                        PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code(),
                         PullTaskExecutionStage.CLOSING.code(),
@@ -73,6 +74,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 .asList()
                 .containsExactly(PullTaskExecutionStage.LINK_VALIDATION.code(),
                         PullTaskExecutionStage.MANAGER_JOIN.code(),
+                        PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                         PullTaskExecutionStage.GROUP_CREATE.code());
         assertThat(allStates)
                 .filteredOn(state -> state.executionStatus()
@@ -85,6 +87,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         PullTaskExecutionStage.MANAGER_ADMIN.code(),
                         PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                         PullTaskExecutionStage.PULLER_INVITE.code(),
+                        PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                         PullTaskExecutionStage.PULL_EXECUTION.code(),
                         PullTaskExecutionStage.MATERIAL_ADMIN.code());
         assertThat(allStates)

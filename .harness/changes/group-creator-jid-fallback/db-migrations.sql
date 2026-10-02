@@ -1,0 +1,4 @@
+-- 唯一执行入口为 Flyway，不在共享数据库手工执行 ALTER。
+-- 迁移：armada-api/src/main/resources/db/migration/V207__group_creator_phone_source.sql
+-- group_link_preview 增加 creator_phone_source TINYINT：0未知 / 1群JID推导 / 2协议确认或既有号码。
+-- 非空旧号码保持确认级别；仅为原空号码设置来源0，不回填或替换原手机号。

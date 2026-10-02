@@ -154,10 +154,10 @@ public interface AccountMapper {
             @Param("allowedRestrictionStatus") int allowedRestrictionStatus);
 
     /**
-     * 查询指定账号组内全部在线、生命周期允许且协议身份完整的账号。
+     * 查询指定账号组内全部在线且协议身份完整的账号，可按调用方要求限定生命周期。
      *
      * @param groupId 账号组 ID
-     * @param accountStates 允许的账号生命周期状态码
+     * @param accountStates 允许的账号生命周期状态码；空列表表示仅按在线状态筛选
      * @param onlineLoginState 在线登录状态码
      * @return 按账号 ID 排序的候选账号
      */

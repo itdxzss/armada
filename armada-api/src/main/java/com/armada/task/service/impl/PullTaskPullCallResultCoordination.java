@@ -12,5 +12,6 @@ public record PullTaskPullCallResultCoordination(
         PullTaskStickyPullerTransactionService stickyPullers,
         PullTaskGroupExecutionFailureService groupFailure,
         PullTaskPullWaveProgressService waveProgress,
-        GroupDataPackageTaskProjectionService dataPackages) {
+        GroupDataPackageTaskProjectionService dataPackages,
+        PullTaskUnknownParticipantRecovery unknownRecovery) {
 }

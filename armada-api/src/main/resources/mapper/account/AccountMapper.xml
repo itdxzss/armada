@@ -512,8 +512,10 @@
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
       AND TRIM(a.protocol_account_id) &lt;&gt; ''
-      AND s.account_state IN
-      <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
+      <if test="accountStates != null and accountStates.size() > 0">
+        AND s.account_state IN
+        <foreach collection="accountStates" item="state" open="(" separator="," close=")">#{state}</foreach>
+      </if>
       AND s.login_state = #{onlineLoginState}
     ORDER BY a.id ASC
   </select>

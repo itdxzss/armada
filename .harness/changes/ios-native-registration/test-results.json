@@ -1,0 +1,44 @@
+{
+  "DeviceRegistrationServiceTest": {
+    "tests": 11,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "DeviceRegistrationTokensTest": {
+    "tests": 6,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "AccountRegistrationMapperH2Test": {
+    "tests": 10,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "AccountRegistrationWorkerTest": {
+    "tests": 25,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "AccountRegistrationAvailabilityTest": {
+    "tests": 4,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "AccountRegistrationStateTest": {
+    "tests": 1,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "DeviceIngestTokensTest": {
+    "tests": 4,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  }
+}

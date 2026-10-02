@@ -26,7 +26,9 @@ public enum PullTaskExecutionStage {
      * 新群模式执行行以本阶段起步，完成后直接置为 {@link #MANAGER_JOIN}，
      * 跳过 {@link #LINK_VALIDATION}——链接由本任务生成，无需校验。</p>
      */
-    GROUP_CREATE(9);
+    GROUP_CREATE(9),
+    /** 新群链接模式：分配普通拉手并由拉手踩链接入群，不执行管理或联系人前置动作。 */
+    DIRECT_PULLER_JOIN(10);
 
     private final int code;
 

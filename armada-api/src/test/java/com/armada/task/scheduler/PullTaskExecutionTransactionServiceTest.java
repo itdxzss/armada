@@ -8,11 +8,24 @@ import static org.mockito.Mockito.when;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.group.service.GroupFolderService;
 import com.armada.group.model.vo.GroupPoolResourceVO;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
+import com.armada.task.mapper.PullTaskAccountActionMapper;
+import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskMaterialMemberMapper;
+import com.armada.task.mapper.PullTaskMemberQueryMapper;
+import com.armada.task.mapper.PullTaskPullCallMapper;
+import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.mapper.PullTaskPullWaveMapper;
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
+import com.armada.task.service.PullTaskStandardLifecycleService;
+import com.armada.task.service.impl.PullTaskStandardLifecycleServiceImpl;
+import com.armada.task.service.impl.PullTaskStandardLifecycleResources;
+import com.armada.task.service.impl.PullTaskLifecyclePullResources;
 import com.armada.task.model.dto.PullTaskExecutionClaimCriteria;
 import com.armada.task.model.dto.PullTaskExecutionClaimState;
 import com.armada.task.model.dto.PullTaskExecutionWork;
@@ -30,8 +43,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
+import org.apache.ibatis.executor.Executor;
+import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.plugin.Interceptor;
+import org.apache.ibatis.plugin.Intercepts;
+import org.apache.ibatis.plugin.Invocation;
+import org.apache.ibatis.plugin.Signature;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +75,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 class PullTaskExecutionTransactionServiceTest {
 
     private static final String LINK = "chat.whatsapp.com/AAAAAAAAAAAAAAAAAAAAAA";
+    private static final AtomicReference<Runnable> BEFORE_BIND = new AtomicReference<>();
 
     @Autowired private DataSource dataSource;
     @Autowired private PullTaskMapper taskMapper;
@@ -65,7 +86,9 @@ class PullTaskExecutionTransactionServiceTest {
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
-        PullTaskNormalLinkH2Support.resetSchema(dataSource);
+        org.mockito.Mockito.reset(groupFolderService);
+        BEFORE_BIND.set(null);
+        PullTaskNormalLinkH2Support.resetSchemaWithProtocolOutbox(dataSource);
     }
 
     @AfterEach
@@ -208,6 +231,29 @@ class PullTaskExecutionTransactionServiceTest {
     }
 
     @Test
+    void directEntryClaimsFolderAndConcurrencySlotAtItsOwnStage() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id=18 WHERE task_id=100");
+        insertUnboundAndFreeze(100L, 1);
+        execute("UPDATE pull_task_group_execution SET stage=10 WHERE task_id=100");
+        GroupPoolResourceVO resource = new GroupPoolResourceVO(901L, "120363000000901@g.us",
+                "chat.whatsapp.com/POOL01", "POOL01");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(resource));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 901L)).thenReturn(resource);
+        PullTaskGroupExecution claimed = claim(1, "worker-direct", 1_000L).get(0);
+
+        assertThat(transactionService.prepare(claimed, "worker-direct", 600L)).isPresent();
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(claimed.getId())).satisfies(saved -> {
+            assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+            assertThat(saved.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+            assertThat(saved.getGroupLinkId()).isEqualTo(901L);
+        });
+    }
+
+    @Test
     void unboundTxtClaimsAGroupFromTheCurrentFolderAtRuntime() throws SQLException {
         seedParent(100L, "EXECUTING");
         execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
@@ -278,7 +324,7 @@ class PullTaskExecutionTransactionServiceTest {
     }
 
     @Test
-    void emptyFolderMovesParentToWaitGroupResource() throws SQLException {
+    void emptyFolderEndsParentAndAbandonsPendingExecution() throws SQLException {
         seedParent(100L, "EXECUTING");
         execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
         execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
@@ -291,13 +337,42 @@ class PullTaskExecutionTransactionServiceTest {
 
         TenantContext.set(7L);
         assertThat(taskMapper.selectLifecycle(100L).getStatus())
-                .isEqualTo(PullTaskStandardStatus.WAIT_GROUP_RESOURCE.name());
+                .isEqualTo(PullTaskStandardStatus.ENDED.name());
+        assertThat(taskMapper.selectLifecycle(100L).getBlockingReason())
+                .isEqualTo("群资源已耗尽，任务结束");
+        assertThat(taskMapper.selectLifecycle(100L).getFinishedAt()).isNotNull();
         assertThat(executionMapper.selectById(claimed.getId()).getExecutionStatus())
-                .isEqualTo(PullTaskExecutionStatus.WAIT_START.code());
+                .isEqualTo(PullTaskExecutionStatus.ABANDONED.code());
     }
 
     @Test
-    void emptyFolderDoesNotPauseParentWhileAnotherTxtIsStillExecuting() throws SQLException {
+    void historyWithMissingJidCannotBlockSelectionOfTheNextLink() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id=18 WHERE task_id=100");
+        insertAndFreeze(100L, 1, LINK);
+        execute("UPDATE pull_task_group_execution SET execution_status=6 WHERE task_id=100");
+        insertUnboundAndFreeze(100L, 2);
+        execute("UPDATE pull_task_group_execution SET stage=10 WHERE task_id=100 AND seq=2");
+        GroupPoolResourceVO used = new GroupPoolResourceVO(901L, "old@g.us", LINK, "old");
+        GroupPoolResourceVO next = new GroupPoolResourceVO(902L, "next@g.us",
+                "chat.whatsapp.com/NEXT", "NEXT");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(used, next));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 902L)).thenReturn(next);
+        PullTaskGroupExecution claimed = claim(1, "worker-1", 1_000L).get(0);
+
+        PullTaskExecutionWork work = transactionService.prepare(claimed, "worker-1", 600L)
+                .orElseThrow();
+
+        assertThat(work.normalizedLink()).isEqualTo(next.normalizedLink());
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(claimed.getId()).getGroupLinkId()).isEqualTo(902L);
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getGroupJid()).isNull();
+        assertThat(executionMapper.selectByTaskId(100L).get(0).getNormalizedLink()).isEqualTo(LINK);
+    }
+
+    @Test
+    void fullConcurrencySlotDoesNotEndParentBeforeAnotherTxtFinishes() throws SQLException {
         seedParent(100L, "EXECUTING");
         execute("UPDATE pull_task SET creation_mode = 'RESOURCE_POOL' WHERE id = 100");
         execute("UPDATE pull_task_standard_setting SET source_group_folder_id = 18 "
@@ -314,6 +389,89 @@ class PullTaskExecutionTransactionServiceTest {
         TenantContext.set(7L);
         assertThat(taskMapper.selectLifecycle(100L).getStatus())
                 .isEqualTo(PullTaskStandardStatus.EXECUTING.name());
+    }
+
+    @Test
+    void bindingConflictAfterSelectionTriesNextCandidateInTheSameTransaction() throws SQLException {
+        seedResourcePool();
+        insertAndFreeze(100L, 1, "chat.whatsapp.com/OLD");
+        execute("UPDATE pull_task_group_execution SET execution_status=6 WHERE task_id=100");
+        PullTaskGroupExecution candidate = pendingResourceCandidate(2);
+        GroupPoolResourceVO first = resource(901L, LINK);
+        GroupPoolResourceVO next = resource(902L, "chat.whatsapp.com/NEXT");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(first, next));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 902L)).thenReturn(next);
+        // 在真实筛选 SELECT 之后、真实绑定 UPDATE 之前提交另一条记录，触发数据库唯一键冲突。
+        BEFORE_BIND.set(() -> new org.springframework.jdbc.core.JdbcTemplate(dataSource).update(
+                "UPDATE pull_task_group_execution SET normalized_link=? WHERE task_id=100 AND seq=1", LINK));
+
+        assertThat(transactionService.prepare(candidate, "worker-1", 600L).orElseThrow()
+                .normalizedLink()).isEqualTo(next.normalizedLink());
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(candidate.getId()).getExecutionStatus()).isEqualTo(2);
+        assertThat(executionMapper.selectById(candidate.getId()).getGroupLinkId()).isEqualTo(902L);
+        assertThat(taskVersion(100L)).isEqualTo(2);
+    }
+
+    @Test
+    void allCandidatesConflictingAtBindEndsTaskInsteadOfRetryingTheSameHead() throws SQLException {
+        seedResourcePool();
+        insertAndFreeze(100L, 1, "chat.whatsapp.com/OLD");
+        execute("UPDATE pull_task_group_execution SET execution_status=6 WHERE task_id=100");
+        PullTaskGroupExecution candidate = pendingResourceCandidate(2);
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(resource(901L, LINK)));
+        BEFORE_BIND.set(() -> new org.springframework.jdbc.core.JdbcTemplate(dataSource).update(
+                "UPDATE pull_task_group_execution SET normalized_link=? WHERE task_id=100 AND seq=1", LINK));
+
+        assertThat(transactionService.prepare(candidate, "worker-1", 600L)).isEmpty();
+
+        TenantContext.set(7L);
+        assertThat(taskMapper.selectLifecycle(100L).getStatus()).isEqualTo("ENDED");
+        assertThat(executionMapper.selectById(candidate.getId()).getExecutionStatus()).isEqualTo(6);
+        assertThat(executionMapper.selectById(candidate.getId()).getNormalizedLink()).isNull();
+        assertThat(claim(10, "worker-next", 2_000L)).isEmpty();
+    }
+
+    @Test
+    void activeLinkWithoutJidInAnotherTaskIsExcluded() throws SQLException {
+        seedParent(200L, "PAUSED");
+        insertAndFreeze(200L, 1, LINK);
+        seedResourcePool();
+        PullTaskGroupExecution candidate = pendingResourceCandidate(1);
+        GroupPoolResourceVO next = resource(902L, "chat.whatsapp.com/NEXT");
+        when(groupFolderService.usableResources(18L)).thenReturn(List.of(resource(901L, LINK), next));
+        when(groupFolderService.requireUsableResourceForUpdate(18L, 902L)).thenReturn(next);
+
+        assertThat(transactionService.prepare(candidate, "worker-1", 600L).orElseThrow()
+                .normalizedLink()).isEqualTo(next.normalizedLink());
+    }
+
+    @Test
+    void assignedLinkQueryRespectsTenantAndIncludesTerminalRows() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        insertAndFreeze(100L, 1, LINK);
+        execute("UPDATE pull_task_group_execution SET execution_status=6 WHERE task_id=100");
+
+        assertThat(executionMapper.selectAssignedLinks(100L, List.of(LINK))).containsExactly(LINK);
+        TenantContext.set(8L);
+        assertThat(executionMapper.selectAssignedLinks(100L, List.of(LINK))).isEmpty();
+    }
+
+    private void seedResourcePool() throws SQLException {
+        seedParent(100L, "EXECUTING");
+        execute("UPDATE pull_task SET creation_mode='RESOURCE_POOL' WHERE id=100");
+        execute("UPDATE pull_task_standard_setting SET source_group_folder_id=18 WHERE task_id=100");
+    }
+
+    private PullTaskGroupExecution pendingResourceCandidate(int seq) {
+        insertUnboundAndFreeze(100L, seq);
+        return claim(1, "worker-1", 1_000L).get(0);
+    }
+
+    private static GroupPoolResourceVO resource(long id, String link) {
+        return new GroupPoolResourceVO(id, id + "@g.us", link,
+                link.substring(link.lastIndexOf('/') + 1));
     }
 
     private PullTaskExecutionWork prepareLegacySingle(String lockOwner) throws SQLException {
@@ -333,6 +491,7 @@ class PullTaskExecutionTransactionServiceTest {
                         new PullTaskExecutionClaimState(
                                 PullTaskExecutionStatus.WAIT_START.code(),
                                 List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
+                                        PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                                         PullTaskExecutionStage.MANAGER_JOIN.code(),
                                         PullTaskExecutionStage.GROUP_CREATE.code())),
                         new PullTaskExecutionClaimState(
@@ -464,10 +623,19 @@ class PullTaskExecutionTransactionServiceTest {
         @Bean
         SqlSessionFactory sqlSessionFactory(DataSource dataSource,
                                             MybatisPlusInterceptor interceptor) throws Exception {
-            return PullTaskNormalLinkH2Support.sqlSessionFactory(dataSource, interceptor,
+            SqlSessionFactory factory = PullTaskNormalLinkH2Support.sqlSessionFactory(dataSource, interceptor,
                     "mapper/task/PullTaskMapper.xml",
                     "mapper/task/PullTaskStandardSettingMapper.xml",
-                    "mapper/task/PullTaskGroupExecutionMapper.xml");
+                    "mapper/task/PullTaskGroupExecutionMapper.xml",
+                    "mapper/task/PullTaskGroupAccountMapper.xml",
+                    "mapper/task/PullTaskAccountActionMapper.xml",
+                    "mapper/task/PullTaskPullCallMapper.xml",
+                    "mapper/task/PullTaskPullCallMemberAttemptMapper.xml",
+                    "mapper/task/PullTaskPullWaveMapper.xml",
+                    "mapper/task/PullTaskMaterialMemberMapper.xml",
+                    "mapper/task/PullTaskMemberQueryMapper.xml");
+            factory.getConfiguration().addInterceptor(new BeforeBindInterceptor());
+            return factory;
         }
 
         @Bean
@@ -494,14 +662,51 @@ class PullTaskExecutionTransactionServiceTest {
         PullTaskExecutionTransactionService transactionService(PullTaskMapper taskMapper,
                 PullTaskStandardSettingMapper settingMapper,
                 PullTaskGroupExecutionMapper executionMapper,
-                GroupFolderService groupFolderService) {
+                GroupFolderService groupFolderService,
+                PullTaskStandardLifecycleService lifecycleService) {
             return new PullTaskExecutionTransactionService(
-                    taskMapper, settingMapper, executionMapper, groupFolderService);
+                    taskMapper, settingMapper, executionMapper, groupFolderService, lifecycleService);
+        }
+
+        @Bean
+        PullTaskStandardLifecycleService lifecycleService(
+                PullTaskMapper taskMapper, PullTaskGroupExecutionMapper executionMapper,
+                SqlSessionTemplate template) {
+            PullTaskLifecyclePullResources pull = new PullTaskLifecyclePullResources(
+                    template.getMapper(PullTaskGroupAccountMapper.class),
+                    template.getMapper(PullTaskPullCallMapper.class),
+                    template.getMapper(PullTaskPullCallMemberAttemptMapper.class),
+                    template.getMapper(PullTaskMaterialMemberMapper.class),
+                    template.getMapper(PullTaskPullWaveMapper.class),
+                    mock(GroupDataPackageTaskProjectionService.class));
+            PullTaskStandardLifecycleResources resources = new PullTaskStandardLifecycleResources(
+                    executionMapper, template.getMapper(PullTaskAccountActionMapper.class),
+                    template.getMapper(PullTaskMemberQueryMapper.class), pull,
+                    mock(ProtocolCommandOutboxService.class), mock(PullTaskExecutionDispatchTrigger.class));
+            return new PullTaskStandardLifecycleServiceImpl(taskMapper, resources,
+                    mock(PullTaskParentCompletionService.class), () -> 600L);
         }
 
         @Bean
         GroupFolderService groupFolderService() {
             return mock(GroupFolderService.class);
+        }
+    }
+
+    /** 只安排竞争写入时序，所有业务 SELECT/UPDATE 与唯一约束仍由真实 H2 Mapper 执行。 */
+    @Intercepts(@Signature(type = Executor.class, method = "update",
+            args = {MappedStatement.class, Object.class}))
+    public static class BeforeBindInterceptor implements Interceptor {
+        @Override
+        public Object intercept(Invocation invocation) throws Throwable {
+            MappedStatement statement = (MappedStatement) invocation.getArgs()[0];
+            if (statement.getId().endsWith(".bindGroupAndStartClaimed")) {
+                Runnable competingWrite = BEFORE_BIND.getAndSet(null);
+                if (competingWrite != null) {
+                    competingWrite.run();
+                }
+            }
+            return invocation.proceed();
         }
     }
 }

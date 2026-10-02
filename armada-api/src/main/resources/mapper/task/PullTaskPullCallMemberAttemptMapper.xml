@@ -32,6 +32,38 @@
     ORDER BY id ASC
   </select>
 
+  <select id="selectParticipantHistory" resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
+    SELECT <include refid="BaseColumns"/>
+    FROM pull_task_pull_call_member_attempt
+    WHERE group_execution_id = #{groupExecutionId} AND participant_type = #{participantType}
+      AND participant_ref_id = #{participantRefId}
+    ORDER BY attempt_no ASC
+  </select>
+
+  <select id="hasImmediateUnknownRetry" resultType="boolean">
+    <bind name="unknownRetryReason" value="@com.armada.task.service.impl.PullTaskUnknownParticipantRecovery@RETRY_REASON"/>
+    SELECT EXISTS(SELECT 1 FROM pull_task_pull_call_member_attempt
+      WHERE pull_wave_id = #{pullWaveId} AND lifecycle_status = 4
+        AND reason_code = #{unknownRetryReason})
+  </select>
+
+  <select id="selectUnknownRetryExcludedAccounts" resultType="java.lang.Long">
+    <bind name="unknownRetryReason" value="@com.armada.task.service.impl.PullTaskUnknownParticipantRecovery@RETRY_REASON"/>
+    SELECT DISTINCT source_call.puller_account_id
+    FROM pull_task_pull_call_member_attempt planned
+    JOIN pull_task_pull_call_member_attempt previous
+      ON previous.tenant_id = planned.tenant_id
+      AND previous.group_execution_id = planned.group_execution_id
+      AND previous.participant_type = planned.participant_type
+      AND previous.participant_ref_id = planned.participant_ref_id
+      AND previous.attempt_no &lt; planned.attempt_no
+      AND previous.reason_code = #{unknownRetryReason}
+    JOIN pull_task_pull_call source_call
+      ON source_call.id = previous.pull_call_id AND source_call.tenant_id = previous.tenant_id
+    WHERE planned.pull_call_id = #{pullCallId} AND planned.lifecycle_status = 1
+      AND source_call.puller_account_id IS NOT NULL
+  </select>
+
   <select id="selectById"
           resultType="com.armada.task.model.entity.PullTaskPullCallMemberAttempt">
     SELECT <include refid="BaseColumns"/>
@@ -95,6 +127,7 @@
   <!-- 状态码与 V106 台账合同一致：3关闭、4释放；聚合成功码均为2。 -->
   <select id="selectRetryCandidatesByWaveInternal"
           resultType="com.armada.task.model.dto.PullTaskPullWaveCandidate">
+    <bind name="unknownRetryReason" value="@com.armada.task.service.impl.PullTaskUnknownParticipantRecovery@RETRY_REASON"/>
     SELECT attempt_row.participant_type,
            attempt_row.participant_ref_id,
            attempt_row.target_phone,
@@ -131,6 +164,15 @@
           AND successor.participant_ref_id = attempt_row.participant_ref_id
           AND (successor.attempt_no &gt; attempt_row.attempt_no OR successor.active_slot = 1)
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM pull_task_pull_call_member_attempt consumed
+        WHERE consumed.tenant_id = attempt_row.tenant_id
+          AND consumed.group_execution_id = attempt_row.group_execution_id
+          AND consumed.participant_type = attempt_row.participant_type
+          AND consumed.participant_ref_id = attempt_row.participant_ref_id
+          AND consumed.attempt_no &lt; attempt_row.attempt_no
+          AND consumed.reason_code = #{unknownRetryReason}
+      )
       AND ((attempt_row.lifecycle_status = 3
             AND attempt_row.protocol_outcome = 'FAILED'
             AND attempt_row.reason_code IN
@@ -142,7 +184,8 @@
         OR (attempt_row.lifecycle_status = 4
             AND attempt_row.protocol_outcome = 'UNKNOWN'
             AND attempt_row.execution_state = 'UNCERTAIN'
-            AND (attempt_row.reason_code = #{confirmedAbsenceReasonCode}
+            AND (attempt_row.reason_code = #{unknownRetryReason}
+              OR attempt_row.reason_code = #{confirmedAbsenceReasonCode}
               OR UPPER(TRIM(attempt_row.reason_code)) IN
               <foreach collection="retryableAccountRiskReasons" item="reasonCode"
                        open="(" separator="," close=")">#{reasonCode}</foreach>)))

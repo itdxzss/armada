@@ -52,6 +52,9 @@ public class PullTaskUnknownResultReconciliationService {
     private static final String NOT_IN_GROUP_MESSAGE = "成员快照确认账号不在群内";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
+    private static final List<Integer> DIRECT_ACTION_OPEN = List.of(
+            PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code(),
+            PullTaskActionStatus.PENDING_APPROVAL.code());
     private static final List<Integer> MEMBER_OBSERVABLE_ACTIONS = List.of(
             PullTaskAccountActionType.INVITE_TO_GROUP.code(),
             PullTaskAccountActionType.JOIN_BY_LINK.code(),
@@ -114,7 +117,15 @@ public class PullTaskUnknownResultReconciliationService {
         List<PullTaskPullCall> calls = resources.callMapper()
                 .selectByExecution(execution.getId());
         List<PullTaskAccountAction> actions = resources.actionMapper()
-                .selectByExecutionAndStatuses(execution.getId(), ACTION_OPEN);
+                .selectByExecutionAndStatuses(execution.getId(), Objects.equals(
+                        execution.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code())
+                        ? DIRECT_ACTION_OPEN : ACTION_OPEN);
+        // 已明确需要审批的旧执行交给持租约调度器收尾，成员查询不得将它重新推进。
+        if (Objects.equals(execution.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code())
+                && actions.stream().anyMatch(action -> Objects.equals(
+                        action.getActionStatus(), PullTaskActionStatus.PENDING_APPROVAL.code()))) {
+            return PullTaskUnknownResultReconciliationStats.empty();
+        }
         Map<Long, List<PullTaskPullCallMemberAttempt>> attemptsByCall = new LinkedHashMap<>();
         for (PullTaskPullCall call : calls) {
             attemptsByCall.put(call.getId(), resources.attemptMapper().selectByCall(call.getId()));
@@ -140,6 +151,12 @@ public class PullTaskUnknownResultReconciliationService {
                 execution, calls, materials, accounts, attemptsByCall,
                 participantCutoff, context);
         reconcileAdmins(materials, accounts, context);
+        if (counter.snapshot().confirmed() > 0 && Objects.equals(
+                execution.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code())) {
+            executionMapper.wakeForMemberQuery(new com.armada.task.model.dto.PullTaskMemberQueryWake(
+                    execution.getId(), execution.getTaskId(), PullTaskExecutionStatus.EXECUTING.code(),
+                    PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(), now, now));
+        }
         return counter.snapshot();
     }
 
@@ -166,7 +183,9 @@ public class PullTaskUnknownResultReconciliationService {
                         action.getId(), ACTION_OPEN, PullTaskActionStatus.SUCCESS.code(),
                         false, null, null, context.now())
                         : resources.actionMapper().transitionResult(transition(
-                        action.getId(), ACTION_OPEN, PullTaskActionStatus.SUCCESS.code(),
+                        action.getId(), Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING_APPROVAL.code())
+                                ? List.of(PullTaskActionStatus.PENDING_APPROVAL.code()) : ACTION_OPEN,
+                        PullTaskActionStatus.SUCCESS.code(),
                         PullTaskFactResult.success(member.jid(), context.now()), context.now()));
                 context.counter().confirm(changed);
                 if (membershipAction) {
@@ -219,15 +238,15 @@ public class PullTaskUnknownResultReconciliationService {
             long participantCutoff,
             ReconciliationContext context) {
         for (PullTaskPullCall call : calls) {
-            if (call.getCallStatus() == null || !CALL_OPEN.contains(call.getCallStatus())) {
-                continue;
-            }
             List<PullTaskPullCallMemberAttempt> attempts = attemptsByCall
                     .getOrDefault(call.getId(), List.of());
             if (!attempts.isEmpty()) {
                 context.counter().add(pullCallReconciliationService.reconcile(
                         execution, call, attempts, accounts,
                         participantCutoff, context.now()));
+                continue;
+            }
+            if (call.getCallStatus() == null || !CALL_OPEN.contains(call.getCallStatus())) {
                 continue;
             }
             boolean stale = staleSubmitted(
@@ -532,7 +551,9 @@ public class PullTaskUnknownResultReconciliationService {
     private void confirmMembership(
             PullTaskGroupAccount target, String jid, long now) {
         if (target != null) {
-            transitionMembership(target.getId(), MEMBERSHIP_OPEN,
+            transitionMembership(target.getId(), Objects.equals(target.getMembershipStatus(),
+                            PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code())
+                            ? List.of(PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code()) : MEMBERSHIP_OPEN,
                     PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), now, now);
         }
     }

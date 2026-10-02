@@ -98,6 +98,23 @@ class PullTaskPullerSupplementServiceTest {
     }
 
     @Test
+    void directSupplementUsesDirectJoinStageAndOnlyCreatesLinkAction() {
+        jdbc.update("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=1");
+        jdbc.update("UPDATE pull_task_group_execution SET stage=10 WHERE id=11");
+
+        service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(
+                89L, 1, PullTaskSelectionMode.MANUAL.code(),
+                PullTaskAccountEntryMode.JOIN_BY_LINK.code(), List.of(902L)));
+
+        assertThat(jdbc.queryForObject("SELECT stage FROM pull_task_group_execution WHERE id=11", Integer.class))
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_account_action "
+                + "WHERE group_execution_id=11 AND action_type=3", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_account_action "
+                + "WHERE group_execution_id=11 AND action_type<>3", Integer.class)).isZero();
+    }
+
+    @Test
     void manualLinkSupplementPersistsFrozenRowsAndPreservesManualPause() {
         jdbc.update("UPDATE pull_task_group_execution SET manual_paused = 1 WHERE id = 11");
 

@@ -55,6 +55,24 @@ class WhatsappGroupMemberJoinFactMapperH2Test {
     }
 
     @Test
+    void targetedJoinUsesTrustedPhoneAndExecutionWindowInsteadOfCurrentMembership() throws SQLException {
+        executeSql("INSERT INTO wa_group VALUES (71,7,'group@g.us'),(81,8,'group@g.us')",
+                "INSERT INTO wa_group_participant VALUES "
+                        + "(1,7,71,NULL,'123@lid','15550000001',200),"
+                        + "(2,8,81,NULL,'456@lid','15550000001',300)");
+        assertThat(mapper.selectRecentJoin(7L, "group@g.us", "15550000001", 100, 250))
+                .satisfies(fact -> {
+                    assertThat(fact.participantJid()).isEqualTo("123@lid");
+                    assertThat(fact.joinedAt()).isEqualTo(200L);
+                });
+        assertThat(mapper.selectRecentJoin(7L, "group@g.us", "15550000001", 201, 400)).isNull();
+        assertThat(mapper.selectRecentJoin(7L, "group@g.us", "15550000001", 100, 199)).isNull();
+        assertThat(mapper.selectRecentJoin(7L, "other@g.us", "15550000001", 100, 400)).isNull();
+        assertThat(mapper.selectRecentJoin(9L, "group@g.us", "15550000001", 100, 400)).isNull();
+        assertThat(mapper.selectRecentJoin(7L, "group@g.us", "123", 100, 400)).isNull();
+    }
+
+    @Test
     void selectByGroupJidsIsTenantIsolated() throws SQLException {
         executeSql("""
                 INSERT INTO wa_group (id, tenant_id, group_jid)

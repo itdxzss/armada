@@ -15,6 +15,7 @@ import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
@@ -80,6 +81,9 @@ public class PullTaskPullerStationContactTransactionService {
                     call == null ? null : call.getId(), lockOwner)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskStationContactStepResult.LOST;
+            }
+            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()) {
+                return PullTaskStationContactStepResult.CALL_READY;
             }
             ContactScope scope = contactScope(execution.getId(), storedCall);
             if (scope == null) {

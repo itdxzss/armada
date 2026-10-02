@@ -184,6 +184,8 @@ public class PullTaskBatchAddTransactionService {
             release(execution.getId(), lockOwner, now);
             return Optional.empty();
         }
+        resources.unknownRetryPreflight().confirmBeforeRetry(execution, call, now);
+        call = currentCall(execution, requestedCall.getId());
         Optional<BatchScope> scope = batchScope(execution.getId(), call, now);
         if (scope.isEmpty()) {
             release(execution.getId(), lockOwner, now);

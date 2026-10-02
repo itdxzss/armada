@@ -1,0 +1,65 @@
+{
+  "origin": "https://ingest.65.2.123.53.nip.io",
+  "tlsVerified": true,
+  "checks": [
+    {
+      "check": "bound-status",
+      "httpStatus": 200,
+      "expected": 200,
+      "noStore": true,
+      "state": "NOT_STARTED",
+      "countryId": "187",
+      "unitPrice": 0.88
+    },
+    {
+      "check": "wrong-device",
+      "httpStatus": 401,
+      "expected": 401,
+      "noStore": true
+    },
+    {
+      "check": "missing-token",
+      "httpStatus": 401,
+      "expected": 401,
+      "noStore": true
+    },
+    {
+      "check": "invalid-body",
+      "httpStatus": 400,
+      "expected": 400,
+      "noStore": true
+    },
+    {
+      "check": "method-rejected",
+      "httpStatus": 405,
+      "expected": 405,
+      "noStore": true
+    },
+    {
+      "check": "unknown-route",
+      "httpStatus": 404,
+      "expected": 404,
+      "noStore": true
+    },
+    {
+      "check": "start-without-token",
+      "httpStatus": 401,
+      "expected": 401,
+      "noStore": true
+    },
+    {
+      "check": "existing-import-auth",
+      "httpStatus": 401,
+      "expected": 401,
+      "noStore": true
+    },
+    {
+      "check": "admin-not-exposed",
+      "httpStatus": 404,
+      "expected": 404,
+      "noStore": true
+    }
+  ],
+  "afterChecksDeviceTasks": 0,
+  "authenticatedStartCalled": false
+}

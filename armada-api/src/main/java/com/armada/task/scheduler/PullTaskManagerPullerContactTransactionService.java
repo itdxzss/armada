@@ -46,6 +46,7 @@ public class PullTaskManagerPullerContactTransactionService {
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
     private static final String CONTACT_TARGET_UNAVAILABLE = "CONTACT_TARGET_UNAVAILABLE";
+    private static final int LINK_JOIN_ENABLED = 1;
     private static final int INITIAL_SOURCE = 1;
     private static final int AUTOMATIC_SELECTION = 1;
     /** 允许提交新一轮加人权限命令的动作状态：首次为 PENDING，重发为失败或结果未知。 */
@@ -280,6 +281,29 @@ public class PullTaskManagerPullerContactTransactionService {
             }
         }
         return managers.stream().filter(row -> eligible.contains(row.getAccountId())).toList();
+    }
+
+    /**
+     * 为新群链接模式复用拉手名额与选号规则，仅冻结踩链接角色，不执行管理或联系人动作。
+     * @param candidate 已由调用方验证租户和租约的执行行
+     * @param now 当前毫秒时间
+     * @return 本行当前可用的拉手；没有冻结配置或资源时返回空集合
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public List<PullTaskGroupAccount> allocateDirectPullers(
+            PullTaskGroupExecution candidate, long now) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(candidate.getTenantId());
+        try {
+            PullTaskStandardSetting setting = settingMapper.selectByTaskId(candidate.getTaskId());
+            if (setting == null) {
+                return List.of();
+            }
+            setting.setPullerJoinByLink(LINK_JOIN_ENABLED);
+            return ensurePullers(candidate, setting, now);
+        } finally {
+            restoreTenant(previousTenant);
+        }
     }
 
     private List<PullTaskGroupAccount> ensurePullers(

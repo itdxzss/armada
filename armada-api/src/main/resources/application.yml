@@ -3,6 +3,11 @@ spring:
     name: armada-api
   jackson:
     default-property-inclusion: non_null
+  servlet:
+    multipart:
+      # 群链接新模式一次最多 50 个 2 MB 文件，额外空间容纳 JSON 参数与 multipart 边界。
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:2MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:110MB}
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/armada?useSSL=false&serverTimezone=UTC}
     username: ${DB_USER:root}

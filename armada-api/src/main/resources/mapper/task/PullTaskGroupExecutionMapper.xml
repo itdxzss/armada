@@ -38,7 +38,7 @@
   </sql>
 
   <!-- tenant_id 由租户拦截器注入；link_occupancy_key 是生成列，永不显式写入。 -->
-  <insert id="insertDraftInitialized" useGeneratedKeys="true" keyProperty="id">
+  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_group_execution (
       task_id, seq, group_link_id, normalized_link, invite_code, source_link_line_no, group_jid,
       source_file_index, attempt_no, source_file_name, source_package_id, source_package_generation,
@@ -169,6 +169,15 @@
                open="(" separator="," close=")">#{groupJid}</foreach>
   </select>
 
+  <!-- 与 uq_pull_task_execution_link 一致，终态行仍占用本任务的历史链接。 -->
+  <select id="selectAssignedLinks" resultType="java.lang.String">
+    SELECT DISTINCT normalized_link
+    FROM pull_task_group_execution
+    WHERE task_id = #{taskId}
+      AND normalized_link IN
+      <foreach collection="links" item="link" open="(" separator="," close=")">#{link}</foreach>
+  </select>
+
   <select id="countActiveByGroupLinkIds" resultType="int">
     SELECT COUNT(*)
     FROM pull_task_group_execution
@@ -188,7 +197,7 @@
       ON task_setting.tenant_id = parent_task.tenant_id
      AND task_setting.task_id = parent_task.id
     WHERE parent_task.deleted_at IS NULL
-      AND parent_task.creation_mode IN ('PASTED_LINK', 'RESOURCE_POOL')
+      AND parent_task.creation_mode IN ('PASTED_LINK', 'DIRECT_LINK', 'RESOURCE_POOL')
       AND parent_task.status IN
       <foreach collection="parentStatuses" item="status"
                open="(" separator="," close=")">#{status}</foreach>
@@ -300,6 +309,8 @@
           WHERE action_row.tenant_id = execution_row.tenant_id
             AND action_row.group_execution_id = execution_row.id
             AND (action_row.action_status = #{criteria.facts.action.unknown}
+              OR (execution_row.stage = #{criteria.facts.action.directJoinStage}
+                AND action_row.action_status = #{criteria.facts.action.pendingApproval})
               OR (action_row.action_status = #{criteria.facts.action.submitted}
                 AND action_row.submitted_at &lt;= #{criteria.scope.submittedCutoff}))
         )

@@ -21,6 +21,7 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
 
     private static final Logger log = LoggerFactory.getLogger(PromotionPairingEventSinkAdapter.class);
     private static final String ERROR_PROTOCOL_FAILED = "PROTOCOL_PAIRING_FAILED";
+    private static final String ERROR_COMPLETION_REJECTED = "PAIRING_COMPLETION_REJECTED";
     private static final String ERROR_CONTROL_CODE_MISMATCH = "CONTROL_PAIRING_CODE_MISMATCH";
 
     private final PromotionPairingSessionMapper sessionMapper;
@@ -88,6 +89,12 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
                     pairingLoginPort.exportCredential(event.protocolAccountId());
             validateCredential(event.protocolAccountId(), credential);
             completionService.complete(session.getId(), session.getTenantId(), event, credential);
+        } catch (BusinessException ex) {
+            // 明确的业务拒绝必须落成可查询的失败，不能只进入 Kafka 死信而让页面一直等待。
+            completionService.terminate(session, PromotionPairingStatus.FAILED,
+                    ERROR_COMPLETION_REJECTED, ex.getMessage(), event.occurredAt());
+            log.warn("配对完成处理被拒绝 sessionId={} eventId={} errorCode={}",
+                    session.getId(), event.eventId(), ex.getCode());
         } finally {
             restoreTenant(previousTenant);
         }
@@ -96,19 +103,23 @@ public class PromotionPairingEventSinkAdapter implements ProtocolPairingEventSin
     private static void validateCompleted(PromotionPairingSession session, ProtocolPairingEvent event) {
         if (!ProtocolPairingEvent.EVENT_COMPLETED.equals(event.eventType())
                 || !session.getProtocolAccountId().equals(event.protocolAccountId())
-                || !session.getPhone().equals(normalizeProtocolPhone(event.phone()))) {
+                || !normalizeProtocolPhone(session.getPhone()).equals(normalizeProtocolPhone(event.phone()))) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议配对完成事件与会话不一致");
         }
     }
 
-    /** Baileys 的 me.id 可能携带多设备后缀（如 phone:device），账号主键只使用纯手机号部分。 */
+    /** 只用于会话号码比对：去掉设备后缀，并兼容墨西哥 WhatsApp 旧版 521 移动号形式。 */
     private static String normalizeProtocolPhone(String phone) {
         if (phone == null) {
             return null;
         }
         String normalized = phone.trim();
         int deviceSeparator = normalized.indexOf(':');
-        return deviceSeparator > 0 ? normalized.substring(0, deviceSeparator) : normalized;
+        normalized = deviceSeparator > 0 ? normalized.substring(0, deviceSeparator) : normalized;
+        if (normalized.matches("521[0-9]{10}")) {
+            return "52" + normalized.substring(3);
+        }
+        return normalized;
     }
 
     private static void validateCredential(String protocolAccountId, PairingCredentialExport credential) {

@@ -34,6 +34,8 @@ import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class NormalGroupCreationProtocolResultServiceTest {
 
@@ -535,6 +537,27 @@ class NormalGroupCreationProtocolResultServiceTest {
                 eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("FAILED"),
                 eq("ACCOUNT_ABNORMAL_DURING_CREATE"),
                 eq("建群号状态异常，建群结果未确认"), isNull(), eq("evt-1"), anyLong());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {6, 7, 3})
+    void groupCreate_unknownWithOnlineAccountIsNotFailedByLifecycleLabel(int accountState) {
+        ItemWork item = item("CREATING_GROUP", "cmd-create", null, null, null, "KEEP");
+        AccountState state = new AccountState();
+        state.setAccountState(accountState);
+        state.setLoginState(1);
+        when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
+        when(accountStateMapper.selectByAccountId(382L)).thenReturn(state);
+
+        service.handleNormalGroupCreationResult(event(
+                "GROUP_CREATE", "cmd-create", "UNKNOWN",
+                382L, "creator-web", "WEB", null, null,
+                null, "PROTOCOL_RESULT_UNCONFIRMED", "Android 建群结果未确认"));
+
+        verify(mapper).failProtocolAction(
+                eq(21L), eq("CREATING_GROUP"), eq("cmd-create"), eq("RESULT_UNKNOWN"),
+                eq("PROTOCOL_RESULT_UNCONFIRMED"), eq("Android 建群结果未确认"),
+                isNull(), eq("evt-1"), anyLong());
     }
 
     @Test

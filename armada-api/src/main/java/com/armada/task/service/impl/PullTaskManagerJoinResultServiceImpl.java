@@ -42,9 +42,16 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             "管理员已提交入群申请，等待群主或管理员审批；该群拉群已暂停";
     private static final List<Integer> ACTION_OPEN = List.of(
             PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code());
+    private static final List<Integer> DIRECT_ACTION_OPEN = List.of(
+            PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code(),
+            PullTaskActionStatus.PENDING_APPROVAL.code());
     private static final List<Integer> MEMBERSHIP_OPEN = List.of(
             PullTaskGroupAccountMembershipStatus.JOINING.code(),
             PullTaskGroupAccountMembershipStatus.UNKNOWN.code());
+    private static final List<Integer> DIRECT_MEMBERSHIP_OPEN = List.of(
+            PullTaskGroupAccountMembershipStatus.JOINING.code(),
+            PullTaskGroupAccountMembershipStatus.UNKNOWN.code(),
+            PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code());
     private static final Set<String> EXECUTION_FAILURE_CODES = Set.of(
             "INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE",
             "GROUP_BANNED", "GROUP_FULL");
@@ -113,14 +120,24 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             }
             boolean puller = Objects.equals(
                     account.getRoleType(), PullTaskGroupAccountRole.PULLER.code());
-            ResultKind kind = puller ? classifyPuller(callback) : classify(callback);
-            String reasonMessage = safeReasonMessage(callback, kind);
-            WriteResult actionWrite = writeAction(action, callback, kind, reasonMessage);
+            boolean directPuller = puller && Objects.equals(
+                    execution.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+            // 已知审批等待交给持租约调度器收尾；旧群不因迟到批准或重复回调重新推进。
+            if (directPuller && (Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING_APPROVAL.code())
+                    || Objects.equals(execution.getReasonCode(),
+                    PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name()))) {
+                return false;
+            }
+            ResultKind kind = directPuller ? classifyDirectPuller(execution, callback)
+                    : puller ? classifyPuller(callback) : classify(callback);
+            String reasonMessage = directPuller ? directReasonMessage(execution, callback, kind)
+                    : safeReasonMessage(callback, kind);
+            WriteResult actionWrite = writeAction(action, callback, kind, reasonMessage, directPuller);
             if (actionWrite == WriteResult.REJECTED) {
                 return false;
             }
             WriteResult membershipWrite = writeMembership(
-                    account, callback, kind, reasonMessage);
+                    account, callback, kind, reasonMessage, directPuller);
             if (membershipWrite == WriteResult.REJECTED) {
                 if (actionWrite == WriteResult.UPDATED) {
                     throw new IllegalStateException(
@@ -133,6 +150,9 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                 return true;
             }
             if (puller) {
+                if (directPuller) {
+                    return applyDirectPuller(execution, callback, kind, reasonMessage);
+                }
                 int executionWrite = executionMapper.transitionProtocolResult(
                         new PullTaskExecutionResultTransition(
                                 execution.getId(), execution.getTaskId(), execution.getVersion(),
@@ -187,11 +207,79 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         return 0L;
     }
 
+    private boolean applyDirectPuller(PullTaskGroupExecution execution,
+            PullTaskManagerJoinCallback callback, ResultKind kind, String reasonMessage) {
+        boolean approvalRequired = kind == ResultKind.PENDING_APPROVAL;
+        boolean failed = kind == ResultKind.EXECUTION_FAILED || approvalRequired;
+        String reasonCode = approvalRequired ? PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name()
+                : kind == ResultKind.SUCCESS ? null : callback.reasonCode();
+        String executionMessage = approvalRequired
+                ? PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.message() : reasonMessage;
+        long nextRunAt = kind == ResultKind.UNKNOWN
+                ? Math.addExact(callback.occurredAt(), properties.getResultReconciliationDelayMs()) : 0L;
+        PullTaskManagerJoinResultTransition transition = new PullTaskManagerJoinResultTransition(
+                execution.getId(), execution.getTaskId(), execution.getVersion(),
+                new PullTaskManagerJoinResultTransition.Expected(
+                        PullTaskExecutionStatus.EXECUTING.code(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()),
+                new PullTaskManagerJoinResultTransition.Target(
+                        failed ? PullTaskExecutionStatus.FAILED.code() : PullTaskExecutionStatus.EXECUTING.code(),
+                        PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
+                        execution.getGroupJid() == null || execution.getGroupJid().isBlank()
+                                ? callback.groupJid() : execution.getGroupJid(), null,
+                        reasonCode, executionMessage,
+                        nextRunAt, failed ? callback.occurredAt() : null), callback.occurredAt());
+        if (executionMapper.transitionManagerJoinResult(transition) != 1) {
+            throw new IllegalStateException("新群链接拉手入群结果 CAS 失败");
+        }
+        if (kind == ResultKind.SUCCESS && execution.getGroupLinkId() != null) {
+            inviteLinkService.bindGroupJid(execution.getGroupLinkId(), callback.groupJid(), callback.occurredAt());
+        }
+        if (failed) {
+            accountMapper.releaseAllPullersOfExecution(execution.getId(), callback.occurredAt());
+            completionService.completeIfTerminalByExecutionId(execution.getId(), callback.occurredAt());
+        }
+        return true;
+    }
+
+    private static ResultKind classifyDirectPuller(
+            PullTaskGroupExecution execution, PullTaskManagerJoinCallback callback) {
+        if (differentGroup(execution, callback)) {
+            return ResultKind.UNKNOWN;
+        }
+        if (callback.outcome() == PullTaskManagerJoinProtocolOutcome.FAILED
+                && callback.reasonCode() != null
+                && EXECUTION_FAILURE_CODES.contains(callback.reasonCode())) {
+            return ResultKind.EXECUTION_FAILED;
+        }
+        return classify(callback);
+    }
+
+    private static String directReasonMessage(PullTaskGroupExecution execution,
+            PullTaskManagerJoinCallback callback, ResultKind kind) {
+        if (differentGroup(execution, callback)) {
+            return PullTaskExecutionReasonCode.PULLER_GROUP_ID_MISMATCH.message();
+        }
+        if (kind == ResultKind.PENDING_APPROVAL) {
+            return PullTaskExecutionReasonCode.PULLER_JOIN_PENDING_APPROVAL.message();
+        }
+        if (kind == ResultKind.UNKNOWN && (callback.groupJid() == null || callback.groupJid().isBlank())) {
+            return PullTaskExecutionReasonCode.PULLER_GROUP_ID_UNCONFIRMED.message();
+        }
+        return safeReasonMessage(callback, kind);
+    }
+
+    private static boolean differentGroup(PullTaskGroupExecution execution, PullTaskManagerJoinCallback callback) {
+        return execution.getGroupJid() != null && !execution.getGroupJid().isBlank()
+                && callback.groupJid() != null && !callback.groupJid().isBlank()
+                && !execution.getGroupJid().equals(callback.groupJid());
+    }
+
     private WriteResult writeAction(
             PullTaskAccountAction action,
             PullTaskManagerJoinCallback callback,
             ResultKind kind,
-            String reasonMessage) {
+            String reasonMessage,
+            boolean directPuller) {
         int target = switch (kind) {
             case SUCCESS -> PullTaskActionStatus.SUCCESS.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskActionStatus.FAILED.code();
@@ -202,7 +290,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             return WriteResult.ALREADY_TARGET;
         }
         int updated = actionMapper.transitionResult(new PullTaskFactTransition(
-                action.getId(), ACTION_OPEN, target,
+                action.getId(), directPuller ? DIRECT_ACTION_OPEN : ACTION_OPEN, target,
                 result(callback, reasonMessage), callback.occurredAt()));
         return updated == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;
     }
@@ -211,7 +299,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskGroupAccount account,
             PullTaskManagerJoinCallback callback,
             ResultKind kind,
-            String reasonMessage) {
+            String reasonMessage,
+            boolean directPuller) {
         int target = switch (kind) {
             case SUCCESS -> PullTaskGroupAccountMembershipStatus.IN_GROUP.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code();
@@ -223,7 +312,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         }
         Long joinedAt = kind == ResultKind.SUCCESS ? callback.occurredAt() : null;
         int updated = accountMapper.transitionMembership(new PullTaskFactTransition(
-                account.getId(), MEMBERSHIP_OPEN, target,
+                account.getId(), directPuller ? DIRECT_MEMBERSHIP_OPEN : MEMBERSHIP_OPEN, target,
                 new PullTaskFactResult(callback.reasonCode(), reasonMessage,
                         null, joinedAt), callback.occurredAt()));
         return updated == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;

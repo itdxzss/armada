@@ -109,6 +109,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                                         List<MultipartFile> files,
                                         long userId, String operatorName) {
         PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(creationMode);
+        rejectDirectLink(mode);
         String mergedLinksText = mode == PullTaskCreationMode.PASTED_LINK
                 ? mergeSourceLinks(groupFolderId, linksText) : null;
         return planPrepared(mode, mergedLinksText, parseUploads(files), userId, operatorName);
@@ -124,6 +125,7 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
             throw new BusinessException(ErrorCode.VALIDATION, "请选择 1-50 个不重复的数据包");
         }
         PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(request.creationMode());
+        rejectDirectLink(mode);
         String links = mode == PullTaskCreationMode.PASTED_LINK
                 ? mergeSourceLinks(request.groupFolderId(), request.linksText()) : null;
         List<ParsedUpload> uploads = dataPackageSourceService
@@ -178,6 +180,13 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
                 match.unmatchedFileKeys().size(), userId);
         return toView(draft, toLinkLineViews(probe), toFileResultViews(uploads),
                 match.unmatchedLinks().size(), match.unmatchedFileKeys().size());
+    }
+
+    /** 新模式没有草稿生命周期，不能经旧接口提前持久化。 */
+    private static void rejectDirectLink(PullTaskCreationMode mode) {
+        if (mode.isDirectLink()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接模式（新）请使用无草稿创建入口");
+        }
     }
 
     /** 新群和资源池模式按每个成功接收的 TXT 生成一条无群绑定执行行。 */

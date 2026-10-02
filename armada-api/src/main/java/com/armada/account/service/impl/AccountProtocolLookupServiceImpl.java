@@ -284,13 +284,13 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
 
     /** {@inheritDoc} */
     @Override
-    public List<ProtocolAccountRef> findOnlineNormalStrictByGroupId(Long groupId) {
+    public List<ProtocolAccountRef> findOnlineStrictByGroupId(Long groupId) {
         if (groupId == null) {
             return List.of();
         }
         return accountMapper.selectOnlineByGroupId(
                         groupId,
-                        List.of(AccountStateCode.NORMAL),
+                        List.of(),
                         AccountLoginStateCode.ONLINE).stream()
                 .map(AccountProtocolLookupServiceImpl::toStrictProtocolRef)
                 .flatMap(Optional::stream)

@@ -29,10 +29,16 @@
 
 本机停止调度不等于取消号码订单。回滚应用代码与该次配置备份必须配套，旧代码不接受带metadata的新配置；供应商订单单独核对。完整运行说明见 ../whatsapp-registration-helper/cloud-registration.md。
 
-## 2026-09-17 发布准备
+## 2026-09-17 test1 发布结果
 
-用户已明确授权部署 test1、绑定 CP-10/CP-8、不购号联调。使用 release/cloud-registration-test1-20260917 独立发布 worktree，仅移入本次变更及必需的设备 API/请求编号导出，不包含主工作区其他在途 UI 或凭据解析改动。后端基线177b97bb、前端基线58ef6db2。
+用户授权后完成发布，CP-10、CP-8 已按 tenant 1 绑定独立身份。独立发布分支 release/cloud-registration-test1-20260917：后端 384a2644，前端 5a522b8a，两个发布工作树保持 clean；本地已提交，未推送，主工作区其他在途改动未发布。
 
-相对 test1 当前运行包，存在基线已提交但尚未发布的 V200：注册明细新增 failure_kind/failure_detail 两个可空列，保留现有行；由 Flyway 执行，禁止手动 ALTER。迁移幂等守卫与 DDL/H2 行为已有测试。备份目录 /home/app/armada-cloud-registration-backups/20260917-multiselect；回滚代码与配置应配套，不删除失败事实字段。
+发布目录后端59项、前端19项测试通过，前端类型/lint/build通过。部署脚本测试通过；生产离线包测试因既有缺失 prod/protocol/.env.example 失败，不属于 test1 路径。
 
-部署脚本测试通过；生产离线包测试因既有缺失 prod/protocol/.env.example 失败，不走本轮 test1 路径。发布目录后端59项测试通过，前端云手机及已有注册回归待最终记录。
+首次部署前端静态资源受 umask 077 影响返回403；已用同一提交、umask 022 单独重发前端，脚本 exit 0。后端不重复发布。运行中 JAR/index SHA256 与本地构建一致，两个容器 running、restartCount=0。V200 已由 Flyway 成功执行，仅增加注册失败类别/详情两列；无手动 ALTER。
+
+两台 HTTPS status 均返回设备过滤器的 HTTP404/code404（身份通过且无许可）；CP10令牌搭配CP8设备ID被401拒绝。原 token 身份及原免令牌测试身份全部保留，运行环境仅 ARMADA_DEVICE_REGISTRATION_CLIENTS_JSON 改变。
+
+未创建注册许可、未启动执行器、未购号。新开的浏览器停在登录页，未完成登录后多选界面验收，也未验证真实收码/注册成功。入口 http://armada.65.2.123.53.nip.io/ 。两台本机配置在 helper/.cloud-registration/，批量清单 test1-fleet.json；秘密不在本记录内。
+
+回滚备份 /home/app/armada-cloud-registration-backups/20260917-multiselect，包含旧运行JAR、前端dist、配置和旧镜像映射。回滚前后端/身份配置需配套；无需删除新增可空列，不能把停止执行器当作取消接码订单。脱敏证据见 armada/docs/operations/evidence/cloud-registration-test1-20260917/result.json。

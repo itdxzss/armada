@@ -1,6 +1,6 @@
 package com.armada.task.service;
 
-/** 普通群链接父任务的人工生命周期操作。 */
+/** 普通群链接父任务的人工操作与群资源耗尽收口。 */
 public interface PullTaskStandardLifecycleService {
 
     /** 暂停执行中的任务；重复暂停幂等。 */
@@ -11,4 +11,7 @@ public interface PullTaskStandardLifecycleService {
 
     /** 永久结束执行中或人工暂停的任务；重复结束幂等。 */
     void end(long taskId);
+
+    /** 群资源耗尽时永久结束仍在执行中的任务，并复用任务级取消与资源释放流程。 */
+    void endForGroupExhaustion(long taskId);
 }

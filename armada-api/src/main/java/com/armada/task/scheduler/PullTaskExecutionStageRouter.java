@@ -65,7 +65,8 @@ public class PullTaskExecutionStageRouter {
         if (candidate.getStage() == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) {
             return managerPullerContactProcessor.process(candidate, lockOwner, now);
         }
-        if (candidate.getStage() == PullTaskExecutionStage.PULLER_INVITE.code()) {
+        if (candidate.getStage() == PullTaskExecutionStage.PULLER_INVITE.code()
+                || candidate.getStage() == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()) {
             return pullerInviteProcessor.process(candidate, lockOwner, now);
         }
         if (candidate.getStage() == PullTaskExecutionStage.PULL_EXECUTION.code()) {

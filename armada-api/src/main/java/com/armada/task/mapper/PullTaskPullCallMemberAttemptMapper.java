@@ -29,6 +29,18 @@ public interface PullTaskPullCallMemberAttemptMapper {
     /** 按批次读取冻结参与者，使用台账主键保持规划顺序。 */
     List<PullTaskPullCallMemberAttempt> selectByCall(@Param("pullCallId") long pullCallId);
 
+    /** 读取同一参与者的有界尝试历史，包含已关闭/释放的补拉授权。 */
+    List<PullTaskPullCallMemberAttempt> selectParticipantHistory(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("participantType") int participantType,
+            @Param("participantRefId") long participantRefId);
+
+    /** 查询本波是否有即时未知补拉候选，用于免除普通失败退避。 */
+    boolean hasImmediateUnknownRetry(@Param("pullWaveId") long pullWaveId);
+
+    /** 新调用不得再使用其未知前驱的原拉手账号，即使重复补充了同一账号角色。 */
+    List<Long> selectUnknownRetryExcludedAccounts(@Param("pullCallId") long pullCallId);
+
     /** 按主键读取逐号码执行记录，用于迟到成功检查更新活动 attempt。 */
     PullTaskPullCallMemberAttempt selectById(@Param("id") long id);
 
@@ -76,8 +88,9 @@ public interface PullTaskPullCallMemberAttemptMapper {
      * 未来新增的未知原因码默认不重试，与协议侧判定保持同向。</p>
      *
      * <p>UNKNOWN 允许明确未开始、名单核实不在群内，或原调用返回账号受限时有界重试；
-     * 受限不等于明确失败，原始事实仍保留。离线和缺失回调不自动重试，历史 CLOSED 未知
-     * 不重新开启。总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
+     * 受限不等于明确失败。未知携带持久化的一次补拉授权时也可进入后继波次；
+     * 该后继不能再次申请补拉，历史 CLOSED 未知不重新开启。
+     * 总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
      */
     default List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
             long pullWaveId, long maxFailureCount) {

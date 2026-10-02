@@ -15,6 +15,7 @@ import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
@@ -47,6 +48,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
     private static final List<Integer> SUPPLEMENTABLE_STATUSES =
             List.of(PullTaskExecutionStatus.WAIT_RESOURCE.code());
     private static final List<Integer> SUPPLEMENTABLE_STAGES = List.of(
+            PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
             PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
             PullTaskExecutionStage.PULLER_INVITE.code(),
             PullTaskExecutionStage.PULL_EXECUTION.code());
@@ -114,7 +116,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                 throw new BusinessException(ErrorCode.CONFLICT, "被替换拉手状态已变化，请刷新后重试");
             }
         }
-        activate(context.execution(), now);
+        activate(context, now);
         dispatchTrigger.dispatchAfterCommit();
     }
 
@@ -138,7 +140,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         if (setting == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "普通拉群冻结配置不存在");
         }
-        return new Context(execution, setting);
+        return new Context(execution, setting, PullTaskCreationMode.fromNullable(task.getCreationMode()));
     }
 
     private Request validateRequest(PullTaskPullerSupplementDTO request) {
@@ -257,7 +259,8 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
         }
     }
 
-    private void activate(PullTaskGroupExecution execution, long now) {
+    private void activate(Context context, long now) {
+        PullTaskGroupExecution execution = context.execution();
         PullTaskResourceSupplementTransition transition =
                 new PullTaskResourceSupplementTransition(
                         new PullTaskResourceSupplementTransition.Scope(
@@ -269,7 +272,9 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                                 SUPPLEMENTABLE_STAGES),
                         new PullTaskResourceSupplementTransition.Target(
                                 PullTaskExecutionStatus.EXECUTING.code(),
-                                PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()));
+                                context.creationMode().isDirectLink()
+                                        ? PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()
+                                        : PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()));
         if (resources.executionMapper().activateResourceSupplement(transition) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "执行行状态已变化，请刷新后重新补充拉手");
         }
@@ -367,7 +372,8 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
 
     private record Context(
             PullTaskGroupExecution execution,
-            PullTaskStandardSetting setting) {
+            PullTaskStandardSetting setting,
+            PullTaskCreationMode creationMode) {
     }
 
     private record Request(

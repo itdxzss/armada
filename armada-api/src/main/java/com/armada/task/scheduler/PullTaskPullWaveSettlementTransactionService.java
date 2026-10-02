@@ -8,6 +8,7 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullWave;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.service.PullTaskRetryPolicy;
@@ -95,7 +96,7 @@ public class PullTaskPullWaveSettlementTransactionService {
             if (!retryCandidates.isEmpty()) {
                 return createRetry(execution, wave, retryCandidates, now);
             }
-            return advanceAfterPull(execution, wave.getId(), now);
+            return advanceAfterPull(execution, parent, wave.getId(), now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -160,8 +161,9 @@ public class PullTaskPullWaveSettlementTransactionService {
     }
 
     private PullTaskExecutionDispatchResult advanceAfterPull(
-            PullTaskGroupExecution execution, long settledWaveId, long now) {
-        int nextStage = resources.materialMapper().selectPendingAdmin(
+            PullTaskGroupExecution execution, PullTask parent, long settledWaveId, long now) {
+        boolean directLink = PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink();
+        int nextStage = directLink || resources.materialMapper().selectPendingAdmin(
                 execution.getId(), ADMIN_REQUIRED,
                 PullTaskMaterialPullStatus.SUCCESS.code(),
                 PullTaskMaterialAdminStatus.PENDING.code()).isEmpty()
@@ -170,8 +172,10 @@ public class PullTaskPullWaveSettlementTransactionService {
         replaceActiveWave(execution, settledWaveId, null, nextStage, 0L, now);
         // 这条执行行刚拉完人，正是「拉完人后」设置群资料的时刻；不能拖到收口，否则运营要
         // 看着旧群名度过整个料子管理员阶段。
-        groupProfileDispatcher.dispatchIfDue(
-                execution, PullTaskGroupSettingTiming.AFTER_PULL, now);
+        if (!directLink) {
+            groupProfileDispatcher.dispatchIfDue(
+                    execution, PullTaskGroupSettingTiming.AFTER_PULL, now);
+        }
         log.info("event=pull_wave_settled tenantId={} taskId={} executionId={} "
                         + "waveId={} retryCandidateCount=0 nextStage={}",
                 execution.getTenantId(), execution.getTaskId(), execution.getId(),

@@ -151,6 +151,28 @@ class PullTaskStandardReadMapperInMemoryTest {
     }
 
     @Test
+    void directLinkExecutionReadsOrdinaryPullersWithoutManagerShortage() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("UPDATE pull_task_standard_setting SET required_manager_count=0, "
+                + "manager_group_id=NULL, manager_group_name=NULL WHERE task_id=100");
+        execute("DELETE FROM pull_task_group_account WHERE task_id=100 AND role_type=1");
+        execute("UPDATE pull_task_group_execution SET stage=10, execution_status=2 WHERE id=11");
+
+        PullTaskStandardExecutionFilter filter = new PullTaskStandardExecutionFilter(
+                100L, null, PullTaskExecutionStatus.EXECUTING.code(), 10, null, null, null);
+        assertThat(mapper.countExecutions(filter)).isEqualTo(1);
+        assertThat(mapper.selectExecutionPage(filter, 0, 10)).singleElement()
+                .satisfies(row -> assertThat(row.getId()).isEqualTo(11L));
+        PullTaskStandardExecutionAggregate resources = mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(11L))).get(0);
+        assertThat(resources.getRequiredManagerCount()).isZero();
+        assertThat(resources.getCurrentManagerCount()).isZero();
+        assertThat(resources.getCurrentPullerCount()).isEqualTo(1);
+        assertThat(mapper.selectTaskAggregates(criteria(List.of(100L))).get(0)
+                .getManagerShortageGroupCount()).isZero();
+    }
+
+    @Test
     void executionProgressSeparatesCurrentPeopleFromSubmittedAttemptHistory() throws SQLException {
         execute("INSERT INTO pull_task_material_member "
                 + "(id, tenant_id, group_execution_id, member_seq, source_line_no, "

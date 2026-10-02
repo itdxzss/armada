@@ -97,6 +97,7 @@
   </select>
 
   <update id="normalizeHistoricalRetryResult">
+    <bind name="unknownRetryReason" value="@com.armada.task.service.impl.PullTaskUnknownParticipantRecovery@RETRY_REASON"/>
     UPDATE pull_task_material_member
     SET pull_status = #{normalization.target.resultStatus}, updated_at = #{normalization.now}
     WHERE group_execution_id = #{normalization.scope.executionId}
@@ -118,6 +119,7 @@
                 OR (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.notStarted}
                   AND (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.uncertain}
                     OR (COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason}
+                      AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{unknownRetryReason}
                       AND UPPER(TRIM(COALESCE(prior_attempt.reason_code, ''))) NOT IN
                       <foreach collection="normalization.retryRule.retryableAccountRiskReasons" item="reasonCode"
                                open="(" separator="," close=")">#{reasonCode}</foreach>))))))

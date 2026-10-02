@@ -35,11 +35,13 @@ class PullTaskClosingTransactionServiceTest {
     private final PullTaskParentCompletionService parentCompletionService =
             mock(PullTaskParentCompletionService.class);
     private final GroupFolderService groupFolderService = mock(GroupFolderService.class);
+    private final PullTaskDirectLinkFinishArchiveService finishArchiveService =
+            mock(PullTaskDirectLinkFinishArchiveService.class);
     private final PullTaskClosingTransactionService service =
             new PullTaskClosingTransactionService(
                     taskMapper, executionMapper, accountMapper, settingMapper,
-                    parentCompletionService,
-                    groupFolderService);
+                    new PullTaskClosingResources(parentCompletionService,
+                            groupFolderService, finishArchiveService));
 
     @AfterEach
     void clearTenant() {
@@ -71,6 +73,28 @@ class PullTaskClosingTransactionServiceTest {
         verify(accountMapper).releaseAllPullersOfExecution(11L, 1_000L);
         verify(groupFolderService).moveToUsed(901L);
         verify(parentCompletionService).completeIfTerminalByExecutionId(11L, 1_000L);
+        verifyNoInteractions(finishArchiveService);
+    }
+
+    @Test
+    void directModeReleasesPullersAndArchivesGroupWithoutManagerRoles() {
+        PullTask parent = parent();
+        parent.setCreationMode(PullTaskCreationMode.DIRECT_LINK);
+        when(taskMapper.selectLifecycle(100L)).thenReturn(parent);
+        PullTaskStandardSetting setting = folderSetting();
+        when(settingMapper.selectByTaskId(100L)).thenReturn(setting);
+        when(executionMapper.transitionClaimed(any(PullTaskGroupExecution.class),
+                org.mockito.ArgumentMatchers.eq(PullTaskExecutionStage.CLOSING.code()))).thenReturn(1);
+
+        assertThat(service.close(candidate(), "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        var order = org.mockito.Mockito.inOrder(finishArchiveService, accountMapper);
+        order.verify(finishArchiveService).archive(11L, setting);
+        order.verify(accountMapper).releaseAllPullersOfExecution(11L, 1_000L);
+        verify(groupFolderService).moveToUsed(901L);
+        verify(parentCompletionService).completeIfTerminalByExecutionId(11L, 1_000L);
+        org.mockito.Mockito.verifyNoMoreInteractions(accountMapper);
     }
 
     @Test

@@ -108,8 +108,23 @@ public enum PullTaskExecutionReasonCode {
     /** 协议明确通知目标群已满、不存在、不可访问或无法继续拉人。 */
     GROUP_UNAVAILABLE("群当前不可继续执行拉人"),
 
+    /** 新群链接要求入群审批，停止当前群并复用封群换群策略。 */
+    GROUP_JOIN_APPROVAL_REQUIRED("群入群需要审批，已停止本群执行"),
+
     /** 拉手分组当前没有可占用且可执行协议动作的在线可用账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
+
+    /** 拉手已申请入群，审批前不得开始拉人或重复申请。 */
+    PULLER_JOIN_PENDING_APPROVAL("拉手已提交入群申请，等待群主或管理员审批"),
+
+    /** 拉手进群命令可能已经生效，等待协议回调或成员事实确认。 */
+    PULLER_JOIN_UNCONFIRMED("拉手入群结果暂未确认，等待协议回调或成员查询"),
+
+    /** 入群结果缺少群标识，不能提交后续加人命令。 */
+    PULLER_GROUP_ID_UNCONFIRMED("拉手入群结果缺少群标识，等待协议回调确认"),
+
+    /** 协议返回群身份与本执行行已经绑定的目标群不同。 */
+    PULLER_GROUP_ID_MISMATCH("拉手入群返回的群与任务目标群不一致，等待在群事实核实"),
 
     /** 站台分组中同群未使用的在线账号不足本次调用配置数。 */
     STATION_UNAVAILABLE("当前可用站台不足");

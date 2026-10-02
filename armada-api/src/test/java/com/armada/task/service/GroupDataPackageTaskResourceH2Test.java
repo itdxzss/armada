@@ -15,8 +15,10 @@ import com.armada.task.mapper.GroupDataPackageTaskProjectionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskNormalLinkH2Support;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.service.impl.GroupDataPackageTaskProjectionServiceImpl;
 import com.armada.task.service.impl.PullTaskDataPackageSourceService;
+import com.armada.task.service.impl.PullTaskGroupRetryService;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -79,7 +81,7 @@ class GroupDataPackageTaskResourceH2Test {
     @Test
     void claimResultsEndAndReclaimKeepBothDomainsConsistent() {
         var execution = execution(101, 11, 1, List.of(91L, 92L, 93L));
-        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(execution)));
+        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(execution), PullTaskCreationMode.PASTED_LINK));
         assertThat(statuses()).containsExactly(2, 2, 2);
         assertThat(jdbc.queryForList("SELECT source_allocation_version FROM pull_task_material_member ORDER BY id", Long.class))
                 .containsExactly(1L, 1L, 1L);
@@ -99,7 +101,7 @@ class GroupDataPackageTaskResourceH2Test {
 
         task(12L);
         var next = execution(202, 12, 1, List.of(93L));
-        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(next)));
+        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(next), PullTaskCreationMode.PASTED_LINK));
         projection.synchronizeTask(11L); // 旧任务的释放不能解除新任务的占用。
         assertThat(statuses()).containsExactly(3, 7, 2);
         jdbc.update("UPDATE pull_task_material_member SET pull_status=2 WHERE group_execution_id=202");
@@ -118,7 +120,7 @@ class GroupDataPackageTaskResourceH2Test {
         var second = execution(102, 11, 2, List.of(92L));
         allocations.claim(new GroupDataPackageAllocationService.ClaimRequest(81, 1, 999, 1, List.of(92L)));
         assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(
-                ignored -> source.claim(List.of(first, second)))).isInstanceOf(BusinessException.class);
+                ignored -> source.claim(List.of(first, second), PullTaskCreationMode.PASTED_LINK))).isInstanceOf(BusinessException.class);
         assertThat(statuses()).containsExactly(1, 2, 1);
         assertThat(jdbc.queryForObject("SELECT source_allocation_version FROM pull_task_material_member WHERE group_execution_id=101", Long.class))
                 .isNull();
@@ -129,7 +131,7 @@ class GroupDataPackageTaskResourceH2Test {
     void oneFailedExecutionReleasesUnusedPhonesWhileSiblingKeepsRunning() {
         var failed = execution(101, 11, 1, List.of(91L));
         var running = execution(102, 11, 2, List.of(92L));
-        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(failed, running)));
+        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(List.of(failed, running), PullTaskCreationMode.PASTED_LINK));
         jdbc.update("UPDATE pull_task SET status='EXECUTING' WHERE id=11");
         jdbc.update("UPDATE pull_task_group_execution SET execution_status=5 WHERE id=101");
         jdbc.update("UPDATE pull_task_group_execution SET execution_status=2 WHERE id=102");
@@ -140,6 +142,37 @@ class GroupDataPackageTaskResourceH2Test {
         assertThat(statuses()).containsExactly(1, 2, 1);
         assertCounts(2, 1, 0, 0);
         assertThat(jdbc.queryForObject("SELECT status FROM pull_task WHERE id=11", String.class)).isEqualTo("EXECUTING");
+    }
+
+    @Test
+    void legacyLinkStillRejectsChangedAdminMarkerAndRollsBackClaim() {
+        jdbc.update("UPDATE group_data_package_phone SET admin_required=1 WHERE id=91");
+        var legacy = execution(101, 11, 1, List.of(91L));
+
+        assertThatThrownBy(() -> new TransactionTemplate(transactions).executeWithoutResult(
+                ignored -> source.claim(List.of(legacy),
+                        PullTaskCreationMode.PASTED_LINK)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("数据包号码已发生变化");
+
+        assertThat(statuses()).containsExactly(1, 1, 1);
+        assertThat(jdbc.queryForObject(
+                "SELECT source_allocation_version FROM pull_task_material_member "
+                        + "WHERE group_execution_id=101", Long.class)).isNull();
+        assertCounts(3, 0, 0, 0);
+    }
+
+    @Test
+    void directLinkClaimsAMarkedSourceWithoutRequestingAdmin() {
+        jdbc.update("UPDATE group_data_package_phone SET admin_required=1 WHERE id=91");
+        var direct = execution(101, 11, 1, List.of(91L));
+
+        new TransactionTemplate(transactions).executeWithoutResult(ignored -> source.claim(
+                List.of(direct), PullTaskCreationMode.DIRECT_LINK));
+
+        assertThat(statuses()).containsExactly(2, 1, 1);
+        assertThat(jdbc.queryForObject("SELECT admin_required FROM pull_task_material_member WHERE group_execution_id=101", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT admin_required FROM group_data_package_phone WHERE id=91", Integer.class)).isEqualTo(1);
     }
 
     private void task(long id) {
@@ -179,6 +212,10 @@ class GroupDataPackageTaskResourceH2Test {
             GroupDataPackageTaskProjectionServiceImpl.class, PullTaskDataPackageSourceService.class,
             com.armada.task.scheduler.PullTaskParentCompletionService.class})
     static class Config {
+        // 换群决策在专门的生命周期集成测试验证；本套聚焦资源领取及终态归还。
+        @Bean PullTaskGroupRetryService groupRetry() {
+            return org.mockito.Mockito.mock(PullTaskGroupRetryService.class);
+        }
         @Bean DataSource dataSource() { return PullTaskNormalLinkH2Support.dataSource("group_data_package_resource_task"); }
         @Bean DataSourceTransactionManager transactions(DataSource ds) { return new DataSourceTransactionManager(ds); }
         @Bean SqlSessionFactory factory(DataSource ds, MybatisPlusInterceptor interceptor) throws Exception {

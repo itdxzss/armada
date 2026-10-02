@@ -12,7 +12,7 @@ package com.armada.account.model.vo;
  * @param systemBuiltin 是否系统内置:1=是,0=否
  * @param accountCount  分组下账号总数
  * @param onlineCount   在线账号数(login_state=1)
- * @param executableOnlineCount 新建普群可用账号数(状态正常、在线且协议身份完整)
+ * @param executableOnlineCount 新建普群可用账号数(在线且协议身份完整，不按生命周期标签筛选)
  * @param pullTaskOnlineCount 拉群在线候选数（正常/被抢登/抢登中，协议后端完整；能力限制和占用另行校验）
  * @param riskCount     风控账号数(risk_status&gt;1)
  * @param restrictedCount 异常账号总计(banned + unbound + muted + exported)

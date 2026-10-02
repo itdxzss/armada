@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.account.service.AccountService;
+
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.security.AuthPrincipal;
@@ -60,7 +62,7 @@ class JoinTaskAdminAccessTest {
                  "selectedAccounts":[{"accountId":30,"phone":"12345"}],
                  "linksText":"https://chat.whatsapp.com/ABCDEFGHIJKLMNOPQRSTUV"}
                 """, CreateJoinTaskDTO.class);
-        var service = new JoinTaskServiceImpl(tasks, results, mock(GroupLinkRegistryService.class));
+        var service = new JoinTaskServiceImpl(tasks, results, mock(GroupLinkRegistryService.class), org.mockito.Mockito.mock(AccountService.class));
         assertTrue(service.createTask(request).setAdminEnabled());
         assertTrue(saved.get().isClearAdminsAndLeaveEnabled());
         assertTrue(service.getDetail(10L).clearAdminsAndLeaveEnabled());
@@ -71,7 +73,7 @@ class JoinTaskAdminAccessTest {
     void cleanupCannotBeEnabledWithoutPromotion() throws Exception {
         login(7L, 90L);
         var tasks = mock(JoinTaskMapper.class);
-        var service = new JoinTaskServiceImpl(tasks, mock(JoinTaskResultMapper.class), mock(GroupLinkRegistryService.class));
+        var service = new JoinTaskServiceImpl(tasks, mock(JoinTaskResultMapper.class), mock(GroupLinkRegistryService.class), org.mockito.Mockito.mock(AccountService.class));
         var request = new ObjectMapper().readValue("""
                 {"name":"清理测试","clearAdminsAndLeaveEnabled":true,"accountsPerLink":1,
                  "selectedAccounts":[{"accountId":30,"phone":"12345"}],

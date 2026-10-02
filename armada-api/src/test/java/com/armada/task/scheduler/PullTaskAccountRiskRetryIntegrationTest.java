@@ -373,7 +373,10 @@ class PullTaskAccountRiskRetryIntegrationTest {
                             calls, attempts, materials, accounts), executions, restrictions,
                     new PullTaskPullCallResultCoordination(sticky,
                             mock(PullTaskGroupExecutionFailureService.class), progress,
-                            mock(GroupDataPackageTaskProjectionService.class)), publisher);
+                            mock(GroupDataPackageTaskProjectionService.class), new com.armada.task.service.impl.PullTaskUnknownParticipantRecovery(
+                                    mock(com.armada.group.service.WhatsappGroupMemberJoinFactService.class),
+                                    mock(com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper.class),
+                                    mock(com.armada.task.mapper.PullTaskMapper.class))), publisher);
         }
     }
 }

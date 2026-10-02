@@ -1,0 +1,24 @@
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.003 s -- in com.armada.account.service.AccountMutualContactPolicyTest
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.462 s -- in com.armada.account.service.AccountMutualContactH2Test
+Tests run: 37, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.693 s -- in com.armada.platform.kafka.consumer.group.ProtocolGroupEventConsumerTest
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.023 s -- in com.armada.platform.kafka.consumer.group.ProtocolGroupMetadataUpdatedConsumerTest
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.024 s -- in com.armada.platform.kafka.consumer.group.ProtocolGroupProfileReportedConsumerTest
+
+mutual-web-final.log
+Test Suites: 2 passed, 2 total
+Tests:       48 passed, 48 total
+
+mutual-front-final-test.log
+ℹ tests 12
+ℹ pass 12
+ℹ fail 0
+
+mutual-go-armada.log
+ok  	ws-go/internal/armada	6.774s
+
+mutual-go-race.log
+ok  	ws-go/internal/armada	9.706s
+
+mutual-go-noise-baseline.log
+OOPS: 6 passed, 8 FAILED
+FAIL	ws-go/pkg/noise	0.012s

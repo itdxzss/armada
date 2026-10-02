@@ -1,0 +1,35 @@
+{
+  "status": {
+    "httpStatus": 200,
+    "code": 0,
+    "cacheControl": "no-store",
+    "data": {
+      "requestId": "d55443ac-7307-4779-ab7e-38e753e24066",
+      "state": "NOT_STARTED",
+      "countryId": "187",
+      "unitPrice": 0.88,
+      "purchaseBefore": 1789554094175,
+      "providerId": "196",
+      "replacesRequestId": "47476fe5-95b1-49a9-bc42-472a6cf7e089"
+    }
+  },
+  "options": {
+    "httpStatus": 200,
+    "code": 0,
+    "cacheControl": "no-store",
+    "data": {
+      "requestId": "d55443ac-7307-4779-ab7e-38e753e24066",
+      "countryId": "187",
+      "unitPrice": 0.88,
+      "providerIds": [
+        "196",
+        "62",
+        "65",
+        "66"
+      ]
+    }
+  },
+  "wrongDevice": {
+    "httpStatus": 401
+  }
+}

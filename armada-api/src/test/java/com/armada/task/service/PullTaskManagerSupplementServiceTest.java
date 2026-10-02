@@ -89,6 +89,25 @@ class PullTaskManagerSupplementServiceTest {
     }
 
     @Test
+    void directLinkTaskRejectsManagerOptionsAndSupplementWithoutWritingRoles() {
+        jdbc.update("UPDATE pull_task SET creation_mode = 'DIRECT_LINK' WHERE id = 1");
+
+        assertThatThrownBy(() -> service.options(1L, 11L, 88L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("群链接模式（新）不使用管理员");
+        assertThatThrownBy(() -> service.supplement(1L, 11L,
+                new PullTaskManagerSupplementDTO(
+                        88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("群链接模式（新）不使用管理员");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE account_id = 902",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_account_action", Integer.class)).isZero();
+    }
+
+    @Test
     void optionsUseTheFrozenOneManagerRequirementAndExcludePreviouslySelectedAccounts() {
         PullTaskManagerSupplementOptionsVO options = service.options(1L, 11L, null);
 

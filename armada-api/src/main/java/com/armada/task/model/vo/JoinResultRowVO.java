@@ -15,6 +15,7 @@ package com.armada.task.model.vo;
  * @param approvalStatus 待审核自动处理阶段，未触发时为空
  * @param approvalReason 处理进度或明确失败说明
  * @param approvalActorAccountId 关闭审核的原管理员，独立于提权执行者
+ * @param adminActorPhone 操作管理员手机号，账号不存在或号码缺失时为空
  */
 public record JoinResultRowVO(
         String account,
@@ -36,5 +37,6 @@ public record JoinResultRowVO(
         int cleanupTotal,
         String approvalStatus,
         String approvalReason,
-        Long approvalActorAccountId) {
+        Long approvalActorAccountId,
+        String adminActorPhone) {
 }

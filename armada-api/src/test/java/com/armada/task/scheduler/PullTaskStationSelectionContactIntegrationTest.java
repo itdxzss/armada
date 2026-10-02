@@ -127,6 +127,25 @@ class PullTaskStationSelectionContactIntegrationTest {
     }
 
     @Test
+    void directModeKeepsStationsWithoutSavingEitherContactDirection() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        ProtocolAccountRef stationRef = account(911L, "8613800000911");
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(stationRef));
+        assertThat(stationSelectionService.select(execution(), setting(), call.getId(), 580L).sufficient()).isTrue();
+
+        assertThat(contactService.prepare(claim("worker-direct", 600L, 900L), call, "worker-direct", 610L))
+                .isEqualTo(PullTaskStationContactStepResult.CALL_READY);
+
+        TenantContext.set(7L);
+        assertThat(actionMapper.selectByExecutionAndType(executionId,
+                PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+        org.mockito.Mockito.verify(outboxService, org.mockito.Mockito.never())
+                .enqueuePullTaskContactSaveCommands(anyList());
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId,
+                PullTaskGroupAccountRole.STATION.code())).hasSize(1);
+    }
+
+    @Test
     void selectedStationIsBoundAndBothContactDirectionsConvergeThroughOutboxCallbacks() {
         ProtocolAccountRef pullerRef = account(902L, "8613800000902");
         ProtocolAccountRef stationRef = account(911L, "8613800000911");

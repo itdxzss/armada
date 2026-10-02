@@ -15,6 +15,7 @@ import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
@@ -96,7 +97,7 @@ public class PullTaskResourceRecoveryTransactionService {
                     setting.getConcurrentGroupCount(), now)) {
                 return deferForSlot(candidate, now, retryDelayMs);
             }
-            return resume(candidate, now);
+            return resume(candidate, parent, now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -261,7 +262,8 @@ public class PullTaskResourceRecoveryTransactionService {
         int planned = setting.getPullerCountPerGroup() == null
                 ? 0 : setting.getPullerCountPerGroup();
         boolean stageCanSelect = candidate.getStage()
-                == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
+                == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
+                || candidate.getStage() == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code();
         boolean ready = available > 0 || stageCanSelect && !validatedIds.isEmpty();
         if (ready) {
             return ResourceCheck.available();
@@ -325,15 +327,15 @@ public class PullTaskResourceRecoveryTransactionService {
     }
 
     private PullTaskExecutionDispatchResult resume(
-            PullTaskGroupExecution candidate, long now) {
+            PullTaskGroupExecution candidate, PullTask parent, long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(recoveryStage(candidate));
+        update.setStage(recoveryStage(candidate, parent));
         update.setNextRunAt(0L);
         return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.ADVANCED);
     }
 
-    private int recoveryStage(PullTaskGroupExecution candidate) {
+    private int recoveryStage(PullTaskGroupExecution candidate, PullTask parent) {
         if (Objects.equals(candidate.getWaitResourceType(), PullTaskWaitResourceType.MANAGER.code())) {
             boolean needsEntry = accountMapper.selectByExecutionAndRole(candidate.getId(),
                             PullTaskGroupAccountRole.MANAGER.code()).stream()
@@ -356,7 +358,11 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(row -> row.getReleasedAt() == null)
                 .anyMatch(row -> Objects.equals(row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.NOT_JOINED.code())
                         || PullTaskPullerSlotPolicy.awaitingJoinResult(row));
-        return needsEntry ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code() : candidate.getStage();
+        if (!needsEntry) {
+            return candidate.getStage();
+        }
+        return PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+                ? PullTaskExecutionStage.DIRECT_PULLER_JOIN.code() : PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
     }
 
     private boolean acquireExecutionSlot(
@@ -490,7 +496,8 @@ public class PullTaskResourceRecoveryTransactionService {
     }
 
     private static boolean supportedStage(Integer stage) {
-        return stage != null && stage >= PullTaskExecutionStage.MANAGER_JOIN.code()
+        return Objects.equals(stage, PullTaskExecutionStage.DIRECT_PULLER_JOIN.code())
+                || stage != null && stage >= PullTaskExecutionStage.MANAGER_JOIN.code()
                 && stage <= PullTaskExecutionStage.MATERIAL_ADMIN.code();
     }
 

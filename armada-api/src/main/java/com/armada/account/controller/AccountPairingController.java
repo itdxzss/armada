@@ -15,8 +15,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import jakarta.servlet.http.HttpServletResponse;
+import java.util.List;
 
 /** 账号导入页使用的认证码登录接口。 */
 @RestController
@@ -42,6 +44,16 @@ public class AccountPairingController {
                 request == null ? null : request.accountGroupId(),
                 request == null ? null : request.remark(),
                 principal.userId())));
+    }
+
+    /** 恢复当前用户的配对会话；不存在时返回空列表，不创建新请求。 */
+    @GetMapping
+    public ApiResponse<List<ControlPairingCreatedVO>> recover(
+            @RequestParam String phone,
+            @AuthenticationPrincipal AuthPrincipal principal,
+            HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+        return ApiResponse.ok(service.recover(phone, principal.userId()).stream().toList());
     }
 
     /** 只允许当前租户轮询本租户的会话和认证码。 */

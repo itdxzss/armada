@@ -676,6 +676,26 @@ class PullTaskGroupExecutionMapperInMemoryTest {
     }
 
     @Test
+    void pendingApprovalScanOnlyIncludesDirectPullerEntry() throws SQLException {
+        insertParent(7L, 100L, "EXECUTING");
+        PullTaskGroupExecution direct = draft(100L, 1, LINK, 1);
+        mapper.insertDraft(direct);
+        mapper.freezeDraftRows(100L, 500L);
+        executeRaw("UPDATE pull_task_group_execution SET execution_status=2, stage=10 WHERE id=" + direct.getId());
+        executeRaw("INSERT INTO pull_task_account_action "
+                + "(tenant_id,task_id,group_execution_id,action_type,actor_group_account_id,"
+                + "target_group_account_id,action_status,created_at,updated_at) VALUES "
+                + "(7,100," + direct.getId() + ",1,11,11,7,100,100)");
+        TenantContext.clear();
+        assertThat(mapper.selectUnknownResultCandidates(unknownCriteria("STANDARD", "NORMAL_LINK")))
+                .extracting(PullTaskGroupExecution::getId).containsExactly(direct.getId());
+        TenantContext.set(7L);
+        executeRaw("UPDATE pull_task_group_execution SET stage=2 WHERE id=" + direct.getId());
+        TenantContext.clear();
+        assertThat(mapper.selectUnknownResultCandidates(unknownCriteria("STANDARD", "NORMAL_LINK"))).isEmpty();
+    }
+
+    @Test
     void unknownResultScanIncludesFreshCallBoundToUnavailablePuller()
             throws SQLException {
         insertParent(7L, 100L, "EXECUTING");
@@ -807,7 +827,9 @@ class PullTaskGroupExecutionMapperInMemoryTest {
                 new PullTaskUnknownReconciliationCriteria.Facts(
                         new PullTaskUnknownReconciliationCriteria.Action(
                                 PullTaskActionStatus.SUBMITTED.code(),
-                                PullTaskActionStatus.UNKNOWN.code()),
+                                PullTaskActionStatus.UNKNOWN.code(),
+                                PullTaskActionStatus.PENDING_APPROVAL.code(),
+                                PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()),
                         new PullTaskUnknownReconciliationCriteria.Call(
                                 PullTaskPullCallStatus.SUBMITTED.code(),
                                 PullTaskPullCallStatus.UNKNOWN.code(),

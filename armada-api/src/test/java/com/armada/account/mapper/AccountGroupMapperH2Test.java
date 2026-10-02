@@ -12,6 +12,8 @@ import com.armada.shared.tenant.TenantContext;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
+import java.util.List;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -43,6 +45,9 @@ class AccountGroupMapperH2Test {
 
     @Autowired
     private AccountGroupMapper mapper;
+
+    @Autowired
+    private AccountMapper accountMapper;
 
     @BeforeEach
     void setUp() throws SQLException {
@@ -102,7 +107,7 @@ class AccountGroupMapperH2Test {
     }
 
     @Test
-    void selectPageCountsOnlyNormalOnlineAccountsWithCompleteSupportedProtocolIdentityAsExecutable()
+    void selectPageCountsOnlineAccountsWithCompleteSupportedProtocolIdentityAsExecutable()
             throws SQLException {
         insertAccount(1, "10001", "web-1", "WEB",
                 AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
@@ -126,11 +131,11 @@ class AccountGroupMapperH2Test {
         AccountGroupVoRow row = mapper.selectPage(query).get(0);
 
         assertThat(row.getOnlineCount()).isEqualTo(6L);
-        assertThat(row.getExecutableOnlineCount()).isEqualTo(2L);
+        assertThat(row.getExecutableOnlineCount()).isEqualTo(4L);
     }
 
     @Test
-    void pullTaskCountIncludesOnlineTakeoverWithoutChangingGenericExecutableCount() throws SQLException {
+    void normalCreationAndPullTaskCountsUseTheirOwnLifecycleRules() throws SQLException {
         insertAccount(1, "10001", "web-1", "WEB", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
         insertAccount(2, "10002", "web-2", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
         insertAccount(3, "10003", "android-3", "ANDROID", AccountStateCode.TAKING_OVER, AccountLoginStateCode.ONLINE);
@@ -141,8 +146,35 @@ class AccountGroupMapperH2Test {
         AccountGroupQuery query = new AccountGroupQuery();
         query.setId(10L);
         AccountGroupVoRow row = mapper.selectPage(query).get(0);
-        assertThat(row.getExecutableOnlineCount()).isEqualTo(1L);
+        assertThat(row.getExecutableOnlineCount()).isEqualTo(4L);
         assertThat(row.getPullTaskOnlineCount()).isEqualTo(3L);
+    }
+
+    @Test
+    void normalCreationSelectsOnlineAccountsRegardlessOfLifecycleButKeepsTenantAndIdentityGates()
+            throws SQLException {
+        insertAccount(1, "10001", "web-1", "WEB", AccountStateCode.NORMAL, AccountLoginStateCode.ONLINE);
+        insertAccount(2, "10002", "web-2", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
+        insertAccount(3, "10003", "android-3", "ANDROID", AccountStateCode.TAKING_OVER, AccountLoginStateCode.ONLINE);
+        insertAccount(4, "10004", "web-4", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.OFFLINE);
+        insertAccount(5, "10005", "web-5", "WEB", AccountStateCode.TAKING_OVER, AccountLoginStateCode.PENDING_ONLINE);
+        insertAccount(6, "10006", "web-6", "WEB", AccountStateCode.BANNED, AccountLoginStateCode.ONLINE);
+        insertAccount(7, "10007", " ", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
+        insertAccount(8, "10008", "web-8", "WEB", AccountStateCode.TAKING_OVER, AccountLoginStateCode.ONLINE);
+        execute("UPDATE account SET deleted_at=100 WHERE id=8");
+        insertAccount(9, "10009", "web-9", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
+        execute("UPDATE account SET tenant_id=8 WHERE id=9");
+        execute("UPDATE account_state SET tenant_id=8 WHERE account_id=9");
+        AccountProtocolLookupServiceImpl service = new AccountProtocolLookupServiceImpl(accountMapper);
+
+        assertThat(service.findOnlineStrictByGroupId(10L))
+                .extracting(ref -> ref.armadaAccountId()).containsExactly(1L, 2L, 3L, 6L);
+        assertThat(accountMapper.selectOnlineByGroupId(
+                10L, List.of(AccountStateCode.NORMAL), AccountLoginStateCode.ONLINE))
+                .extracting(account -> account.getId()).containsExactly(1L);
+        TenantContext.set(8L);
+        assertThat(service.findOnlineStrictByGroupId(10L))
+                .extracting(ref -> ref.armadaAccountId()).containsExactly(9L);
     }
 
     @Test
@@ -254,13 +286,19 @@ class AccountGroupMapperH2Test {
             factory.setDataSource(dataSource);
             factory.setConfiguration(configuration);
             factory.setPlugins(interceptor);
-            factory.setMapperLocations(new ClassPathResource("mapper/account/AccountGroupMapper.xml"));
+            factory.setMapperLocations(new ClassPathResource("mapper/account/AccountGroupMapper.xml"),
+                    new ClassPathResource("mapper/account/AccountMapper.xml"));
             return factory.getObject();
         }
 
         @Bean
         SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
             return new SqlSessionTemplate(factory);
+        }
+
+        @Bean
+        AccountMapper accountMapper(SqlSessionTemplate template) {
+            return template.getMapper(AccountMapper.class);
         }
 
         @Bean

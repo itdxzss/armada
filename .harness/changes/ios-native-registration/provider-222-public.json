@@ -1,0 +1,44 @@
+{
+  "observedAtUTC": "2026-09-16T07:27:23.712045+00:00",
+  "tlsVerified": true,
+  "providerId": "222",
+  "requestId": "47476fe5-95b1-49a9-bc42-472a6cf7e089",
+  "replacesRequestId": "b5ee999e-c8f3-47e8-a4df-aa7ca6521661",
+  "countryId": "187",
+  "unitPrice": 0.88,
+  "state": "NOT_STARTED",
+  "checks": [
+    {
+      "operation": "status",
+      "httpStatus": 200,
+      "bodyKind": "empty",
+      "wrongDevice": false
+    },
+    {
+      "operation": "start",
+      "httpStatus": 400,
+      "bodyKind": "empty",
+      "wrongDevice": false
+    },
+    {
+      "operation": "start",
+      "httpStatus": 409,
+      "bodyKind": "old-request-id",
+      "wrongDevice": false
+    },
+    {
+      "operation": "status",
+      "httpStatus": 401,
+      "bodyKind": "empty",
+      "wrongDevice": true
+    },
+    {
+      "operation": "status",
+      "httpStatus": 200,
+      "bodyKind": "empty",
+      "wrongDevice": false
+    }
+  ],
+  "validStartCalled": false,
+  "rejectedStartProbes": 2
+}

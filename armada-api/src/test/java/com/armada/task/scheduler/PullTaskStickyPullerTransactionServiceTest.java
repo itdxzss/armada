@@ -90,6 +90,52 @@ class PullTaskStickyPullerTransactionServiceTest {
     }
 
     @Test
+    void unknownRetryExcludesItsStillOnlineOriginalAccount() throws SQLException {
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
+                .thenReturn(List.of(protocolA(), protocolB()));
+        PullTaskPullCall original = createCall(1);
+        service.bindForDispatch(execution(), original, "worker-1", 1000L);
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=4,active_slot=NULL,"
+                + "protocol_outcome='UNKNOWN',execution_state='UNCERTAIN',"
+                + "reason_code='UNKNOWN_RESULT_RETRY_ONCE' WHERE pull_call_id=" + original.getId());
+        PullTaskPullCall retry = createCall(2);
+        execute("UPDATE pull_task_pull_call_member_attempt SET participant_ref_id=601,attempt_no=2 "
+                + "WHERE pull_call_id=" + retry.getId());
+        assertThat(attemptMapper.selectUnknownRetryExcludedAccounts(retry.getId()))
+                .containsExactly(PULLER_A_ACCOUNT_ID);
+        PullTaskStickyPullerSelection selected = service.bindForDispatch(execution(), retry,"worker-1",2000L);
+        assertThat(selected.role().getAccountId()).isEqualTo(PULLER_B_ACCOUNT_ID);
+        assertThat(groupAccountMapper.selectById(pullerA.getId()).getAvailabilityStatus()).isEqualTo(1);
+        TenantContext.set(8L);
+        assertThat(attemptMapper.selectUnknownRetryExcludedAccounts(retry.getId())).isEmpty();
+    }
+
+    @Test
+    void unknownRetryWaitsWhenOnlyOriginalAccountIsAvailable() throws SQLException {
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
+                .thenReturn(List.of(protocolA()));
+        PullTaskPullCall original = createCall(1);
+        service.bindForDispatch(execution(), original, "worker-1", 1000L);
+        execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=4,active_slot=NULL,"
+                + "protocol_outcome='UNKNOWN',execution_state='UNCERTAIN',"
+                + "reason_code='UNKNOWN_RESULT_RETRY_ONCE' WHERE pull_call_id=" + original.getId());
+        PullTaskPullCall retry = createCall(2);
+        execute("UPDATE pull_task_pull_call_member_attempt SET participant_ref_id=601,attempt_no=2 "
+                + "WHERE pull_call_id=" + retry.getId());
+
+        PullTaskStickyPullerSelection selected = service.bindForDispatch(
+                execution(), retry, "worker-1", 2000L);
+
+        assertThat(selected.ready()).isFalse();
+        assertThat(execution().getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(groupAccountMapper.selectById(pullerA.getId()).getAvailabilityStatus()).isEqualTo(1);
+        assertThat(callMapper.selectByExecution(EXECUTION_ID))
+                .filteredOn(call -> call.getId().equals(retry.getId()))
+                .singleElement().satisfies(call -> assertThat(call.getCallStatus())
+                        .isEqualTo(PullTaskPullCallStatus.PLANNED.code()));
+    }
+
+    @Test
     void firstDispatchSelectsAtCursorAndCreatesGenerationOne() {
         when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))

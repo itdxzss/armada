@@ -37,6 +37,11 @@ class ApiDocsGenerationTest(unittest.TestCase):
             paths = {f"{ep['method']} {ep['path']}" for ep in task_controller["endpoints"]}
             self.assertIn("PUT /api/marketing-tasks/{id}/marketing-template", paths)
             self.assertIn("GET /api/marketing-tasks/account-tree", paths)
+            direct_link = next(
+                item for item in endpoints if item["controller"] == "PullTaskDirectLinkController"
+            )
+            direct_paths = {f"{ep['method']} {ep['path']}" for ep in direct_link["endpoints"]}
+            self.assertEqual(direct_paths, {"POST /api/pull-tasks/standard/direct-link"})
 
             subprocess.run(
                 [
@@ -55,6 +60,7 @@ class ApiDocsGenerationTest(unittest.TestCase):
             self.assertIn("## 营销任务 API（MarketingTaskController）", doc)
             self.assertIn("### PUT /api/marketing-tasks/{id}/marketing-template", doc)
             self.assertIn("通过任务修改其引用的营销模板。", doc)
+            self.assertIn("### POST /api/pull-tasks/standard/direct-link", doc)
 
 
 if __name__ == "__main__":

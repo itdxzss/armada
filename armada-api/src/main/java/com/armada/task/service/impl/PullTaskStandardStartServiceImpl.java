@@ -7,6 +7,7 @@ import com.armada.task.mapper.PullTaskStandardSettingMapper;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskStandardStatus;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.service.PullTaskStandardStartService;
@@ -70,9 +71,11 @@ public class PullTaskStandardStartServiceImpl implements PullTaskStandardStartSe
             throw new BusinessException(ErrorCode.CONFLICT, "普通群链接任务执行配置不存在");
         }
         long now = currentTimeMillis.getAsLong();
-        if (!Integer.valueOf(REQUIRED_MANAGER_COUNT).equals(setting.getRequiredManagerCount())
+        int requiredManagers = PullTaskCreationMode.fromNullable(task.getCreationMode()).isDirectLink()
+                ? 0 : REQUIRED_MANAGER_COUNT;
+        if (!Integer.valueOf(requiredManagers).equals(setting.getRequiredManagerCount())
                 && settingMapper.freezeRequiredManagerCount(
-                        taskId, REQUIRED_MANAGER_COUNT, now) != 1) {
+                        taskId, requiredManagers, now) != 1) {
             throw new BusinessException(ErrorCode.CONFLICT, "普通群链接任务执行配置已变化");
         }
         if (PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {

@@ -33,6 +33,8 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -139,8 +141,9 @@ class PullTaskStandardLifecycleServiceTest {
         verify(dispatchTrigger).dispatchAfterCommit();
     }
 
-    @Test
-    void endAbandonsRowsAndCancelsCommandsNotYetPublished() throws SQLException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void endAbandonsRowsAndCancelsCommandsNotYetPublished(boolean groupExhausted) throws SQLException {
         insertEndFacts();
         when(outboxService.cancelPendingPullTaskCommands(1L, null, 900L))
                 .thenAnswer(ignored -> {
@@ -152,11 +155,16 @@ class PullTaskStandardLifecycleServiceTest {
                                     + "WHERE status IN (0, 1, 5)");
                 });
 
-        lifecycleService.end(1L);
+        if (groupExhausted) {
+            lifecycleService.endForGroupExhaustion(1L);
+        } else {
+            lifecycleService.end(1L);
+        }
 
         PullTask task = taskMapper.selectLifecycle(1L);
         assertThat(task.getStatus()).isEqualTo("ENDED");
-        assertThat(task.getBlockingReason()).isEqualTo("人工结束");
+        assertThat(task.getBlockingReason()).isEqualTo(
+                groupExhausted ? "群资源已耗尽，任务结束" : "人工结束");
         assertThat(task.getFinishedAt()).isEqualTo(900L);
         assertThat(intColumn("execution_status", 11L)).isEqualTo(6);
         assertThat(intColumn("execution_status", 12L)).isEqualTo(6);

@@ -48,6 +48,14 @@
     LIMIT 1
   </select>
 
+  <select id="selectLatestControlByPhone" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
+    SELECT <include refid="columns"/> FROM promotion_pairing_session
+    WHERE phone = #{phone} AND tenant_id = #{tenantId} AND owner_user_id = #{ownerUserId}
+      AND pairing_scene = 2
+    ORDER BY id DESC
+    LIMIT 1
+  </select>
+
   <select id="selectExpiredActive" resultType="com.armada.promotion.pairing.model.entity.PromotionPairingSession">
     SELECT <include refid="columns"/> FROM promotion_pairing_session
     WHERE status IN (1, 2, 3)

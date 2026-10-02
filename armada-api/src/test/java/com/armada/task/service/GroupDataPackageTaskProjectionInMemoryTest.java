@@ -163,11 +163,11 @@ class GroupDataPackageTaskProjectionInMemoryTest {
         row.setId(101L); row.setTaskId(11L); row.setSeq(1);
         row.setSourcePackageId(81L); row.setSourcePackageGeneration(1);
         var tx = new TransactionTemplate(transactionManager);
-        tx.executeWithoutResult(ignored -> sourceService.claim(List.of(row)));
+        tx.executeWithoutResult(ignored -> sourceService.claim(List.of(row), com.armada.task.model.enums.PullTaskCreationMode.PASTED_LINK));
         assertThat(materialMapper.selectByExecution(101L).get(0).getSourceAllocationVersion()).isEqualTo(4L);
         jdbc.update("UPDATE pull_task_material_member SET source_allocation_version=NULL");
         assertThatThrownBy(() -> tx.executeWithoutResult(ignored -> {
-            sourceService.claim(List.of(row));
+            sourceService.claim(List.of(row), com.armada.task.model.enums.PullTaskCreationMode.PASTED_LINK);
             throw new BusinessException(com.armada.shared.exception.ErrorCode.CONFLICT);
         })).isInstanceOf(BusinessException.class);
         assertThat(materialMapper.selectByExecution(101L).get(0).getSourceAllocationVersion()).isNull();

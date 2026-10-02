@@ -31,7 +31,7 @@ import org.apache.ibatis.annotations.Param;
 public interface PullTaskGroupExecutionMapper {
 
     /**
-     * 创建页生成匹配计划时写入草稿执行行。
+     * 写入由业务服务初始化状态、阶段和游标的执行行。
      *
      * <p>草稿行 {@code execution_status=0}，生成列 {@code link_occupancy_key} 为 NULL，
      * 因此不同用户的草稿可以同时持有同一条群链接（ADR-0007）。</p>
@@ -39,10 +39,11 @@ public interface PullTaskGroupExecutionMapper {
      * <p>Java 入口把状态、阶段、暂停标记、游标、调度时间和版本初始化为草稿值，
      * XML 只负责持久化明确参数，不持有业务状态机常量。</p>
      *
-     * @param row 草稿执行行；写入后回填 id
+     * <p>直接链接正式创建调用本入口写入 WAIT_START，不经过草稿初始化。</p>
+     * @param row 已初始化的执行行；写入后回填 id
      * @return 新增行数
      */
-    int insertDraftInitialized(PullTaskGroupExecution row);
+    int insertInitialized(PullTaskGroupExecution row);
 
     /** 群级失败换群后写入同一 TXT 的下一次待启动执行记录。 */
     int insertRetryInitialized(PullTaskGroupExecution row);
@@ -74,7 +75,7 @@ public interface PullTaskGroupExecutionMapper {
         row.setPullerAssignmentSeq(0L);
         row.setNextRunAt(0L);
         row.setVersion(1);
-        return insertDraftInitialized(row);
+        return insertInitialized(row);
     }
 
     /**
@@ -199,6 +200,11 @@ public interface PullTaskGroupExecutionMapper {
     List<String> selectAssignedGroupJids(
             @Param("taskId") long taskId,
             @Param("groupJids") List<String> groupJids);
+
+    /** 查询本任务历史已绑定的候选链接，包含 JID 为空的终态行；调用方保证 links 非空。 */
+    List<String> selectAssignedLinks(
+            @Param("taskId") long taskId,
+            @Param("links") List<String> links);
 
     /** 统计指定群组中当前被活动执行行占用的数量。 */
     int countActiveByGroupLinkIds(

@@ -224,6 +224,25 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     }
 
     @Test
+    void directModeRecoveredPullerReturnsToItsOwnJoinStage() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        waitAt(PullTaskExecutionStage.PULL_EXECUTION, PullTaskWaitResourceType.PULLER, "等待拉手");
+        PullTaskGroupAccount puller = puller();
+        puller.setEntryMode(1);
+        accountMapper.insert(puller);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(PULLER));
+
+        assertThat(service.recover(claim("worker-direct", 600L), "worker-direct", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        org.mockito.Mockito.verify(accountLookup, org.mockito.Mockito.never())
+                .findOnlineEligibleManagersByGroupId(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void oneValidatedPullerRestoresOfflineFactAndReleasedLease() throws SQLException {
         waitAt(PullTaskExecutionStage.PULL_EXECUTION,
                 PullTaskWaitResourceType.PULLER, "当前没有可用拉手");

@@ -13,8 +13,21 @@ class PullTaskPullerInviteProcessorTest {
 
     private final PullTaskPullerInviteTransactionService transactions =
             mock(PullTaskPullerInviteTransactionService.class);
+    private final PullTaskExecutionTransactionService admission = mock(PullTaskExecutionTransactionService.class);
     private final PullTaskPullerInviteProcessor processor =
-            new PullTaskPullerInviteProcessor(transactions);
+            new PullTaskPullerInviteProcessor(transactions, admission);
+
+    @Test
+    void directEntryCannotSubmitJoinWithoutConcurrentSlot() {
+        PullTaskGroupExecution candidate = candidate();
+        candidate.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        candidate.setExecutionStatus(com.armada.task.model.enums.PullTaskExecutionStatus.WAIT_START.code());
+        when(admission.prepare(candidate, "worker-1", 1_000L)).thenReturn(java.util.Optional.empty());
+
+        assertThat(processor.process(candidate, "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        org.mockito.Mockito.verifyNoInteractions(transactions);
+    }
 
     @Test
     void returnsTransactionalOutboxSubmissionWithoutCallingProtocolSynchronously() {

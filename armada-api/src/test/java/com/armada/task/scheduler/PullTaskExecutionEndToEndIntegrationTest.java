@@ -190,7 +190,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         TenantContext.set(7L);
         PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
-        assertTerminalCallbackReplaysAreSideEffectFree(execution);
+        assertTerminalCallbackReplaysAreSideEffectFree(execution, 12);
         execution = executionMapper.selectById(execution.getId());
         PullTaskMaterialMember material = materialMapper.selectByExecution(execution.getId()).get(0);
         assertThat(execution.getExecutionStatus())
@@ -247,6 +247,39 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     assertThat(row.getAdminStatus()).isEqualTo(3);
                 });
         assertPersistedOutboxChain(execution.getId(), profile);
+    }
+
+    @ParameterizedTest(name = "{0} 新群链接仅踩链接和拉人即可完成")
+    @EnumSource(ProtocolProfile.class)
+    void directLinkCompletesWithoutManagerContactsSettingsOrMaterialPromotion(ProtocolProfile profile)
+            throws SQLException {
+        PROTOCOL_PROFILE.set(profile);
+        MANAGER_AVAILABLE.set(false);
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("UPDATE pull_task_group_execution SET stage=10 WHERE task_id=100");
+        execute("UPDATE pull_task_standard_setting SET required_manager_count=0 WHERE task_id=100");
+
+        driveToCompletion();
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        assertThat(taskStatus()).isEqualTo("COMPLETED");
+        assertThat(execution.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.COMPLETED.code());
+        assertThat(execution.getGroupJid()).isEqualTo(GROUP_JID);
+        assertThat(accountMapper.selectByExecutionAndRole(execution.getId(),
+                com.armada.task.model.enums.PullTaskGroupAccountRole.MANAGER.code())).isEmpty();
+        assertThat(materialMapper.selectByExecution(execution.getId())).singleElement()
+                .satisfies(row -> {
+                    assertThat(row.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.SUCCESS.code());
+                    assertThat(row.getAdminCommandId()).isNull();
+                });
+        assertThat(queryInt("SELECT COUNT(*) FROM pull_task_account_action WHERE task_id=100 "
+                + "AND action_type<>" + PullTaskAccountActionType.JOIN_BY_LINK.code())).isZero();
+        assertThat(queryInt("SELECT COUNT(*) FROM protocol_command_outbox "
+                + "WHERE command_type NOT IN ('group.join.requested','group.participants.requested')"))
+                .isZero();
+        assertTerminalCallbackReplaysAreSideEffectFree(execution, 3);
+        assertTerminalResourcesReleased(execution.getId());
     }
 
     private void driveToCompletion() throws SQLException {
@@ -846,8 +879,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
     }
 
     private void assertTerminalCallbackReplaysAreSideEffectFree(
-            PullTaskGroupExecution execution) throws SQLException {
-        assertThat(terminalCallbackReplays).hasSize(12);
+            PullTaskGroupExecution execution, int expectedCallbacks) throws SQLException {
+        assertThat(terminalCallbackReplays).hasSize(expectedCallbacks);
         int outboxBefore = queryInt("SELECT COUNT(*) FROM protocol_command_outbox");
         long versionBefore = execution.getVersion();
         terminalCallbackReplays.forEach(Supplier::get);
@@ -1157,7 +1190,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskExecutionTransactionService(
                     taskMapper, settingMapper, executionMapper,
-                    org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class));
+                    org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class),
+                    org.mockito.Mockito.mock(com.armada.task.service.PullTaskStandardLifecycleService.class));
         }
 
         @Bean PullTaskLinkValidationProcessor linkProcessor(
@@ -1278,7 +1312,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     actionMapper, accountMapper, executionMapper);
         }
 
-        @Bean PullTaskManagerPullerContactProcessor managerPullerContactProcessor(
+        @Bean PullTaskManagerPullerContactTransactionService pullerAllocation(
                 PullTaskMapper taskMapper, PullTaskStandardSettingMapper settingMapper,
                 PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper,
                 PullTaskGroupExecutionMapper executionMapper, AccountProtocolLookupService lookup,
@@ -1287,10 +1321,13 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerPullerContactResources resources =
                     new PullTaskManagerPullerContactResources(
                             executionMapper, lookup, outboxService, properties);
-            PullTaskManagerPullerContactTransactionService transactions =
-                    new PullTaskManagerPullerContactTransactionService(
+            return new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources,
                             mock(PullTaskGroupProfileDispatcher.class));
+        }
+
+        @Bean PullTaskManagerPullerContactProcessor managerPullerContactProcessor(
+                PullTaskManagerPullerContactTransactionService transactions) {
             // 群设置改为异步命令后本阶段不再有事务外协议调用，无需再注入元数据与设置端口。
             return new PullTaskManagerPullerContactProcessor(
                     transactions,
@@ -1303,14 +1340,18 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 AccountProtocolLookupService lookup,
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
-                PullTaskExecutionDispatchProperties properties) {
+                PullTaskExecutionDispatchProperties properties,
+                PullTaskExecutionTransactionService admission,
+                PullTaskManagerPullerContactTransactionService allocation,
+                PullTaskParentCompletionService parentCompletion) {
             PullTaskPullerInviteResources resources =
                     new PullTaskPullerInviteResources(
-                            executionMapper, lookup, outboxService, properties);
+                            executionMapper, lookup, outboxService, properties,
+                            allocation);
             PullTaskPullerInviteTransactionService transactions =
                     new PullTaskPullerInviteTransactionService(
-                            taskMapper, accountMapper, actionMapper, resources);
-            return new PullTaskPullerInviteProcessor(transactions);
+                            taskMapper, accountMapper, actionMapper, resources, parentCompletion);
+            return new PullTaskPullerInviteProcessor(transactions, admission);
         }
 
         @Bean PullTaskBatchSizeSelector batchSizeSelector() {
@@ -1413,7 +1454,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 com.armada.platform.protocol.service.ProtocolCommandOutboxService outboxService,
                 PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskBatchAddResources(
-                    persistence, lookup, outboxService, delayPolicy);
+                    persistence, lookup, outboxService, delayPolicy, org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskUnknownRetryPreflight.class));
         }
 
         @Bean PullTaskBatchAddProcessor batchProcessor(
@@ -1433,8 +1474,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskStandardSettingMapper settingMapper,
                 PullTaskParentCompletionService parentCompletion) {
             return new PullTaskClosingTransactionService(
-                    taskMapper, executionMapper, accountMapper, settingMapper, parentCompletion,
-                    org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class));
+                    taskMapper, executionMapper, accountMapper, settingMapper,
+                    new PullTaskClosingResources(parentCompletion,
+                            org.mockito.Mockito.mock(com.armada.group.service.GroupFolderService.class),
+                            org.mockito.Mockito.mock(PullTaskDirectLinkFinishArchiveService.class)));
         }
 
         @Bean PullTaskPullExecutionDispatchResources pullDispatchResources(
@@ -1501,7 +1544,10 @@ class PullTaskExecutionEndToEndIntegrationTest {
             return new PullTaskPullCallResultCoordination(
                     stickyPullers,
                     mock(PullTaskGroupExecutionFailureService.class),
-                    waveProgress, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class));
+                    waveProgress, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), new com.armada.task.service.impl.PullTaskUnknownParticipantRecovery(
+                                    mock(com.armada.group.service.WhatsappGroupMemberJoinFactService.class),
+                                    mock(com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper.class),
+                                    mock(com.armada.task.mapper.PullTaskMapper.class)));
         }
 
         @Bean PullTaskOperationDelayPolicy operationDelayPolicy() {

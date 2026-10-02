@@ -75,6 +75,16 @@ class PullTaskCreatorLeaveProcessorTest {
     }
 
     @Test
+    void directModeSkipsCreatorLeaveEvenIfOldFlagIsEnabled() {
+        arrangeEnabledTask(PullTaskCreationMode.DIRECT_LINK);
+
+        assertThat(processor().process(candidate(), "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        verifyNoInteractions(accountMapper, actionMapper, creatorLeaveService, outboxService, executionMapper);
+    }
+
+    @Test
     void existingControlledAdminSkipsPromotionAndDispatchesDirectLeave() {
         arrangeEnabledTask(PullTaskCreationMode.PASTED_LINK);
         GroupCreatorLeaveAccount owner = owner();

@@ -331,7 +331,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE", "GROUP_FULL"})
+    @ValueSource(strings = {"INVITE_INVALID", "INVITE_REVOKED", "INVALID_GROUP_LINK", "GROUP_UNAVAILABLE", "GROUP_FULL", "GROUP_JOIN_APPROVAL_REQUIRED"})
     void groupFailuresRetryWholeFileExactlyOnceBeforeParentCompletion(String reason) throws SQLException {
         insertEndFacts();
         jdbc.update("UPDATE pull_task_material_member SET pull_status = 2 WHERE id = 501");
@@ -349,6 +349,69 @@ class PullTaskStandardExecutionLifecycleServiceTest {
         assertThat(jdbc.queryForList("SELECT pull_status FROM pull_task_material_member "
                 + "WHERE group_execution_id = ? ORDER BY member_seq", Integer.class, retryId))
                 .containsExactly(0, 0);
+        assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
+        verify(groupFolderService, times(1)).moveToUngrouped(9011L);
+        verify(dispatchTrigger, times(1)).dispatchAfterCommit();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GROUP_FULL", "GROUP_JOIN_APPROVAL_REQUIRED"})
+    void directGroupFailureCopiesMaterialBackToDirectEntry(String reason) throws SQLException {
+        insertEndFacts();
+        jdbc.update("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=1");
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status=5, reason_code=? WHERE id=11", reason);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                completionService.completeIfTerminalByExecutionId(11L, 900L));
+
+        Long retryId = jdbc.queryForObject("SELECT id FROM pull_task_group_execution "
+                + "WHERE task_id=1 AND seq=1 AND attempt_no=2", Long.class);
+        assertThat(intColumn("stage", "pull_task_group_execution", retryId))
+                .isEqualTo(com.armada.task.model.enums.PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_material_member WHERE group_execution_id=?",
+                Integer.class, retryId)).isEqualTo(2);
+    }
+
+    @Test
+    void directApprovalCallbackStopsGroupAndRetriesSameMaterialAtomically() throws SQLException {
+        insertEndFacts();
+        jdbc.update("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=1");
+        jdbc.update("UPDATE pull_task_group_execution SET stage=10, group_jid=NULL, lock_owner=NULL WHERE id=11");
+        jdbc.update("UPDATE pull_task_account_action SET action_type=?, actor_group_account_id=101, "
+                + "target_group_account_id=101, command_id='approval-join' WHERE id=303",
+                com.armada.task.model.enums.PullTaskAccountActionType.JOIN_BY_LINK.code());
+        jdbc.update("UPDATE pull_task_group_account SET membership_status=? WHERE id=101",
+                com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus.JOINING.code());
+        var resultService = new com.armada.task.service.impl.PullTaskManagerJoinResultServiceImpl(
+                lifecycleResources.actionMapper(), lifecycleResources.pull().accountMapper(),
+                lifecycleResources.executionMapper(), completionService,
+                new com.armada.task.scheduler.PullTaskExecutionDispatchProperties(),
+                new com.armada.task.scheduler.PullTaskOperationDelayPolicy(),
+                mock(com.armada.group.service.GroupInviteLinkService.class));
+        var callback = new com.armada.task.model.dto.PullTaskManagerJoinCallback(
+                7L, 1L, 11L, 303L, "approval-join",
+                com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome.PENDING_APPROVAL,
+                null, "JOIN_PENDING_APPROVAL", null, false, 900L);
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            assertThat(resultService.apply(callback)).isTrue();
+            assertThat(resultService.apply(callback)).isFalse();
+        });
+
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 11L)).isEqualTo(5);
+        assertThat(stringColumn("reason_code", 11L)).isEqualTo("GROUP_JOIN_APPROVAL_REQUIRED");
+        assertThat(longColumn("released_at", "pull_task_group_account", 101L)).isEqualTo(900L);
+        assertThat(intColumn("action_status", "pull_task_account_action", 303L))
+                .isEqualTo(com.armada.task.model.enums.PullTaskActionStatus.PENDING_APPROVAL.code());
+        Long retryId = jdbc.queryForObject("SELECT id FROM pull_task_group_execution "
+                + "WHERE task_id=1 AND seq=1 AND attempt_no=2", Long.class);
+        assertThat(intColumn("execution_status", "pull_task_group_execution", retryId)).isEqualTo(1);
+        assertThat(intColumn("stage", "pull_task_group_execution", retryId)).isEqualTo(10);
+        assertThat(longColumn("group_link_id", "pull_task_group_execution", retryId)).isNull();
+        assertThat(jdbc.queryForList("SELECT normalized_phone FROM pull_task_material_member "
+                + "WHERE group_execution_id=? ORDER BY member_seq", String.class, retryId))
+                .containsExactly("861001", "861002");
+        assertThat(intColumn("execution_status", "pull_task_group_execution", 12L)).isEqualTo(3);
         assertThat(taskMapper.selectLifecycle(1L).getStatus()).isEqualTo("EXECUTING");
         verify(groupFolderService, times(1)).moveToUngrouped(9011L);
         verify(dispatchTrigger, times(1)).dispatchAfterCommit();

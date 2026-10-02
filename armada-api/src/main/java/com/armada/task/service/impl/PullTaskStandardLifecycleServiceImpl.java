@@ -37,6 +37,7 @@ public class PullTaskStandardLifecycleServiceImpl
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
     private static final String MANUAL_PAUSE_REASON = "人工暂停";
     private static final String MANUAL_END_REASON = "人工结束";
+    private static final String GROUP_EXHAUSTED_REASON = "群资源已耗尽，任务结束";
     private static final int NOT_PAUSED = 0;
     private static final String LIFECYCLE_CANCELED = "LIFECYCLE_CANCELED";
     private static final String LIFECYCLE_CANCELED_MESSAGE = "任务或执行行已结束，未发出的拉人操作已取消";
@@ -119,7 +120,22 @@ public class PullTaskStandardLifecycleServiceImpl
         }
         requireStatus(task, ENDABLE_STATUSES, "结束");
         long now = currentTimeMillis.getAsLong();
-        transition(task, PullTaskStandardStatus.ENDED, MANUAL_END_REASON, now, now);
+        endTask(task, MANUAL_END_REASON, now);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void endForGroupExhaustion(long taskId) {
+        PullTask task = requiredTask(taskId);
+        if (!PullTaskStandardStatus.EXECUTING.name().equals(task.getStatus())) {
+            return;
+        }
+        endTask(task, GROUP_EXHAUSTED_REASON, currentTimeMillis.getAsLong());
+    }
+
+    private void endTask(PullTask task, String reason, long now) {
+        long taskId = task.getId();
+        transition(task, PullTaskStandardStatus.ENDED, reason, now, now);
         // 先终结执行行：已在途的 stage 事务若先持有行锁，本更新会等它提交；
         // 若本更新先成功，stage 的版本 CAS 必然失败并回滚其 Outbox。之后再扫描取消，
         // 因此不会遗漏在旧顺序的取消扫描之后才提交的命令。

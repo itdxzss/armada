@@ -47,8 +47,6 @@ public class PullTaskPullCallParticipantResultService {
 
     static final int MAX_FAILURE_RETRY_COUNT = 3;
     static final int MAX_EXPLICIT_FAILURE_COUNT = MAX_FAILURE_RETRY_COUNT + 1;
-    private static final String ROSTER_QUERY_UNAVAILABLE = "ROSTER_QUERY_UNAVAILABLE";
-    private static final String PROTOCOL_RESULT_UNCONFIRMED = "PROTOCOL_RESULT_UNCONFIRMED";
     private static final Set<String> OFFLINE_REASON_CODES = Set.of(
             ProtocolErrorCode.ACCOUNT_NOT_FOUND.name(),
             ProtocolErrorCode.ACCOUNT_NOT_ONLINE.name(),
@@ -111,7 +109,10 @@ public class PullTaskPullCallParticipantResultService {
             if (!matchesAttempt(attempt, call, targetJid)) {
                 return false;
             }
-            if (alreadyApplied(attempt, callback)) {
+            PullTaskBatchParticipantCallback originalCallback = callback;
+            callback = coordination.unknownRecovery().resolve(execution, attempt, callback);
+            boolean retryAllowed = !coordination.unknownRecovery().hasUsedRetry(attempt);
+            if (alreadyApplied(attempt, callback, retryAllowed)) {
                 closeCallIfReady(call, execution, callback.tenantId(), callback.occurredAt());
                 return true;
             }
@@ -126,7 +127,7 @@ public class PullTaskPullCallParticipantResultService {
             boolean handled;
             if (Objects.equals(attempt.getLifecycleStatus(),
                     PullTaskParticipantAttemptStatus.SUBMITTED.code())) {
-                handled = applyCurrentAttempt(attempt, callback);
+                handled = applyCurrentAttempt(attempt, callback, retryAllowed);
             } else if (Objects.equals(attempt.getLifecycleStatus(),
                     PullTaskParticipantAttemptStatus.RELEASED.code())) {
                 handled = applyLateReleasedAttempt(attempt, callback);
@@ -136,7 +137,7 @@ public class PullTaskPullCallParticipantResultService {
             if (!handled) {
                 return false;
             }
-            applyAccountFailure(puller, call, execution, callback);
+            applyAccountFailure(puller, call, execution, originalCallback);
             synchronizeDataPackage(execution, attempt);
             closeCallIfReady(
                     call, execution, callback.tenantId(), callback.occurredAt());
@@ -149,6 +150,16 @@ public class PullTaskPullCallParticipantResultService {
     /** 使用成员观察或结果窗口结论收口未知、缺失的逐号码执行。 */
     @Transactional(rollbackFor = Exception.class)
     public boolean settleUncertain(PullTaskUncertainParticipantSettlement settlement) {
+        return settle(settlement, false);
+    }
+
+    /** 已关闭批次只纠正可靠成功事实，不恢复历史任务或重新补拉。 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean confirmLocalJoin(PullTaskUncertainParticipantSettlement settlement) {
+        return settle(settlement, true);
+    }
+
+    private boolean settle(PullTaskUncertainParticipantSettlement settlement, boolean factsOnly) {
         PullTaskUncertainParticipantSettlement.Context context = settlement.context();
         long tenantId = context.tenantId();
         PullTaskPullCall call = context.call();
@@ -168,10 +179,21 @@ public class PullTaskPullCallParticipantResultService {
             if (call == null || execution == null || attempt == null
                     || !Objects.equals(call.getId(), attempt.getPullCallId())
                     || !Objects.equals(call.getGroupExecutionId(), execution.getId())
-                    || !Objects.equals(attempt.getGroupExecutionId(), execution.getId())
-                    || !Objects.equals(attempt.getLifecycleStatus(),
+                    || !Objects.equals(attempt.getGroupExecutionId(), execution.getId())) {
+                return false;
+            }
+            java.util.Optional<PullTaskFactResult> join = coordination.unknownRecovery()
+                    .confirmedJoin(execution, attempt, now);
+            if (join.isPresent()) {
+                return applyLocalJoin(execution, call, attempt, join.get(), now);
+            }
+            if (factsOnly || !Objects.equals(attempt.getLifecycleStatus(),
                     PullTaskParticipantAttemptStatus.SUBMITTED.code())) {
                 return false;
+            }
+            if (observation == PullTaskRosterObservation.UNCONFIRMED
+                    && coordination.unknownRecovery().canRetryUnknown(execution, attempt)) {
+                observation = PullTaskRosterObservation.UNCONFIRMED_RETRY;
             }
             PullTaskParticipantAttemptTransition attemptTransition =
                     rosterAttemptTransition(attempt, observation, now);
@@ -196,6 +218,30 @@ public class PullTaskPullCallParticipantResultService {
         }
     }
 
+    private boolean applyLocalJoin(
+            PullTaskGroupExecution execution, PullTaskPullCall call,
+            PullTaskPullCallMemberAttempt attempt, PullTaskFactResult fact, long now) {
+        if (!List.of(PullTaskParticipantAttemptStatus.SUBMITTED.code(),
+                PullTaskParticipantAttemptStatus.CLOSED.code(),
+                PullTaskParticipantAttemptStatus.RELEASED.code()).contains(attempt.getLifecycleStatus())
+                || "SUCCESS".equals(attempt.getProtocolOutcome())) {
+            return false;
+        }
+        PullTaskParticipantAttemptTransition transition = new PullTaskParticipantAttemptTransition(
+                new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
+                new PullTaskParticipantAttemptTransition.Expected(List.of(attempt.getLifecycleStatus())),
+                new PullTaskParticipantAttemptTransition.Target(PullTaskParticipantAttemptStatus.CLOSED.code(),
+                        PullTaskBatchParticipantProtocolOutcome.SUCCESS.name(),
+                        PullTaskParticipantExecutionState.STARTED, attempt.getReleasedAt()), fact);
+        if (resources.attemptMapper().transition(transition) != 1) {
+            return false;
+        }
+        promoteLateSuccess(attempt, fact, now);
+        synchronizeDataPackage(execution, attempt);
+        closeCallIfReady(call, execution, execution.getTenantId(), now);
+        return true;
+    }
+
     /** 单条回执仅同步该料子，避免大包每个号码回执都扫描整个任务。 */
     private void synchronizeDataPackage(
             PullTaskGroupExecution execution, PullTaskPullCallMemberAttempt attempt) {
@@ -210,7 +256,8 @@ public class PullTaskPullCallParticipantResultService {
             PullTaskRosterObservation observation,
             long now) {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
-        boolean released = observation == PullTaskRosterObservation.ABSENT
+        boolean released = (observation == PullTaskRosterObservation.ABSENT
+                || observation == PullTaskRosterObservation.UNCONFIRMED_RETRY)
                 && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
         return new PullTaskParticipantAttemptTransition(
                 new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
@@ -226,21 +273,7 @@ public class PullTaskPullCallParticipantResultService {
                         released ? now : null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
-                        : rosterFailure(observation, now));
-    }
-
-    private static PullTaskFactResult rosterFailure(
-            PullTaskRosterObservation observation,
-            long now) {
-        return switch (observation) {
-            case ABSENT -> new PullTaskFactResult(
-                    "ROSTER_NOT_PRESENT", "群成员名单未确认该号码在群", null, now);
-            case UNCONFIRMED -> new PullTaskFactResult(
-                    PROTOCOL_RESULT_UNCONFIRMED, "未收到确认结果，保持未知且不自动重发", null, now);
-            case UNAVAILABLE -> new PullTaskFactResult(
-                    ROSTER_QUERY_UNAVAILABLE, "群成员名单查询不可用，结果保持未知", null, now);
-            case PRESENT -> throw new IllegalArgumentException("已确认成员不能生成失败事实");
-        };
+                        : PullTaskUnknownParticipantRecovery.rosterFact(observation, now));
     }
 
     private static PullTaskParticipantAggregateTransition rosterAggregateTransition(
@@ -253,6 +286,7 @@ public class PullTaskPullCallParticipantResultService {
             case PRESENT -> successStatus(attempt);
             case ABSENT -> PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()))
                     ? pendingStatus(attempt) : unknownStatus(attempt);
+            case UNCONFIRMED_RETRY -> pendingStatus(attempt);
             case UNCONFIRMED, UNAVAILABLE -> unknownStatus(attempt);
         };
         return new PullTaskParticipantAggregateTransition(
@@ -266,13 +300,13 @@ public class PullTaskPullCallParticipantResultService {
                         null),
                 present
                         ? PullTaskFactResult.success(attempt.getTargetJid(), now)
-                        : rosterFailure(observation, now));
+                        : PullTaskUnknownParticipantRecovery.rosterFact(observation, now));
     }
 
     private boolean applyCurrentAttempt(
             PullTaskPullCallMemberAttempt attempt,
-            PullTaskBatchParticipantCallback callback) {
-        AttemptTarget target = attemptTarget(callback);
+            PullTaskBatchParticipantCallback callback, boolean retryAllowed) {
+        AttemptTarget target = attemptTarget(callback, retryAllowed);
         PullTaskParticipantAttemptTransition transition =
                 new PullTaskParticipantAttemptTransition(
                         new PullTaskParticipantAttemptTransition.Scope(
@@ -290,7 +324,7 @@ public class PullTaskPullCallParticipantResultService {
             return true;
         }
         PullTaskParticipantAggregateTransition aggregate =
-                aggregateTransition(attempt, callback);
+                aggregateTransition(attempt, callback, retryAllowed);
         int changed = isMaterial(attempt)
                 ? resources.materialMapper().transitionPullAttempt(aggregate)
                 : resources.accountMapper().transitionMembershipAttempt(aggregate);
@@ -322,6 +356,10 @@ public class PullTaskPullCallParticipantResultService {
     private boolean applyLateReleasedAttempt(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskBatchParticipantCallback callback) {
+        if (PullTaskUnknownParticipantRecovery.RETRY_REASON.equals(attempt.getReasonCode())
+                && callback.outcome() != PullTaskBatchParticipantProtocolOutcome.SUCCESS) {
+            return true;
+        }
         int lifecycle = callback.outcome() == PullTaskBatchParticipantProtocolOutcome.UNKNOWN
                 ? PullTaskParticipantAttemptStatus.RELEASED.code()
                 : PullTaskParticipantAttemptStatus.CLOSED.code();
@@ -367,22 +405,27 @@ public class PullTaskPullCallParticipantResultService {
     private boolean promoteLateSuccess(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskBatchParticipantCallback callback) {
+        return promoteLateSuccess(attempt, callbackFact(callback), callback.occurredAt());
+    }
+
+    private boolean promoteLateSuccess(
+            PullTaskPullCallMemberAttempt attempt, PullTaskFactResult fact, long now) {
         AggregateSnapshot snapshot = aggregateSnapshot(attempt);
         if (snapshot == null) {
             throw new IllegalStateException("迟到成功缺少参与者聚合状态");
         }
-        cancelNewerPlannedCall(attempt, snapshot, callback.occurredAt());
+        cancelNewerPlannedCall(attempt, snapshot, now);
         PullTaskParticipantAggregateTransition promotion =
                 new PullTaskParticipantAggregateTransition(
                         new PullTaskParticipantAggregateTransition.Scope(
                                 attempt.getParticipantRefId(), attempt.getId(),
-                                callback.occurredAt()),
+                                now),
                         new PullTaskParticipantAggregateTransition.Expected(
                                 List.of(snapshot.status()), snapshot.failureCount()),
                         new PullTaskParticipantAggregateTransition.Target(
                                 successStatus(attempt), snapshot.failureCount(),
                                 attempt.getPullCallId(), null),
-                        callbackFact(callback));
+                        fact);
         int changed = isMaterial(attempt)
                 ? resources.materialMapper().promotePullSuccess(promotion)
                 : resources.accountMapper().promoteMembershipSuccess(promotion);
@@ -621,10 +664,10 @@ public class PullTaskPullCallParticipantResultService {
 
     private static PullTaskParticipantAggregateTransition aggregateTransition(
             PullTaskPullCallMemberAttempt attempt,
-            PullTaskBatchParticipantCallback callback) {
+            PullTaskBatchParticipantCallback callback, boolean retryAllowed) {
         long failureBefore = attempt.getFailureCountBefore() == null
                 ? 0L : attempt.getFailureCountBefore();
-        AggregateTarget target = aggregateTarget(attempt, callback, failureBefore);
+        AggregateTarget target = aggregateTarget(attempt, callback, failureBefore, retryAllowed);
         return new PullTaskParticipantAggregateTransition(
                 new PullTaskParticipantAggregateTransition.Scope(
                         attempt.getParticipantRefId(), attempt.getId(), callback.occurredAt()),
@@ -639,34 +682,35 @@ public class PullTaskPullCallParticipantResultService {
     private static AggregateTarget aggregateTarget(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskBatchParticipantCallback callback,
-            long failureBefore) {
+            long failureBefore, boolean retryAllowed) {
         if (callback.outcome() == PullTaskBatchParticipantProtocolOutcome.SUCCESS) {
             return new AggregateTarget(
                     successStatus(attempt), failureBefore, attempt.getPullCallId());
         }
         if (callback.outcome() == PullTaskBatchParticipantProtocolOutcome.FAILED) {
             long failureCount = Math.addExact(failureBefore, 1L);
-            boolean retry = ProtocolErrorCode.TIMEOUT.name().equals(normalizedReason(callback.reasonCode()))
+            boolean retry = retryAllowed && ProtocolErrorCode.TIMEOUT.name().equals(normalizedReason(callback.reasonCode()))
                     && failureCount < MAX_EXPLICIT_FAILURE_COUNT
                     && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
             return new AggregateTarget(
                     retry ? pendingStatus(attempt) : failedStatus(attempt),
                     failureCount, retry ? null : attempt.getPullCallId());
         }
-        boolean retry = attemptTarget(callback).lifecycleStatus() == PullTaskParticipantAttemptStatus.RELEASED.code()
+        boolean retry = attemptTarget(callback, retryAllowed).lifecycleStatus() == PullTaskParticipantAttemptStatus.RELEASED.code()
                 && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
         return new AggregateTarget(retry ? pendingStatus(attempt) : unknownStatus(attempt),
                 failureBefore, retry ? null : attempt.getPullCallId());
     }
 
-    private static AttemptTarget attemptTarget(PullTaskBatchParticipantCallback callback) {
-        if (callback.outcome() != PullTaskBatchParticipantProtocolOutcome.UNKNOWN) {
+    private static AttemptTarget attemptTarget(PullTaskBatchParticipantCallback callback, boolean retryAllowed) {
+        if (!retryAllowed || callback.outcome() != PullTaskBatchParticipantProtocolOutcome.UNKNOWN) {
             return new AttemptTarget(PullTaskParticipantAttemptStatus.CLOSED.code(), null);
         }
         String reason = normalizedReason(callback.reasonCode());
         if (callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
                 || (callback.executionState() == PullTaskParticipantExecutionState.UNCERTAIN
-                    && reason != null && PullTaskRetryPolicy.RETRYABLE_ACCOUNT_RISK_REASONS.contains(reason))) {
+                    && reason != null && (PullTaskRetryPolicy.RETRYABLE_ACCOUNT_RISK_REASONS.contains(reason)
+                        || PullTaskUnknownParticipantRecovery.RETRY_REASON.equals(reason)))) {
             return new AttemptTarget(
                     PullTaskParticipantAttemptStatus.RELEASED.code(), callback.occurredAt());
         }
@@ -683,8 +727,8 @@ public class PullTaskPullCallParticipantResultService {
 
     private static boolean alreadyApplied(
             PullTaskPullCallMemberAttempt attempt,
-            PullTaskBatchParticipantCallback callback) {
-        AttemptTarget target = attemptTarget(callback);
+            PullTaskBatchParticipantCallback callback, boolean retryAllowed) {
+        AttemptTarget target = attemptTarget(callback, retryAllowed);
         return Objects.equals(attempt.getLifecycleStatus(), target.lifecycleStatus())
                 && Objects.equals(attempt.getProtocolOutcome(), callback.outcome().name())
                 && attempt.getExecutionState() == callback.executionState();

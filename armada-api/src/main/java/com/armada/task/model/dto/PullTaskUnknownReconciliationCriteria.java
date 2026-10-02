@@ -34,8 +34,8 @@ public record PullTaskUnknownReconciliationCriteria(
     public record Facts(Action action, Call call, Material material, Account account) {
     }
 
-    /** 账号动作状态条件。 */
-    public record Action(int submitted, int unknown) {
+    /** 账号动作状态条件；新入口的待审批通过只读成员查询持续确认。 */
+    public record Action(int submitted, int unknown, int pendingApproval, int directJoinStage) {
     }
 
     /** 批量拉人调用、attempt 与拉手可用性状态条件。 */

@@ -137,13 +137,15 @@ armada_sync_frontend() {
 
 armada_start() {
   local normal_group_android_topic normal_group_result_group normal_group_result_topic
-  local normal_group_web_topic
+  local normal_group_web_topic pairing_topic pairing_group
+  pairing_topic="$(shell_single_quote "${EXPECTED_PAIRING_EVENTS_TOPIC}")"
+  pairing_group="$(shell_single_quote "${EXPECTED_PAIRING_EVENTS_GROUP_ID}")"
   normal_group_web_topic="$(shell_single_quote "${EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC}")"
   normal_group_android_topic="$(shell_single_quote "${EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC}")"
   normal_group_result_topic="$(shell_single_quote "${EXPECTED_NORMAL_GROUP_RESULT_TOPIC}")"
   normal_group_result_group="$(shell_single_quote "${EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID}")"
   armada_capture_docker_build_output "Armada images" ssh_run \
-    "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' AUTH_SESSION_KEY_PREFIX='armada:${ENV_ID}:' NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC='${normal_group_web_topic}' NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC='${normal_group_android_topic}' NORMAL_GROUP_CREATION_RESULT_TOPIC='${normal_group_result_topic}' NORMAL_GROUP_CREATION_RESULT_GROUP_ID='${normal_group_result_group}' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
+    "cd '${REMOTE_DIR}' && APP_TITLE='${APP_TITLE_REMOTE}' AUTH_SESSION_KEY_PREFIX='armada:${ENV_ID}:' PROTOCOL_PAIRING_EVENTS_TOPIC='${pairing_topic}' PROTOCOL_PAIRING_EVENTS_GROUP_ID='${pairing_group}' NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC='${normal_group_web_topic}' NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC='${normal_group_android_topic}' NORMAL_GROUP_CREATION_RESULT_TOPIC='${normal_group_result_topic}' NORMAL_GROUP_CREATION_RESULT_GROUP_ID='${normal_group_result_group}' docker compose --env-file .env -p '${COMPOSE_PROJECT}' -f '${COMPOSE_FILE}' ${COMPOSE_UP_ARGS}"
 }
 
 armada_wait_backend_ready() {
@@ -171,6 +173,8 @@ armada_verify_backend_runtime() {
     ssh_run "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' armada-backend | grep -F '${topic_var}=${expected_prefix}' >/dev/null"
   done
   for expected_contract in \
+    "PROTOCOL_PAIRING_EVENTS_TOPIC=${EXPECTED_PAIRING_EVENTS_TOPIC}" \
+    "PROTOCOL_PAIRING_EVENTS_GROUP_ID=${EXPECTED_PAIRING_EVENTS_GROUP_ID}" \
     "NORMAL_GROUP_CREATION_WEB_COMMAND_TOPIC=${EXPECTED_NORMAL_GROUP_WEB_COMMAND_TOPIC}" \
     "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=${EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC}" \
     "NORMAL_GROUP_CREATION_RESULT_TOPIC=${EXPECTED_NORMAL_GROUP_RESULT_TOPIC}" \

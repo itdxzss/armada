@@ -73,9 +73,9 @@ class NormalGroupCreationServiceImplTest {
         ProtocolAccountRef creator = account(100L, ProtocolBackend.WEB);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-db-online-empty"))
                 .thenReturn(null);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
+        when(accountLookupService.findOnlineStrictByGroupId(10L))
                 .thenReturn(List.of(creator));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(List.of());
 
         assertThatThrownBy(() -> service().create(
@@ -95,11 +95,11 @@ class NormalGroupCreationServiceImplTest {
                 new NormalGroupCreationTaskVO(9L, "PENDING", 1, 0, 0, 100L, 100L);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-select-online"))
                 .thenReturn(null, 9L);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
+        when(accountLookupService.findOnlineStrictByGroupId(10L))
                 .thenReturn(List.of(creator));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(List.of(onlineMember));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+        when(accountLookupService.findOnlineStrictByGroupId(30L))
                 .thenReturn(List.of(account(301L, ProtocolBackend.WEB)));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(new ItemIdentity(21L, 1)));
@@ -131,11 +131,11 @@ class NormalGroupCreationServiceImplTest {
                 new NormalGroupCreationTaskVO(9L, "PENDING", 3, 0, 0, 100L, 100L);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-rotation"))
                 .thenReturn(null, 9L);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
+        when(accountLookupService.findOnlineStrictByGroupId(10L))
                 .thenReturn(creators);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(onlineMembers);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+        when(accountLookupService.findOnlineStrictByGroupId(30L))
                 .thenReturn(List.of(account(301L, ProtocolBackend.WEB)));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(
@@ -158,16 +158,16 @@ class NormalGroupCreationServiceImplTest {
         TenantContext.set(1L);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-shortage"))
                 .thenReturn(null);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L))
+        when(accountLookupService.findOnlineStrictByGroupId(10L))
                 .thenReturn(List.of(account(100L, ProtocolBackend.WEB)));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(List.of(account(200L, ProtocolBackend.ANDROID)));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+        when(accountLookupService.findOnlineStrictByGroupId(30L))
                 .thenReturn(List.of(account(300L, ProtocolBackend.WEB)));
 
         assertThatThrownBy(() -> service().create(
                 "create-secondary-shortage", createRequest(1, 2), 9L))
-                .hasMessageContaining("次管理员分组当前状态正常且在线的账号不足")
+                .hasMessageContaining("次管理员分组当前可执行在线账号不足")
                 .hasMessageContaining("每群需要 2 个")
                 .hasMessageContaining("实际 1 个");
     }
@@ -188,9 +188,9 @@ class NormalGroupCreationServiceImplTest {
                 new NormalGroupCreationTaskVO(9L, "PENDING", 2, 0, 0, 100L, 100L);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-reuse"))
                 .thenReturn(null, 9L);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L)).thenReturn(creators);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L)).thenReturn(members);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(30L)).thenReturn(secondaryAdmins);
+        when(accountLookupService.findOnlineStrictByGroupId(10L)).thenReturn(creators);
+        when(accountLookupService.findOnlineStrictByGroupId(20L)).thenReturn(members);
+        when(accountLookupService.findOnlineStrictByGroupId(30L)).thenReturn(secondaryAdmins);
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(
                 new ItemIdentity(21L, 1), new ItemIdentity(22L, 2)));
@@ -228,9 +228,9 @@ class NormalGroupCreationServiceImplTest {
                 new NormalGroupCreationTaskVO(9L, "PENDING", 1, 0, 0, 100L, 100L);
         when(mapper.selectTaskIdByIdempotencyKey(1L, "create-secondary-anchor"))
                 .thenReturn(null, 9L);
-        when(accountLookupService.findOnlineNormalStrictByGroupId(10L)).thenReturn(List.of(creator));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L)).thenReturn(List.of(member));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(30L))
+        when(accountLookupService.findOnlineStrictByGroupId(10L)).thenReturn(List.of(creator));
+        when(accountLookupService.findOnlineStrictByGroupId(20L)).thenReturn(List.of(member));
+        when(accountLookupService.findOnlineStrictByGroupId(30L))
                 .thenReturn(List.of(secondaryAdmin));
         when(mapper.insertTask(any())).thenReturn(1);
         when(mapper.selectItemIdentities(9L)).thenReturn(List.of(new ItemIdentity(21L, 1)));
@@ -266,7 +266,7 @@ class NormalGroupCreationServiceImplTest {
                 .thenReturn(
                         List.of(unavailable),
                         List.of(replacementWork));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(List.of(replacement));
         when(mapper.replaceMember(any(MemberReplacement.class))).thenReturn(1);
 
@@ -300,7 +300,7 @@ class NormalGroupCreationServiceImplTest {
         when(mapper.selectItemWorkForUpdate(1L, 21L)).thenReturn(item);
         when(mapper.selectMemberAccountGroupId(9L)).thenReturn(20L);
         when(mapper.selectMemberWorks(21L)).thenReturn(List.of(recoveredMember));
-        when(accountLookupService.findOnlineNormalStrictByGroupId(20L))
+        when(accountLookupService.findOnlineStrictByGroupId(20L))
                 .thenReturn(List.of(recoveredRef));
 
         service().retry(9L, 21L, 7L);

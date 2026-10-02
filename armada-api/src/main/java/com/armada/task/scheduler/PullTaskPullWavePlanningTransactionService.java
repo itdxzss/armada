@@ -24,6 +24,7 @@ import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskExecutionReasonCode;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminStatus;
 import com.armada.task.model.enums.PullTaskMaterialPullStatus;
@@ -123,7 +124,7 @@ public class PullTaskPullWavePlanningTransactionService {
             List<PullTaskPullWaveCandidate> candidates =
                     materialMapper.selectInitialWaveCandidates(execution.getId());
             if (legacyOpenCalls.isEmpty() && candidates.isEmpty()) {
-                return finishMaterials(execution, now);
+                return finishMaterials(execution, parent, now);
             }
             WavePlanningDecision decision = candidates.isEmpty()
                     ? WavePlanningDecision.ready(List.of())
@@ -182,6 +183,10 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskStandardSetting setting,
             PullTaskPullWave settledWave,
             long now) {
+        // 未知已经经过观察窗口，补拉不再叠加普通失败的 60/120/240 秒退避。
+        if (resources.attemptMapper().hasImmediateUnknownRetry(settledWave.getId())) {
+            return now;
+        }
         long retryAt = Math.addExact(now, PullTaskRetryPolicy.retryDelayMs(settledWave.getWaveNo()));
         Long lastSubmittedAt = resources.pullCallMapper()
                 .selectByExecution(execution.getId()).stream()
@@ -678,10 +683,11 @@ public class PullTaskPullWavePlanningTransactionService {
     }
 
     private PullTaskPullWavePreparation finishMaterials(
-            PullTaskGroupExecution execution, long now) {
+            PullTaskGroupExecution execution, PullTask parent, long now) {
         PullTaskGroupExecution update = transition(execution, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(materialMapper.selectPendingAdmin(
+        update.setStage(PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+                || materialMapper.selectPendingAdmin(
                 execution.getId(), ADMIN_REQUIRED,
                 PullTaskMaterialPullStatus.SUCCESS.code(),
                 PullTaskMaterialAdminStatus.PENDING.code()).isEmpty()

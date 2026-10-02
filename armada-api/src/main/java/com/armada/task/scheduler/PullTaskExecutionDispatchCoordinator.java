@@ -150,6 +150,7 @@ public class PullTaskExecutionDispatchCoordinator {
                                 PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                 PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                 PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                                 PullTaskExecutionStage.PULL_EXECUTION.code(),
                                 PullTaskExecutionStage.MATERIAL_ADMIN.code(),
                                 PullTaskExecutionStage.CLOSING.code())),
@@ -159,6 +160,7 @@ public class PullTaskExecutionDispatchCoordinator {
                                 PullTaskExecutionStage.MANAGER_ADMIN.code(),
                                 PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                 PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                                 PullTaskExecutionStage.PULL_EXECUTION.code(),
                                 PullTaskExecutionStage.MATERIAL_ADMIN.code()),
                         List.of(
@@ -174,6 +176,7 @@ public class PullTaskExecutionDispatchCoordinator {
                         PullTaskExecutionStatus.WAIT_START.code(),
                         List.of(PullTaskExecutionStage.LINK_VALIDATION.code(),
                                 PullTaskExecutionStage.MANAGER_JOIN.code(),
+                                PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),
                                 PullTaskExecutionStage.GROUP_CREATE.code())));
     }
 

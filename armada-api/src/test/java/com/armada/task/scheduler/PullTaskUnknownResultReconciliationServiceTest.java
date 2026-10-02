@@ -89,6 +89,35 @@ class PullTaskUnknownResultReconciliationServiceTest {
     }
 
     @Test
+    void directApprovalIsLeftForGroupTerminationWithoutQueryingOrConfirmingMembership() {
+        PullTaskGroupExecution execution = execution("123@g.us");
+        execution.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        PullTaskGroupAccount puller = account(12L, 102L, "8613800000002",
+                new AccountState(PullTaskGroupAccountRole.PULLER.code(), null,
+                        PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code()));
+        PullTaskAccountAction join = action(41L, PullTaskAccountActionType.JOIN_BY_LINK.code(),
+                PullTaskActionStatus.PENDING_APPROVAL.code(), 20_000L);
+        join.setTargetGroupAccountId(puller.getId());
+        when(actionMapper.selectByExecutionAndStatuses(execution.getId(), List.of(
+                PullTaskActionStatus.SUBMITTED.code(), PullTaskActionStatus.UNKNOWN.code(),
+                PullTaskActionStatus.PENDING_APPROVAL.code()))).thenReturn(List.of(join));
+        stubAccounts(execution.getId(), List.of(puller));
+
+        when(accountLookup.findOnlineProtocolRefs(List.of(102L)))
+                .thenReturn(List.of(protocol(102L, puller.getAccountPhone())));
+        queryReturns(member(puller.getAccountPhone(), false));
+        when(actionMapper.transitionResult(any())).thenReturn(1);
+
+        assertThat(service.reconcile(execution, CUTOFF, NOW).confirmed()).isZero();
+        assertThat(service.reconcile(execution, CUTOFF, NOW + 60_000L).confirmed()).isZero();
+
+        verify(memberQueryService, never()).requestOrReadOnce(any(), anyLong());
+        verify(actionMapper, never()).transitionResult(any());
+        verify(accountMapper, never()).transitionMembership(any());
+        verify(executionMapper, never()).wakeForMemberQuery(any());
+    }
+
+    @Test
     void unknownMaterialConvergesFromMemberSnapshotWithoutReissuingCommand() {
         PullTaskGroupExecution execution = execution("123@g.us");
         PullTaskGroupAccount manager = account(11L, 101L, "8613800000001",

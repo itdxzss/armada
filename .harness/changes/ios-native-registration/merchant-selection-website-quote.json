@@ -1,0 +1,102 @@
+{
+  "observedAtUTC": "2026-09-16T08:31:41.467718+00:00",
+  "source": "https://grizzlysms.com/api/country/get-prices/62?wholesale=0&user=guest",
+  "scope": "public guest website quote; may differ from logged-in pricing",
+  "rows": [
+    {
+      "name": "USA",
+      "country_external_id": 187,
+      "service_external_id": "wa",
+      "country_slug": "usa",
+      "price": "0.88",
+      "prices": [
+        {
+          "name": "provider0,provider1,provider2,provider3",
+          "providerId": "196,62,65,66",
+          "delivery": 58.34,
+          "quantity": 282,
+          "value": 0.88
+        },
+        {
+          "name": "provider4",
+          "providerId": "202",
+          "delivery": 33.79,
+          "quantity": 12707,
+          "value": 1.22
+        },
+        {
+          "name": "provider5",
+          "providerId": "11",
+          "delivery": 8.65,
+          "quantity": 1441,
+          "value": 1.35
+        },
+        {
+          "name": "provider6",
+          "providerId": "311",
+          "delivery": 6.76,
+          "quantity": 3102,
+          "value": 1.6
+        },
+        {
+          "name": "provider7,provider8",
+          "providerId": "215,63",
+          "delivery": 59.65,
+          "quantity": 361,
+          "value": 3.13
+        },
+        {
+          "name": "provider9",
+          "providerId": "369",
+          "delivery": null,
+          "quantity": 100,
+          "value": 5
+        }
+      ]
+    },
+    {
+      "name": "USA (virtual)",
+      "country_external_id": 12,
+      "service_external_id": "wa",
+      "country_slug": "united-states-virt",
+      "price": "0.15",
+      "prices": [
+        {
+          "name": "provider0",
+          "providerId": "362",
+          "delivery": 11.41,
+          "quantity": 124563,
+          "value": 0.15
+        },
+        {
+          "name": "provider1",
+          "providerId": "378",
+          "delivery": 10.1,
+          "quantity": 21194,
+          "value": 0.28
+        },
+        {
+          "name": "provider2",
+          "providerId": "161",
+          "delivery": null,
+          "quantity": 7909,
+          "value": 0.4
+        },
+        {
+          "name": "provider3,provider4,provider5",
+          "providerId": "14,15,21",
+          "delivery": 11.03,
+          "quantity": 15269,
+          "value": 0.44
+        },
+        {
+          "name": "provider6",
+          "providerId": "4",
+          "delivery": 6.9,
+          "quantity": 156,
+          "value": 0.59
+        }
+      ]
+    }
+  ]
+}

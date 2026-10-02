@@ -101,6 +101,22 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
+    void directModeFinishesWithoutPromotingMarkedMaterial() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=" + TASK_ID);
+        execute("UPDATE pull_task_material_member SET pull_status=2, admin_required=1, admin_status=1 "
+                + "WHERE group_execution_id=" + executionId);
+
+        PullTaskPullWavePreparation result = service.prepare(
+                claim("worker-direct", 600L, 900L), "worker-direct", 610L);
+
+        assertThat(result.ready()).isFalse();
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.CLOSING.code());
+        assertThat(callMapper.selectByExecution(executionId)).isEmpty();
+    }
+
+    @Test
     void freezesEarlyCallsBeforeTheStandardRangeCalls() {
         PullTaskPullWavePreparation result = service.prepare(
                 claim("worker-1", 600L, 900L), "worker-1", 610L);

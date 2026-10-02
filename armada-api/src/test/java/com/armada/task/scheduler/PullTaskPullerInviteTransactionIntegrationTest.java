@@ -36,6 +36,7 @@ import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskPullerInviteProtocolOutcome;
 import com.armada.task.model.enums.PullTaskStandardStatus;
@@ -50,6 +51,8 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -76,13 +79,14 @@ class PullTaskPullerInviteTransactionIntegrationTest {
     @Autowired private AccountProtocolLookupService accountLookup;
     @Autowired private ProtocolCommandOutboxService outboxService;
     @Autowired private PullTaskPullerInviteTransactionService service;
+    @Autowired private PullTaskParentCompletionService completionService;
     @Autowired private PullTaskPullerInviteResultService resultService;
 
     private Long executionId;
 
     @BeforeEach
     void setUp() throws SQLException {
-        reset(accountLookup, outboxService);
+        reset(accountLookup, outboxService, completionService);
         when(accountLookup.findEligibleManagerProtocolRefs(org.mockito.ArgumentMatchers.anyList()))
                 .thenAnswer(invocation -> accountLookup.findActiveProtocolRefs(invocation.getArgument(0)));
         TenantContext.set(7L);
@@ -110,6 +114,161 @@ class PullTaskPullerInviteTransactionIntegrationTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void directLinkJoinsWithoutAnyManagerAndKeepsItsIndependentStage() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("DELETE FROM pull_task_group_account WHERE role_type=1");
+        execute("UPDATE pull_task_group_account SET entry_mode=1 WHERE role_type=2");
+        execute("UPDATE pull_task_group_execution SET stage=10 WHERE id=" + executionId);
+        when(outboxService.enqueuePullTaskGroupJoinCommands(anyList()))
+                .thenReturn(enqueued("cmd-direct-join"));
+
+        assertThat(service.prepare(claim("worker-direct", 600L, 900L), "worker-direct", 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(actionMapper.selectByExecutionAndType(executionId,
+                PullTaskAccountActionType.JOIN_BY_LINK.code())).hasSize(1);
+        verify(outboxService, never()).enqueuePullTaskPullerInviteCommands(anyList());
+        verify(accountLookup, never()).findEligibleManagerProtocolRefs(anyList());
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void pendingDirectJoinStopsAtomicallyWithoutReissuing(boolean failCompletion) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("DELETE FROM pull_task_group_account WHERE role_type=1 OR account_id=904");
+        execute("UPDATE pull_task_group_account SET entry_mode=1, membership_status="
+                + PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code() + " WHERE role_type=2");
+        execute("UPDATE pull_task_group_execution SET stage=10 WHERE id=" + executionId);
+        PullTaskGroupAccount puller = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code()).get(0);
+        PullTaskAccountAction pending = new PullTaskAccountAction();
+        pending.setTaskId(100L);
+        pending.setGroupExecutionId(executionId);
+        pending.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
+        pending.setActorGroupAccountId(puller.getId());
+        pending.setTargetGroupAccountId(puller.getId());
+        pending.setCreatedAt(500L);
+        pending.setUpdatedAt(500L);
+        actionMapper.insertIfAbsent(pending);
+        execute("UPDATE pull_task_account_action SET action_status="
+                + PullTaskActionStatus.PENDING_APPROVAL.code() + " WHERE id=" + pending.getId());
+
+        PullTaskGroupExecution candidate = claim("worker-direct", 600L, 900L);
+        if (failCompletion) {
+            org.mockito.Mockito.doThrow(new IllegalStateException("retry failed"))
+                    .when(completionService).completeIfTerminalByExecutionId(executionId, 610L);
+            assertThatThrownBy(() -> service.prepare(candidate, "worker-direct", 610L))
+                    .isInstanceOf(IllegalStateException.class);
+            TenantContext.set(7L);
+            assertThat(executionMapper.selectById(executionId).getExecutionStatus())
+                    .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+            assertThat(groupAccountMapper.selectById(puller.getId()).getReleasedAt()).isNull();
+            return;
+        }
+        assertThat(service.prepare(candidate, "worker-direct", 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.FAILED);
+        verify(completionService).completeIfTerminalByExecutionId(executionId, 610L);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        verify(outboxService, never()).enqueuePullTaskGroupJoinCommands(anyList());
+    }
+
+    @Test
+    void secondDirectPullerCanJoinWhileFirstResultHasNoConfirmedGroupIdentity() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("DELETE FROM pull_task_group_account WHERE role_type=1");
+        execute("UPDATE pull_task_group_account SET entry_mode=1 WHERE role_type=2");
+        execute("UPDATE pull_task_group_execution SET stage=10, group_jid=NULL WHERE id=" + executionId);
+        PullTaskGroupAccount first = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code()).get(0);
+        groupAccountMapper.updateMembership(first.getId(), PullTaskGroupAccountMembershipStatus.UNKNOWN.code(),
+                null, 500L);
+        PullTaskAccountAction unknown = new PullTaskAccountAction();
+        unknown.setTaskId(100L);
+        unknown.setGroupExecutionId(executionId);
+        unknown.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
+        unknown.setActorGroupAccountId(first.getId());
+        unknown.setTargetGroupAccountId(first.getId());
+        unknown.setCreatedAt(500L);
+        unknown.setUpdatedAt(500L);
+        actionMapper.insertIfAbsent(unknown);
+        execute("UPDATE pull_task_account_action SET action_status=" + PullTaskActionStatus.UNKNOWN.code()
+                + " WHERE id=" + unknown.getId());
+        when(outboxService.enqueuePullTaskGroupJoinCommands(anyList()))
+                .thenReturn(enqueued("cmd-second-direct"));
+
+        assertThat(service.prepare(claim("worker-direct", 600L, 900L), "worker-direct", 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId).getStage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(actionMapper.selectByExecutionAndType(executionId,
+                PullTaskAccountActionType.JOIN_BY_LINK.code()))
+                .extracting(PullTaskAccountAction::getActionStatus)
+                .containsExactly(PullTaskActionStatus.UNKNOWN.code(), PullTaskActionStatus.SUBMITTED.code());
+        verify(outboxService).enqueuePullTaskGroupJoinCommands(argThat(commands ->
+                commands.size() == 1 && commands.get(0).account().armadaAccountId().equals(904L)));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PullTaskActionStatus.class, names = {"SUBMITTED", "UNKNOWN", "PENDING_APPROVAL"})
+    void offlineDirectPullerStopsOnApprovalButReconcilesUnknownJoin(PullTaskActionStatus status)
+            throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("DELETE FROM pull_task_group_account WHERE role_type=1 OR account_id=904");
+        int membership = switch (status) {
+            case UNKNOWN -> PullTaskGroupAccountMembershipStatus.UNKNOWN.code();
+            case PENDING_APPROVAL -> PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code();
+            default -> PullTaskGroupAccountMembershipStatus.JOINING.code();
+        };
+        execute("UPDATE pull_task_group_account SET entry_mode=1, availability_status="
+                + PullTaskGroupAccountAvailability.OFFLINE.code() + ", membership_status="
+                + membership + " WHERE role_type=2");
+        execute("UPDATE pull_task_group_execution SET stage=10, group_jid=NULL WHERE id=" + executionId);
+        PullTaskGroupAccount puller = groupAccountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PULLER.code()).get(0);
+        PullTaskAccountAction action = new PullTaskAccountAction();
+        action.setTaskId(100L);
+        action.setGroupExecutionId(executionId);
+        action.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
+        action.setActorGroupAccountId(puller.getId());
+        action.setTargetGroupAccountId(puller.getId());
+        action.setCreatedAt(500L);
+        action.setUpdatedAt(500L);
+        actionMapper.insertIfAbsent(action);
+        execute("UPDATE pull_task_account_action SET action_status=" + status.code()
+                + " WHERE id=" + action.getId());
+
+        assertThat(service.prepare(claim("worker-direct", 600L, 900L), "worker-direct", 610L))
+                .isEqualTo(status == PullTaskActionStatus.PENDING_APPROVAL
+                        ? PullTaskExecutionDispatchResult.FAILED : PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        PullTaskGroupExecution saved = executionMapper.selectById(executionId);
+        assertThat(saved.getExecutionStatus()).isEqualTo(status == PullTaskActionStatus.PENDING_APPROVAL
+                ? PullTaskExecutionStatus.FAILED.code() : PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        if (status == PullTaskActionStatus.PENDING_APPROVAL) {
+            verify(completionService).completeIfTerminalByExecutionId(executionId, 610L);
+            assertThat(saved.getReasonCode()).isEqualTo("GROUP_JOIN_APPROVAL_REQUIRED");
+            assertThat(actionMapper.selectByExecutionAndType(executionId,
+                    PullTaskAccountActionType.JOIN_BY_LINK.code()).get(0).getActionStatus())
+                    .isEqualTo(PullTaskActionStatus.PENDING_APPROVAL.code());
+            assertThat(saved.getFinishedAt()).isEqualTo(610L);
+            assertThat(groupAccountMapper.selectById(puller.getId()).getReleasedAt()).isEqualTo(610L);
+        } else {
+            assertThat(groupAccountMapper.selectById(puller.getId()).getReleasedAt()).isNull();
+        }
+        verify(outboxService, never()).enqueuePullTaskGroupJoinCommands(anyList());
     }
 
     @Test
@@ -360,7 +519,8 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 new PullTaskExecutionClaimCriteria.Lease(1, now, owner, expiresAt),
                 List.of(new PullTaskExecutionClaimState(
                         PullTaskExecutionStatus.EXECUTING.code(),
-                        List.of(PullTaskExecutionStage.PULLER_INVITE.code()))),
+                        List.of(PullTaskExecutionStage.PULLER_INVITE.code(),
+                                PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()))),
                 new PullTaskExecutionClaimCriteria.Parent(
                         PullTaskType.STANDARD.name(), "NORMAL_LINK",
                         PullTaskStandardStatus.EXECUTING.name())));
@@ -501,7 +661,13 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskPullerInviteResources(
-                    executionMapper, accountLookup, outboxService, properties);
+                    executionMapper, accountLookup, outboxService, properties,
+                    mock(PullTaskManagerPullerContactTransactionService.class));
+        }
+
+        @Bean
+        PullTaskParentCompletionService completionService() {
+            return mock(PullTaskParentCompletionService.class);
         }
 
         @Bean
@@ -509,9 +675,10 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 PullTaskMapper taskMapper,
                 PullTaskGroupAccountMapper groupAccountMapper,
                 PullTaskAccountActionMapper actionMapper,
-                PullTaskPullerInviteResources resources) {
+                PullTaskPullerInviteResources resources,
+                PullTaskParentCompletionService completionService) {
             return new PullTaskPullerInviteTransactionService(
-                    taskMapper, groupAccountMapper, actionMapper, resources);
+                    taskMapper, groupAccountMapper, actionMapper, resources, completionService);
         }
 
         @Bean

@@ -14,6 +14,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
@@ -129,6 +130,9 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
         if (task.getTaskType() != PullTaskType.STANDARD
                 || !NORMAL_LINK_MODE.equals(task.getMode())) {
             throw new BusinessException(ErrorCode.VALIDATION, "当前任务不是普通群链接任务");
+        }
+        if (PullTaskCreationMode.fromNullable(task.getCreationMode()).isDirectLink()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接模式（新）不使用管理员");
         }
         if (!supplementableParent(task.getStatus())) {
             throw new BusinessException(ErrorCode.CONFLICT, "当前任务状态不允许补充管理员");

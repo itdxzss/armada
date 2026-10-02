@@ -2,6 +2,8 @@ package com.armada.promotion.pairing.service.impl;
 
 import com.armada.account.service.PromotionAccountProvisionService;
 import com.armada.platform.country.service.CountryService;
+import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.PairingCodeCommand;
 import com.armada.platform.protocol.model.command.ProxyDescriptor;
 import com.armada.platform.protocol.model.result.PairingAccepted;
@@ -21,12 +23,17 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -40,7 +47,6 @@ public class ControlPairingServiceImpl implements ControlPairingService {
     private static final long INITIAL_TTL_MILLIS = 180_000L;
     private static final long EVENT_DELIVERY_GRACE_MILLIS = 30_000L;
     private static final String ERROR_REQUEST_FAILED = "PAIRING_REQUEST_FAILED";
-    private static final String ERROR_EXPIRED = "PAIRING_EXPIRED";
 
     private final PromotionPairingSessionMapper sessionMapper;
     private final PromotionAccountProvisionService accountProvisionService;
@@ -52,6 +58,7 @@ public class ControlPairingServiceImpl implements ControlPairingService {
     private final PromotionPairingCompletionService completionService;
     private final CountryService countryService;
     private final LongSupplier clock;
+    private final Executor pairingExecutor;
 
     @Autowired
     public ControlPairingServiceImpl(PromotionPairingSessionMapper sessionMapper,
@@ -62,10 +69,11 @@ public class ControlPairingServiceImpl implements ControlPairingService {
                                      PromotionPairingTokenService tokenService,
                                      PromotionPairingTransitionService transitionService,
                                      PromotionPairingCompletionService completionService,
-                                     CountryService countryService) {
+                                     CountryService countryService,
+                                     @Qualifier("controlPairingExecutor") Executor pairingExecutor) {
         this(sessionMapper, accountProvisionService, ipProxyService, proxyResolver, pairingLoginPort,
                 tokenService, transitionService, completionService, countryService,
-                System::currentTimeMillis);
+                pairingExecutor, System::currentTimeMillis);
     }
 
     ControlPairingServiceImpl(PromotionPairingSessionMapper sessionMapper,
@@ -77,7 +85,7 @@ public class ControlPairingServiceImpl implements ControlPairingService {
                               PromotionPairingTransitionService transitionService,
                               PromotionPairingCompletionService completionService,
                               CountryService countryService,
-                              LongSupplier clock) {
+                              Executor pairingExecutor, LongSupplier clock) {
         this.sessionMapper = sessionMapper;
         this.accountProvisionService = accountProvisionService;
         this.ipProxyService = ipProxyService;
@@ -88,6 +96,7 @@ public class ControlPairingServiceImpl implements ControlPairingService {
         this.completionService = completionService;
         this.countryService = countryService;
         this.clock = clock;
+        this.pairingExecutor = pairingExecutor;
     }
 
     @Override
@@ -101,44 +110,105 @@ public class ControlPairingServiceImpl implements ControlPairingService {
         }
         String phone = normalizePhone(command.phone());
         accountProvisionService.validateControlTarget(command.accountGroupId());
+        PromotionPairingSession existing = sessionMapper.selectLatestControlByPhone(
+                phone, tenantId, command.ownerUserId());
+        if (existing != null && isActive(PromotionPairingStatus.fromCode(existing.getStatus()))) {
+            return resume(existing, command);
+        }
         if (accountProvisionService.existsActiveByPhoneGlobally(phone)) {
             throw new BusinessException(ErrorCode.CONFLICT, "该 WhatsApp 账号已存在");
         }
+        long now = clock.getAsLong();
+        PromotionPairingTokenService.GeneratedToken token = tokenService.generate();
+        PromotionPairingSession session = buildSession(command, tenantId, phone, token.tokenHash(), now);
+        try {
+            // 独立事务提交后才交给后台执行；唯一键是多请求、多实例的最终并发边界。
+            transitionService.createControlSession(session);
+        } catch (DuplicateKeyException ex) {
+            existing = sessionMapper.selectLatestControlByPhone(phone, tenantId, command.ownerUserId());
+            if (existing != null && isActive(PromotionPairingStatus.fromCode(existing.getStatus()))) {
+                return resume(existing, command);
+            }
+            throw new BusinessException(ErrorCode.CONFLICT, "该号码已有配对正在进行，请稍后再试");
+        }
+        try {
+            pairingExecutor.execute(() -> requestCodeInBackground(session));
+        } catch (RuntimeException ex) {
+            compensateFailedSession(session);
+            throw new BusinessException(ErrorCode.CONFLICT, "配对服务繁忙，请稍后再试");
+        }
+        return created(session);
+    }
 
-        PromotionPairingSession session = null;
+    /** 查询原用户最近的配对，供创建响应丢失后恢复；不触发新的协议请求。 */
+    @Override
+    public Optional<ControlPairingCreatedVO> recover(String phone, Long ownerUserId) {
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING);
+        }
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION, "配对参数不能为空");
+        }
+        return Optional.ofNullable(sessionMapper.selectLatestControlByPhone(
+                normalizePhone(phone), tenantId, ownerUserId)).map(ControlPairingServiceImpl::created);
+    }
+
+    private ControlPairingCreatedVO resume(PromotionPairingSession session, ControlPairingCreateCommand command) {
+        if (!Objects.equals(session.getAccountGroupId(), command.accountGroupId())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "该号码正在其他账号分组配对，请完成或等待原配对结束");
+        }
+        // 过期会话仍由统一回收器完成资源释放；重试不能抢跑创建另一条配对。
+        return created(session);
+    }
+
+    private static ControlPairingCreatedVO created(PromotionPairingSession session) {
+        return new ControlPairingCreatedVO(session.getId(),
+                PromotionPairingStatus.fromCode(session.getStatus()).name(), session.getExpiresAt());
+    }
+
+    private void requestCodeInBackground(PromotionPairingSession session) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(session.getTenantId());
+        boolean protocolAccepted = false;
         try {
             long now = clock.getAsLong();
-            PromotionPairingTokenService.GeneratedToken token = tokenService.generate();
-            session = buildSession(command, tenantId, phone, token.tokenHash(), now);
-            transitionService.createControlSession(session);
-
-            String preferredRegion = countryService.resolveIpRegionByPhonePrefix(phone);
+            if (session.getExpiresAt() <= now) {
+                completionService.expireIfDue(session.getId(), session.getTenantId(), now);
+                return;
+            }
+            String preferredRegion = countryService.resolveIpRegionByPhonePrefix(session.getPhone());
             IpProxyAllocation allocation = ipProxyService.allocatePairingEndpoint(
                     session.getId(), preferredRegion, true);
             session.setProxyId(allocation.proxyId());
             ProxyDescriptor proxy = proxyResolver.resolve(allocation.endpoint());
             requireOne(sessionMapper.attachProxy(
-                    session.getId(), tenantId, allocation.proxyId(), proxy.sessionId(),
+                    session.getId(), session.getTenantId(), allocation.proxyId(), proxy.sessionId(),
                     proxy.country(), allocation.proxySource(), now), "配对代理绑定失败");
-
             PairingAccepted accepted = pairingLoginPort.requestCode(new PairingCodeCommand(
-                    session.getProtocolAccountId(), phone, proxy, CONTROL_PAIRING_CODE));
+                    session.getProtocolAccountId(), session.getPhone(), proxy, CONTROL_PAIRING_CODE));
             validateAccepted(session, accepted, now);
-            long expiresAt = accepted.expiresAt().toEpochMilli();
-            transitionService.markControlAccepted(
-                    session.getId(), tenantId, accepted.pairingId(), expiresAt, clock.getAsLong());
+            protocolAccepted = true;
+            transitionService.markControlAccepted(session.getId(), session.getTenantId(),
+                    accepted.pairingId(), accepted.expiresAt().toEpochMilli(), clock.getAsLong());
             log.info("控台认证码配对请求已受理 sessionId={} proxyId={} expiresAt={}",
-                    session.getId(), allocation.proxyId(), expiresAt);
-            return new ControlPairingCreatedVO(
-                    session.getId(), PromotionPairingStatus.REQUESTING.name(), expiresAt);
-        } catch (BusinessException ex) {
-            compensateFailedSession(session);
-            throw ex;
+                    session.getId(), allocation.proxyId(), accepted.expiresAt().toEpochMilli());
         } catch (RuntimeException ex) {
-            compensateFailedSession(session);
-            log.warn("控台认证码配对请求失败 sessionId={} errorType={}",
-                    session == null ? null : session.getId(), ex.getClass().getSimpleName());
-            throw new BusinessException(ErrorCode.CONFLICT, "配对请求失败，请重试");
+            // HTTP 超时/断连并不证明协议拒绝，保留会话等待配对事件或既有到期回收。
+            boolean uncertain = protocolAccepted || (ex instanceof ProtocolException protocolEx
+                    && (protocolEx.errorCode() == ProtocolErrorCode.TIMEOUT
+                    || protocolEx.errorCode() == ProtocolErrorCode.NETWORK));
+            if (!uncertain) {
+                compensateFailedSession(session);
+            }
+            log.warn("控台认证码后台配对异常 sessionId={} errorType={} awaitingResult={}",
+                    session.getId(), ex.getClass().getSimpleName(), uncertain);
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
         }
     }
 
@@ -153,10 +223,8 @@ public class ControlPairingServiceImpl implements ControlPairingService {
         long now = clock.getAsLong();
         if (isActive(status) && session.getExpiresAt() <= now) {
             if (session.getExpiresAt() + EVENT_DELIVERY_GRACE_MILLIS > now) {
-                status = PromotionPairingStatus.EXPIRED;
+                // 码已到期，但完成事件仍可能在传输中；保留非终态让前端继续等回传。
                 session.setPairingCode(null);
-                session.setErrorCode(ERROR_EXPIRED);
-                session.setErrorMessage("配对码已失效，请重试");
             } else {
                 completionService.expireIfDue(sessionId, tenantId, now);
                 session = sessionMapper.selectByIdAndTenant(sessionId, tenantId);

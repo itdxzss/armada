@@ -111,7 +111,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
                     + validated.memberCount() + " 个，实际 " + members.size() + " 个");
         }
         if (secondaryAdmins.size() < validated.secondaryAdminCount()) {
-            throw validation("次管理员分组当前状态正常且在线的账号不足，每群需要 "
+            throw validation("次管理员分组当前可执行在线账号不足，每群需要 "
                     + validated.secondaryAdminCount() + " 个，实际 "
                     + secondaryAdmins.size() + " 个");
         }
@@ -398,7 +398,7 @@ public class NormalGroupCreationServiceImpl implements NormalGroupCreationServic
 
     private List<ProtocolAccountRef> strictOnlineGroupAccounts(Long groupId) {
         try {
-            return accountLookupService.findOnlineNormalStrictByGroupId(groupId);
+            return accountLookupService.findOnlineStrictByGroupId(groupId);
         } catch (IllegalArgumentException ex) {
             throw validation("账号分组包含未明确配置 WEB/ANDROID 协议的在线账号");
         }

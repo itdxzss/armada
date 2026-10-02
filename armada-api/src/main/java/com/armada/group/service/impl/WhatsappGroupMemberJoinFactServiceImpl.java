@@ -14,6 +14,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class WhatsappGroupMemberJoinFactServiceImpl implements WhatsappGroupMemberJoinFactService {
 
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<WhatsappGroupJoinFactVO> findRecentJoin(
+            Long tenantId, String groupJid, String phone, long since, long until) {
+        if (tenantId == null || groupJid == null || phone == null
+                || !phone.matches("[0-9]{7,15}") || since <= 0 || until < since) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(mapper.selectRecentJoin(
+                tenantId, groupJid, phone, since, until));
+    }
+
     private final WhatsappGroupMemberJoinFactMapper mapper;
     private final AccountGroupCurrentSnapshotPersistenceImpl currentPersistence;
 

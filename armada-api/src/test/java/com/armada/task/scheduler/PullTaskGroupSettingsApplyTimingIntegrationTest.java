@@ -571,6 +571,7 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
             PullTaskPullWaveSettlementResources.class,
             PullTaskPullWaveSettlementTransactionService.class,
             PullTaskParentCompletionService.class,
+            PullTaskClosingResources.class,
             PullTaskClosingTransactionService.class,
             PullTaskGroupProfileDispatcher.class
     })
@@ -682,6 +683,11 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
         @Bean
         GroupFolderService groupFolderService() {
             return mock(GroupFolderService.class);
+        }
+
+        @Bean
+        PullTaskDirectLinkFinishArchiveService finishArchiveService() {
+            return mock(PullTaskDirectLinkFinishArchiveService.class);
         }
     }
 }

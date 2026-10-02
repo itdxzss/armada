@@ -1,0 +1,23 @@
+{
+  "observedAtUTC": "2026-09-16T07:26:20.469380+00:00",
+  "status": "running",
+  "restartCount": 0,
+  "image": "sha256:3049b07156cc7966c0432fa66e019bcadee520bc14a4760b9bdac5b7d659c878",
+  "startedAt": "2026-09-16T07:24:01.767265828Z",
+  "runningJarSHA256": "c707a6aad83171b48deb11d16a5c9455c7aaf99c36b4664d5f4ec180bd3554f1",
+  "permit": {
+    "tenantId": 1,
+    "deviceId": "cea2dd78-5fb1-4017-9ea8-00b35aea123f",
+    "requestId": "47476fe5-95b1-49a9-bc42-472a6cf7e089",
+    "countryId": "187",
+    "unitPrice": 0.88,
+    "expiresAt": 1789620406523,
+    "replacesRequestId": "b5ee999e-c8f3-47e8-a4df-aa7ca6521661",
+    "providerId": "222"
+  },
+  "migration": "197\tdevice registration provider\t1",
+  "oldTask": "5:15:8:SMS_NO_NUMBERS:1:1:AUTO",
+  "newTaskCount": 0,
+  "startupFailureDetected": false,
+  "applicationStarted": true
+}

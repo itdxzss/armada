@@ -52,6 +52,68 @@ class PromotionPairingEventSinkAdapterTest {
     }
 
     @Test
+    void completedEventAcceptsMexicanLegacyMobilePrefix() {
+        PromotionPairingSession session = new PromotionPairingSession();
+        session.setId(7002L);
+        session.setTenantId(7L);
+        session.setPhone("525555550101");
+        session.setProtocolAccountId("acc_pair_mexico");
+        when(sessionMapper.selectActiveByProtocolAccountId("acc_pair_mexico")).thenReturn(session);
+        PairingCredentialExport credential = new PairingCredentialExport("acc_pair_mexico", "{}");
+        when(pairingLoginPort.exportCredential("acc_pair_mexico")).thenReturn(credential);
+        ProtocolPairingEvent event = new ProtocolPairingEvent(
+                "evt-mx", ProtocolPairingEvent.EVENT_COMPLETED, "acc_pair_mexico", null,
+                2001L, "worker-1", null, null, "5215555550101:12", null,
+                "http://protocol-worker-1:3000", null, "BUSINESS_STANDARD");
+
+        new PromotionPairingEventSinkAdapter(sessionMapper, pairingLoginPort, completionService).handle(event);
+
+        verify(completionService).complete(7002L, 7L, event, credential);
+    }
+
+    @Test
+    void rejectedCompletionReturnsFailureInsteadOfLeavingSessionWaiting() {
+        PromotionPairingSession session = new PromotionPairingSession();
+        session.setId(7002L);
+        session.setTenantId(7L);
+        session.setPhone("525555550101");
+        session.setProtocolAccountId("acc_pair_mismatch");
+        when(sessionMapper.selectActiveByProtocolAccountId("acc_pair_mismatch")).thenReturn(session);
+        ProtocolPairingEvent event = new ProtocolPairingEvent(
+                "evt-mismatch", ProtocolPairingEvent.EVENT_COMPLETED, "acc_pair_mismatch", null,
+                2001L, "worker-1", null, null, "5215555550102:12", null,
+                "http://protocol-worker-1:3000", null, "BUSINESS_STANDARD");
+
+        new PromotionPairingEventSinkAdapter(sessionMapper, pairingLoginPort, completionService).handle(event);
+
+        verify(completionService).terminate(session, PromotionPairingStatus.FAILED,
+                "PAIRING_COMPLETION_REJECTED", "协议配对完成事件与会话不一致", 2001L);
+        verifyNoInteractions(pairingLoginPort);
+    }
+
+    @Test
+    void credentialTransportFailureStillRetriesInsteadOfReportingFalseFailure() {
+        PromotionPairingSession session = new PromotionPairingSession();
+        session.setId(7002L);
+        session.setTenantId(7L);
+        session.setPhone("525555550101");
+        session.setProtocolAccountId("acc_pair_retry");
+        when(sessionMapper.selectActiveByProtocolAccountId("acc_pair_retry")).thenReturn(session);
+        when(pairingLoginPort.exportCredential("acc_pair_retry"))
+                .thenThrow(new IllegalStateException("temporary transport failure"));
+        ProtocolPairingEvent event = new ProtocolPairingEvent(
+                "evt-retry", ProtocolPairingEvent.EVENT_COMPLETED, "acc_pair_retry", null,
+                2001L, "worker-1", null, null, "5215555550101:12", null,
+                "http://protocol-worker-1:3000", null, "BUSINESS_STANDARD");
+        var adapter = new PromotionPairingEventSinkAdapter(sessionMapper, pairingLoginPort, completionService);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adapter.handle(event))
+                .isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(completionService);
+        org.assertj.core.api.Assertions.assertThat(com.armada.shared.tenant.TenantContext.get()).isNull();
+    }
+
+    @Test
     void eventFromUnknownOneTimeAccountDoesNotMutateAnySession() {
         when(sessionMapper.selectActiveByProtocolAccountId("acc_pair_old_attempt")).thenReturn(null);
         ProtocolPairingEvent staleEvent = new ProtocolPairingEvent(

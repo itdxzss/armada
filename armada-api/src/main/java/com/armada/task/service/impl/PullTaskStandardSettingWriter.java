@@ -38,12 +38,13 @@ public class PullTaskStandardSettingWriter {
     /** 校验引用、冻结服务端名称快照并写入配置。 */
     public void insert(PullTaskStandardCreateDTO request, long taskId) {
         requireNewFields(request);
-        AccountGroup manager = requireAccountGroup(request.managerGroupId(), "管理账号分组");
+        boolean direct = PullTaskCreationMode.fromNullable(request.creationMode()).isDirectLink();
+        AccountGroup manager = direct ? null : requireAccountGroup(request.managerGroupId(), "管理账号分组");
         AccountGroup puller = requireAccountGroup(request.pullerGroupId(), "拉手账号分组");
         AccountGroup station = stationGroup(request);
         validateStationCapacity(request, station);
         AccountGroup creator = creatorGroup(request);
-        AccountGroup managerFinish = optionalAccountGroup(request.managerFinishGroupId());
+        AccountGroup managerFinish = direct ? null : optionalAccountGroup(request.managerFinishGroupId());
         AccountGroup pullerFinish = optionalAccountGroup(request.pullerFinishGroupId());
         GroupFolderOptionVO folder = request.groupFolderId() == null
                 ? null : groupFolderService.requireExisting(request.groupFolderId());
@@ -161,8 +162,8 @@ public class PullTaskStandardSettingWriter {
             AccountGroup creator,
             AccountGroup managerFinish,
             AccountGroup pullerFinish) {
-        setting.setManagerGroupId(request.managerGroupId());
-        setting.setManagerGroupName(manager.getName());
+        setting.setManagerGroupId(manager == null ? null : request.managerGroupId());
+        setting.setManagerGroupName(manager == null ? null : manager.getName());
         setting.setPullerGroupId(request.pullerGroupId());
         setting.setPullerGroupName(puller.getName());
         setting.setStationGroupId(request.stationGroupId());
@@ -170,7 +171,7 @@ public class PullTaskStandardSettingWriter {
         // 建群人分组 ID 跟着解析结果走，群链接模式下即便前端传了也落空。
         setting.setCreatorGroupId(creator == null ? null : request.creatorGroupId());
         setting.setCreatorGroupName(creator == null ? null : creator.getName());
-        setting.setManagerFinishGroupId(request.managerFinishGroupId());
+        setting.setManagerFinishGroupId(managerFinish == null ? null : request.managerFinishGroupId());
         setting.setManagerFinishGroupName(
                 managerFinish == null ? null : managerFinish.getName());
         setting.setPullerFinishGroupId(request.pullerFinishGroupId());

@@ -1351,6 +1351,8 @@ test_armada_perf_runtime_contract_checks_android_url_and_topics() {
     EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1
     EXPECTED_NORMAL_GROUP_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1
     EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID=armada-perf-api-normal-group-results
+    EXPECTED_PAIRING_EVENTS_TOPIC=armada.perf.protocol.pairing.events.v1
+    EXPECTED_PAIRING_EVENTS_GROUP_ID=armada-perf-api-pairing-events
     ssh_run() { printf "%s\n" "$*" >>"${ARMADA_TEST_LOG}"; }
     armada_verify_backend_runtime
   '
@@ -1364,6 +1366,8 @@ test_armada_perf_runtime_contract_checks_android_url_and_topics() {
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1"
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1"
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-perf-api-normal-group-results"
+  assert_contains "$(cat "${command_log}")" "PROTOCOL_PAIRING_EVENTS_TOPIC=armada.perf.protocol.pairing.events.v1"
+  assert_contains "$(cat "${command_log}")" "PROTOCOL_PAIRING_EVENTS_GROUP_ID=armada-perf-api-pairing-events"
   rm -f "${command_log}"
 }
 
@@ -1385,6 +1389,8 @@ test_armada_start_applies_normal_group_environment_contract() {
     EXPECTED_NORMAL_GROUP_ANDROID_COMMAND_TOPIC=armada.perf.protocol.android.normal-group.commands.v1
     EXPECTED_NORMAL_GROUP_RESULT_TOPIC=armada.perf.protocol.normal-group.events.v1
     EXPECTED_NORMAL_GROUP_RESULT_GROUP_ID=armada-perf-api-normal-group-results
+    EXPECTED_PAIRING_EVENTS_TOPIC=armada.perf.protocol.pairing.events.v1
+    EXPECTED_PAIRING_EVENTS_GROUP_ID=armada-perf-api-pairing-events
     ssh_run() { printf "%s\n" "$*" >>"${ARMADA_TEST_LOG}"; }
     armada_start
   '
@@ -1392,6 +1398,8 @@ test_armada_start_applies_normal_group_environment_contract() {
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_ANDROID_COMMAND_TOPIC='armada.perf.protocol.android.normal-group.commands.v1'"
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_TOPIC='armada.perf.protocol.normal-group.events.v1'"
   assert_contains "$(cat "${command_log}")" "NORMAL_GROUP_CREATION_RESULT_GROUP_ID='armada-perf-api-normal-group-results'"
+  assert_contains "$(cat "${command_log}")" "PROTOCOL_PAIRING_EVENTS_TOPIC='armada.perf.protocol.pairing.events.v1'"
+  assert_contains "$(cat "${command_log}")" "PROTOCOL_PAIRING_EVENTS_GROUP_ID='armada-perf-api-pairing-events'"
   rm -f "${command_log}"
 }
 
@@ -1576,6 +1584,11 @@ test_armada_compose_passes_normal_group_kafka_config_to_backend() {
   assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_RESULT_GROUP_ID: ${NORMAL_GROUP_CREATION_RESULT_GROUP_ID:-armada-api-normal-group-results}'
   assert_contains "${compose_content}" 'NORMAL_GROUP_CREATION_RESULT_CONCURRENCY: ${NORMAL_GROUP_CREATION_RESULT_CONCURRENCY:-4}'
   assert_contains "${example_content}" 'NORMAL_GROUP_CREATION_RESULT_GROUP_ID=armada-api-normal-group-results'
+  assert_contains "${compose_content}" 'PROTOCOL_PAIRING_EVENTS_TOPIC: ${PROTOCOL_PAIRING_EVENTS_TOPIC:-protocol.pairing.events.v1}'
+  assert_contains "${compose_content}" 'PROTOCOL_PAIRING_EVENTS_GROUP_ID: ${PROTOCOL_PAIRING_EVENTS_GROUP_ID:-armada-api-pairing-events}'
+  assert_contains "${example_content}" 'PROTOCOL_PAIRING_EVENTS_TOPIC=protocol.pairing.events.v1'
+  assert_contains "$(cat "${SCRIPT_DIR}/envs/perf2.conf")" 'EXPECTED_PAIRING_EVENTS_TOPIC=armada.perf.protocol.pairing.events.v1'
+  assert_contains "$(cat "${SCRIPT_DIR}/envs/perf2.conf")" 'EXPECTED_PAIRING_EVENTS_GROUP_ID=armada-perf-api-pairing-events'
 }
 
 test_windows_entrypoint_requires_normal_group_environment_contract() {

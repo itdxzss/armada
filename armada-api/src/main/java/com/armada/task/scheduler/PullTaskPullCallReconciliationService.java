@@ -17,7 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/** 新版逐号码批次在结果窗口结束后保留未知事实，不重放可能已生效的命令。 */
+/** 未知先核对本地 ADD 事实，缺失结果窗口结束或拉手失效后最多换号补拉一次。 */
 @Service
 public class PullTaskPullCallReconciliationService {
 
@@ -45,9 +45,21 @@ public class PullTaskPullCallReconciliationService {
             List<PullTaskGroupAccount> accounts,
             long cutoff,
             long now) {
+        int confirmed = 0;
+        for (PullTaskPullCallMemberAttempt attempt : attempts) {
+            if ("UNKNOWN".equals(attempt.getProtocolOutcome())) {
+                PullTaskUncertainParticipantSettlement settlement = new PullTaskUncertainParticipantSettlement(
+                        new PullTaskUncertainParticipantSettlement.Context(
+                                execution.getTenantId(), call, execution),
+                        attempt, PullTaskRosterObservation.UNCONFIRMED, now);
+                if (participantResultService.confirmLocalJoin(settlement)) {
+                    confirmed++;
+                }
+            }
+        }
         if (!Objects.equals(call.getCallStatus(), PullTaskPullCallStatus.SUBMITTED.code())
                 || call.getSubmittedAt() == null) {
-            return PullTaskUnknownResultReconciliationStats.empty();
+            return new PullTaskUnknownResultReconciliationStats(confirmed, 0);
         }
         List<PullTaskPullCallMemberAttempt> unresolved = attempts.stream()
                 .filter(row -> Objects.equals(
@@ -56,11 +68,11 @@ public class PullTaskPullCallReconciliationService {
                         != PullTaskParticipantExecutionState.NOT_STARTED)
                 .toList();
         if (unresolved.isEmpty()) {
-            return PullTaskUnknownResultReconciliationStats.empty();
+            return new PullTaskUnknownResultReconciliationStats(confirmed, 0);
         }
         if (call.getSubmittedAt() > cutoff
                 && !unavailablePullerStillOwnsOpenAttempt(call, unresolved, accounts)) {
-            return PullTaskUnknownResultReconciliationStats.empty();
+            return new PullTaskUnknownResultReconciliationStats(confirmed, 0);
         }
         int released = 0;
         for (PullTaskPullCallMemberAttempt attempt : unresolved) {
@@ -84,7 +96,7 @@ public class PullTaskPullCallReconciliationService {
                         + "executionId={} waveId={} callId={} unresolvedCount={} settledCount={}",
                 execution.getTenantId(), execution.getTaskId(), execution.getId(),
                 call.getPullWaveId(), call.getId(), unresolved.size(), released);
-        return new PullTaskUnknownResultReconciliationStats(0, released);
+        return new PullTaskUnknownResultReconciliationStats(confirmed, released);
     }
 
     private static boolean unavailablePullerStillOwnsOpenAttempt(

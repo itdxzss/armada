@@ -103,10 +103,15 @@ public class PullTaskStickyPullerTransactionService {
             List<PullTaskGroupAccount> roles = groupAccountMapper.selectByExecutionAndRole(
                     execution.getId(), PullTaskGroupAccountRole.PULLER.code());
             Map<Long, ProtocolAccountRef> protocols = protocolRefs(roles);
+            List<Long> excludedAccounts = attemptMapper.selectUnknownRetryExcludedAccounts(call.getId());
+            excludedAccounts.forEach(protocols::remove);
             PullTaskGroupAccount sticky = roleById(
                     roles, currentExecution.getActivePullerGroupAccountId());
+            // 排除原拉手仅影响这次补拉，不能把仍在线的账号误标为离线。
+            PullTaskGroupAccount eligibleSticky = sticky != null
+                    && excludedAccounts.contains(sticky.getAccountId()) ? null : sticky;
             PullerChoice choice = choose(
-                    currentExecution, sticky, roles, protocols, now);
+                    currentExecution, eligibleSticky, roles, protocols, now);
             if (choice == null) {
                 clearUnavailable(currentExecution, sticky, "ACCOUNT_NOT_ONLINE", now);
                 return waitForPuller(execution.getId(), lockOwner, now);

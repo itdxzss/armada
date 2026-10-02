@@ -77,6 +77,7 @@ class PullTaskPullCallParticipantResultServiceTest {
     private PullTaskPullWaveProgressService waveProgress;
     private ApplicationEventPublisher eventPublisher;
     private PullTaskPullCallParticipantResultService service;
+    private PullTaskUnknownParticipantRecovery unknownRecovery;
     private com.armada.task.service.GroupDataPackageTaskProjectionService dataPackages;
 
     @BeforeEach
@@ -92,13 +93,15 @@ class PullTaskPullCallParticipantResultServiceTest {
         waveProgress = mock(PullTaskPullWaveProgressService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         dataPackages = mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class);
+        unknownRecovery = mock(PullTaskUnknownParticipantRecovery.class);
+        when(unknownRecovery.resolve(any(), any(), any())).thenCallRealMethod();
         service = new PullTaskPullCallParticipantResultService(
                 new PullTaskUnknownResultResources(
                         mock(PullTaskAccountActionMapper.class), callMapper, attemptMapper,
                         materialMapper, accountMapper),
                 executionMapper, pullerRestrictionService,
                 new PullTaskPullCallResultCoordination(
-                        stickyPullers, groupFailure, waveProgress, dataPackages), eventPublisher);
+                        stickyPullers, groupFailure, waveProgress, dataPackages, unknownRecovery), eventPublisher);
         when(callMapper.selectByCommandId("cmd-call")).thenReturn(call());
         when(materialMapper.clearSuccessfulPullAttempt(any(), anyInt())).thenReturn(1);
         when(accountMapper.clearSuccessfulPullAttempt(any(), anyInt())).thenReturn(1);
@@ -744,7 +747,46 @@ class PullTaskPullCallParticipantResultServiceTest {
     }
 
     @Test
-    void unconfirmedSettlementDoesNotRetryOrConsumeFailureBudget() {
+    void explicitUnknownImmediatelyReleasesRetryAndRetainsOriginalAccountDiagnostic() {
+        when(unknownRecovery.canRetryUnknown(any(), any())).thenReturn(true);
+        stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN, false, "TIMEOUT"))).isTrue();
+        assertThat(capturedAttempt().target().lifecycleStatus()).isEqualTo(4);
+        assertThat(capturedAggregate(PullTaskParticipantType.MATERIAL).target().status()).isZero();
+        assertThat(capturedAttempt().result().reasonCode()).isEqualTo(PullTaskUnknownParticipantRecovery.RETRY_REASON);
+    }
+
+    @Test
+    void secondUnknownKeepsTerminalUnknownInsteadOfRetryingAgain() {
+        when(unknownRecovery.hasUsedRetry(any())).thenReturn(true);
+        stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
+        when(attemptMapper.transition(any())).thenReturn(1);
+        when(materialMapper.transitionPullAttempt(any())).thenReturn(1);
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN, true, "RATE_LIMITED"))).isTrue();
+        assertThat(capturedAttempt().target().lifecycleStatus()).isEqualTo(3);
+        assertThat(capturedAggregate(PullTaskParticipantType.MATERIAL).target().status()).isEqualTo(4);
+    }
+
+    @Test
+    void lateUnknownCannotEraseTheDurableOnceOnlyRetryMarker() {
+        PullTaskPullCallMemberAttempt previous = stubAttempt(PullTaskParticipantType.MATERIAL, 0L,
+                PullTaskParticipantAttemptStatus.RELEASED, "UNKNOWN", PullTaskParticipantExecutionState.UNCERTAIN);
+        previous.setReasonCode(PullTaskUnknownParticipantRecovery.RETRY_REASON);
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.UNCERTAIN, false, "TIMEOUT"))).isTrue();
+        verify(attemptMapper, never()).transition(any());
+        verify(materialMapper, never()).transitionPullAttempt(any());
+    }
+
+    @Test
+    void unconfirmedSettlementImmediatelyReleasesOneRetryWithoutFailureBudget() {
+        when(unknownRecovery.canRetryUnknown(any(), any())).thenReturn(true);
         PullTaskPullCallMemberAttempt attempt = stubAttempt(
                 PullTaskParticipantType.MATERIAL, 0L,
                 PullTaskParticipantAttemptStatus.SUBMITTED, null, null);
@@ -753,9 +795,9 @@ class PullTaskPullCallParticipantResultServiceTest {
         assertThat(service.settleUncertain(settlement(
                 attempt, PullTaskRosterObservation.UNCONFIRMED, 6_000L))).isTrue();
         assertThat(capturedAggregate(PullTaskParticipantType.MATERIAL).target().status())
-                .isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code());
+                .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
         assertThat(capturedAttempt().target().lifecycleStatus())
-                .isEqualTo(PullTaskParticipantAttemptStatus.CLOSED.code());
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
     }
 
     @Test

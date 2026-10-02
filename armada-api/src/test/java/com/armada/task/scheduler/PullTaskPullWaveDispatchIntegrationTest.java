@@ -438,7 +438,7 @@ class PullTaskPullWaveDispatchIntegrationTest {
                 AccountProtocolLookupService lookup,
                 ProtocolCommandOutboxService outbox,
                 PullTaskOperationDelayPolicy delayPolicy) {
-            return new PullTaskBatchAddResources(persistence, lookup, outbox, delayPolicy);
+            return new PullTaskBatchAddResources(persistence, lookup, outbox, delayPolicy, org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskUnknownRetryPreflight.class));
         }
 
         @Bean PullTaskBatchAddProcessor batchProcessor(

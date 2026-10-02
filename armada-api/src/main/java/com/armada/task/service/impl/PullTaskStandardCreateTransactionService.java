@@ -84,7 +84,7 @@ public class PullTaskStandardCreateTransactionService {
                                     : "至少需要一条群链接与 TXT 的匹配");
         }
         validateExecutionRows(rows, creationMode(request));
-        dataPackageSourceService.claim(rows);
+        dataPackageSourceService.claim(rows, creationMode(request));
 
         PullTaskStandardGroupSettingDTO groupSetting = groupSettingWithModeDefault(request);
         validateAvatar(groupSetting);
@@ -98,6 +98,9 @@ public class PullTaskStandardCreateTransactionService {
     }
 
     private void validate(PullTaskStandardCreateDTO request) {
+        if (request != null && creationMode(request).isDirectLink()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "群链接模式（新）请使用无草稿创建入口");
+        }
         if (request == null || request.draftTaskId() == null) {
             throw new BusinessException(ErrorCode.VALIDATION, "缺少草稿任务 ID");
         }

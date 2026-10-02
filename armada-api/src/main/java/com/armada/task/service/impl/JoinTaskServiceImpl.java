@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.service.AccountService;
 import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -29,6 +30,8 @@ import com.armada.task.service.PlanRowGenerator;
 import com.armada.shared.tenant.TenantContext;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -56,19 +59,25 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     /** 群链接池登记服务，保证任务链接与共享群入口口径一致。 */
     private final GroupLinkRegistryService groupLinkRegistryService;
 
+    /** 按当前租户批量读取操作管理员手机号。 */
+    private final AccountService accountService;
+
     /**
      * 创建进群任务应用服务。
      *
      * @param joinTaskMapper 进群任务 Mapper
      * @param resultMapper 进群明细 Mapper
      * @param groupLinkRegistryService 群链接池登记服务
+     * @param accountService 账号手机号查询服务
      */
     public JoinTaskServiceImpl(JoinTaskMapper joinTaskMapper,
                                JoinTaskResultMapper resultMapper,
-                               GroupLinkRegistryService groupLinkRegistryService) {
+                               GroupLinkRegistryService groupLinkRegistryService,
+                               AccountService accountService) {
         this.joinTaskMapper = joinTaskMapper;
         this.resultMapper = resultMapper;
         this.groupLinkRegistryService = groupLinkRegistryService;
+        this.accountService = accountService;
     }
 
     /**
@@ -398,8 +407,12 @@ public class JoinTaskServiceImpl implements JoinTaskService {
      */
     @Override
     public List<JoinResultRowVO> results(Long joinTaskId) {
-        List<JoinResultRowVO> rows = resultMapper.selectResultsByTask(joinTaskId)
-                .stream().map(JoinTaskServiceImpl::toResultRowVO).toList();
+        List<JoinTaskResult> results = resultMapper.selectResultsByTask(joinTaskId);
+        List<Long> actorIds = results.stream().map(JoinTaskResult::getAdminActorAccountId)
+                .filter(Objects::nonNull).distinct().toList();
+        Map<Long, String> phones = actorIds.isEmpty() ? Map.of() : accountService.getPhonesByIds(actorIds);
+        List<JoinResultRowVO> rows = results.stream().map(row -> toResultRowVO(row,
+                row.getAdminActorAccountId() == null ? null : phones.get(row.getAdminActorAccountId()))).toList();
         log.info("进群任务明细查询 joinTaskId={} 行数={}", joinTaskId, rows.size());
         return rows;
     }
@@ -424,7 +437,7 @@ public class JoinTaskServiceImpl implements JoinTaskService {
     }
 
     /** 明细实体 → 明细行 VO(群链接原样直出,不脱敏)。 */
-    private static JoinResultRowVO toResultRowVO(JoinTaskResult r) {
+    private static JoinResultRowVO toResultRowVO(JoinTaskResult r, String adminActorPhone) {
         return new JoinResultRowVO(r.getAccount(), r.getLink(),
                 r.getStatus(), r.getReason(), "JOIN_APPROVAL_FAILED".equals(r.getReason())
                         ? r.getApprovalReason() : JoinTaskFailureReason.labelOf(r.getReason()), r.isAdmin(),
@@ -434,6 +447,6 @@ public class JoinTaskServiceImpl implements JoinTaskService {
                 com.armada.task.model.enums.JoinTaskCleanupStatus.of(r.getCleanupStatus()).name(),
                 r.getCleanupReason(), cleanupCount(r, false), cleanupCount(r, true),
                 r.getApprovalStage() == 0 ? "" : com.armada.task.model.enums.JoinTaskApprovalStage.of(r.getApprovalStage()).name(),
-                r.getApprovalReason(), r.getApprovalActorAccountId());
+                r.getApprovalReason(), r.getApprovalActorAccountId(), adminActorPhone);
     }
 }

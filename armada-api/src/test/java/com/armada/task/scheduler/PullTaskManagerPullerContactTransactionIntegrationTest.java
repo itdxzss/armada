@@ -120,6 +120,31 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
+    void directAllocationNeedsNoManagerAndCreatesNoContactOrSettingsActions() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+        execute("DELETE FROM pull_task_group_account WHERE role_type=1");
+        seedProtocolAccounts();
+        PullTaskGroupExecution candidate = claim("worker-direct", 600L, 900L);
+        candidate.setStage(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+
+        assertThat(service.allocateDirectPullers(candidate, 610L)).hasSize(1);
+
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                executionId(), PullTaskGroupAccountRole.PULLER.code()))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getEntryMode()).isEqualTo(PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+                    assertThat(row.getMembershipStatus())
+                            .isEqualTo(PullTaskGroupAccountMembershipStatus.NOT_JOINED.code());
+                });
+        assertThat(actionMapper.selectByExecutionAndType(executionId(),
+                PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+        assertThat(actionMapper.selectByExecutionAndType(executionId(),
+                PullTaskAccountActionType.OPEN_MEMBER_ADD.code())).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+    }
+
+    @Test
     void replacedContactTargetDoesNotInvalidateManagerOrReplaySubmittedActions() throws SQLException {
         seedProtocolAccounts();
         service.prepare(claim("worker-1", 600L, 900L), "worker-1", 610L);

@@ -2,6 +2,19 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.group.mapper.WhatsappGroupMemberJoinFactMapper">
 
+  <select id="selectRecentJoin" resultType="com.armada.group.model.vo.WhatsappGroupJoinFactVO">
+    SELECT current_group.group_jid AS groupJid,
+           COALESCE(participant.pn_jid, participant.lid_jid) AS participantJid,
+           participant.phone, participant.last_joined_at AS joinedAt
+    FROM wa_group current_group
+    JOIN wa_group_participant participant
+      ON participant.tenant_id = current_group.tenant_id AND participant.group_id = current_group.id
+    WHERE current_group.tenant_id = #{tenantId} AND current_group.group_jid = #{groupJid}
+      AND participant.phone = #{phone}
+      AND participant.last_joined_at BETWEEN #{since} AND #{until}
+    LIMIT 1
+  </select>
+
   <select id="selectByGroupJids"
           resultType="com.armada.group.model.vo.WhatsappGroupJoinFactVO">
     SELECT current_group.group_jid AS groupJid,

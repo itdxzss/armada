@@ -29,6 +29,11 @@ public interface PromotionPairingSessionMapper {
     @InterceptorIgnore(tenantLine = "true")
     PromotionPairingSession selectByIdAndTenant(@Param("id") Long id, @Param("tenantId") Long tenantId);
 
+    /** 只查询原租户、原用户的控台会话，用于重复提交及网络中断恢复。 */
+    @InterceptorIgnore(tenantLine = "true")
+    PromotionPairingSession selectLatestControlByPhone(@Param("phone") String phone,
+            @Param("tenantId") Long tenantId, @Param("ownerUserId") Long ownerUserId);
+
     /** 跨租户批量扫描已经到期但尚未结束的会话。 */
     @InterceptorIgnore(tenantLine = "true")
     List<PromotionPairingSession> selectExpiredActive(@Param("now") long now, @Param("limit") int limit);

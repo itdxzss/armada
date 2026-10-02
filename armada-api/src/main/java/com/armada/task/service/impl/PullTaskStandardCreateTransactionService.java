@@ -86,7 +86,7 @@ public class PullTaskStandardCreateTransactionService {
         validateExecutionRows(rows, creationMode(request));
         dataPackageSourceService.claim(rows);
 
-        PullTaskStandardGroupSettingDTO groupSetting = groupSettingWithModeDefault(request);
+        PullTaskStandardGroupSettingDTO groupSetting = request.groupSetting();
         validateAvatar(groupSetting);
         settingWriter.insert(request, task.getId());
         insertGroupSetting(groupSetting, task.getId());
@@ -117,7 +117,8 @@ public class PullTaskStandardCreateTransactionService {
 
     private void validateRanges(PullTaskStandardCreateDTO request) {
         if (request.earlyPullCount() == null || request.earlyPullCount() < 1
-                || request.earlyPullCallCount() == null || request.earlyPullCallCount() < 1) {
+                || request.earlyPullCallCount() == null || request.earlyPullCallCount() < 0
+                || (!creationMode(request).isNewGroup() && request.earlyPullCallCount() == 0)) {
             throw new BusinessException(ErrorCode.VALIDATION, "前期拉人数量或执行次数不合法");
         }
         if (request.pullCountMin() == null || request.pullCountMax() == null
@@ -129,6 +130,10 @@ public class PullTaskStandardCreateTransactionService {
                 || request.stationCountPerCall() == null || request.stationCountPerCall() < 0
                 || request.concurrentGroupCount() == null || request.concurrentGroupCount() < 1) {
             throw new BusinessException(ErrorCode.VALIDATION, "拉群执行数量或间隔不合法");
+        }
+        if (request.pullIntervalMaxSeconds() != null
+                && request.pullIntervalMaxSeconds() < request.pullIntervalSeconds()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "拉人间隔上限不能小于下限");
         }
     }
 
@@ -184,21 +189,6 @@ public class PullTaskStandardCreateTransactionService {
         } catch (DuplicateKeyException e) {
             throw new BusinessException(ErrorCode.CONFLICT, "群头像已被其他任务使用");
         }
-    }
-
-    /** 新群模式没有显式传总开关时默认开启；显式关闭仍以用户选择为准。 */
-    private static PullTaskStandardGroupSettingDTO groupSettingWithModeDefault(
-            PullTaskStandardCreateDTO request) {
-        PullTaskStandardGroupSettingDTO setting = request.groupSetting();
-        if (!creationMode(request).isNewGroup() || setting.enabled() != null) {
-            return setting;
-        }
-        return new PullTaskStandardGroupSettingDTO(
-                true, setting.settingTiming(), setting.groupName(),
-                setting.useMaterialFileNameAsGroupName(), setting.avatarFileKey(),
-                setting.groupDescription(), setting.autoCloseMuteAfterTask(),
-                setting.autoCloseInviteAfterTask(), setting.editPermission(),
-                setting.muteMode(), setting.linkPermission(), setting.disappearingMessage());
     }
 
     /** 提交模式必须与草稿行形状一致，禁止把两种模式的行混在一个任务里冻结。 */

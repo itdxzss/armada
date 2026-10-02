@@ -30,6 +30,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupJoinComma
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
@@ -459,6 +460,49 @@ class ProtocolCommandOutboxServiceImplTest {
                     .doesNotContain("participants")
                     .doesNotContain("wsPhone")
                     .doesNotContain("accountId");
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void groupProfileCommandsUseDedicatedContractAndRouteByActualActorBackend() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(
+                List.of("cmd-profile-web", "cmd-profile-android"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(2);
+        TenantContext.set(1L);
+        try {
+            service.enqueuePullTaskGroupProfileCommands(List.of(
+                    new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 11L, 811L,
+                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933")),
+                    new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 12L, 812L,
+                            new ProtocolAccountRef(393L, ProtocolBackend.ANDROID, "actor-android", "944"))));
+            List<ProtocolCommandOutbox> rows = capturedRows();
+            assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
+                    .containsOnly("group.profile.apply");
+            assertThat(rows).extracting(ProtocolCommandOutbox::getKafkaTopic).containsExactly(
+                    ProtocolMasterCommandProperties.DEFAULT_TOPIC,
+                    ProtocolAndroidCommandProperties.DEFAULT_GROUP_ACTION_TOPIC);
+            assertThat(rows).extracting(ProtocolCommandOutbox::getAggregateId).containsExactly(811L, 812L);
+            JsonNode reference = objectMapper.readTree(rows.get(0).getPayloadJson());
+            assertThat(reference.path("source").asText()).isEqualTo("pull_task_group_profile");
+            assertThat(reference.path("actionId").asLong()).isEqualTo(811L);
+            assertThat(reference.has("description")).isFalse();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void groupProfileCommandsRejectCrossTenantBeforeWritingOutbox() {
+        TestableProtocolCommandOutboxService service = newService(List.of(), List.of());
+        TenantContext.set(1L);
+        try {
+            assertThatThrownBy(() -> service.enqueuePullTaskGroupProfileCommands(List.of(
+                    new ProtocolPullTaskGroupProfileCommandRequest(2L, 9L, 11L, 811L,
+                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933")))))
+                    .isInstanceOf(BusinessException.class);
+            verify(mapper, never()).batchInsertPending(anyList());
         } finally {
             TenantContext.clear();
         }

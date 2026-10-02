@@ -14,6 +14,8 @@ import com.armada.task.model.enums.PullTaskLinkPermissionMode;
 import com.armada.task.model.enums.PullTaskMuteMode;
 import com.armada.task.model.enums.PullTaskPullerSyncMode;
 import com.armada.task.service.impl.PullTaskNewGroupModeValidator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,40 @@ import org.junit.jupiter.api.Test;
  * {@code PullTaskStandardCreateServiceTest}（那里每个用例都要起 H2 与 MyBatis）。</p>
  */
 class PullTaskNewGroupModeValidatorTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    void rejectsEveryWayToSkipCompleteProfileBeforePull() throws Exception {
+        for (String patch : new String[] {
+                "{\"enabled\":false}", "{\"enabled\":null}",
+                "{\"settingTiming\":\"AFTER_PULL\"}",
+                "{\"useMaterialFileNameAsGroupName\":true}",
+                "{\"groupName\":\"  \"}", "{\"groupDescription\":\"  \\n \"}",
+                "{\"groupName\":\"" + "名".repeat(101) + "\"}",
+                "{\"groupDescription\":\"" + "描".repeat(1025) + "\"}"}) {
+            ObjectNode json = objectMapper.valueToTree(request(PullTaskCreationMode.NEW_GROUP, 21L, 0));
+            ((ObjectNode) json.get("groupSetting")).setAll((ObjectNode) objectMapper.readTree(patch));
+            PullTaskStandardCreateDTO changed = objectMapper.treeToValue(json, PullTaskStandardCreateDTO.class);
+            assertThatThrownBy(() -> PullTaskNewGroupModeValidator.validateRequest(changed))
+                    .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    @Test
+    void rejectsOutOfRangeCountsIntervalsAndEarlyOverride() throws Exception {
+        for (String patch : new String[] {
+                "{\"earlyPullCallCount\":2}", "{\"pullCountMin\":0}",
+                "{\"pullCountMax\":4}", "{\"pullCountMin\":3,\"pullCountMax\":2}",
+                "{\"pullIntervalSeconds\":9}", "{\"pullIntervalMaxSeconds\":16}",
+                "{\"pullIntervalSeconds\":14,\"pullIntervalMaxSeconds\":13}"}) {
+            ObjectNode json = objectMapper.valueToTree(request(PullTaskCreationMode.NEW_GROUP, 21L, 0));
+            json.setAll((ObjectNode) objectMapper.readTree(patch));
+            PullTaskStandardCreateDTO changed = objectMapper.treeToValue(json, PullTaskStandardCreateDTO.class);
+            assertThatThrownBy(() -> PullTaskNewGroupModeValidator.validateRequest(changed))
+                    .isInstanceOf(BusinessException.class);
+        }
+    }
 
     @Test
     @DisplayName("群链接模式不受影响：建群人分组为空也放行")
@@ -98,9 +134,9 @@ class PullTaskNewGroupModeValidatorTest {
             PullTaskCreationMode creationMode, Long creatorGroupId, Integer initialStationCount) {
         return new PullTaskStandardCreateDTO(
                 1L, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
-                1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
+                1, false, false, 1, 0, 1, 3, 10, 2, 2, 1,
                 11L, 12L, 13L, null, null, groupSetting(),
-                creationMode, creatorGroupId, initialStationCount, false);
+                creationMode, creatorGroupId, initialStationCount, false, 15);
     }
 
     private static PullTaskStandardCreateDTO withStationGroup(
@@ -114,12 +150,12 @@ class PullTaskNewGroupModeValidatorTest {
                 base.concurrentGroupCount(), base.managerGroupId(), base.pullerGroupId(),
                 stationGroupId, base.managerFinishGroupId(), base.pullerFinishGroupId(),
                 base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
     }
 
     private static PullTaskStandardGroupSettingDTO groupSetting() {
         return new PullTaskStandardGroupSettingDTO(
-                true, PullTaskGroupSettingTiming.AFTER_PULL, "客户群", false, null, null,
+                true, PullTaskGroupSettingTiming.BEFORE_PULL, "客户群", false, null, "完整简介\n第二行",
                 false, false, PullTaskEditPermissionMode.UNCHANGED,
                 PullTaskMuteMode.UNCHANGED, PullTaskLinkPermissionMode.ADMIN_ONLY,
                 PullTaskDisappearingMessageMode.UNCHANGED);

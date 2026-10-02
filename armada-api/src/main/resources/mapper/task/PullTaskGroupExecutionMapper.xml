@@ -8,6 +8,7 @@
     source_package_id, source_package_generation,
     total_line_count, valid_member_count, invalid_line_count, duplicate_line_count,
     execution_status, stage, create_step, create_operation_id, create_attempt_count, group_subject,
+    profile_verified_at, profile_verified_command_id,
     manual_paused, wait_resource_type, reason_code, reason_message,
     creator_leave_result, creator_leave_reason,
     next_manager_index, next_puller_index, active_pull_wave_id,
@@ -27,6 +28,7 @@
     execution_row.execution_status, execution_row.stage, execution_row.create_step,
     execution_row.create_operation_id, execution_row.create_attempt_count,
     execution_row.group_subject, execution_row.manual_paused,
+    execution_row.profile_verified_at, execution_row.profile_verified_command_id,
     execution_row.wait_resource_type, execution_row.reason_code, execution_row.reason_message,
     execution_row.creator_leave_result, execution_row.creator_leave_reason,
     execution_row.next_manager_index, execution_row.next_puller_index,
@@ -410,6 +412,26 @@
       AND lock_expires_at &gt; #{row.updatedAt}
   </update>
 
+  <update id="pauseUnverifiedProfileClaimed">
+    UPDATE pull_task_group_execution
+    SET manual_paused = #{row.manualPaused},
+        reason_code = #{row.reasonCode},
+        reason_message = #{row.reasonMessage},
+        lock_owner = NULL,
+        lock_expires_at = NULL,
+        version = version + 1,
+        updated_at = #{row.updatedAt}
+    WHERE id = #{row.id}
+      AND execution_status = #{expectedExecutionStatus}
+      AND stage = #{expectedStage}
+      AND manual_paused = #{expectedManualPaused}
+      AND version = #{row.version}
+      AND lock_owner = #{row.lockOwner}
+      AND lock_expires_at &gt; #{row.updatedAt}
+      AND (profile_verified_at IS NULL OR profile_verified_at &lt;= 0
+        OR profile_verified_command_id IS NULL OR TRIM(profile_verified_command_id) = '')
+  </update>
+
   <update id="transitionClaimed">
     UPDATE pull_task_group_execution
     SET execution_status = #{row.executionStatus},
@@ -450,6 +472,10 @@
         create_attempt_count = COALESCE(
           #{transition.createAttemptCount}, create_attempt_count),
         group_subject = COALESCE(#{transition.groupSubject}, group_subject),
+        <if test="transition.verifiedProfileCommandId != null">
+          profile_verified_at = #{transition.now},
+          profile_verified_command_id = #{transition.verifiedProfileCommandId},
+        </if>
         group_jid = COALESCE(#{transition.groupJid}, group_jid),
         normalized_link = COALESCE(#{transition.normalizedLink}, normalized_link),
         invite_code = COALESCE(#{transition.inviteCode}, invite_code),

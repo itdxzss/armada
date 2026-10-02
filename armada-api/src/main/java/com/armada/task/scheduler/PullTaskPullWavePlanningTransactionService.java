@@ -183,6 +183,10 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskPullWave settledWave,
             long now) {
         long retryAt = Math.addExact(now, PullTaskRetryPolicy.retryDelayMs(settledWave.getWaveNo()));
+        // 最后一次提交已把随机间隔冻结到波次；回调和重启不得重新抽取较短间隔。
+        if (settledWave.getNextDispatchAt() != null) {
+            retryAt = Math.max(retryAt, settledWave.getNextDispatchAt());
+        }
         Long lastSubmittedAt = resources.pullCallMapper()
                 .selectByExecution(execution.getId()).stream()
                 .map(PullTaskPullCall::getSubmittedAt)
@@ -404,7 +408,8 @@ public class PullTaskPullWavePlanningTransactionService {
             insertParticipants(execution, wave, call, newBatches.get(index), now);
         }
         initializeLegacyWaveProgress(
-                wave, setting, legacyOpenCalls, firstPlanned, plannedCalls, now);
+                wave, firstPlanned, plannedCalls,
+                legacyNextDispatchAt(execution, setting, legacyOpenCalls, now), now);
         logWaveCreated(execution, wave, true);
         return new CreatedWave(wave, firstPlanned);
     }
@@ -453,15 +458,13 @@ public class PullTaskPullWavePlanningTransactionService {
 
     private void initializeLegacyWaveProgress(
             PullTaskPullWave wave,
-            PullTaskStandardSetting setting,
-            List<PullTaskPullCall> legacyCalls,
             PullTaskPullCall firstPlanned,
             int plannedCalls,
+            long earliestDispatchAt,
             long now) {
         boolean collecting = firstPlanned == null;
         int nextCallSeq = collecting ? plannedCalls + 1 : firstPlanned.getWaveCallSeq();
-        long nextDispatchAt = collecting
-                ? now : legacyNextDispatchAt(setting, legacyCalls, now);
+        long nextDispatchAt = earliestDispatchAt;
         PullTaskPullWaveTransition transition = new PullTaskPullWaveTransition(
                 new PullTaskPullWaveTransition.Scope(
                         wave.getId(), wave.getGroupExecutionId(),
@@ -552,6 +555,7 @@ public class PullTaskPullWavePlanningTransactionService {
     }
 
     private static long legacyNextDispatchAt(
+            PullTaskGroupExecution execution,
             PullTaskStandardSetting setting,
             List<PullTaskPullCall> calls,
             long now) {
@@ -559,12 +563,9 @@ public class PullTaskPullWavePlanningTransactionService {
                 .map(PullTaskPullCall::getSubmittedAt)
                 .filter(Objects::nonNull)
                 .max(Long::compareTo).orElse(null);
-        if (lastSubmittedAt == null) {
-            return now;
-        }
-        long interval = Math.multiplyExact(
-                setting.getPullIntervalSeconds().longValue(), 1_000L);
-        return Math.max(now, Math.addExact(lastSubmittedAt, interval));
+        long frozenDeadline = execution.getNextRunAt() == null ? now : Math.max(now, execution.getNextRunAt());
+        return lastSubmittedAt == null ? frozenDeadline : Math.max(frozenDeadline,
+                PullTaskPullIntervalPolicy.latestPossibleDeadline(setting, lastSubmittedAt));
     }
 
     private PullTaskPullWave insertWave(

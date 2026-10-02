@@ -349,6 +349,21 @@ public interface PullTaskGroupExecutionMapper {
                           @Param("expectedExecutionStatus") int expectedExecutionStatus,
                           @Param("expectedStage") int expectedStage);
 
+    /**
+     * 缺少真实资料核验凭证时暂停当前已领取执行行，不倒退阶段或重建群。
+     *
+     * @param row 携带 id、version、lockOwner、目标暂停值、原因与更新时间
+     * @param expectedExecutionStatus 当前执行状态
+     * @param expectedStage 当前执行阶段
+     * @param expectedManualPaused 当前暂停标记
+     * @return 1 表示暂停成功，0 表示租户、版本、租约或核验凭证已变化
+     */
+    int pauseUnverifiedProfileClaimed(
+            @Param("row") PullTaskGroupExecution row,
+            @Param("expectedExecutionStatus") int expectedExecutionStatus,
+            @Param("expectedStage") int expectedStage,
+            @Param("expectedManualPaused") int expectedManualPaused);
+
     /** 以当前有效租约、版本和建群步骤 CAS 推进建群内部检查点。 */
     int transitionGroupCreate(@Param("transition") PullTaskGroupCreateTransition transition);
 

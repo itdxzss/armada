@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskMaterialAdminCallback;
 import com.armada.task.model.dto.PullTaskGroupSettingsCallback;
 import com.armada.task.model.dto.PullTaskManagerAdminCallback;
 import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
+import com.armada.task.model.enums.PullTaskGroupSettingItem;
 import com.armada.task.model.enums.PullTaskCreatorLeaveOperation;
 import com.armada.task.model.enums.PullTaskCreatorLeaveProtocolOutcome;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
@@ -21,6 +22,7 @@ import com.armada.task.service.PullTaskPullerInviteResultService;
 import com.armada.task.service.PullTaskGroupSettingsResultService;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
+import java.util.Arrays;
 import org.springframework.stereotype.Component;
 
 /** 把协议群动作结果转换为拉群任务域的强类型回调。 */
@@ -86,17 +88,17 @@ public class ProtocolGroupActionResultAdapter implements ProtocolGroupActionResu
                     event.reasonCode(), event.reasonMessage(), event.retryable(), event.timestamp()));
             return;
         }
-        if ("pull_task_group_settings".equals(event.source())) {
-            // 群设置改的是群属性，事件没有 targetJid。放开加人权限与关闭进群审核仍是一条命令
-            // 一个设置项，命令级 outcome 就是该设置项的结果。
-            // 「群信息设置」整块下发的失败项还没从协议事件里透出：
-            // ProtocolGroupActionResultReportedEvent 尚无对应字段，补齐前只能传 null。
+        if ("pull_task_group_settings".equals(event.source())
+                || "pull_task_group_profile".equals(event.source())) {
+            // 权限单项设置与完整资料共用动作回写；未识别的新失败项仍保留协议原因码。
+            PullTaskGroupSettingItem failedItem = Arrays.stream(PullTaskGroupSettingItem.values())
+                    .filter(item -> item.name().equals(event.failedItem())).findFirst().orElse(null);
             groupSettingsResultService.apply(new PullTaskGroupSettingsCallback(
                     event.tenantId(), event.pullTaskId(), event.groupExecutionId(),
                     event.actionId(), event.accountId(), event.protocolAccountId(),
                     event.commandId(), event.attemptNo(),
                     PullTaskGroupSettingsProtocolOutcome.valueOf(event.outcome()),
-                    null, event.reasonCode(), event.reasonMessage(), event.timestamp()));
+                    failedItem, event.reasonCode(), event.reasonMessage(), event.timestamp()));
             return;
         }
         if ("pull_task_material_admin".equals(event.source())) {

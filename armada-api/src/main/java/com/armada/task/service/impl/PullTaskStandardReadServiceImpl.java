@@ -335,6 +335,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 value(row.getEarlyPullCount()),
                 value(row.getEarlyPullCallCount()), value(row.getPullCountMin()),
                 value(row.getPullCountMax()), value(row.getPullIntervalSeconds()),
+                value(row.getPullIntervalMaxSeconds() == null
+                        ? row.getPullIntervalSeconds() : row.getPullIntervalMaxSeconds()),
                 value(row.getPullerCountPerGroup()), value(row.getStationCountPerCall()),
                 value(row.getConcurrentGroupCount()),
                 value(row.getInitialStationCount()), row.getCreatorGroupId(),

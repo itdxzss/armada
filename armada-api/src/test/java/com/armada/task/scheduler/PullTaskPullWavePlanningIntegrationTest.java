@@ -101,6 +101,21 @@ class PullTaskPullWavePlanningIntegrationTest {
     }
 
     @Test
+    void disabledEarlyCallsUseTheConfiguredRangeFromTheFirstCall() throws SQLException {
+        execute("UPDATE pull_task_standard_setting SET early_pull_count=99, "
+                + "early_pull_call_count=0, pull_count_min=1, pull_count_max=3 WHERE task_id=100");
+
+        PullTaskPullWavePreparation result = service.prepare(
+                claim("worker-1", 600L, 900L), "worker-1", 610L);
+
+        TenantContext.set(7L);
+        assertThat(result.ready()).isTrue();
+        assertThat(callMapper.selectByExecution(executionId))
+                .isNotEmpty()
+                .allSatisfy(call -> assertThat(call.getPlannedMaterialCount()).isBetween(1, 3));
+    }
+
+    @Test
     void freezesEarlyCallsBeforeTheStandardRangeCalls() {
         PullTaskPullWavePreparation result = service.prepare(
                 claim("worker-1", 600L, 900L), "worker-1", 610L);

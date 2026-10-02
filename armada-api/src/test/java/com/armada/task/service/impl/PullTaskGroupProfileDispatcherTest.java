@@ -12,7 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
-import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
@@ -67,7 +67,7 @@ class PullTaskGroupProfileDispatcherTest {
             invocation.getArgument(0, PullTaskAccountAction.class).setId(51L);
             return 1;
         });
-        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList()))
+        when(outboxService.enqueuePullTaskGroupProfileCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:101", List.of("cmd-settings-1"), 1));
         when(actionMapper.submitAttempt(anyLong(), anyList(), any(), anyLong()))
@@ -83,9 +83,9 @@ class PullTaskGroupProfileDispatcherTest {
         assertThat(action.getValue().getTargetGroupAccountId()).isEqualTo(41L);
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<ProtocolPullTaskGroupSettingsCommandRequest>> commands =
+        ArgumentCaptor<List<ProtocolPullTaskGroupProfileCommandRequest>> commands =
                 ArgumentCaptor.forClass(List.class);
-        verify(outboxService).enqueuePullTaskGroupSettingsCommands(commands.capture());
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(commands.capture());
         assertThat(commands.getValue()).singleElement()
                 .extracting(command -> command.manager().armadaAccountId())
                 .isEqualTo(901L);
@@ -109,7 +109,41 @@ class PullTaskGroupProfileDispatcherTest {
         verify(groupAccountMapper, never()).selectByExecutionAndRole(
                 11L, PullTaskGroupAccountRole.MANAGER.code());
         verify(actionMapper, never()).insertIfAbsent(any());
-        verify(outboxService, never()).enqueuePullTaskGroupSettingsCommands(anyList());
+        verify(outboxService, never()).enqueuePullTaskGroupProfileCommands(anyList());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"5,1", "3,1", "4,3", "6,1"})
+    void unknownSuccessExhaustedAndCanceledActionsAreNeverResubmitted(int status, int attemptNo) {
+        PullTaskAccountAction prior = new PullTaskAccountAction();
+        prior.setActionStatus(status);
+        prior.setAttemptNo(attemptNo);
+        when(settingMapper.selectByTaskId(101L)).thenReturn(enabledSetting());
+        when(actionMapper.selectByExecutionAndType(anyLong(), anyInt())).thenReturn(List.of(prior));
+        dispatcher.dispatchIfDue(execution(), PullTaskGroupSettingTiming.BEFORE_PULL, 1_000L);
+        verify(outboxService, never()).enqueuePullTaskGroupProfileCommands(anyList());
+        verify(actionMapper, never()).insertIfAbsent(any());
+    }
+
+    @Test
+    void definiteFailureReusesActionWithANewCommandRatherThanRecreatingGroup() {
+        PullTaskAccountAction prior = new PullTaskAccountAction();
+        prior.setId(51L);
+        prior.setActionStatus(4);
+        prior.setAttemptNo(1);
+        when(settingMapper.selectByTaskId(101L)).thenReturn(enabledSetting());
+        when(actionMapper.selectByExecutionAndType(anyLong(), anyInt())).thenReturn(List.of(prior));
+        when(groupAccountMapper.selectByExecutionAndRole(11L, PullTaskGroupAccountRole.PROMOTER.code()))
+                .thenReturn(List.of(role(41L, 901L, PullTaskGroupAccountRole.PROMOTER)));
+        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(
+                new ProtocolAccountRef(901L, ProtocolBackend.WEB, "creator-901", "8613800000901")));
+        when(outboxService.enqueuePullTaskGroupProfileCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult("pull-task:101", List.of("retry-profile"), 1));
+        when(actionMapper.submitAttempt(anyLong(), anyList(), any(), anyLong())).thenReturn(1);
+        dispatcher.dispatchIfDue(execution(), PullTaskGroupSettingTiming.BEFORE_PULL, 1_000L);
+        verify(actionMapper, never()).insertIfAbsent(any());
+        verify(actionMapper).submitAttempt(org.mockito.ArgumentMatchers.eq(51L), anyList(),
+                org.mockito.ArgumentMatchers.eq("retry-profile"), org.mockito.ArgumentMatchers.eq(1_000L));
     }
 
     private PullTaskGroupExecution execution() {

@@ -938,12 +938,14 @@ public class ProtocolGroupEventConsumer {
                 && "PARTICIPANT_PROMOTE".equals(operation);
         boolean groupSettings = "pull_task_group_settings".equals(source)
                 && "GROUP_SETTINGS_APPLY".equals(operation);
+        boolean groupProfile = "pull_task_group_profile".equals(source)
+                && "GROUP_PROFILE_APPLY".equals(operation);
         boolean creatorLeavePromote = "pull_task_creator_leave".equals(source)
                 && "PARTICIPANT_PROMOTE".equals(operation);
         boolean creatorLeave = "pull_task_creator_leave".equals(source)
                 && "GROUP_LEAVE".equals(operation);
         if (!contactSave && !pullerInvite && !materialAdmin && !managerAdmin && !groupSettings
-                && !creatorLeavePromote && !creatorLeave) {
+                && !groupProfile && !creatorLeavePromote && !creatorLeave) {
             throw new BusinessException(ErrorCode.VALIDATION, "协议群动作结果来源或动作非法");
         }
         Long accountId = requiredLong(data, "accountId");
@@ -977,7 +979,8 @@ public class ProtocolGroupEventConsumer {
                 eventId, tenantId, pullTaskId, groupExecutionId, actionId, source, operation,
                 accountId, protocolAccountId, commandId, attemptNo, outcome,
                 targetJid, text(data, "reasonCode"), text(data, "reasonMessage"), retryable,
-                timestamp == null ? 0L : timestamp, text(envelope, "workerId"));
+                timestamp == null ? 0L : timestamp, text(envelope, "workerId"),
+                groupProfile ? text(data, "failedItem") : null);
         log.info("协议群动作结果收到 eventId={} tenantId={} actionId={} commandId={} outcome={}",
                 event.eventId(), event.tenantId(), event.actionId(), event.commandId(), event.outcome());
         riskEventSink.handleResult(riskMetadata(

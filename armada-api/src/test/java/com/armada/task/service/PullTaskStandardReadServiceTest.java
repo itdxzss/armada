@@ -143,6 +143,8 @@ class PullTaskStandardReadServiceTest {
                 .isEqualTo("BATCH");
         assertThat(service.task(100L).standardSetting().earlyPullCount()).isEqualTo(1);
         assertThat(service.task(100L).standardSetting().earlyPullCallCount()).isEqualTo(2);
+        assertThat(service.task(100L).standardSetting().pullIntervalSeconds()).isEqualTo(30);
+        assertThat(service.task(100L).standardSetting().pullIntervalMaxSeconds()).isEqualTo(30);
         assertThat(service.task(100L).standardSetting().pullerJoinByLink()).isTrue();
         assertThat(service.task(100L).standardSetting().groupFolderName()).isEqualTo("印度群");
         assertThat(service.task(100L).standardSetting().creatorGroupId()).isEqualTo(16L);

@@ -15,7 +15,9 @@ import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueRes
 import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
+import com.armada.task.service.GroupDataPackageTaskProjectionService;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
+import com.armada.task.service.impl.PullTaskGroupRetryService;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMapper;
@@ -461,7 +463,7 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
         when(outboxService.enqueuePullTaskContactSaveCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:100", List.of("cmd-contact-1"), 1));
-        when(outboxService.enqueuePullTaskGroupSettingsCommands(anyList()))
+        when(outboxService.enqueuePullTaskGroupProfileCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult(
                         "pull-task:100", List.of("cmd-settings-1"), 1));
     }
@@ -682,6 +684,18 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
         @Bean
         GroupFolderService groupFolderService() {
             return mock(GroupFolderService.class);
+        }
+
+        /** 本用例不使用数据包来源；保持资料动作与执行阶段通过真实 Mapper 落库。 */
+        @Bean
+        GroupDataPackageTaskProjectionService dataPackageProjection() {
+            return mock(GroupDataPackageTaskProjectionService.class);
+        }
+
+        /** 群设置时机测试固定当前群，不执行另一个业务场景的整群换群。 */
+        @Bean
+        PullTaskGroupRetryService groupRetryService() {
+            return mock(PullTaskGroupRetryService.class);
         }
     }
 }

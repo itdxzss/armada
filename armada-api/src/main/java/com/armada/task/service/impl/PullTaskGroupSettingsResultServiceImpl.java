@@ -23,6 +23,7 @@ import com.armada.task.model.enums.PullTaskGroupSettingItem;
 import com.armada.task.model.enums.PullTaskGroupSettingsProtocolOutcome;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.service.PullTaskGroupSettingsResultService;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.slf4j.Logger;
@@ -41,12 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
  * {@link PullTaskAccountActionType#APPLY_GROUP_SETTINGS}）与关闭进群审核同形状：只写动作行，
  * 不读也不 CAS 执行行，失败按第一个失败项分派到各自的原因码。</p>
  *
- * <p>它的失败口径（业务确认 2026-08-19）：协议侧对设置项失败恒回 {@code UNKNOWN} 并带
- * {@code retryable}，但 <b>armada 只留 reason_code 供排查与统计，不重试、不重发</b>，
- * 一条命令只发一次。这是二选一而不是漏做：本仓的重试驱动来自执行行被卡在该步（放开加人权限
- * 就是这么重试的），而群资料按业务口径不阻断执行行，执行行径直往后走，没有任何人会回头再发，
- * 两者在现有结构下互斥。协议侧的 {@code retryable} 标志因此目前不消费——将来若加「按动作行扫
- * UNKNOWN」的补发任务再用，别看到这个字段就以为重试已经生效。</p>
+ * <p>本类仅持久化协议观察结果，不把成功回执视为真实群资料已生效。NEW_GROUP 的调度步骤
+ * 读取动作结果并另行回读核验资料；失败或未知结果不得由此回调直接推进或盲目重发。</p>
  */
 @Service
 public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSettingsResultService {
@@ -207,30 +204,28 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
     /**
      * 「群信息设置」整块下发结果：只写动作行。
      *
-     * <p>与关闭进群审核同形状——不读执行行也不 CAS 执行行，因此结果晚到（执行行早已推进到拉人
-     * 甚至收尾阶段）仍能正常落库。群资料是运营展示需求，拉不拉得到人与它无关，让它阻断执行行
-     * 等于用一个展示层问题卡死整条行。</p>
-     *
-     * <p>失败按<b>第一个失败项</b>分派到各自的原因码，让运营在执行明细里直接看到是哪一项没设上；
-     * 只留痕，不重发：一条 {@code group.profile.apply} 命令只发一次，理由见类注释。</p>
+     * <p>回调只收敛动作，调度器根据任务模式决定等待及核验。失败按第一个失败项记录；账号离线、
+     * 命令校验错误等没有具体设置项的失败保留协议原因，不能错误归因为群名设置失败。</p>
      */
     private boolean applyGroupProfile(
             PullTaskAccountAction action,
             PullTaskGroupSettingsCallback callback,
             int targetStatus) {
         boolean success = callback.outcome() == PullTaskGroupSettingsProtocolOutcome.SUCCESS;
-        PullTaskExecutionReasonCode reason = success ? null : groupProfileReason(callback);
+        String reason = success ? null : groupProfileReason(callback);
+        String reasonMessage = success ? null : Arrays.stream(PullTaskExecutionReasonCode.values())
+                .filter(value -> value.name().equals(reason)).map(PullTaskExecutionReasonCode::message)
+                .findFirst().orElse(PullTaskExecutionReasonCode.GROUP_PROFILE_SET_FAILED.message());
         if (actionMapper.transitionManagerAdminResult(
                 action.getId(), callback.commandId(), callback.attemptNo(), ACTION_OPEN,
-                targetStatus, false, reason == null ? null : reason.name(),
-                reason == null ? null : reason.message(), callback.occurredAt()) != 1) {
+                targetStatus, false, reason, reasonMessage, callback.occurredAt()) != 1) {
             return false;
         }
         if (!success) {
-            log.warn("拉群群信息设置失败，只留痕不阻断执行行 taskId={} executionId={} actionId={} "
+            log.warn("拉群群信息设置结果未确认，交由调度步骤核验 taskId={} executionId={} actionId={} "
                             + "commandId={} failedItem={} reasonCode={}",
                     callback.pullTaskId(), callback.groupExecutionId(), callback.actionId(),
-                    callback.commandId(), callback.failedItem(), reason.name());
+                    callback.commandId(), callback.failedItem(), reason);
         }
         return true;
     }
@@ -238,16 +233,17 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
     /**
      * 把协议回传的失败项翻成原因码。
      *
-     * <p>八项各有各的码，不许合并成一个笼统码：只回「设置失败」运营还得回去翻协议日志。协议侧
-     * 没给失败项时退回群名那一项——它是执行顺序里的第一项，多项失败只回报第一项。</p>
+     * <p>有明确失败项时使用其固定原因码；无失败项时保留合法协议码，缺失时记录通用资料失败。</p>
      */
-    private static PullTaskExecutionReasonCode groupProfileReason(
+    private static String groupProfileReason(
             PullTaskGroupSettingsCallback callback) {
         PullTaskGroupSettingItem item = callback.failedItem();
         if (item == null) {
-            return PullTaskExecutionReasonCode.GROUP_NAME_SET_FAILED;
+            String protocolReason = callback.reasonCode();
+            return protocolReason != null && protocolReason.matches("[A-Z][A-Z0-9_]{0,63}")
+                    ? protocolReason : PullTaskExecutionReasonCode.GROUP_PROFILE_SET_FAILED.name();
         }
-        return switch (item) {
+        return (switch (item) {
             case GROUP_NAME -> PullTaskExecutionReasonCode.GROUP_NAME_SET_FAILED;
             case AVATAR -> PullTaskExecutionReasonCode.GROUP_AVATAR_SET_FAILED;
             case DESCRIPTION -> PullTaskExecutionReasonCode.GROUP_DESCRIPTION_SET_FAILED;
@@ -259,7 +255,7 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
             case JOIN_APPROVAL -> PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_SET_FAILED;
             case DISAPPEARING_MESSAGE ->
                     PullTaskExecutionReasonCode.GROUP_DISAPPEARING_MESSAGE_SET_FAILED;
-        };
+        }).name();
     }
 
     /**

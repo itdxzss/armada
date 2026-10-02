@@ -22,5 +22,23 @@ public record PullTaskGroupCreateTransition(
         String reasonCode,
         String reasonMessage,
         long nextRunAt,
-        long now) {
+        long now,
+        String verifiedProfileCommandId) {
+
+    /**
+     * 把本次群名、简介回读核验绑定到同一次步骤 CAS；不修改资料动作的协议结果。
+     *
+     * @param commandId 已核验的资料命令 ID
+     * @return 携带核验证据的同一推进参数
+     */
+    public PullTaskGroupCreateTransition withProfileVerification(String commandId) {
+        if (commandId == null || commandId.isBlank()) {
+            throw new IllegalArgumentException("verified profile command id is required");
+        }
+        return new PullTaskGroupCreateTransition(
+                executionId, expectedVersion, lockOwner, expectedExecutionStatus, expectedStage,
+                expectedStep, targetExecutionStatus, targetStage, targetStep, createOperationId,
+                createAttemptCount, groupSubject, groupJid, normalizedLink, inviteCode, groupLinkId,
+                manualPaused, reasonCode, reasonMessage, nextRunAt, now, commandId);
+    }
 }

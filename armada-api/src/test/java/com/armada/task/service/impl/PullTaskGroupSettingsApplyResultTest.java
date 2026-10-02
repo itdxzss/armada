@@ -36,9 +36,8 @@ import org.mockito.ArgumentCaptor;
 /**
  * 「群信息设置」下发结果的收敛口径。
  *
- * <p>业务口径（2026-08-18 确认）：设置失败不阻断执行行，只把失败原因留在动作行上；设置成功
- * 就地收敛，不再重复下发。群资料是运营展示需求，拉不拉得到人与它无关，让它阻断执行行等于用
- * 一个展示层问题卡死整条行。</p>
+ * <p>结果服务只写动作事实；NEW_GROUP 是否能够继续由调度器核验真实资料后决定。
+ * 本测试不把回调成功或不写执行行解释为已经允许拉料子。</p>
  */
 class PullTaskGroupSettingsApplyResultTest {
 
@@ -64,10 +63,28 @@ class PullTaskGroupSettingsApplyResultTest {
                     actionMapper, accountMapper, executionMapper, accountLookup,
                     outboxService, properties);
 
-    // ---------- 断言 6：失败不阻断，原因码落库 ----------
+    // 结果服务只收敛动作；NEW_GROUP 调度器负责读取结果、核验资料及决定是否推进。
 
     @Test
-    @DisplayName("群设置失败只写动作行，执行行照常继续")
+    void profileFailureWithoutItemKeepsProtocolReasonInsteadOfInventingNameFailure() {
+        givenSubmittedAction();
+        givenActionCasSucceeds();
+        service.apply(callback(PullTaskGroupSettingsProtocolOutcome.FAILED, "ACCOUNT_NOT_ONLINE"));
+        verify(actionMapper).transitionManagerAdminResult(
+                eq(ACTION_ID), eq(COMMAND_ID), eq(ATTEMPT_NO), anyList(),
+                eq(PullTaskActionStatus.FAILED.code()), eq(false), eq("ACCOUNT_NOT_ONLINE"), anyString(), anyLong());
+    }
+
+    @Test
+    void profileDescriptionReasonSurvivesAnEventWithoutOptionalFailedItem() {
+        givenSubmittedAction();
+        givenActionCasSucceeds();
+        service.apply(callback(PullTaskGroupSettingsProtocolOutcome.FAILED, "GROUP_DESCRIPTION_SET_FAILED"));
+        verifyReasonCode(PullTaskExecutionReasonCode.GROUP_DESCRIPTION_SET_FAILED);
+    }
+
+    @Test
+    @DisplayName("群设置结果只收敛动作，资料门槛交由调度器处理")
     void failedGroupSettingsNeverTouchExecutionRow() {
         givenSubmittedAction();
         givenActionCasSucceeds();

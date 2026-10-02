@@ -1,5 +1,14 @@
 # 拉群任务「群信息设置」命令契约 —— group.profile.apply
 
+> 2026-10-03 实现更新：本文命令同时服务普通拉群的 NEW_GROUP 与群链接模式，
+> 不属于速拉/建群营销的 normal-group-creation 命令族。
+> NEW_GROUP 必填群名（100以内）与简介，强制 BEFORE_PULL；建群步骤4、6必须回读真实群资料一致
+> 才推进。UNKNOWN 不重发，保留协议结果；必填项的核验时间/commandId单独随步骤CAS持久化。
+> 明确 FAILED 的新群资料命令最多提交3次；核验超时未通过保留同一JID暂停。
+> 群链接模式保留可选项、设置时机和不阻断行为。下文老群失败不阻断的描述只适用于群链接模式。
+> 实际WhatsApp验收尚未执行，入队/HTTP/协议汇总SUCCESS均不能单独作为新群放行依据。
+
+
 > 状态：**armada 侧只落了契约定义、载荷补全与头像转码，尚未下发**（2026-08-19）。
 > 读者：协议层 Web（`armada-protocol/protocol-layer`，TS/Baileys）与 Android（`whatsapp-server`，Go）。
 > 同域姊妹篇：`pull-task-normal-link-protocol-contract.md`（拉群已有 5 条命令）。
@@ -121,7 +130,7 @@ WhatsApp 底层**没有**独立的「谁能拿群邀请链接」开关。能设�
 
 ## 4. 结果与失败原因码
 
-失败**不阻断执行行**，只把原因留在动作行上：群资料是运营展示需求，拉不拉得到人与它无关。
+群链接模式资料失败**不阻断执行行**，只把原因留在动作行上：群资料是运营展示需求，拉不拉得到人与它无关。
 
 一条命令要改最多 8 项，只回一个笼统的「设置失败」运营没法排查，因此结果需要指明
 **是哪一项没设上**。armada 侧按项分派到各自原因码：
@@ -209,20 +218,13 @@ WhatsApp 底层**没有**独立的「谁能拿群邀请链接」开关。能设�
 
 ---
 
-## 6. 尚未打通（下一刀）
+## 6. 当前实现与验收边界
 
-1. **没有人产生这条命令**：动作行的产生时机（`BEFORE_PULL` / `AFTER_PULL`）与
-   Outbox 入队尚未实现，本轮只落契约。
-2. **`addMembersAllowed` 与 `joinApprovalEnabled` 取不到值**：
-   `pull_task_standard_group_setting` 没有加人权限列，也没有入群审批列，拉群表单同样没有
-   这两项，因此两个字段目前恒不出现。契约保留它们，表单补上对应列后在 hydrator 里接上即可，
-   协议侧不用改。
-3. **结果回路未开**：`ProtocolGroupEventConsumer` 的 source 白名单尚未加
-   `pull_task_group_profile`，协议事件也还没有透出「第一个失败项」的字段。
-4. **自动补发：已决「不做」，只发一次**（业务确认 2026-08-19）。UNKNOWN 只留痕不重发，口径与
-   理由见 §4.2。这**不是**遗留缺口，是明确取舍：本刀已经很大，补发是另一摊活；群资料没设上
-   运营在执行明细里看得见，可以手动重来。
-   *后续项（别丢）*：真要做自动补发，需要一个按动作行扫 `APPLY_GROUP_SETTINGS` + UNKNOWN 的
-   对账任务，并定好**重试间隔**与**次数上限**（协议侧对这类失败恒回 UNKNOWN，没有上限就会
-   变成无限重发），再消费协议侧那个目前闲置的 `retryable` 标志。做之前先看主链路跑出来的
-   真实失败率，值不值得做。
+- Dispatcher 已接专用 Outbox → ProfilePayloadHydrator，禁止复用权限单项命令。
+- 两端统一 subject/avatar/description；空或畸形命令不能回空操作 SUCCESS。
+- 结果来源 pull_task_group_profile 与 GROUP_PROFILE_APPLY 配对，failedItem 使用 PullTaskGroupSettingItem 枚举名。
+- NEW_GROUP 验证通过只证明必填群名/简介已观察到，不会把头像/权限等可选项的 UNKNOWN/FAILED 改成 SUCCESS。
+- 新群群名使用冻结 group_subject；其它模式继续按原任务配置解析。
+- 新群资料查询在事务外，执行行锁保护提交；核验后按命令、尝试、租约、版本CAS原子推进及记录核验证据。
+- 旧执行行不回填虚假资料核验证明。部署前核对在途新群，禁止通过重建群掩盖资料失败。
+- 前后端、Web/Android 离线测试不等于真实 WhatsApp 验收，部署与业务测试另行确认目标。

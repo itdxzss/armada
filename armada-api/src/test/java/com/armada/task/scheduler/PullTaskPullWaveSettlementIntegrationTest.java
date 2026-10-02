@@ -159,6 +159,28 @@ class PullTaskPullWaveSettlementIntegrationTest {
     }
 
     @Test
+    void retryKeepsThePreviouslySampledDeadlineInsteadOfDrawingANewInterval() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);
+        callMapper.markSubmitted(fixture.call().getId(), "cmd-frozen-interval", 1_000L);
+        closeAttempt(fixture.attempt(), "FAILED");
+        execute("UPDATE pull_task_material_member SET pull_status=0, pull_failure_count=1, "
+                + "pull_call_id=NULL, active_pull_attempt_id=NULL WHERE id=" + MATERIAL_ID);
+        execute("UPDATE pull_task_standard_setting SET pull_interval_seconds=10, "
+                + "pull_interval_max_seconds=600 WHERE task_id=100");
+        execute("UPDATE pull_task_pull_wave SET next_dispatch_at=123456 WHERE id=" + fixture.wave().getId());
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID),
+                waveMapper.selectById(fixture.wave().getId()), "worker-1", 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        assertThat(saved.getNextRunAt()).isEqualTo(123_456L);
+        assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt())
+                .isEqualTo(123_456L);
+    }
+
+    @Test
     void retryBackoffRespectsLongerConfiguredInterval() throws SQLException {
         WaveFixture fixture = insertCollectingWave();
         attemptMapper.markSubmittedByCall(fixture.call().getId(), 1_000L);

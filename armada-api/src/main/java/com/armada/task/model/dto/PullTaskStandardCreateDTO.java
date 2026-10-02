@@ -25,6 +25,7 @@ public record PullTaskStandardCreateDTO(
         Integer earlyPullCallCount,
         Integer pullCountMin,
         Integer pullCountMax,
+        /** 同群相邻拉人调用的间隔下限，单位秒。 */
         Integer pullIntervalSeconds,
         Integer pullerCountPerGroup,
         Integer stationCountPerCall,
@@ -47,7 +48,9 @@ public record PullTaskStandardCreateDTO(
         /** 建群时作为初始成员加入的站台数量；为空按 0 处理。 */
         Integer initialStationCount,
         /** 单群拉人结束后是否执行群主退群；为空按关闭处理。 */
-        Boolean creatorLeaveAfterPull) {
+        Boolean creatorLeaveAfterPull,
+        /** 间隔上限，单位秒；旧客户端省略时使用下限，保持原固定间隔。 */
+        Integer pullIntervalMaxSeconds) {
 
     /** 拒绝合同之外的顶层 JSON 字段。 */
     @JsonAnySetter

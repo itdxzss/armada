@@ -14,6 +14,7 @@ import com.armada.platform.protocol.model.command.ProtocolPullTaskCreatorLeaveCo
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMaterialAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskMemberQueryCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupSettingsCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskManagerAdminCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskPullerInviteCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskBatchAddCommandRequest;
@@ -176,6 +177,15 @@ public interface ProtocolCommandOutboxService {
      */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupSettingsCommands(
             List<ProtocolPullTaskGroupSettingsCommandRequest> commands);
+
+    /**
+     * 批量写入拉群任务完整群资料命令，与权限单项设置使用不同协议契约。
+     *
+     * @param commands 群资料动作引用，最多 500 条；调用方同事务写回动作命令 ID
+     * @return 稳定任务批次、命令 ID 与插入数量
+     */
+    ProtocolCommandOutboxEnqueueResult enqueuePullTaskGroupProfileCommands(
+            List<ProtocolPullTaskGroupProfileCommandRequest> commands);
 
     /** 批量写入普通拉群站台和料子同批入群命令。 */
     ProtocolCommandOutboxEnqueueResult enqueuePullTaskBatchAddCommands(

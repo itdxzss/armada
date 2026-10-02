@@ -14,13 +14,14 @@ package com.armada.platform.kafka.consumer.group;
  * @param protocolAccountId 协议账号 ID
  * @param commandId Outbox 命令 ID
  * @param attemptNo 尝试序号
- * @param outcome 结果：SUCCESS 或 FAILED
+ * @param outcome 结果：SUCCESS、FAILED 或 UNKNOWN
  * @param targetJid 成员动作目标 JID；联系人保存结果为空
  * @param reasonCode 原因码
  * @param reasonMessage 脱敏原因说明
  * @param retryable 协议层重试建议；任务是否重试仍由业务规则决定
  * @param timestamp 协议动作发生时间，epoch 毫秒
  * @param workerId 协议 worker ID
+ * @param failedItem 群资料第一个失败项；其他动作或无法定位设置项时为空
  */
 public record ProtocolGroupActionResultReportedEvent(
         String eventId,
@@ -40,6 +41,7 @@ public record ProtocolGroupActionResultReportedEvent(
         String reasonMessage,
         boolean retryable,
         long timestamp,
-        String workerId
+        String workerId,
+        String failedItem
 ) {
 }

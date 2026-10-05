@@ -123,6 +123,74 @@ class PullTaskManagerSupplementServiceTest {
     }
 
     @Test
+    void newGroupOptionsExcludeOnlyTheInitialCreatorAndKeepLaterPromoters() {
+        jdbc.update("UPDATE pull_task SET creation_mode = 'NEW_GROUP' WHERE id = 1");
+        insertPromoter(902L, 1);
+        insertPromoter(903L, 2);
+        when(accountLookup.findOnlinePullTaskAccountsByGroupId(88L)).thenReturn(List.of(
+                account(901L, "8613800000901"),
+                account(902L, "8613800000902"),
+                account(903L, "8613800000903")));
+
+        assertThat(service.options(1L, 11L, null).candidates())
+                .extracting(candidate -> candidate.accountId())
+                .containsExactly(903L);
+    }
+
+    @Test
+    void newGroupRejectsCreatorSubmittedDirectlyWithoutWritingRolesOrActions() {
+        jdbc.update("UPDATE pull_task SET creation_mode = 'NEW_GROUP' WHERE id = 1");
+        insertPromoter(902L, 1);
+
+        assertThatThrownBy(() -> service.supplement(1L, 11L,
+                new PullTaskManagerSupplementDTO(
+                        88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("建群人");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE account_id = 902 AND role_type = 1",
+                Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_account_action", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT execution_status FROM pull_task_group_execution WHERE id = 11",
+                Integer.class)).isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+    }
+
+    @Test
+    void newGroupAllowsALaterPromoterToBecomeSupplementManager() {
+        jdbc.update("UPDATE pull_task SET creation_mode = 'NEW_GROUP' WHERE id = 1");
+        insertPromoter(903L, 1);
+        insertPromoter(902L, 2);
+
+        service.supplement(1L, 11L, new PullTaskManagerSupplementDTO(
+                88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE account_id = 902 AND role_type = 1",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_account_action", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void pastedLinkKeepsItsInitialPromoterAsAValidSupplementCandidate() {
+        jdbc.update("UPDATE pull_task SET creation_mode = 'PASTED_LINK' WHERE id = 1");
+        insertPromoter(902L, 1);
+
+        assertThat(service.options(1L, 11L, null).candidates())
+                .extracting(candidate -> candidate.accountId())
+                .containsExactly(902L);
+        service.supplement(1L, 11L, new PullTaskManagerSupplementDTO(
+                88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pull_task_group_account WHERE account_id = 902 AND role_type = 1",
+                Integer.class)).isEqualTo(1);
+    }
+
+    @Test
     void linkSupplementPersistsImmutableSelectionAndRewindsOnlyTheWaitingExecution() {
         service.supplement(1L, 11L, new PullTaskManagerSupplementDTO(
                 88L, 902L, PullTaskAccountEntryMode.JOIN_BY_LINK.code(), null));
@@ -203,6 +271,15 @@ class PullTaskManagerSupplementServiceTest {
 
     private static ProtocolAccountRef account(long id, String phone) {
         return new ProtocolAccountRef(id, ProtocolBackend.WEB, "acc-" + id, phone);
+    }
+
+    private void insertPromoter(long accountId, int roleSeq) {
+        jdbc.update("INSERT INTO pull_task_group_account "
+                        + "(tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                        + "role_type, role_seq, source_type, selection_mode, membership_status, "
+                        + "admin_status, availability_status, created_at, updated_at) "
+                        + "VALUES (7, 1, 11, ?, ?, 4, ?, 1, 1, 2, 0, 1, 100, 100)",
+                accountId, "8613800000" + accountId, roleSeq);
     }
 
     private static AccountGroup accountGroup(long id) {

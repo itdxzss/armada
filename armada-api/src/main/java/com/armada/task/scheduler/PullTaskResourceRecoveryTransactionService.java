@@ -88,7 +88,7 @@ public class PullTaskResourceRecoveryTransactionService {
                 release(candidate, lockOwner, now);
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            ResourceCheck check = check(candidate, setting, now);
+            ResourceCheck check = check(candidate, parent, setting, now);
             if (!check.ready()) {
                 return defer(candidate, check, now, retryDelayMs);
             }
@@ -105,11 +105,12 @@ public class PullTaskResourceRecoveryTransactionService {
 
     private ResourceCheck check(
             PullTaskGroupExecution candidate,
+            PullTask parent,
             PullTaskStandardSetting setting,
             long now) {
         if (Objects.equals(candidate.getWaitResourceType(),
                 PullTaskWaitResourceType.MANAGER.code())) {
-            return managerCheck(candidate, setting, now);
+            return managerCheck(candidate, setting, creatorAccountIds(parent, candidate.getId()), now);
         }
         if (Objects.equals(candidate.getWaitResourceType(),
                 PullTaskWaitResourceType.PULLER.code())) {
@@ -126,12 +127,23 @@ public class PullTaskResourceRecoveryTransactionService {
     private ResourceCheck managerCheck(
             PullTaskGroupExecution candidate,
             PullTaskStandardSetting setting,
+            Set<Long> creatorAccountIds,
             long now) {
         List<PullTaskGroupAccount> stored = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
+        // 建群人不参与次管理员后续执行；旧版本生成的冲突角色也必须退出，保留其建群人事实。
+        for (PullTaskGroupAccount manager : stored) {
+            if (creatorAccountIds.contains(manager.getAccountId())
+                    && !Objects.equals(manager.getAvailabilityStatus(),
+                    PullTaskGroupAccountAvailability.REMOVED.code())) {
+                accountMapper.markUnavailable(manager.getId(), PullTaskGroupAccountAvailability.REMOVED.code(),
+                        PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE.name(), null, now);
+            }
+        }
         List<Long> eligibleIds = safe(resources.accountLookup().findEligibleManagerProtocolRefs(
                 stored.stream().map(PullTaskGroupAccount::getAccountId).distinct().toList()))
-                .stream().map(ProtocolAccountRef::armadaAccountId).toList();
+                .stream().map(ProtocolAccountRef::armadaAccountId)
+                .filter(accountId -> !creatorAccountIds.contains(accountId)).toList();
         restoreOffline(eligibleIds, PullTaskGroupAccountRole.MANAGER, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
@@ -141,7 +153,7 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(row -> !Objects.equals(row.getAdminStatus(), PullTaskGroupAccountAdminStatus.FAILED.code()))
                 .toList();
         if (usable.isEmpty()) {
-            return replaceManager(candidate, setting, refreshed, now);
+            return replaceManager(candidate, setting, refreshed, creatorAccountIds, now);
         }
         // 健康账号的未知进群结果必须先核实，不能因尚未确认在群而消耗下一个账号。
         if (usable.stream().anyMatch(row -> !Objects.equals(row.getMembershipStatus(),
@@ -155,10 +167,22 @@ public class PullTaskResourceRecoveryTransactionService {
                 ? ResourceCheck.available() : managerWaiting(0);
     }
 
+    private Set<Long> creatorAccountIds(PullTask parent, long executionId) {
+        if (!PullTaskCreationMode.fromNullable(parent.getCreationMode()).isNewGroup()) {
+            return Set.of();
+        }
+        // 新群在首个 PROMOTER 槽位冻结建群人，后续追加的提权执行者不属于建群人。
+        return accountMapper.selectByExecutionAndRole(executionId, PullTaskGroupAccountRole.PROMOTER.code())
+                .stream().map(PullTaskGroupAccount::getAccountId).filter(Objects::nonNull)
+                .findFirst().map(Set::of).orElseGet(Set::of);
+    }
+
     private ResourceCheck replaceManager(PullTaskGroupExecution candidate,
-            PullTaskStandardSetting setting, List<PullTaskGroupAccount> stored, long now) {
+            PullTaskStandardSetting setting, List<PullTaskGroupAccount> stored,
+            Set<Long> creatorAccountIds, long now) {
         Set<Long> attempted = new LinkedHashSet<>(stored.stream()
                 .map(PullTaskGroupAccount::getAccountId).toList());
+        attempted.addAll(creatorAccountIds);
         ProtocolAccountRef replacement = safe(resources.accountLookup()
                 .findOnlineEligibleManagersByGroupId(setting.getManagerGroupId())).stream()
                 .filter(account -> !attempted.contains(account.armadaAccountId()))

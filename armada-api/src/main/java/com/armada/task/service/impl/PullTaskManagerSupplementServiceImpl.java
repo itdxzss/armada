@@ -36,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -98,7 +99,7 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
                 groupId, !executors.isEmpty(), managers.stream().map(
                 PullTaskManagerSupplementServiceImpl::role).toList(),
                 executors.stream().map(PullTaskManagerSupplementServiceImpl::role).toList(),
-                candidates(groupAccounts, managers));
+                candidates(groupAccounts, managers, context.creatorAccountId()));
     }
 
     @Override
@@ -111,7 +112,7 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
         requireGroup(request.accountGroupId());
         List<PullTaskGroupAccount> managers = managers(executionId);
         ensureCapacity(managers);
-        ProtocolAccountRef candidate = requireCandidate(request);
+        ProtocolAccountRef candidate = requireCandidate(request, context.creatorAccountId());
         PullTaskAccountEntryMode entryMode = PullTaskAccountEntryMode.fromCode(request.entryMode());
         PullTaskGroupAccount executor = requireExecutor(entryMode, request, managers);
         long now = System.currentTimeMillis();
@@ -145,7 +146,15 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
         if (setting == null) {
             throw new BusinessException(ErrorCode.CONFLICT, "普通拉群冻结配置不存在");
         }
-        return new Context(execution, setting);
+        // 新群的首个提权角色是冻结建群人，后续新增的提权候选不受此限制。
+        Optional<Long> creatorAccountId = PullTaskCreationMode.fromNullable(task.getCreationMode()).isNewGroup()
+                ? safe(resources.accountMapper().selectByExecutionAndRole(
+                        executionId, PullTaskGroupAccountRole.PROMOTER.code())).stream()
+                        .map(PullTaskGroupAccount::getAccountId)
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                : Optional.empty();
+        return new Context(execution, setting, creatorAccountId);
     }
 
     private void requireGroup(Long groupId) {
@@ -155,7 +164,11 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
         resources.accountGroupService().requireExisting(groupId);
     }
 
-    private ProtocolAccountRef requireCandidate(PullTaskManagerSupplementDTO request) {
+    private ProtocolAccountRef requireCandidate(
+            PullTaskManagerSupplementDTO request, Optional<Long> creatorAccountId) {
+        if (creatorAccountId.filter(request.accountId()::equals).isPresent()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式的建群人不能补充为次管理员");
+        }
         return safe(resources.accountLookup().findOnlinePullTaskAccountsByGroupId(request.accountGroupId()))
                 .stream()
                 .filter(Objects::nonNull)
@@ -273,9 +286,11 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
 
     private static List<PullTaskManagerCandidateVO> candidates(
             List<ProtocolAccountRef> accounts,
-            List<PullTaskGroupAccount> managers) {
+            List<PullTaskGroupAccount> managers,
+            Optional<Long> creatorAccountId) {
         Set<Long> selected = managers.stream().map(PullTaskGroupAccount::getAccountId)
                 .collect(java.util.stream.Collectors.toSet());
+        creatorAccountId.ifPresent(selected::add);
         Map<Long, PullTaskManagerCandidateVO> result = new HashMap<>();
         for (ProtocolAccountRef account : accounts) {
             if (account != null && !selected.contains(account.armadaAccountId())) {
@@ -364,6 +379,7 @@ public class PullTaskManagerSupplementServiceImpl implements PullTaskManagerSupp
 
     private record Context(
             PullTaskGroupExecution execution,
-            PullTaskStandardSetting setting) {
+            PullTaskStandardSetting setting,
+            Optional<Long> creatorAccountId) {
     }
 }

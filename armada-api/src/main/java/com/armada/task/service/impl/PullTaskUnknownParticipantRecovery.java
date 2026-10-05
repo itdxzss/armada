@@ -71,7 +71,9 @@ public class PullTaskUnknownParticipantRecovery {
     public boolean canRetryUnknown(
             PullTaskGroupExecution execution, PullTaskPullCallMemberAttempt attempt) {
         if (!Objects.equals(attempt.getLifecycleStatus(), PullTaskParticipantAttemptStatus.SUBMITTED.code())
-                || attempt.getAttemptNo() == null || !PullTaskRetryPolicy.canRetry(attempt.getAttemptNo())
+                || attempt.getAttemptNo() == null || !PullTaskRetryPolicy.canRetry(attempt.getAttemptNo()
+                    - attempts.countUnstartedOfflineAttempts(attempt.getGroupExecutionId(),
+                        attempt.getParticipantType(), attempt.getParticipantRefId(), attempt.getAttemptNo()))
                 || !Objects.equals(execution.getStage(), PullTaskExecutionStage.PULL_EXECUTION.code())
                 || !List.of(PullTaskExecutionStatus.EXECUTING.code(),
                         PullTaskExecutionStatus.WAIT_RESOURCE.code()).contains(execution.getExecutionStatus())
@@ -110,7 +112,7 @@ public class PullTaskUnknownParticipantRecovery {
                     PullTaskUnknownParticipantRecovery.RETRY_MESSAGE + "；原原因："
                             + String.valueOf(callback.reasonCode()), null, callback.occurredAt()));
         }
-        if (hasUsedRetry(attempt)) {
+        if (hasUsedRetry(attempt) && !PullTaskRetryPolicy.isUnstartedOffline(callback)) {
             return resolvedCallback(callback, callback.outcome(), new PullTaskFactResult(
                     callback.reasonCode(), PullTaskUnknownParticipantRecovery.EXHAUSTED_MESSAGE,
                     null, callback.occurredAt()));

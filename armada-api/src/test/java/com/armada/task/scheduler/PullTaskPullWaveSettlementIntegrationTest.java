@@ -38,6 +38,8 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -141,6 +143,105 @@ class PullTaskPullWaveSettlementIntegrationTest {
         assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt()).isEqualTo(2_000L);
         assertThat(saved.getNextRunAt()).isEqualTo(2_000L);
         assertThat(materialMapper.selectByExecution(EXECUTION_ID).get(0).getPullFailureCount()).isZero();
+    }
+
+    @Test
+    void repeatedUnstartedOfflineAttemptsKeepBudgetAndFrozenPullInterval() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        prepareOfflineHistory(fixture, 5);
+        execute("UPDATE pull_task_pull_wave SET next_dispatch_at=23000 WHERE id=" + fixture.wave().getId());
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID),
+                waveMapper.selectById(fixture.wave().getId()), "worker-1", 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        PullTaskPullWave retry = waveMapper.selectById(saved.getActivePullWaveId());
+        assertThat(retry.getNextDispatchAt()).isEqualTo(23_000L);
+        assertThat(saved.getNextRunAt()).isEqualTo(23_000L);
+        PullTaskPullCall next = callMapper.selectByExecution(EXECUTION_ID).stream()
+                .filter(call -> retry.getId().equals(call.getPullWaveId())).findFirst().orElseThrow();
+        assertThat(attemptMapper.selectByCall(next.getId())).singleElement()
+                .satisfies(attempt -> assertThat(attempt.getAttemptNo()).isEqualTo(6));
+        assertThat(materialMapper.selectByExecution(EXECUTION_ID)).singleElement()
+                .satisfies(material -> {
+                    assertThat(material.getPullStatus()).isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+                    assertThat(material.getPullFailureCount()).isZero();
+                });
+    }
+
+    @Test
+    void unstartedOfflineDoesNotConsumeTheAuthorizedUnknownRetry() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        prepareOfflineHistory(fixture, 3);
+        execute("UPDATE pull_task_pull_call_member_attempt SET execution_state='UNCERTAIN', "
+                + "reason_code='UNKNOWN_RESULT_RETRY_ONCE' WHERE attempt_no=1");
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        assertThat(saved.getActivePullWaveId()).isNotEqualTo(fixture.wave().getId());
+        assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt())
+                .isEqualTo(11_000L);
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"FAILED,STARTED,TIMEOUT", "UNKNOWN,NOT_STARTED,NULL"}, nullValues = "NULL")
+    void mixedBusinessResultKeepsBackoffEvenWhenAnotherParticipantWasOffline(
+            String outcome, String executionState, String reasonCode) throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        prepareOfflineHistory(fixture, 2);
+        execute("INSERT INTO pull_task_material_member (id, tenant_id, group_execution_id, member_seq, "
+                + "source_line_no, normalized_phone, admin_required, pull_status, pull_failure_count, "
+                + "admin_status, created_at, updated_at) VALUES (602, 7, 501, 2, 2, '8613900000002', "
+                + "0, 0, 1, 0, 100, 100)");
+        execute("INSERT INTO pull_task_pull_call_member_attempt (tenant_id, task_id, group_execution_id, "
+                + "pull_call_id, pull_wave_id, participant_type, participant_ref_id, target_phone, target_jid, "
+                + "attempt_no, lifecycle_status, active_slot, protocol_outcome, execution_state, reason_code, "
+                + "created_at, updated_at) SELECT tenant_id, task_id, group_execution_id, pull_call_id, "
+                + "pull_wave_id, 1, 602, '8613900000002', '8613900000002@s.whatsapp.net', "
+                + "1, " + ("FAILED".equals(outcome) ? 3 : 4) + ", NULL, '" + outcome + "', '"
+                + executionState + "', " + (reasonCode == null ? "NULL" : "'" + reasonCode + "'") + ", 100, 100 "
+                + "FROM pull_task_pull_call_member_attempt WHERE id=" + fixture.attempt().getId());
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        PullTaskGroupExecution saved = executionMapper.selectById(EXECUTION_ID);
+        assertThat(waveMapper.selectById(saved.getActivePullWaveId()).getNextDispatchAt()).isEqualTo(62_000L);
+    }
+
+    @Test
+    void uncertainOfflineStillConsumesTheNormalRetryBudget() throws SQLException {
+        WaveFixture fixture = insertCollectingWave();
+        prepareOfflineHistory(fixture, 4);
+        execute("UPDATE pull_task_pull_call_member_attempt SET execution_state='UNCERTAIN'");
+
+        assertThat(service.settle(executionMapper.selectById(EXECUTION_ID), fixture.wave(),
+                "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(materialMapper.selectByExecution(EXECUTION_ID)).singleElement()
+                .satisfies(material -> assertThat(material.getPullStatus())
+                        .isEqualTo(PullTaskMaterialPullStatus.UNKNOWN.code()));
+    }
+
+    private void prepareOfflineHistory(WaveFixture fixture, int attemptCount) throws SQLException {
+        callMapper.markSubmitted(fixture.call().getId(), "cmd-offline", 1_000L);
+        execute("UPDATE pull_task_pull_call_member_attempt SET attempt_no=" + attemptCount
+                + ", lifecycle_status=4, active_slot=NULL, protocol_outcome='UNKNOWN', "
+                + "execution_state='NOT_STARTED', reason_code='ACCOUNT_NOT_ONLINE', released_at=1200 "
+                + "WHERE id=" + fixture.attempt().getId());
+        for (int attemptNo = 1; attemptNo < attemptCount; attemptNo++) {
+            execute("INSERT INTO pull_task_pull_call_member_attempt (tenant_id, task_id, group_execution_id, "
+                    + "pull_call_id, pull_wave_id, participant_type, participant_ref_id, target_phone, target_jid, "
+                    + "puller_group_account_id, puller_assignment_seq, attempt_no, failure_count_before, "
+                    + "lifecycle_status, active_slot, protocol_outcome, execution_state, reason_code, created_at, updated_at) "
+                    + "SELECT tenant_id, task_id, group_execution_id, pull_call_id+100+" + attemptNo
+                    + ", pull_wave_id+100, participant_type, participant_ref_id, target_phone, target_jid, "
+                    + "puller_group_account_id, puller_assignment_seq, " + attemptNo
+                    + ", 0, 4, NULL, 'UNKNOWN', 'NOT_STARTED', 'ACCOUNT_NOT_ONLINE', 100, 100 "
+                    + "FROM pull_task_pull_call_member_attempt WHERE id=" + fixture.attempt().getId());
+        }
+        execute("UPDATE pull_task_material_member SET pull_status=0, pull_failure_count=0, "
+                + "pull_call_id=NULL, active_pull_attempt_id=NULL WHERE id=" + MATERIAL_ID);
     }
 
     @Test

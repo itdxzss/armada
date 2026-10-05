@@ -28,13 +28,14 @@ class PullTaskParticipantActionPayloadHydratorTest {
             new PullTaskParticipantActionPayloadHydrator(
                     actionMapper, accountMapper, executionMapper, objectMapper);
 
-    @Test
-    void hydratesSubmittedInviteFromManagerToPuller() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 2})
+    void hydratesSubmittedInviteFromManagerToPuller(int attemptNo) throws Exception {
         ProtocolCommandOutbox row = outbox(
                 "cmd-invite-1", 701L, "manager-901", "pull_task_puller_invite");
         when(actionMapper.selectByCommandId("cmd-invite-1")).thenReturn(action(
                 701L, PullTaskAccountActionType.INVITE_TO_GROUP, 501L, 502L,
-                "cmd-invite-1", 1));
+                "cmd-invite-1", attemptNo));
         when(accountMapper.selectById(501L)).thenReturn(account(
                 501L, 901L, "8613800000901", PullTaskGroupAccountRole.MANAGER));
         when(accountMapper.selectById(502L)).thenReturn(account(
@@ -48,7 +49,7 @@ class PullTaskParticipantActionPayloadHydratorTest {
         assertThat(payload.get("participants").get(0).textValue())
                 .isEqualTo("8613800000902@s.whatsapp.net");
         assertThat(payload.get("action").textValue()).isEqualTo("ADD");
-        assertThat(payload.get("attemptNo").intValue()).isEqualTo(1);
+        assertThat(payload.get("attemptNo").intValue()).isEqualTo(attemptNo);
         assertThat(payload.get("source").textValue()).isEqualTo("pull_task_puller_invite");
     }
 

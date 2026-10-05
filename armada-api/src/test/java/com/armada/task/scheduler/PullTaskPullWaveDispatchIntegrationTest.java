@@ -80,6 +80,7 @@ class PullTaskPullWaveDispatchIntegrationTest {
     @Autowired private PullTaskGroupAccountMapper accountMapper;
     @Autowired private PullTaskMaterialMemberMapper materialMapper;
     @Autowired private PullTaskPullCallMapper callMapper;
+    @Autowired private PullTaskPullCallMemberAttemptMapper attemptMapper;
     @Autowired private PullTaskPullWaveMapper waveMapper;
     @Autowired private PullTaskPullWaveProgressService waveProgress;
     @Autowired private AccountProtocolLookupService accountLookup;
@@ -250,6 +251,34 @@ class PullTaskPullWaveDispatchIntegrationTest {
         assertThat(wave.getDispatchCompletedAt()).isEqualTo(41_000L);
         assertThat(executionMapper.selectById(executionId).getNextRunAt()).isEqualTo(41_000L);
         verifyNoInteractions(callbackFixture);
+    }
+
+    @Test
+    void sixthPlannedIdentityStillDispatchesAfterFiveUnstartedOfflineAttempts() throws SQLException {
+        processor.process(claim("worker-1", 1_000L, 6_000L), "worker-1", 1_000L);
+        TenantContext.set(7L);
+        PullTaskPullCall next = callMapper.selectByExecution(executionId).get(1);
+        execute("UPDATE pull_task_pull_call_member_attempt SET attempt_no=6 WHERE pull_call_id=" + next.getId());
+        for (int attemptNo = 1; attemptNo <= 5; attemptNo++) {
+            execute("INSERT INTO pull_task_pull_call_member_attempt (tenant_id, task_id, group_execution_id, "
+                    + "pull_call_id, participant_type, participant_ref_id, target_phone, target_jid, "
+                    + "attempt_no, lifecycle_status, active_slot, protocol_outcome, execution_state, reason_code, "
+                    + "created_at, updated_at) SELECT tenant_id, task_id, group_execution_id, pull_call_id+100+"
+                    + attemptNo + ", participant_type, participant_ref_id, target_phone, target_jid, "
+                    + attemptNo + ", 4, NULL, 'UNKNOWN', 'NOT_STARTED', 'ACCOUNT_NOT_ONLINE', 100, 100 "
+                    + "FROM pull_task_pull_call_member_attempt WHERE pull_call_id=" + next.getId());
+        }
+
+        processor.process(claim("worker-2", 11_000L, 16_000L), "worker-2", 11_000L);
+        TenantContext.set(7L);
+        PullTaskPullCall submitted = callMapper.selectByExecution(executionId).get(1);
+        assertThat(submitted.getCallStatus()).isEqualTo(PullTaskPullCallStatus.SUBMITTED.code());
+        assertThat(submitted.getCommandId()).isEqualTo("cmd-wave-2");
+        assertThat(attemptMapper.selectByCall(submitted.getId())).singleElement()
+                .satisfies(attempt -> {
+                    assertThat(attempt.getAttemptNo()).isEqualTo(6);
+                    assertThat(attempt.getSubmittedAt()).isEqualTo(11_000L);
+                });
     }
 
     @Test

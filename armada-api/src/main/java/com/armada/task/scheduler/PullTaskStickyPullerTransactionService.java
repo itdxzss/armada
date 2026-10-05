@@ -7,6 +7,7 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.dto.PullTaskPlannedCallPullerBinding;
 import com.armada.task.model.dto.PullTaskStickyPullerInvalidation;
 import com.armada.task.model.dto.PullTaskStickyPullerTransition;
@@ -22,6 +23,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskWaitResourceType;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,7 +41,6 @@ public class PullTaskStickyPullerTransactionService {
             PullTaskStickyPullerTransactionService.class);
     private static final Set<String> INVALIDATING_REASON_CODES = Set.of(
             "ACCOUNT_NOT_FOUND",
-            "ACCOUNT_NOT_ONLINE",
             "NEED_REAUTH",
             "ACCOUNT_BANNED",
             "ACCOUNT_UNBOUND",
@@ -103,6 +104,9 @@ public class PullTaskStickyPullerTransactionService {
             List<PullTaskGroupAccount> roles = groupAccountMapper.selectByExecutionAndRole(
                     execution.getId(), PullTaskGroupAccountRole.PULLER.code());
             Map<Long, ProtocolAccountRef> protocols = protocolRefs(roles);
+            Set<Long> offlineAccounts = temporarilyOfflineAccountIds(roles, protocols);
+            // 任一原拉手都可能先恢复，全部暂离线角色都需要能响应下一次 ONLINE。
+            roles.forEach(role -> markTemporarilyOffline(role, offlineAccounts, now));
             List<Long> excludedAccounts = attemptMapper.selectUnknownRetryExcludedAccounts(call.getId());
             excludedAccounts.forEach(protocols::remove);
             PullTaskGroupAccount sticky = roleById(
@@ -113,8 +117,12 @@ public class PullTaskStickyPullerTransactionService {
             PullerChoice choice = choose(
                     currentExecution, eligibleSticky, roles, protocols, now);
             if (choice == null) {
-                clearUnavailable(currentExecution, sticky, "ACCOUNT_NOT_ONLINE", now);
-                return waitForPuller(execution.getId(), lockOwner, now);
+                boolean waitingForOnline = roles.stream().anyMatch(role ->
+                        role.getReleasedAt() == null
+                                && !excludedAccounts.contains(role.getAccountId())
+                                && (PullTaskPullerSlotPolicy.waitingForOnline(role)
+                                || offlineAccounts.contains(role.getAccountId())));
+                return waitForPuller(execution.getId(), lockOwner, now, waitingForOnline);
             }
             bindCall(currentCall, choice, now);
             return PullTaskStickyPullerSelection.ready(
@@ -229,7 +237,6 @@ public class PullTaskStickyPullerTransactionService {
                     protocols.get(sticky.getAccountId()),
                     execution.getPullerAssignmentSeq());
         }
-        markOfflineIfMissing(sticky, protocols, now);
         PullTaskGroupAccount replacement = nextRole(
                 roles, protocols, execution.getNextPullerIndex());
         if (replacement == null) {
@@ -277,7 +284,7 @@ public class PullTaskStickyPullerTransactionService {
     }
 
     private PullTaskStickyPullerSelection waitForPuller(
-            long executionId, String lockOwner, long now) {
+            long executionId, String lockOwner, long now, boolean waitingForOnline) {
         PullTaskGroupExecution current = executionMapper.selectById(executionId);
         PullTaskGroupExecution update = new PullTaskGroupExecution();
         update.setId(current.getId());
@@ -287,8 +294,8 @@ public class PullTaskStickyPullerTransactionService {
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         update.setWaitResourceType(PullTaskWaitResourceType.PULLER.code());
-        update.setReasonCode("PULLER_UNAVAILABLE");
-        update.setReasonMessage("当前没有可用拉手");
+        update.setReasonCode(waitingForOnline ? "ACCOUNT_NOT_ONLINE" : "PULLER_UNAVAILABLE");
+        update.setReasonMessage(waitingForOnline ? "等待已分配拉手上线" : "当前没有可用拉手");
         update.setNextRunAt(0L);
         update.setUpdatedAt(now);
         if (executionMapper.transitionClaimed(
@@ -296,23 +303,6 @@ public class PullTaskStickyPullerTransactionService {
             return completed(PullTaskExecutionDispatchResult.LOST);
         }
         return completed(PullTaskExecutionDispatchResult.DEFERRED);
-    }
-
-    private void clearUnavailable(
-            PullTaskGroupExecution execution,
-            PullTaskGroupAccount sticky,
-            String reasonCode,
-            long now) {
-        if (sticky == null || execution.getActivePullerGroupAccountId() == null) {
-            return;
-        }
-        PullTaskStickyPullerInvalidation invalidation = new PullTaskStickyPullerInvalidation(
-                execution.getId(), sticky.getId(), generation(execution), reasonCode, now);
-        if (executionMapper.clearStickyPuller(invalidation) != 1) {
-            throw new IllegalStateException("清空不可用粘性拉手发生并发变化");
-        }
-        logStickyInvalidated(
-                execution, sticky.getId(), generation(execution), reasonCode);
     }
 
     private static void logStickyInvalidated(
@@ -342,20 +332,38 @@ public class PullTaskStickyPullerTransactionService {
         return protocols;
     }
 
-    private void markOfflineIfMissing(
+    private Set<Long> temporarilyOfflineAccountIds(
+            List<PullTaskGroupAccount> roles, Map<Long, ProtocolAccountRef> protocols) {
+        List<Long> missing = roles.stream()
+                .filter(role -> role.getReleasedAt() == null)
+                .filter(role -> Objects.equals(role.getAvailabilityStatus(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code()))
+                .map(PullTaskGroupAccount::getAccountId)
+                .filter(id -> !protocols.containsKey(id)).distinct().toList();
+        if (missing.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> offline = new HashSet<>();
+        accountLookup.findActiveProtocolRefs(missing).stream()
+                .map(ProtocolAccountRef::armadaAccountId).filter(missing::contains).forEach(offline::add);
+        accountLookup.findOnlineProtocolRefs(missing).stream()
+                .map(ProtocolAccountRef::armadaAccountId).forEach(offline::remove);
+        return offline;
+    }
+
+    private void markTemporarilyOffline(
             PullTaskGroupAccount sticky,
-            Map<Long, ProtocolAccountRef> protocols,
+            Set<Long> offlineAccounts,
             long now) {
         if (sticky != null
                 && Objects.equals(sticky.getAvailabilityStatus(),
                         PullTaskGroupAccountAvailability.AVAILABLE.code())
-                && protocols.get(sticky.getAccountId()) == null) {
-            groupAccountMapper.markUnavailable(
-                    sticky.getId(),
+                && offlineAccounts.contains(sticky.getAccountId())) {
+            groupAccountMapper.markTemporarilyOffline(
+                    sticky, now,
+                    PullTaskGroupAccountAvailability.AVAILABLE.code(),
                     PullTaskGroupAccountAvailability.OFFLINE.code(),
-                    "ACCOUNT_NOT_ONLINE",
-                    null,
-                    now);
+                    "ACCOUNT_NOT_ONLINE");
         }
     }
 

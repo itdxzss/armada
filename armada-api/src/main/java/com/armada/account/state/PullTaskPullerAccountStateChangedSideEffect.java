@@ -1,13 +1,16 @@
 package com.armada.account.state;
 
 import com.armada.account.model.entity.Account;
+import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.task.service.PullTaskPullerAccountStateService;
 import com.armada.task.service.PullTaskPullerAccountStateService.Unavailability;
+import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import org.springframework.stereotype.Component;
 
-/** 把账号离线、封禁和解绑事实转交普通拉群任务域处理。 */
+/** 把账号上线、暂离线和终态事实转交普通拉群任务域处理。 */
 @Component
 public class PullTaskPullerAccountStateChangedSideEffect
         implements AccountStateChangedSideEffect {
@@ -15,6 +18,7 @@ public class PullTaskPullerAccountStateChangedSideEffect
     private static final int WA_CODE_FORBIDDEN = 403;
     private static final int WA_CODE_LOGIN_REPLACED = 440;
     private static final String STATE_OFFLINE = "OFFLINE";
+    private static final String STATE_ONLINE = "ONLINE";
     private static final String STATE_PROXY_FAILED = "PROXY_FAILED";
     private static final String STATE_LOGIN_REPLACED = "LOGIN_REPLACED";
     private static final String STATE_NEED_REAUTH = "NEED_REAUTH";
@@ -22,15 +26,21 @@ public class PullTaskPullerAccountStateChangedSideEffect
     private static final String STATE_DEVICE_REMOVED = "DEVICE_REMOVED";
 
     private final PullTaskPullerAccountStateService pullTasks;
+    private final AccountProtocolLookupService accountLookup;
 
-    /** @param pullTasks 普通拉群拉手账号状态服务 */
+    /**
+     * @param pullTasks 普通拉群拉手账号状态服务
+     * @param accountLookup 实时在线资格与协议身份查询服务
+     */
     public PullTaskPullerAccountStateChangedSideEffect(
-            PullTaskPullerAccountStateService pullTasks) {
+            PullTaskPullerAccountStateService pullTasks,
+            AccountProtocolLookupService accountLookup) {
         this.pullTasks = pullTasks;
+        this.accountLookup = accountLookup;
     }
 
     /**
-     * 正式账号状态事务内同步任务拉手事实；短暂验证和重连状态不触发切换。
+     * 正式账号状态事务内同步拉手可用性；上线需复核当前资格，暂离线保留原分配。
      *
      * @param account 已完成状态收敛的账号
      * @param event 协议账号状态事件
@@ -41,6 +51,14 @@ public class PullTaskPullerAccountStateChangedSideEffect
             Account account,
             AccountStateChangedEvent event,
             long occurredAt) {
+        if (STATE_ONLINE.equals(normalized(event.to()))) {
+            boolean eligible = accountLookup.findEligiblePullerProtocolRefs(List.of(account.getId()))
+                    .stream().anyMatch(ref -> Objects.equals(ref.armadaAccountId(), account.getId()));
+            if (eligible) {
+                pullTasks.markOnline(event.tenantId(), account.getId(), occurredAt);
+            }
+            return;
+        }
         Unavailability unavailability = classify(event);
         if (unavailability == null) {
             return;

@@ -596,6 +596,35 @@
       AND lock_owner IS NULL
   </update>
 
+  <!-- 上线只提前离线重试；波次原定派发时间是业务间隔，不能提前。 -->
+  <update id="wakeForOnlinePuller">
+    UPDATE pull_task_group_execution
+    SET next_run_at = GREATEST(LEAST(next_run_at, #{now}), COALESCE((
+          SELECT wave.next_dispatch_at FROM pull_task_pull_wave wave
+          WHERE wave.id = pull_task_group_execution.active_pull_wave_id
+            AND wave.tenant_id = pull_task_group_execution.tenant_id
+            AND wave.group_execution_id = pull_task_group_execution.id
+        ), 0)),
+        version = version + 1,
+        updated_at = #{now}
+    WHERE id = #{row.groupExecutionId}
+      AND task_id = #{row.taskId}
+      AND execution_status IN
+      <foreach collection="executionStatuses" item="status" open="(" separator="," close=")">
+        #{status}
+      </foreach>
+      AND reason_code = #{offlineReason}
+      AND manual_paused = 0
+      AND lock_owner IS NULL
+      AND EXISTS (
+        SELECT 1 FROM pull_task parent_task
+        WHERE parent_task.id = pull_task_group_execution.task_id
+          AND parent_task.tenant_id = pull_task_group_execution.tenant_id
+          AND parent_task.deleted_at IS NULL
+          AND parent_task.status = #{parentStatus}
+      )
+  </update>
+
   <update id="deferForMemberQuery">
     UPDATE pull_task_group_execution
     SET next_run_at = #{defer.nextRunAt},

@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -107,6 +108,7 @@ public class PullTaskPullCallReconciliationService {
         if (pullerId == null || accounts.stream().noneMatch(account ->
                 Objects.equals(account.getId(), pullerId)
                         && account.getAvailabilityStatus() != null
+                        && !PullTaskPullerSlotPolicy.waitingForOnline(account)
                         && !Objects.equals(account.getAvailabilityStatus(),
                         PullTaskGroupAccountAvailability.AVAILABLE.code()))) {
             return false;

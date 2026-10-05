@@ -5,6 +5,7 @@ import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
 import com.armada.task.model.dto.PullTaskFactResult;
@@ -111,7 +112,8 @@ public class PullTaskPullCallParticipantResultService {
             }
             PullTaskBatchParticipantCallback originalCallback = callback;
             callback = coordination.unknownRecovery().resolve(execution, attempt, callback);
-            boolean retryAllowed = !coordination.unknownRecovery().hasUsedRetry(attempt);
+            boolean retryAllowed = PullTaskRetryPolicy.isUnstartedOffline(callback)
+                    || !coordination.unknownRecovery().hasUsedRetry(attempt);
             if (alreadyApplied(attempt, callback, retryAllowed)) {
                 closeCallIfReady(call, execution, callback.tenantId(), callback.occurredAt());
                 return true;
@@ -251,14 +253,14 @@ public class PullTaskPullCallParticipantResultService {
         }
     }
 
-    private static PullTaskParticipantAttemptTransition rosterAttemptTransition(
+    private PullTaskParticipantAttemptTransition rosterAttemptTransition(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskRosterObservation observation,
             long now) {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
         boolean released = (observation == PullTaskRosterObservation.ABSENT
                 || observation == PullTaskRosterObservation.UNCONFIRMED_RETRY)
-                && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
+                && hasRetryBudget(attempt);
         return new PullTaskParticipantAttemptTransition(
                 new PullTaskParticipantAttemptTransition.Scope(attempt.getId(), now),
                 new PullTaskParticipantAttemptTransition.Expected(List.of(
@@ -276,7 +278,7 @@ public class PullTaskPullCallParticipantResultService {
                         : PullTaskUnknownParticipantRecovery.rosterFact(observation, now));
     }
 
-    private static PullTaskParticipantAggregateTransition rosterAggregateTransition(
+    private PullTaskParticipantAggregateTransition rosterAggregateTransition(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskRosterObservation observation,
             long now) {
@@ -284,7 +286,7 @@ public class PullTaskPullCallParticipantResultService {
         boolean present = observation == PullTaskRosterObservation.PRESENT;
         int targetStatus = switch (observation) {
             case PRESENT -> successStatus(attempt);
-            case ABSENT -> PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()))
+            case ABSENT -> hasRetryBudget(attempt)
                     ? pendingStatus(attempt) : unknownStatus(attempt);
             case UNCONFIRMED_RETRY -> pendingStatus(attempt);
             case UNCONFIRMED, UNAVAILABLE -> unknownStatus(attempt);
@@ -591,6 +593,12 @@ public class PullTaskPullCallParticipantResultService {
                     callback.occurredAt());
             return;
         }
+        if (PullTaskPullerSlotPolicy.isTemporaryOfflineReason(reasonCode)) {
+            resources.accountMapper().markTemporarilyOffline(puller, callback.occurredAt(),
+                    PullTaskGroupAccountAvailability.AVAILABLE.code(),
+                    PullTaskGroupAccountAvailability.OFFLINE.code(), reasonCode);
+            return;
+        }
         if (OFFLINE_REASON_CODES.contains(reasonCode)) {
             markPullerUnavailable(puller, call, execution,
                     new PullerUnavailability(
@@ -662,7 +670,7 @@ public class PullTaskPullCallParticipantResultService {
             long now) {
     }
 
-    private static PullTaskParticipantAggregateTransition aggregateTransition(
+    private PullTaskParticipantAggregateTransition aggregateTransition(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskBatchParticipantCallback callback, boolean retryAllowed) {
         long failureBefore = attempt.getFailureCountBefore() == null
@@ -679,7 +687,7 @@ public class PullTaskPullCallParticipantResultService {
                 callbackFact(callback));
     }
 
-    private static AggregateTarget aggregateTarget(
+    private AggregateTarget aggregateTarget(
             PullTaskPullCallMemberAttempt attempt,
             PullTaskBatchParticipantCallback callback,
             long failureBefore, boolean retryAllowed) {
@@ -691,15 +699,25 @@ public class PullTaskPullCallParticipantResultService {
             long failureCount = Math.addExact(failureBefore, 1L);
             boolean retry = retryAllowed && ProtocolErrorCode.TIMEOUT.name().equals(normalizedReason(callback.reasonCode()))
                     && failureCount < MAX_EXPLICIT_FAILURE_COUNT
-                    && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
+                    && hasRetryBudget(attempt);
             return new AggregateTarget(
                     retry ? pendingStatus(attempt) : failedStatus(attempt),
                     failureCount, retry ? null : attempt.getPullCallId());
         }
         boolean retry = attemptTarget(callback, retryAllowed).lifecycleStatus() == PullTaskParticipantAttemptStatus.RELEASED.code()
-                && PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()));
+                && hasRetryBudget(attempt);
         return new AggregateTarget(retry ? pendingStatus(attempt) : unknownStatus(attempt),
                 failureBefore, retry ? null : attempt.getPullCallId());
+    }
+
+    private boolean hasRetryBudget(PullTaskPullCallMemberAttempt attempt) {
+        if (PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()))) {
+            return true;
+        }
+        int unstartedOffline = resources.attemptMapper().countUnstartedOfflineAttempts(
+                attempt.getGroupExecutionId(), attempt.getParticipantType(),
+                attempt.getParticipantRefId(), value(attempt.getAttemptNo()));
+        return PullTaskRetryPolicy.canRetry(value(attempt.getAttemptNo()) - unstartedOffline);
     }
 
     private static AttemptTarget attemptTarget(PullTaskBatchParticipantCallback callback, boolean retryAllowed) {

@@ -89,6 +89,8 @@ class PullTaskPullerInviteTransactionIntegrationTest {
         reset(accountLookup, outboxService, completionService);
         when(accountLookup.findEligibleManagerProtocolRefs(org.mockito.ArgumentMatchers.anyList()))
                 .thenAnswer(invocation -> accountLookup.findActiveProtocolRefs(invocation.getArgument(0)));
+        when(accountLookup.findOnlineProtocolRefs(anyList()))
+                .thenAnswer(invocation -> accountLookup.findActiveProtocolRefs(invocation.getArgument(0)));
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(dataSource);
         execute("INSERT INTO pull_task "
@@ -114,6 +116,48 @@ class PullTaskPullerInviteTransactionIntegrationTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+    }
+
+    @Test
+    void offlineFirstLinkPullerDoesNotBlockTheNextOnlinePuller() throws SQLException {
+        execute("UPDATE pull_task_group_account SET entry_mode=1 WHERE role_type=2");
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(account(904L)));
+        when(outboxService.enqueuePullTaskGroupJoinCommands(anyList())).thenReturn(enqueued("online-window"));
+
+        service.prepare(claim("worker-window", 600L, 900L), "worker-window", 610L);
+
+        verify(outboxService).enqueuePullTaskGroupJoinCommands(argThat(commands ->
+                commands.size() == 1 && commands.get(0).account().armadaAccountId().equals(904L)));
+        TenantContext.set(7L);
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId,
+                PullTaskGroupAccountRole.PULLER.code())).allSatisfy(row -> assertThat(row.getReleasedAt()).isNull());
+    }
+
+    @Test
+    void clearlyUnexecutedOfflineLinkJoinReusesItsActionOnTheNextOnlineWindow() throws SQLException {
+        execute("DELETE FROM pull_task_group_account WHERE account_id=904");
+        execute("UPDATE pull_task_group_account SET entry_mode=1 WHERE role_type=2");
+        when(outboxService.enqueuePullTaskGroupJoinCommands(anyList()))
+                .thenReturn(enqueued("first-window"), enqueued("second-window"));
+        service.prepare(claim("worker-first", 600L, 900L), "worker-first", 610L);
+        TenantContext.set(7L);
+        PullTaskAccountAction action = actionMapper.selectByExecutionAndType(executionId,
+                PullTaskAccountActionType.JOIN_BY_LINK.code()).get(0);
+        execute("UPDATE pull_task_account_action SET action_status=" + PullTaskActionStatus.FAILED.code()
+                + ", reason_code='ACCOUNT_NOT_ONLINE' WHERE id=" + action.getId());
+        execute("UPDATE pull_task_group_account SET membership_status="
+                + PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code()
+                + ", membership_reason_code='ACCOUNT_NOT_ONLINE' WHERE role_type=2");
+
+        service.prepare(claim("worker-second", 61_000L, 62_000L), "worker-second", 61_010L);
+
+        TenantContext.set(7L);
+        assertThat(actionMapper.selectByExecutionAndType(executionId,
+                PullTaskAccountActionType.JOIN_BY_LINK.code())).singleElement().satisfies(saved -> {
+                    assertThat(saved.getId()).isEqualTo(action.getId());
+                    assertThat(saved.getCommandId()).isEqualTo("second-window");
+                    assertThat(saved.getActionStatus()).isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+                });
     }
 
     @Test

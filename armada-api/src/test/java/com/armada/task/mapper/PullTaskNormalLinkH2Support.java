@@ -7,6 +7,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
@@ -55,7 +56,10 @@ public final class PullTaskNormalLinkH2Support {
         configuration.setMapUnderscoreToCamelCase(true);
         configuration.setUseGeneratedKeys(true);
 
-        Resource[] resources = Arrays.stream(mapperXmlPaths)
+        // 角色与料子归一 SQL 共用逐号码台账预算片段，测试加载与生产相同的真实依赖。
+        Resource[] resources = Stream.concat(Arrays.stream(mapperXmlPaths),
+                        Stream.of("mapper/task/PullTaskPullCallMemberAttemptMapper.xml"))
+                .distinct()
                 .map(ClassPathResource::new)
                 .toArray(Resource[]::new);
 

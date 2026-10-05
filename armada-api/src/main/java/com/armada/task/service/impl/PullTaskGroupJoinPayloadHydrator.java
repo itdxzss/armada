@@ -13,6 +13,7 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.PullTaskActionAttemptPolicy;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
@@ -29,7 +30,6 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
 
     private static final String COMMAND_TYPE = "group.join.requested";
     private static final String AGGREGATE_TYPE = "PULL_TASK_ACCOUNT_ACTION";
-    private static final int FIRST_ATTEMPT = 1;
 
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskGroupAccountMapper accountMapper;
@@ -95,7 +95,7 @@ public class PullTaskGroupJoinPayloadHydrator implements ProtocolCommandPayloadH
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
                     reference.actionId(), account.getAccountId(), row.getProtocolAccountId(),
                     account.getAccountPhone(), backend.name(), inviteCode,
-                    FIRST_ATTEMPT, reference.source()));
+                    PullTaskActionAttemptPolicy.protocolAttempt(action), reference.source()));
         } finally {
             restoreTenant(previousTenant);
         }

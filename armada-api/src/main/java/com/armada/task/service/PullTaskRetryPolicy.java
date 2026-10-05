@@ -1,6 +1,8 @@
 package com.armada.task.service;
 
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
+import com.armada.task.model.dto.PullTaskBatchParticipantCallback;
 import com.armada.task.model.dto.PullTaskHistoricalRetryNormalization;
 import com.armada.task.model.enums.PullTaskBatchParticipantProtocolOutcome;
 import com.armada.task.model.enums.PullTaskGroupAccountMembershipStatus;
@@ -13,7 +15,7 @@ import java.util.List;
 /** 普通拉群逐号码自动重试预算与波次冷却，不把未知结果计为明确失败。 */
 public final class PullTaskRetryPolicy {
 
-    /** 每个群内每个参与者最多自动尝试四次，包含首轮。 */
+    /** 每个群内每个参与者最多业务尝试四次，包含首轮；未执行的临时离线不计入。 */
     public static final int MAX_ATTEMPTS = 4;
 
     /** 名单查询明确未在群内时允许不确定的原调用进入有界重试。 */
@@ -29,9 +31,16 @@ public final class PullTaskRetryPolicy {
     private PullTaskRetryPolicy() {
     }
 
-    /** @return 当前单调 attempt 序号是否仍有下一次自动尝试预算 */
-    public static boolean canRetry(int attemptNo) {
-        return attemptNo > 0 && attemptNo < MAX_ATTEMPTS;
+    /** @return 扣除明确未执行离线后的业务尝试数是否仍有下一次预算 */
+    public static boolean canRetry(int businessAttemptCount) {
+        return businessAttemptCount >= 0 && businessAttemptCount < MAX_ATTEMPTS;
+    }
+
+    /** 只有协议明确证明未开始的临时离线才不消耗业务重试，不能推断 UNCERTAIN 没有副作用。 */
+    public static boolean isUnstartedOffline(PullTaskBatchParticipantCallback callback) {
+        return callback.outcome() == PullTaskBatchParticipantProtocolOutcome.UNKNOWN
+                && callback.executionState() == PullTaskParticipantExecutionState.NOT_STARTED
+                && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(callback.reasonCode());
     }
 
     /** @return 已结算波次后至少等待的毫秒数，依次为 60、120、240 秒并封顶 */

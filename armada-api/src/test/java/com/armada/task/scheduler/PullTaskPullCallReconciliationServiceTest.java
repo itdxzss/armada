@@ -13,10 +13,12 @@ import com.armada.task.mapper.PullTaskMaterialMemberMapper;
 import com.armada.task.mapper.PullTaskPullCallMapper;
 import com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper;
 import com.armada.task.model.dto.PullTaskUncertainParticipantSettlement;
+import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskPullCall;
 import com.armada.task.model.entity.PullTaskPullCallMemberAttempt;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
+import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskParticipantType;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
@@ -86,6 +88,41 @@ class PullTaskPullCallReconciliationServiceTest {
 
         verify(attemptMapper, never()).transition(any());
         verify(participantResultService, never()).settleUncertain(any());
+    }
+
+    @Test
+    void temporaryOfflineDoesNotShortenSubmittedResultWindow() {
+        PullTaskPullCall call = call(CUTOFF + 1L);
+        call.setPullerGroupAccountId(61L);
+        PullTaskPullCallMemberAttempt attempt = attempt(41L, null, null);
+        attempt.setPullerGroupAccountId(61L);
+        PullTaskGroupAccount puller = new PullTaskGroupAccount();
+        puller.setId(61L);
+        puller.setAvailabilityStatus(PullTaskGroupAccountAvailability.OFFLINE.code());
+        puller.setUnavailableReasonCode("ACCOUNT_NOT_ONLINE");
+
+        assertThat(service.reconcile(execution(), call, List.of(attempt),
+                List.of(puller), CUTOFF, NOW))
+                .isEqualTo(PullTaskUnknownResultReconciliationStats.empty());
+
+        verify(participantResultService, never()).settleUncertain(any());
+    }
+
+    @Test
+    void unboundPullerStillTriggersImmediateResultReconciliation() {
+        PullTaskPullCall call = call(CUTOFF + 1L);
+        call.setPullerGroupAccountId(61L);
+        PullTaskPullCallMemberAttempt attempt = attempt(41L, null, null);
+        attempt.setPullerGroupAccountId(61L);
+        PullTaskGroupAccount puller = new PullTaskGroupAccount();
+        puller.setId(61L);
+        puller.setAvailabilityStatus(PullTaskGroupAccountAvailability.REMOVED.code());
+        puller.setUnavailableReasonCode("ACCOUNT_UNBOUND");
+        when(participantResultService.settleUncertain(any())).thenReturn(true);
+
+        assertThat(service.reconcile(execution(), call, List.of(attempt),
+                List.of(puller), CUTOFF, NOW))
+                .isEqualTo(new PullTaskUnknownResultReconciliationStats(0, 1));
     }
 
     @Test

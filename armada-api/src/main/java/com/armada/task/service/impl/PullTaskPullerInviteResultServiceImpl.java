@@ -10,6 +10,7 @@ import com.armada.task.model.dto.PullTaskFactResult;
 import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.dto.PullTaskPullerInviteCallback;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.PullTaskActionAttemptPolicy;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
@@ -109,10 +110,10 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
         if (Objects.equals(action.getActionStatus(), target)) {
             return WriteResult.ALREADY_TARGET;
         }
-        int changed = actionMapper.transitionResult(new PullTaskFactTransition(
-                action.getId(), ACTION_OPEN, target,
-                PullTaskFactResult.reason(callback.reasonCode(), callback.reasonMessage()),
-                callback.occurredAt()));
+        int changed = actionMapper.transitionManagerAdminResult(
+                action.getId(), callback.commandId(), action.getAttemptNo() == null ? 0 : action.getAttemptNo(),
+                ACTION_OPEN, target, callback.retryable(), callback.reasonCode(), callback.reasonMessage(),
+                callback.occurredAt());
         return changed == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;
     }
 
@@ -140,7 +141,7 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
             PullTaskAccountAction action,
             PullTaskPullerInviteCallback callback) {
         return action != null
-                && callback.attemptNo() == 1
+                && callback.attemptNo() == PullTaskActionAttemptPolicy.protocolAttempt(action)
                 && Objects.equals(action.getId(), callback.actionId())
                 && Objects.equals(action.getTaskId(), callback.pullTaskId())
                 && Objects.equals(action.getGroupExecutionId(), callback.groupExecutionId())

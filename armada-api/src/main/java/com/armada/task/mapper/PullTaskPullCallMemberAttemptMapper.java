@@ -38,6 +38,16 @@ public interface PullTaskPullCallMemberAttemptMapper {
     /** 查询本波是否有即时未知补拉候选，用于免除普通失败退避。 */
     boolean hasImmediateUnknownRetry(@Param("pullWaveId") long pullWaveId);
 
+    /** 本波非成功结果全为明确未开始的临时离线时，不叠加业务失败退避。 */
+    boolean hasUnstartedOfflineRetry(@Param("pullWaveId") long pullWaveId);
+
+    /** 统计当前单调序号之前（含当前）明确未执行的临时离线，不计入业务尝试预算。 */
+    int countUnstartedOfflineAttempts(
+            @Param("groupExecutionId") long groupExecutionId,
+            @Param("participantType") int participantType,
+            @Param("participantRefId") long participantRefId,
+            @Param("throughAttemptNo") int throughAttemptNo);
+
     /** 新调用不得再使用其未知前驱的原拉手账号，即使重复补充了同一账号角色。 */
     List<Long> selectUnknownRetryExcludedAccounts(@Param("pullCallId") long pullCallId);
 
@@ -90,7 +100,7 @@ public interface PullTaskPullCallMemberAttemptMapper {
      * <p>UNKNOWN 允许明确未开始、名单核实不在群内，或原调用返回账号受限时有界重试；
      * 受限不等于明确失败。未知携带持久化的一次补拉授权时也可进入后继波次；
      * 该后继不能再次申请补拉，历史 CLOSED 未知不重新开启。
-     * 总 attempt 预算同时限制未知与明确失败，不允许无界换号。</p>
+     * 业务尝试预算同时限制未知与明确失败；明确未执行的临时离线不消耗该预算。</p>
      */
     default List<PullTaskPullWaveCandidate> selectRetryCandidatesByWave(
             long pullWaveId, long maxFailureCount) {

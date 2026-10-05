@@ -3,6 +3,10 @@ package com.armada.task.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,19 +47,39 @@ class PullTaskPullerInviteResultServiceImplTest {
     }
 
     @Test
+    void repeatedOnlineWindowAcceptsCurrentAttemptAndRejectsThePriorAttempt() {
+        stubContext();
+        PullTaskAccountAction repeated = action();
+        repeated.setAttemptNo(2);
+        when(actionMapper.selectByCommandId("cmd-invite-1")).thenReturn(repeated);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(),
+                anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
+        when(accountMapper.transitionMembership(any())).thenReturn(1);
+        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
+
+        assertThat(service.apply(callback(PullTaskPullerInviteProtocolOutcome.SUCCESS))).isFalse();
+        assertThat(service.apply(new PullTaskPullerInviteCallback(
+                7L, 100L, 11L, 701L, 901L, "manager-901", "cmd-invite-1", 2,
+                "8613800000902@s.whatsapp.net", PullTaskPullerInviteProtocolOutcome.SUCCESS,
+                null, null, false, 1_100L))).isTrue();
+        verify(actionMapper).transitionManagerAdminResult(org.mockito.ArgumentMatchers.eq(701L),
+                org.mockito.ArgumentMatchers.eq("cmd-invite-1"), org.mockito.ArgumentMatchers.eq(2),
+                anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
+    }
+
+    @Test
     void successWritesActionAndMembershipThenAllowsImmediateNextInvite() {
         stubContext();
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
         boolean handled = service.apply(callback(PullTaskPullerInviteProtocolOutcome.SUCCESS));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> actionChange =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(actionChange.capture());
-        assertThat(actionChange.getValue().targetStatus())
+        ArgumentCaptor<Integer> actionChange = ArgumentCaptor.forClass(Integer.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), actionChange.capture(), anyBoolean(), any(), any(), anyLong());
+        assertThat(actionChange.getValue())
                 .isEqualTo(PullTaskActionStatus.SUCCESS.code());
         ArgumentCaptor<PullTaskFactTransition> membershipChange =
                 ArgumentCaptor.forClass(PullTaskFactTransition.class);
@@ -74,16 +98,15 @@ class PullTaskPullerInviteResultServiceImplTest {
     @Test
     void unknownWritesUnknownFactsWithoutAutomaticRetry() {
         stubContext();
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
         assertThat(service.apply(callback(PullTaskPullerInviteProtocolOutcome.UNKNOWN))).isTrue();
 
-        ArgumentCaptor<PullTaskFactTransition> actionChange =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(actionChange.capture());
-        assertThat(actionChange.getValue().targetStatus())
+        ArgumentCaptor<Integer> actionChange = ArgumentCaptor.forClass(Integer.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), actionChange.capture(), anyBoolean(), any(), any(), anyLong());
+        assertThat(actionChange.getValue())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
         ArgumentCaptor<PullTaskFactTransition> membershipChange =
                 ArgumentCaptor.forClass(PullTaskFactTransition.class);
@@ -95,7 +118,7 @@ class PullTaskPullerInviteResultServiceImplTest {
     @Test
     void partialFactWriteThrowsForTransactionRollback() {
         stubContext();
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(0);
 
         assertThatThrownBy(() -> service.apply(callback(PullTaskPullerInviteProtocolOutcome.FAILED)))
@@ -107,7 +130,7 @@ class PullTaskPullerInviteResultServiceImplTest {
     @Test
     void factWriteWithLostWakeCasThrowsForTransactionRollback() {
         stubContext();
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionProtocolResult(any())).thenReturn(0);
 
@@ -131,7 +154,7 @@ class PullTaskPullerInviteResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskPullerInviteProtocolOutcome.SUCCESS));
 
         assertThat(handled).isTrue();
-        verify(actionMapper, never()).transitionResult(any());
+        verify(actionMapper, never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         verify(accountMapper, never()).transitionMembership(any());
         verify(executionMapper, never()).transitionProtocolResult(any());
     }

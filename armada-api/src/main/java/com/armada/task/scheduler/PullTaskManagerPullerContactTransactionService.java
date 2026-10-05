@@ -44,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class PullTaskManagerPullerContactTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
-    private static final String ACCOUNT_UNAVAILABLE = "ACCOUNT_UNAVAILABLE";
     private static final String CONTACT_TARGET_UNAVAILABLE = "CONTACT_TARGET_UNAVAILABLE";
     private static final int LINK_JOIN_ENABLED = 1;
     private static final int INITIAL_SOURCE = 1;
@@ -112,7 +111,7 @@ public class PullTaskManagerPullerContactTransactionService {
                 return waitForPuller(candidate, PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
             }
             createContactActions(candidate, managers, pullers, now);
-            return prepareNextAction(candidate, managers, pullers, now);
+            return prepareNextAction(candidate, managers, now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -319,6 +318,9 @@ public class PullTaskManagerPullerContactTransactionService {
         List<PullTaskGroupAccount> existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         Set<Long> eligibleAssignedIds = eligibleAssignedIds(existing, eligible);
+        refreshAssignedAvailability(existing, eligibleAssignedIds, now);
+        existing = groupAccountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         restoreReleasedPullers(existing, eligibleAssignedIds, planned, now);
         existing = groupAccountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
@@ -363,6 +365,29 @@ public class PullTaskManagerPullerContactTransactionService {
                 .toList();
     }
 
+    private void refreshAssignedAvailability(
+            List<PullTaskGroupAccount> existing, Set<Long> eligibleIds, long now) {
+        List<Long> assignedIds = existing.stream().map(PullTaskGroupAccount::getAccountId).toList();
+        Set<Long> activeIds = resources.accountLookup().findActiveProtocolRefs(assignedIds).stream()
+                .map(ProtocolAccountRef::armadaAccountId).collect(java.util.stream.Collectors.toSet());
+        Set<Long> onlineIds = resources.accountLookup().findOnlineProtocolRefs(assignedIds).stream()
+                .map(ProtocolAccountRef::armadaAccountId).collect(java.util.stream.Collectors.toSet());
+        for (PullTaskGroupAccount row : existing) {
+            if (PullTaskPullerSlotPolicy.waitingForOnline(row) && eligibleIds.contains(row.getAccountId())) {
+                groupAccountMapper.restoreOccupiedOfflinePuller(row, now,
+                        PullTaskGroupAccountAvailability.OFFLINE.code(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code());
+            } else if (available(row) && !eligibleIds.contains(row.getAccountId())
+                    && activeIds.contains(row.getAccountId())
+                    && !onlineIds.contains(row.getAccountId())) {
+                groupAccountMapper.markTemporarilyOffline(row, now,
+                        PullTaskGroupAccountAvailability.AVAILABLE.code(),
+                        PullTaskGroupAccountAvailability.OFFLINE.code(),
+                        PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name());
+            }
+        }
+    }
+
     private Set<Long> eligibleAssignedIds(
             List<PullTaskGroupAccount> existing,
             List<ProtocolAccountRef> groupEligible) {
@@ -398,7 +423,8 @@ public class PullTaskManagerPullerContactTransactionService {
                 break;
             }
             if (Objects.equals(row.getMembershipStatus(),
-                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())) {
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())
+                    && !PullTaskPullerSlotPolicy.isTemporaryOfflineReason(row.getMembershipReasonCode())) {
                 continue;
             }
             if (row.getReleasedAt() == null || !available(row)
@@ -478,47 +504,63 @@ public class PullTaskManagerPullerContactTransactionService {
     private PullTaskExecutionDispatchResult prepareNextAction(
             PullTaskGroupExecution candidate,
             List<PullTaskGroupAccount> managers,
-            List<PullTaskGroupAccount> pullers,
             long now) {
         List<PullTaskAccountAction> actions = contactActions(candidate.getId());
-        Map<Long, PullTaskGroupAccount> roles = roleMap(managers, pullers);
+        List<PullTaskGroupAccount> retained = groupAccountMapper.selectByExecutionAndRole(
+                        candidate.getId(), PullTaskGroupAccountRole.PULLER.code()).stream()
+                .filter(row -> row.getReleasedAt() == null)
+                .filter(row -> available(row) || PullTaskPullerSlotPolicy.waitingForOnline(row)).toList();
+        Map<Long, PullTaskGroupAccount> roles = roleMap(managers, retained);
         Map<Long, ProtocolAccountRef> accounts = accountMap(roles.values());
         for (PullTaskAccountAction action : actions) {
-            if (action.getActionStatus() != PullTaskActionStatus.PENDING.code()) {
+            if (action.getActionStatus() != PullTaskActionStatus.PENDING.code() && !retryableOffline(action)) {
                 continue;
             }
             PullTaskGroupAccount actor = roles.get(action.getActorGroupAccountId());
             PullTaskGroupAccount target = roles.get(action.getTargetGroupAccountId());
             ProtocolAccountRef account = actor == null ? null : accounts.get(actor.getAccountId());
-            if (actor == null || target == null || account == null) {
-                closeUnavailableAction(action, actor, account, now);
+            if (actor == null || target == null) {
+                closeUnavailableAction(action, now);
+                continue;
+            }
+            if (account == null) {
+                if (Objects.equals(actor.getRoleType(), PullTaskGroupAccountRole.PULLER.code())) {
+                    groupAccountMapper.markTemporarilyOffline(actor, now,
+                            PullTaskGroupAccountAvailability.AVAILABLE.code(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                            PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name());
+                }
                 continue;
             }
             return submit(candidate, action, account, now);
         }
-        return actions.stream().allMatch(PullTaskManagerPullerContactTransactionService::terminal)
-                ? advance(candidate, now) : deferSubmitted(candidate, now);
+        if (actions.stream().allMatch(PullTaskManagerPullerContactTransactionService::terminal)) {
+            return advance(candidate, now);
+        }
+        return actions.stream().anyMatch(PullTaskManagerPullerContactTransactionService::awaitingResult)
+                ? deferSubmitted(candidate, now)
+                : waitForPuller(candidate, PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE, now);
     }
 
     private void closeUnavailableAction(
             PullTaskAccountAction action,
-            PullTaskGroupAccount actor,
-            ProtocolAccountRef account,
             long now) {
+        if (retryableOffline(action)) {
+            if (actionMapper.transitionResult(new com.armada.task.model.dto.PullTaskFactTransition(
+                    action.getId(), List.of(PullTaskActionStatus.FAILED.code()), PullTaskActionStatus.FAILED.code(),
+                    com.armada.task.model.dto.PullTaskFactResult.reason(
+                            CONTACT_TARGET_UNAVAILABLE, "联系人角色已不参与当前执行行"), now)) == 1) {
+                action.setReasonCode(CONTACT_TARGET_UNAVAILABLE);
+            }
+            return;
+        }
         if (actionMapper.markSubmitted(action.getId(), operationId(action.getId()), now) != 1) {
             return;
         }
-        // 目标拉手被替换时只收口旧动作；目标缺失不能作为发起账号离线的证据。
-        boolean actorUnavailable = account == null;
+        // 已退出的角色只收口旧动作，不能把它写成等待上线的临时失败。
         actionMapper.writeBackResult(action.getId(), PullTaskActionStatus.FAILED.code(),
-                actorUnavailable ? ACCOUNT_UNAVAILABLE : CONTACT_TARGET_UNAVAILABLE,
-                actorUnavailable ? "联系人发起账号不可用" : "联系人目标账号已不参与当前执行行", now);
+                CONTACT_TARGET_UNAVAILABLE, "联系人角色已不参与当前执行行", now);
         action.setActionStatus(PullTaskActionStatus.FAILED.code());
-        if (actor != null && actorUnavailable) {
-            groupAccountMapper.markUnavailable(actor.getId(),
-                    PullTaskGroupAccountAvailability.OFFLINE.code(),
-                    ACCOUNT_UNAVAILABLE, null, now);
-        }
+        action.setReasonCode(CONTACT_TARGET_UNAVAILABLE);
     }
 
     private PullTaskExecutionDispatchResult submit(
@@ -534,7 +576,8 @@ public class PullTaskManagerPullerContactTransactionService {
         if (enqueued.inserted() != 1 || enqueued.commandIds().size() != 1) {
             throw new IllegalStateException("联系人 Outbox 命令写入数量不一致");
         }
-        if (actionMapper.markSubmitted(action.getId(), enqueued.commandIds().get(0), now) != 1) {
+        if (actionMapper.submitAttempt(action.getId(), List.of(action.getActionStatus()),
+                enqueued.commandIds().get(0), now) != 1) {
             throw new IllegalStateException("联系人动作提交状态写入失败");
         }
         return deferSubmitted(candidate, now);
@@ -575,6 +618,11 @@ public class PullTaskManagerPullerContactTransactionService {
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         update.setWaitResourceType(resourceType.code());
+        if (resourceType == PullTaskWaitResourceType.PULLER
+                && groupAccountMapper.selectByExecutionAndRole(candidate.getId(),
+                PullTaskGroupAccountRole.PULLER.code()).stream().anyMatch(PullTaskPullerSlotPolicy::waitingForOnline)) {
+            reason = PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE;
+        }
         update.setReasonCode(reason.name());
         update.setReasonMessage(waitMessage(candidate, resourceType, reason));
         update.setLastBusinessExecutedAt(null);
@@ -582,7 +630,9 @@ public class PullTaskManagerPullerContactTransactionService {
                 update, PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
-        groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+        if (resourceType != PullTaskWaitResourceType.PULLER) {
+            groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+        }
         return PullTaskExecutionDispatchResult.DEFERRED;
     }
 
@@ -623,7 +673,7 @@ public class PullTaskManagerPullerContactTransactionService {
             java.util.Collection<PullTaskGroupAccount> roles) {
         List<Long> ids = roles.stream().map(PullTaskGroupAccount::getAccountId).distinct().toList();
         Map<Long, ProtocolAccountRef> result = new HashMap<>();
-        for (ProtocolAccountRef account : resources.accountLookup().findActiveProtocolRefs(ids)) {
+        for (ProtocolAccountRef account : resources.accountLookup().findOnlineProtocolRefs(ids)) {
             if (account != null) {
                 result.putIfAbsent(account.armadaAccountId(), account);
             }
@@ -661,7 +711,13 @@ public class PullTaskManagerPullerContactTransactionService {
 
     private static boolean terminal(PullTaskAccountAction action) {
         return action.getActionStatus() != PullTaskActionStatus.PENDING.code()
-                && action.getActionStatus() != PullTaskActionStatus.SUBMITTED.code();
+                && action.getActionStatus() != PullTaskActionStatus.SUBMITTED.code()
+                && !retryableOffline(action);
+    }
+
+    private static boolean retryableOffline(PullTaskAccountAction action) {
+        return Objects.equals(action.getActionStatus(), PullTaskActionStatus.FAILED.code())
+                && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(action.getReasonCode());
     }
 
     private static PullTaskGroupExecution transition(

@@ -266,20 +266,17 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId)
                 .toList());
-        List<Long> supplementedAccountIds = stored.stream()
-                .filter(row -> Objects.equals(row.getSourceType(),
-                        PullTaskGroupAccountSource.SUPPLEMENT.code()))
+        List<Long> assignedAccountIds = stored.stream()
                 .map(PullTaskGroupAccount::getAccountId)
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
         validatedIds.addAll(safe(resources.accountLookup()
-                .findEligiblePullerProtocolRefs(supplementedAccountIds)).stream()
+                .findEligiblePullerProtocolRefs(assignedAccountIds)).stream()
                 .filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId)
                 .toList());
-        List<Long> validatedIdList = List.copyOf(validatedIds);
-        restoreOffline(validatedIdList, PullTaskGroupAccountRole.PULLER, now);
+        restoreValidatedPullers(stored, validatedIds, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         int available = reoccupyValidatedPullers(refreshed, validatedIds, now);
@@ -288,11 +285,16 @@ public class PullTaskResourceRecoveryTransactionService {
         boolean stageCanSelect = candidate.getStage()
                 == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
                 || candidate.getStage() == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code();
-        boolean ready = available > 0 || stageCanSelect && !validatedIds.isEmpty();
+        long occupied = refreshed.stream().filter(row -> PullTaskPullerSlotPolicy.occupiesSlot(row, validatedIds)).count();
+        boolean ready = available > 0 || stageCanSelect && occupied < planned && !validatedIds.isEmpty();
         if (ready) {
             return ResourceCheck.available();
         }
         int missing = Math.max(planned - available, 0);
+        if (refreshed.stream().anyMatch(PullTaskPullerSlotPolicy::waitingForOnline)) {
+            return ResourceCheck.waiting(PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name(),
+                    PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.message());
+        }
         return ResourceCheck.waiting(
                 "PULLER_UNAVAILABLE", "当前没有可用拉手，缺口人数=" + missing);
     }
@@ -308,6 +310,24 @@ public class PullTaskResourceRecoveryTransactionService {
         return ResourceCheck.waiting(
                 "STATION_UNAVAILABLE",
                 "当前可用站台不足，缺口人数=" + candidates.missingCount());
+    }
+
+    private void restoreValidatedPullers(List<PullTaskGroupAccount> stored, Set<Long> validatedIds, long now) {
+        for (PullTaskGroupAccount row : stored) {
+            if (!validatedIds.contains(row.getAccountId()) || !PullTaskPullerSlotPolicy.waitingForOnline(row)) {
+                continue;
+            }
+            try {
+                // 旧资源等待曾释放租约，必须先重新占用成功，才恢复这一行的可用性。
+                if (row.getReleasedAt() != null && accountMapper.reoccupyPuller(row.getId(), now) != 1) {
+                    continue;
+                }
+                accountMapper.restoreOccupiedOfflinePuller(row, now,
+                        PullTaskGroupAccountAvailability.OFFLINE.code(), PullTaskGroupAccountAvailability.AVAILABLE.code());
+            } catch (DuplicateKeyException ignored) {
+                // 已被其他执行行占用的历史角色保持等待。
+            }
+        }
     }
 
     private void restoreOffline(
@@ -327,7 +347,8 @@ public class PullTaskResourceRecoveryTransactionService {
         int available = 0;
         for (PullTaskGroupAccount row : stored) {
             if (Objects.equals(row.getMembershipStatus(),
-                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())) {
+                    PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())
+                    && !PullTaskPullerSlotPolicy.isTemporaryOfflineReason(row.getMembershipReasonCode())) {
                 continue;
             }
             if (!eligibleIds.contains(row.getAccountId())
@@ -381,6 +402,8 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(row -> Objects.equals(row.getAvailabilityStatus(), PullTaskGroupAccountAvailability.AVAILABLE.code()))
                 .filter(row -> row.getReleasedAt() == null)
                 .anyMatch(row -> Objects.equals(row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.NOT_JOINED.code())
+                        || Objects.equals(row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())
+                        && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(row.getMembershipReasonCode())
                         || PullTaskPullerSlotPolicy.awaitingJoinResult(row));
         if (!needsEntry) {
             return candidate.getStage();
@@ -416,11 +439,6 @@ public class PullTaskResourceRecoveryTransactionService {
             PullTaskGroupExecution candidate,
             long now,
             long retryDelayMs) {
-        if (Objects.equals(candidate.getWaitResourceType(),
-                PullTaskWaitResourceType.PULLER.code())) {
-            accountMapper.releaseAllPullersOfExecution(
-                    candidate.getId(), PullTaskGroupAccountRole.PULLER.code(), now);
-        }
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(candidate.getStage());

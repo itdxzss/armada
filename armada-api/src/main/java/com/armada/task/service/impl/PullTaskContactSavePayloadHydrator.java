@@ -11,6 +11,7 @@ import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.PullTaskActionAttemptPolicy;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
@@ -70,7 +71,7 @@ public class PullTaskContactSavePayloadHydrator implements ProtocolCommandPayloa
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
                     reference.actionId(), actor.getAccountId(), row.getProtocolAccountId(),
                     actor.getAccountPhone(), backend(row).name(), target.getAccountPhone(),
-                    target.getAccountPhone(), 1, reference.source()));
+                    target.getAccountPhone(), PullTaskActionAttemptPolicy.protocolAttempt(action), reference.source()));
         } finally {
             restoreTenant(previousTenant);
         }

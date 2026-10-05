@@ -187,7 +187,8 @@ public class PullTaskPullWavePlanningTransactionService {
         if (resources.attemptMapper().hasImmediateUnknownRetry(settledWave.getId())) {
             return now;
         }
-        long retryAt = Math.addExact(now, PullTaskRetryPolicy.retryDelayMs(settledWave.getWaveNo()));
+        long retryAt = resources.attemptMapper().hasUnstartedOfflineRetry(settledWave.getId())
+                ? now : Math.addExact(now, PullTaskRetryPolicy.retryDelayMs(settledWave.getWaveNo()));
         // 最后一次提交已把随机间隔冻结到波次；回调和重启不得重新抽取较短间隔。
         if (settledWave.getNextDispatchAt() != null) {
             retryAt = Math.max(retryAt, settledWave.getNextDispatchAt());

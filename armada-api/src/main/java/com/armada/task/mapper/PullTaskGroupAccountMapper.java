@@ -198,6 +198,19 @@ public interface PullTaskGroupAccountMapper {
     int markUnavailableUnlessRemoved(@Param("row") PullTaskGroupAccount row,
                                      @Param("removedStatus") int removedStatus);
 
+    /** 暂离线只改变仍占用的可用/离线角色，不覆盖冷却、受限和移出事实。 */
+    int markTemporarilyOffline(@Param("row") PullTaskGroupAccount row,
+                               @Param("now") long now,
+                               @Param("availableStatus") int availableStatus,
+                               @Param("offlineStatus") int offlineStatus,
+                               @Param("reasonCode") String reasonCode);
+
+    /** 上线只恢复当前占用且带临时离线原因的原角色，不触碰成员事实和历史调用。 */
+    int restoreOccupiedOfflinePuller(@Param("row") PullTaskGroupAccount row,
+                                     @Param("now") long now,
+                                     @Param("offlineStatus") int offlineStatus,
+                                     @Param("availableStatus") int availableStatus);
+
     /**
      * 查询指定候选中仍带某种账号级不可用事实的拉手账号。
      *

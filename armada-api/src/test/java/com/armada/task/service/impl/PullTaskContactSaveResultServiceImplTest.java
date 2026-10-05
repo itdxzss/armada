@@ -2,6 +2,9 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,7 +17,6 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
-import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -46,13 +48,55 @@ class PullTaskContactSaveResultServiceImplTest {
     }
 
     @Test
+    void currentContactAttemptSucceedsWhileThePreviousAttemptIsRejected() {
+        PullTaskAccountAction current = action(PullTaskActionStatus.SUBMITTED);
+        current.setAttemptNo(2);
+        when(actionMapper.selectByCommandId("cmd-contact-1")).thenReturn(current);
+        when(accountMapper.selectById(501L)).thenReturn(actor(901L));
+        when(accountMapper.selectById(502L)).thenReturn(targetPuller());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(),
+                anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
+        when(actionMapper.selectByExecutionAndType(11L, PullTaskAccountActionType.SAVE_CONTACT.code()))
+                .thenReturn(List.of(current));
+        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
+
+        assertThat(service.apply(callback(PullTaskContactSaveOutcome.SUCCESS, false))).isFalse();
+        assertThat(service.apply(new PullTaskContactSaveCallback(
+                7L, 100L, 11L, 601L, 901L, "manager-901", "cmd-contact-1", 2,
+                PullTaskContactSaveOutcome.SUCCESS, null, null, false, 5_000L))).isTrue();
+    }
+
+    @Test
+    void offlineFailureKeepsTheLastContactAtItsCheckpoint() {
+        PullTaskAccountAction current = action(PullTaskActionStatus.SUBMITTED);
+        when(actionMapper.selectByCommandId("cmd-contact-1")).thenReturn(current);
+        when(accountMapper.selectById(501L)).thenReturn(actor(901L));
+        when(accountMapper.selectById(502L)).thenReturn(targetPuller());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
+        when(actionMapper.selectByExecutionAndType(11L, PullTaskAccountActionType.SAVE_CONTACT.code()))
+                .thenReturn(List.of(current));
+        when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
+
+        assertThat(service.apply(new PullTaskContactSaveCallback(
+                7L, 100L, 11L, 601L, 901L, "manager-901", "cmd-contact-1", 1,
+                PullTaskContactSaveOutcome.FAILED, "ACCOUNT_NOT_ONLINE", "offline", true, 5_000L))).isTrue();
+
+        ArgumentCaptor<PullTaskExecutionResultTransition> change =
+                ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
+        verify(executionMapper).transitionProtocolResult(change.capture());
+        assertThat(change.getValue().targetStage()).isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+    }
+
+    @Test
     void lastSuccessfulContactAdvancesExecutionToPullerInvite() {
         PullTaskAccountAction current = action(PullTaskActionStatus.SUBMITTED);
         when(actionMapper.selectByCommandId("cmd-contact-1")).thenReturn(current);
         when(accountMapper.selectById(501L)).thenReturn(actor(901L));
         when(accountMapper.selectById(502L)).thenReturn(targetPuller());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(actionMapper.selectByExecutionAndType(11L, PullTaskAccountActionType.SAVE_CONTACT.code()))
                 .thenReturn(List.of(action(PullTaskActionStatus.SUCCESS)));
         when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
@@ -60,10 +104,9 @@ class PullTaskContactSaveResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskContactSaveOutcome.SUCCESS, false));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> fact =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(fact.capture());
-        assertThat(fact.getValue().targetStatus()).isEqualTo(PullTaskActionStatus.SUCCESS.code());
+        ArgumentCaptor<Integer> fact = ArgumentCaptor.forClass(Integer.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), fact.capture(), anyBoolean(), any(), any(), anyLong());
+        assertThat(fact.getValue()).isEqualTo(PullTaskActionStatus.SUCCESS.code());
         ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
                 ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
@@ -80,7 +123,7 @@ class PullTaskContactSaveResultServiceImplTest {
         when(accountMapper.selectById(501L)).thenReturn(actor(901L));
         when(accountMapper.selectById(502L)).thenReturn(targetPuller());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(actionMapper.selectByExecutionAndType(11L, PullTaskAccountActionType.SAVE_CONTACT.code()))
                 .thenReturn(List.of(
                         action(PullTaskActionStatus.FAILED),
@@ -90,10 +133,9 @@ class PullTaskContactSaveResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskContactSaveOutcome.FAILED, true));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> fact =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(fact.capture());
-        assertThat(fact.getValue().targetStatus()).isEqualTo(PullTaskActionStatus.FAILED.code());
+        ArgumentCaptor<Integer> fact = ArgumentCaptor.forClass(Integer.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), fact.capture(), anyBoolean(), any(), any(), anyLong());
+        assertThat(fact.getValue()).isEqualTo(PullTaskActionStatus.FAILED.code());
         ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
                 ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
         verify(executionMapper).transitionProtocolResult(executionChange.capture());
@@ -109,7 +151,7 @@ class PullTaskContactSaveResultServiceImplTest {
         when(accountMapper.selectById(501L)).thenReturn(actor(901L));
         when(accountMapper.selectById(502L)).thenReturn(targetPuller());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(actionMapper.selectByExecutionAndType(
                 11L, PullTaskAccountActionType.SAVE_CONTACT.code()))
                 .thenReturn(List.of(
@@ -120,10 +162,9 @@ class PullTaskContactSaveResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskContactSaveOutcome.UNKNOWN, true));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> fact =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(fact.capture());
-        assertThat(fact.getValue().targetStatus())
+        ArgumentCaptor<Integer> fact = ArgumentCaptor.forClass(Integer.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), fact.capture(), anyBoolean(), any(), any(), anyLong());
+        assertThat(fact.getValue())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
         ArgumentCaptor<PullTaskExecutionResultTransition> executionChange =
                 ArgumentCaptor.forClass(PullTaskExecutionResultTransition.class);
@@ -143,7 +184,7 @@ class PullTaskContactSaveResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskContactSaveOutcome.SUCCESS, false));
 
         assertThat(handled).isFalse();
-        verify(actionMapper, never()).transitionResult(any());
+        verify(actionMapper, never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         verify(executionMapper, never()).transitionProtocolResult(any());
     }
 
@@ -156,7 +197,7 @@ class PullTaskContactSaveResultServiceImplTest {
         when(accountMapper.selectById(603L)).thenReturn(account(
                 603L, 911L, PullTaskGroupAccountRole.STATION));
         when(executionMapper.selectById(11L)).thenReturn(pullExecution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
         boolean handled = service.apply(stationCallback());
@@ -183,7 +224,7 @@ class PullTaskContactSaveResultServiceImplTest {
         boolean handled = service.apply(callback(PullTaskContactSaveOutcome.SUCCESS, false));
 
         assertThat(handled).isTrue();
-        verify(actionMapper, never()).transitionResult(any());
+        verify(actionMapper, never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         verify(executionMapper, never()).transitionProtocolResult(any());
     }
 

@@ -13,6 +13,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
+import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.service.PullTaskPullerAccountStateService.Unavailability;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,9 +30,11 @@ class PullTaskPullerAccountStateServiceImplTest {
             mock(PullTaskStickyPullerTransactionService.class);
     private final ApplicationEventPublisher eventPublisher =
             mock(ApplicationEventPublisher.class);
+    private final PullTaskExecutionDispatchTrigger dispatchTrigger =
+            mock(PullTaskExecutionDispatchTrigger.class);
     private final PullTaskPullerAccountStateServiceImpl service =
             new PullTaskPullerAccountStateServiceImpl(
-                    accountMapper, executionMapper, stickyPullers, eventPublisher);
+                    accountMapper, executionMapper, stickyPullers, eventPublisher, dispatchTrigger);
 
     private final PullTaskGroupAccount puller = puller();
     private final PullTaskGroupExecution execution = execution();
@@ -45,19 +48,15 @@ class PullTaskPullerAccountStateServiceImplTest {
     }
 
     @Test
-    void offlineClearsStickyButKeepsHistoricalPullerRole() {
-        when(accountMapper.markUnavailable(
-                344L, PullTaskGroupAccountAvailability.OFFLINE.code(),
-                "ACCOUNT_NOT_ONLINE", null, 5_000L)).thenReturn(1);
-
+    void offlinePreservesStickyAndDoesNotTriggerEarlyReconciliation() {
         service.markUnavailable(7L, 1187L, Unavailability.OFFLINE, 5_000L);
 
-        verify(accountMapper).markUnavailable(
-                344L, PullTaskGroupAccountAvailability.OFFLINE.code(),
-                "ACCOUNT_NOT_ONLINE", null, 5_000L);
-        verify(stickyPullers).invalidateCurrentRole(
+        verify(accountMapper).markTemporarilyOffline(
+                puller, 5_000L, PullTaskGroupAccountAvailability.AVAILABLE.code(),
+                PullTaskGroupAccountAvailability.OFFLINE.code(), "ACCOUNT_NOT_ONLINE");
+        verify(stickyPullers, never()).invalidateCurrentRole(
                 execution, puller, "ACCOUNT_NOT_ONLINE", 5_000L);
-        verify(eventPublisher).publishEvent(
+        verify(eventPublisher, never()).publishEvent(
                 new PullTaskPullerUnavailableEvent(7L, 76L, 344L, 5_000L));
         verify(accountMapper, never()).releasePuller(344L, 5_000L);
     }

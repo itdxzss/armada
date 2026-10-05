@@ -6,9 +6,9 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.dto.PullTaskContactSaveCallback;
 import com.armada.task.model.dto.PullTaskExecutionResultTransition;
-import com.armada.task.model.dto.PullTaskFactResult;
-import com.armada.task.model.dto.PullTaskFactTransition;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.PullTaskActionAttemptPolicy;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
@@ -84,6 +84,7 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
             if (actionWrite == WriteResult.ALREADY_TARGET) {
                 return true;
             }
+            action.setReasonCode(callback.reasonCode());
             int targetStage = targetStage(lane, action, targetStatus, callback.groupExecutionId());
             int executionWrite = executionMapper.transitionProtocolResult(
                     new PullTaskExecutionResultTransition(
@@ -109,10 +110,10 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
         if (Objects.equals(action.getActionStatus(), targetStatus)) {
             return WriteResult.ALREADY_TARGET;
         }
-        int changed = actionMapper.transitionResult(new PullTaskFactTransition(
-                action.getId(), OPEN_STATUSES, targetStatus,
-                PullTaskFactResult.reason(callback.reasonCode(), callback.reasonMessage()),
-                callback.occurredAt()));
+        int changed = actionMapper.transitionManagerAdminResult(
+                action.getId(), callback.commandId(), action.getAttemptNo() == null ? 0 : action.getAttemptNo(),
+                OPEN_STATUSES, targetStatus, callback.retryable(), callback.reasonCode(), callback.reasonMessage(),
+                callback.occurredAt());
         return changed == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;
     }
 
@@ -123,6 +124,10 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
             long executionId) {
         if (lane == ContactLane.PULLER_STATION) {
             return PullTaskExecutionStage.PULL_EXECUTION.code();
+        }
+        if (targetStatus == PullTaskActionStatus.FAILED.code()
+                && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(current.getReasonCode())) {
+            return PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
         }
         List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
                 executionId, PullTaskAccountActionType.SAVE_CONTACT.code());
@@ -137,7 +142,7 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
             PullTaskAccountAction action,
             PullTaskContactSaveCallback callback) {
         return action != null
-                && callback.attemptNo() == 1
+                && callback.attemptNo() == PullTaskActionAttemptPolicy.protocolAttempt(action)
                 && Objects.equals(action.getId(), callback.actionId())
                 && Objects.equals(action.getTaskId(), callback.pullTaskId())
                 && Objects.equals(action.getGroupExecutionId(), callback.groupExecutionId())
@@ -191,7 +196,9 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
         Integer status = Objects.equals(action.getId(), currentId) ? targetStatus : action.getActionStatus();
         return status != null
                 && status != PullTaskActionStatus.PENDING.code()
-                && status != PullTaskActionStatus.SUBMITTED.code();
+                && status != PullTaskActionStatus.SUBMITTED.code()
+                && !(status == PullTaskActionStatus.FAILED.code()
+                && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(action.getReasonCode()));
     }
 
     private static void restoreTenant(Long tenantId) {

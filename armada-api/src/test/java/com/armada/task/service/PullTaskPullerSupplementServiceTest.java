@@ -234,6 +234,20 @@ class PullTaskPullerSupplementServiceTest {
     }
 
     @Test
+    void temporaryOfflinePullerReservesItsPlannedSlotForManualSupplement() {
+        jdbc.update("UPDATE pull_task_group_account SET released_at=NULL, "
+                + "unavailable_reason_code='ACCOUNT_NOT_ONLINE' WHERE id=101");
+        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=1 WHERE task_id=1");
+
+        assertThat(service.options(1L, 11L, null).missingPullerCount()).isZero();
+        assertThatThrownBy(() -> service.supplement(1L, 11L,
+                new PullTaskPullerSupplementDTO(89L, 1, 1, 1, List.of())))
+                .hasMessageContaining("缺口");
+        assertThat(jdbc.queryForObject("SELECT released_at FROM pull_task_group_account WHERE id=101",
+                Long.class)).isNull();
+    }
+
+    @Test
     void successfulSupplementRetiresOfflinePredecessor() {
         jdbc.update("UPDATE pull_task_group_account SET released_at=NULL WHERE id=101");
         service.supplement(1L, 11L, new PullTaskPullerSupplementDTO(89L, 1, 1, 1, List.of()));

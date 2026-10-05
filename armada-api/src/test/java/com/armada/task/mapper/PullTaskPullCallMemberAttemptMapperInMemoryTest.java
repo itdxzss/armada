@@ -134,6 +134,30 @@ class PullTaskPullCallMemberAttemptMapperInMemoryTest {
     }
 
     @Test
+    void offlineBudgetExclusionRequiresNotStartedAndStaysWithinParticipantAndTenant() {
+        for (int attemptNo = 1; attemptNo <= 6; attemptNo++) {
+            PullTaskPullCallMemberAttempt row = planned(800L + attemptNo, PARTICIPANT_ID, attemptNo);
+            mapper.insertPlanned(row);
+            PullTaskParticipantExecutionState executionState = attemptNo == 5
+                    ? PullTaskParticipantExecutionState.UNCERTAIN : PullTaskParticipantExecutionState.NOT_STARTED;
+            mapper.transition(new PullTaskParticipantAttemptTransition(
+                    new PullTaskParticipantAttemptTransition.Scope(row.getId(), 200L),
+                    new PullTaskParticipantAttemptTransition.Expected(List.of(PullTaskParticipantAttemptStatus.PLANNED.code())),
+                    new PullTaskParticipantAttemptTransition.Target(PullTaskParticipantAttemptStatus.RELEASED.code(),
+                            "UNKNOWN", executionState, 200L),
+                    new PullTaskFactResult(attemptNo == 6 ? "RATE_LIMITED" : "ACCOUNT_NOT_ONLINE", null, null, 200L)));
+        }
+
+        assertThat(mapper.countUnstartedOfflineAttempts(EXECUTION_ID, 1, PARTICIPANT_ID, 6)).isEqualTo(4);
+        assertThat(mapper.countUnstartedOfflineAttempts(EXECUTION_ID, 1, PARTICIPANT_ID, 2)).isEqualTo(2);
+        assertThat(mapper.countUnstartedOfflineAttempts(EXECUTION_ID, 2, PARTICIPANT_ID, 6)).isZero();
+        assertThat(mapper.countUnstartedOfflineAttempts(EXECUTION_ID, 1, PARTICIPANT_ID + 1, 6)).isZero();
+        assertThat(mapper.selectNextAttemptNo(EXECUTION_ID, 1, PARTICIPANT_ID)).isEqualTo(7);
+        TenantContext.set(8L);
+        assertThat(mapper.countUnstartedOfflineAttempts(EXECUTION_ID, 1, PARTICIPANT_ID, 6)).isZero();
+    }
+
+    @Test
     void sameIdsInAnotherTenantRemainInvisible() {
         mapper.insertPlanned(planned(801L, PARTICIPANT_ID, 1));
 

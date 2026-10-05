@@ -13,7 +13,8 @@ class PullTaskRetryPolicyTest {
         assertThat(PullTaskRetryPolicy.canRetry(3)).isTrue();
         assertThat(PullTaskRetryPolicy.canRetry(4)).isFalse();
         assertThat(PullTaskRetryPolicy.canRetry(9)).isFalse();
-        assertThat(PullTaskRetryPolicy.canRetry(0)).isFalse();
+        assertThat(PullTaskRetryPolicy.canRetry(0)).isTrue();
+        assertThat(PullTaskRetryPolicy.canRetry(-1)).isFalse();
     }
 
     @Test

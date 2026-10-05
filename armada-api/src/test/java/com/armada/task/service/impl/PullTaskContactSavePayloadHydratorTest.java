@@ -23,10 +23,13 @@ class PullTaskContactSavePayloadHydratorTest {
     private final PullTaskContactSavePayloadHydrator hydrator =
             new PullTaskContactSavePayloadHydrator(actionMapper, accountMapper, objectMapper);
 
-    @Test
-    void hydratesSubmittedActionFromActorAndTargetSnapshots() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 2})
+    void hydratesSubmittedActionFromActorAndTargetSnapshots(int attemptNo) throws Exception {
         ProtocolCommandOutbox row = outbox();
-        when(actionMapper.selectByCommandId("cmd-contact-1")).thenReturn(action());
+        PullTaskAccountAction action = action();
+        action.setAttemptNo(attemptNo);
+        when(actionMapper.selectByCommandId("cmd-contact-1")).thenReturn(action);
         when(accountMapper.selectById(501L)).thenReturn(account(501L, 901L, "8613800000901"));
         when(accountMapper.selectById(502L)).thenReturn(account(502L, 902L, "8613800000902"));
 
@@ -42,7 +45,7 @@ class PullTaskContactSavePayloadHydratorTest {
         assertThat(payload.get("protocolBackend").textValue()).isEqualTo("WEB");
         assertThat(payload.get("contact").textValue()).isEqualTo("8613800000902");
         assertThat(payload.get("name").textValue()).isEqualTo("8613800000902");
-        assertThat(payload.get("attemptNo").intValue()).isEqualTo(1);
+        assertThat(payload.get("attemptNo").intValue()).isEqualTo(attemptNo);
         assertThat(payload.get("source").textValue()).isEqualTo("pull_task_contact_save");
     }
 

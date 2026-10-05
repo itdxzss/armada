@@ -289,9 +289,10 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         if (Objects.equals(action.getActionStatus(), target)) {
             return WriteResult.ALREADY_TARGET;
         }
-        int updated = actionMapper.transitionResult(new PullTaskFactTransition(
-                action.getId(), directPuller ? DIRECT_ACTION_OPEN : ACTION_OPEN, target,
-                result(callback, reasonMessage), callback.occurredAt()));
+        int updated = actionMapper.transitionManagerAdminResult(
+                action.getId(), callback.commandId(), action.getAttemptNo() == null ? 0 : action.getAttemptNo(),
+                directPuller ? DIRECT_ACTION_OPEN : ACTION_OPEN, target,
+                callback.retryable(), callback.reasonCode(), reasonMessage, callback.occurredAt());
         return updated == 1 ? WriteResult.UPDATED : WriteResult.REJECTED;
     }
 
@@ -425,13 +426,6 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                 && Objects.equals(account.getGroupExecutionId(), callback.groupExecutionId())
                 && Objects.equals(execution.getId(), callback.groupExecutionId())
                 && Objects.equals(execution.getTaskId(), callback.pullTaskId());
-    }
-
-    private static PullTaskFactResult result(
-            PullTaskManagerJoinCallback callback, String reasonMessage) {
-        return new PullTaskFactResult(
-                callback.reasonCode(), reasonMessage,
-                callback.groupJid(), callback.occurredAt());
     }
 
     private static String safeReasonMessage(

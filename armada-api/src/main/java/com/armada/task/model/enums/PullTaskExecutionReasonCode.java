@@ -123,6 +123,9 @@ public enum PullTaskExecutionReasonCode {
     /** 拉手分组当前没有可占用且可执行协议动作的在线可用账号。 */
     PULLER_UNAVAILABLE("当前没有可用拉手"),
 
+    /** 已分配拉手暂时离线，保留原角色等待下次上线续跑。 */
+    ACCOUNT_NOT_ONLINE("已分配拉手暂时离线，等待上线继续执行"),
+
     /** 拉手已申请入群，审批前不得开始拉人或重复申请。 */
     PULLER_JOIN_PENDING_APPROVAL("拉手已提交入群申请，等待群主或管理员审批"),
 

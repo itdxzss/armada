@@ -15,6 +15,7 @@ import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.model.entity.PullTaskAccountAction;
+import com.armada.task.model.PullTaskActionAttemptPolicy;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskAccountActionType;
@@ -81,7 +82,8 @@ public class PullTaskParticipantActionPayloadHydrator implements ProtocolCommand
                     || !validExecution(execution, reference)) {
                 throw validation("普通拉群成员命令冻结事实不完整 commandId=" + row.getCommandId());
             }
-            int attemptNo = spec.useActionAttempt() ? action.getAttemptNo() : 1;
+            int attemptNo = spec.useActionAttempt() ? action.getAttemptNo()
+                    : PullTaskActionAttemptPolicy.protocolAttempt(action);
             return objectMapper.valueToTree(new WirePayload(
                     reference.tenantId(), reference.pullTaskId(), reference.groupExecutionId(),
                     reference.actionId(), actor.getAccountId(), row.getProtocolAccountId(),

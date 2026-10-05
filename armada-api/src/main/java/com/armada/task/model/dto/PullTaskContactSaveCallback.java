@@ -12,7 +12,7 @@ import com.armada.task.model.enums.PullTaskContactSaveOutcome;
  * @param accountId 动作发起账号 ID
  * @param protocolAccountId 协议账号 ID
  * @param commandId Outbox 命令 ID
- * @param attemptNo 尝试序号；联系人动作按需求只提交一次
+ * @param attemptNo 尝试序号；仅明确未执行的暂离线失败可在上线后提交新尝试
  * @param outcome 成功、明确失败或结果未知
  * @param reasonCode 原因码
  * @param reasonMessage 脱敏原因说明

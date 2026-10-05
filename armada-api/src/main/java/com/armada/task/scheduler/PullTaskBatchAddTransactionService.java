@@ -322,11 +322,19 @@ public class PullTaskBatchAddTransactionService {
             return Optional.empty();
         }
         List<PullTaskPullCallMemberAttempt> remaining = bindings.stream()
-                .filter(binding -> !binding.discard()).map(ParticipantBinding::attempt).toList();
-        bindings.stream().filter(ParticipantBinding::discard)
+                .filter(binding -> !discard(binding)).map(ParticipantBinding::attempt).toList();
+        bindings.stream().filter(this::discard)
                 .forEach(binding -> cancelUnsubmittedAttempt(binding, now));
         synchronizePlan(call, remaining, now);
         return Optional.of(new BatchScope(puller, remaining));
+    }
+
+    private boolean discard(ParticipantBinding binding) {
+        PullTaskPullCallMemberAttempt attempt = binding.attempt();
+        return binding.success() || attempt.getAttemptNo() != null && attempt.getAttemptNo() > PullTaskRetryPolicy.MAX_ATTEMPTS
+                && attempt.getAttemptNo() - resources.persistence().attemptMapper().countUnstartedOfflineAttempts(
+                    attempt.getGroupExecutionId(), attempt.getParticipantType(),
+                    attempt.getParticipantRefId(), attempt.getAttemptNo()) > PullTaskRetryPolicy.MAX_ATTEMPTS;
     }
 
     private boolean validUnsubmittedBindings(
@@ -572,11 +580,6 @@ public class PullTaskBatchAddTransactionService {
             return status == (attempt.getParticipantType() == PullTaskParticipantType.MATERIAL.code()
                     ? PullTaskMaterialPullStatus.SUCCESS.code()
                     : PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
-        }
-
-        private boolean discard() {
-            return success() || (attempt.getAttemptNo() != null
-                    && attempt.getAttemptNo() > PullTaskRetryPolicy.MAX_ATTEMPTS);
         }
 
         private boolean matches(long callId) {

@@ -482,6 +482,38 @@ class PullTaskPullCallParticipantResultServiceTest {
                 7L, 21L, 61L, 5_000L));
     }
 
+    @Test
+    void fifthUnstartedOfflineAttemptRemainsPendingWithoutConsumingUnknownRetry() {
+        stubAccountFailure("ACCOUNT_NOT_ONLINE");
+        PullTaskPullCallMemberAttempt attempt = attemptMapper.selectByCallAndTarget(31L, TARGET);
+        attempt.setAttemptNo(5);
+        when(attemptMapper.countUnstartedOfflineAttempts(21L,
+                PullTaskParticipantType.MATERIAL.code(), PARTICIPANT_ID, 5)).thenReturn(5);
+        when(unknownRecovery.hasUsedRetry(attempt)).thenReturn(true);
+
+        assertThat(service.handle(callback(PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.NOT_STARTED, true, "ACCOUNT_NOT_ONLINE"))).isTrue();
+
+        assertThat(capturedAttempt().target().lifecycleStatus())
+                .isEqualTo(PullTaskParticipantAttemptStatus.RELEASED.code());
+        assertThat(capturedAggregate(PullTaskParticipantType.MATERIAL).target().status())
+                .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code());
+        assertThat(capturedAggregate(PullTaskParticipantType.MATERIAL).target().failureCount()).isZero();
+    }
+
+    @Test
+    void temporaryOfflineKeepsRoleAndDoesNotTriggerImmediateUnknownRetry() {
+        stubAccountFailure("ACCOUNT_NOT_ONLINE");
+
+        assertThat(service.handle(callback(
+                PullTaskBatchParticipantProtocolOutcome.UNKNOWN,
+                PullTaskParticipantExecutionState.NOT_STARTED,
+                true, "ACCOUNT_NOT_ONLINE"))).isTrue();
+
+        verify(stickyPullers, never()).invalidateIfCurrent(any(), any(), any(), anyLong());
+        verify(eventPublisher, never()).publishEvent(any(PullTaskPullerUnavailableEvent.class));
+    }
+
     @ParameterizedTest
     @MethodSource("accountRiskReasonCodes")
     void uncertainAccountRiskPreservesFactAndRequeuesMaterialOnAnotherPuller(

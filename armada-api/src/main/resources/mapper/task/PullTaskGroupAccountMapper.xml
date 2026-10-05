@@ -130,6 +130,36 @@
       AND availability_status &lt;&gt; #{removedStatus}
   </update>
 
+  <update id="markTemporarilyOffline">
+    UPDATE pull_task_group_account
+    SET availability_status = #{offlineStatus},
+        unavailable_reason_code = #{reasonCode},
+        updated_at = #{now}
+    WHERE id = #{row.id}
+      AND account_id = #{row.accountId}
+      AND group_execution_id = #{row.groupExecutionId}
+      AND role_type = #{row.roleType}
+      AND released_at IS NULL
+      AND updated_at &lt;= #{now}
+      AND (availability_status = #{availableStatus}
+        OR (availability_status = #{offlineStatus}
+            AND unavailable_reason_code = #{reasonCode}))
+  </update>
+
+  <update id="restoreOccupiedOfflinePuller">
+    UPDATE pull_task_group_account
+    SET availability_status = #{availableStatus},
+        unavailable_reason_code = NULL,
+        updated_at = GREATEST(updated_at, #{now})
+    WHERE id = #{row.id}
+      AND account_id = #{row.accountId}
+      AND group_execution_id = #{row.groupExecutionId}
+      AND role_type = #{row.roleType}
+      AND released_at IS NULL
+      AND availability_status = #{offlineStatus}
+      AND unavailable_reason_code = #{row.unavailableReasonCode}
+  </update>
+
   <select id="selectAccountIdsByAvailability" resultType="java.lang.Long">
     SELECT DISTINCT account_id
     FROM pull_task_group_account
@@ -301,17 +331,8 @@
           AND prior_attempt.active_slot IS NULL
           AND prior_attempt.protocol_outcome = #{normalization.target.protocolOutcome}
           AND (prior_attempt.attempt_no &gt;= #{normalization.retryRule.maxAttempts}
-            OR (#{normalization.target.protocolOutcome} = #{normalization.attemptState.failedOutcome}
-              AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.retryableFailureReason})
-            OR (#{normalization.target.protocolOutcome} = #{normalization.attemptState.unknownOutcome}
-              AND (prior_attempt.lifecycle_status = #{normalization.attemptState.closed}
-                OR (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.notStarted}
-                  AND (COALESCE(prior_attempt.execution_state, '') &lt;&gt; #{normalization.retryRule.uncertain}
-                    OR (COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason}
-                      AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{unknownRetryReason}
-                      AND UPPER(TRIM(COALESCE(prior_attempt.reason_code, ''))) NOT IN
-                      <foreach collection="normalization.retryRule.retryableAccountRiskReasons" item="reasonCode"
-                               open="(" separator="," close=")">#{reasonCode}</foreach>))))))
+              + <include refid="com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper.UnstartedOfflineAttemptCount"><property name="attemptAlias" value="prior_attempt"/></include>
+            <include refid="com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper.HistoricalRetryInvalidReason"/>)
           AND NOT EXISTS (
             SELECT 1 FROM pull_task_pull_call_member_attempt successor
             WHERE successor.group_execution_id = prior_attempt.group_execution_id

@@ -3,6 +3,9 @@ package com.armada.task.service.impl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -66,7 +69,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(puller);
         when(executionMapper.selectById(11L)).thenReturn(direct);
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -93,7 +96,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(puller);
         when(executionMapper.selectById(11L)).thenReturn(direct);
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -125,7 +128,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(puller);
         when(executionMapper.selectById(11L)).thenReturn(direct);
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -153,7 +156,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(puller);
         when(executionMapper.selectById(11L)).thenReturn(direct);
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -196,7 +199,7 @@ class PullTaskManagerJoinResultServiceImplTest {
                 7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
                 "120363group@g.us", null, null, false, 6_000L))).isFalse();
 
-        verify(actionMapper, never()).transitionResult(any());
+        verify(actionMapper, never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         verify(accountMapper, never()).transitionMembership(any());
         verify(executionMapper, never()).transitionManagerJoinResult(any());
         verify(completionService, never()).completeIfTerminalByExecutionId(anyLong(), anyLong());
@@ -219,9 +222,30 @@ class PullTaskManagerJoinResultServiceImplTest {
                 7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
                 "120363group@g.us", null, null, false, 5_000L))).isFalse();
 
-        verify(actionMapper, never()).transitionResult(any());
+        verify(actionMapper, never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         verify(accountMapper, never()).transitionMembership(any());
         verify(executionMapper, never()).transitionManagerJoinResult(any());
+    }
+
+    @Test
+    void replacedCommandAttemptRejectsItsOldResultBeforeMembershipWrite() {
+        PullTaskAccountAction oldAttempt = action();
+        oldAttempt.setAttemptNo(2);
+        when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(oldAttempt);
+        when(accountMapper.selectById(501L)).thenReturn(manager());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        // 模拟查到命令之后、结果 CAS 之前已经提交新尝试，真实 SQL 会按 commandId 拒绝旧结果。
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(),
+                anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(0);
+
+        assertThat(service.apply(new PullTaskManagerJoinCallback(
+                7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
+                "120363group@g.us", null, null, false, 5_000L))).isFalse();
+
+        verify(actionMapper).transitionManagerAdminResult(org.mockito.ArgumentMatchers.eq(601L),
+                org.mockito.ArgumentMatchers.eq("cmd-pull-1"), org.mockito.ArgumentMatchers.eq(2),
+                anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
+        verify(accountMapper, never()).transitionMembership(any());
     }
 
     @Test
@@ -240,9 +264,9 @@ class PullTaskManagerJoinResultServiceImplTest {
                 7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
                 "120363group@g.us", null, null, false, 5_000L))).isFalse();
 
-        ArgumentCaptor<PullTaskFactTransition> action = ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(action.capture());
-        assertThat(action.getValue().expectedStatuses())
+        ArgumentCaptor<java.util.List<Integer>> action = ArgumentCaptor.forClass(java.util.List.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), action.capture(), anyInt(), anyBoolean(), any(), any(), anyLong());
+        assertThat(action.getValue())
                 .doesNotContain(PullTaskActionStatus.PENDING_APPROVAL.code());
         verify(accountMapper, never()).transitionMembership(any());
         verify(executionMapper, never()).transitionManagerJoinResult(any());
@@ -258,7 +282,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         assertThat(service.apply(new PullTaskManagerJoinCallback(
                 7L, 100L, 11L, 601L, "cmd-pull-1", PullTaskManagerJoinProtocolOutcome.JOINED,
                 "120363group@g.us", null, null, false, 5_000L))).isFalse();
-        org.mockito.Mockito.verify(actionMapper, org.mockito.Mockito.never()).transitionResult(any());
+        org.mockito.Mockito.verify(actionMapper, org.mockito.Mockito.never()).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong());
         org.mockito.Mockito.verify(executionMapper, org.mockito.Mockito.never()).transitionManagerJoinResult(any());
     }
 
@@ -267,7 +291,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -277,10 +301,10 @@ class PullTaskManagerJoinResultServiceImplTest {
                 "120363group@g.us", null, null, false, 5_000L));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> actionTransition =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(actionTransition.capture());
-        assertThat(actionTransition.getValue().targetStatus())
+        ArgumentCaptor<Integer> actionTransition = ArgumentCaptor.forClass(Integer.class);
+        ArgumentCaptor<String> actionReason = ArgumentCaptor.forClass(String.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), actionTransition.capture(), anyBoolean(), any(), actionReason.capture(), anyLong());
+        assertThat(actionTransition.getValue())
                 .isEqualTo(PullTaskActionStatus.SUCCESS.code());
         ArgumentCaptor<PullTaskFactTransition> membershipTransition =
                 ArgumentCaptor.forClass(PullTaskFactTransition.class);
@@ -305,7 +329,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
 
@@ -335,10 +359,10 @@ class PullTaskManagerJoinResultServiceImplTest {
                 "120363group@g.us", "JOIN_PENDING_APPROVAL", "raw protocol text", false, 5_000L));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> actionTransition =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(actionTransition.capture());
-        assertThat(actionTransition.getValue().targetStatus())
+        ArgumentCaptor<Integer> actionTransition = ArgumentCaptor.forClass(Integer.class);
+        ArgumentCaptor<String> actionReason = ArgumentCaptor.forClass(String.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), actionTransition.capture(), anyBoolean(), any(), actionReason.capture(), anyLong());
+        assertThat(actionTransition.getValue())
                 .isEqualTo(PullTaskActionStatus.PENDING_APPROVAL.code());
         ArgumentCaptor<PullTaskFactTransition> membershipTransition =
                 ArgumentCaptor.forClass(PullTaskFactTransition.class);
@@ -400,12 +424,12 @@ class PullTaskManagerJoinResultServiceImplTest {
                 null, "RATE_LIMITED", "raw protocol text", true, 5_000L));
 
         assertThat(handled).isTrue();
-        ArgumentCaptor<PullTaskFactTransition> actionTransition =
-                ArgumentCaptor.forClass(PullTaskFactTransition.class);
-        verify(actionMapper).transitionResult(actionTransition.capture());
-        assertThat(actionTransition.getValue().targetStatus())
+        ArgumentCaptor<Integer> actionTransition = ArgumentCaptor.forClass(Integer.class);
+        ArgumentCaptor<String> actionReason = ArgumentCaptor.forClass(String.class);
+        verify(actionMapper).transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), actionTransition.capture(), anyBoolean(), any(), actionReason.capture(), anyLong());
+        assertThat(actionTransition.getValue())
                 .isEqualTo(PullTaskActionStatus.UNKNOWN.code());
-        assertThat(actionTransition.getValue().result().reasonMessage())
+        assertThat(actionReason.getValue())
                 .isEqualTo("进群请求被限流，请稍后重试");
         ArgumentCaptor<PullTaskManagerJoinResultTransition> executionTransition =
                 ArgumentCaptor.forClass(PullTaskManagerJoinResultTransition.class);
@@ -443,7 +467,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(0);
 
         PullTaskManagerJoinCallback callback = new PullTaskManagerJoinCallback(
@@ -463,7 +487,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         // 调度器正持有执行行租约时 lock_owner 不为空，CAS 必然落空。
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(0);
@@ -493,7 +517,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action);
         when(accountMapper.selectById(502L)).thenReturn(puller);
         when(executionMapper.selectById(11L)).thenReturn(execution);
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionProtocolResult(any())).thenReturn(1);
 
@@ -531,7 +555,7 @@ class PullTaskManagerJoinResultServiceImplTest {
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action());
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
-        when(actionMapper.transitionResult(any())).thenReturn(1);
+        when(actionMapper.transitionManagerAdminResult(anyLong(), any(), anyInt(), anyList(), anyInt(), anyBoolean(), any(), any(), anyLong())).thenReturn(1);
         when(accountMapper.transitionMembership(any())).thenReturn(1);
         when(executionMapper.transitionManagerJoinResult(any())).thenReturn(1);
     }

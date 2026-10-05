@@ -35,10 +35,12 @@ class PullTaskGroupJoinPayloadHydratorTest {
         TenantContext.clear();
     }
 
-    @Test
-    void hydratesActionAndAccountWithLatestInviteCodeWithoutLeakingTenantContext() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {1, 2})
+    void hydratesActionAndAccountWithLatestInviteCodeWithoutLeakingTenantContext(int attemptNo) throws Exception {
         ProtocolCommandOutbox row = outbox();
         PullTaskAccountAction action = action();
+        action.setAttemptNo(attemptNo);
         PullTaskGroupAccount manager = manager();
         PullTaskGroupExecution execution = execution();
         when(actionMapper.selectByCommandId("cmd-pull-1")).thenReturn(action);
@@ -59,7 +61,7 @@ class PullTaskGroupJoinPayloadHydratorTest {
         assertThat(payload.get("wsPhone").asText()).isEqualTo("8613800000901");
         assertThat(payload.get("protocolBackend").asText()).isEqualTo("WEB");
         assertThat(payload.get("inviteCode").asText()).isEqualTo("LatestInviteCode123456");
-        assertThat(payload.get("attemptNo").asInt()).isEqualTo(1);
+        assertThat(payload.get("attemptNo").asInt()).isEqualTo(attemptNo);
         assertThat(payload.get("source").asText()).isEqualTo("pull_task_manager_join");
         assertThat(TenantContext.get()).isNull();
     }

@@ -243,6 +243,69 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
     }
 
     @Test
+    void pullerRecoveryDoesNotRestoreHardFailuresOrOtherExecutionHistory() throws SQLException {
+        waitAt(PullTaskExecutionStage.PULL_EXECUTION,
+                PullTaskWaitResourceType.PULLER, "等待可用拉手");
+        PullTaskGroupAccount history = puller();
+        history.setGroupExecutionId(999L);
+        accountMapper.insert(history);
+        accountMapper.markUnavailable(history.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                "ACCOUNT_NOT_ONLINE", null, 500L);
+        accountMapper.releasePuller(history.getId(), 501L);
+        PullTaskGroupAccount assigned = puller();
+        accountMapper.insert(assigned);
+        accountMapper.markUnavailable(assigned.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                "NEED_REAUTH", null, 520L);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(PULLER));
+
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectById(assigned.getId()).getUnavailableReasonCode()).isEqualTo("NEED_REAUTH");
+        assertThat(accountMapper.selectById(history.getId()).getUnavailableReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
+        assertThat(accountMapper.selectById(history.getId()).getReleasedAt()).isEqualTo(501L);
+    }
+
+    @Test
+    void waitingForConcurrencyKeepsTheRecoveredPullerLease() throws SQLException {
+        waitAt(PullTaskExecutionStage.PULL_EXECUTION,
+                PullTaskWaitResourceType.PULLER, "等待拉手上线");
+        PullTaskGroupAccount assigned = puller();
+        accountMapper.insert(assigned);
+        accountMapper.updateMembership(assigned.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 510L, 510L);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(PULLER));
+        execute("UPDATE pull_task_standard_setting SET concurrent_group_count=0 WHERE task_id=100");
+
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectById(assigned.getId()).getReleasedAt()).isNull();
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isEqualTo("EXECUTION_SLOT_UNAVAILABLE");
+    }
+
+    @Test
+    void waitingForAssignedOfflinePullerDoesNotWakeForAnUnassignedOnlineCandidate() throws SQLException {
+        waitAt(PullTaskExecutionStage.MANAGER_PULLER_CONTACT,
+                PullTaskWaitResourceType.PULLER, "等待已分配拉手上线");
+        execute("UPDATE pull_task_standard_setting SET puller_count_per_group=1 WHERE task_id=100");
+        PullTaskGroupAccount assigned = puller();
+        accountMapper.insert(assigned);
+        accountMapper.markUnavailable(assigned.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                "ACCOUNT_NOT_ONLINE", null, 520L);
+        when(accountLookup.findOnlineEligiblePullersByGroupId(89L)).thenReturn(List.of(account(904L)));
+
+        assertThat(service.recover(claim("worker-1", 600L), "worker-1", 600L, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectById(assigned.getId()).getReleasedAt()).isNull();
+        assertThat(executionMapper.selectById(executionId).getReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
+    }
+
+    @Test
     void oneValidatedPullerRestoresOfflineFactAndReleasedLease() throws SQLException {
         waitAt(PullTaskExecutionStage.PULL_EXECUTION,
                 PullTaskWaitResourceType.PULLER, "当前没有可用拉手");

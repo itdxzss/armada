@@ -10,6 +10,68 @@
     reason_code, reason_message, submitted_at, result_at, released_at, created_at, updated_at
   </sql>
 
+  <!-- alias 仅由固定 include property 提供；未知是否已开始绝不能从离线原因推断。 -->
+  <sql id="UnstartedOfflinePredicate">
+    <bind name="temporaryOfflineReasons" value="@com.armada.task.model.PullTaskPullerSlotPolicy@temporaryOfflineReasons()"/>
+    COALESCE(${offlineAlias}.protocol_outcome, '') = 'UNKNOWN'
+    AND COALESCE(${offlineAlias}.execution_state, '') = 'NOT_STARTED'
+    AND COALESCE(${offlineAlias}.reason_code, '') IN
+    <foreach collection="temporaryOfflineReasons" item="offlineReason" open="(" separator="," close=")">#{offlineReason}</foreach>
+  </sql>
+
+  <!-- 保留单调 attempt_no 作为回执身份，只从业务预算扣除同租户同目标的未执行离线。 -->
+  <sql id="UnstartedOfflineAttemptCount">
+    (
+      SELECT COUNT(*) FROM pull_task_pull_call_member_attempt offline_attempt
+      WHERE offline_attempt.tenant_id = ${attemptAlias}.tenant_id
+        AND offline_attempt.group_execution_id = ${attemptAlias}.group_execution_id
+        AND offline_attempt.participant_type = ${attemptAlias}.participant_type
+        AND offline_attempt.participant_ref_id = ${attemptAlias}.participant_ref_id
+        AND offline_attempt.attempt_no &lt;= ${attemptAlias}.attempt_no
+        AND <include refid="com.armada.task.mapper.PullTaskPullCallMemberAttemptMapper.UnstartedOfflinePredicate"><property name="offlineAlias" value="offline_attempt"/></include>
+    )
+  </sql>
+
+  <!-- 提前裁掉结果类型常量分支并展开布尔条件，避免租户 SQL 解析器在深层括号中回溯。 -->
+  <sql id="HistoricalRetryInvalidReason">
+    <choose>
+      <when test="normalization.target.protocolOutcome == normalization.attemptState.failedOutcome">
+        OR COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.retryableFailureReason}
+      </when>
+      <when test="normalization.target.protocolOutcome == normalization.attemptState.unknownOutcome">
+        OR prior_attempt.lifecycle_status = #{normalization.attemptState.closed}
+        OR COALESCE(prior_attempt.execution_state, '') NOT IN
+          (#{normalization.retryRule.notStarted}, #{normalization.retryRule.uncertain})
+        OR (prior_attempt.execution_state = #{normalization.retryRule.uncertain}
+          AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{normalization.retryRule.confirmedAbsenceReason}
+          AND COALESCE(prior_attempt.reason_code, '') &lt;&gt; #{unknownRetryReason}
+          AND UPPER(TRIM(COALESCE(prior_attempt.reason_code, ''))) NOT IN
+          <foreach collection="normalization.retryRule.retryableAccountRiskReasons" item="reasonCode"
+                   open="(" separator="," close=")">#{reasonCode}</foreach>)
+      </when>
+    </choose>
+  </sql>
+
+  <select id="countUnstartedOfflineAttempts" resultType="java.lang.Integer">
+    SELECT COUNT(*) FROM pull_task_pull_call_member_attempt offline_attempt
+    WHERE offline_attempt.group_execution_id = #{groupExecutionId}
+      AND offline_attempt.participant_type = #{participantType}
+      AND offline_attempt.participant_ref_id = #{participantRefId}
+      AND offline_attempt.attempt_no &lt;= #{throughAttemptNo}
+      AND <include refid="UnstartedOfflinePredicate"><property name="offlineAlias" value="offline_attempt"/></include>
+  </select>
+
+  <select id="hasUnstartedOfflineRetry" resultType="boolean">
+    SELECT CASE WHEN EXISTS(SELECT 1 FROM pull_task_pull_call_member_attempt offline_attempt
+      WHERE offline_attempt.pull_wave_id = #{pullWaveId} AND offline_attempt.lifecycle_status = 4
+        AND <include refid="UnstartedOfflinePredicate"><property name="offlineAlias" value="offline_attempt"/></include>)
+      AND NOT EXISTS(SELECT 1 FROM pull_task_pull_call_member_attempt other_attempt
+        WHERE other_attempt.pull_wave_id = #{pullWaveId}
+          AND other_attempt.protocol_outcome IN ('FAILED', 'UNKNOWN')
+          AND NOT (<include refid="UnstartedOfflinePredicate"><property name="offlineAlias" value="other_attempt"/></include>))
+      THEN 1 ELSE 0 END
+  </select>
+
   <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO pull_task_pull_call_member_attempt (
       task_id, group_execution_id, pull_call_id, pull_wave_id,
@@ -147,6 +209,7 @@
      AND station_row.group_execution_id = attempt_row.group_execution_id
     WHERE attempt_row.pull_wave_id = #{pullWaveId}
       AND attempt_row.attempt_no &lt; #{maxAttemptCount}
+        + <include refid="UnstartedOfflineAttemptCount"><property name="attemptAlias" value="attempt_row"/></include>
       AND attempt_row.active_slot IS NULL
       AND CASE
             WHEN attempt_row.participant_type = 1 THEN material_row.pull_failure_count
@@ -164,7 +227,8 @@
           AND successor.participant_ref_id = attempt_row.participant_ref_id
           AND (successor.attempt_no &gt; attempt_row.attempt_no OR successor.active_slot = 1)
       )
-      AND NOT EXISTS (
+      AND (<include refid="UnstartedOfflinePredicate"><property name="offlineAlias" value="attempt_row"/></include>
+        OR NOT EXISTS (
         SELECT 1 FROM pull_task_pull_call_member_attempt consumed
         WHERE consumed.tenant_id = attempt_row.tenant_id
           AND consumed.group_execution_id = attempt_row.group_execution_id
@@ -172,7 +236,7 @@
           AND consumed.participant_ref_id = attempt_row.participant_ref_id
           AND consumed.attempt_no &lt; attempt_row.attempt_no
           AND consumed.reason_code = #{unknownRetryReason}
-      )
+      ))
       AND ((attempt_row.lifecycle_status = 3
             AND attempt_row.protocol_outcome = 'FAILED'
             AND attempt_row.reason_code IN

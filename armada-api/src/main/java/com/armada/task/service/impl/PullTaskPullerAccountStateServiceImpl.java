@@ -3,11 +3,15 @@ package com.armada.task.service.impl;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
+import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.dto.PullTaskPullerUnavailableEvent;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskStandardStatus;
+import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
 import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
 import com.armada.task.service.PullTaskPullerAccountStateService;
 import java.util.List;
@@ -24,26 +28,30 @@ public class PullTaskPullerAccountStateServiceImpl
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskStickyPullerTransactionService stickyPullers;
     private final ApplicationEventPublisher eventPublisher;
+    private final PullTaskExecutionDispatchTrigger dispatchTrigger;
 
     /**
      * @param accountMapper 任务角色账号 Mapper
      * @param executionMapper 群执行行 Mapper
      * @param stickyPullers 粘性拉手事务服务
      * @param eventPublisher 事务后名单核实事件发布器
+     * @param dispatchTrigger 提交后调度唤醒器
      */
     public PullTaskPullerAccountStateServiceImpl(
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskStickyPullerTransactionService stickyPullers,
-            ApplicationEventPublisher eventPublisher) {
+            ApplicationEventPublisher eventPublisher,
+            PullTaskExecutionDispatchTrigger dispatchTrigger) {
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.stickyPullers = stickyPullers;
         this.eventPublisher = eventPublisher;
+        this.dispatchTrigger = dispatchTrigger;
     }
 
     /**
-     * 保留历史拉手行，只更新任务内可用性并清除仍匹配的当前粘性拉手。
+     * 保留历史拉手行和临时离线账号占用；仅封禁、解绑终态清除当前粘性拉手。
      *
      * @param tenantId 账号所属租户
      * @param accountId Armada 账号 ID
@@ -75,11 +83,14 @@ public class PullTaskPullerAccountStateServiceImpl
             PullTaskGroupAccount puller,
             Unavailability unavailability,
             long occurredAt) {
-        int availability = unavailability.removed()
-                ? PullTaskGroupAccountAvailability.REMOVED.code()
-                : PullTaskGroupAccountAvailability.OFFLINE.code();
+        if (unavailability == Unavailability.OFFLINE) {
+            accountMapper.markTemporarilyOffline(puller, occurredAt,
+                    PullTaskGroupAccountAvailability.AVAILABLE.code(),
+                    PullTaskGroupAccountAvailability.OFFLINE.code(), unavailability.reasonCode());
+            return;
+        }
         if (accountMapper.markUnavailable(
-                puller.getId(), availability,
+                puller.getId(), PullTaskGroupAccountAvailability.REMOVED.code(),
                 unavailability.reasonCode(), null, occurredAt) != 1) {
             throw new IllegalStateException("账号状态事件更新拉手可用性失败");
         }
@@ -92,6 +103,38 @@ public class PullTaskPullerAccountStateServiceImpl
                 execution, puller, unavailability.reasonCode(), occurredAt);
         eventPublisher.publishEvent(new PullTaskPullerUnavailableEvent(
                 execution.getTenantId(), execution.getId(), puller.getId(), occurredAt));
+    }
+
+    /** 恢复原角色并只提前因离线产生的资源检查，不改变业务计划和在途请求。 */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void markOnline(long tenantId, long accountId, long occurredAt) {
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(tenantId);
+        try {
+            boolean wake = false;
+            for (PullTaskGroupAccount puller : accountMapper.selectOccupiedByAccountAndRole(
+                    accountId, PullTaskGroupAccountRole.PULLER.code())) {
+                if (!PullTaskPullerSlotPolicy.waitingForOnline(puller)) {
+                    continue;
+                }
+                int restored = accountMapper.restoreOccupiedOfflinePuller(puller, occurredAt,
+                        PullTaskGroupAccountAvailability.OFFLINE.code(),
+                        PullTaskGroupAccountAvailability.AVAILABLE.code());
+                if (restored == 1) {
+                    wake |= executionMapper.wakeForOnlinePuller(puller, occurredAt,
+                            List.of(PullTaskExecutionStatus.EXECUTING.code(),
+                                    PullTaskExecutionStatus.WAIT_RESOURCE.code()),
+                            PullTaskStandardStatus.EXECUTING.name(),
+                            Unavailability.OFFLINE.reasonCode()) == 1;
+                }
+            }
+            if (wake) {
+                dispatchTrigger.dispatchAfterCommit();
+            }
+        } finally {
+            restoreTenant(previousTenant);
+        }
     }
 
     private static void restoreTenant(Long previousTenant) {

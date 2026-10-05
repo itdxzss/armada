@@ -92,6 +92,7 @@ public class PullTaskPullerInviteTransactionService {
                 resources.pullerAllocation().allocateDirectPullers(candidate, now);
             }
             List<PullTaskGroupAccount> pullers = availablePullers(candidate.getId());
+            Map<Long, ProtocolAccountRef> onlinePullers = onlinePullerRefs(pullers, now);
             boolean unresolvedDirectJoin = directEntry(candidate) && linkActions.stream().anyMatch(action ->
                     Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUBMITTED.code())
                             || Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code()));
@@ -99,20 +100,18 @@ public class PullTaskPullerInviteTransactionService {
                 return deferLinkSubmitted(candidate, linkActions, pullers, now);
             }
             PullerSelection linkSelection = nextLinkPuller(
-                    pullers, linkActions, candidate.getNextPullerIndex());
+                    pullers.stream().filter(row -> onlinePullers.containsKey(row.getAccountId())).toList(),
+                    linkActions, candidate.getNextPullerIndex());
             if (linkSelection != null) {
-                ProtocolAccountRef pullerRef = activePullerRef(linkSelection.puller());
-                if (pullerRef == null) {
-                    if (unresolvedDirectJoin) {
-                        return deferLinkSubmitted(candidate, linkActions, pullers, now);
-                    }
-                    return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
-                            PullTaskExecutionReasonCode.PULLER_UNAVAILABLE, now);
-                }
-                return submitLink(candidate, linkSelection, pullerRef, now);
+                return submitLink(candidate, linkSelection,
+                        onlinePullers.get(linkSelection.puller().getAccountId()), now);
             }
             if (unresolvedDirectJoin) {
                 return deferLinkSubmitted(candidate, linkActions, pullers, now);
+            }
+            if (nextLinkPuller(pullers, linkActions, candidate.getNextPullerIndex()) != null) {
+                return waitForResource(candidate, PullTaskWaitResourceType.PULLER,
+                        PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE, now);
             }
             boolean hasManagerInvitePuller = pullers.stream()
                     .anyMatch(PullTaskPullerInviteTransactionService::requiresManagerInvite);
@@ -191,14 +190,18 @@ public class PullTaskPullerInviteTransactionService {
                 actions, pool.managers(), candidate.getNextManagerIndex());
         PullTaskGroupAccount manager = pool.managers().get(managerIndex);
         PullTaskGroupAccount target = selection.puller();
-        PullTaskAccountAction action = insertAction(candidate, manager.getId(), target.getId(), now);
+        PullTaskAccountAction action = actions.stream()
+                .filter(row -> Objects.equals(row.getActorGroupAccountId(), manager.getId()))
+                .filter(row -> Objects.equals(row.getTargetGroupAccountId(), target.getId()))
+                .filter(PullTaskPullerInviteTransactionService::submittable)
+                .findFirst().orElseGet(() -> insertAction(candidate, manager.getId(), target.getId(), now));
         ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
                 .enqueuePullTaskPullerInviteCommands(List.of(
                         new ProtocolPullTaskPullerInviteCommandRequest(
                                 candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
                                 action.getId(), pool.refs().get(manager.getAccountId()))));
         String commandId = singleCommandId(enqueued);
-        if (actionMapper.markSubmitted(action.getId(), commandId, now) != 1
+        if (actionMapper.submitAttempt(action.getId(), List.of(action.getActionStatus()), commandId, now) != 1
                 || groupAccountMapper.updateMembership(target.getId(),
                 PullTaskGroupAccountMembershipStatus.JOINING.code(), null, now) != 1) {
             throw new IllegalStateException("拉手邀请提交状态已变化");
@@ -225,7 +228,7 @@ public class PullTaskPullerInviteTransactionService {
         PullTaskGroupAccount target = selection.puller();
         PullTaskAccountAction action = linkActions(candidate.getId()).stream()
                 .filter(row -> Objects.equals(row.getTargetGroupAccountId(), target.getId()))
-                .filter(row -> Objects.equals(row.getActionStatus(), PullTaskActionStatus.PENDING.code()))
+                .filter(PullTaskPullerInviteTransactionService::submittable)
                 .findFirst().orElseGet(() -> insertLinkAction(candidate, target.getId(), now));
         ProtocolCommandOutboxEnqueueResult enqueued = resources.outboxService()
                 .enqueuePullTaskGroupJoinCommands(List.of(
@@ -233,7 +236,7 @@ public class PullTaskPullerInviteTransactionService {
                                 candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
                                 action.getId(), account)));
         String commandId = singleCommandId(enqueued);
-        if (actionMapper.markSubmitted(action.getId(), commandId, now) != 1
+        if (actionMapper.submitAttempt(action.getId(), List.of(action.getActionStatus()), commandId, now) != 1
                 || groupAccountMapper.updateMembership(target.getId(),
                 PullTaskGroupAccountMembershipStatus.JOINING.code(), null, now) != 1) {
             throw new IllegalStateException("拉手踩链接提交状态已变化");
@@ -272,6 +275,7 @@ public class PullTaskPullerInviteTransactionService {
         row.setActionType(PullTaskAccountActionType.INVITE_TO_GROUP.code());
         row.setActorGroupAccountId(managerId);
         row.setTargetGroupAccountId(pullerId);
+        row.setActionStatus(PullTaskActionStatus.PENDING.code());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         if (actionMapper.insertIfAbsent(row) != 1 || row.getId() == null) {
@@ -290,6 +294,7 @@ public class PullTaskPullerInviteTransactionService {
         row.setActionType(PullTaskAccountActionType.JOIN_BY_LINK.code());
         row.setActorGroupAccountId(pullerId);
         row.setTargetGroupAccountId(pullerId);
+        row.setActionStatus(PullTaskActionStatus.PENDING.code());
         row.setCreatedAt(now);
         row.setUpdatedAt(now);
         if (actionMapper.insertIfAbsent(row) != 1 || row.getId() == null) {
@@ -298,13 +303,19 @@ public class PullTaskPullerInviteTransactionService {
         return row;
     }
 
-    private ProtocolAccountRef activePullerRef(PullTaskGroupAccount puller) {
-        return resources.accountLookup().findActiveProtocolRefs(List.of(puller.getAccountId()))
-                .stream()
-                .filter(Objects::nonNull)
-                .filter(ref -> Objects.equals(ref.armadaAccountId(), puller.getAccountId()))
-                .findFirst()
-                .orElse(null);
+    private Map<Long, ProtocolAccountRef> onlinePullerRefs(List<PullTaskGroupAccount> pullers, long now) {
+        Map<Long, ProtocolAccountRef> refs = new HashMap<>();
+        resources.accountLookup().findOnlineProtocolRefs(
+                        pullers.stream().map(PullTaskGroupAccount::getAccountId).toList()).stream()
+                .filter(Objects::nonNull).forEach(ref -> refs.put(ref.armadaAccountId(), ref));
+        for (PullTaskGroupAccount row : pullers) {
+            if (!refs.containsKey(row.getAccountId())) {
+                groupAccountMapper.markTemporarilyOffline(row, now,
+                        PullTaskGroupAccountAvailability.AVAILABLE.code(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                        PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name());
+            }
+        }
+        return refs;
     }
 
     private PullTaskExecutionDispatchResult deferSubmitted(
@@ -390,6 +401,7 @@ public class PullTaskPullerInviteTransactionService {
             List<PullTaskGroupAccount> failedPullers = pullers.stream()
                     .filter(row -> Objects.equals(row.getMembershipStatus(),
                             PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code()))
+                    .filter(row -> !PullTaskPullerSlotPolicy.isTemporaryOfflineReason(row.getMembershipReasonCode()))
                     .filter(row -> row.getReleasedAt() == null)
                     .toList();
             for (PullTaskGroupAccount row : failedPullers) {
@@ -439,6 +451,11 @@ public class PullTaskPullerInviteTransactionService {
         update.setExecutionStatus(PullTaskExecutionStatus.WAIT_RESOURCE.code());
         update.setStage(candidate.getStage());
         update.setWaitResourceType(resourceType.code());
+        if (resourceType == PullTaskWaitResourceType.PULLER
+                && groupAccountMapper.selectByExecutionAndRole(candidate.getId(),
+                PullTaskGroupAccountRole.PULLER.code()).stream().anyMatch(PullTaskPullerSlotPolicy::waitingForOnline)) {
+            reason = PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE;
+        }
         update.setReasonCode(reason.name());
         update.setReasonMessage(waitMessage(candidate.getId(), resourceType, reason));
         update.setLastBusinessExecutedAt(null);
@@ -446,7 +463,9 @@ public class PullTaskPullerInviteTransactionService {
                 update, candidate.getStage()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
-        groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+        if (resourceType != PullTaskWaitResourceType.PULLER) {
+            groupAccountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
+        }
         return PullTaskExecutionDispatchResult.DEFERRED;
     }
 
@@ -487,7 +506,7 @@ public class PullTaskPullerInviteTransactionService {
         }
         Set<Long> attemptedIds = new HashSet<>();
         actions.stream()
-                .filter(action -> !Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING.code()))
+                .filter(action -> !submittable(action))
                 .map(PullTaskAccountAction::getTargetGroupAccountId)
                 .forEach(attemptedIds::add);
         int start = Math.floorMod(storedIndex == null ? 0 : storedIndex, pullers.size());
@@ -506,7 +525,7 @@ public class PullTaskPullerInviteTransactionService {
             List<PullTaskAccountAction> actions,
             Integer storedIndex) {
         Set<Long> invitedIds = new HashSet<>();
-        actions.stream().map(PullTaskAccountAction::getTargetGroupAccountId)
+        actions.stream().filter(action -> !submittable(action)).map(PullTaskAccountAction::getTargetGroupAccountId)
                 .forEach(invitedIds::add);
         int start = Math.floorMod(storedIndex == null ? 0 : storedIndex, pullers.size());
         for (int offset = 0; offset < pullers.size(); offset++) {
@@ -541,6 +560,12 @@ public class PullTaskPullerInviteTransactionService {
                 PullTaskGroupAccountMembershipStatus.IN_GROUP.code())
                 && !Objects.equals(row.getEntryMode(),
                 PullTaskAccountEntryMode.JOIN_BY_LINK.code());
+    }
+
+    private static boolean submittable(PullTaskAccountAction action) {
+        return Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING.code())
+                || Objects.equals(action.getActionStatus(), PullTaskActionStatus.FAILED.code())
+                && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(action.getReasonCode());
     }
 
     private static boolean requiresLinkJoin(PullTaskGroupAccount row) {

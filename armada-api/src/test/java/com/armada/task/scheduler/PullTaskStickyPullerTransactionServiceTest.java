@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyList;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.boot.config.MyBatisConfig;
@@ -82,6 +83,7 @@ class PullTaskStickyPullerTransactionServiceTest {
                 + ", 'worker-1', 10000, 6, 100, 100)");
         pullerA = insertPuller(PULLER_A_ACCOUNT_ID, 1);
         pullerB = insertPuller(PULLER_B_ACCOUNT_ID, 2);
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(protocolA(), protocolB()));
     }
 
     @AfterEach
@@ -184,7 +186,22 @@ class PullTaskStickyPullerTransactionServiceTest {
     }
 
     @Test
-    void noReplacementClearsCurrentAssignmentAndReturnsWaitResource() {
+    void ineligibleOnlineAndMissingAccountsAreNotTreatedAsTemporaryOffline() {
+        when(accountLookup.findActiveProtocolRefs(anyList())).thenReturn(List.of(protocolA()));
+        when(accountLookup.findOnlineProtocolRefs(anyList())).thenReturn(List.of(protocolA()));
+        when(accountLookup.findEligiblePullerProtocolRefs(anyList())).thenReturn(List.of());
+
+        assertThat(service.bindForDispatch(execution(), createCall(1), "worker-1", 2_000L).ready())
+                .isFalse();
+
+        assertThat(execution().getReasonCode()).isEqualTo("PULLER_UNAVAILABLE");
+        assertThat(groupAccountMapper.selectByExecutionAndRole(
+                EXECUTION_ID, PullTaskGroupAccountRole.PULLER.code()))
+                .allSatisfy(row -> assertThat(row.getUnavailableReasonCode()).isNull());
+    }
+
+    @Test
+    void allPullersTemporarilyOfflineKeepAssignmentAndOccupancyUntilOnline() {
         when(accountLookup.findEligiblePullerProtocolRefs(List.of(
                 PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
                 .thenReturn(List.of(protocolA(), protocolB()), List.of());
@@ -196,12 +213,36 @@ class PullTaskStickyPullerTransactionServiceTest {
         assertThat(selected.ready()).isFalse();
         assertThat(selected.result()).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         PullTaskGroupExecution saved = execution();
-        assertThat(saved.getActivePullerGroupAccountId()).isNull();
+        assertThat(saved.getActivePullerGroupAccountId()).isEqualTo(pullerA.getId());
         assertThat(saved.getPullerAssignmentSeq()).isEqualTo(1L);
         assertThat(saved.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.WAIT_RESOURCE.code());
+        assertThat(saved.getReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
         assertThat(groupAccountMapper.selectByExecutionAndRole(
                 EXECUTION_ID, PullTaskGroupAccountRole.PULLER.code()))
-                .allSatisfy(row -> assertThat(row.getReleasedAt()).isNull());
+                .allSatisfy(row -> {
+                    assertThat(row.getReleasedAt()).isNull();
+                    assertThat(row.getAvailabilityStatus())
+                            .isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+                });
+    }
+
+    @Test
+    void temporaryOfflineDoesNotInvalidateSubmittedCallOrStickyGeneration() {
+        when(accountLookup.findEligiblePullerProtocolRefs(List.of(
+                PULLER_A_ACCOUNT_ID, PULLER_B_ACCOUNT_ID)))
+                .thenReturn(List.of(protocolA(), protocolB()));
+        service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
+        PullTaskPullCall submitted = call(1);
+        callMapper.markSubmitted(submitted.getId(), "cmd-in-flight", 1_100L);
+
+        assertThat(service.invalidateIfCurrent(
+                execution(), submitted, "ACCOUNT_NOT_ONLINE", 1_200L)).isFalse();
+        assertThat(service.invalidateCurrentRole(
+                execution(), pullerA, "ACCOUNT_NOT_ONLINE", 1_200L)).isFalse();
+
+        assertExecution(pullerA.getId(), 1L, 2);
+        assertThat(call(1).getCommandId()).isEqualTo("cmd-in-flight");
+        assertThat(call(1).getCallStatus()).isEqualTo(PullTaskPullCallStatus.SUBMITTED.code());
     }
 
     @Test
@@ -214,7 +255,7 @@ class PullTaskStickyPullerTransactionServiceTest {
         PullTaskPullCall boundFirst = call(1);
 
         assertThat(service.invalidateIfCurrent(
-                execution(), boundFirst, "ACCOUNT_NOT_ONLINE", 1_500L)).isTrue();
+                execution(), boundFirst, "RATE_LIMITED", 1_500L)).isTrue();
         assertExecution(null, 1L, 2);
 
         PullTaskStickyPullerSelection replacement = service.bindForDispatch(
@@ -260,7 +301,7 @@ class PullTaskStickyPullerTransactionServiceTest {
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
         PullTaskPullCall oldA = call(1);
-        service.invalidateIfCurrent(execution(), oldA, "ACCOUNT_NOT_ONLINE", 1_100L);
+        service.invalidateIfCurrent(execution(), oldA, "RATE_LIMITED", 1_100L);
         service.bindForDispatch(execution(), createCall(2), "worker-1", 1_200L);
 
         assertThat(service.invalidateIfCurrent(
@@ -275,14 +316,14 @@ class PullTaskStickyPullerTransactionServiceTest {
                 .thenReturn(List.of(protocolA(), protocolB()));
         service.bindForDispatch(execution(), createCall(1), "worker-1", 1_000L);
         PullTaskPullCall firstA = call(1);
-        service.invalidateIfCurrent(execution(), firstA, "ACCOUNT_NOT_ONLINE", 1_100L);
+        service.invalidateIfCurrent(execution(), firstA, "RATE_LIMITED", 1_100L);
         service.bindForDispatch(execution(), createCall(2), "worker-1", 1_200L);
         PullTaskPullCall callB = call(2);
         service.invalidateIfCurrent(execution(), callB, "RATE_LIMITED", 1_300L);
         service.bindForDispatch(execution(), createCall(3), "worker-1", 1_400L);
 
         assertThat(service.invalidateIfCurrent(
-                execution(), firstA, "ACCOUNT_NOT_ONLINE", 1_500L)).isFalse();
+                execution(), firstA, "RATE_LIMITED", 1_500L)).isFalse();
         assertExecution(pullerA.getId(), 3L, 2);
     }
 

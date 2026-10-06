@@ -616,7 +616,8 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   source="${root}/source"
   destination="${root}/destination"
   mkdir -p "${source}/cmd/server" "${source}/deploy/configs" \
-    "${destination}/cmd/server" "${destination}/deploy/configs" "${destination}/logs"
+    "${destination}/cmd/server" "${destination}/deploy/configs" \
+    "${destination}/deploy/isolated" "${destination}/logs"
   printf 'package main\n' >"${source}/main.go"
   printf 'current server source\n' >"${source}/cmd/server/main.go"
   printf 'root build artifact\n' >"${source}/server"
@@ -626,6 +627,7 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   printf 'root-env-local\n' >"${destination}/.env.local"
   printf 'deploy-env\n' >"${destination}/deploy/.env"
   printf 'prod-config\n' >"${destination}/deploy/configs/prod_configs.toml"
+  printf 'isolated-runtime\n' >"${destination}/deploy/isolated/runtime.env"
   printf 'private-key\n' >"${destination}/private.key"
   printf 'archive\n' >"${destination}/release.tar.gz"
   printf 'compressed-dump\n' >"${destination}/backup.sql.gz"
@@ -654,6 +656,7 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
     --exclude=deploy/logs/ \
     --exclude=deploy/callback-logs/ \
     --exclude=logs/ \
+    --exclude=/deploy/isolated/ \
     --exclude='/.env' \
     --exclude='/.env.*' \
     --exclude='configs/*.toml' \
@@ -680,6 +683,7 @@ test_zhuan_rsync_filters_preserve_runtime_files_and_modes() {
   [ -f "${destination}/.env.local" ] || fail "expected root .env variant to be preserved"
   [ -f "${destination}/deploy/.env" ] || fail "expected deploy .env to be preserved"
   [ -f "${destination}/deploy/configs/prod_configs.toml" ] || fail "expected production config to be preserved"
+  [ -f "${destination}/deploy/isolated/runtime.env" ] || fail "expected isolated runtime data to be preserved"
   [ -f "${destination}/private.key" ] || fail "expected private key to be preserved"
   [ -f "${destination}/release.tar.gz" ] || fail "expected archive to be preserved"
   for archive in backup.sql.gz backup.bz2 backup.xz backup.zst backup.7z backup.rar; do

@@ -267,6 +267,7 @@ zhuan_sync_source() {
     --exclude=deploy/traffic-capture-archive/ \
     --exclude=deploy/rollback/ \
     --exclude=deploy/certs/ \
+    --exclude=/deploy/isolated/ \
     --exclude=logs/ \
     --exclude='/.env' \
     --exclude='/.env.*' \

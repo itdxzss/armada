@@ -1550,6 +1550,12 @@ test_armada_compose_passes_android_base_url_to_backend() {
   assert_contains "${example_content}" 'PROTOCOL_ANDROID_BASE_URL=http://localhost:8000'
 }
 
+test_armada_compose_passes_account_deletion_task_secret_to_backend() {
+  local compose_content
+  compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
+  assert_contains "${compose_content}" 'ARMADA_PROTOCOL_ACCOUNT_DELETION_TASK_SECRET: ${ARMADA_PROTOCOL_ACCOUNT_DELETION_TASK_SECRET:-}'
+}
+
 test_armada_compose_disables_group_link_health_check_by_default() {
   local compose_content example_content
   compose_content="$(cat "${SCRIPT_DIR}/docker-compose.rds.yml")"
@@ -1712,6 +1718,7 @@ test_armada_module_preserves_unauthenticated_response_body
 test_deep_check_preserves_unauthenticated_response_body
 test_main_orchestrator_uses_armada_module
 test_armada_compose_passes_android_base_url_to_backend
+test_armada_compose_passes_account_deletion_task_secret_to_backend
 test_armada_compose_disables_group_link_health_check_by_default
 test_armada_compose_passes_hyperlink_public_base_url_to_backend
 test_armada_compose_passes_normal_group_kafka_config_to_backend

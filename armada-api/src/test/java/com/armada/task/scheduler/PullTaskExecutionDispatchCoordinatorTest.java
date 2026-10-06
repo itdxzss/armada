@@ -42,7 +42,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                         mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class),
-                        mock(PullTaskGroupCreateProcessor.class)),
+                        mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class)),
                 mock(PullTaskResourceRecoveryTransactionService.class),
                 properties(), "worker-fixed");
 
@@ -332,7 +332,7 @@ class PullTaskExecutionDispatchCoordinatorTest {
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),
                 mock(PullTaskMaterialAdminProcessor.class),
-                mock(PullTaskGroupCreateProcessor.class));
+                mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
     }
 
     private static PullTaskGroupExecution claimed(long id, long tenantId, String link) {

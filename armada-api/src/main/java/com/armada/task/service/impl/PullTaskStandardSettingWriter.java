@@ -23,16 +23,19 @@ public class PullTaskStandardSettingWriter {
     private final AccountGroupService accountGroupService;
     private final GroupFolderService groupFolderService;
     private final AccountProtocolLookupService accountLookupService;
+    private final com.armada.account.service.AccountCreatorDeletionService creatorDeletion;
 
     /** 创建执行设置写入器。 */
     public PullTaskStandardSettingWriter(PullTaskStandardSettingMapper settingMapper,
                                          AccountGroupService accountGroupService,
                                          GroupFolderService groupFolderService,
-                                         AccountProtocolLookupService accountLookupService) {
+                                         AccountProtocolLookupService accountLookupService,
+                                         com.armada.account.service.AccountCreatorDeletionService creatorDeletion) {
         this.settingMapper = settingMapper;
         this.accountGroupService = accountGroupService;
         this.groupFolderService = groupFolderService;
         this.accountLookupService = accountLookupService;
+        this.creatorDeletion = creatorDeletion;
     }
 
     /** 校验引用、冻结服务端名称快照并写入配置。 */
@@ -44,6 +47,9 @@ public class PullTaskStandardSettingWriter {
         AccountGroup station = stationGroup(request);
         validateStationCapacity(request, station);
         AccountGroup creator = creatorGroup(request);
+        if (Boolean.TRUE.equals(request.creatorDeleteAfterTakeover())) {
+            creatorDeletion.validateCreatorGroup(request.creatorGroupId());
+        }
         AccountGroup managerFinish = direct ? null : optionalAccountGroup(request.managerFinishGroupId());
         AccountGroup pullerFinish = optionalAccountGroup(request.pullerFinishGroupId());
         GroupFolderOptionVO folder = request.groupFolderId() == null

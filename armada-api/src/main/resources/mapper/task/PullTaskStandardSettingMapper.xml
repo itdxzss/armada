@@ -46,9 +46,10 @@
   </insert>
 
   <select id="selectByTaskId" resultMap="standardSettingResultMap">
-    SELECT *
-    FROM pull_task_standard_setting
-    WHERE task_id = #{taskId}
+    SELECT s.*, t.is_creator_delete_after_takeover AS creatorDeleteAfterTakeover
+    FROM pull_task_standard_setting s
+    LEFT JOIN pull_task t ON t.id = s.task_id AND t.tenant_id = s.tenant_id
+    WHERE s.task_id = #{taskId}
   </select>
 
   <update id="freezeRequiredManagerCount">

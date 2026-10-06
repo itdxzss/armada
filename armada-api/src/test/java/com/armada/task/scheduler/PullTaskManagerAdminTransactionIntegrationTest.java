@@ -379,7 +379,7 @@ class PullTaskManagerAdminTransactionIntegrationTest {
                 PullTaskManagerAdminCandidateSelector candidateSelector,
                 PullTaskManagerAdminResources resources) {
             return new PullTaskManagerAdminTransactionService(
-                    taskMapper, accountMapper, actionMapper, candidateSelector, resources);
+                    taskMapper, accountMapper, actionMapper, candidateSelector, resources, new PullTaskCreatorDeletionGate(org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskStandardSettingMapper.class), org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskCreatorDeletionMapper.class)));
         }
     }
 }

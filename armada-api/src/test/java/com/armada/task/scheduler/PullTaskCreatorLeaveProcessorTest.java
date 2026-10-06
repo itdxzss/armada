@@ -75,6 +75,18 @@ class PullTaskCreatorLeaveProcessorTest {
     }
 
     @Test
+    void permanentDeletionModeNeverDispatchesLegacyCreatorLeave() {
+        PullTaskStandardSetting setting = new PullTaskStandardSetting();
+        setting.setCreatorLeaveAfterPull(1);
+        setting.setCreatorDeleteAfterTakeover(1);
+        when(settingMapper.selectByTaskId(100L)).thenReturn(setting);
+        assertThat(processor().process(candidate(), "worker-1", 1_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        verifyNoInteractions(taskMapper, accountMapper, actionMapper,
+                creatorLeaveService, outboxService, executionMapper);
+    }
+
+    @Test
     void directModeSkipsCreatorLeaveEvenIfOldFlagIsEnabled() {
         arrangeEnabledTask(PullTaskCreationMode.DIRECT_LINK);
 

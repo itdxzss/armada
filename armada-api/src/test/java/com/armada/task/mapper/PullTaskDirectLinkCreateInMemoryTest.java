@@ -78,7 +78,8 @@ class PullTaskDirectLinkCreateInMemoryTest {
         when(registry.registerPullTaskTargets(any(), anyLong())).thenReturn(Map.of(LINK, 9L));
         var resources = new PullTaskStandardCreateResources(
                 new PullTaskStandardSettingWriter(settings, accountGroups, mock(GroupFolderService.class),
-                        mock(AccountProtocolLookupService.class)),
+                        mock(AccountProtocolLookupService.class),
+                        mock(com.armada.account.service.AccountCreatorDeletionService.class)),
                 new PullTaskStandardGroupSettingWriter(groupSettings), mock(PullTaskGroupAvatarService.class),
                 registry, mock(PullTaskDataPackageSourceService.class));
         service = new PullTaskDirectLinkCreateTransactionService(tasks, executions,

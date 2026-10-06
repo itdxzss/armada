@@ -89,6 +89,16 @@ class ProtocolCommandPublisherTest {
     }
 
     @Test
+    void creatorDeletionLifecycleBlocksAlreadyQueuedCommandBeforeKafka() {
+        ProtocolCommandOutbox row = passthroughOutboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
+                + "\"source\":\"scheduled_account_group_sync\"}");
+        when(accountMapper.creatorDeletionCommandBlocked(row.getTenantId(), row.getProtocolAccountId(), null, null))
+                .thenReturn(true);
+        assertThatThrownBy(() -> publisher.publish(row)).isInstanceOf(RuntimeException.class);
+        verify(kafkaTemplate, never()).send(any(ProducerRecord.class));
+    }
+
+    @Test
     void publish_validOutboxRow_sendsCommandEnvelopeToConfiguredTopicAndKey() {
         ProtocolCommandOutbox row = passthroughOutboxRow("{\"accountId\":100,\"protocolAccountId\":\"acc_100\","
                 + "\"source\":\"scheduled_account_group_sync\"}");

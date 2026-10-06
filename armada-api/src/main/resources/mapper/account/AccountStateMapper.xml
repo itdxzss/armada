@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountStateMapper">
+  <sql id="notCreatorDeleting">
+    AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE d.lifecycle IN ('DELETING','DELETED')
+        AND (d.account_id=account_state.account_id OR EXISTS (SELECT 1 FROM account a
+          WHERE a.id=account_state.account_id AND a.tenant_id=account_state.tenant_id
+            AND a.creator_deletion_identity_phone=d.creator_phone)))
+  </sql>
   <!-- 导出预占与普通上线共用状态行互斥，防止检查离线后再次上线。 -->
   <sql id="notExported">
     <bind name="exportedState" value="@com.armada.account.model.entity.AccountStateCode@EXPORTED" />
     AND (account_state IS NULL OR account_state != #{exportedState})
+    <include refid="notCreatorDeleting"/>
   </sql>
 
 
@@ -109,6 +117,7 @@
         state_source = CASE WHEN account_state = 4 THEN state_source ELSE #{stateSource} END,
         updated_at = #{updatedAt}
     WHERE account_id = #{accountId}
+    <include refid="notCreatorDeleting"/>
   </update>
 
   <!-- 抢登中状态保持/停止:同时写登录态和账号状态,不改代理展示快照。 -->
@@ -133,6 +142,7 @@
     <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">
       #{accountId}
     </foreach>
+    <include refid="notCreatorDeleting"/>
   </update>
 
   <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state、account_state 与失效时间。 -->
@@ -182,6 +192,7 @@
         account_state IS NULL
         OR account_state IN (#{newState}, #{unboundState})
       )
+    <include refid="notCreatorDeleting"/>
   </update>
 
   <!-- 封禁原因单独更新,避免普通离线事件误清空 block_reason。 -->
@@ -203,7 +214,9 @@
       ON a.id = s.account_id
      AND a.tenant_id = s.tenant_id
      AND a.deleted_at IS NULL
-    WHERE s.login_state = #{offlineLoginState}
+    WHERE NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE d.account_id=s.account_id OR d.creator_phone=a.creator_deletion_identity_phone)
+      AND s.login_state = #{offlineLoginState}
       AND s.state_source = #{stateSource}
       AND (s.desired_login_state IS NULL OR s.desired_login_state != #{desiredOfflineState})
       AND s.last_state_sync_time &lt;= #{eligibleBefore}

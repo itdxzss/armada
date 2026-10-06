@@ -7,6 +7,10 @@ public class PullTaskStandardSetting {
     private Long taskId;
     private Integer autoStart;
     private Integer creatorLeaveAfterPull = 0;
+    /** 来自 pull_task 的冻结配置投影。 */
+    private Integer creatorDeleteAfterTakeover = 0;
+    public Integer getCreatorDeleteAfterTakeover() { return creatorDeleteAfterTakeover; }
+    public void setCreatorDeleteAfterTakeover(Integer value) { creatorDeleteAfterTakeover = value; }
     private Long sourceGroupFolderId;
     private String sourceGroupFolderName;
     private Integer materialAdminTiming;

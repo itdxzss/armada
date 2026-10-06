@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.account.mapper.AccountMapper">
+  <!-- 一次性建群身份从预留开始不得作为任何新业务的候选。 -->
+  <sql id="notCreatorReserved">
+    AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE d.account_id=a.id OR d.creator_phone=REPLACE(REPLACE(TRIM(a.ws_phone),'+',''),' ',''))
+  </sql>
+  <sql id="notCreatorDeleting">
+    AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE (d.account_id=account.id OR d.creator_phone=REPLACE(REPLACE(TRIM(account.ws_phone),'+',''),' ',''))
+        AND d.lifecycle IN ('DELETING','DELETED'))
+  </sql>
+
   <select id="existsWaitingLogoutByAccounts" resultType="boolean">
     SELECT EXISTS (
       SELECT 1 FROM account_import_detail
@@ -116,6 +127,7 @@
         AND (c.tenant_id = #{tenantId} OR c.tenant_id IS NULL)
         AND (p.tenant_id = #{tenantId} OR p.tenant_id IS NULL)
         AND a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
         <!-- 被抢登、抢登中仍纳入账号范围；在线条件由用户筛选单独决定。 -->
         AND s.account_state IN
         <foreach collection="hyperlinkAccountStates" item="state"
@@ -348,6 +360,7 @@
     WHERE a.tenant_id = #{tenantId}
       AND a.id = #{accountId}
       AND a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND (s.mute_status IS NULL OR s.mute_status = 2
         OR (s.platform_message_restriction_active=1 AND s.fallback_message_restriction_until IS NULL))
     LIMIT 1 FOR UPDATE
@@ -433,6 +446,7 @@
     SELECT * FROM account
     WHERE id = #{id}
       AND deleted_at IS NULL
+      <include refid="notCreatorDeleting"/>
     LIMIT 1
   </select>
 
@@ -483,6 +497,7 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.account_group_id = #{groupId}
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
@@ -507,6 +522,7 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.account_group_id = #{groupId}
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
@@ -525,6 +541,7 @@
     SELECT a.* FROM account a
     INNER JOIN account_state s ON s.account_id = a.id AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.ws_phone IS NOT NULL AND TRIM(a.ws_phone) &lt;&gt; ''
       AND UPPER(TRIM(a.protocol_id)) IN ('WEB', 'ANDROID')
       AND a.protocol_account_id IS NOT NULL AND TRIM(a.protocol_account_id) &lt;&gt; ''
@@ -553,6 +570,7 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.account_group_id = #{groupId}
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
@@ -575,6 +593,7 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
       AND a.protocol_account_id IS NOT NULL
@@ -604,6 +623,7 @@
       ON s.account_id = a.id
      AND s.tenant_id = a.tenant_id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND a.account_group_id = #{groupId}
       AND a.ws_phone IS NOT NULL
       AND TRIM(a.ws_phone) &lt;&gt; ''
@@ -626,6 +646,7 @@
     SELECT * FROM account
     WHERE protocol_account_id = #{protocolAccountId}
       AND deleted_at IS NULL
+      <include refid="notCreatorDeleting"/>
     LIMIT 1
   </select>
 
@@ -633,6 +654,7 @@
     <if test="ids != null and ids.size() &gt; 0">
     SELECT * FROM account
     WHERE deleted_at IS NULL
+      <include refid="notCreatorDeleting"/>
       AND id IN
     <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach>
     </if>
@@ -669,6 +691,7 @@
     <if test="wsPhones != null and wsPhones.size() &gt; 0">
     SELECT * FROM account
     WHERE deleted_at IS NULL
+      <include refid="notCreatorDeleting"/>
       AND ws_phone IN
     <foreach collection="wsPhones" item="phone" open="(" separator="," close=")">#{phone}</foreach>
     </if>
@@ -769,6 +792,7 @@
       ON current_sync.tenant_id = a.tenant_id
      AND current_sync.account_id = a.id
     WHERE a.deleted_at IS NULL
+      <include refid="notCreatorReserved"/>
       AND current_sync.baseline_state IN (#{baselineCapturedState}, 3)
       AND a.protocol_account_id IS NOT NULL
       AND a.protocol_account_id != ''
@@ -1152,4 +1176,12 @@
     </if>
   </update>
 
+  <select id="creatorDeletionCommandBlocked" resultType="boolean">
+    SELECT EXISTS(SELECT 1 FROM account_creator_deletion d
+      WHERE (d.protocol_account_id=#{protocolAccountId} OR EXISTS(SELECT 1 FROM account route
+        WHERE route.tenant_id=#{tenantId} AND route.protocol_account_id=#{protocolAccountId}
+          AND route.creator_deletion_identity_phone=d.creator_phone))
+      AND (d.lifecycle&lt;&gt;'RESERVED' OR #{tenantId} IS NULL OR #{taskId} IS NULL OR #{executionId} IS NULL
+        OR d.tenant_id&lt;&gt;#{tenantId} OR d.task_id&lt;&gt;#{taskId} OR d.group_execution_id&lt;&gt;#{executionId}))
+  </select>
 </mapper>

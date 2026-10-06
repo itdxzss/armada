@@ -13,5 +13,6 @@ public record PullTaskStandardReadResources(
         PullTaskStandardReadMapper readMapper,
         PullTaskStandardSettingMapper settingMapper,
         PullTaskStandardGroupSettingMapper groupSettingMapper,
-        PullTaskStandardReadFactMappers facts) {
+        PullTaskStandardReadFactMappers facts,
+        com.armada.task.mapper.PullTaskCreatorDeletionMapper creatorDeletions) {
 }

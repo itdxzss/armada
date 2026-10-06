@@ -59,6 +59,34 @@ public class ProtocolHttpExecutor {
     }
 
     /**
+     * 注销专用的服务端签名请求。保留明确拒绝的持久记录，不记录签名或响应正文。
+     * 任何网络异常仅向上传递，绝不在 HTTP 层重试。
+     */
+    public com.fasterxml.jackson.databind.JsonNode accountDeletion(
+            String method, String uri, Object body, String authorization) {
+        return execute(method, "<account-deletion>", () -> {
+            RestClient.RequestBodySpec request = restClient.method(
+                    org.springframework.http.HttpMethod.valueOf(method)).uri(uri)
+                    .header("X-Account-Delete-Authorization", authorization);
+            if (body != null) {
+                request.body(body);
+            }
+            return request.exchange((sent, response) -> {
+                int status = response.getStatusCode().value();
+                if (status != 200 && status != 202 && status != 409 && status != 422) {
+                    ensureSensitiveSuccess(response);
+                }
+                try {
+                    return MAPPER.readTree(response.getBody());
+                } catch (IOException failure) {
+                    throw new ProtocolException(ProtocolErrorCode.UNKNOWN,
+                            "注销响应无法解析，必须按原操作查询", failure);
+                }
+            }, true);
+        });
+    }
+
+    /**
      * 发起 GET 请求并反序列化 2xx 响应体。
      *
      * @param uri          相对或绝对 URI

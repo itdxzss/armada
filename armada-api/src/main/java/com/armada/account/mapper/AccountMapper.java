@@ -25,6 +25,12 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface AccountMapper {
+    /** 已预留账号只能执行冻结任务前置动作，注销中与注销后拒绝所有普通业务命令。 */
+    @InterceptorIgnore(tenantLine = "true")
+    boolean creatorDeletionCommandBlocked(@Param("tenantId") Long tenantId,
+            @Param("protocolAccountId") String protocolAccountId,
+            @Param("taskId") Long taskId, @Param("executionId") Long executionId);
+
 
     /** 查询候选账号是否仍有等待退出的手机导入，供单个/批量上线共同阻断。 */
     boolean existsWaitingLogoutByAccounts(@Param("accountIds") List<Long> accountIds,

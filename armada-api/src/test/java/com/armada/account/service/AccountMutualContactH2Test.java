@@ -52,6 +52,7 @@ class AccountMutualContactH2Test {
         ds.setURL("jdbc:h2:mem:mutual;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
         jdbc = new JdbcTemplate(ds);
         jdbc.execute("DROP ALL OBJECTS");
+        jdbc.execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         try (var connection = ds.getConnection()) {
             ScriptUtils.executeSqlScript(
                     connection, new ClassPathResource("db/migration/V202__account_mutual_contacts.sql"));

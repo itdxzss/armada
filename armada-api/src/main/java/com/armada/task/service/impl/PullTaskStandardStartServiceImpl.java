@@ -61,7 +61,7 @@ public class PullTaskStandardStartServiceImpl implements PullTaskStandardStartSe
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void start(long taskId) {
-        PullTask task = taskMapper.selectLifecycle(taskId);
+        PullTask task = taskMapper.selectLifecycleForUpdate(taskId);
         if (task == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "拉群任务不存在");
         }

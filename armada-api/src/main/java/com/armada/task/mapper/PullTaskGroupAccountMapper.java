@@ -36,7 +36,22 @@ public interface PullTaskGroupAccountMapper {
      * @param row 角色账号；写入后回填 id
      * @return 新增行数
      */
-    int insertInitialized(PullTaskGroupAccount row);
+    default int insertInitialized(PullTaskGroupAccount row) {
+        lockCreatorDeletionAccount(row.getAccountId());
+        int inserted = insertInitializedRecord(row);
+        if (inserted != 1) {
+            throw new com.armada.shared.exception.BusinessException(
+                    com.armada.shared.exception.ErrorCode.CONFLICT, "账号已被一次性建群任务预留或已注销");
+        }
+        return inserted;
+    }
+
+    /** 仅供带身份锁的 insertInitialized 调用；业务入口不得跳过锁。 */
+    int insertInitializedRecord(PullTaskGroupAccount row);
+
+    /** 角色分配与永久注销复核共用账号行锁，封住预选号到插入角色之间的并发空隙。 */
+    @com.baomidou.mybatisplus.annotation.InterceptorIgnore(tenantLine = "true")
+    List<Long> lockCreatorDeletionAccount(@Param("accountId") Long accountId);
 
     /** 初始化角色事实；角色判断留在 Java，XML 只持久化明确值。 */
     default int insert(PullTaskGroupAccount row) {
@@ -121,9 +136,17 @@ public interface PullTaskGroupAccountMapper {
      * @param now 重新占用时间(epoch 毫秒)
      * @return 实际更新行数
      */
-    int reoccupyPuller(@Param("id") long id,
-                       @Param("roleType") int roleType,
-                       @Param("now") long now);
+    default int reoccupyPuller(long id, int roleType, long now) {
+        PullTaskGroupAccount row = selectById(id);
+        if (row == null) return 0;
+        lockCreatorDeletionAccount(row.getAccountId());
+        return reoccupyPullerRecord(id, roleType, now);
+    }
+
+    /** 只由带身份锁的恢复入口调用。 */
+    int reoccupyPullerRecord(@Param("id") long id,
+                            @Param("roleType") int roleType,
+                            @Param("now") long now);
 
     /** 执行域兼容入口；角色码由 Java 枚举传给 XML。 */
     default int reoccupyPuller(long id, long now) {

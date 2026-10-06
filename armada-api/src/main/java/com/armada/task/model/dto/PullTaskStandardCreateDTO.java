@@ -50,7 +50,9 @@ public record PullTaskStandardCreateDTO(
         /** 单群拉人结束后是否执行群主退群；为空按关闭处理。 */
         Boolean creatorLeaveAfterPull,
         /** 间隔上限，单位秒；旧客户端省略时使用下限，保持原固定间隔。 */
-        Integer pullIntervalMaxSeconds) {
+        Integer pullIntervalMaxSeconds,
+        /** 管理员接管后永久注销建群账号；旧客户端省略时关闭。 */
+        Boolean creatorDeleteAfterTakeover) {
 
     /** 拒绝合同之外的顶层 JSON 字段。 */
     @JsonAnySetter

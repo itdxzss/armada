@@ -247,6 +247,13 @@ public class ProtocolCommandPublisher {
             ProtocolCommandOutbox row,
             ProtocolCommandEnvelope envelope) {
         try {
+            JsonNode reference = payload(row);
+            Long taskId = reference.hasNonNull("pullTaskId") ? reference.get("pullTaskId").longValue() : null;
+            Long executionId = reference.hasNonNull("groupExecutionId")
+                    ? reference.get("groupExecutionId").longValue() : null;
+            if (accountMapper.creatorDeletionCommandBlocked(row.getTenantId(), row.getProtocolAccountId(), taskId, executionId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "账号永久注销生命周期禁止协议派发");
+            }
             ProducerRecord<String, ProtocolCommandEnvelope> record = new ProducerRecord<>(
                     row.getKafkaTopic(), row.getKafkaKey(), envelope);
             record.headers().add(new RecordHeader(

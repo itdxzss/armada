@@ -88,6 +88,10 @@ public final class PullTaskNormalLinkH2Support {
             for (String sql : extraStatements) {
                 statement.execute(sql);
             }
+            statement.execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
+            // 不依赖账号详情的角色 Mapper 用最小身份表执行共享账号行锁；集成测试可先提供完整表。
+            statement.execute("CREATE TABLE IF NOT EXISTS account(id BIGINT PRIMARY KEY, tenant_id BIGINT, ws_phone VARCHAR(32), protocol_account_id VARCHAR(128))");
+            com.armada.testsupport.CreatorDeletionH2Schema.installIdentityIndex(dataSource);
         }
     }
 

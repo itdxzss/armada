@@ -85,6 +85,21 @@ class ProtocolCommandOutboxServiceImplTest {
             .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
     @Test
+    void creatorDeletionLifecycleBlocksEnqueueBeforeInsertOrDispatch() {
+        var service = newService(List.of("cmd-blocked"), List.of("batch-blocked"));
+        when(mapper.creatorDeletionCommandBlocked(1L, "acc-android", null, null)).thenReturn(true);
+        TenantContext.set(1L);
+        try {
+            assertThatThrownBy(() -> service.enqueueGroupSnapshotCommands(List.of(
+                    groupSnapshotCommand(ProtocolBackend.ANDROID, 5002L, 101L, "acc-android"))))
+                    .isInstanceOf(BusinessException.class).hasMessageContaining("永久注销");
+            verify(mapper).lockCreatorDeletionCommandAccounts(1L, "acc-android");
+            verify(mapper, never()).batchInsertPending(anyList());
+            verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+        } finally { TenantContext.clear(); }
+    }
+
+    @Test
     void enqueueGroupSnapshotCommands_routesWebAndAndroidAndKeepsSettlementCorrelation() throws Exception {
         TestableProtocolCommandOutboxService service = newService(
                 List.of("cmd-web", "cmd-android"), List.of("batch-snapshot"));

@@ -31,6 +31,7 @@ public final class PullTaskNormalLinkSchema {
     /** 拉群任务主表；只含 Mapper 测试用得到的列。 */
     static final String PULL_TASK = """
             CREATE TABLE pull_task (
+                is_creator_delete_after_takeover TINYINT NOT NULL DEFAULT 0,
                 id BIGINT AUTO_INCREMENT PRIMARY KEY,
                 tenant_id BIGINT NOT NULL,
                 task_type VARCHAR(32) NOT NULL DEFAULT 'STANDARD',

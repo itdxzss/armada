@@ -14,6 +14,8 @@ import com.armada.task.model.dto.PullTaskStandardExecutionAggregateCriteria;
 import com.armada.task.model.dto.PullTaskStandardExecutionFilter;
 import com.armada.task.model.dto.PullTaskStandardExecutionQuery;
 import com.armada.task.model.entity.PullTask;
+import com.armada.task.model.entity.PullTaskCreatorDeletion;
+import com.armada.task.model.enums.PullTaskCreatorDeletionStatus;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -130,11 +132,15 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
         long observedAt = System.currentTimeMillis();
         Map<Long, PullTaskExecutionObservationFact> observations = observationFacts(rows);
         Map<Long, String> groupNames = groupNames(rows);
+        Map<Long, PullTaskCreatorDeletion> deletions = rows.isEmpty() ? Map.of()
+                : resources.creatorDeletions().selectByExecutionIds(rows.stream()
+                        .map(PullTaskGroupExecution::getId).toList()).stream()
+                    .collect(Collectors.toMap(PullTaskCreatorDeletion::getGroupExecutionId, Function.identity()));
         List<PullTaskStandardExecutionSummaryVO> result = rows.stream()
                 .map(row -> summary(
                         row, aggregates.get(row.getId()), groupName(groupNames, row),
                         PullTaskExecutionObservation.describe(row, aggregates.get(row.getId()),
-                                observations.get(row.getId()), observedAt)))
+                                observations.get(row.getId()), observedAt), deletions.get(row.getId())))
                 .toList();
         return PageResult.of(
                 result, safeQuery.getPage(), safeQuery.getPageSize(), total);
@@ -152,7 +158,8 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 execution, aggregate, observationFacts(List.of(execution)).get(executionId), observedAt);
         PullTaskStandardReadFactMappers facts = resources.facts();
         return new PullTaskStandardExecutionDetailVO(
-                summary(execution, aggregate, groupName(groupNames, execution), observation), roles(executionId),
+                summary(execution, aggregate, groupName(groupNames, execution), observation,
+                        resources.creatorDeletions().selectByExecutionId(executionId)), roles(executionId),
                 facts.callMapper().selectByExecution(executionId).stream()
                         .map(PullTaskStandardReadServiceImpl::call).toList(),
                 facts.actionMapper().selectByExecutionAndStatuses(
@@ -256,7 +263,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
             PullTaskGroupExecution row,
             PullTaskStandardExecutionAggregate aggregate,
             String groupName,
-            PullTaskExecutionObservationVO observation) {
+            PullTaskExecutionObservationVO observation, PullTaskCreatorDeletion deletion) {
         return new PullTaskStandardExecutionSummaryVO(
                 row.getId(), value(row.getSeq()), row.getNormalizedLink(), row.getGroupJid(),
                 groupName, row.getSourceFileName(),
@@ -268,7 +275,12 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 row.getLastBusinessExecutedAt(), materialSummary(aggregate),
                 resource(aggregate, ResourceRole.MANAGER),
                 resource(aggregate, ResourceRole.PULLER),
-                resource(aggregate, ResourceRole.STATION), observation);
+                resource(aggregate, ResourceRole.STATION), observation,
+                deletion == null ? null : Arrays.stream(PullTaskCreatorDeletionStatus.values())
+                    .filter(status -> Objects.equals(status.code(), deletion.getStatus()))
+                    .map(Enum::name).findFirst().orElse("UNKNOWN"),
+                deletion == null ? null : deletion.getReasonMessage(),
+                deletion == null ? null : deletion.getOperationId());
     }
 
     private static PullTaskStandardMaterialSummaryVO materialSummary(
@@ -328,6 +340,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
     private static PullTaskStandardSettingVO standardSetting(PullTaskStandardSetting row) {
         return new PullTaskStandardSettingVO(
                 value(row.getAutoStart()), enabled(row.getCreatorLeaveAfterPull()),
+                enabled(row.getCreatorDeleteAfterTakeover()),
                 row.getSourceGroupFolderId(),
                 row.getSourceGroupFolderName(), PullTaskPullerSyncMode.fromCode(
                         value(row.getPullerSyncMode())), value(row.getMaterialAdminTiming()),

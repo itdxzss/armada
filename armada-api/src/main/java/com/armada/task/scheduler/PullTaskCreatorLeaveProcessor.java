@@ -88,7 +88,8 @@ public class PullTaskCreatorLeaveProcessor {
         TenantContext.set(candidate.getTenantId());
         try {
             PullTaskStandardSetting setting = settingMapper.selectByTaskId(candidate.getTaskId());
-            if (setting == null || !Integer.valueOf(1).equals(setting.getCreatorLeaveAfterPull())
+            if (setting == null || Integer.valueOf(1).equals(setting.getCreatorDeleteAfterTakeover())
+                    || !Integer.valueOf(1).equals(setting.getCreatorLeaveAfterPull())
                     || terminal(candidate.getCreatorLeaveResult())) {
                 return PullTaskExecutionDispatchResult.ADVANCED;
             }

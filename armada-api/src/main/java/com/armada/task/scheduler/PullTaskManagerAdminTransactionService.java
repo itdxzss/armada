@@ -52,6 +52,7 @@ public class PullTaskManagerAdminTransactionService {
     private final PullTaskAccountActionMapper actionMapper;
     private final PullTaskManagerAdminCandidateSelector candidateSelector;
     private final PullTaskManagerAdminResources resources;
+    private final PullTaskCreatorDeletionGate creatorDeletionGate;
 
     /** 创建管理员设置阶段短事务服务。 */
     public PullTaskManagerAdminTransactionService(
@@ -59,12 +60,14 @@ public class PullTaskManagerAdminTransactionService {
             PullTaskGroupAccountMapper accountMapper,
             PullTaskAccountActionMapper actionMapper,
             PullTaskManagerAdminCandidateSelector candidateSelector,
-            PullTaskManagerAdminResources resources) {
+            PullTaskManagerAdminResources resources,
+            PullTaskCreatorDeletionGate creatorDeletionGate) {
         this.taskMapper = taskMapper;
         this.accountMapper = accountMapper;
         this.actionMapper = actionMapper;
         this.candidateSelector = candidateSelector;
         this.resources = resources;
+        this.creatorDeletionGate = creatorDeletionGate;
     }
 
     /** 复核租约并选择一个可执行提权的我方既有管理员。 */
@@ -206,7 +209,7 @@ public class PullTaskManagerAdminTransactionService {
         return withTenant(work.tenantId(), () -> {
             PullTaskGroupExecution update = transition(
                     work, PullTaskExecutionStatus.EXECUTING,
-                    PullTaskExecutionStage.MANAGER_PULLER_CONTACT, 0L, now);
+                    creatorDeletionGate.afterManagerAdmin(work.taskId()), 0L, now);
             if (resources.executionMapper().transitionClaimed(
                     update, PullTaskExecutionStage.MANAGER_ADMIN.code()) != 1) {
                 return PullTaskExecutionDispatchResult.LOST;
@@ -310,7 +313,7 @@ public class PullTaskManagerAdminTransactionService {
         PullTaskGroupExecution update = baseTransition(
                 candidate.getId(), candidate.getVersion(), candidate.getLockOwner(), now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        update.setStage(creatorDeletionGate.afterManagerAdmin(candidate.getTaskId()).code());
         return resources.executionMapper().transitionClaimed(
                 update, PullTaskExecutionStage.MANAGER_ADMIN.code()) == 1
                 ? PullTaskExecutionDispatchResult.ADVANCED

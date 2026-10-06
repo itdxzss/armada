@@ -58,12 +58,15 @@ public class PullTaskGroupCreateTransactionService {
 
     private final PullTaskGroupCreatePersistence persistence;
     private final PullTaskGroupCreateResources resources;
+    private final PullTaskCreatorDeletionTransactionService creatorDeletionTransactions;
 
     public PullTaskGroupCreateTransactionService(
             PullTaskGroupCreatePersistence persistence,
-            PullTaskGroupCreateResources resources) {
+            PullTaskGroupCreateResources resources,
+            PullTaskCreatorDeletionTransactionService creatorDeletionTransactions) {
         this.persistence = persistence;
         this.resources = resources;
+        this.creatorDeletionTransactions = creatorDeletionTransactions;
     }
 
     /** 步骤 1：冻结建群角色和幂等键，沿用提交时的群名；历史任务在此冻结原名。 */
@@ -87,8 +90,13 @@ public class PullTaskGroupCreateTransactionService {
             }
 
             Set<Long> selectedIds = new LinkedHashSet<>();
+            List<ProtocolAccountRef> creatorCandidates = online(setting.getCreatorGroupId());
+            if (Integer.valueOf(1).equals(setting.getCreatorDeleteAfterTakeover())) {
+                creatorCandidates = creatorCandidates.stream().filter(account -> account.backend()
+                        == com.armada.platform.protocol.model.enums.ProtocolBackend.ANDROID).toList();
+            }
             ProtocolAccountRef creator = selectStable(
-                    online(setting.getCreatorGroupId()), candidate.getSeq(), selectedIds);
+                    creatorCandidates, candidate.getSeq(), selectedIds);
             if (creator == null) {
                 return defer(candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE,
                         now + retryDelayMs, now);
@@ -122,10 +130,21 @@ public class PullTaskGroupCreateTransactionService {
                     subject,
                     null, null, null, null,
                     null, null, null, now, now);
+            boolean deleteCreator = Integer.valueOf(1).equals(setting.getCreatorDeleteAfterTakeover());
+            if (deleteCreator) {
+                Set<Long> otherRoles = new LinkedHashSet<>();
+                otherRoles.add(manager.armadaAccountId());
+                stations.forEach(station -> otherRoles.add(station.armadaAccountId()));
+                creator = reserveCreator(candidate, creatorCandidates, otherRoles, operationId, now);
+                if (creator == null) {
+                    return defer(candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE,
+                            now + retryDelayMs, now);
+                }
+            }
             if (persistence.executionMapper().transitionGroupCreate(transition) != 1) {
+                if (deleteCreator) { throw new IllegalStateException("执行行租约变化，回滚一次性建群账号占用"); }
                 return PullTaskExecutionDispatchResult.LOST;
             }
-
             insertRole(candidate, creator, PullTaskGroupAccountRole.PROMOTER, 1, null, now);
             insertRole(candidate, manager, PullTaskGroupAccountRole.MANAGER, 1,
                     PullTaskAccountEntryMode.GROUP_CREATE_INITIAL.code(), now);
@@ -156,6 +175,9 @@ public class PullTaskGroupCreateTransactionService {
             PullTaskGroupAccount creator = creators.get(0);
             ProtocolAccountRef creatorRef = resources.accountLookup()
                     .findActiveProtocolRef(creator.getAccountId()).orElse(null);
+            if (creatorRef != null && !frozenCreatorMatches(candidate, creatorRef)) {
+                return GroupCreatePreparation.completed(pauseInvalid(candidate, now));
+            }
             if (creatorRef == null) {
                 return GroupCreatePreparation.completed(defer(
                         candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE,
@@ -609,6 +631,25 @@ public class PullTaskGroupCreateTransactionService {
         if (persistence.accountMapper().insert(row) != 1 || row.getId() == null) {
             throw new IllegalStateException("建群角色行写入失败 role=" + role);
         }
+    }
+
+    private boolean frozenCreatorMatches(PullTaskGroupExecution candidate, ProtocolAccountRef creator) {
+        PullTaskStandardSetting setting = persistence.settingMapper().selectByTaskId(candidate.getTaskId());
+        return setting == null || !Integer.valueOf(1).equals(setting.getCreatorDeleteAfterTakeover())
+                || creatorDeletionTransactions.frozenCreatorMatches(candidate, creator);
+    }
+
+    private ProtocolAccountRef reserveCreator(PullTaskGroupExecution candidate,
+            List<ProtocolAccountRef> candidates, Set<Long> excluded, String operationId, long now) {
+        for (int offset = 0; offset < candidates.size(); offset++) {
+            int index = Math.floorMod(value(candidate.getSeq()) - 1 + offset, candidates.size());
+            ProtocolAccountRef creator = candidates.get(index);
+            if (!excluded.contains(creator.armadaAccountId())
+                    && creatorDeletionTransactions.reserve(candidate, creator, operationId, now)) {
+                return creator;
+            }
+        }
+        return null;
     }
 
     private List<ProtocolAccountRef> online(Long groupId) {

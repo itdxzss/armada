@@ -290,6 +290,7 @@ public class PullTaskStandardCreateTransactionService {
         update.setId(task.getId());
         update.setTaskName(request.taskName().trim());
         update.setRemark(request.remark());
+        update.setCreatorDeleteAfterTakeover(Boolean.TRUE.equals(request.creatorDeleteAfterTakeover()) ? 1 : 0);
         // 模式在提交这一刻冻结；mode 不动，它是执行链路开关，两个模式共用 NORMAL_LINK。
         update.setCreationMode(PullTaskCreationMode.fromNullable(request.creationMode()));
         update.setGroupCount(rows.size());

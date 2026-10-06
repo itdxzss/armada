@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskCreatorDeletionMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO pull_task_creator_deletion
+      (tenant_id, task_id, group_execution_id, creator_account_id, creator_identity_hash,
+       creator_protocol_account_id, creator_phone, create_operation_id, operation_id, status,
+       attempts, created_at, updated_at)
+    VALUES (#{tenantId}, #{taskId}, #{groupExecutionId}, #{creatorAccountId}, #{creatorIdentityHash},
+       #{creatorProtocolAccountId}, #{creatorPhone}, #{createOperationId}, #{operationId}, #{status},
+       #{attempts}, #{createdAt}, #{updatedAt})
+  </insert>
+  <select id="selectByExecutionId" resultType="com.armada.task.model.entity.PullTaskCreatorDeletion">
+    SELECT * FROM pull_task_creator_deletion WHERE group_execution_id = #{executionId}
+  </select>
+  <select id="selectByExecutionIds" resultType="com.armada.task.model.entity.PullTaskCreatorDeletion">
+    SELECT * FROM pull_task_creator_deletion WHERE group_execution_id IN
+    <foreach collection="executionIds" item="executionId" open="(" separator="," close=")">#{executionId}</foreach>
+  </select>
+  <select id="selectByExecutionIdForUpdate" resultType="com.armada.task.model.entity.PullTaskCreatorDeletion">
+    SELECT * FROM pull_task_creator_deletion WHERE group_execution_id = #{executionId} FOR UPDATE
+  </select>
+  <update id="claimSubmission">
+    UPDATE pull_task_creator_deletion
+    SET status = 1, manager_account_id = #{row.managerAccountId}, group_jid = #{row.groupJid},
+        creation_before = #{row.creationBefore}, evidence_json = #{row.evidenceJson},
+        observed_at = #{row.observedAt}, submitted_at = #{row.submittedAt},
+        deadline_at = #{row.deadlineAt}, updated_at = #{row.updatedAt}
+    WHERE id = #{row.id} AND status = 0 AND operation_id = #{row.operationId}
+      AND creator_account_id = #{row.creatorAccountId}
+      AND creator_identity_hash = #{row.creatorIdentityHash}
+      AND create_operation_id = #{row.createOperationId}
+  </update>
+  <update id="updateObservation">
+    UPDATE pull_task_creator_deletion
+    SET status = #{row.status}, attempts = #{row.attempts},
+        deletion_result_status = #{row.deletionResultStatus}, result_operation_id = #{row.resultOperationId},
+        result_identity_hash = #{row.resultIdentityHash}, evidence_json = #{row.evidenceJson},
+        observed_at = #{row.observedAt}, completed_at = #{row.completedAt},
+        reason_code = #{row.reasonCode}, reason_message = #{row.reasonMessage}, updated_at = #{row.updatedAt}
+    WHERE id = #{row.id} AND operation_id = #{row.operationId} AND status != 5
+  </update>
+</mapper>

@@ -1567,7 +1567,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     linkProcessor, managerJoinProcessor, managerAdminProcessor,
                     managerPullerContactProcessor,
                     pullerInviteProcessor, pullExecutionProcessor, materialAdminProcessor,
-                    groupCreateProcessor);
+                    groupCreateProcessor, org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         }
 
         @Bean PullTaskGroupCreateProcessor groupCreateProcessor() {
@@ -1601,7 +1601,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
             PullTaskManagerAdminTransactionService transactions =
                     new PullTaskManagerAdminTransactionService(
                             taskMapper, accountMapper, actionMapper,
-                            new PullTaskManagerAdminCandidateSelector(), resources);
+                            new PullTaskManagerAdminCandidateSelector(), resources, new PullTaskCreatorDeletionGate(org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskStandardSettingMapper.class), org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskCreatorDeletionMapper.class)));
             return new PullTaskManagerAdminProcessor(transactions, memberQueryAwaitService);
         }
 

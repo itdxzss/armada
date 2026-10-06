@@ -16,6 +16,8 @@ public class PullTaskExecutionStageRouter {
     private final PullTaskPullExecutionProcessor pullExecutionProcessor;
     private final PullTaskMaterialAdminProcessor materialAdminProcessor;
     private final PullTaskGroupCreateProcessor groupCreateProcessor;
+    private final PullTaskCreatorDeletionProcessor creatorDeletionProcessor;
+    private final PullTaskCreatorDeletionGate creatorDeletionGate;
 
     /**
      * @param linkValidationProcessor      链接校验处理器
@@ -34,7 +36,9 @@ public class PullTaskExecutionStageRouter {
             PullTaskPullerInviteProcessor pullerInviteProcessor,
             PullTaskPullExecutionProcessor pullExecutionProcessor,
             PullTaskMaterialAdminProcessor materialAdminProcessor,
-            PullTaskGroupCreateProcessor groupCreateProcessor) {
+            PullTaskGroupCreateProcessor groupCreateProcessor,
+            PullTaskCreatorDeletionProcessor creatorDeletionProcessor,
+            PullTaskCreatorDeletionGate creatorDeletionGate) {
         this.linkValidationProcessor = linkValidationProcessor;
         this.managerJoinProcessor = managerJoinProcessor;
         this.managerAdminProcessor = managerAdminProcessor;
@@ -43,6 +47,8 @@ public class PullTaskExecutionStageRouter {
         this.pullExecutionProcessor = pullExecutionProcessor;
         this.materialAdminProcessor = materialAdminProcessor;
         this.groupCreateProcessor = groupCreateProcessor;
+        this.creatorDeletionProcessor = creatorDeletionProcessor;
+        this.creatorDeletionGate = creatorDeletionGate;
     }
 
     /** 根据持久化阶段执行一次有界动作。 */
@@ -50,6 +56,14 @@ public class PullTaskExecutionStageRouter {
             PullTaskGroupExecution candidate,
             String lockOwner,
             long now) {
+        if (candidate.getStage() == PullTaskExecutionStage.CREATOR_DELETE.code()
+                || candidate.getStage() == PullTaskExecutionStage.CREATOR_DELETE_VERIFY.code()) {
+            return creatorDeletionProcessor.process(candidate, lockOwner, now);
+        }
+        if (requiresDeletionGate(candidate.getStage())
+                && creatorDeletionGate.requiredAndClosed(candidate.getTenantId(), candidate.getTaskId(), candidate.getId())) {
+            return creatorDeletionProcessor.process(candidate, lockOwner, now);
+        }
         if (candidate.getStage() == PullTaskExecutionStage.GROUP_CREATE.code()) {
             return groupCreateProcessor.process(candidate, lockOwner, now);
         }
@@ -79,5 +93,14 @@ public class PullTaskExecutionStageRouter {
             return pullExecutionProcessor.close(candidate, lockOwner, now);
         }
         return PullTaskExecutionDispatchResult.LOST;
+    }
+
+    private static boolean requiresDeletionGate(int stage) {
+        return stage == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
+                || stage == PullTaskExecutionStage.PULLER_INVITE.code()
+                || stage == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()
+                || stage == PullTaskExecutionStage.PULL_EXECUTION.code()
+                || stage == PullTaskExecutionStage.MATERIAL_ADMIN.code()
+                || stage == PullTaskExecutionStage.CLOSING.code();
     }
 }

@@ -416,4 +416,18 @@
     WHERE command_id = #{commandId} AND aggregate_type = 'JOIN_TASK_ADMIN'
       AND deleted_at IS NULL AND status IN (0, 1, 5)
   </update>
+  <select id="creatorDeletionCommandBlocked" resultType="boolean">
+    SELECT EXISTS(SELECT 1 FROM account_creator_deletion d
+      WHERE (d.protocol_account_id=#{protocolAccountId} OR EXISTS(SELECT 1 FROM account route
+        WHERE route.tenant_id=#{tenantId} AND route.protocol_account_id=#{protocolAccountId}
+          AND route.creator_deletion_identity_phone=d.creator_phone))
+      AND (d.lifecycle&lt;&gt;'RESERVED' OR #{tenantId} IS NULL OR #{taskId} IS NULL OR #{executionId} IS NULL
+        OR d.tenant_id&lt;&gt;#{tenantId} OR d.task_id&lt;&gt;#{taskId} OR d.group_execution_id&lt;&gt;#{executionId}))
+  </select>
+  <select id="lockCreatorDeletionCommandAccounts" resultType="long">
+    SELECT a.id FROM account a WHERE a.creator_deletion_identity_phone IN
+      (SELECT route.creator_deletion_identity_phone FROM account route
+        WHERE route.tenant_id=#{tenantId} AND route.protocol_account_id=#{protocolAccountId})
+      ORDER BY a.id FOR UPDATE
+  </select>
 </mapper>

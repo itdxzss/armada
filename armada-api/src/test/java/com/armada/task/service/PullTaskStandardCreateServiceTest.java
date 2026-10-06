@@ -461,6 +461,23 @@ class PullTaskStandardCreateServiceTest {
     }
 
     @Test
+    void creatorDeletionFlagPersistsIndependentlyAndCannotBeChangedByResubmission() throws Exception {
+        long taskId = seedNewGroupDraft(CREATOR);
+        AccountGroup creatorGroup = new AccountGroup();
+        creatorGroup.setName("建群人组");
+        when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var value = mapper.valueToTree(newGroupRequest(taskId));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) value).put("creatorDeleteAfterTakeover", true);
+        service.create(mapper.treeToValue(value, PullTaskStandardCreateDTO.class), CREATOR);
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getCreatorDeleteAfterTakeover()).isEqualTo(1);
+        assertThat(settingMapper.selectByTaskId(taskId).getCreatorDeleteAfterTakeover()).isEqualTo(1);
+        assertThat(settingMapper.selectByTaskId(taskId).getCreatorLeaveAfterPull()).isEqualTo(1);
+        service.create(newGroupRequest(taskId), CREATOR);
+        assertThat(settingMapper.selectByTaskId(taskId).getCreatorDeleteAfterTakeover()).isEqualTo(1);
+    }
+
+    @Test
     void newGroupModeWithoutCreatorGroupIsRejected() {
         long taskId = seedDraftWithTwoRows(CREATOR);
         PullTaskStandardCreateDTO request = newGroupRequest(taskId);
@@ -474,7 +491,7 @@ class PullTaskStandardCreateServiceTest {
                 request.concurrentGroupCount(), request.managerGroupId(), request.pullerGroupId(),
                 request.stationGroupId(), request.managerFinishGroupId(),
                 request.pullerFinishGroupId(), request.groupSetting(), request.creationMode(),
-                null, request.initialStationCount(), request.creatorLeaveAfterPull(), request.pullIntervalMaxSeconds());
+                null, request.initialStationCount(), request.creatorLeaveAfterPull(), request.pullIntervalMaxSeconds(), false);
 
         assertThatThrownBy(() -> service.create(withoutCreator, CREATOR))
                 .isInstanceOf(BusinessException.class)
@@ -711,7 +728,7 @@ class PullTaskStandardCreateServiceTest {
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, false, 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting(),
-                null, null, null, false, null);
+                null, null, null, false, null, false);
     }
 
     private static PullTaskStandardCreateDTO resourcePoolRequest(
@@ -721,7 +738,7 @@ class PullTaskStandardCreateServiceTest {
                 PullTaskPullerSyncMode.SINGLE, 1, false, false,
                 1, 2, 3, 8, 30, 2, 2, 1,
                 11L, 12L, 13L, null, null, validGroupSetting(),
-                PullTaskCreationMode.RESOURCE_POOL, null, null, false, null);
+                PullTaskCreationMode.RESOURCE_POOL, null, null, false, null, false);
     }
 
     private static PullTaskStandardGroupSettingDTO validGroupSetting() {
@@ -748,7 +765,7 @@ class PullTaskStandardCreateServiceTest {
                 taskId, "任务", null, 0, null, PullTaskPullerSyncMode.SINGLE,
                 1, false, false, 1, 0, 1, 3, 10, 2, 2, 1,
                 11L, 12L, 13L, null, null, profile,
-                PullTaskCreationMode.NEW_GROUP, 16L, 2, true, 15);
+                PullTaskCreationMode.NEW_GROUP, 16L, 2, true, 15, false);
     }
 
     /**
@@ -770,7 +787,7 @@ class PullTaskStandardCreateServiceTest {
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     private static PullTaskStandardCreateDTO withEarlyPull(
@@ -784,7 +801,7 @@ class PullTaskStandardCreateServiceTest {
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     /**
@@ -805,7 +822,7 @@ class PullTaskStandardCreateServiceTest {
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 managerGroupId, base.pullerGroupId(), base.stationGroupId(),
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     private static PullTaskStandardCreateDTO withAutoStart(PullTaskStandardCreateDTO base,
@@ -819,7 +836,7 @@ class PullTaskStandardCreateServiceTest {
                 base.stationCountPerCall(), base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     private static PullTaskStandardCreateDTO withStation(
@@ -834,7 +851,7 @@ class PullTaskStandardCreateServiceTest {
                 stationCount, base.concurrentGroupCount(),
                 base.managerGroupId(), base.pullerGroupId(), stationGroupId,
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
-                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     private static PullTaskStandardCreateDTO withGroupName(
@@ -860,7 +877,7 @@ class PullTaskStandardCreateServiceTest {
                 base.managerGroupId(), base.pullerGroupId(), base.stationGroupId(),
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), groupSetting,
                 base.creationMode(), base.creatorGroupId(), base.initialStationCount(),
-                base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+                base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds(), false);
     }
 
     private static PullTaskStandardCreateDTO withAvatar(
@@ -1021,7 +1038,8 @@ class PullTaskStandardCreateServiceTest {
                                                      GroupFolderService groupFolderService,
                                                      AccountProtocolLookupService accountLookup) {
             return new PullTaskStandardSettingWriter(
-                    settingMapper, accountGroupService, groupFolderService, accountLookup);
+                    settingMapper, accountGroupService, groupFolderService, accountLookup,
+                    mock(com.armada.account.service.AccountCreatorDeletionService.class));
         }
 
         @Bean

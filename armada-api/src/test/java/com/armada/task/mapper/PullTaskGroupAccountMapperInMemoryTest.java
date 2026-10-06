@@ -566,6 +566,61 @@ class PullTaskGroupAccountMapperInMemoryTest {
         assertThat(saved.getReleasedAt()).isNull();
     }
 
+    @Test
+    void initializedRoleInsertionUsesTheSameAliasLockAsNormalInsertion() throws Exception {
+        var db = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        var tx = new org.springframework.transaction.support.TransactionTemplate(
+                new DataSourceTransactionManager(dataSource));
+        db.update("INSERT INTO account(id,tenant_id,ws_phone) VALUES(900,7,'86138900'),(901,7,'86138900')");
+        var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var attempted = new java.util.concurrent.CountDownLatch(1);
+        var result = new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Integer>>();
+        try {
+            tx.executeWithoutResult(status -> {
+                mapper.lockCreatorDeletionAccount(900L);
+                result.set(pool.submit(() -> {
+                    TenantContext.set(7L);
+                    try {
+                        return tx.execute(other -> {
+                            PullTaskGroupAccount row = role(200L, EXEC_B, 901L, PullTaskGroupAccountRole.PROMOTER, 1);
+                            row.setAccountPhone("86138900");
+                            row.setMembershipStatus(1);
+                            row.setAdminStatus(0);
+                            row.setAvailabilityStatus(1);
+                            attempted.countDown();
+                            return mapper.insertInitialized(row);
+                        });
+                    } finally { TenantContext.clear(); }
+                }));
+                try { assertThat(attempted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue(); }
+                catch (InterruptedException e) { throw new IllegalStateException(e); }
+                assertThatThrownBy(() -> result.get().get(100, java.util.concurrent.TimeUnit.MILLISECONDS))
+                        .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                db.update("INSERT INTO account_creator_deletion(account_id,tenant_id,task_id,group_execution_id,identity_hash,creator_phone,lifecycle) VALUES(900,7,100,501,?,'86138900','DELETING')", "a".repeat(64));
+            });
+            assertThatThrownBy(() -> result.get().get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(com.armada.shared.exception.BusinessException.class);
+            assertThat(mapper.selectByExecutionAndRole(EXEC_B, PullTaskGroupAccountRole.PROMOTER.code())).isEmpty();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void releasedPullerCannotReoccupyAnyReservedOrDeletedIdentityAlias() {
+        var db = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        db.update("INSERT INTO account(id,tenant_id,ws_phone) VALUES(900,7,'86138900'),(901,8,'86138900')");
+        PullTaskGroupAccount puller = role(100L, EXEC_A, 900L, PullTaskGroupAccountRole.PULLER, 1);
+        mapper.insert(puller);
+        mapper.releasePuller(puller.getId(), 800L);
+        db.update("INSERT INTO account_creator_deletion(account_id,tenant_id,task_id,group_execution_id,identity_hash,creator_phone,lifecycle) VALUES(901,8,200,502,?,'86138900','RESERVED')", "a".repeat(64));
+        for (String lifecycle : List.of("RESERVED", "DELETING", "DELETED")) {
+            db.update("UPDATE account_creator_deletion SET lifecycle=?", lifecycle);
+            assertThat(mapper.reoccupyPuller(puller.getId(), 850L)).isZero();
+            assertThat(mapper.selectById(puller.getId()).getReleasedAt()).isEqualTo(800L);
+        }
+    }
+
     private PullTaskGroupAccount role(long taskId, long executionId, long accountId,
                                       PullTaskGroupAccountRole roleType, int roleSeq) {
         PullTaskGroupAccount row = new PullTaskGroupAccount();

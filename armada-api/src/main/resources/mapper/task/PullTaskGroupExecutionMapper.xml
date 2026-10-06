@@ -482,6 +482,21 @@
       AND lock_expires_at &gt; #{row.updatedAt}
   </update>
 
+  <update id="transitionCreatorDeletion">
+    UPDATE pull_task_group_execution
+    SET stage = #{row.stage}, manual_paused = #{row.manualPaused},
+        reason_code = #{row.reasonCode}, reason_message = #{row.reasonMessage},
+        next_run_at = #{row.nextRunAt}, lock_owner = NULL, lock_expires_at = NULL,
+        version = version + 1, updated_at = #{row.updatedAt}
+    WHERE id = #{row.id} AND execution_status = #{row.executionStatus}
+      AND stage = #{expectedStage} AND version = #{row.version}
+      AND manual_paused = 0 AND lock_owner = #{row.lockOwner}
+      AND lock_expires_at &gt; #{row.updatedAt}
+      AND EXISTS (SELECT 1 FROM pull_task parent_task
+        WHERE parent_task.id = pull_task_group_execution.task_id
+          AND parent_task.status = 'EXECUTING' AND parent_task.deleted_at IS NULL)
+  </update>
+
   <update id="transitionGroupCreate">
     UPDATE pull_task_group_execution
     SET execution_status = #{transition.targetExecutionStatus},

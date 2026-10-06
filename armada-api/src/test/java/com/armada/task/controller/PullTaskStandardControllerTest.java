@@ -51,7 +51,7 @@ class PullTaskStandardControllerTest {
 
     private static final PullTaskStandardDraftVO EMPTY_VIEW = new PullTaskStandardDraftVO(
             1L, PullTaskCreationMode.PASTED_LINK,
-            List.of(), List.of(), List.of(), 0, 0, 0);
+            List.of(), List.of(), List.of(), 0, 0, 0, false);
 
     private PullTaskStandardDraftService draftService;
     private PullTaskStandardCreateService createService;

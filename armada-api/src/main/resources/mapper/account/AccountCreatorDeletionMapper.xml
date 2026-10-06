@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountCreatorDeletionMapper">
+  <select id="lockIdentityAliases" resultType="long">
+    SELECT id FROM account WHERE creator_deletion_identity_phone=#{phone}
+    ORDER BY id FOR UPDATE
+  </select>
+  <select id="lockAccount" resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account WHERE tenant_id=#{tenantId} AND id=#{accountId} AND deleted_at IS NULL FOR UPDATE
+  </select>
+  <sql id="primaryAndroid">
+    a.deleted_at IS NULL AND UPPER(TRIM(a.protocol_id))='ANDROID' AND a.device_os=1
+    AND TRIM(a.ws_phone)&lt;&gt;'' AND TRIM(a.protocol_account_id)&lt;&gt;''
+    AND EXISTS (SELECT 1 FROM account_credential c WHERE c.tenant_id=a.tenant_id
+      AND c.account_id=a.id AND c.deleted_at IS NULL AND c.cred_format IN (1,3))
+  </sql>
+  <select id="eligibleAccount" resultType="com.armada.account.model.entity.Account">
+    SELECT a.* FROM account a INNER JOIN account_state s ON s.account_id=a.id AND s.tenant_id=a.tenant_id
+    WHERE a.tenant_id=#{tenantId} AND a.id=#{accountId} AND s.login_state=1
+      AND <include refid="primaryAndroid"/>
+  </select>
+  <select id="supportedGroupCount" resultType="int">
+    SELECT COUNT(*) FROM account a WHERE a.tenant_id=#{tenantId} AND a.account_group_id=#{groupId}
+      AND <include refid="primaryAndroid"/>
+      AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+        WHERE d.account_id=a.id OR d.creator_phone=a.creator_deletion_identity_phone)
+  </select>
+  <select id="byExecution" resultType="com.armada.account.model.entity.AccountCreatorDeletion">
+    SELECT * FROM account_creator_deletion WHERE tenant_id=#{tenantId} AND group_execution_id=#{executionId}
+  </select>
+  <insert id="insert">
+    INSERT INTO account_creator_deletion(account_id,tenant_id,task_id,group_execution_id,identity_hash,
+      creator_phone,protocol_account_id,create_operation_id,lifecycle,created_at,updated_at)
+    VALUES(#{accountId},#{tenantId},#{taskId},#{groupExecutionId},#{identityHash},#{creatorPhone},
+      #{protocolAccountId},#{createOperationId},#{lifecycle},#{createdAt},#{updatedAt})
+  </insert>
+  <!-- 所有账号别名一并复核。仅返回布尔值；不把跨租户身份或任务内容暴露给业务。 -->
+  <sql id="sameIdentityIds">
+    SELECT id FROM account WHERE creator_deletion_identity_phone=#{creatorPhone}
+  </sql>
+  <!-- 调用者必须在同一事务先锁住全部身份别名。每个活动依赖子查询显式当前读，
+       避免外层业务事务已建立的 MySQL REPEATABLE READ 快照漏掉锁等待期间提交的占用。 -->
+  <select id="hasOtherDependencies" resultType="boolean">
+    SELECT (
+      EXISTS(SELECT 1 FROM pull_task_group_account r
+        INNER JOIN pull_task_group_execution e ON e.id=r.group_execution_id AND e.tenant_id=r.tenant_id
+        WHERE r.account_id IN (<include refid="sameIdentityIds"/>) AND e.execution_status IN (0,1,2,3)
+          AND r.released_at IS NULL
+          AND NOT (r.tenant_id=#{tenantId} AND r.group_execution_id=#{groupExecutionId}
+            AND r.task_id=#{taskId} AND r.account_id=#{accountId} AND r.role_type=4) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM marketing_account_occupancy o
+        INNER JOIN marketing_task mt ON mt.id=o.marketing_task_id AND mt.tenant_id=o.tenant_id
+        LEFT JOIN group_pull_marketing_task gp ON gp.marketing_task_id=mt.id AND gp.tenant_id=mt.tenant_id
+        WHERE o.account_id IN (<include refid="sameIdentityIds"/>) AND mt.deleted_at IS NULL
+          AND ((mt.business_type=1 AND mt.status IN (1,2,5))
+            OR (mt.business_type=2 AND gp.resource_status IN (2,3))) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM join_task_result r INNER JOIN join_task t ON t.id=r.join_task_id AND t.tenant_id=r.tenant_id
+        WHERE r.account_id IN (<include refid="sameIdentityIds"/>) AND t.deleted_at IS NULL
+          AND t.status NOT IN ('STOPPED','DONE','FAILED') FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM hyperlink_task_account_usage u INNER JOIN hyperlink_task_runtime t
+        ON t.hyperlink_task_id=u.hyperlink_task_id AND t.tenant_id=u.tenant_id
+        WHERE u.account_id IN (<include refid="sameIdentityIds"/>) AND (t.run_status IN (0,1,3) OR u.in_flight_count&gt;0) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM feed_task_account a INNER JOIN feed_task t ON t.id=a.task_id AND t.tenant_id=a.tenant_id
+        WHERE a.account_id IN (<include refid="sameIdentityIds"/>) AND t.deleted_at IS NULL AND t.task_status IN (0,1,3) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM contact_friend_task_account a INNER JOIN contact_friend_task t
+        ON t.id=a.task_id AND t.tenant_id=a.tenant_id
+        WHERE a.account_id IN (<include refid="sameIdentityIds"/>) AND t.deleted_at IS NULL AND t.run_status IN (0,1,3) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM group_pull_marketing_execution e WHERE
+        (e.builder_account_id IN (<include refid="sameIdentityIds"/>) OR e.marketing_account_id IN (<include refid="sameIdentityIds"/>))
+        AND e.execution_status IN (1,2,7) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM historical_group_pull_execution e WHERE
+        (e.operation_account_id IN (<include refid="sameIdentityIds"/>) OR e.puller_account_id IN (<include refid="sameIdentityIds"/>))
+        AND (e.pull_status IN (0,1) OR e.marketing_status IN (1,2)) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM script_marketing_send_record r WHERE r.account_id IN (<include refid="sameIdentityIds"/>)
+        AND r.status IN (1,4,5) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM account_mutual_contact_item i WHERE
+        (i.actor_id IN (<include refid="sameIdentityIds"/>) OR i.target_id IN (<include refid="sameIdentityIds"/>))
+        AND i.status IN (1,2,5) FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM normal_group_creation_item i WHERE i.creator_account_id IN (<include refid="sameIdentityIds"/>)
+        AND i.deleted_at IS NULL AND i.status IN ('PENDING','RUNNING','RESULT_UNKNOWN')
+        AND i.current_step&lt;&gt;'DONE' FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM normal_group_creation_item_member m INNER JOIN normal_group_creation_item i
+        ON i.id=m.item_id AND i.tenant_id=m.tenant_id
+        WHERE m.member_account_id IN (<include refid="sameIdentityIds"/>) AND i.deleted_at IS NULL AND i.status IN ('PENDING','RUNNING','RESULT_UNKNOWN')
+        AND i.current_step&lt;&gt;'DONE' FOR UPDATE)
+      OR EXISTS(SELECT 1 FROM protocol_command_outbox o WHERE o.protocol_account_id IN
+        (SELECT protocol_account_id FROM account WHERE creator_deletion_identity_phone=#{creatorPhone}) AND o.deleted_at IS NULL AND o.status IN (0,1,5,6) FOR UPDATE)
+    )
+  </select>
+  <select id="activeScriptBindings" resultType="com.armada.account.model.dto.CreatorActiveScriptBinding">
+    SELECT a.id AS account_id, t.steps_json, g.bindings_json
+    FROM account a INNER JOIN script_marketing_task t ON t.tenant_id=a.tenant_id AND t.status IN (1,2)
+    LEFT JOIN script_marketing_group g ON g.task_id=t.id AND g.tenant_id=t.tenant_id
+    WHERE a.creator_deletion_identity_phone=#{phone}
+    FOR UPDATE
+  </select>
+  <sql id="binding">
+    tenant_id=#{binding.tenantId} AND task_id=#{binding.taskId} AND group_execution_id=#{binding.executionId}
+      AND account_id=#{binding.accountId} AND identity_hash=#{binding.identityHash}
+      AND create_operation_id=#{binding.createOperationId}
+  </sql>
+  <update id="begin">
+    UPDATE account_creator_deletion SET lifecycle='DELETING',operation_id=#{binding.operationId},updated_at=#{now}
+    WHERE <include refid="binding"/> AND lifecycle='RESERVED' AND operation_id IS NULL
+  </update>
+  <update id="complete">
+    UPDATE account_creator_deletion SET lifecycle='DELETED',updated_at=#{now},completed_at=#{now}
+    WHERE <include refid="binding"/> AND lifecycle='DELETING' AND operation_id=#{binding.operationId}
+  </update>
+  <update id="freezeOnline">
+    UPDATE account_state SET desired_login_state=2,state_source='CREATOR_DELETION',updated_at=#{now}
+    WHERE tenant_id=#{tenantId} AND account_id=#{accountId}
+  </update>
+  <update id="markOffline">
+    UPDATE account_state SET desired_login_state=2,login_state=2,state_source='CREATOR_DELETED',
+      invalidated_at=#{now},updated_at=#{now}
+    WHERE tenant_id=#{tenantId} AND account_id=#{accountId}
+  </update>
+  <update id="releaseCreator">
+    UPDATE pull_task_group_account SET released_at=#{now},availability_status=4,
+      unavailable_reason_code='CREATOR_ACCOUNT_DELETED',updated_at=#{now}
+    WHERE tenant_id=#{binding.tenantId} AND task_id=#{binding.taskId}
+      AND group_execution_id=#{binding.executionId} AND account_id=#{binding.accountId} AND role_type=4
+      AND released_at IS NULL
+  </update>
+</mapper>

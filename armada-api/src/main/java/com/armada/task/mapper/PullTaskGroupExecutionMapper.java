@@ -372,6 +372,10 @@ public interface PullTaskGroupExecutionMapper {
                           @Param("expectedExecutionStatus") int expectedExecutionStatus,
                           @Param("expectedStage") int expectedStage);
 
+    /** 注销门槛原子推进或暂停；必须仍持有租约且父任务未停止。 */
+    int transitionCreatorDeletion(@Param("row") PullTaskGroupExecution row,
+            @Param("expectedStage") int expectedStage);
+
     /**
      * 缺少真实资料核验凭证时暂停当前已领取执行行，不倒退阶段或重建群。
      *

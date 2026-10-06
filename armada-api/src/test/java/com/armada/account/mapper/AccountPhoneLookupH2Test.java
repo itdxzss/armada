@@ -39,6 +39,7 @@ class AccountPhoneLookupH2Test {
     void setUp() throws SQLException {
         TenantContext.set(7L);
         execute("DROP ALL OBJECTS");
+        execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         execute("CREATE TABLE account (id BIGINT PRIMARY KEY, tenant_id BIGINT, ws_phone VARCHAR(32), deleted_at BIGINT)");
         execute("INSERT INTO account VALUES (685,7,'15550000685',NULL),(690,7,'15550000690',NULL),"
                 + "(700,8,'15550000700',NULL),(701,7,'15550000701',1),(702,7,' ',NULL)");

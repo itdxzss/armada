@@ -74,7 +74,7 @@ class PullTaskStandardReadServiceTest {
                     settingMapper,
                     groupSettingMapper,
                     new PullTaskStandardReadFactMappers(
-                            accountMapper, materialMapper, callMapper, actionMapper)),
+                            accountMapper, materialMapper, callMapper, actionMapper), org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskCreatorDeletionMapper.class)),
             groupLinkService,
             pullerRestrictionService);
 

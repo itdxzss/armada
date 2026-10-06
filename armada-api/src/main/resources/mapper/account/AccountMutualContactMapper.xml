@@ -6,7 +6,7 @@
  <sql id="candidateFields">a.id,a.ws_phone,a.protocol_account_id,UPPER(a.protocol_id) AS protocol_backend,a.owner_user_id,s.account_state,s.login_state,s.risk_status,s.mute_status</sql>
  <select id="candidates" resultType="com.armada.account.model.dto.AccountMutualContactCandidate">
   SELECT <include refid="candidateFields"/> FROM account a INNER JOIN account_state s ON s.account_id=a.id AND s.tenant_id=a.tenant_id
-  WHERE a.account_group_id=#{groupId} AND a.deleted_at IS NULL AND s.account_state=2 AND s.login_state=1
+  WHERE a.account_group_id=#{groupId} AND a.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d WHERE d.account_id=a.id OR d.creator_phone=REPLACE(REPLACE(TRIM(a.ws_phone),'+',''),' ','')) AND s.account_state=2 AND s.login_state=1
    AND (s.risk_status IS NULL OR s.risk_status=1) AND s.mute_status IS NULL
    AND UPPER(a.protocol_id) IN ('WEB','ANDROID') AND TRIM(a.protocol_account_id)&lt;&gt;'' AND TRIM(a.ws_phone)&lt;&gt;''
   ORDER BY a.id LIMIT #{limit}

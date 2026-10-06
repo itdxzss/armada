@@ -44,6 +44,12 @@ public final class PullTaskNewGroupModeValidator {
      * @param request 整单提交入参
      */
     public static void validateRequest(PullTaskStandardCreateDTO request) {
+        if (request != null && Boolean.TRUE.equals(request.creatorDeleteAfterTakeover())
+                && (!PullTaskCreationMode.fromNullable(request.creationMode()).isNewGroup()
+                || request.managerGroupId() == null)) {
+            throw new BusinessException(ErrorCode.VALIDATION,
+                    "管理员接管后注销仅支持新群模式，且必须选择接管管理分组");
+        }
         if (request == null
                 || !PullTaskCreationMode.fromNullable(request.creationMode()).isNewGroup()) {
             return;

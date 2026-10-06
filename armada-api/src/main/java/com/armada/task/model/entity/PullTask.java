@@ -40,6 +40,12 @@ public class PullTask {
      */
     private PullTaskCreationMode creationMode = PullTaskCreationMode.PASTED_LINK;
 
+    /** 建群账号一次性注销配置，草稿到启动只保留这一处事实。 */
+    private Integer creatorDeleteAfterTakeover = 0;
+
+    public Integer getCreatorDeleteAfterTakeover() { return creatorDeleteAfterTakeover; }
+    public void setCreatorDeleteAfterTakeover(Integer value) { creatorDeleteAfterTakeover = value; }
+
     /** 当前状态码。 */
     private String status;
 

@@ -15,6 +15,17 @@ import org.apache.ibatis.annotations.Param;
  */
 @Mapper
 public interface ProtocolCommandOutboxMapper {
+    /** 已预留账号只能执行冻结任务前置动作，注销中与注销后拒绝所有普通业务命令。 */
+    @InterceptorIgnore(tenantLine = "true")
+    boolean creatorDeletionCommandBlocked(@Param("tenantId") Long tenantId,
+            @Param("protocolAccountId") String protocolAccountId,
+            @Param("taskId") Long taskId, @Param("executionId") Long executionId);
+
+    /** 与注销服务使用同一账号身份行锁，避免命令入队跨越注销提交边界。 */
+    @InterceptorIgnore(tenantLine = "true")
+    List<Long> lockCreatorDeletionCommandAccounts(@Param("tenantId") Long tenantId,
+            @Param("protocolAccountId") String protocolAccountId);
+
     /** 查询当前租户管理员命令状态。 */
     Integer selectJoinTaskAdminCommandStatus(@Param("commandId") String commandId);
     /** 当前租户管理员命令取消；发送中的命令只请求收口。 */

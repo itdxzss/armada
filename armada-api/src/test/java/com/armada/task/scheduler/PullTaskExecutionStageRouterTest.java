@@ -21,7 +21,7 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),
-                mock(PullTaskMaterialAdminProcessor.class), groupCreate);
+                mock(PullTaskMaterialAdminProcessor.class), groupCreate, org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.GROUP_CREATE.code());
         when(groupCreate.process(candidate, "worker-1", 1_000L))
@@ -44,7 +44,7 @@ class PullTaskExecutionStageRouterTest {
                         mock(PullTaskPullerInviteProcessor.class),
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class),
-                        mock(PullTaskGroupCreateProcessor.class));
+                        mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
         when(contact.process(candidate, "worker-1", 1_000L))
@@ -67,7 +67,7 @@ class PullTaskExecutionStageRouterTest {
                         link, manager, mock(PullTaskManagerAdminProcessor.class), contact, invite,
                         mock(PullTaskPullExecutionProcessor.class),
                         mock(PullTaskMaterialAdminProcessor.class),
-                        mock(PullTaskGroupCreateProcessor.class));
+                        mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
         when(invite.process(candidate, "worker-1", 1_000L))
@@ -89,7 +89,7 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
                 mock(PullTaskMaterialAdminProcessor.class),
-                mock(PullTaskGroupCreateProcessor.class));
+                mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.PULL_EXECUTION.code());
         when(pullExecution.process(candidate, "worker-1", 1_000L))
@@ -111,7 +111,7 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class), materialAdmin,
-                mock(PullTaskGroupCreateProcessor.class));
+                mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MATERIAL_ADMIN.code());
         when(materialAdmin.process(candidate, "worker-1", 1_000L))
@@ -133,7 +133,7 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskManagerPullerContactProcessor.class),
                 mock(PullTaskPullerInviteProcessor.class), pullExecution,
                 mock(PullTaskMaterialAdminProcessor.class),
-                mock(PullTaskGroupCreateProcessor.class));
+                mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.CLOSING.code());
         when(pullExecution.close(candidate, "worker-1", 1_000L))
@@ -155,7 +155,7 @@ class PullTaskExecutionStageRouterTest {
                 mock(PullTaskPullerInviteProcessor.class),
                 mock(PullTaskPullExecutionProcessor.class),
                 mock(PullTaskMaterialAdminProcessor.class),
-                mock(PullTaskGroupCreateProcessor.class));
+                mock(PullTaskGroupCreateProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionProcessor.class), org.mockito.Mockito.mock(PullTaskCreatorDeletionGate.class));
         PullTaskGroupExecution candidate = new PullTaskGroupExecution();
         candidate.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
         when(managerAdmin.process(candidate, "worker-1", 1_000L))

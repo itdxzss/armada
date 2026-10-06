@@ -65,6 +65,7 @@ class AccountHyperlinkCandidateMapperH2Test {
     void setUp() throws SQLException {
         executor = Executors.newFixedThreadPool(2);
         execute("DROP ALL OBJECTS");
+        execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         schema();
         fixture();
     }

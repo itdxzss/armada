@@ -148,6 +148,8 @@ public class PullTaskExecutionDispatchCoordinator {
                                 PullTaskExecutionStage.GROUP_CREATE.code(),
                                 PullTaskExecutionStage.MANAGER_JOIN.code(),
                                 PullTaskExecutionStage.MANAGER_ADMIN.code(),
+                                PullTaskExecutionStage.CREATOR_DELETE.code(),
+                                PullTaskExecutionStage.CREATOR_DELETE_VERIFY.code(),
                                 PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code(),
                                 PullTaskExecutionStage.PULLER_INVITE.code(),
                                 PullTaskExecutionStage.DIRECT_PULLER_JOIN.code(),

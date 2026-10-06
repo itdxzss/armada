@@ -49,6 +49,7 @@ class AccountPullerRestrictionServiceH2Test {
     void setUp() throws SQLException {
         jdbc = new JdbcTemplate(dataSource);
         execute("DROP ALL OBJECTS");
+        execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         execute("""
                 CREATE TABLE account (
                   id BIGINT PRIMARY KEY,

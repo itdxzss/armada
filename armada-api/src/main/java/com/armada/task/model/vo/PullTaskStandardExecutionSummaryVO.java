@@ -42,7 +42,10 @@ public record PullTaskStandardExecutionSummaryVO(
         PullTaskStandardResourceCountVO managers,
         PullTaskStandardResourceCountVO pullers,
         PullTaskStandardResourceCountVO stations,
-        PullTaskExecutionObservationVO observation) {
+        PullTaskExecutionObservationVO observation,
+        String creatorDeletionStatus,
+        String creatorDeletionReason,
+        String creatorDeletionOperationId) {
 
     /** M1 兼容构造；没有聚合事实时不填假零值。 */
     public PullTaskStandardExecutionSummaryVO(
@@ -59,6 +62,6 @@ public record PullTaskStandardExecutionSummaryVO(
             Long lastBusinessExecutedAt) {
         this(executionId, seq, normalizedLink, groupJid, null, null, executionStatus, stage,
                 null, null, manualPaused, null, validMemberCount, reasonCode, reasonMessage,
-                lastBusinessExecutedAt, null, null, null, null, null);
+                lastBusinessExecutedAt, null, null, null, null, null, null, null, null);
     }
 }

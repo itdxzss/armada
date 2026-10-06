@@ -44,6 +44,7 @@ class AccountTypeVerificationMapperH2Test {
     void setUp() throws SQLException {
         TenantContext.set(7L);
         execute("DROP ALL OBJECTS");
+        execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         execute("""
                 CREATE TABLE account (
                   id BIGINT AUTO_INCREMENT PRIMARY KEY,

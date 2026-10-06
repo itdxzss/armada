@@ -52,7 +52,7 @@ class PullTaskStandardGroupSettingToggleDetailTest {
                             mock(PullTaskGroupAccountMapper.class),
                             mock(PullTaskMaterialMemberMapper.class),
                             mock(PullTaskPullCallMapper.class),
-                            mock(PullTaskAccountActionMapper.class))),
+                            mock(PullTaskAccountActionMapper.class)), org.mockito.Mockito.mock(com.armada.task.mapper.PullTaskCreatorDeletionMapper.class)),
             mock(GroupLinkService.class),
             pullerRestrictionService);
 

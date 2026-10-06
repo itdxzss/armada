@@ -40,3 +40,8 @@ CREATE TABLE account_import_detail (
   login_reason VARCHAR(255), created_at BIGINT
 );
 INSERT INTO account_group (id, tenant_id, name) VALUES (11, 7, 'test-group'), (12, 8, 'other-test-group');
+
+CREATE TABLE IF NOT EXISTS account_creator_deletion(account_id BIGINT PRIMARY KEY,creator_phone VARCHAR(32),protocol_account_id VARCHAR(128),tenant_id BIGINT,task_id BIGINT,group_execution_id BIGINT,lifecycle VARCHAR(16));
+
+ALTER TABLE account ADD COLUMN creator_deletion_identity_phone VARCHAR(32) GENERATED ALWAYS AS (REPLACE(REPLACE(TRIM(ws_phone),'+',''),' ',''));
+CREATE INDEX idx_account_creator_deletion_identity ON account(creator_deletion_identity_phone,id);

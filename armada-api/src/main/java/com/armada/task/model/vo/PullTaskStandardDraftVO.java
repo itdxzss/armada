@@ -24,5 +24,5 @@ public record PullTaskStandardDraftVO(Long draftTaskId,
                                       List<PullTaskStandardLinkLineVO> linkLines,
                                       List<PullTaskStandardFileResultVO> fileResults,
                                       int matchedCount, int remainingLinkCount,
-                                      int ignoredFileCount) {
+                                      int ignoredFileCount, boolean creatorDeleteAfterTakeover) {
 }

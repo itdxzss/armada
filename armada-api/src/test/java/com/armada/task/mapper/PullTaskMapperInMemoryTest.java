@@ -55,6 +55,7 @@ class PullTaskMapperInMemoryTest {
     void setUp() throws SQLException {
         executeSql("DROP ALL OBJECTS", """
                 CREATE TABLE pull_task (
+                    is_creator_delete_after_takeover TINYINT NOT NULL DEFAULT 0,
                     id BIGINT PRIMARY KEY,
                     tenant_id BIGINT NOT NULL,
                     task_type VARCHAR(32) NOT NULL,
@@ -62,6 +63,7 @@ class PullTaskMapperInMemoryTest {
                     task_name VARCHAR(128) NOT NULL,
                     group_name VARCHAR(128),
                     mode VARCHAR(32) NOT NULL,
+                    creation_mode VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK',
                     status VARCHAR(32) NOT NULL,
                     primary_stage VARCHAR(64),
                     blocking_reason VARCHAR(255),
@@ -139,7 +141,9 @@ class PullTaskMapperInMemoryTest {
                     UNIQUE (tenant_id, task_id)
                 )
                 """, """
-                INSERT INTO pull_task VALUES
+                INSERT INTO pull_task(id,tenant_id,task_type,group_source,task_name,group_name,mode,status,
+                    primary_stage,blocking_reason,started_at,finished_at,version,group_count,expected_pull_count,
+                    operator_name,created_at,updated_at,last_business_executed_at,remark,deleted_at) VALUES
                   (10, 7, 'STANDARD', NULL, '普通链接任务', NULL, 'NORMAL_LINK',
                    'WAIT_START', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 900, 900, NULL, NULL, NULL),
                   (11, 7, 'STANDARD', NULL, '普通任务甲', '普通群', 'OLD_LINK',
@@ -279,7 +283,9 @@ class PullTaskMapperInMemoryTest {
     @Test
     void softDeletesOnlyStatusesAllowedForEachTaskType() throws SQLException {
         executeSql("""
-                INSERT INTO pull_task VALUES
+                INSERT INTO pull_task(id,tenant_id,task_type,group_source,task_name,group_name,mode,status,
+                    primary_stage,blocking_reason,started_at,finished_at,version,group_count,expected_pull_count,
+                    operator_name,created_at,updated_at,last_business_executed_at,remark,deleted_at) VALUES
                   (15, 7, 'STANDARD', NULL, '已完成普通任务', NULL, 'OLD_LINK',
                    'COMPLETED', NULL, NULL, NULL, NULL, 1, 1, 10, '运营甲', 5000, 5000, NULL, NULL, NULL),
                   (16, 7, 'STANDARD', NULL, '执行中普通任务', NULL, 'OLD_LINK',

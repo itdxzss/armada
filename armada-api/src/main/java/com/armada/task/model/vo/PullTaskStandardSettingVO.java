@@ -6,6 +6,7 @@ import com.armada.task.model.enums.PullTaskPullerSyncMode;
 public record PullTaskStandardSettingVO(
         int autoStart,
         boolean creatorLeaveAfterPull,
+        boolean creatorDeleteAfterTakeover,
         Long groupFolderId,
         String groupFolderName,
         PullTaskPullerSyncMode pullerSyncMode,

@@ -68,9 +68,11 @@ class AccountExportServiceH2Test {
         reset(proxies);
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("DROP ALL OBJECTS");
+        jdbc.execute(com.armada.testsupport.CreatorDeletionH2Schema.DDL);
         jdbc.execute("CREATE TABLE group_pull_marketing_task(id BIGINT, tenant_id BIGINT, builder_group_id BIGINT, resource_status INT)");
         jdbc.execute("CREATE TABLE account_group(id BIGINT PRIMARY KEY, tenant_id BIGINT, marketing_occupancy_task_id BIGINT)");
-        jdbc.execute("CREATE TABLE account(id BIGINT PRIMARY KEY, tenant_id BIGINT, account_group_id BIGINT, owner_user_id BIGINT, dispatched_at BIGINT, deleted_at BIGINT, updated_at BIGINT)");
+        jdbc.execute("CREATE TABLE account(id BIGINT PRIMARY KEY, tenant_id BIGINT, account_group_id BIGINT, owner_user_id BIGINT, dispatched_at BIGINT, deleted_at BIGINT, updated_at BIGINT, ws_phone VARCHAR(32))");
+        com.armada.testsupport.CreatorDeletionH2Schema.installIdentityIndex(dataSource);
         jdbc.execute("CREATE TABLE account_state(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, account_state INT, login_state INT, desired_login_state INT, state_source VARCHAR(40), updated_at BIGINT, last_state_sync_time BIGINT)");
         jdbc.execute("CREATE TABLE account_credential(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, deleted_at BIGINT, updated_at BIGINT)");
         jdbc.execute("CREATE TABLE account_import_batch(id BIGINT PRIMARY KEY, tenant_id BIGINT, import_format INT, device_os INT)");
@@ -85,7 +87,7 @@ class AccountExportServiceH2Test {
     }
 
     private void seed(long tenant, long id, int format, String raw) {
-        jdbc.update("INSERT INTO account VALUES(?,?,?,?,NULL,NULL,0)", id, tenant, tenant, 7);
+        jdbc.update("INSERT INTO account(id,tenant_id,account_group_id,owner_user_id,dispatched_at,deleted_at,updated_at) VALUES(?,?,?,?,NULL,NULL,0)", id, tenant, tenant, 7);
         jdbc.update("INSERT INTO account_state(tenant_id,account_id,account_state,login_state,desired_login_state,state_source,updated_at,last_state_sync_time) VALUES(?,?,2,2,2,'STATE_CHANGED',0,0)", tenant, id);
         jdbc.update("INSERT INTO account_credential(tenant_id,account_id) VALUES(?,?)", tenant, id);
         jdbc.update("INSERT INTO account_import_batch VALUES(?,?,?,1)", id, tenant, format);

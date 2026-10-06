@@ -9,17 +9,21 @@
   </select>
 
   <!-- tenant_id 由租户拦截器注入；occupancy_key 是生成列，永不显式写入。 -->
-  <insert id="insertInitialized" useGeneratedKeys="true" keyProperty="id">
+  <insert id="insertInitializedRecord" useGeneratedKeys="true" keyProperty="id">
+    <bind name="allocationTenantId" value="@com.armada.shared.tenant.TenantContext@get()"/>
     INSERT INTO pull_task_group_account (
-      task_id, group_execution_id, account_id, account_phone, role_type, role_seq,
+      tenant_id, task_id, group_execution_id, account_id, account_phone, role_type, role_seq,
       source_type, selection_mode, entry_mode, membership_status, admin_status,
       availability_status, pull_call_id, occupied_at, created_at, updated_at
-    ) VALUES (
-      #{taskId}, #{groupExecutionId}, #{accountId}, #{accountPhone}, #{roleType}, #{roleSeq},
+    ) SELECT
+      #{allocationTenantId}, #{taskId}, #{groupExecutionId}, #{accountId}, #{accountPhone}, #{roleType}, #{roleSeq},
       #{sourceType}, #{selectionMode}, #{entryMode}, #{membershipStatus},
       #{adminStatus}, #{availabilityStatus}, #{pullCallId}, #{occupiedAt},
       #{createdAt}, #{updatedAt}
-    )
+    WHERE NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE (d.account_id=#{accountId} OR d.creator_phone=REPLACE(REPLACE(TRIM(#{accountPhone}),'+',''),' ',''))
+        AND NOT (d.lifecycle='RESERVED' AND d.tenant_id=#{allocationTenantId} AND d.task_id=#{taskId}
+          AND d.group_execution_id=#{groupExecutionId} AND d.account_id=#{accountId} AND #{roleType}=4))
   </insert>
 
   <select id="selectByExecutionAndRole"
@@ -77,7 +81,7 @@
 
   <!-- released_at 置回 NULL 会让 occupancy_key 重新取值；账号已被别人占走时唯一键抛错，
        这是"恢复时重新竞争拉手"的预期路径。 -->
-  <update id="reoccupyPuller">
+  <update id="reoccupyPullerRecord">
     UPDATE pull_task_group_account
     SET released_at = NULL,
         occupied_at = #{now},
@@ -85,6 +89,10 @@
     WHERE id = #{id}
       AND role_type = #{roleType}
       AND released_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+        WHERE d.account_id=pull_task_group_account.account_id
+          OR EXISTS (SELECT 1 FROM account a WHERE a.id=pull_task_group_account.account_id
+            AND a.creator_deletion_identity_phone=d.creator_phone))
   </update>
 
   <update id="markPullerReplaced">
@@ -444,4 +452,9 @@
                open="(" separator="," close=")">#{status}</foreach>
   </update>
 
+  <select id="lockCreatorDeletionAccount" resultType="long">
+    SELECT a.id FROM account a WHERE a.creator_deletion_identity_phone IN
+      (SELECT route.creator_deletion_identity_phone FROM account route WHERE route.id=#{accountId})
+      ORDER BY a.id FOR UPDATE
+  </select>
 </mapper>

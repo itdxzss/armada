@@ -28,7 +28,11 @@ public enum PullTaskExecutionStage {
      */
     GROUP_CREATE(9),
     /** 新群链接模式：分配普通拉手并由拉手踩链接入群，不执行管理或联系人前置动作。 */
-    DIRECT_PULLER_JOIN(10);
+    DIRECT_PULLER_JOIN(10),
+    /** 管理员接管后，实时核验并提交一次性永久注销。 */
+    CREATOR_DELETE(11),
+    /** 原操作查询对账并等待创建者服务端清理，完成前禁止拉人。 */
+    CREATOR_DELETE_VERIFY(12);
 
     private final int code;
 

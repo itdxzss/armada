@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.task.mapper.PullTaskCreatorDeletionConfigMapper">
+  <update id="updateBeforeStart">
+    UPDATE pull_task SET is_creator_delete_after_takeover = #{enabled},
+      version = version + 1, updated_at = #{now}
+    WHERE id = #{taskId} AND deleted_at IS NULL AND started_at IS NULL
+      AND task_type = 'STANDARD' AND mode = 'NORMAL_LINK'
+      AND status IN ('DRAFT', 'WAIT_START')
+  </update>
+</mapper>

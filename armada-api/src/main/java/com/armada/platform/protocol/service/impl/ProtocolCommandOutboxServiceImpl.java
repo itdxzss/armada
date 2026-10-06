@@ -642,6 +642,7 @@ public class ProtocolCommandOutboxServiceImpl
 
     /** {@inheritDoc} */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ProtocolCommandOutboxEnqueueResult enqueuePullTaskManagerAdminCommands(
             List<ProtocolPullTaskManagerAdminCommandRequest> commands) {
         validatePullTaskManagerAdminCommands(commands);
@@ -807,6 +808,20 @@ public class ProtocolCommandOutboxServiceImpl
     private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
                                                                  List<String> commandIds,
                                                                  List<ProtocolCommandOutbox> rows) {
+        for (ProtocolCommandOutbox row : rows) {
+            mapper.lockCreatorDeletionCommandAccounts(row.getTenantId(), row.getProtocolAccountId());
+            try {
+                com.fasterxml.jackson.databind.JsonNode reference = objectMapper.readTree(row.getPayloadJson());
+                Long taskId = reference.hasNonNull("pullTaskId") ? reference.get("pullTaskId").longValue() : null;
+                Long executionId = reference.hasNonNull("groupExecutionId")
+                        ? reference.get("groupExecutionId").longValue() : null;
+                if (mapper.creatorDeletionCommandBlocked(row.getTenantId(), row.getProtocolAccountId(), taskId, executionId)) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "账号已被一次性建群任务预留或进入永久注销流程");
+                }
+            } catch (JsonProcessingException invalid) {
+                throw new BusinessException(ErrorCode.VALIDATION, "协议命令账号生命周期校验失败");
+            }
+        }
         assignTraceIds(rows);
         int inserted;
         try {

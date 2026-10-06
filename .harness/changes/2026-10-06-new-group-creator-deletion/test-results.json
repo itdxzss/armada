@@ -1,0 +1,474 @@
+{
+  "backend_latest_report_totals": {
+    "tests": 413,
+    "failures": 9,
+    "errors": 3,
+    "skipped": 0
+  },
+  "focused_final_totals": {
+    "tests": 93,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "backend_suites": [
+    {
+      "class": "com.armada.account.mapper.AccountGroupMapperH2Test",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.mapper.AccountHyperlinkCandidateMapperH2Test",
+      "tests": 20,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.mapper.AccountPhoneLookupH2Test",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.mapper.AccountTypeVerificationMapperH2Test",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.AccountCreatorDeletionServiceInMemoryTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.AccountExportServiceH2Test",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.AccountMutualContactH2Test",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.AccountPullerEligibilityMapperH2Test",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.DeviceImportTransactionTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.impl.AccountPullerRestrictionServiceH2Test",
+      "tests": 14,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.account.service.impl.AccountStateEventServiceConcurrencyH2Test",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.platform.kafka.producer.ProtocolCommandPublisherTest",
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.platform.protocol.backend.android.CreatorAccountDeletionAdapterTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapperInMemoryTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.platform.protocol.service.impl.ProtocolCommandOutboxServiceImplTest",
+      "tests": 44,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.controller.PullTaskStandardControllerTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskCreatorDeletionConfigH2Test",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskCreatorDeletionMapperH2Test",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskCreatorDeletionMigrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskDirectLinkCreateInMemoryTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskGroupAccountMapperInMemoryTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskMapperInMemoryTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.mapper.PullTaskStandardSettingMapperInMemoryTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.model.dto.PullTaskStandardCreateDTOTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionDispatchServiceTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionDownstreamGateTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionManagerGateTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionProcessorTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionProofTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorDeletionTransactionServiceTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskCreatorLeaveProcessorTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskExecutionDispatchCoordinatorTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskExecutionEndToEndIntegrationTest",
+      "tests": 17,
+      "failures": 9,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": [
+        {
+          "test": "executesOneLinkAndOneMaterialThroughClosing(ProtocolProfile)[1]",
+          "type": "java.lang.AssertionError"
+        },
+        {
+          "test": "executesOneLinkAndOneMaterialThroughClosing(ProtocolProfile)[2]",
+          "type": "java.lang.AssertionError"
+        },
+        {
+          "test": "executesOneLinkAndOneMaterialThroughClosing(ProtocolProfile)[3]",
+          "type": "java.lang.AssertionError"
+        },
+        {
+          "test": "directLinkCompletesWithoutManagerContactsSettingsOrMaterialPromotion(ProtocolProfile)[1]",
+          "type": "org.opentest4j.AssertionFailedError"
+        },
+        {
+          "test": "directLinkCompletesWithoutManagerContactsSettingsOrMaterialPromotion(ProtocolProfile)[2]",
+          "type": "org.opentest4j.AssertionFailedError"
+        },
+        {
+          "test": "directLinkCompletesWithoutManagerContactsSettingsOrMaterialPromotion(ProtocolProfile)[3]",
+          "type": "org.opentest4j.AssertionFailedError"
+        },
+        {
+          "test": "replacesFailedManagerAndCompletesJoinPromotionAndPull(ProtocolProfile)[1]",
+          "type": "org.opentest4j.AssertionFailedError"
+        },
+        {
+          "test": "replacesFailedManagerAndCompletesJoinPromotionAndPull(ProtocolProfile)[2]",
+          "type": "org.opentest4j.AssertionFailedError"
+        },
+        {
+          "test": "replacesFailedManagerAndCompletesJoinPromotionAndPull(ProtocolProfile)[3]",
+          "type": "org.opentest4j.AssertionFailedError"
+        }
+      ]
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskExecutionStageRouterTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskGroupCreateTransactionIntegrationTest",
+      "tests": 24,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.scheduler.PullTaskManagerAdminTransactionIntegrationTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.service.PullTaskNewGroupModeValidatorTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStandardCreateServiceTest",
+      "tests": 30,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": [
+        {
+          "test": "newGroupModeAllowsNoManagerGroupAndPersistsNullSnapshot",
+          "type": "com.armada.shared.exception.BusinessException"
+        },
+        {
+          "test": "linkModesStillRejectNoManagerGroupWithoutFreezingDraft",
+          "type": "org.springframework.dao.DuplicateKeyException"
+        }
+      ]
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStandardGroupSettingToggleDetailTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStandardReadServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStandardSettingWriterTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": [
+        {
+          "test": "newGroupModeAllowsNoManagerButStillValidatesASelectedGroup",
+          "type": "com.armada.shared.exception.BusinessException"
+        }
+      ]
+    },
+    {
+      "class": "com.armada.task.service.PullTaskStandardStartServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "timestamp": null,
+      "failures_detail": []
+    }
+  ],
+  "baseline_head": "2a69df1d",
+  "baseline_failures_confirmed": 12,
+  "logs": {
+    "/private/tmp/creator-delete-combined-tests.log": "e72edc38715972cbb67ec16e09a67d1cdbf54504d52b6ea469890a5a1115a3fa",
+    "/private/tmp/armada-creator-delete-go-test.log": "862153be25ac6bf76b11ff10044f97d48e0027c6238e4d650941e5d9b34e7526",
+    "/private/tmp/creator-delete-baseline-tests.log": "49f1b421edb5c9a588279ccb6209caf9d5e7c062a9e9be72b300a2669c7aca5e",
+    "/private/tmp/armada-creator-delete-noise-baseline.log": "9656b4684a03dc6e89a0668758171b3519952fc08153176e0c48303cafcc707d",
+    "/private/tmp/creator-delete-frontend-tests.log": "063c11efc18d66cc438bdf8186f0312cb0510f3001a2b740ba982853e63f8627",
+    "/private/tmp/armada-creator-delete-web-tests.log": "5bc509d311c2b78e27e278890e3283809a34bddd99f598f3dda3dda2f3ee6e01",
+    "/private/tmp/creator-delete-backend-package.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/private/tmp/creator-delete-account-test.log": "9ef544835cd10146d67f10400b6f2707a5be33364be5a7a5fc4383d31f3da02b",
+    "/private/tmp/armada-creator-delete-go-race-final.log": "6f9cdf04088212b910b7f6281ebbfbdbe6f3171251c0d8f810b6d680a5f707f7",
+    "/private/tmp/creator-delete-web-format.log": "3250e99a5ff506e072f3bb5221ce2f057c45d1f3f3c5b84204166668dbf38014",
+    "/private/tmp/creator-delete-combined-final-tests.log": "2c6bcd09fccf651f25e6cef91a3ac1e3e9128c0c623c7c3dbbbe9267492cac24",
+    "/private/tmp/creator-delete-final-focused-tests.log": "e322dfefdd8d0b4e29f0a891a908e69d4a14f166e8516cbf1db78819c1457ac0",
+    "/private/tmp/creator-delete-web-build.log": "db76b27c7697a73794a1ab889ccde8da5bcfc140701fb370918f5f5269252188",
+    "/private/tmp/creator-delete-account-test2.log": "7822b21e6c4f6c745493e128bde5cc9c4fa242c3663415808cdc8c8a88f9f897",
+    "/private/tmp/creator-delete-web-eslint.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/private/tmp/creator-delete-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/private/tmp/creator-delete-web-typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/private/tmp/creator-delete-focused.log": "af8129ffe4243bec149d0854417cae27bb7ea7f1a1ca94ff422a0143ae8eff99",
+    "/private/tmp/creator-delete-consolidated-tests.log": "dcf3136ac53681897ce2cf9ff423e0855add314e47b88970056d599e953155d9",
+    "/private/tmp/armada-creator-delete-go-race.log": "251132ab3a44adf2a6be39943053c29da0f0cfeaafd269bd3eb4ff6291f4da5e",
+    "/private/tmp/creator-delete-baseline-e2e-tests.log": "c7faf2920426b72ae147296b63c45dbaab4e081a36235f39efcf2e83465dc546"
+  },
+  "backend_package_exit_code": 0,
+  "focused_final_exit_code": 0,
+  "consolidated_command_exit_code": 1,
+  "baseline_failure_name_sets_equal": true
+}

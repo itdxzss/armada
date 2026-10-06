@@ -31,7 +31,9 @@ public class MyBatisConfig {
             Set.of(
                     "tenant",
                     "country",
-                    "country_phone_prefix_mapping");
+                    "country_phone_prefix_mapping",
+                    // 全局身份封锁表；专属 Mapper 显式校验租户，通用候选只查询是否封锁。
+                    "account_creator_deletion");
 
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor(TenantLineHandler tenantLineHandler) {

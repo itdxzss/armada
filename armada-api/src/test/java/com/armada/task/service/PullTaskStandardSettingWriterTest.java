@@ -35,7 +35,8 @@ class PullTaskStandardSettingWriterTest {
             mock(AccountProtocolLookupService.class);
     private final PullTaskStandardSettingWriter writer =
             new PullTaskStandardSettingWriter(
-                    mapper, accountGroupService, groupFolderService, accountLookup);
+                    mapper, accountGroupService, groupFolderService, accountLookup,
+                    mock(com.armada.account.service.AccountCreatorDeletionService.class));
 
     @BeforeEach
     void setUp() {

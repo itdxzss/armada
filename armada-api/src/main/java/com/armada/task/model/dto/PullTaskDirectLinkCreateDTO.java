@@ -37,7 +37,7 @@ public record PullTaskDirectLinkCreateDTO(
                 pullIntervalSeconds, pullerCountPerGroup, stationCountPerCall, concurrentGroupCount,
                 null, pullerGroupId, stationCountPerCall != null && stationCountPerCall > 0 ? stationGroupId : null,
                 null, pullerFinishGroupId, disabled, PullTaskCreationMode.DIRECT_LINK, null, 0, false,
-                pullIntervalSeconds);
+                pullIntervalSeconds, false);
     }
 
     /** 隐藏的旧模式字段不能通过直接创建接口偷偷生效。 */

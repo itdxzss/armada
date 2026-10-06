@@ -344,9 +344,11 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
      * 写入账号自身的精确进群、离群或不在群事实。
      *
      * <p>调用方已经完成租户、账号协议句柄和动作校验。本方法只更新新模型，不产生营销等业务副作用。</p>
+     *
+     * @return 是否首次确认本次在群关系，重复或过期事件返回 false
      */
     @Transactional(rollbackFor = Exception.class)
-    public void applySelfMembershipChanged(
+    public boolean applySelfMembershipChanged(
             Long accountId,
             String groupJid,
             AccountGroupMembershipStatus status,
@@ -442,6 +444,7 @@ public class AccountGroupCurrentSnapshotPersistenceImpl {
                             normalizedSource, occurredAt, now));
         }
         mapper.upsertSelfBinding(tenantId, accountId, row);
+        return inGroup && activeSince != null;
     }
 
     /**

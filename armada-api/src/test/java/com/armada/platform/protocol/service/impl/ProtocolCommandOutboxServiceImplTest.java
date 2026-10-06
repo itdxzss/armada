@@ -474,9 +474,9 @@ class ProtocolCommandOutboxServiceImplTest {
         try {
             service.enqueuePullTaskGroupProfileCommands(List.of(
                     new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 11L, 811L,
-                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933")),
+                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933"), null),
                     new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 12L, 812L,
-                            new ProtocolAccountRef(393L, ProtocolBackend.ANDROID, "actor-android", "944"))));
+                            new ProtocolAccountRef(393L, ProtocolBackend.ANDROID, "actor-android", "944"), null)));
             List<ProtocolCommandOutbox> rows = capturedRows();
             assertThat(rows).extracting(ProtocolCommandOutbox::getCommandType)
                     .containsOnly("group.profile.apply");
@@ -488,6 +488,31 @@ class ProtocolCommandOutboxServiceImplTest {
             assertThat(reference.path("source").asText()).isEqualTo("pull_task_group_profile");
             assertThat(reference.path("actionId").asLong()).isEqualTo(811L);
             assertThat(reference.has("description")).isFalse();
+            assertThat(reference.has("repair")).isFalse();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void groupProfileRepairPersistsOnlyMissingFieldSelection() throws Exception {
+        TestableProtocolCommandOutboxService service = newService(List.of("cmd-profile-repair"), List.of());
+        when(mapper.batchInsertPending(anyList())).thenReturn(1);
+        TenantContext.set(1L);
+        try {
+            service.enqueuePullTaskGroupProfileCommands(List.of(
+                    new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 11L, 811L,
+                            new ProtocolAccountRef(393L, ProtocolBackend.ANDROID, "actor-android", "944"),
+                            new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, true))));
+
+            JsonNode reference = objectMapper.readTree(capturedRows().get(0).getPayloadJson());
+
+            assertThat(reference.path("repair").path("subject").asBoolean()).isFalse();
+            assertThat(reference.path("repair").path("description").asBoolean()).isTrue();
+            assertThat(reference.path("source").asText()).isEqualTo("pull_task_group_profile");
+            assertThat(reference.has("subject")).isFalse();
+            assertThat(reference.has("description")).isFalse();
+            assertThat(reference.has("avatar")).isFalse();
         } finally {
             TenantContext.clear();
         }
@@ -500,7 +525,7 @@ class ProtocolCommandOutboxServiceImplTest {
         try {
             assertThatThrownBy(() -> service.enqueuePullTaskGroupProfileCommands(List.of(
                     new ProtocolPullTaskGroupProfileCommandRequest(2L, 9L, 11L, 811L,
-                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933")))))
+                            new ProtocolAccountRef(392L, ProtocolBackend.WEB, "actor-web", "933"), null))))
                     .isInstanceOf(BusinessException.class);
             verify(mapper, never()).batchInsertPending(anyList());
         } finally {

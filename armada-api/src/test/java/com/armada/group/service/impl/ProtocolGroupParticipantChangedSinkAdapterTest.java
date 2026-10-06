@@ -1,7 +1,6 @@
 package com.armada.group.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -9,13 +8,10 @@ import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.model.dto.GroupParticipantObservation;
-import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
-import com.armada.marketing.model.dto.MarketingNewGroupDTO;
-import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
@@ -31,7 +27,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -46,7 +41,6 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
     @Mock private ProtocolGroupJoinSink joinSink;
     @Mock private ProtocolGroupDepartureSink departureSink;
     @Mock private WhatsappGroupMemberCacheService memberCacheService;
-    @Mock private MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     @AfterEach
     void clearTenant() {
@@ -90,58 +84,22 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
     }
 
     @Test
-    void webAddWritesJoinFactAndReconcilesControlledMemberships() {
+    void webAddDelegatesControlledMembershipAndMarketingToUnifiedJoinSink() {
         bindAccount(ProtocolBackend.WEB);
-        when(observationService.reconcileControlledJoins(
-                7L, GROUP_JID,
-                List.of("123456789012345@lid", "919000000001@s.whatsapp.net"),
-                5_000L, "member-event-1"))
-                .thenReturn(List.of(new ControlledAccountGroupTransition(
-                        77L, GROUP_JID)));
 
         adapter().handleParticipantChanged(event("add", "WEB",
                 "919000000002@s.whatsapp.net", lidWithPhone()));
 
-        InOrder order = inOrder(observationService, joinSink, marketingNewGroupService);
-        order.verify(observationService).reconcileControlledJoins(
-                7L, GROUP_JID,
-                List.of("123456789012345@lid", "919000000001@s.whatsapp.net"),
-                5_000L, "member-event-1");
         ArgumentCaptor<ProtocolGroupJoinEvent> captor =
                 ArgumentCaptor.forClass(ProtocolGroupJoinEvent.class);
-        order.verify(joinSink).handleJoins(captor.capture());
+        verify(joinSink).handleJoins(captor.capture());
         ProtocolGroupJoinEvent joins = captor.getValue();
         assertThat(joins.sourceType()).isEqualTo("WEB_NOTIFICATION");
         assertThat(joins.groupJid()).isEqualTo(GROUP_JID);
         assertThat(joins.participants()).containsExactly(new ProtocolGroupJoinEvent.Participant(
                 "123456789012345@lid", "919000000001@s.whatsapp.net", 5_000L,
                 "member-event-1:123456789012345@lid"));
-        // 库里成员行按 PN 优先索引，LID 与号码形态都要作为候选，否则受控号匹配不上。
-        verify(observationService).reconcileControlledJoins(
-                7L, GROUP_JID,
-                List.of("123456789012345@lid", "919000000001@s.whatsapp.net"),
-                5_000L, "member-event-1");
-        order.verify(marketingNewGroupService).enqueueDelayedNewGroups(
-                org.mockito.ArgumentMatchers.eq(77L),
-                org.mockito.ArgumentMatchers.eq(List.of(
-                        new MarketingNewGroupDTO(null, GROUP_JID, null))),
-                org.mockito.ArgumentMatchers.longThat(value -> value > 0));
-        verifyNoInteractions(departureSink);
-    }
-
-    @Test
-    void repeatedAddWithoutNewControlledTransitionDoesNotEnterMarketing() {
-        bindAccount(ProtocolBackend.WEB);
-        when(observationService.reconcileControlledJoins(
-                7L, GROUP_JID,
-                List.of("123456789012345@lid", "919000000001@s.whatsapp.net"),
-                5_000L, "member-event-1"))
-                .thenReturn(List.of());
-
-        adapter().handleParticipantChanged(event("add", "WEB",
-                "919000000002@s.whatsapp.net", lidWithPhone()));
-
-        verifyNoInteractions(marketingNewGroupService);
+        verifyNoInteractions(departureSink, observationService);
     }
 
     @Test
@@ -158,6 +116,22 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
     }
 
     @Test
+    void addPreservesPhoneIdentityAlongsideLidWhenPhoneNumberFieldIsMissing() {
+        bindAccount(ProtocolBackend.WEB);
+
+        adapter().handleParticipantChanged(event("add", "WEB", null,
+                List.of(new ProtocolGroupParticipantIdentity(
+                        "919000000001:7@s.whatsapp.net", "123456789012345@lid", null))));
+
+        ArgumentCaptor<ProtocolGroupJoinEvent> captor = ArgumentCaptor.forClass(ProtocolGroupJoinEvent.class);
+        verify(joinSink).handleJoins(captor.capture());
+        assertThat(captor.getValue().participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.participantJid()).isEqualTo("123456789012345@lid");
+            assertThat(participant.phone()).isEqualTo("919000000001@s.whatsapp.net");
+        });
+    }
+
+    @Test
     void removeByAnotherAdminIsRecordedAsRemoved() {
         bindAccount(ProtocolBackend.WEB);
 
@@ -168,7 +142,6 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
                 .containsExactly(new ProtocolGroupDepartureEvent.Participant(
                         "919000000001@s.whatsapp.net", null, "REMOVED", 5_000L,
                         "member-event-1:919000000001@s.whatsapp.net"));
-        verifyNoInteractions(marketingNewGroupService);
     }
 
     @Test
@@ -285,7 +258,6 @@ class ProtocolGroupParticipantChangedSinkAdapterTest {
 
     private ProtocolGroupParticipantChangedSinkAdapter adapter() {
         return new ProtocolGroupParticipantChangedSinkAdapter(
-                accountLookupService, observationService, joinSink, departureSink, memberCacheService,
-                marketingNewGroupService);
+                accountLookupService, observationService, joinSink, departureSink, memberCacheService);
     }
 }

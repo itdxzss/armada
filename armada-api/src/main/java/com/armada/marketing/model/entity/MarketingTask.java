@@ -71,13 +71,13 @@ public class MarketingTask {
     /** 单条消息允许的最大重试次数。 */
     private Integer retryLimit;
 
-    /** 是否开启账号动态目标新群首次延迟发送。 */
+    /** 是否开启首次发送延迟：已有群从任务启动计时，之后的新群从检测计时。 */
     private Boolean newGroupDelayEnabled;
 
-    /** 新群首次发送延迟数值。 */
+    /** 首次发送延迟数值。 */
     private Integer newGroupDelayValue;
 
-    /** 新群首次发送延迟单位码：1=分钟，2=小时。 */
+    /** 首次发送延迟单位码：1=分钟，2=小时。 */
     private Integer newGroupDelayUnit;
 
     /** 已成功抢占生成的最新正常营销轮次号。 */

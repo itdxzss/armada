@@ -12,6 +12,7 @@ import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskMaterialAdminTiming;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
@@ -31,6 +32,7 @@ public class PullTaskStandardCreateTransactionService {
     private static final Logger log =
             LoggerFactory.getLogger(PullTaskStandardCreateTransactionService.class);
     private static final int TASK_NAME_MAX_LENGTH = 128;
+    private static final int GROUP_SUBJECT_MAX_LENGTH = 100;
     private static final int REMARK_MAX_LENGTH = 512;
     private static final int AUTO_START_NO = 0;
     private static final int AUTO_START_YES = 1;
@@ -92,6 +94,8 @@ public class PullTaskStandardCreateTransactionService {
         insertGroupSetting(groupSetting, task.getId());
         if (creationMode(request) == PullTaskCreationMode.PASTED_LINK) {
             fillGroupLinkIds(rows);
+        } else if (creationMode(request).isNewGroup()) {
+            freezeNewGroupSubjects(task.getId(), rows, groupSetting.groupName().trim());
         }
         freezeRows(task.getId());
         return new SubmissionResult(submitTask(task, request, rows), true);
@@ -244,6 +248,22 @@ public class PullTaskStandardCreateTransactionService {
             Long groupLinkId = ids.get(row.getNormalizedLink());
             if (groupLinkId != null) {
                 executionMapper.updateGroupLinkId(row.getId(), groupLinkId, now);
+            }
+        }
+    }
+
+    /** 首次提交时冻结带序号的群名；与任务提交共用事务，历史已提交任务不经过这里。 */
+    private void freezeNewGroupSubjects(long taskId, List<PullTaskGroupExecution> rows, String baseName) {
+        long now = System.currentTimeMillis();
+        for (PullTaskGroupExecution row : rows) {
+            String subject = baseName + "-" + row.getSeq();
+            if (subject.length() > GROUP_SUBJECT_MAX_LENGTH) {
+                throw new BusinessException(ErrorCode.VALIDATION,
+                        "群名称追加序号后不能超过 " + GROUP_SUBJECT_MAX_LENGTH + " 个字符，请缩短群名称");
+            }
+            if (executionMapper.updateDraftGroupSubject(row.getId(), taskId, subject,
+                    PullTaskExecutionStatus.DRAFT.code(), now) != 1) {
+                throw new BusinessException(ErrorCode.CONFLICT, "草稿执行行已变化，请刷新后重试");
             }
         }
     }

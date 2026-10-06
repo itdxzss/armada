@@ -60,7 +60,7 @@ class PullTaskGroupProfileDispatcherTest {
         when(groupAccountMapper.selectByExecutionAndRole(
                 11L, PullTaskGroupAccountRole.PROMOTER.code()))
                 .thenReturn(List.of(creator));
-        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(
                 new ProtocolAccountRef(
                         901L, ProtocolBackend.WEB, "creator-901", "8613800000901")));
         when(actionMapper.insertIfAbsent(any())).thenAnswer(invocation -> {
@@ -135,7 +135,7 @@ class PullTaskGroupProfileDispatcherTest {
         when(actionMapper.selectByExecutionAndType(anyLong(), anyInt())).thenReturn(List.of(prior));
         when(groupAccountMapper.selectByExecutionAndRole(11L, PullTaskGroupAccountRole.PROMOTER.code()))
                 .thenReturn(List.of(role(41L, 901L, PullTaskGroupAccountRole.PROMOTER)));
-        when(accountLookup.findActiveProtocolRefs(List.of(901L))).thenReturn(List.of(
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(
                 new ProtocolAccountRef(901L, ProtocolBackend.WEB, "creator-901", "8613800000901")));
         when(outboxService.enqueuePullTaskGroupProfileCommands(anyList()))
                 .thenReturn(new ProtocolCommandOutboxEnqueueResult("pull-task:101", List.of("retry-profile"), 1));

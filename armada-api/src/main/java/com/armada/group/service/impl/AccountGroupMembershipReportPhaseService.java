@@ -197,7 +197,7 @@ public class AccountGroupMembershipReportPhaseService {
                             group.groupLinkId(), group.groupJid(), group.groupName()))
                     .toList();
             immediateSendService.enqueueNewGroups(
-                    event.accountId(), addedGroups, syncAt > 0L ? syncAt : now);
+                    event.accountId(), addedGroups, now);
         }
         return changes;
     }

@@ -295,6 +295,34 @@ class MarketingTaskServiceImplLifecycleTest {
     }
 
     @Test
+    void createImmediateTaskDelaysExistingGroupsFromActualStart() {
+        AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
+        when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());
+        when(taskMapper.selectAccountTargetCandidate(eq(12L), eq(31L),
+                org.mockito.ArgumentMatchers.anyList())).thenReturn(accountCandidate());
+        doAnswer(invocation -> {
+            MarketingTask task = invocation.getArgument(0);
+            task.setId(TASK_ID);
+            insertedTask.set(task);
+            return 1;
+        }).when(taskMapper).insertTask(org.mockito.ArgumentMatchers.any());
+        when(taskMapper.selectTaskById(TASK_ID)).thenAnswer(invocation -> insertedTask.get());
+        long beforeCreation = System.currentTimeMillis();
+        CreateMarketingTaskDTO request = new CreateMarketingTaskDTO(
+                "首次延迟", 12L, "营销账号组", TEMPLATE_ID, "营销模板", "IMMEDIATE",
+                beforeCreation - 60_000L, beforeCreation - 30_000L, beforeCreation + 3_600_000L,
+                1, new BigDecimal("0.5"), 60, true, true, false,
+                true, 10, "MINUTE", null,
+                List.of(new MarketingSelectionDTO(31L, "ACCOUNT_DYNAMIC", List.of())));
+
+        service.createTask(request);
+
+        MarketingTask task = insertedTask.get();
+        assertThat(task.getStartedAt()).isGreaterThanOrEqualTo(beforeCreation);
+        assertThat(task.getNextRoundAt()).isEqualTo(task.getStartedAt() + 600_000L);
+    }
+
+    @Test
     void createTask_missingAccountGroupIntervalDefaultsToHalfSecond() {
         AtomicReference<MarketingTask> insertedTask = new AtomicReference<>();
         when(templateMapper.selectByIdForUpdate(TEMPLATE_ID)).thenReturn(template());

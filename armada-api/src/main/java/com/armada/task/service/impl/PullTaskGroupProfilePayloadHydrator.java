@@ -1,8 +1,9 @@
 package com.armada.task.service.impl;
 
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest.Reference;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest.Repair;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfilePayload;
-import com.armada.platform.protocol.model.command.ProtocolPullTaskParticipantActionReference;
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.service.ProtocolCommandPayloadHydrator;
@@ -95,7 +96,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     /** {@inheritDoc} */
     @Override
     public JsonNode hydrate(ProtocolCommandOutbox row, JsonNode referencePayload) {
-        ProtocolPullTaskParticipantActionReference reference = parse(referencePayload);
+        Reference reference = parse(referencePayload);
         validateReference(row, reference);
         Long previousTenant = TenantContext.get();
         TenantContext.set(reference.tenantId());
@@ -124,15 +125,17 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     /**
      * 组装 wire payload：路由事实来自 Outbox 与角色快照，设置项来自任务级配置行。
      *
-     * <p>入参已由 {@link #hydrate} 校验通过，本方法只做取值与映射。</p>
+     * <p>补写命令只带读回确认缺失的名称或简介，不读取头像或重复其它设置。</p>
      */
     private ProtocolPullTaskGroupProfilePayload payload(
             ProtocolCommandOutbox row,
-            ProtocolPullTaskParticipantActionReference reference,
+            Reference reference,
             PullTaskAccountAction action,
             PullTaskGroupAccount manager,
             PullTaskGroupExecution execution,
             PullTaskStandardGroupSetting setting) {
+        Repair repair = reference.repair();
+        boolean fullProfile = repair == null;
         return new ProtocolPullTaskGroupProfilePayload(
                 reference.tenantId(),
                 reference.pullTaskId(),
@@ -146,14 +149,14 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
                 action.getAttemptNo(),
                 TIMEOUT_MS,
                 reference.source(),
-                subject(setting, execution),
-                avatar(reference.tenantId(), setting),
-                trimToNull(setting.getGroupDescription()),
-                sendMessagesAllowed(setting.getMuteMode()),
-                editGroupSettingsAllowed(setting.getEditPermissionMode()),
+                fullProfile || repair.subject() ? subject(setting, execution) : null,
+                fullProfile ? avatar(reference.tenantId(), setting) : null,
+                fullProfile || repair.description() ? trimToNull(setting.getGroupDescription()) : null,
+                fullProfile ? sendMessagesAllowed(setting.getMuteMode()) : null,
+                fullProfile ? editGroupSettingsAllowed(setting.getEditPermissionMode()) : null,
                 addMembersAllowed(),
                 joinApprovalEnabled(),
-                ephemeralDurationSeconds(setting.getDisappearingMessageMode()));
+                fullProfile ? ephemeralDurationSeconds(setting.getDisappearingMessageMode()) : null);
     }
 
     /**
@@ -269,17 +272,16 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
         }
     }
 
-    private ProtocolPullTaskParticipantActionReference parse(JsonNode payload) {
+    private Reference parse(JsonNode payload) {
         try {
-            return objectMapper.treeToValue(
-                    payload, ProtocolPullTaskParticipantActionReference.class);
+            return objectMapper.treeToValue(payload, Reference.class);
         } catch (JsonProcessingException | IllegalArgumentException ex) {
             throw validation("拉群群信息设置命令引用 payload 非法");
         }
     }
 
     private static void validateReference(
-            ProtocolCommandOutbox row, ProtocolPullTaskParticipantActionReference reference) {
+            ProtocolCommandOutbox row, Reference reference) {
         if (reference == null
                 || reference.tenantId() == null
                 || reference.pullTaskId() == null
@@ -296,7 +298,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     private static boolean validAction(
             PullTaskAccountAction action,
             ProtocolCommandOutbox row,
-            ProtocolPullTaskParticipantActionReference reference) {
+            Reference reference) {
         return action != null
                 && Objects.equals(action.getId(), reference.actionId())
                 && Objects.equals(action.getTenantId(), reference.tenantId())
@@ -310,7 +312,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     }
 
     private static boolean validManager(
-            PullTaskGroupAccount manager, ProtocolPullTaskParticipantActionReference reference) {
+            PullTaskGroupAccount manager, Reference reference) {
         return manager != null
                 && Objects.equals(manager.getGroupExecutionId(), reference.groupExecutionId())
                 && manager.getAccountId() != null
@@ -319,7 +321,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
 
     private static boolean validExecution(
             PullTaskGroupExecution execution,
-            ProtocolPullTaskParticipantActionReference reference) {
+            Reference reference) {
         return execution != null
                 && Objects.equals(execution.getId(), reference.groupExecutionId())
                 && Objects.equals(execution.getTaskId(), reference.pullTaskId())

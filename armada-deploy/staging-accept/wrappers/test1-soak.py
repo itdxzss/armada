@@ -64,15 +64,11 @@ WEB_PROCESSES = (
 )
 ANDROID_TARGETS = (
     ("node01", "http://172.31.13.55:8001/ws/v1/traffic/snapshot", "01"),
-    ("node02", "http://172.31.10.86:8001/ws/v1/traffic/snapshot", "02"),
-    ("node03", "http://172.31.5.45:8001/ws/v1/traffic/snapshot", "03"),
 )
 TEST1_INSTANCES = {
     "i-06cf0d5fb86263860": "backend-runner",
     "i-03580d2585e074fec": "web-protocol",
     "i-06cb773a74046490e": "android-node1",
-    "i-09aeea3efcb15f725": "android-node2",
-    "i-015fe1e6c542d7e06": "android-node3",
 }
 ALARM_SIGNALS = {
     ("AWS/EC2", "CPUUtilization"): "cpu",
@@ -339,10 +335,6 @@ class Controller:
             "coordinator",
             "--android-role",
             "node-01",
-            "--android-role",
-            "node-02",
-            "--android-role",
-            "node-03",
         )
         status = self._run_fixed(self.config.preflight_script, command)
         if status == 41:
@@ -367,7 +359,7 @@ class Controller:
             or evidence.get("provenance") != "live"
             or evidence.get("status") != "COLLECTED"
             or evidence.get("region") != "ap-south-1"
-            or evidence.get("expectedAlarmCount") != 15
+            or evidence.get("expectedAlarmCount") != len(TEST1_INSTANCES) * len(ALARM_SIGNALS)
             or {row["state"] for row in alarms} != {"OK"}
             or status != 0
         ):
@@ -463,7 +455,7 @@ class Controller:
             "--candidate-manifest-sha256",
             self.candidate_hash,
             "--expected-targets",
-            "3",
+            str(len(ANDROID_TARGETS)),
             "--freshness-seconds",
             "90",
             "--minimum-retention-seconds",

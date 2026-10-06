@@ -1,0 +1,44 @@
+{
+  "containers": [
+    {
+      "name": "/armada-backend",
+      "status": "running",
+      "restartCount": 0,
+      "startedAt": "2026-10-05T09:41:15.519806164Z",
+      "image": "sha256:54cc2325881b6713df478a9e68598d2960e6c213fbfecba458b0f186ba24cbda"
+    },
+    {
+      "name": "/armada-nginx",
+      "status": "running",
+      "restartCount": 0,
+      "startedAt": "2026-10-05T09:41:15.971127112Z",
+      "image": "sha256:3751ccb9e6d3a5e1375e65969a4e93f8cda4d6deadc61f69f8add44ca6661293"
+    }
+  ],
+  "jarSha256": "bcff3b612af6eee1ab6cc852d0391be527e08ad6f2b28f90c3128801f8966667",
+  "indexSha256": "c030c8a0a0904167b26e310840d07b313248aebf8113017efca9de3a2177892b",
+  "marketingChunkSha256": "61f63d0e67e99f382b3975cdbf55dd6ccb27d6618905ca2d62e3362cb3e75428",
+  "publicIndex": {
+    "httpStatus": 200,
+    "sha256": "c030c8a0a0904167b26e310840d07b313248aebf8113017efca9de3a2177892b"
+  },
+  "publicMarketingChunk": {
+    "httpStatus": 200,
+    "sha256": "61f63d0e67e99f382b3975cdbf55dd6ccb27d6618905ca2d62e3362cb3e75428"
+  },
+  "publicConfig": {
+    "httpStatus": 200,
+    "secondEnvironmentTitle": true
+  },
+  "apiProxy": {
+    "httpStatus": 401,
+    "businessCode": 40104
+  },
+  "startupConfirmed": true,
+  "migrationSummary": [
+    "2026-10-05 09:41:25.701 INFO  [main] traceId= o.f.core.internal.command.DbValidate - Successfully validated 213 migrations (execution time 00:00.232s)",
+    "2026-10-05 09:41:25.727 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Current version of schema `armada_perf`: 210",
+    "2026-10-05 09:41:25.740 INFO  [main] traceId= o.f.core.internal.command.DbMigrate - Schema `armada_perf` is up to date. No migration necessary."
+  ],
+  "startupFailureDetected": false
+}

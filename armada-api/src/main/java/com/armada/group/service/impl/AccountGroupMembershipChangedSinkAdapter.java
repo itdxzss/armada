@@ -2,13 +2,18 @@ package com.armada.group.service.impl;
 
 import com.armada.group.model.dto.AccountGroupMembershipChangedEvent;
 import com.armada.group.service.AccountGroupMembershipStatusService;
+import com.armada.marketing.model.dto.MarketingNewGroupDTO;
+import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountGroupMembershipChangedEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolAccountGroupMembershipChangedSink;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 将 platform 层解析的账号群关系事件安全转换为 group 域事实。
@@ -26,13 +31,20 @@ public class AccountGroupMembershipChangedSinkAdapter
     /** 账号群关系状态写入服务。 */
     private final AccountGroupMembershipStatusService statusService;
 
+    /** 新入群事实与首次营销等待在同一事务登记，普通轮次不会抢先看到群关系。 */
+    private final MarketingNewGroupImmediateSendService marketingNewGroupService;
+
     /**
      * 创建精确关系事件适配器。
      *
      * @param statusService 负责校验账号绑定并应用当前关系状态的 group 域服务
+     * @param marketingNewGroupService 新群首次延迟发送登记服务
      */
-    public AccountGroupMembershipChangedSinkAdapter(AccountGroupMembershipStatusService statusService) {
+    public AccountGroupMembershipChangedSinkAdapter(
+            AccountGroupMembershipStatusService statusService,
+            MarketingNewGroupImmediateSendService marketingNewGroupService) {
         this.statusService = statusService;
+        this.marketingNewGroupService = marketingNewGroupService;
     }
 
     /**
@@ -45,7 +57,9 @@ public class AccountGroupMembershipChangedSinkAdapter
      * @throws BusinessException 当事件为空、不是本人变化、动作不受支持或必要标识缺失时抛出
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void handleMembershipChanged(ProtocolAccountGroupMembershipChangedEvent event) {
+        long detectedAt = System.currentTimeMillis();
         if (event == null) {
             throw validation("账号群关系事件为空");
         }
@@ -55,7 +69,7 @@ public class AccountGroupMembershipChangedSinkAdapter
         String action = normalizeAction(event.action());
         String groupJid = normalizeGroupJid(event.groupJid());
         normalizeRequired(event.sourceEventId(), "账号群关系事件缺少 sourceEventId");
-        statusService.applyMembershipChanged(new AccountGroupMembershipChangedEvent(
+        AccountGroupMembershipChangedEvent changed = new AccountGroupMembershipChangedEvent(
                 event.tenantId(),
                 event.accountId(),
                 normalizeRequired(event.protocolAccountId(), "账号群关系事件缺少 protocolAccountId"),
@@ -63,7 +77,22 @@ public class AccountGroupMembershipChangedSinkAdapter
                 action,
                 event.occurredAt(),
                 normalizeRequired(event.eventId(), "账号群关系事件缺少 eventId"),
-                event.source()));
+                event.source());
+        Long previousTenant = TenantContext.get();
+        try {
+            TenantContext.set(event.tenantId());
+            if (statusService.applyMembershipChanged(changed)) {
+                marketingNewGroupService.enqueueDelayedNewGroups(
+                        event.accountId(), List.of(new MarketingNewGroupDTO(null, groupJid, null)),
+                        detectedAt);
+            }
+        } finally {
+            if (previousTenant == null) {
+                TenantContext.clear();
+            } else {
+                TenantContext.set(previousTenant);
+            }
+        }
     }
 
     private static String normalizeAction(String value) {

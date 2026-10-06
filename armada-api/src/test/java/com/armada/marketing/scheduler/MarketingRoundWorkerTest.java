@@ -62,12 +62,35 @@ class MarketingRoundWorkerTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Test
+    void initialDelayCannotBeBypassedByEarlyRoundOrResume() {
+        MarketingTaskMapper mapper = mock(MarketingTaskMapper.class);
+        MarketingMessageSendService outbox = acceptingMessagePort();
+        MarketingTask task = task();
+        task.setBusinessType(1);
+        task.setStartedAt(1_000L);
+        task.setNextRoundAt(2_000L);
+        task.setNewGroupDelayEnabled(true);
+        task.setNewGroupDelayValue(10);
+        task.setNewGroupDelayUnit(1);
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
+        MarketingRoundWorker worker = worker(mapper, outbox, new MarketingRoundSchedulerProperties(),
+                Clock.fixed(Instant.ofEpochMilli(2_000L), ZoneOffset.UTC), defaultOccupancyService());
+
+        worker.runRound(1L, 42L);
+
+        verify(mapper).postponeDueRound(42L, 2_000L, 601_000L);
+        verify(mapper, never()).selectTargetsByTaskId(anyLong());
+        verify(mapper, never()).insertSendAttempts(any());
+        verify(outbox, never()).enqueue(any());
+    }
+
+    @Test
     void bannedGroupIsRecordedAsSkipWithoutOutboxOrFailureCounters() throws JsonProcessingException {
         MarketingTaskMapper mapper = mock(MarketingTaskMapper.class);
         var rawPort = mock(com.armada.platform.protocol.port.MessageSendPort.class);
         var guard = new MarketingMessageSendService(mapper, rawPort);
         var targets = targets(1);
-        when(mapper.selectTaskById(42L)).thenReturn(task());
+        when(mapper.selectTaskByIdForUpdate(42L)).thenReturn(task());
         when(mapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         when(mapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
         when(mapper.selectBannedGroupJids(any())).thenReturn(List.of(targets.get(0).getGroupJid()));
@@ -96,7 +119,7 @@ class MarketingRoundWorkerTest {
         targets.get(0).setProtocolWsPhone("923000001");
         targets.get(1).setProtocolId("ANDROID");
         targets.get(1).setProtocolWsPhone("923000002");
-        when(taskMapper.selectTaskById(42L)).thenReturn(task());
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task());
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
@@ -160,7 +183,7 @@ class MarketingRoundWorkerTest {
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
         MarketingTask task = task();
         task.setTaskStartAt(System.currentTimeMillis() + 60_000L);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.deferEarlySendingTask(eq(42L), anyLong())).thenReturn(1);
 
         MarketingRoundWorker worker = worker(
@@ -182,7 +205,7 @@ class MarketingRoundWorkerTest {
         when(clock.millis()).thenReturn(1_000L, 2_000L);
         MarketingTask task = task();
         task.setTaskEndAt(1_500L);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets(1));
         when(taskMapper.endExpiredTask(42L, 2_000L)).thenReturn(1);
         MarketingAccountOccupancyService occupancyService = mock(MarketingAccountOccupancyService.class);
@@ -206,7 +229,7 @@ class MarketingRoundWorkerTest {
         properties.setBacklogMultiplier(2);
 
         MarketingTask task = task();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(2000L);
         List<MarketingTaskTarget> targets = targets(1000);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -230,7 +253,7 @@ class MarketingRoundWorkerTest {
 
         MarketingTask task = task();
         task.setAccountGroupSendIntervalMs(750);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(2);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -286,7 +309,7 @@ class MarketingRoundWorkerTest {
         List<MarketingTaskTarget> targets = targets(2);
         MarketingAccountOccupancyOwnerRow currentOwner = owner(5001L, 42L, "当前任务", 5_000L);
         MarketingAccountOccupancyOwnerRow otherOwner = owner(5002L, 99L, "其它任务", 6_000L);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task());
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task());
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
@@ -333,7 +356,7 @@ class MarketingRoundWorkerTest {
         MarketingTaskTarget target = targets(1).get(0);
         MarketingAccountOccupancyOwnerRow otherOwner = owner(5001L, 99L, "其它任务", 6_000L);
         MarketingAccountOccupancyOwnerRow currentOwner = owner(5001L, 42L, "当前任务", 7_000L);
-        when(taskMapper.selectTaskById(42L)).thenReturn(firstRoundTask, secondRoundTask);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(firstRoundTask, secondRoundTask);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
@@ -367,7 +390,7 @@ class MarketingRoundWorkerTest {
 
         MarketingTask task = task();
         MarketingTaskTarget target = targets(1).get(0);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         when(taskMapper.claimDueRound(any(), anyLong(), anyLong())).thenReturn(1);
@@ -402,7 +425,7 @@ class MarketingRoundWorkerTest {
                 mock(AccountGroupMembershipStatusService.class);
         MarketingTask task = task();
         MarketingTaskTarget target = targets(1).get(0);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
         when(membershipStatusService.findCurrentStatuses(List.of(
                 new AccountGroupMembershipLookup(target.getAccountId(), target.getGroupJid()))))
@@ -448,7 +471,7 @@ class MarketingRoundWorkerTest {
                 mock(AccountGroupMembershipStatusService.class);
         MarketingTask task = task();
         MarketingTaskTarget target = targets(1).get(0);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
         when(membershipStatusService.findCurrentStatuses(any()))
                 .thenThrow(new IllegalStateException("membership lookup unavailable"));
@@ -482,7 +505,7 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         MarketingTaskTarget target = targets(1).get(0);
         target.setGroupJid(null);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
 
         MarketingRoundWorker worker = worker(taskMapper, outbox, properties);
@@ -504,7 +527,7 @@ class MarketingRoundWorkerTest {
         MarketingTask task = task();
         task.setNextRoundAt(1_500L);
         MarketingTaskTarget target = dynamicTarget();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(target));
         when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L, 1_500L)).thenReturn(List.of(
                 dynamicGroup(8101L, "12036308101@g.us", "新增群A"),
@@ -554,7 +577,7 @@ class MarketingRoundWorkerTest {
 
         MarketingTask task = task();
         task.setNextRoundAt(900L);
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(List.of(dynamicTarget()));
         when(taskMapper.selectDynamicTargetGroups(7101L, 5001L, 1_000L, 900L)).thenReturn(List.of());
 
@@ -580,7 +603,7 @@ class MarketingRoundWorkerTest {
             properties.setBacklogMultiplier(2);
 
             MarketingTask task = task();
-            when(taskMapper.selectTaskById(42L)).thenReturn(task);
+            when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
             when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
             List<MarketingTaskTarget> targets = targets(2);
             when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -620,7 +643,7 @@ class MarketingRoundWorkerTest {
         properties.setOutboxBatchSize(500);
 
         MarketingTask task = task();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(450);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -671,7 +694,7 @@ class MarketingRoundWorkerTest {
         properties.setImageOutboxBatchSize(200);
 
         MarketingTask task = task();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(1);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -718,7 +741,7 @@ class MarketingRoundWorkerTest {
         properties.setBacklogMultiplier(2);
 
         MarketingTask task = task();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(1);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);
@@ -763,7 +786,7 @@ class MarketingRoundWorkerTest {
         properties.setBacklogMultiplier(2);
 
         MarketingTask task = task();
-        when(taskMapper.selectTaskById(42L)).thenReturn(task);
+        when(taskMapper.selectTaskByIdForUpdate(42L)).thenReturn(task);
         when(taskMapper.countUnfinishedAttempts(42L)).thenReturn(0L);
         List<MarketingTaskTarget> targets = targets(2);
         when(taskMapper.selectTargetsByTaskId(42L)).thenReturn(targets);

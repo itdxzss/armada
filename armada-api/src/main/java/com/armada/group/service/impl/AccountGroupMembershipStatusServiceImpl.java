@@ -133,11 +133,12 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
      * 调用线程原有租户上下文。</p>
      *
      * @param event 已通过 platform 层结构校验的精确关系事实
+     * @return 是否首次确认本次在群关系，供调用方在同一事务内登记新群业务
      * @throws BusinessException 当租户、账号、协议句柄、群 JID、事实时间或动作非法时抛出
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void applyMembershipChanged(AccountGroupMembershipChangedEvent event) {
+    public boolean applyMembershipChanged(AccountGroupMembershipChangedEvent event) {
         validateEvent(event);
         Long previousTenant = TenantContext.get();
         try {
@@ -146,13 +147,13 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             if (account == null) {
                 log.warn("账号群关系事件找不到活跃账号 eventId={} accountId={} action={} source={}",
                         event.eventId(), event.accountId(), event.action(), event.source());
-                return;
+                return false;
             }
             if (!Objects.equals(normalizeJid(account.protocolAccountId()),
                     normalizeJid(event.protocolAccountId()))) {
                 log.warn("账号群关系事件协议句柄已过期 eventId={} accountId={} action={} source={}",
                         event.eventId(), event.accountId(), event.action(), event.source());
-                return;
+                return false;
             }
             Transition transition = transition(event.action());
             long now = System.currentTimeMillis();
@@ -164,7 +165,7 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             String presenceSource = GROUP_SNAPSHOT_NOT_JOINED_SOURCE.equals(event.source())
                     && transition.status() == AccountGroupMembershipStatus.NOT_IN_GROUP
                     ? GROUP_SNAPSHOT_NOT_JOINED_SOURCE : transition.source();
-            currentPersistence.applySelfMembershipChanged(
+            boolean newlyInGroup = currentPersistence.applySelfMembershipChanged(
                     event.accountId(),
                     event.groupJid().trim(),
                     transition.status(),
@@ -182,6 +183,7 @@ public class AccountGroupMembershipStatusServiceImpl implements AccountGroupMemb
             log.info("账号群关系事件已应用 eventId={} accountId={} action={} status={} source={}",
                     event.eventId(), event.accountId(), event.action(), transition.status().apiValue(),
                     transition.source());
+            return newlyInGroup;
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

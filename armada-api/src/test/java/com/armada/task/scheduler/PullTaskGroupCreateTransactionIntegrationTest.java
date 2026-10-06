@@ -2,9 +2,11 @@ package com.armada.task.scheduler;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -14,6 +16,9 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.platform.protocol.exception.ProtocolErrorCode;
 import com.armada.platform.protocol.exception.ProtocolException;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import com.armada.platform.protocol.model.command.ProtocolPullTaskGroupProfileCommandRequest;
+import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
+import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.GroupCreateParticipantResult;
 import com.armada.platform.protocol.model.result.GroupCreateResult;
@@ -70,17 +75,21 @@ class PullTaskGroupCreateTransactionIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PullTaskGroupExecutionMapper executionMapper;
     @Autowired private PullTaskGroupAccountMapper accountMapper;
+    @Autowired private PullTaskAccountActionMapper actionMapper;
     @Autowired private PullTaskGroupCreateTransactionService transactions;
     @Autowired private AccountProtocolLookupService accountLookup;
     @Autowired private GroupLinkRegistryService groupRegistry;
     @Autowired private PullTaskGroupProfileDispatcher profileDispatcher;
+    @Autowired private ProtocolCommandOutboxService outboxService;
 
     @BeforeEach
     void setUp() throws SQLException {
         TenantContext.set(7L);
         PullTaskNormalLinkH2Support.resetSchema(
                 dataSource, task(), standardSetting(), enabledGroupSetting(), execution());
-        reset(accountLookup, groupRegistry, profileDispatcher);
+        reset(accountLookup, groupRegistry, profileDispatcher, outboxService);
+        when(outboxService.enqueuePullTaskGroupProfileCommands(anyList()))
+                .thenReturn(new ProtocolCommandOutboxEnqueueResult(null, List.of("profile-repair"), 1));
         when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(16L))
                 .thenReturn(List.of(account(901L)));
         when(accountLookup.findOnlinePullTaskAccountsStrictByGroupId(11L))
@@ -89,6 +98,8 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 .thenReturn(List.of(account(903L), account(904L)));
         when(accountLookup.findActiveProtocolRef(901L))
                 .thenReturn(Optional.of(account(901L)));
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L)))
+                .thenReturn(List.of(account(901L)));
     }
 
     @AfterEach
@@ -187,6 +198,47 @@ class PullTaskGroupCreateTransactionIntegrationTest {
     }
 
     @Test
+    void numberedSubjectSurvivesRolePreparationAndDefiniteCreateRetry() {
+        jdbc.update("UPDATE pull_task_group_execution SET group_subject='印度料子包-1' WHERE id=11");
+        assertThat(transactions.prepareRoles(executionMapper.selectById(11L), NOW, 2_000L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        PullTaskGroupExecution candidate = reclaim(NOW + 1);
+        var first = transactions.prepareCreate(candidate, NOW + 1, 2_000L);
+        assertThat(first.command().subject()).isEqualTo("印度料子包-1");
+
+        assertThat(transactions.failCreate(candidate,
+                new ProtocolException(ProtocolErrorCode.ACCOUNT_NOT_ONLINE, "offline"), 2_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        var retried = transactions.prepareCreate(reclaim(NOW + 2_001L), NOW + 2_001L, 2_000L);
+        assertThat(retried.command().subject()).isEqualTo(first.command().subject());
+        assertThat(retried.command().operationId()).isEqualTo(first.command().operationId());
+    }
+
+    @Test
+    void numberedProfileRequiresTheActualNumberedNameBeforeAdvancing() {
+        jdbc.update("UPDATE pull_task_group_execution SET group_subject='印度料子包-1' WHERE id=11");
+        var candidate = profileCandidate(3, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 1);
+        assertThat(prepared.ready()).isTrue();
+        assertThat(prepared.subject()).isEqualTo("印度料子包-1");
+
+        assertThat(transactions.completeProfile(candidate, prepared, metadata("完整简介"), NOW + 2_000L, NOW + 1))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(stringColumn("profile_verified_command_id", "pull_task_group_execution", 11L)).isNull();
+
+        var resumed = reclaim(NOW + 2_001L);
+        var ready = transactions.prepareProfile(resumed, 2_000L, NOW + 2_001L);
+        GroupMetadataResult numbered = new GroupMetadataResult(
+                "120363group@g.us", "印度料子包-1", "完整简介", null, null, null, false,
+                null, null, null, null, null, null, false, null, false, false, List.of());
+        assertThat(transactions.completeProfile(resumed, ready, numbered, NOW + 4_000L, NOW + 2_001L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(stringColumn("profile_verified_command_id", "pull_task_group_execution", 11L))
+                .isEqualTo("profile-1");
+    }
+
+    @Test
     void unconfirmedCreatePausesWithoutChangingOperationIdOrAttemptCount() {
         assertThat(transactions.prepareRoles(executionMapper.selectById(11L), NOW, 2_000L))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
@@ -219,6 +271,150 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
         assertThat(intColumn("stage", "pull_task_group_execution", 11L)).isEqualTo(9);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_pull_call", Integer.class)).isZero();
+    }
+
+    @Test
+    void offlineCreatorWaitsWithoutPausingOrChangingTheCreatedGroup() {
+        var candidate = profileCandidate(5, NOW);
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of());
+        org.mockito.Mockito.clearInvocations(profileDispatcher);
+
+        var waiting = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+
+        assertThat(waiting.ready()).isFalse();
+        assertThat(waiting.completedResult()).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isZero();
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(stringColumn("group_jid", "pull_task_group_execution", 11L))
+                .isEqualTo("120363group@g.us");
+        assertThat(stringColumn("reason_code", "pull_task_group_execution", 11L))
+                .isEqualTo("GROUP_CREATOR_UNAVAILABLE");
+        org.mockito.Mockito.verifyNoInteractions(profileDispatcher);
+
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account(901L)));
+        var resumed = reclaim(NOW + 34_000L);
+        var ready = transactions.prepareProfile(resumed, 2_000L, NOW + 34_000L);
+        assertThat(ready.ready()).isTrue();
+        assertThat(transactions.completeProfile(resumed, ready, metadata("完整简介"),
+                NOW + 35_000L, NOW + 34_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(5);
+        assertThat(intColumn("create_attempt_count", "pull_task_group_execution", 11L)).isZero();
+    }
+
+    @Test
+    void unavailableMetadataAfterTimeoutKeepsWaitingWithoutResubmitting() {
+        var candidate = profileCandidate(5, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        org.mockito.Mockito.clearInvocations(profileDispatcher);
+
+        assertThat(transactions.completeProfile(candidate, ready, null,
+                NOW + 35_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isZero();
+        assertThat(stringColumn("reason_code", "pull_task_group_execution", 11L))
+                .isEqualTo("GROUP_PROFILE_UNCONFIRMED");
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isOne();
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(profileDispatcher);
+    }
+
+    @Test
+    void unknownProfileRepairsOnlyMissingDescriptionThenVerifiesBeforeContinuing() {
+        var candidate = profileCandidate(5, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+
+        assertThat(transactions.completeProfile(candidate, ready, metadata("旧简介"),
+                NOW + 35_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<ProtocolPullTaskGroupProfileCommandRequest>> commands =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(commands.capture());
+        assertThat(commands.getValue()).singleElement().satisfies(command -> {
+            assertThat(command.actionId()).isEqualTo(71L);
+            assertThat(command.manager().armadaAccountId()).isEqualTo(901L);
+            assertThat(command.repair()).isEqualTo(new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, true));
+        });
+        assertThat(intColumn("action_status", "pull_task_account_action", 71L)).isEqualTo(2);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(2);
+        assertThat(actionMapper.transitionManagerAdminResult(
+                71L, "profile-1", 1, List.of(2, 5), 3, false, null, null, NOW + 32_000L)).isZero();
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isZero();
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_pull_call", Integer.class)).isZero();
+        assertThat(transactions.completeProfile(candidate, ready, metadata("完整简介"),
+                NOW + 35_000L, NOW + 32_000L)).isEqualTo(PullTaskExecutionDispatchResult.LOST);
+
+        jdbc.update("UPDATE pull_task_account_action SET action_status=3 WHERE id=71");
+        var resumed = reclaim(NOW + 35_000L);
+        var verified = transactions.prepareProfile(resumed, 2_000L, NOW + 35_000L);
+        assertThat(transactions.completeProfile(resumed, verified, metadata("完整简介"),
+                NOW + 36_000L, NOW + 35_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(stringColumn("profile_verified_command_id", "pull_task_group_execution", 11L))
+                .isEqualTo("profile-repair");
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(5);
+        assertThat(stringColumn("group_jid", "pull_task_group_execution", 11L)).isEqualTo("120363group@g.us");
+        assertThat(intColumn("create_attempt_count", "pull_task_group_execution", 11L)).isZero();
+    }
+
+    @Test
+    void definiteOfflineFailureRetriesCompleteSettingsOnlyAfterCreatorReturns() {
+        var candidate = profileCandidate(4, NOW);
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of());
+        assertThat(transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L).ready()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isOne();
+
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of(account(901L)));
+        var resumed = reclaim(NOW + 35_000L);
+        assertThat(transactions.prepareProfile(resumed, 2_000L, NOW + 35_000L).ready()).isFalse();
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(List.of(
+                new ProtocolPullTaskGroupProfileCommandRequest(7L, 1L, 11L, 71L, account(901L), null)));
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(2);
+        assertThat(intColumn("create_step", "pull_task_group_execution", 11L)).isEqualTo(4);
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isZero();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"5,3", "2,1"})
+    void exhaustedOrStillSubmittedProfileIsNeverRepaired(int status, int attempts) {
+        var candidate = profileCandidate(status, NOW);
+        jdbc.update("UPDATE pull_task_account_action SET attempt_no=? WHERE id=71", attempts);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        assertThat(transactions.completeProfile(candidate, ready, metadata("旧简介"),
+                NOW + 35_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(attempts);
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isOne();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {
+            "manual_paused=1", "execution_status=6", "version=version+1", "lock_expires_at=1000"})
+    void lifecycleChangeDuringMetadataReadPreventsRepair(String change) {
+        var candidate = profileCandidate(5, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        jdbc.update("UPDATE pull_task_group_execution SET " + change + " WHERE id=11");
+
+        assertThat(transactions.completeProfile(candidate, ready, metadata("旧简介"),
+                NOW + 35_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isOne();
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+    }
+
+    @Test
+    void creatorDisconnectingDuringReadKeepsUnknownActionForNextOnlineAttempt() {
+        var candidate = profileCandidate(5, NOW);
+        var ready = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        when(accountLookup.findOnlineProtocolRefs(List.of(901L))).thenReturn(List.of());
+
+        assertThat(transactions.completeProfile(candidate, ready, metadata("旧简介"),
+                NOW + 35_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isOne();
+        assertThat(intColumn("manual_paused", "pull_task_group_execution", 11L)).isZero();
     }
 
     @Test
@@ -475,8 +671,16 @@ class PullTaskGroupCreateTransactionIntegrationTest {
             return mock(GroupLinkRegistryService.class);
         }
 
-        @Bean PullTaskGroupProfileDispatcher profileDispatcher() {
-            return mock(PullTaskGroupProfileDispatcher.class);
+        @Bean ProtocolCommandOutboxService outboxService() {
+            return mock(ProtocolCommandOutboxService.class);
+        }
+
+        @Bean PullTaskGroupProfileDispatcher profileDispatcher(
+                PullTaskStandardGroupSettingMapper settingMapper, PullTaskAccountActionMapper actionMapper,
+                PullTaskGroupAccountMapper accountMapper, AccountProtocolLookupService accountLookup,
+                ProtocolCommandOutboxService outboxService) {
+            return spy(new PullTaskGroupProfileDispatcher(
+                    settingMapper, actionMapper, accountMapper, accountLookup, outboxService));
         }
 
         @Bean PullTaskAccountActionMapper actionMapper(SqlSessionTemplate template) {

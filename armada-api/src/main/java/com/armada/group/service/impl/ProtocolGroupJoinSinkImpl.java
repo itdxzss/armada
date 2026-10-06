@@ -1,14 +1,22 @@
 package com.armada.group.service.impl;
 
 import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.group.model.dto.ControlledAccountGroupTransition;
 import com.armada.group.model.dto.WhatsappGroupJoinFact;
+import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
 import com.armada.group.service.WhatsappGroupMemberJoinFactService;
+import com.armada.marketing.model.dto.MarketingNewGroupDTO;
+import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinSink;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.shared.tenant.TenantContext;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -23,19 +31,26 @@ public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
     private final AccountProtocolLookupService accountLookupService;
     private final WhatsappGroupMemberJoinFactService service;
     private final WhatsappGroupMemberCacheService memberCacheService;
+    private final GroupParticipantObservationService observationService;
+    private final MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     public ProtocolGroupJoinSinkImpl(
             AccountProtocolLookupService accountLookupService,
             WhatsappGroupMemberJoinFactService service,
-            WhatsappGroupMemberCacheService memberCacheService) {
+            WhatsappGroupMemberCacheService memberCacheService,
+            GroupParticipantObservationService observationService,
+            MarketingNewGroupImmediateSendService marketingNewGroupService) {
         this.accountLookupService = accountLookupService;
         this.service = service;
         this.memberCacheService = memberCacheService;
+        this.observationService = observationService;
+        this.marketingNewGroupService = marketingNewGroupService;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleJoins(ProtocolGroupJoinEvent event) {
+        long detectedAt = System.currentTimeMillis();
         if (event == null || event.tenantId() == null || event.accountId() == null) {
             log.warn("忽略缺少租户或账号的 WhatsApp 进群事件");
             return;
@@ -60,8 +75,28 @@ public class ProtocolGroupJoinSinkImpl implements ProtocolGroupJoinSink {
                                 participant.sourceEventId(), event.accountId());
                     })
                     .toList();
+            List<ControlledAccountGroupTransition> transitions = new ArrayList<>();
+            // 按成员真实进群时间收敛，envelope 时间可能缺失或晚于事实，不能覆盖乱序保护。
+            var joinsByTime = facts.stream().collect(Collectors.groupingBy(
+                    WhatsappGroupJoinFact::joinedAt, TreeMap::new, Collectors.toList()));
+            for (var entry : joinsByTime.entrySet()) {
+                // 只匹配入群成员中的受控账号，观察账号不代表它自己新入群。
+                List<String> identities = entry.getValue().stream()
+                        .flatMap(fact -> fact.phone() == null ? Stream.of(fact.participantJid())
+                                : Stream.of(fact.participantJid(), fact.phone() + "@s.whatsapp.net"))
+                        .distinct().toList();
+                transitions.addAll(observationService.reconcileControlledJoins(
+                        event.tenantId(), canonicalGroupJid(event.groupJid()), identities,
+                        entry.getKey(), event.eventId()));
+            }
             service.saveLatest(facts);
             memberCacheService.applyJoins(facts);
+            for (ControlledAccountGroupTransition transition : transitions) {
+                marketingNewGroupService.enqueueDelayedNewGroups(
+                        transition.accountId(),
+                        List.of(new MarketingNewGroupDTO(null, transition.groupJid(), null)),
+                        detectedAt);
+            }
         } finally {
             if (previousTenant == null) {
                 TenantContext.clear();

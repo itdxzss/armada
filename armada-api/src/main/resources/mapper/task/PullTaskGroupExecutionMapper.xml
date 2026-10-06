@@ -216,6 +216,15 @@
       AND execution_status = #{expectedExecutionStatus}
   </update>
 
+  <update id="updateDraftGroupSubject">
+    UPDATE pull_task_group_execution
+    SET group_subject = #{subject},
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND task_id = #{taskId}
+      AND execution_status = #{expectedExecutionStatus}
+  </update>
+
   <!-- 推进为待启动后生成列取到链接值，跨任务占用随之生效；冲突由唯一键抛出。 -->
   <update id="freezeDraftRows">
     UPDATE pull_task_group_execution

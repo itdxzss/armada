@@ -197,6 +197,7 @@ class AccountGroupMembershipReportPhaseServiceTest {
         GroupClassificationPlan classificationPlan = new GroupClassificationPlan(
                 Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED),
                 Map.of(20L, GroupMetadataSyncTrigger.BASELINE_CAPTURED));
+        long detectedAfter = System.currentTimeMillis();
         assertThat(service().applyCurrentSnapshot(
                 event, true, 2_000L, List.of(group), classificationPlan, false)).isSameAs(changes);
 
@@ -212,7 +213,7 @@ class AccountGroupMembershipReportPhaseServiceTest {
                 ArgumentCaptor.forClass(List.class);
         verify(immediateSendService).enqueueNewGroups(
                 org.mockito.ArgumentMatchers.eq(10L), marketingGroups.capture(),
-                org.mockito.ArgumentMatchers.eq(2_000L));
+                org.mockito.ArgumentMatchers.longThat(detectedAt -> detectedAt >= detectedAfter));
         assertThat(marketingGroups.getValue()).containsExactly(
                 new MarketingNewGroupDTO(20L, "120363001@g.us", "群一"));
     }

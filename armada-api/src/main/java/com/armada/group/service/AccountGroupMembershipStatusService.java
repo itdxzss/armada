@@ -31,6 +31,7 @@ public interface AccountGroupMembershipStatusService {
      * 应用协议层账号自身的精确群关系事实。
      *
      * @param event 精确关系事件
+     * @return 是否首次确认本次在群关系，重复、过期事件或无效绑定返回 false
      */
-    void applyMembershipChanged(AccountGroupMembershipChangedEvent event);
+    boolean applyMembershipChanged(AccountGroupMembershipChangedEvent event);
 }

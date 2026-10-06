@@ -328,10 +328,6 @@ class Controller:
             "coordinator",
             "--android-role",
             "node-01",
-            "--android-role",
-            "node-02",
-            "--android-role",
-            "node-03",
         )
         status = self._run_fixed(self.config.preflight_script, command)
         if status == 41:

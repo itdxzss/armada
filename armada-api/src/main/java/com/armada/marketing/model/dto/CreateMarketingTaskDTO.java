@@ -21,7 +21,7 @@ import java.util.List;
  * @param onlineCheckEnabled    发送前是否检测账号在线
  * @param abnormalGroupSkipped  是否跳过异常群
  * @param autoRetryEnabled      失败是否自动重试
- * @param newGroupDelayEnabled  是否开启账号动态新群首次延迟发送
+ * @param newGroupDelayEnabled  是否开启首次发送延迟：已有群从任务启动计时，之后的新群从检测计时
  * @param newGroupDelayValue    延迟数值
  * @param newGroupDelayUnit     延迟单位：MINUTE/HOUR
  * @param remark                备注

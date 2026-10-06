@@ -33,6 +33,7 @@ import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
 import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskExecutionStage;
+import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskDisappearingMessageMode;
 import com.armada.task.model.enums.PullTaskEditPermissionMode;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
@@ -145,6 +146,7 @@ class PullTaskStandardCreateServiceTest {
                 .allSatisfy(row -> {
                     assertThat(row.getExecutionStatus()).isEqualTo(1);
                     assertThat(row.getGroupLinkId()).isNotNull();
+                    assertThat(row.getGroupSubject()).isNull();
                 });
         PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
         assertThat(setting.getEarlyPullCount()).isEqualTo(1);
@@ -167,6 +169,7 @@ class PullTaskStandardCreateServiceTest {
         assertThat(executionMapper.selectByTaskId(taskId)).allSatisfy(row -> {
             assertThat(row.getExecutionStatus()).isEqualTo(1);
             assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+            assertThat(row.getGroupSubject()).isNull();
             assertThat(row.getGroupLinkId()).isNull();
             assertThat(row.getGroupJid()).isNull();
             assertThat(row.getNormalizedLink()).isNull();
@@ -302,7 +305,119 @@ class PullTaskStandardCreateServiceTest {
             assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
             assertThat(row.getGroupLinkId()).isNull();
             assertThat(row.getNormalizedLink()).isNull();
+            assertThat(row.getGroupSubject()).isEqualTo("客户群-" + row.getSeq());
         });
+    }
+
+    @Test
+    void newGroupNamesFollowSequenceAndStayFrozenOnRepeatedSubmission() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        for (int seq = 3; seq <= 10; seq++) {
+            writer.append(taskId, List.of(newGroupAppendRow(seq, seq + ".txt", "8613800138003")), 200L);
+        }
+        PullTaskStandardCreateDTO request = withGroupName(newGroupRequest(taskId), " 测试群1 ");
+
+        service.create(request, CREATOR);
+        service.create(withGroupName(request, "另一个名称"), CREATOR);
+
+        assertThat(executionMapper.selectByTaskId(taskId))
+                .extracting(PullTaskGroupExecution::getGroupSubject)
+                .containsExactly("测试群1-1", "测试群1-2", "测试群1-3", "测试群1-4", "测试群1-5",
+                        "测试群1-6", "测试群1-7", "测试群1-8", "测试群1-9", "测试群1-10");
+        assertThat(groupSettingMapper.selectByTaskId(taskId).getGroupName()).isEqualTo("测试群1");
+    }
+
+    @Test
+    void newGroupNameLimitIncludesActualSequenceEvenWhenDraftHasGaps() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        writer.append(taskId, List.of(newGroupAppendRow(10, "ten.txt", "8613800138003")), 200L);
+        String baseName = "群".repeat(97);
+
+        service.create(withGroupName(newGroupRequest(taskId), baseName), CREATOR);
+
+        assertThat(executionMapper.selectByTaskId(taskId))
+                .extracting(PullTaskGroupExecution::getGroupSubject)
+                .containsExactly(baseName + "-1", baseName + "-2", baseName + "-10");
+    }
+
+    @Test
+    void tooLongNumberedNameRollsBackAllNamesSettingsAndTaskSubmission() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        writer.append(taskId, List.of(newGroupAppendRow(10, "ten.txt", "8613800138003")), 200L);
+
+        assertThatThrownBy(() -> service.create(
+                withGroupName(newGroupRequest(taskId), "群".repeat(98)), CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("追加序号后");
+
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("DRAFT");
+        assertThat(groupSettingMapper.selectByTaskId(taskId)).isNull();
+        assertThat(settingMapper.selectByTaskId(taskId)).isNull();
+        assertThat(executionMapper.selectByTaskId(taskId)).allSatisfy(row -> {
+            assertThat(row.getGroupSubject()).isNull();
+            assertThat(row.getExecutionStatus()).isZero();
+        });
+    }
+
+    @Test
+    void numberedSubjectWriteCannotCrossTenantTaskOrFrozenStatus() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        long rowId = executionMapper.selectByTaskId(taskId).get(0).getId();
+        int draftStatus = PullTaskExecutionStatus.DRAFT.code();
+        try {
+            TenantContext.set(8L);
+            assertThat(executionMapper.updateDraftGroupSubject(rowId, taskId, "错误群名", draftStatus, 300L))
+                    .isZero();
+        } finally {
+            TenantContext.set(7L);
+        }
+        assertThat(executionMapper.updateDraftGroupSubject(rowId, taskId + 1, "错误群名", draftStatus, 300L))
+                .isZero();
+        assertThat(executionMapper.selectById(rowId).getGroupSubject()).isNull();
+
+        service.create(newGroupRequest(taskId), CREATOR);
+
+        assertThat(executionMapper.updateDraftGroupSubject(rowId, taskId, "错误群名", draftStatus, 400L))
+                .isZero();
+        assertThat(executionMapper.selectById(rowId).getGroupSubject()).isEqualTo("客户群-1");
+    }
+
+    @Test
+    void newGroupModeAllowsNoManagerGroupAndPersistsNullSnapshot() {
+        long taskId = seedNewGroupDraft(CREATOR);
+        AccountGroup creatorGroup = new AccountGroup();
+        creatorGroup.setName("建群人组");
+        when(accountGroupService.requireExisting(16L)).thenReturn(creatorGroup);
+
+        service.create(withManagerGroup(newGroupRequest(taskId), null), CREATOR);
+
+        assertThat(pullTaskMapper.selectLifecycle(taskId).getStatus()).isEqualTo("WAIT_START");
+        PullTaskStandardSetting setting = settingMapper.selectByTaskId(taskId);
+        assertThat(setting.getManagerGroupId()).isNull();
+        assertThat(setting.getManagerGroupName()).isNull();
+        assertThat(setting.getCreatorGroupId()).isEqualTo(16L);
+        assertThat(setting.getPullerGroupId()).isEqualTo(12L);
+        assertThat(executionMapper.selectByTaskId(taskId)).allSatisfy(row ->
+                assertThat(row.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code()));
+    }
+
+    @Test
+    void linkModesStillRejectNoManagerGroupWithoutFreezingDraft() {
+        long linkTaskId = seedDraftWithTwoRows(CREATOR);
+        assertThatThrownBy(() -> service.create(
+                withManagerGroup(validRequest(linkTaskId), null), CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("管理");
+        assertThat(pullTaskMapper.selectLifecycle(linkTaskId).getStatus()).isEqualTo("DRAFT");
+        assertThat(settingMapper.selectByTaskId(linkTaskId)).isNull();
+
+        long poolTaskId = seedResourcePoolDraft(CREATOR);
+        assertThatThrownBy(() -> service.create(
+                withManagerGroup(resourcePoolRequest(poolTaskId, 18L), null), CREATOR))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("管理");
+        assertThat(pullTaskMapper.selectLifecycle(poolTaskId).getStatus()).isEqualTo("DRAFT");
+        assertThat(settingMapper.selectByTaskId(poolTaskId)).isNull();
     }
 
     @Test
@@ -680,7 +795,7 @@ class PullTaskStandardCreateServiceTest {
      * @return 替换分组后的入参
      */
     private static PullTaskStandardCreateDTO withManagerGroup(PullTaskStandardCreateDTO base,
-                                                              long managerGroupId) {
+                                                              Long managerGroupId) {
         return new PullTaskStandardCreateDTO(base.draftTaskId(), base.taskName(),
                 base.remark(), base.autoStart(), base.groupFolderId(), base.pullerSyncMode(),
                 base.materialAdminTiming(), base.clearExistingMembers(), base.pullerJoinByLink(),
@@ -720,6 +835,16 @@ class PullTaskStandardCreateServiceTest {
                 base.managerGroupId(), base.pullerGroupId(), stationGroupId,
                 base.managerFinishGroupId(), base.pullerFinishGroupId(), base.groupSetting(), base.creationMode(), base.creatorGroupId(),
                 base.initialStationCount(), base.creatorLeaveAfterPull(), base.pullIntervalMaxSeconds());
+    }
+
+    private static PullTaskStandardCreateDTO withGroupName(
+            PullTaskStandardCreateDTO base, String groupName) {
+        PullTaskStandardGroupSettingDTO setting = base.groupSetting();
+        return withGroupSetting(base, new PullTaskStandardGroupSettingDTO(
+                setting.enabled(), setting.settingTiming(), groupName,
+                setting.useMaterialFileNameAsGroupName(), setting.avatarFileKey(), setting.groupDescription(),
+                setting.autoCloseMuteAfterTask(), setting.autoCloseInviteAfterTask(), setting.editPermission(),
+                setting.muteMode(), setting.linkPermission(), setting.disappearingMessage()));
     }
 
     private static PullTaskStandardCreateDTO withGroupSetting(

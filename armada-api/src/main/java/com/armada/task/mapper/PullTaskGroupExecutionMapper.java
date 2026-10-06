@@ -240,6 +240,22 @@ public interface PullTaskGroupExecutionMapper {
     }
 
     /**
+     * 在提交事务中保存新群最终名称，仅允许更新当前任务的草稿行。
+     *
+     * @param id 执行行 ID
+     * @param taskId 持有父任务锁的任务 ID
+     * @param subject 已校验的带序号群名
+     * @param expectedExecutionStatus 草稿状态码
+     * @param now 更新时间(epoch 毫秒)
+     * @return 实际更新行数
+     */
+    int updateDraftGroupSubject(@Param("id") long id,
+            @Param("taskId") long taskId,
+            @Param("subject") String subject,
+            @Param("expectedExecutionStatus") int expectedExecutionStatus,
+            @Param("now") long now);
+
+    /**
      * 任务由草稿冻结为待启动时，把本任务的草稿执行行整体推进为待启动。
      *
      * <p>推进后生成列 {@code link_occupancy_key} 取到链接值，占用随之生效；

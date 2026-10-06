@@ -117,6 +117,28 @@ class PullTaskStandardSettingWriterTest {
     }
 
     @Test
+    void newGroupModeAllowsNoManagerButStillValidatesASelectedGroup() {
+        PullTaskStandardCreateDTO request = request(0, null);
+        when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);
+        when(request.creatorGroupId()).thenReturn(16L);
+        when(request.managerGroupId()).thenReturn(null);
+
+        writer.insert(request, 9L);
+
+        PullTaskStandardSetting saved = captureSaved();
+        assertThat(saved.getManagerGroupId()).isNull();
+        assertThat(saved.getManagerGroupName()).isNull();
+        verify(accountGroupService, never()).requireExisting(null);
+
+        when(request.managerGroupId()).thenReturn(999L);
+        when(accountGroupService.requireExisting(999L)).thenThrow(
+                new BusinessException(com.armada.shared.exception.ErrorCode.NOT_FOUND, "账号分组不存在"));
+        assertThatThrownBy(() -> writer.insert(request, 10L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("账号分组不存在");
+    }
+
+    @Test
     void rejectsStationGroupWhoseOnlineNormalCountIsBelowCombinedDemand() {
         PullTaskStandardCreateDTO request = request(2, 13L);
         when(request.creationMode()).thenReturn(PullTaskCreationMode.NEW_GROUP);

@@ -633,7 +633,9 @@ public class MarketingTaskServiceImpl implements MarketingTaskService {
         task.setTaskStartAt(taskStartAt);
         task.setTaskEndAt(taskEndAt);
         task.setStartedAt(status == MarketingTaskStatus.SENDING ? now : null);
-        task.setNextRoundAt(status == MarketingTaskStatus.SENDING ? now : null);
+        long initialDelay = Boolean.TRUE.equals(task.getNewGroupDelayEnabled())
+                ? delayUnit.toMilliseconds(task.getNewGroupDelayValue()) : 0L;
+        task.setNextRoundAt(status == MarketingTaskStatus.SENDING ? now + initialDelay : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;

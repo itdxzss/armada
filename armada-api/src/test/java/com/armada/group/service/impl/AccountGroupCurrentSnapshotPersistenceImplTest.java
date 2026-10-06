@@ -364,10 +364,11 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                 TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
                 .thenReturn(existing(1, "WGP2_OBSERVATION", 2_000L));
 
-        persistence.applySelfMembershipChanged(
+        boolean newlyInGroup = persistence.applySelfMembershipChanged(
                 ACCOUNT_ID, GROUP_JID, AccountGroupMembershipStatus.IN_GROUP,
                 3_000L, "event-add", "WGP2_ADD");
 
+        assertThat(newlyInGroup).isTrue();
         ArgumentCaptor<ParticipantPresenceWrite> row =
                 ArgumentCaptor.forClass(ParticipantPresenceWrite.class);
         verify(mapper).upsertSelfBinding(eq(TENANT_ID), eq(ACCOUNT_ID), row.capture());
@@ -383,14 +384,27 @@ class AccountGroupCurrentSnapshotPersistenceImplTest {
                         GROUP_JID, 100L, 200L, 1, "WGP2_ADD", 2_000L,
                         300L, 0, null, 2_000L, null));
 
-        persistence.applySelfMembershipChanged(
+        boolean newlyInGroup = persistence.applySelfMembershipChanged(
                 ACCOUNT_ID, GROUP_JID, AccountGroupMembershipStatus.IN_GROUP,
                 3_000L, "event-add-replay", "WGP2_ADD");
 
+        assertThat(newlyInGroup).isFalse();
         ArgumentCaptor<ParticipantPresenceWrite> row =
                 ArgumentCaptor.forClass(ParticipantPresenceWrite.class);
         verify(mapper).upsertSelfBinding(eq(TENANT_ID), eq(ACCOUNT_ID), row.capture());
         assertThat(row.getValue().membershipActiveSinceAt()).isNull();
+    }
+
+    @Test
+    void staleSelfAddAfterExitDoesNotReportNewMembership() {
+        stubPreciseSnapshotContext();
+        when(mapper.selectSelfMembershipExistingByTenant(
+                TENANT_ID, ACCOUNT_ID, "923300000010@s.whatsapp.net", GROUP_JID))
+                .thenReturn(existing(2, "WGP2_REMOVE", 4_000L));
+
+        assertThat(persistence.applySelfMembershipChanged(
+                ACCOUNT_ID, GROUP_JID, AccountGroupMembershipStatus.IN_GROUP,
+                3_000L, "stale-add", "WGP2_ADD")).isFalse();
     }
 
     @Test

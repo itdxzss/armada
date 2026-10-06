@@ -111,6 +111,13 @@
         created_by, created_at, updated_at, deleted_at
     </sql>
 
+    <!-- 仅普通营销使用首次发送延迟；已有群从任务首次启动计时。 -->
+    <sql id="InitialSendDelayMillis">
+        CASE WHEN business_type = 1 AND is_new_group_delay_enabled = 1
+             THEN new_group_delay_value * CASE new_group_delay_unit WHEN 2 THEN 3600000 ELSE 60000 END
+             ELSE 0 END
+    </sql>
+
     <sql id="TargetColumns">
         t.id, t.tenant_id, t.marketing_task_id, t.account_id, t.account_phone,
         a.protocol_account_id, a.protocol_id AS protocol_id, a.ws_phone AS protocol_ws_phone,
@@ -546,7 +553,7 @@
         UPDATE marketing_task
         SET status = 2,
             started_at = COALESCE(started_at, #{now}),
-            next_round_at = #{now},
+            next_round_at = #{now} + <include refid="InitialSendDelayMillis"/>,
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
@@ -1122,7 +1129,7 @@
         UPDATE marketing_task
         SET status = 2,
             started_at = COALESCE(started_at, #{now}),
-            next_round_at = #{now},
+            next_round_at = #{now} + <include refid="InitialSendDelayMillis"/>,
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL
@@ -1146,7 +1153,8 @@
     <update id="resumePausedTask">
         UPDATE marketing_task
         SET status = 2,
-            next_round_at = #{now},
+            next_round_at = GREATEST(#{now}, COALESCE(started_at, #{now})
+                + <include refid="InitialSendDelayMillis"/>),
             updated_at = #{now}
         WHERE id = #{id}
           AND deleted_at IS NULL

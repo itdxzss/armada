@@ -393,7 +393,8 @@ class MarketingTaskMapperSqlShapeTest {
                 .doesNotContain("finished_at =");
         assertThat(resumeSql)
                 .contains("SET status = 2")
-                .contains("next_round_at = #{now}")
+                .contains("next_round_at = GREATEST(#{now}, COALESCE(started_at, #{now})")
+                .contains("<include refid=\"InitialSendDelayMillis\"/>")
                 .contains("status = 5")
                 .contains("task_start_at &lt;= #{now}")
                 .contains("task_end_at &gt; #{now}");

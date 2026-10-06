@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
  * 管理员阶段。</p>
  *
  * <p>本组件只写动作与 outbox。新群模式由建群状态机等待并核验资料，群链接模式保留
- * 可选设置时机。新群仅对明确失败的命令最多提交三次；未知结果必须先核验，不能盲目重发。</p>
+ * 可选设置时机。新群明确失败可重试，未知结果仅在读回确认缺项后补写，共用三次上限。</p>
  */
 @Component
 public class PullTaskGroupProfileDispatcher {
@@ -102,8 +102,11 @@ public class PullTaskGroupProfileDispatcher {
             log.info("群信息设置跳过：无可用群设置执行账号 executionId={}", execution.getId());
             return;
         }
-        ProtocolAccountRef account = accountLookup
-                .findActiveProtocolRefs(List.of(actor.getAccountId())).stream()
+        List<ProtocolAccountRef> accounts = Objects.equals(
+                execution.getStage(), PullTaskExecutionStage.GROUP_CREATE.code())
+                ? accountLookup.findOnlineProtocolRefs(List.of(actor.getAccountId()))
+                : accountLookup.findActiveProtocolRefs(List.of(actor.getAccountId()));
+        ProtocolAccountRef account = accounts.stream()
                 .filter(ref -> Objects.equals(ref.armadaAccountId(), actor.getAccountId()))
                 .findFirst()
                 .orElse(null);
@@ -115,19 +118,49 @@ public class PullTaskGroupProfileDispatcher {
         if (actionId == null) {
             return;
         }
-        // 使用完整资料专用命令，不能送入只支持加人权限/入群审批的单项通道。
+        submit(execution, actionId, account, null, now);
+        log.info("群信息设置命令已提交 executionId={} actionId={} timing={}",
+                execution.getId(), actionId, timing);
+    }
+
+    /**
+     * 未知结果只补写已确认不一致的群名、简介；调用方持有执行行锁并已读回同一群。
+     *
+     * @param execution 当前建群执行行
+     * @param action 与本次读回绑定的未知结果动作
+     * @param account 当前在线的固定建群人
+     * @param repair 本次读回确认的缺失字段
+     * @param now 当前时间(epoch 毫秒)
+     * @return 已补发返回 true；不可重试或达到三次上限返回 false
+     * @throws IllegalStateException 命令或动作更新不完整，调用方事务必须回滚
+     */
+    public boolean repairUnknownProfile(
+            PullTaskGroupExecution execution, PullTaskAccountAction action,
+            ProtocolAccountRef account, ProtocolPullTaskGroupProfileCommandRequest.Repair repair, long now) {
+        if (!Objects.equals(execution.getStage(), PullTaskExecutionStage.GROUP_CREATE.code())
+                || !Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code())
+                || action.getAttemptNo() == null || action.getAttemptNo() >= MAX_NEW_GROUP_PROFILE_ATTEMPTS
+                || repair == null || !repair.subject() && !repair.description()) {
+            return false;
+        }
+        submit(execution, action.getId(), account, repair, now);
+        return true;
+    }
+
+    private void submit(
+            PullTaskGroupExecution execution, Long actionId, ProtocolAccountRef account,
+            ProtocolPullTaskGroupProfileCommandRequest.Repair repair, long now) {
         ProtocolCommandOutboxEnqueueResult enqueued = outboxService
                 .enqueuePullTaskGroupProfileCommands(List.of(
                         new ProtocolPullTaskGroupProfileCommandRequest(
                                 execution.getTenantId(), execution.getTaskId(),
-                                execution.getId(), actionId, account)));
+                                execution.getId(), actionId, account, repair)));
         if (enqueued.commandIds().size() != 1
-                || actionMapper.submitAttempt(actionId, SUBMITTABLE,
+                || actionMapper.submitAttempt(actionId,
+                repair == null ? SUBMITTABLE : List.of(PullTaskActionStatus.UNKNOWN.code()),
                 enqueued.commandIds().get(0), now) != 1) {
             throw new IllegalStateException("群信息设置命令提交状态写入不完整");
         }
-        log.info("群信息设置命令已提交 executionId={} actionId={} timing={}",
-                execution.getId(), actionId, timing);
     }
 
     /** 群设置没有对象账号，actor 与 target 同为执行账号角色行本身。 */

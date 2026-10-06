@@ -7,8 +7,6 @@ import com.armada.group.model.dto.WhatsappGroupIdentityMergeFact;
 import com.armada.group.model.enums.WhatsappGroupMemberStateSource;
 import com.armada.group.service.GroupParticipantObservationService;
 import com.armada.group.service.WhatsappGroupMemberCacheService;
-import com.armada.marketing.model.dto.MarketingNewGroupDTO;
-import com.armada.marketing.service.MarketingNewGroupImmediateSendService;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureEvent;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupDepartureSink;
 import com.armada.platform.kafka.consumer.account.ProtocolGroupJoinEvent;
@@ -34,8 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 进群/退群事实路径，两端因此落到同一批列（presence 与 last_joined_at/last_exited_at/exit_type），
  * 并且不会把未观察到的角色写成"普通成员"。</p>
  *
- * <p>进群/退群事实路径不负责受控账号的群关系，所以写完事实必须再收敛一次——受控号自己进退群时
- * 关系不跟着变，选号会继续按旧关系派活。</p>
+ * <p>进群事实路径统一负责受控账号的群关系和新群营销等待；退群写完事实后再收敛受控账号关系。</p>
  */
 @Service
 public class ProtocolGroupParticipantChangedSinkAdapter
@@ -79,27 +76,23 @@ public class ProtocolGroupParticipantChangedSinkAdapter
     private final ProtocolGroupJoinSink joinSink;
     private final ProtocolGroupDepartureSink departureSink;
     private final WhatsappGroupMemberCacheService memberCacheService;
-    private final MarketingNewGroupImmediateSendService marketingNewGroupService;
 
     public ProtocolGroupParticipantChangedSinkAdapter(
             AccountProtocolLookupService accountLookupService,
             GroupParticipantObservationService observationService,
             ProtocolGroupJoinSink joinSink,
             ProtocolGroupDepartureSink departureSink,
-            WhatsappGroupMemberCacheService memberCacheService,
-            MarketingNewGroupImmediateSendService marketingNewGroupService) {
+            WhatsappGroupMemberCacheService memberCacheService) {
         this.accountLookupService = accountLookupService;
         this.observationService = observationService;
         this.joinSink = joinSink;
         this.departureSink = departureSink;
         this.memberCacheService = memberCacheService;
-        this.marketingNewGroupService = marketingNewGroupService;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void handleParticipantChanged(ProtocolGroupParticipantChangedEvent event) {
-        long receivedAt = System.currentTimeMillis();
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
@@ -112,7 +105,7 @@ public class ProtocolGroupParticipantChangedSinkAdapter
                 return;
             }
             switch (event.action()) {
-                case ACTION_ADD -> applyJoins(event, receivedAt);
+                case ACTION_ADD -> applyJoins(event);
                 case ACTION_REMOVE -> applyDepartures(event);
                 case ACTION_PROMOTE, ACTION_DEMOTE -> applyRoleObservations(event);
                 case ACTION_MODIFY -> applyIdentityMerges(event);
@@ -166,28 +159,18 @@ public class ProtocolGroupParticipantChangedSinkAdapter
         memberCacheService.applyIdentityMerges(facts);
     }
 
-    /** 先判定受控账号的真实进群跃迁，再复用统一进群事实链路。 */
-    private void applyJoins(ProtocolGroupParticipantChangedEvent event, long detectedAt) {
-        List<ControlledAccountGroupTransition> transitions = observationService.reconcileControlledJoins(
-                event.tenantId(), event.groupJid(), controlledIdentities(event),
-                event.occurredAt(), event.eventId());
+    /** 复用统一进群事实链路，并在该事务内登记受控账号的新群首次营销等待。 */
+    private void applyJoins(ProtocolGroupParticipantChangedEvent event) {
         List<ProtocolGroupJoinEvent.Participant> participants = event.participants().stream()
                 .map(participant -> new ProtocolGroupJoinEvent.Participant(
                         participantJid(participant),
-                        participant.phoneNumber(),
+                        phoneJid(participant),
                         event.occurredAt(),
                         sourceEventId(event, participant)))
                 .toList();
         joinSink.handleJoins(new ProtocolGroupJoinEvent(
                 event.eventId(), event.tenantId(), event.accountId(), event.protocolAccountId(),
                 event.groupJid(), sourceType(event), event.occurredAt(), participants));
-        for (ControlledAccountGroupTransition transition : transitions) {
-            marketingNewGroupService.enqueueDelayedNewGroups(
-                    transition.accountId(),
-                    List.of(new MarketingNewGroupDTO(
-                            null, transition.groupJid(), null)),
-                    detectedAt);
-        }
     }
 
     /** 退群事实交给统一退群链路，再把受控账号的群关系对齐到落库后的结果。 */

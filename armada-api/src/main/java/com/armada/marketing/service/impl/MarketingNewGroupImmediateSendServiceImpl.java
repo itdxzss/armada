@@ -183,7 +183,7 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
         if (candidateTask == null || !delayEnabled(candidateTask)) {
             return;
         }
-        MarketingTask task = candidateTask;
+        MarketingTask task = taskMapper.selectTaskByIdForUpdate(target.getMarketingTaskId());
         if (!canRegisterNewGroup(task, detectedAt) || !delayEnabled(task)) {
             return;
         }
@@ -431,7 +431,8 @@ public class MarketingNewGroupImmediateSendServiceImpl implements MarketingNewGr
                                                          long detectedAt) {
         List<MarketingResolvedTarget> claimedTargets = new ArrayList<>();
         List<MarketingTaskSendAttempt> attempts = new ArrayList<>();
-        long scheduledSendAt = detectedAt + delayMilliseconds(task);
+        long scheduledSendAt = Math.max(detectedAt,
+                task.getStartedAt() == null ? detectedAt : task.getStartedAt()) + delayMilliseconds(task);
         for (MarketingNewGroupDTO group : candidates) {
             MarketingTaskSendAttempt attempt = waitingAttempt(task, target, group, detectedAt, scheduledSendAt);
             try {

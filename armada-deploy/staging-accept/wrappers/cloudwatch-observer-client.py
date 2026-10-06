@@ -35,8 +35,6 @@ TEST1_INSTANCES = {
     "i-06cf0d5fb86263860": "backend-runner",
     "i-03580d2585e074fec": "web-protocol",
     "i-06cb773a74046490e": "android-node1",
-    "i-09aeea3efcb15f725": "android-node2",
-    "i-015fe1e6c542d7e06": "android-node3",
 }
 ALARM_SIGNALS = {
     ("AWS/EC2", "CPUUtilization"): "cpu",
@@ -53,12 +51,6 @@ ALARM_NAMES = (
     "Armada-test1-android-node1-CPUHigh",
     "Armada-test1-android-node1-MemoryHigh",
     "Armada-test1-android-node1-StatusCheckFailed",
-    "Armada-test1-android-node2-CPUHigh",
-    "Armada-test1-android-node2-MemoryHigh",
-    "Armada-test1-android-node2-StatusCheckFailed",
-    "Armada-test1-android-node3-CPUHigh",
-    "Armada-test1-android-node3-MemoryHigh",
-    "Armada-test1-android-node3-StatusCheckFailed",
 )
 
 
@@ -250,7 +242,7 @@ def execute(
         "status": "COLLECTED",
         "health": {"ok": True, "checks": [], "blockedReasons": []},
         "region": REGION,
-        "expectedAlarmCount": 15,
+        "expectedAlarmCount": len(TEST1_INSTANCES) * len(ALARM_SIGNALS),
         "alarms": rows,
     }
     write_atomic(run_dir / "observability" / f"cloudwatch-{phase}.json", payload)

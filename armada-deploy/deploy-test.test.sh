@@ -237,10 +237,8 @@ setup_zhuan_command_fixture() {
   cat >"${ZHUAN_FIXTURE_FLEET_CONFIG}" <<'CONF'
 coordinator|tester|127.0.0.1|coordinator.pem|coordinator
 node1|tester|127.0.0.2|node1.pem|node
-node2|tester|127.0.0.3|node2.pem|node
-node3|tester|127.0.0.4|node3.pem|node
 CONF
-  for fleet_key in coordinator node1 node2 node3; do
+  for fleet_key in coordinator node1; do
     : >"${ZHUAN_FIXTURE_FLEET_KEYS_DIR}/${fleet_key}.pem"
     chmod 600 "${ZHUAN_FIXTURE_FLEET_KEYS_DIR}/${fleet_key}.pem"
   done
@@ -281,7 +279,7 @@ for arg in "$@"; do
 done
 case "${last_arg}" in
   *"/admin/nodes"*)
-    printf '%s\n' '{"success":true,"data":[{"id":"1","status":"online"},{"id":"2","status":"online"},{"id":"3","status":"online"}]}'
+    printf '%s\n' '{"success":true,"data":[{"id":"01","status":"online","state":"online"},{"id":"02","status":"lost","state":"draining"},{"id":"03","status":"lost","state":"draining"}]}'
     ;;
   *"bash -s --"*)
     payload="$(cat)"
@@ -415,8 +413,6 @@ setup_deep_check_fixture() {
   cat >"${DEEP_CHECK_FIXTURE_FLEET_CONFIG}" <<'CONF'
 coordinator|tester|127.0.0.1|check.pem|coordinator
 node1|tester|127.0.0.2|check.pem|node
-node2|tester|127.0.0.3|check.pem|node
-node3|tester|127.0.0.4|check.pem|node
 CONF
   cp "${DEEP_CHECK_FIXTURE_KEY}" "${DEEP_CHECK_FIXTURE_FLEET_KEYS_DIR}/check.pem"
 
@@ -433,7 +429,7 @@ for arg in "$@"; do last_arg="${arg}"; done
 if [ ! -t 0 ]; then cat >/dev/null; fi
 case "${last_arg}" in
   *"/admin/nodes"*)
-    printf '%s\n' '{"success":true,"data":[{"id":"1","status":"online"},{"id":"2","status":"online"},{"id":"3","status":"online"}]}'
+    printf '%s\n' '{"success":true,"data":[{"id":"01","status":"online","state":"online"},{"id":"02","status":"lost","state":"draining"},{"id":"03","status":"lost","state":"draining"}]}'
     ;;
 esac
 STUB
@@ -534,9 +530,9 @@ test_zhuan_dry_run_invokes_no_external_commands() {
   out="$(run_zhuan_with_command_stubs --env test1 --zhuan --dry-run)"
   [ ! -s "${ZHUAN_FIXTURE_COMMAND_LOG}" ] || fail "dry-run unexpectedly invoked ssh or rsync"
   assert_contains "${out}" "Zhuan 模式"
-  assert_contains "${out}" "fleet / coordinator + 3 nodes"
-  assert_contains "${out}" "四台目标并行预构建镜像"
-  assert_contains "${out}" "并发部署 coordinator + 3 台 node"
+  assert_contains "${out}" "fleet / coordinator + 1 nodes"
+  assert_contains "${out}" "coordinator 和 1 台 node 并行预构建镜像"
+  assert_contains "${out}" "并发部署 coordinator + 1 台 node"
   assert_not_contains "${out}" "whatsapp-migrate -env prod"
   cleanup_zhuan_command_fixture
 }
@@ -883,12 +879,12 @@ test_perf2_profile_uses_current_isolated_android_topic_contract() {
   assert_not_contains "${profile_content}" "send_group_message_command"
 }
 
-test_test1_profile_uses_three_node_android_fleet() {
+test_test1_profile_uses_one_node_android_fleet() {
   local profile_content
   profile_content="$(cat "${SCRIPT_DIR}/envs/test1.conf")"
 
   assert_contains "${profile_content}" "PROFILE_ZHUAN_DEPLOY_MODE=fleet"
-  assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_EXPECTED_NODES=3"
+  assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_EXPECTED_NODES=1"
   assert_contains "${profile_content}" "PROFILE_ZHUAN_FLEET_COORDINATOR_PORT=9100"
   assert_contains "${profile_content}" "EXPECTED_ANDROID_BASE_URL=http://172.31.13.65:9100"
   assert_contains "${profile_content}" "EXPECTED_PROTOCOL_BASE_URL=http://172.31.3.208:8080"
@@ -1052,8 +1048,8 @@ test_zhuan_dry_run_is_zhuan_only() {
   assert_contains "${out}" "范围          : 只 Zhuan 协议"
   assert_contains "${out}" "Zhuan 目录"
   assert_contains "${out}" "Zhuan 模式"
-  assert_contains "${out}" "fleet / coordinator + 3 nodes"
-  assert_contains "${out}" "并发部署 coordinator + 3 台 node"
+  assert_contains "${out}" "fleet / coordinator + 1 nodes"
+  assert_contains "${out}" "并发部署 coordinator + 1 台 node"
   assert_not_contains "${out}" "whatsapp-migrate -env prod"
   assert_not_contains "${out}" "后端 JDK"
   assert_not_contains "${out}" "前端构建"
@@ -1678,7 +1674,7 @@ test_zhuan_compose_file_is_allowlisted
 test_default_environment_is_test1
 test_perf2_full_dry_run_uses_all_profile_targets
 test_perf2_profile_uses_current_isolated_android_topic_contract
-test_test1_profile_uses_three_node_android_fleet
+test_test1_profile_uses_one_node_android_fleet
 test_environment_name_is_allowlisted
 test_profile_values_can_be_overridden_by_existing_environment_variables
 test_full_dry_run_prints_selected_repository_evidence_without_secrets

@@ -3,7 +3,7 @@ package com.armada.marketing.model.enums;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 
-/** 账号动态目标新群首次发送延迟单位。 */
+/** 普通营销已有群与后续新群的首次发送延迟单位。 */
 public enum MarketingNewGroupDelayUnit {
 
     /** 按分钟配置，允许 1 到 60。 */

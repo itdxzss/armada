@@ -3,6 +3,7 @@ package com.armada.task.scheduler;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.account.service.AccountProtocolLookupService;
@@ -40,6 +41,9 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -164,6 +168,132 @@ class PullTaskManagerJoinTransactionIntegrationTest {
             assertThat(action.getActionStatus()).isEqualTo(PullTaskActionStatus.SUBMITTED.code());
             assertThat(action.getCommandId()).isEqualTo("cmd-pull-1");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2, 3, 5})
+    void alreadyInGroupAdvancesWithoutCreatingOrRewritingJoinAction(int existingStatus)
+            throws SQLException {
+        PullTaskGroupExecution candidate = inGroupCandidate();
+        long managerId = groupAccountMapper.selectByExecutionAndRole(
+                candidate.getId(), PullTaskGroupAccountRole.MANAGER.code()).get(0).getId();
+        if (existingStatus != 0) {
+            execute("INSERT INTO pull_task_account_action "
+                    + "(id, tenant_id, task_id, group_execution_id, action_type, "
+                    + "actor_group_account_id, target_group_account_id, action_status, "
+                    + "command_id, attempt_no, reason_code, result_at, created_at, updated_at) "
+                    + "VALUES (601, 7, 100, " + candidate.getId() + ", 3, "
+                    + managerId + ", " + managerId + ", " + existingStatus
+                    + ", 'original-command', 1, 'ORIGINAL_RESULT', 560, 550, 560)");
+        }
+
+        PullTaskManagerJoinPreparation prepared = service.prepare(candidate, "worker-1", 700L);
+
+        assertThat(prepared.result()).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        PullTaskGroupExecution saved = executionMapper.selectById(candidate.getId());
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_ADMIN.code());
+        assertThat(saved.getGroupJid()).isEqualTo("120363group@g.us");
+        assertThat(saved.getExecutionStatus()).isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(saved.getVersion()).isEqualTo(candidate.getVersion() + 1);
+        assertThat(saved.getLockOwner()).isNull();
+        assertThat(saved.getNextRunAt()).isZero();
+        PullTaskGroupAccount manager = groupAccountMapper.selectById(managerId);
+        assertThat(manager.getMembershipStatus())
+                .isEqualTo(PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
+        assertThat(manager.getJoinedAt()).isEqualTo(550L);
+        assertThat(manager.getAdminStatus()).isEqualTo(1);
+        List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code());
+        if (existingStatus == 0) {
+            assertThat(actions).isEmpty();
+        } else {
+            assertThat(actions).singleElement().satisfies(action -> {
+                assertThat(action.getActionStatus()).isEqualTo(existingStatus);
+                assertThat(action.getCommandId()).isEqualTo("original-command");
+                assertThat(action.getAttemptNo()).isEqualTo(1);
+                assertThat(action.getReasonCode()).isEqualTo("ORIGINAL_RESULT");
+                assertThat(action.getResultAt()).isEqualTo(560L);
+                assertThat(action.getUpdatedAt()).isEqualTo(560L);
+            });
+        }
+        verifyNoInteractions(outboxService);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" "})
+    void alreadyInGroupWithoutGroupJidDoesNotAdvance(String groupJid) throws SQLException {
+        PullTaskGroupExecution candidate = inGroupCandidate();
+        candidate.setGroupJid(groupJid);
+        execute("UPDATE pull_task_group_execution SET group_jid="
+                + (groupJid == null ? "NULL" : "'" + groupJid + "'")
+                + " WHERE id=" + candidate.getId());
+
+        PullTaskManagerJoinPreparation prepared = service.prepare(candidate, "worker-1", 700L);
+
+        assertThat(prepared.result()).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        PullTaskGroupExecution saved = executionMapper.selectById(candidate.getId());
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+        assertThat(saved.getReasonCode()).isEqualTo("MANAGER_MEMBERSHIP_UNCONFIRMED");
+        assertThat(actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code())).isEmpty();
+        verifyNoInteractions(outboxService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void alreadyInGroupCannotAdvanceWithStaleVersionOrExpiredLease(boolean expiredLease)
+            throws SQLException {
+        PullTaskGroupExecution candidate = inGroupCandidate();
+        execute("UPDATE pull_task_group_execution SET "
+                + (expiredLease ? "lock_expires_at=699" : "version=version+1")
+                + " WHERE id=" + candidate.getId());
+
+        PullTaskManagerJoinPreparation prepared = service.prepare(candidate, "worker-1", 700L);
+
+        assertThat(prepared.result()).isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        assertThat(executionMapper.selectById(candidate.getId()).getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_JOIN.code());
+        assertThat(actionMapper.selectByExecutionAndType(
+                candidate.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code())).isEmpty();
+        verifyNoInteractions(outboxService);
+    }
+
+    private PullTaskGroupExecution inGroupCandidate() throws SQLException {
+        long executionId = executionMapper.selectByTaskId(100L).get(0).getId();
+        execute("UPDATE pull_task SET creation_mode='NEW_GROUP' WHERE id=100");
+        execute("UPDATE pull_task_group_execution SET group_jid='120363group@g.us' "
+                + "WHERE id=" + executionId);
+        PullTaskGroupAccount manager = new PullTaskGroupAccount();
+        manager.setTaskId(100L);
+        manager.setGroupExecutionId(executionId);
+        manager.setAccountId(901L);
+        manager.setAccountPhone("8613800000901");
+        manager.setRoleType(PullTaskGroupAccountRole.MANAGER.code());
+        manager.setRoleSeq(1);
+        manager.setSourceType(1);
+        manager.setSelectionMode(1);
+        manager.setEntryMode(4);
+        manager.setAdminStatus(1);
+        manager.setCreatedAt(550L);
+        manager.setUpdatedAt(550L);
+        groupAccountMapper.insert(manager);
+        groupAccountMapper.updateMembership(manager.getId(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code(), 550L, 550L);
+        ProtocolAccountRef account = new ProtocolAccountRef(
+                901L, ProtocolBackend.ANDROID, "acc-901", "8613800000901");
+        when(accountLookup.findEligibleManagerProtocolRefs(List.of(901L))).thenReturn(List.of(account));
+        when(accountLookup.findActiveProtocolRef(901L)).thenReturn(Optional.of(account));
+        TenantContext.clear();
+        executionMapper.claimDue(new PullTaskExecutionClaimCriteria(
+                new PullTaskExecutionClaimCriteria.Lease(1, 600L, "worker-1", 5_000L),
+                List.of(new PullTaskExecutionClaimState(PullTaskExecutionStatus.EXECUTING.code(),
+                        List.of(PullTaskExecutionStage.MANAGER_JOIN.code()))),
+                new PullTaskExecutionClaimCriteria.Parent(PullTaskType.STANDARD.name(), "NORMAL_LINK",
+                        PullTaskStandardStatus.EXECUTING.name())));
+        PullTaskGroupExecution candidate = executionMapper.selectClaimed("worker-1", 600L).get(0);
+        TenantContext.set(7L);
+        return candidate;
     }
 
     private static PullTaskGroupExecution draft() {

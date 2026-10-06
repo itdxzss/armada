@@ -76,7 +76,7 @@ public class PullTaskGroupCreateProcessor {
             // 真实群资料读取不占数据库事务；完成方法再次校验动作身份与执行行版本。
             metadata = resources.metadataPort().getMetadata(prepared.account(), candidate.getGroupJid());
         } catch (RuntimeException unavailable) {
-            // 查询失败不等于资料失败，更不能当成功；完成方法按截止时间等待或暂停。
+            // 查询失败不等于资料失败，更不能当成功；保留原群等待下轮重新核验。
             log.warn("event=new_group_profile_verification_unavailable executionId={} commandId={} errorType={}",
                     candidate.getId(), prepared.commandId(), unavailable.getClass().getSimpleName());
         }

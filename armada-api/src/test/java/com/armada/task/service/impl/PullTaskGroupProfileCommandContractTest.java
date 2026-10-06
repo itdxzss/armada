@@ -38,6 +38,7 @@ import com.armada.task.model.enums.PullTaskAccountActionType;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.task.model.enums.PullTaskExecutionStage;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskGroupCreateStep;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 import com.armada.task.service.PullTaskGroupAvatarService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -137,6 +138,7 @@ class PullTaskGroupProfileCommandContractTest {
             ProtocolBackend backend, PullTaskExecutionStage stage) throws Exception {
         execution.setStage(stage.code());
         when(accountLookup.findActiveProtocolRefs(List.of(ACCOUNT_ID))).thenReturn(List.of(account(backend)));
+        when(accountLookup.findOnlineProtocolRefs(List.of(ACCOUNT_ID))).thenReturn(List.of(account(backend)));
 
         dispatcher.dispatchIfDue(execution, PullTaskGroupSettingTiming.BEFORE_PULL, NOW);
 
@@ -178,8 +180,24 @@ class PullTaskGroupProfileCommandContractTest {
 
     @ParameterizedTest
     @EnumSource(ProtocolBackend.class)
-    void legacySingleSettingCommandCannotHydrateAGroupProfileAction(ProtocolBackend backend) throws Exception {
+    void newGroupProfileUsesFrozenNumberedSubjectForBothBackends(ProtocolBackend backend) throws Exception {
+        execution.setCreateStep(PullTaskGroupCreateStep.APPLY_PROFILE.code());
+        execution.setGroupSubject(GROUP_NAME + "-10");
         when(accountLookup.findActiveProtocolRefs(List.of(ACCOUNT_ID))).thenReturn(List.of(account(backend)));
+        when(accountLookup.findOnlineProtocolRefs(List.of(ACCOUNT_ID))).thenReturn(List.of(account(backend)));
+        dispatcher.dispatchIfDue(execution, PullTaskGroupSettingTiming.BEFORE_PULL, NOW);
+
+        ProtocolCommandOutbox row = queued.get(0);
+        JsonNode payload = profileHydrator.hydrate(row, objectMapper.readTree(row.getPayloadJson()));
+
+        assertThat(payload.path("subject").asText()).isEqualTo(GROUP_NAME + "-10");
+        assertThat(payload.path("description").asText()).isEqualTo(DESCRIPTION);
+    }
+
+    @ParameterizedTest
+    @EnumSource(ProtocolBackend.class)
+    void legacySingleSettingCommandCannotHydrateAGroupProfileAction(ProtocolBackend backend) throws Exception {
+        when(accountLookup.findOnlineProtocolRefs(List.of(ACCOUNT_ID))).thenReturn(List.of(account(backend)));
         dispatcher.dispatchIfDue(execution, PullTaskGroupSettingTiming.BEFORE_PULL, NOW);
         queued.clear();
 

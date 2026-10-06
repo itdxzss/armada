@@ -10,6 +10,7 @@ import com.armada.marketing.model.entity.MarketingTaskSendAttempt;
 import com.armada.marketing.model.entity.MarketingTaskTarget;
 import com.armada.marketing.model.enums.MarketingSendAttemptStatus;
 import com.armada.marketing.model.enums.MarketingBusinessType;
+import com.armada.marketing.model.enums.MarketingNewGroupDelayUnit;
 import com.armada.marketing.model.enums.MarketingTaskStatus;
 import com.armada.marketing.model.enums.MarketingTargetScope;
 import com.armada.marketing.model.support.MarketingResolvedTarget;
@@ -109,7 +110,8 @@ public class MarketingRoundWorker {
      * 先解析目标再抢占轮次,是为了账号动态维度没有可发送群时只推迟下一轮,不空耗一个轮次号。</p>
      */
     private void doRunRound(Long taskId) {
-        MarketingTask task = taskMapper.selectTaskById(taskId);
+        // 与新群 WAITING 登记、到期首发共用任务锁，避免选群后才抢占造成首发并发重复。
+        MarketingTask task = taskMapper.selectTaskByIdForUpdate(taskId);
         if (task == null) {
             log.warn("营销任务轮次跳过:任务不存在 taskId={}", taskId);
             return;
@@ -130,6 +132,15 @@ public class MarketingRoundWorker {
                             + "updated={} accountsRetained=true",
                     task.getTenantId(), task.getId(), task.getTaskStartAt(), deferred);
             return;
+        }
+        if (Integer.valueOf(MarketingBusinessType.ORDINARY.code()).equals(task.getBusinessType())
+                && Boolean.TRUE.equals(task.getNewGroupDelayEnabled()) && task.getStartedAt() != null) {
+            long firstRoundAt = task.getStartedAt() + MarketingNewGroupDelayUnit
+                    .fromCode(task.getNewGroupDelayUnit()).toMilliseconds(task.getNewGroupDelayValue());
+            if (now < firstRoundAt) {
+                taskMapper.postponeDueRound(taskId, now, firstRoundAt);
+                return;
+            }
         }
         List<MarketingTaskTarget> targets = taskMapper.selectTargetsByTaskId(taskId);
         if (targets.isEmpty()) {

@@ -2,6 +2,7 @@ package com.armada.task.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.armada.platform.protocol.model.entity.ProtocolCommandOutbox;
@@ -33,6 +34,8 @@ import java.util.Base64;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /**
  * 「群信息设置」下发命令的载荷取值。
@@ -239,6 +242,43 @@ class PullTaskGroupSettingsApplyPayloadTest {
 
         assertEmpty(payload, "description");
         assertEmpty(payload, "avatar");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "false,true", "true,true"})
+    @DisplayName("资料补写只携带确认缺失的名称或简介，不重复头像与权限设置")
+    void repairPayloadOnlyContainsMissingProfileFields(boolean subject, boolean description) throws Exception {
+        PullTaskStandardGroupSetting setting = enabledSetting();
+        setting.setAvatarFileKey(AVATAR_FILE_KEY);
+        when(actionMapper.selectByCommandId("cmd-profile-1"))
+                .thenReturn(action(PullTaskAccountActionType.APPLY_GROUP_SETTINGS));
+        when(accountMapper.selectById(501L)).thenReturn(manager());
+        when(executionMapper.selectById(11L)).thenReturn(execution());
+        when(groupSettingMapper.selectByTaskId(100L)).thenReturn(setting);
+        JsonNode reference = objectMapper.readTree("""
+                {"tenantId":7,"pullTaskId":100,"groupExecutionId":11,
+                 "actionId":811,"source":"pull_task_group_profile",
+                 "repair":{"subject":%s,"description":%s}}
+                """.formatted(subject, description));
+
+        JsonNode payload = hydrator.hydrate(outbox(), reference);
+
+        assertThat(payload.has("subject")).isEqualTo(subject);
+        assertThat(payload.has("description")).isEqualTo(description);
+        if (subject) {
+            assertThat(payload.path("subject").asText()).isEqualTo(setting.getGroupName());
+        }
+        if (description) {
+            assertThat(payload.path("description").asText()).isEqualTo(setting.getGroupDescription());
+        }
+        assertEmpty(payload, "avatar");
+        assertEmpty(payload, "sendMessagesAllowed");
+        assertEmpty(payload, "editGroupSettingsAllowed");
+        assertEmpty(payload, "addMembersAllowed");
+        assertEmpty(payload, "joinApprovalEnabled");
+        assertEmpty(payload, "ephemeralDurationSeconds");
+        assertEmpty(payload, "repair");
+        verifyNoInteractions(avatarService);
     }
 
     /** 「留空」= 字段整个不出现；出现即视为要求协议层去改这一项，显式 null 同样不允许。 */

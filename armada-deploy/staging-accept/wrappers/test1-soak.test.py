@@ -144,7 +144,7 @@ class SoakWrapperTest(unittest.TestCase):
             controller._dispatch()
         sleep.assert_called_once_with(0)
 
-    def test_cloudwatch_requires_exact_fifteen_ok_aliases(self):
+    def test_cloudwatch_requires_exact_nine_ok_aliases(self):
         controller = self.bind()
         controller.stage_id = "verify-start"
         controller._load_bound_candidate()
@@ -164,7 +164,7 @@ class SoakWrapperTest(unittest.TestCase):
             "status": "COLLECTED",
             "health": {"ok": True, "checks": [], "blockedReasons": []},
             "region": "ap-south-1",
-            "expectedAlarmCount": 15,
+            "expectedAlarmCount": 9,
             "alarms": alarms,
         }
         observability = self.run_dir / "observability"
@@ -182,7 +182,7 @@ class SoakWrapperTest(unittest.TestCase):
         ):
             controller._cloudwatch("start")
 
-    def test_android_collector_arguments_are_fixed_and_contain_three_node_mappings(self):
+    def test_android_collector_arguments_are_fixed_and_only_target_node1(self):
         calls = self.root / "android-calls.json"
         collector = self.executable(
             "collector.py",
@@ -196,7 +196,7 @@ Path(__file__).with_name('android-calls.json').write_text(json.dumps(args))
 def value(name):
     return args[args.index(name) + 1]
 nodes = []
-for label, node_id in (('node01', '01'), ('node02', '02'), ('node03', '03')):
+for label, node_id in (('node01', '01'),):
     nodes.append({'label': label, 'nodeId': node_id})
 print(json.dumps({
     'schemaVersion': 1,
@@ -227,7 +227,7 @@ print(json.dumps({
 
         arguments = json.loads(calls.read_text())
         self.assertEqual("android-traffic", arguments[0])
-        self.assertEqual("3", arguments[arguments.index("--expected-targets") + 1])
+        self.assertEqual("1", arguments[arguments.index("--expected-targets") + 1])
         targets = [
             arguments[index + 1]
             for index, value in enumerate(arguments)

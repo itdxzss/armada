@@ -59,8 +59,8 @@ class RunnerDeepCheckTest(unittest.TestCase):
                     "success": True,
                     "data": [
                         {"id": "node-01", "status": "online"},
-                        {"id": "node-02", "status": "online"},
-                        {"id": "node-03", "status": "online"},
+                        {"id": "node-02", "status": "lost", "state": "draining"},
+                        {"id": "node-03", "status": "lost", "state": "draining"},
                     ],
                     "error": "",
                 },
@@ -150,7 +150,7 @@ class RunnerDeepCheckTest(unittest.TestCase):
         with self.assertRaisesRegex(self.module.DeepCheckError, "CONFIG_INVALID"):
             self.module.run_checks(locked_config, http_get=self.get)
 
-    def test_android_requires_three_online_nodes(self):
+    def test_android_rejects_multiple_online_nodes(self):
         self.responses[self.config.android_nodes_url] = self.response(
             200,
             "application/json",

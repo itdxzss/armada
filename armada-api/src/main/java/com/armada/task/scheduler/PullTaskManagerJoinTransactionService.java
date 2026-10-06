@@ -163,21 +163,30 @@ public class PullTaskManagerJoinTransactionService {
         if (onlineManagerRef(manager) == null) {
             return waitForManager(candidate, PullTaskExecutionReasonCode.MANAGER_UNAVAILABLE, now);
         }
+        if (Objects.equals(manager.getMembershipStatus(),
+                PullTaskGroupAccountMembershipStatus.IN_GROUP.code())) {
+            if (candidate.getGroupJid() == null || candidate.getGroupJid().isBlank()) {
+                return waitForManager(candidate,
+                        PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED, now);
+            }
+            // 建群初始成员已确认在群，只推进阶段，不补造踩链接动作或改写原入群事实。
+            PullTaskGroupExecution update = baseTransition(candidate.getId(), candidate.getVersion(),
+                    candidate.getLockOwner(), now);
+            update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
+            update.setStage(PullTaskExecutionStage.MANAGER_ADMIN.code());
+            update.setGroupJid(candidate.getGroupJid());
+            return PullTaskManagerJoinPreparation.completed(
+                    resources.executionMapper().transitionClaimed(
+                            update, PullTaskExecutionStage.MANAGER_JOIN.code()) == 1
+                            ? PullTaskExecutionDispatchResult.ADVANCED
+                            : PullTaskExecutionDispatchResult.LOST);
+        }
         List<PullTaskAccountAction> actions = actionMapper.selectByExecutionAndType(
                 candidate.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code());
         PullTaskAccountAction action = actions.stream()
                 .filter(row -> manager.getId().equals(row.getTargetGroupAccountId()))
                 .findFirst()
                 .orElseGet(() -> insertJoinAction(candidate, manager.getId(), now));
-        if (manager.getMembershipStatus()
-                == PullTaskGroupAccountMembershipStatus.IN_GROUP.code()) {
-            PullTaskManagerJoinOutcome outcome = candidate.getGroupJid() == null
-                    ? PullTaskManagerJoinOutcome.unconfirmed(
-                            null, PullTaskExecutionReasonCode.MANAGER_MEMBERSHIP_UNCONFIRMED.name())
-                    : PullTaskManagerJoinOutcome.confirmed(candidate.getGroupJid());
-            PullTaskManagerJoinWork work = work(candidate, manager, action);
-            return PullTaskManagerJoinPreparation.completed(complete(work, outcome, now));
-        }
         if (action.getActionStatus() != null
                 && (action.getActionStatus() == PullTaskActionStatus.SUBMITTED.code()
                 || action.getActionStatus() == PullTaskActionStatus.UNKNOWN.code())) {
@@ -347,20 +356,6 @@ public class PullTaskManagerJoinTransactionService {
         }
         row.setActionStatus(PullTaskActionStatus.PENDING.code());
         return row;
-    }
-
-    private PullTaskManagerJoinWork work(
-            PullTaskGroupExecution candidate,
-            PullTaskGroupAccount manager,
-            PullTaskAccountAction action) {
-        ProtocolAccountRef account = resources.accountLookup()
-                .findActiveProtocolRef(manager.getAccountId())
-                .orElseThrow(() -> new IllegalStateException("管理员协议身份不存在"));
-        PullTaskManagerJoinPayload payload = new PullTaskManagerJoinPayload(
-                account, candidate.getNormalizedLink(), operationId(action.getId()),
-                candidate.getLockOwner(), candidate.getVersion());
-        return new PullTaskManagerJoinWork(candidate.getTenantId(), candidate.getId(),
-                manager.getId(), action.getId(), payload);
     }
 
     private static PullTaskGroupExecution completionTransition(

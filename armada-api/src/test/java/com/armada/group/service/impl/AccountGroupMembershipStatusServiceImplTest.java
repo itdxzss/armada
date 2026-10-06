@@ -80,8 +80,11 @@ class AccountGroupMembershipStatusServiceImplTest {
         Mockito.when(registry.registerAccountObservedGroup(
                 Mockito.anyString(), Mockito.isNull(), Mockito.any(), Mockito.anyLong()))
                 .thenReturn(20L);
+        Mockito.when(persistence.applySelfMembershipChanged(
+                10L, "120363001@g.us", AccountGroupMembershipStatus.IN_GROUP,
+                2_000L, "event-10", "WGP2_ADD")).thenReturn(true);
 
-        service.applyMembershipChanged(event("add"));
+        assertThat(service.applyMembershipChanged(event("add"))).isTrue();
 
         org.mockito.InOrder order = Mockito.inOrder(classification, persistence);
         order.verify(persistence).applySelfMembershipChanged(
@@ -91,6 +94,13 @@ class AccountGroupMembershipStatusServiceImplTest {
                 Mockito.eq(10L),
                 Mockito.eq(new GroupClassificationCandidate(20L, "120363001@g.us", null)),
                 Mockito.eq(2_000L), Mockito.anyLong());
+    }
+
+    @Test
+    void repeatedSelfAddDoesNotReportAnotherNewMembership() {
+        Mockito.when(currentMapper.selectContext(10L)).thenReturn(context());
+
+        assertThat(service.applyMembershipChanged(event("add"))).isFalse();
     }
 
     @Test

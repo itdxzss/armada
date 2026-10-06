@@ -530,7 +530,7 @@ class QuickWrapperTest(unittest.TestCase):
                     'webProtocol': {'expectedCommit': builds['webProtocol'], 'artifact': artifact(builds['webProtocol'])},
                     'androidProtocol': {
                         'expectedCommit': builds['androidProtocol'],
-                        'artifacts': [artifact(builds['androidProtocol'], role) for role in ('coordinator', 'node-01', 'node-02', 'node-03')],
+                        'artifacts': [artifact(builds['androidProtocol'], role) for role in ('coordinator', 'node-01')],
                     },
                 },
             }

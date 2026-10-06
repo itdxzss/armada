@@ -1,0 +1,46 @@
+{
+  "baseUrl": "http://armada.65.2.123.53.nip.io/",
+  "frontendAssets": [
+    {
+      "path": "index.html",
+      "http": 200,
+      "sha256": "e042a4e64ea1d4ea565d219c433d5b5b79fe27153c82a17258030e095388836e",
+      "matchesLocal": true
+    },
+    {
+      "path": "static/js/creation-mode-display-_KJvlPmg.js",
+      "http": 200,
+      "sha256": "513780af07bfefbd270831d46e39e2b4cfa9ef8cd9c8813f4249c3ac856b572a",
+      "matchesLocal": true
+    },
+    {
+      "path": "static/js/PullTaskCreateDrawer-BjEoVLzb.js",
+      "http": 200,
+      "sha256": "c3f36c297a44c78088dff9f25c0ccbe54c56dcde9c641b1073ead4b575be4ab8",
+      "matchesLocal": true
+    },
+    {
+      "path": "static/js/index-CXoInfuY.js",
+      "http": 200,
+      "sha256": "47859f6ffc8af4cf1e857f692787ff3b3416a712164e29e63ca198d9af475f6c",
+      "matchesLocal": true
+    },
+    {
+      "path": "static/js/PullTaskExecutionDetailDrawer-D2nhOVXl.js",
+      "http": 200,
+      "sha256": "561f08dd19e8bce18a979588fe04bb8646f3d35b5bbba5af5c24691556445658",
+      "matchesLocal": true
+    },
+    {
+      "path": "static/js/PullTaskStandardSavedSettings-DZnkVb4S.js",
+      "http": 200,
+      "sha256": "9f16ed2fd6adbe1458083dd579f3ed9e810deb04e4eba2035ad9e61ecfb74745",
+      "matchesLocal": true
+    }
+  ],
+  "environmentTitle": "第一套环境",
+  "unauthenticatedApi": {
+    "http": 401,
+    "code": 40104
+  }
+}

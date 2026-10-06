@@ -4,7 +4,7 @@
 - 分支：codex/new-group-simple-20261006
 - worktree：IdeaProjects/.codex-worktrees/new-group-simple-20261006/{armada,web,protocol}
 - 后端基线 eadc3553；前端 750382dc；Web协议 280592f
-- 状态：本地实现、聚焦验证及独立复核完成；用户已授权迁回主目录、commit/push、删除本次 worktree 并发布到 test1。真实业务验收待执行。
+- 状态：已迁回主目录、commit/push 并部署 test1；本次三个 worktree 已删除。部署和制品验证通过，真实业务验收待执行。
 
 ## 需求与设计
 
@@ -44,3 +44,7 @@
 ## 主目录交付
 
 2026-10-06 用户明确要求在主目录交付：代码已迁回 armada、wheel-saas-pure-web、armada-protocol 的 1.0.3-snapshot，逐文件核对原基线后复制，保留主目录其它改动。此前三个 worktree 仅作开发来源，提交推送后清理。发布范围仅 test1 的后端、前端、Web 协议层。
+
+## test1 发布完成
+
+主目录功能提交：后端 3cfc3823、前端 c3df6e2c、Web 协议 5f8a4e5。全部已 push；本次 worktree 和对应临时分支已删除。test1 前后端/协议发布成功，V213 实际查库确认，公网首页及新模式 JS 与本地哈希一致；详见 test1-release.md。perf2 和 Android 协议未发布。

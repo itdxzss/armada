@@ -37,9 +37,11 @@ class PullTaskCreatorDeletionManagerGateTest {
         mock(PullTaskManagerAdminCandidateSelector.class),new PullTaskManagerAdminResources(executions,
             mock(GroupExecutionAccountSelector.class),mock(ProtocolCommandOutboxService.class),new PullTaskExecutionDispatchProperties(),accounts),gate);
 
-    @Test void existingAdminSuccessShortcutEntersDeletionGateInsteadOfContacts() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value=PullTaskCreationMode.class,names={"NEW_GROUP","SIMPLE_NEW_GROUP"})
+    void existingAdminSuccessShortcutEntersDeletionGateInsteadOfContacts(PullTaskCreationMode mode) {
         var candidate=candidate();enable(true);var parent=new PullTask();parent.setTaskType(PullTaskType.STANDARD);
-        parent.setMode("NORMAL_LINK");parent.setStatus("EXECUTING");parent.setCreationMode(PullTaskCreationMode.NEW_GROUP);
+        parent.setMode("NORMAL_LINK");parent.setStatus("EXECUTING");parent.setCreationMode(mode);
         when(tasks.selectLifecycle(2)).thenReturn(parent);
         var manager=manager();when(roles.selectByExecutionAndRole(3,1)).thenReturn(List.of(manager));
         when(accounts.findEligibleManagerProtocolRefs(List.of(8L))).thenReturn(List.of(ProtocolAccountRef.legacyWeb("200")));

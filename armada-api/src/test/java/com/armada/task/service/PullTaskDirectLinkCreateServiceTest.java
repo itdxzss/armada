@@ -99,10 +99,21 @@ class PullTaskDirectLinkCreateServiceTest {
         verifyNoInteractions(planner, transactions, tasks);
     }
 
+    @Test
+    void requestIdCannotSilentlyReturnATaskFromAnotherCreationMode() {
+        var existing = task("WAIT_START");
+        existing.setCreationMode(com.armada.task.model.enums.PullTaskCreationMode.SIMPLE_NEW_GROUP);
+        when(tasks.selectByRequest(anyLong(), anyString())).thenReturn(existing);
+        assertThatThrownBy(() -> service.create(request(List.of()), List.of(), principal))
+                .hasMessageContaining("其他模式");
+        verifyNoInteractions(planner, transactions, settings, start);
+    }
+
     private PullTask task(String status) {
         var task = new PullTask();
         task.setId(1L);
         task.setTaskName("新模式");
+        task.setCreationMode(com.armada.task.model.enums.PullTaskCreationMode.DIRECT_LINK);
         task.setStatus(status);
         task.setGroupCount(1);
         task.setExpectedPullCount(2);

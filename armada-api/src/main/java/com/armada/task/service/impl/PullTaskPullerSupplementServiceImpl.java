@@ -272,7 +272,7 @@ public class PullTaskPullerSupplementServiceImpl implements PullTaskPullerSupple
                                 SUPPLEMENTABLE_STAGES),
                         new PullTaskResourceSupplementTransition.Target(
                                 PullTaskExecutionStatus.EXECUTING.code(),
-                                context.creationMode().isDirectLink()
+                                context.creationMode().usesDirectPullerFlow()
                                         ? PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()
                                         : PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()));
         if (resources.executionMapper().activateResourceSupplement(transition) != 1) {

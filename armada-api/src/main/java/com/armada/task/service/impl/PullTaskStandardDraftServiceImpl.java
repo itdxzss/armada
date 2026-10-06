@@ -184,8 +184,8 @@ public class PullTaskStandardDraftServiceImpl implements PullTaskStandardDraftSe
 
     /** 新模式没有草稿生命周期，不能经旧接口提前持久化。 */
     private static void rejectDirectLink(PullTaskCreationMode mode) {
-        if (mode.isDirectLink()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "群链接模式（新）请使用无草稿创建入口");
+        if (mode.usesDirectPullerFlow()) {
+            throw new BusinessException(ErrorCode.VALIDATION, "精简模式请使用无草稿创建入口");
         }
     }
 

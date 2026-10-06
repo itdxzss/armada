@@ -82,7 +82,7 @@ public class PullTaskPullerStationContactTransactionService {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskStationContactStepResult.LOST;
             }
-            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()) {
+            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()) {
                 return PullTaskStationContactStepResult.CALL_READY;
             }
             ContactScope scope = contactScope(execution.getId(), storedCall);

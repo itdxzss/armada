@@ -509,8 +509,11 @@ class ProtocolCommandOutboxServiceImplTest {
         }
     }
 
-    @Test
-    void groupProfileRepairPersistsOnlyMissingFieldSelection() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,true,false,false", "false,false,true,false",
+            "false,false,false,true", "false,false,true,true"})
+    void groupProfileRepairPersistsOnlyMissingFieldSelection(
+            boolean subject, boolean description, boolean memberPermissions, boolean avatar) throws Exception {
         TestableProtocolCommandOutboxService service = newService(List.of("cmd-profile-repair"), List.of());
         when(mapper.batchInsertPending(anyList())).thenReturn(1);
         TenantContext.set(1L);
@@ -518,12 +521,14 @@ class ProtocolCommandOutboxServiceImplTest {
             service.enqueuePullTaskGroupProfileCommands(List.of(
                     new ProtocolPullTaskGroupProfileCommandRequest(1L, 9L, 11L, 811L,
                             new ProtocolAccountRef(393L, ProtocolBackend.ANDROID, "actor-android", "944"),
-                            new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, true))));
+                            new ProtocolPullTaskGroupProfileCommandRequest.Repair(subject, description, memberPermissions, avatar))));
 
             JsonNode reference = objectMapper.readTree(capturedRows().get(0).getPayloadJson());
 
-            assertThat(reference.path("repair").path("subject").asBoolean()).isFalse();
-            assertThat(reference.path("repair").path("description").asBoolean()).isTrue();
+            assertThat(reference.path("repair").path("subject").asBoolean()).isEqualTo(subject);
+            assertThat(reference.path("repair").path("description").asBoolean()).isEqualTo(description);
+            assertThat(reference.path("repair").path("memberPermissions").asBoolean()).isEqualTo(memberPermissions);
+            assertThat(reference.path("repair").path("avatar").asBoolean()).isEqualTo(avatar);
             assertThat(reference.path("source").asText()).isEqualTo("pull_task_group_profile");
             assertThat(reference.has("subject")).isFalse();
             assertThat(reference.has("description")).isFalse();

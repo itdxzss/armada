@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
  * 普通拉群任务应用「群信息设置」的 Outbox 命令请求。
  *
  * <p>群链接模式由管理员执行，新群模式由建群人执行。设置项可选，缺省即「这一项别动」；
- * 新群资料读回确认缺项后，可以只补写名称或简介，避免重复头像与权限设置。</p>
+ * 新群资料读回确认缺项后，只补写已明确不符的名称、简介或成员权限，避免重复其它设置。</p>
  *
  * <p>与同域的 {@code pull_task_group_settings} 也不是一回事：那条是一条命令一个设置项的旧
  * 单项命令（放开加人权限、关闭进群审核），仍在用；本命令一次带齐整块群资料。</p>
@@ -53,8 +53,10 @@ public record ProtocolPullTaskGroupProfileCommandRequest(
      *
      * @param subject 是否补写群名称
      * @param description 是否补写群简介
+     * @param memberPermissions 是否补写已明确不符的普通成员加人和入群审批权限
+     * @param avatar 是否重发简化新群尚未确认完成的已配置头像
      */
-    public record Repair(boolean subject, boolean description) {
+    public record Repair(boolean subject, boolean description, boolean memberPermissions, boolean avatar) {
     }
 
     /**

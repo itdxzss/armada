@@ -627,9 +627,9 @@ public class PullTaskPullerInviteTransactionService {
                 && PullTaskStandardStatus.EXECUTING.name().equals(parent.getStatus())
                 && row.getExecutionStatus() == PullTaskExecutionStatus.EXECUTING.code()
                 && (row.getStage() == PullTaskExecutionStage.PULLER_INVITE.code()
-                && !PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+                && !PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()
                 || directEntry(row)
-                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink())
+                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow())
                 && lockOwner != null && lockOwner.equals(row.getLockOwner());
     }
 

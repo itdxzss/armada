@@ -75,6 +75,25 @@ class PullTaskCreatorDeletionConfigH2Test {
         assertThat(tasks.selectLifecycleForUpdate(1).getCreatorDeleteAfterTakeover()).isZero();
     }
 
+    @Test void simpleFormalTaskCanConfigureDeletionBeforeStartAndFreezesAfterStart() {
+        var jdbc = new JdbcTemplate(db);
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP',status='WAIT_START' WHERE id=1");
+        jdbc.update("""
+                INSERT INTO pull_task_standard_setting (tenant_id,task_id,material_admin_timing,
+                  pull_count_min,pull_count_max,pull_interval_seconds,puller_count_per_group,
+                  station_count_per_call,concurrent_group_count,manager_group_id,puller_group_id,
+                  manager_group_name,puller_group_name,creator_group_id,created_at,updated_at)
+                VALUES (7,1,2,1,3,10,2,0,1,14,12,'管理','拉手',13,1,1)
+                """);
+        service.update(1, 11, new PullTaskCreatorDeletionConfigDTO(true));
+        assertThat(tasks.selectLifecycle(1).getCreatorDeleteAfterTakeover()).isEqualTo(1);
+        service.update(1, 11, new PullTaskCreatorDeletionConfigDTO(false));
+        assertThat(tasks.selectLifecycle(1).getCreatorDeleteAfterTakeover()).isZero();
+        jdbc.update("UPDATE pull_task SET status='EXECUTING',started_at=100 WHERE id=1");
+        assertThatThrownBy(() -> service.update(1, 11, new PullTaskCreatorDeletionConfigDTO(true)))
+                .hasMessageContaining("冻结");
+    }
+
     @Test void tenantAndOwnerCannotEditAnotherTask() {
         assertThatThrownBy(() -> service.update(1, 12, new PullTaskCreatorDeletionConfigDTO(true)))
                 .isInstanceOf(BusinessException.class);

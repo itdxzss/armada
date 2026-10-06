@@ -162,8 +162,8 @@ public class PullTaskPullWaveSettlementTransactionService {
 
     private PullTaskExecutionDispatchResult advanceAfterPull(
             PullTaskGroupExecution execution, PullTask parent, long settledWaveId, long now) {
-        boolean directLink = PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink();
-        int nextStage = directLink || resources.materialMapper().selectPendingAdmin(
+        boolean directPullerFlow = PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow();
+        int nextStage = directPullerFlow || resources.materialMapper().selectPendingAdmin(
                 execution.getId(), ADMIN_REQUIRED,
                 PullTaskMaterialPullStatus.SUCCESS.code(),
                 PullTaskMaterialAdminStatus.PENDING.code()).isEmpty()
@@ -172,7 +172,7 @@ public class PullTaskPullWaveSettlementTransactionService {
         replaceActiveWave(execution, settledWaveId, null, nextStage, 0L, now);
         // 这条执行行刚拉完人，正是「拉完人后」设置群资料的时刻；不能拖到收口，否则运营要
         // 看着旧群名度过整个料子管理员阶段。
-        if (!directLink) {
+        if (!directPullerFlow) {
             groupProfileDispatcher.dispatchIfDue(
                     execution, PullTaskGroupSettingTiming.AFTER_PULL, now);
         }

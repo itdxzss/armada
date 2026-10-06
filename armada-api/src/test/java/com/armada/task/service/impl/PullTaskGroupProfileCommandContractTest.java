@@ -89,7 +89,7 @@ class PullTaskGroupProfileCommandContractTest {
             settingMapper, actionMapper, accountMapper, accountLookup, outbox);
     private final PullTaskGroupProfilePayloadHydrator profileHydrator = new PullTaskGroupProfilePayloadHydrator(
             actionMapper, accountMapper, executionMapper, settingMapper,
-            mock(PullTaskGroupAvatarService.class), objectMapper);
+            mock(PullTaskGroupAvatarService.class), objectMapper, mock(com.armada.task.mapper.PullTaskMapper.class));
     private final PullTaskGroupSettingsPayloadHydrator settingsHydrator = new PullTaskGroupSettingsPayloadHydrator(
             actionMapper, accountMapper, executionMapper, objectMapper);
 

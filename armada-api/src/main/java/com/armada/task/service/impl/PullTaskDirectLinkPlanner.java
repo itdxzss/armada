@@ -4,7 +4,7 @@ import com.armada.resource.service.GroupDataPackageAllocationService.Snapshot;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
-import com.armada.task.model.dto.PullTaskDirectLinkCreateDTO;
+import com.armada.task.model.dto.PullTaskDirectCreateRequest;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
 import com.armada.task.service.PullTaskLinkMatcher;
@@ -22,7 +22,7 @@ import java.util.stream.IntStream;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 无草稿来源校验与匹配；只产出内存计划，不写任务或占用群链接。 */
+/** 无草稿的链接匹配或自建群料子计划；只产出内存计划，不写任务或占用群链接。 */
 @Service
 public class PullTaskDirectLinkPlanner {
     private static final int MAX_SOURCES = 50;
@@ -40,8 +40,8 @@ public class PullTaskDirectLinkPlanner {
         this.sources = sources;
     }
 
-    /** 在任务落库前完成全部来源校验；每份有效料子必须能匹配可用群链接。 */
-    public List<PlannedRow> plan(PullTaskDirectLinkCreateDTO request, List<MultipartFile> files) {
+    /** 在任务落库前完成全部来源校验；链接模式匹配可用群，每份新群料子生成一个未建群执行行。 */
+    public List<PlannedRow> plan(PullTaskDirectCreateRequest request, List<MultipartFile> files) {
         validate(request);
         List<Long> ids = request.packageIds() == null ? List.of() : request.packageIds();
         List<MultipartFile> uploads = files == null ? List.of() : files;
@@ -67,6 +67,10 @@ public class PullTaskDirectLinkPlanner {
                         snapshot.name() + ".txt", members.size(), 0, 0, members, List.of()), snapshot));
             }
         }
+        if (request.frozenSettings().creationMode().isSimplifiedNewGroup()) {
+            return IntStream.range(0, materials.size())
+                    .mapToObj(index -> materialRow(index + 1, materials.get(index))).toList();
+        }
         String links = mergedLinks(request);
         Set<String> candidates = PullTaskLinkProbeService.candidateLinks(links);
         Set<String> occupied = candidates.isEmpty() ? Set.of()
@@ -82,7 +86,7 @@ public class PullTaskDirectLinkPlanner {
     }
 
     /** 校验直接创建合同，重复提交也必须携带合法请求标识。 */
-    public static void validate(PullTaskDirectLinkCreateDTO r) {
+    public static void validate(PullTaskDirectCreateRequest r) {
         if (r == null || r.requestId() == null || !r.requestId().matches(
                 "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
             throw invalid("创建请求 requestId 必须为 UUID");
@@ -95,13 +99,25 @@ public class PullTaskDirectLinkPlanner {
         }
         validateRanges(r);
         validateGroups(r);
+        if (r.frozenSettings().creationMode().isSimplifiedNewGroup()) {
+            PullTaskNewGroupModeValidator.validateRequest(r.frozenSettings());
+            var settings = r.frozenSettings();
+            if (settings.creatorGroupId() <= 0 || settings.managerGroupId() == null
+                    || settings.managerGroupId() <= 0
+                    || settings.managerFinishGroupId() != null && settings.managerFinishGroupId() <= 0) {
+                throw invalid("请选择有效的建群人和管理分组");
+            }
+        }
     }
 
-    private static void validateRanges(PullTaskDirectLinkCreateDTO r) {
+    private static void validateRanges(PullTaskDirectCreateRequest r) {
         if (r.autoStart() == null || (r.autoStart() != 0 && r.autoStart() != 1)) {
             throw invalid("自动启动取值只能是 0 或 1");
         }
-        if (!positive(r.earlyPullCount()) || !positive(r.earlyPullCallCount()) || !positive(r.pullCountMin())
+        boolean simple = r.frozenSettings().creationMode().isSimplifiedNewGroup();
+        boolean validEarlyCalls = r.earlyPullCallCount() != null
+                && (simple ? r.earlyPullCallCount() == 0 : r.earlyPullCallCount() > 0);
+        if (!positive(r.earlyPullCount()) || !validEarlyCalls || !positive(r.pullCountMin())
                 || !positive(r.pullCountMax()) || r.pullCountMin() > r.pullCountMax()) {
             throw invalid("拉人数范围或前期拉人参数不合法");
         }
@@ -112,7 +128,7 @@ public class PullTaskDirectLinkPlanner {
         }
     }
 
-    private static void validateGroups(PullTaskDirectLinkCreateDTO r) {
+    private static void validateGroups(PullTaskDirectCreateRequest r) {
         if (r.pullerGroupId() == null || r.pullerGroupId() <= 0) {
             throw invalid("请选择拉手分组");
         }
@@ -125,7 +141,7 @@ public class PullTaskDirectLinkPlanner {
         }
     }
 
-    private String mergedLinks(PullTaskDirectLinkCreateDTO r) {
+    private String mergedLinks(PullTaskDirectCreateRequest r) {
         if (r.groupFolderId() == null) {
             return r.linksText() == null ? "" : r.linksText();
         }
@@ -159,14 +175,20 @@ public class PullTaskDirectLinkPlanner {
 
     private static PlannedRow row(PullTaskLinkMatcher.Pairing pair, MaterialSource source,
             PullTaskLinkProbeService.ProbeResult probe) {
-        var parsed = source.parsed();
-        var execution = new PullTaskGroupExecution();
-        execution.setSeq(pair.seq());
+        PlannedRow row = materialRow(pair.seq(), source);
+        var execution = row.execution();
         execution.setNormalizedLink(pair.normalizedLink());
         execution.setInviteCode(pair.normalizedLink().substring(pair.normalizedLink().lastIndexOf('/') + 1));
         probe.lines().stream().filter(line -> pair.normalizedLink().equals(line.normalizedLink())).findFirst()
                 .ifPresent(line -> execution.setSourceLinkLineNo(line.lineNo()));
-        execution.setSourceFileIndex(pair.seq());
+        return row;
+    }
+
+    private static PlannedRow materialRow(int seq, MaterialSource source) {
+        var parsed = source.parsed();
+        var execution = new PullTaskGroupExecution();
+        execution.setSeq(seq);
+        execution.setSourceFileIndex(seq);
         execution.setSourceFileName(parsed.fileName());
         execution.setTotalLineCount(parsed.totalLineCount());
         execution.setValidMemberCount(parsed.members().size());

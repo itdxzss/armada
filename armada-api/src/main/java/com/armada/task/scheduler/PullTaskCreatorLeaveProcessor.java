@@ -94,7 +94,7 @@ public class PullTaskCreatorLeaveProcessor {
                 return PullTaskExecutionDispatchResult.ADVANCED;
             }
             PullTask parent = taskMapper.selectLifecycle(candidate.getTaskId());
-            if (parent != null && PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()) {
+            if (parent != null && PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()) {
                 return PullTaskExecutionDispatchResult.ADVANCED;
             }
             if (!isDispatchable(parent, candidate, lockOwner)) {

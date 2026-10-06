@@ -145,6 +145,42 @@ class PullTaskCreatorDeletionTransactionServiceTest {
         verify(lifecycle,never()).beginDeletion(any(),anyLong());
         verify(deletions,never()).claimSubmission(any());
     }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false,3,true,false", "true,5,true,false", "true,3,false,false", "true,3,true,true"})
+    void simplifiedCreatorDeletionRequiresVerifiedSuccessfulProfileCommand(
+            boolean verified, int actionStatus, boolean matchingCommand, boolean allowed) {
+        var work = fixture();
+        var parent = new PullTask();
+        parent.setCreationMode(PullTaskCreationMode.SIMPLE_NEW_GROUP);
+        parent.setStatus("EXECUTING");
+        when(tasks.selectLifecycleForUpdate(2)).thenReturn(parent);
+        work.deletion().setStatus(PullTaskCreatorDeletionStatus.RESERVED.code());
+        work.execution().setNormalizedLink("https://chat.whatsapp.com/frozen");
+        if (verified) {
+            work.execution().setProfileVerifiedAt(900L);
+            work.execution().setProfileVerifiedCommandId("avatar-repair");
+        }
+        var action = new PullTaskAccountAction();
+        action.setCommandId(matchingCommand ? "avatar-repair" : "previous-profile");
+        action.setActionStatus(actionStatus);
+        when(actions.selectByExecutionAndType(3L, PullTaskAccountActionType.APPLY_GROUP_SETTINGS.code()))
+                .thenReturn(List.of(action));
+        when(lifecycle.findReservedCreator(3L)).thenReturn(java.util.Optional.of(work.creator()));
+        when(lifecycle.identityHash(work.creator())).thenReturn("hash");
+        when(lifecycle.beginDeletion(any(), eq(1000L))).thenReturn(true);
+        when(deletions.claimSubmission(any())).thenReturn(1);
+
+        assertThat(service.claimSubmission(work, proof(true), 1000L)).isEqualTo(allowed);
+        if (allowed) {
+            verify(lifecycle).beginDeletion(any(), eq(1000L));
+            verify(deletions).claimSubmission(any());
+        } else {
+            verify(lifecycle, never()).beginDeletion(any(), anyLong());
+            verify(deletions, never()).claimSubmission(any());
+        }
+    }
     private PullTaskCreatorDeletionWork fixture() {
         var parent=new PullTask();parent.setCreationMode(PullTaskCreationMode.NEW_GROUP);parent.setStatus("EXECUTING");
         when(tasks.selectLifecycleForUpdate(2)).thenReturn(parent);

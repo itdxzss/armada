@@ -90,7 +90,7 @@ class PullTaskClosingTransactionServiceTest {
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         var order = org.mockito.Mockito.inOrder(finishArchiveService, accountMapper);
-        order.verify(finishArchiveService).archive(11L, setting);
+        order.verify(finishArchiveService).archive(11L, setting, PullTaskCreationMode.DIRECT_LINK);
         order.verify(accountMapper).releaseAllPullersOfExecution(11L, 1_000L);
         verify(groupFolderService).moveToUsed(901L);
         verify(parentCompletionService).completeIfTerminalByExecutionId(11L, 1_000L);

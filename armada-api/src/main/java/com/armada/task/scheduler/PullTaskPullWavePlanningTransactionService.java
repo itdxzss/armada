@@ -688,7 +688,7 @@ public class PullTaskPullWavePlanningTransactionService {
             PullTaskGroupExecution execution, PullTask parent, long now) {
         PullTaskGroupExecution update = transition(execution, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+        update.setStage(PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()
                 || materialMapper.selectPendingAdmin(
                 execution.getId(), ADMIN_REQUIRED,
                 PullTaskMaterialPullStatus.SUCCESS.code(),

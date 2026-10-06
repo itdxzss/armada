@@ -223,9 +223,10 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
         assertThat(station.getPullCallId()).isNull();
     }
 
-    @Test
-    void directModeRecoveredPullerReturnsToItsOwnJoinStage() throws SQLException {
-        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"DIRECT_LINK", "SIMPLE_NEW_GROUP"})
+    void directModeRecoveredPullerReturnsToItsOwnJoinStage(String mode) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         waitAt(PullTaskExecutionStage.PULL_EXECUTION, PullTaskWaitResourceType.PULLER, "等待拉手");
         PullTaskGroupAccount puller = puller();
         puller.setEntryMode(1);

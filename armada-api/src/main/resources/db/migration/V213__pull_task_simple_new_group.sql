@@ -1,0 +1,3 @@
+-- 新模式复用现有列、执行阶段和注销账本，仅补充创建模式说明。
+ALTER TABLE pull_task MODIFY COLUMN creation_mode VARCHAR(32) NOT NULL DEFAULT 'PASTED_LINK'
+  COMMENT '创建模式:PASTED_LINK群链接 DIRECT_LINK群链接新 RESOURCE_POOL资源池 NEW_GROUP新群 SIMPLE_NEW_GROUP新群新';

@@ -408,7 +408,7 @@ public class PullTaskResourceRecoveryTransactionService {
         if (!needsEntry) {
             return candidate.getStage();
         }
-        return PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()
+        return PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()
                 ? PullTaskExecutionStage.DIRECT_PULLER_JOIN.code() : PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code();
     }
 

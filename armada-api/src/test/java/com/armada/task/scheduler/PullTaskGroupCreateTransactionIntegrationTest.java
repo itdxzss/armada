@@ -27,6 +27,7 @@ import com.armada.platform.protocol.port.GroupCreatePort;
 import com.armada.platform.protocol.port.GroupInvitePort;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
+import com.armada.task.mapper.PullTaskMapper;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.platform.protocol.port.FixedAccountGroupMetadataPort;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
@@ -107,8 +108,13 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         TenantContext.clear();
     }
 
-    @Test
-    void persistsRolesResultsInviteAndRegistrationBeforeManagerJoin() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"NEW_GROUP", "SIMPLE_NEW_GROUP"})
+    void persistsRolesResultsInviteAndRegistrationBeforeManagerJoin(String mode) {
+        jdbc.update("UPDATE pull_task SET creation_mode=? WHERE id=1", mode);
+        GroupMetadataResult verifiedMetadata = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, true, false, null, null,
+                false, null, false, false, List.of());
         PullTaskGroupExecution selectCandidate = executionMapper.selectById(11L);
 
         assertThat(transactions.prepareRoles(selectCandidate, NOW, 2_000L))
@@ -156,7 +162,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         var profile = transactions.prepareProfile(profileCandidate, 2_000L, NOW + 2);
         assertThat(profile.ready()).isTrue();
         assertThat(transactions.completeProfile(
-                profileCandidate, profile, metadata("完整简介"), NOW + 5_000L, NOW + 2))
+                profileCandidate, profile, verifiedMetadata, NOW + 5_000L, NOW + 2))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
         verify(profileDispatcher).dispatchIfDue(
                 eq(profileCandidate), eq(com.armada.task.model.enums
@@ -178,7 +184,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         PullTaskGroupExecution settingsCandidate = reclaim(NOW + 4);
         var finalCheck = transactions.prepareProfile(settingsCandidate, 2_000L, NOW + 4);
         assertThat(transactions.completeProfile(
-                settingsCandidate, finalCheck, metadata("完整简介"), NOW + 7_000L, NOW + 4))
+                settingsCandidate, finalCheck, verifiedMetadata, NOW + 7_000L, NOW + 4))
                 .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         when(groupRegistry.registerSelfBuiltGroup(
@@ -333,7 +339,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         assertThat(commands.getValue()).singleElement().satisfies(command -> {
             assertThat(command.actionId()).isEqualTo(71L);
             assertThat(command.manager().armadaAccountId()).isEqualTo(901L);
-            assertThat(command.repair()).isEqualTo(new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, true));
+            assertThat(command.repair()).isEqualTo(new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, true, false, false));
         });
         assertThat(intColumn("action_status", "pull_task_account_action", 71L)).isEqualTo(2);
         assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(2);
@@ -500,6 +506,251 @@ class PullTaskGroupCreateTransactionIntegrationTest {
     }
 
     @Test
+    void simplifiedNewGroupAllowsEmptyDescriptionAndRequiresCreatorPermissionReadback() {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        jdbc.update("UPDATE pull_task_standard_group_setting SET group_description=NULL WHERE task_id=1");
+        var candidate = profileCandidate(3, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        assertThat(prepared.ready()).isTrue();
+        GroupMetadataResult verified = new GroupMetadataResult("120363group@g.us", "印度料子包", "",
+                null, null, null, false, null, null, true, false, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, verified,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedCommandId()).isEqualTo("profile-1");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {"false,false", "true,true", "null,false", "true,null"},
+            nullValues = "null")
+    void simplifiedNewGroupCannotAdvanceWithClosedOrUnknownPermissions(Boolean memberAdd, Boolean approval) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        var candidate = profileCandidate(3, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult unverified = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, memberAdd, approval, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, unverified,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        PullTaskGroupExecution saved = executionMapper.selectById(11L);
+        assertThat(saved.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        assertThat(saved.getCreateStep()).isEqualTo(PullTaskGroupCreateStep.APPLY_PROFILE.code());
+        assertThat(saved.getProfileVerifiedAt()).isNull();
+        assertThat(saved.getManualPaused()).isOne();
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "true,true", "false,true"})
+    void simplifiedUnknownResultRepairsExplicitPermissionMismatchThenRequiresReadback(
+            boolean memberAdd, boolean approval) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        var candidate = profileCandidate(5, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult mismatch = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, memberAdd, approval, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, mismatch,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<ProtocolPullTaskGroupProfileCommandRequest>> commands =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(commands.capture());
+        assertThat(commands.getValue()).singleElement().satisfies(command -> {
+            assertThat(command.repair().subject()).isFalse();
+            assertThat(command.repair().description()).isFalse();
+            assertThat(command.repair().memberPermissions()).isTrue();
+        });
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(2);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        assertThat(executionMapper.selectById(11L).getManualPaused()).isZero();
+        jdbc.update("UPDATE pull_task_account_action SET action_status=3 WHERE id=71");
+        var resumed = reclaim(NOW + 35_000L);
+        var verified = transactions.prepareProfile(resumed, 2_000L, NOW + 35_000L);
+        GroupMetadataResult correct = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, true, false, null, null,
+                false, null, false, false, List.of());
+        assertThat(transactions.completeProfile(resumed, verified, correct,
+                NOW + 36_000L, NOW + 35_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedCommandId()).isEqualTo("profile-repair");
+    }
+
+    @Test
+    void simplifiedPermissionRepairStopsAtThirdAttempt() {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        var candidate = profileCandidate(5, NOW);
+        jdbc.update("UPDATE pull_task_account_action SET attempt_no=3 WHERE id=71");
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult mismatch = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, false, false, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, mismatch,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(3);
+        assertThat(executionMapper.selectById(11L).getManualPaused()).isOne();
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(outboxService, groupRegistry);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({
+            "false,true,完整简介", "true,true,完整简介",
+            "false,false,完整简介", "true,false,完整简介",
+            "false,true,旧简介", "true,true,旧简介"})
+    void simplifiedUnknownAvatarRequiresAvatarRepairSuccessBeforeProfileVerification(
+            boolean deleteCreator, boolean memberAdd, String description) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        jdbc.update("UPDATE pull_task_standard_group_setting SET avatar_file_key='frozen-avatar.png' WHERE task_id=1");
+        var candidate = profileCandidate(5, NOW);
+        // 本例从建群结果恢复，分别覆盖后续注销开关，不重复测试创建者预留流程。
+        jdbc.update("UPDATE pull_task SET is_creator_delete_after_takeover=? WHERE id=1",
+                deleteCreator ? 1 : 0);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult observed = new GroupMetadataResult("120363group@g.us", "印度料子包", description,
+                null, null, null, false, null, null, memberAdd, false, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, observed,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<ProtocolPullTaskGroupProfileCommandRequest>> commands =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(commands.capture());
+        assertThat(commands.getValue()).singleElement().satisfies(command -> {
+            assertThat(command.repair().avatar()).isTrue();
+            assertThat(command.repair().subject()).isFalse();
+            assertThat(command.repair().description()).isEqualTo(!"完整简介".equals(description));
+            assertThat(command.repair().memberPermissions()).isEqualTo(!memberAdd);
+        });
+        PullTaskGroupExecution awaiting = executionMapper.selectById(11L);
+        assertThat(awaiting.getProfileVerifiedAt()).isNull();
+        assertThat(awaiting.getProfileVerifiedCommandId()).isNull();
+        assertThat(awaiting.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        assertThat(awaiting.getCreateStep()).isEqualTo(PullTaskGroupCreateStep.APPLY_PROFILE.code());
+        assertThat(awaiting.getManualPaused()).isZero();
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+
+        jdbc.update("UPDATE pull_task_account_action SET action_status=3 WHERE id=71");
+        var resumed = reclaim(NOW + 35_000L);
+        var verified = transactions.prepareProfile(resumed, 2_000L, NOW + 35_000L);
+        GroupMetadataResult correct = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, true, false, null, null,
+                false, null, false, false, List.of());
+        assertThat(transactions.completeProfile(resumed, verified, correct,
+                NOW + 36_000L, NOW + 35_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedCommandId()).isEqualTo("profile-repair");
+        assertThat(executionMapper.selectById(11L).getCreateStep())
+                .isEqualTo(PullTaskGroupCreateStep.CAPTURE_INVITE_LINK.code());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {2, 3})
+    void simplifiedUnknownAvatarCannotReuseMatchingReadbackAfterRepair(int attempt) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        jdbc.update("UPDATE pull_task_standard_group_setting SET avatar_file_key='frozen-avatar.png' WHERE task_id=1");
+        var candidate = profileCandidate(5, NOW);
+        jdbc.update("UPDATE pull_task_account_action SET attempt_no=? WHERE id=71", attempt);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult correct = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, true, false, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, correct,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        assertThat(executionMapper.selectById(11L).getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        assertThat(executionMapper.selectById(11L).getManualPaused()).isEqualTo(attempt == 3 ? 1 : 0);
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isEqualTo(3);
+        if (attempt == 3) {
+            org.mockito.Mockito.verifyNoInteractions(outboxService);
+        }
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+    }
+
+    @Test
+    void legacyNewGroupAvatarUnknownStillUsesExistingReadbackRule() {
+        jdbc.update("UPDATE pull_task_standard_group_setting SET avatar_file_key='frozen-avatar.png' WHERE task_id=1");
+        var candidate = profileCandidate(5, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+
+        assertThat(transactions.completeProfile(candidate, prepared, metadata("完整简介"),
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedCommandId()).isEqualTo("profile-1");
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {"false,null", "null,true"}, nullValues = "null")
+    void simplifiedAvatarRepairDoesNotInferMissingPermissionReadback(Boolean memberAdd, Boolean approval) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        jdbc.update("UPDATE pull_task_standard_group_setting SET avatar_file_key='frozen-avatar.png' WHERE task_id=1");
+        var candidate = profileCandidate(5, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult unknown = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, memberAdd, approval, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, unknown,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<ProtocolPullTaskGroupProfileCommandRequest>> commands =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(outboxService).enqueuePullTaskGroupProfileCommands(commands.capture());
+        assertThat(commands.getValue()).singleElement().satisfies(command ->
+                assertThat(command.repair()).isEqualTo(
+                        new ProtocolPullTaskGroupProfileCommandRequest.Repair(false, false, false, true)));
+
+        jdbc.update("UPDATE pull_task_account_action SET action_status=3 WHERE id=71");
+        var resumed = reclaim(NOW + 62_000L);
+        var verified = transactions.prepareProfile(resumed, 2_000L, NOW + 62_000L);
+        assertThat(transactions.completeProfile(resumed, verified, unknown,
+                NOW + 63_000L, NOW + 62_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        assertThat(executionMapper.selectById(11L).getManualPaused()).isOne();
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {
+            "null,false", "true,null", "false,null", "null,true", "null,null"}, nullValues = "null")
+    void simplifiedUnknownPermissionFieldsNeverTriggerPermissionRepair(Boolean memberAdd, Boolean approval) {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        var candidate = profileCandidate(5, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+        GroupMetadataResult unknown = new GroupMetadataResult("120363group@g.us", "印度料子包", "完整简介",
+                null, null, null, false, null, null, memberAdd, approval, null, null,
+                false, null, false, false, List.of());
+
+        assertThat(transactions.completeProfile(candidate, prepared, unknown,
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(intColumn("attempt_no", "pull_task_account_action", 71L)).isOne();
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(outboxService, groupRegistry);
+    }
+
+    @Test
+    void simplifiedUnknownPermissionsDoNotReuseMatchingProfileAsSuccess() {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=1");
+        var candidate = profileCandidate(5, NOW);
+        var prepared = transactions.prepareProfile(candidate, 2_000L, NOW + 31_000L);
+
+        assertThat(transactions.completeProfile(candidate, prepared, metadata("完整简介"),
+                NOW + 32_000L, NOW + 31_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        assertThat(executionMapper.selectById(11L).getProfileVerifiedAt()).isNull();
+        assertThat(executionMapper.selectById(11L).getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        org.mockito.Mockito.verifyNoInteractions(groupRegistry);
+    }
+
+    @Test
     void missingRequiredProfilePreventsCreatingAGroup() {
         jdbc.update("UPDATE pull_task_standard_group_setting SET group_description=NULL WHERE task_id=1");
         assertThat(transactions.prepareRoles(executionMapper.selectById(11L), NOW, 2_000L))
@@ -628,6 +879,7 @@ class PullTaskGroupCreateTransactionIntegrationTest {
                 DataSource dataSource,
                 MybatisPlusInterceptor interceptor) throws Exception {
             return PullTaskNormalLinkH2Support.sqlSessionFactory(dataSource, interceptor,
+                    "mapper/task/PullTaskMapper.xml",
                     "mapper/task/PullTaskGroupExecutionMapper.xml",
                     "mapper/task/PullTaskGroupAccountMapper.xml",
                     "mapper/task/PullTaskStandardSettingMapper.xml",
@@ -636,6 +888,10 @@ class PullTaskGroupCreateTransactionIntegrationTest {
 
         @Bean SqlSessionTemplate sqlSessionTemplate(SqlSessionFactory factory) {
             return new SqlSessionTemplate(factory);
+        }
+
+        @Bean PullTaskMapper taskMapper(SqlSessionTemplate template) {
+            return template.getMapper(PullTaskMapper.class);
         }
 
         @Bean PullTaskGroupExecutionMapper executionMapper(SqlSessionTemplate template) {
@@ -690,12 +946,13 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         @Bean FixedAccountGroupMetadataPort metadataPort() { return mock(FixedAccountGroupMetadataPort.class); }
 
         @Bean PullTaskGroupCreatePersistence persistence(
+                PullTaskMapper taskMapper,
                 PullTaskStandardSettingMapper settingMapper,
                 PullTaskStandardGroupSettingMapper groupSettingMapper,
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskGroupAccountMapper accountMapper, PullTaskAccountActionMapper actionMapper) {
             return new PullTaskGroupCreatePersistence(
-                    settingMapper, groupSettingMapper, executionMapper, accountMapper, actionMapper);
+                    taskMapper, settingMapper, groupSettingMapper, executionMapper, accountMapper, actionMapper);
         }
 
         @Bean PullTaskGroupCreateResources resources(

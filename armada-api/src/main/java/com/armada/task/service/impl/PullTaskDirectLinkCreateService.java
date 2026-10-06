@@ -5,7 +5,7 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.security.AuthPrincipal;
 import com.armada.task.mapper.PullTaskDirectLinkCreateMapper;
 import com.armada.task.mapper.PullTaskStandardSettingMapper;
-import com.armada.task.model.dto.PullTaskDirectLinkCreateDTO;
+import com.armada.task.model.dto.PullTaskDirectCreateRequest;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.model.vo.PullTaskStandardCreatedVO;
@@ -38,7 +38,7 @@ public class PullTaskDirectLinkCreateService {
     }
 
     /** 同用户同 requestId 始终返回原任务；发生竞争时只在失败事务回滚后读回。 */
-    public PullTaskStandardCreatedVO create(PullTaskDirectLinkCreateDTO request,
+    public PullTaskStandardCreatedVO create(PullTaskDirectCreateRequest request,
             List<MultipartFile> files, AuthPrincipal principal) {
         PullTaskDirectLinkPlanner.validate(request);
         if (request.packageIds() != null && !request.packageIds().isEmpty()
@@ -62,12 +62,15 @@ public class PullTaskDirectLinkCreateService {
                 }
             }
         }
+        if (task.getCreationMode() != request.frozenSettings().creationMode()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "创建请求已用于其他模式，请重新创建");
+        }
         if (task.getDeletedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "该创建请求的任务已删除，请重新创建");
         }
         var setting = settings.selectByTaskId(task.getId());
         if (setting == null) {
-            throw new BusinessException(ErrorCode.CONFLICT, "新群链接任务执行配置不存在");
+            throw new BusinessException(ErrorCode.CONFLICT, "正式任务执行配置不存在");
         }
         if (PullTaskStandardStatus.WAIT_START.name().equals(task.getStatus())
                 && Integer.valueOf(AUTO_START_YES).equals(setting.getAutoStart())) {

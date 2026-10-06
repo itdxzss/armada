@@ -122,6 +122,42 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
     }
 
     @Test
+    void simplifiedNewGroupUsesVerifiedCreatorSettingsAndSkipsAllContactActions() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=100");
+        execute("UPDATE pull_task_group_execution SET profile_verified_at=590, "
+                + "profile_verified_command_id='creator-profile' WHERE id=" + executionId());
+        PullTaskGroupExecution candidate = claim("worker-simple", 600L, 900L);
+
+        assertThat(service.ensureGroupSettings(candidate, "worker-simple", 610L).satisfied()).isTrue();
+        assertThat(service.prepare(candidate, "worker-simple", 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId()).getStage())
+                .isEqualTo(PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
+        assertThat(actionMapper.selectByExecutionAndType(executionId(),
+                PullTaskAccountActionType.SAVE_CONTACT.code())).isEmpty();
+        assertThat(actionMapper.selectByExecutionAndType(executionId(),
+                PullTaskAccountActionType.OPEN_MEMBER_ADD.code())).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+    }
+
+    @Test
+    void simplifiedNewGroupCannotSkipCreatorSettingsProofAtContactCheckpoint() throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=100");
+        PullTaskGroupExecution candidate = claim("worker-simple", 600L, 900L);
+
+        assertThat(service.ensureGroupSettings(candidate, "worker-simple", 610L).satisfied()).isFalse();
+
+        TenantContext.set(7L);
+        assertThat(executionMapper.selectById(executionId()).getStage())
+                .isEqualTo(PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code());
+        assertThat(groupAccountMapper.selectByExecutionAndRole(executionId(),
+                PullTaskGroupAccountRole.PULLER.code())).isEmpty();
+        org.mockito.Mockito.verifyNoInteractions(outboxService);
+    }
+
+    @Test
     void directAllocationNeedsNoManagerAndCreatesNoContactOrSettingsActions() throws SQLException {
         execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
         execute("DELETE FROM pull_task_group_account WHERE role_type=1");

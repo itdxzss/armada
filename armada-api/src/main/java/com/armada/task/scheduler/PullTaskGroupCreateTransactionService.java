@@ -12,6 +12,7 @@ import com.armada.platform.protocol.model.result.GroupInviteResult;
 import com.armada.platform.protocol.model.result.GroupMetadataResult;
 import com.armada.task.model.entity.PullTaskAccountAction;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskActionStatus;
 import com.armada.platform.protocol.util.WhatsappJids;
 import com.armada.shared.tenant.TenantContext;
@@ -81,7 +82,8 @@ public class PullTaskGroupCreateTransactionService {
             PullTaskStandardGroupSetting groupSetting =
                     persistence.groupSettingMapper().selectByTaskId(candidate.getTaskId());
             if (setting == null || setting.getCreatorGroupId() == null
-                    || setting.getManagerGroupId() == null || !validProfileSetting(groupSetting)) {
+                    || setting.getManagerGroupId() == null
+                    || !validProfileSetting(groupSetting, isSimplifiedNewGroup(candidate.getTaskId()))) {
                 return pauseInvalid(candidate, now);
             }
             String subject = groupSubject(candidate, groupSetting);
@@ -287,7 +289,8 @@ public class PullTaskGroupCreateTransactionService {
             }
             PullTaskStandardGroupSetting setting = persistence.groupSettingMapper()
                     .selectByTaskId(candidate.getTaskId());
-            if (!validProfileSetting(setting) || !hasText(candidate.getGroupJid())
+            if (!validProfileSetting(setting, isSimplifiedNewGroup(candidate.getTaskId()))
+                    || !hasText(candidate.getGroupJid())
                     || !hasText(candidate.getGroupSubject())
                     || candidate.getGroupSubject().length() > GROUP_SUBJECT_MAX_LENGTH) {
                 return ProfilePreparation.completed(pauseInvalid(candidate, now));
@@ -319,12 +322,12 @@ public class PullTaskGroupCreateTransactionService {
                 return ProfilePreparation.completed(pauseProfile(candidate, now));
             }
             return new ProfilePreparation(creator, action.getId(), action.getCommandId(),
-                    action.getAttemptNo(), candidate.getGroupSubject(), setting.getGroupDescription().trim(),
+                    action.getAttemptNo(), candidate.getGroupSubject(), normalizedDescription(setting.getGroupDescription()),
                     submittedAt, null);
         });
     }
 
-    /** 真实资料相符才推进；查询失败继续等待，未知结果在读回后仅补缺项。 */
+    /** 真实资料相符才推进；简化新群还须确认普通成员加人已开启、审批已关闭，未知字段不能放行。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult completeProfile(
             PullTaskGroupExecution candidate, ProfilePreparation prepared,
@@ -343,10 +346,19 @@ public class PullTaskGroupCreateTransactionService {
                     || !Objects.equals(action.getAttemptNo(), prepared.attemptNo())) {
                 return PullTaskExecutionDispatchResult.LOST;
             }
+            boolean simplified = isSimplifiedNewGroup(candidate.getTaskId());
+            PullTaskStandardGroupSetting setting = simplified
+                    ? persistence.groupSettingMapper().selectByTaskId(candidate.getTaskId()) : null;
+            boolean avatarRequired = simplified && setting != null && hasText(setting.getAvatarFileKey());
             boolean confirmed = metadata != null && !metadata.stateAbnormal()
                     && Objects.equals(candidate.getGroupJid(), metadata.groupJid())
                     && Objects.equals(prepared.subject(), metadata.subject())
-                    && Objects.equals(prepared.description(), metadata.description());
+                    && Objects.equals(prepared.description(), simplified
+                            ? normalizedDescription(metadata.description()) : metadata.description())
+                    && (!simplified || Boolean.TRUE.equals(metadata.memberAddMode())
+                            && Boolean.FALSE.equals(metadata.joinApprovalMode()))
+                    // 简化新群的全量及每次 UNKNOWN 补写都带冻结头像；只有该轮成功才证明头像完成。
+                    && (!avatarRequired || Objects.equals(action.getActionStatus(), PullTaskActionStatus.SUCCESS.code()));
             if (!confirmed) {
                 if (metadata == null || now < prepared.submittedAt() + PROFILE_RESULT_TIMEOUT_MS) {
                     return defer(candidate, PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, nextRunAt, now);
@@ -355,7 +367,12 @@ public class PullTaskGroupCreateTransactionService {
                         && Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code())) {
                     var repair = new ProtocolPullTaskGroupProfileCommandRequest.Repair(
                             !Objects.equals(prepared.subject(), metadata.subject()),
-                            !Objects.equals(prepared.description(), metadata.description()));
+                            !Objects.equals(prepared.description(), simplified
+                                    ? normalizedDescription(metadata.description()) : metadata.description()),
+                            simplified && metadata.memberAddMode() != null && metadata.joinApprovalMode() != null
+                                    && (Boolean.FALSE.equals(metadata.memberAddMode())
+                                            || Boolean.TRUE.equals(metadata.joinApprovalMode())),
+                            avatarRequired);
                     return repairProfile(candidate, action, repair, nextRunAt, now);
                 }
                 return pauseProfile(candidate, now);
@@ -422,12 +439,22 @@ public class PullTaskGroupCreateTransactionService {
                 ? PullTaskExecutionDispatchResult.DEFERRED : PullTaskExecutionDispatchResult.LOST;
     }
 
-    private static boolean validProfileSetting(PullTaskStandardGroupSetting setting) {
+    private static boolean validProfileSetting(PullTaskStandardGroupSetting setting, boolean simplified) {
         return setting != null && Integer.valueOf(1).equals(setting.getGroupSettingEnabled())
                 && Integer.valueOf(PullTaskGroupSettingTiming.BEFORE_PULL.code()).equals(setting.getSettingTiming())
                 && !Integer.valueOf(1).equals(setting.getMaterialFilenameAsGroupName())
                 && hasText(setting.getGroupName()) && setting.getGroupName().trim().length() <= GROUP_SUBJECT_MAX_LENGTH
-                && hasText(setting.getGroupDescription()) && setting.getGroupDescription().trim().length() <= 1024;
+                && (simplified || hasText(setting.getGroupDescription()))
+                && normalizedDescription(setting.getGroupDescription()).length() <= 1024;
+    }
+
+    private boolean isSimplifiedNewGroup(long taskId) {
+        var task = persistence.taskMapper().selectLifecycle(taskId);
+        return task != null && PullTaskCreationMode.fromNullable(task.getCreationMode()).isSimplifiedNewGroup();
+    }
+
+    private static String normalizedDescription(String description) {
+        return description == null ? "" : description.trim();
     }
 
     private static boolean verifiableProfileAction(PullTaskAccountAction action) {

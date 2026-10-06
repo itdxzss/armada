@@ -119,9 +119,10 @@ class PullTaskPullWaveDispatchIntegrationTest {
         TenantContext.clear();
     }
 
-    @Test
-    void verifiedNewGroupCanSubmitMaterials() throws SQLException {
-        execute("UPDATE pull_task SET creation_mode='NEW_GROUP' WHERE id=100");
+    @ParameterizedTest
+    @ValueSource(strings = {"NEW_GROUP", "SIMPLE_NEW_GROUP"})
+    void verifiedNewGroupCanSubmitMaterials(String mode) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         execute("UPDATE pull_task_group_execution SET profile_verified_at=900, "
                 + "profile_verified_command_id='verified-profile-command' WHERE id=" + executionId);
 
@@ -137,13 +138,9 @@ class PullTaskPullWaveDispatchIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {
-            "profile_verified_at=NULL, profile_verified_command_id=NULL",
-            "profile_verified_at=0, profile_verified_command_id='cmd-old'",
-            "profile_verified_at=900, profile_verified_command_id='   '"
-    })
-    void unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String proofColumns) throws SQLException {
-        execute("UPDATE pull_task SET creation_mode='NEW_GROUP' WHERE id=100");
+    @org.junit.jupiter.params.provider.MethodSource("unverifiedGroupModes")
+    void unverifiedNewGroupIsPausedBeforeAnyMaterialCommand(String mode, String proofColumns) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         execute("UPDATE pull_task_group_execution SET " + proofColumns + " WHERE id=" + executionId);
         PullTaskGroupExecution candidate = claim("worker-1", 1_000L, 6_000L);
 
@@ -165,6 +162,15 @@ class PullTaskPullWaveDispatchIntegrationTest {
                 .allSatisfy(member -> assertThat(member.getPullStatus())
                         .isEqualTo(PullTaskMaterialPullStatus.UNCONSUMED.code()));
         verifyNoInteractions(outboxService);
+    }
+
+    private static java.util.stream.Stream<org.junit.jupiter.params.provider.Arguments> unverifiedGroupModes() {
+        return java.util.stream.Stream.of("NEW_GROUP", "SIMPLE_NEW_GROUP").flatMap(mode ->
+                java.util.stream.Stream.of(
+                        "profile_verified_at=NULL, profile_verified_command_id=NULL",
+                        "profile_verified_at=0, profile_verified_command_id='cmd-old'",
+                        "profile_verified_at=900, profile_verified_command_id='   '")
+                        .map(proof -> org.junit.jupiter.params.provider.Arguments.of(mode, proof)));
     }
 
     @Test

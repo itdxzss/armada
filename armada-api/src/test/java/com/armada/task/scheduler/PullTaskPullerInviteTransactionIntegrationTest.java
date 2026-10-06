@@ -160,9 +160,10 @@ class PullTaskPullerInviteTransactionIntegrationTest {
                 });
     }
 
-    @Test
-    void directLinkJoinsWithoutAnyManagerAndKeepsItsIndependentStage() throws SQLException {
-        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"DIRECT_LINK", "SIMPLE_NEW_GROUP"})
+    void directLinkJoinsWithoutAnyManagerAndKeepsItsIndependentStage(String mode) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         execute("DELETE FROM pull_task_group_account WHERE role_type=1");
         execute("UPDATE pull_task_group_account SET entry_mode=1 WHERE role_type=2");
         execute("UPDATE pull_task_group_execution SET stage=10 WHERE id=" + executionId);

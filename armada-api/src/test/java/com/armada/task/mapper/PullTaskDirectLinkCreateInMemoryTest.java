@@ -16,6 +16,7 @@ import com.armada.group.service.GroupLinkRegistryService;
 import com.armada.shared.security.AuthPrincipal;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskDirectLinkCreateDTO;
+import com.armada.task.model.dto.PullTaskSimpleNewGroupCreateDTO;
 import com.armada.task.model.entity.PullTask;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskMaterialMember;
@@ -74,6 +75,12 @@ class PullTaskDirectLinkCreateInMemoryTest {
         pullers.setId(12L);
         pullers.setName("拉手分组");
         when(accountGroups.requireExisting(12L)).thenReturn(pullers);
+        for (long id : List.of(13L, 14L)) {
+            var group = new AccountGroup();
+            group.setId(id);
+            group.setName("分组" + id);
+            when(accountGroups.requireExisting(id)).thenReturn(group);
+        }
         registry = mock(GroupLinkRegistryService.class);
         when(registry.registerPullTaskTargets(any(), anyLong())).thenReturn(Map.of(LINK, 9L));
         var resources = new PullTaskStandardCreateResources(
@@ -110,6 +117,61 @@ class PullTaskDirectLinkCreateInMemoryTest {
         assertThat(groupSettings.selectByTaskId(created.getId()).getGroupSettingEnabled()).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task WHERE status='DRAFT'", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_material_member WHERE admin_required<>0 OR admin_status<>0", Integer.class)).isZero();
+    }
+
+    @Test
+    void simpleNewGroupCreatesWithoutLinksAndFreezesTakeoverButNoContactsOrPromotion() {
+        var request = new PullTaskSimpleNewGroupCreateDTO(UUID.randomUUID().toString(), "精简建群", null, 0,
+                List.of(), 1, 0, 1, 3, 10, 2, 0, 1, 12L, null, 12L,
+                13L, 14L, 14L, true, "业务群", null, null, 15);
+        var plan = row();
+        plan.execution().setNormalizedLink(null);
+        plan.execution().setInviteCode(null);
+        var principal = new AuthPrincipal(2L, 7L, "operator", "操作员", "t", "租户", List.of(), List.of());
+        var created = tx.execute(status -> service.create(request, principal, List.of(plan)));
+        assertThat(created.getCreationMode()).isEqualTo(PullTaskCreationMode.SIMPLE_NEW_GROUP);
+        var stored = tasks.selectByRequest(2L, request.requestId());
+        assertThat(stored.getCreatorDeleteAfterTakeover()).isEqualTo(1);
+        var execution = executions.selectByTaskId(created.getId()).get(0);
+        assertThat(execution.getStage()).isEqualTo(PullTaskExecutionStage.GROUP_CREATE.code());
+        assertThat(execution.getGroupSubject()).isEqualTo("业务群-1");
+        assertThat(execution.getGroupLinkId()).isNull();
+        assertThat(execution.getNormalizedLink()).isNull();
+        var setting = settings.selectByTaskId(created.getId());
+        assertThat(setting.getManagerGroupId()).isEqualTo(14L);
+        assertThat(setting.getCreatorGroupId()).isEqualTo(13L);
+        assertThat(setting.getCreatorLeaveAfterPull()).isZero();
+        assertThat(setting.getClearExistingMembers()).isZero();
+        assertThat(setting.getPullerJoinByLink()).isEqualTo(1);
+        assertThat(groupSettings.selectByTaskId(created.getId()).getGroupSettingEnabled()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task WHERE status='DRAFT'", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM pull_task_material_member WHERE admin_required<>0 OR admin_status<>0", Integer.class)).isZero();
+        org.mockito.Mockito.verifyNoInteractions(registry);
+    }
+
+    @Test
+    void invalidSuffixedGroupNameRollsBackTheWholeFormalTask() {
+        var request = new PullTaskSimpleNewGroupCreateDTO(UUID.randomUUID().toString(), "精简建群", null, 0,
+                List.of(), 1, 0, 1, 3, 10, 2, 0, 1, 12L, null, null,
+                13L, 14L, null, false, "x".repeat(100), null, null, 15);
+        var principal = new AuthPrincipal(2L, 7L, "operator", "操作员", "t", "租户", List.of(), List.of());
+        assertThatThrownBy(() -> tx.execute(status -> service.create(request, principal, List.of(row()))))
+                .hasMessageContaining("追加序号");
+        for (String table : List.of("pull_task", "pull_task_standard_setting", "pull_task_standard_group_setting",
+                "pull_task_group_execution", "pull_task_material_member")) {
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class)).isZero();
+        }
+    }
+
+    @Test
+    void simpleNewGroupMigrationPreservesExistingModeAndCreationRequest() throws Exception {
+        var request = request(UUID.randomUUID().toString());
+        var existing = create(request);
+        var migration = new org.springframework.core.io.ClassPathResource(
+                "db/migration/V213__pull_task_simple_new_group.sql");
+        jdbc.execute(migration.getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        assertThat(tasks.selectByRequest(2L, request.requestId()).getId()).isEqualTo(existing.getId());
+        assertThat(tasks.selectByRequest(2L, request.requestId()).getCreationMode()).isEqualTo(PullTaskCreationMode.DIRECT_LINK);
     }
 
     @Test

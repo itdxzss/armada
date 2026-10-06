@@ -349,8 +349,10 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 .isEqualTo(PullTaskPullWaveStatus.SETTLED.code());
     }
 
-    @Test
-    void historicalReleasedUnknownIsVisibleBeforeContinuingWithMaterialAdmin() throws SQLException {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"PASTED_LINK", "DIRECT_LINK", "SIMPLE_NEW_GROUP"})
+    void historicalReleasedUnknownRespectsModeSpecificMaterialAdmin(String mode) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         WaveFixture fixture = insertCollectingWave();
         execute("UPDATE pull_task_pull_call_member_attempt SET lifecycle_status=4, active_slot=NULL, "
                 + "protocol_outcome='UNKNOWN', execution_state='UNCERTAIN', "
@@ -366,7 +368,8 @@ class PullTaskPullWaveSettlementIntegrationTest {
                 "worker-1", 2_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
 
         assertThat(executionMapper.selectById(EXECUTION_ID).getStage())
-                .isEqualTo(PullTaskExecutionStage.MATERIAL_ADMIN.code());
+                .isEqualTo("PASTED_LINK".equals(mode) ? PullTaskExecutionStage.MATERIAL_ADMIN.code()
+                        : PullTaskExecutionStage.CLOSING.code());
         assertThat(materialMapper.selectByExecution(EXECUTION_ID))
                 .filteredOn(row -> row.getId().equals(MATERIAL_ID)).singleElement()
                 .satisfies(row -> assertThat(row.getPullStatus())

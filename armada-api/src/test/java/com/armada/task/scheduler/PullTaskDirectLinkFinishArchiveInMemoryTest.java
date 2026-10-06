@@ -111,6 +111,43 @@ class PullTaskDirectLinkFinishArchiveInMemoryTest {
     }
 
     @Test
+    void simplifiedNewGroupArchivesOnlyJoinedOwnedManagersAndPullers() {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=100");
+        jdbc.update("UPDATE pull_task_standard_setting SET manager_finish_group_id=19 WHERE task_id=100");
+        role(21L, 301L, 2, 1, 5L, null);
+        role(22L, 601L, 1, 1, 5L, null);
+        role(23L, 602L, 1, 2, null, null);
+        role(24L, 603L, 1, 3, 5L, 10L);
+        role(25L, 701L, 3, 1, 5L, null);
+
+        assertThat(close()).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        verify(accounts).migrateGroup(List.of(301L), 18L);
+        verify(accounts).migrateGroup(List.of(601L), 19L);
+        org.mockito.Mockito.verifyNoMoreInteractions(accounts);
+        assertThat(executions.selectById(11L).getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.COMPLETED.code());
+    }
+
+    @Test
+    void simplifiedManagerArchiveConflictRollsBackCompletionAndPullerRelease() {
+        jdbc.update("UPDATE pull_task SET creation_mode='SIMPLE_NEW_GROUP' WHERE id=100");
+        jdbc.update("UPDATE pull_task_standard_setting SET manager_finish_group_id=19 WHERE task_id=100");
+        role(21L, 301L, 2, 1, 5L, null);
+        role(22L, 601L, 1, 1, 5L, null);
+        doThrow(new BusinessException(ErrorCode.CONFLICT, "管理完成分组冲突"))
+                .when(accounts).migrateGroup(List.of(601L), 19L);
+
+        assertThatThrownBy(this::close).isInstanceOf(BusinessException.class);
+
+        assertThat(executions.selectById(11L).getExecutionStatus())
+                .isEqualTo(PullTaskExecutionStatus.EXECUTING.code());
+        assertThat(jdbc.queryForObject("SELECT released_at FROM pull_task_group_account WHERE id=21", Long.class))
+                .isNull();
+        verifyNoInteractions(completion);
+    }
+
+    @Test
     void archiveConflictRollsBackCompletionAndKeepsPullerLeaseForRetry() {
         role(21L, 301L, 2, 1, 5L, null);
         doThrow(new BusinessException(ErrorCode.CONFLICT, "目标分组被占用"))

@@ -58,7 +58,7 @@ public class PullTaskDataPackageSourceService {
             for (PullTaskMaterialMember material : materials) {
                 Phone phone = byId.get(material.getSourcePackagePhoneId());
                 if (phone == null || !phone.phone().equals(material.getNormalizedPhone())
-                        || (!PullTaskCreationMode.fromNullable(creationMode).isDirectLink()
+                        || (!PullTaskCreationMode.fromNullable(creationMode).usesDirectPullerFlow()
                         && phone.adminRequired() != Integer.valueOf(1).equals(material.getAdminRequired()))) {
                     throw new BusinessException(ErrorCode.CONFLICT, "数据包号码已发生变化，请重新选择数据包");
                 }

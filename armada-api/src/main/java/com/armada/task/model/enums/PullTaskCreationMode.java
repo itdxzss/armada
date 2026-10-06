@@ -17,7 +17,9 @@ public enum PullTaskCreationMode {
     /** 资源池模式：任务选择群组分组，执行时动态领取群组。 */
     RESOURCE_POOL,
     /** 新群模式：由建群人现场创建群，建群成功后回填链接。 */
-    NEW_GROUP;
+    NEW_GROUP,
+    /** 新群模式（新）：保留建群与管理接管，普通拉手直接入群，不执行联系人或料子提权。 */
+    SIMPLE_NEW_GROUP;
 
     /**
      * 兼容不传该字段的既有前端与存量草稿。
@@ -31,7 +33,17 @@ public enum PullTaskCreationMode {
 
     /** @return 是否为新群模式 */
     public boolean isNewGroup() {
-        return this == NEW_GROUP;
+        return this == NEW_GROUP || this == SIMPLE_NEW_GROUP;
+    }
+
+    /** @return 是否为精简的新群模式 */
+    public boolean isSimplifiedNewGroup() {
+        return this == SIMPLE_NEW_GROUP;
+    }
+
+    /** @return 是否固定普通拉手踩链接且跳过互加与料子提权；管理接管仍由各模式决定 */
+    public boolean usesDirectPullerFlow() {
+        return this == DIRECT_LINK || this == SIMPLE_NEW_GROUP;
     }
 
     /** @return 是否为运行时动态取群的资源池模式 */

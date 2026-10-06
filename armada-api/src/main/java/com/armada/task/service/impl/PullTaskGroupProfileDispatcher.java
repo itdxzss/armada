@@ -124,7 +124,7 @@ public class PullTaskGroupProfileDispatcher {
     }
 
     /**
-     * 未知结果只补写已确认不一致的群名、简介；调用方持有执行行锁并已读回同一群。
+     * 未知结果只补写读回明确不符的资料或成员权限；调用方持有执行行锁并已读回同一群。
      *
      * @param execution 当前建群执行行
      * @param action 与本次读回绑定的未知结果动作
@@ -140,7 +140,8 @@ public class PullTaskGroupProfileDispatcher {
         if (!Objects.equals(execution.getStage(), PullTaskExecutionStage.GROUP_CREATE.code())
                 || !Objects.equals(action.getActionStatus(), PullTaskActionStatus.UNKNOWN.code())
                 || action.getAttemptNo() == null || action.getAttemptNo() >= MAX_NEW_GROUP_PROFILE_ATTEMPTS
-                || repair == null || !repair.subject() && !repair.description()) {
+                || repair == null || !repair.subject() && !repair.description()
+                        && !repair.memberPermissions() && !repair.avatar()) {
             return false;
         }
         submit(execution, action.getId(), account, repair, now);

@@ -2,18 +2,18 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.armada.task.mapper.PullTaskDirectLinkCreateMapper">
   <select id="selectByRequest" resultType="com.armada.task.model.entity.PullTask">
-    SELECT * FROM pull_task
+    SELECT *, is_creator_delete_after_takeover AS creatorDeleteAfterTakeover FROM pull_task
     WHERE created_by = #{userId} AND creation_request_id = #{requestId}
   </select>
   <insert id="insert" useGeneratedKeys="true" keyProperty="task.id">
     INSERT INTO pull_task (
       task_type, task_name, mode, creation_mode, creation_request_id, status,
       group_count, expected_pull_count, config_json, operator_name, created_by,
-      remark, created_at, updated_at
+      remark, is_creator_delete_after_takeover, created_at, updated_at
     ) VALUES (
       #{task.taskType}, #{task.taskName}, #{task.mode}, #{task.creationMode}, #{requestId}, #{task.status},
       #{task.groupCount}, #{task.expectedPullCount}, #{task.configJson}, #{task.operatorName},
-      #{task.createdBy}, #{task.remark}, #{task.createdAt}, #{task.updatedAt}
+      #{task.createdBy}, #{task.remark}, #{task.creatorDeleteAfterTakeover}, #{task.createdAt}, #{task.updatedAt}
     )
   </insert>
 </mapper>

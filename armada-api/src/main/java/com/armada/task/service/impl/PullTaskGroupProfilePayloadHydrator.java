@@ -11,6 +11,8 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
+import com.armada.task.mapper.PullTaskMapper;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskStandardGroupSettingMapper;
@@ -66,6 +68,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     private final PullTaskStandardGroupSettingMapper groupSettingMapper;
     private final PullTaskGroupAvatarService avatarService;
     private final ObjectMapper objectMapper;
+    private final PullTaskMapper taskMapper;
 
     /** 创建「群信息设置」payload 补全器。 */
     public PullTaskGroupProfilePayloadHydrator(
@@ -74,13 +77,14 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskStandardGroupSettingMapper groupSettingMapper,
             PullTaskGroupAvatarService avatarService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, PullTaskMapper taskMapper) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.groupSettingMapper = groupSettingMapper;
         this.avatarService = avatarService;
         this.objectMapper = objectMapper;
+        this.taskMapper = taskMapper;
     }
 
     /** 仅处理普通拉群账号动作聚合上的整块群资料命令。 */
@@ -125,7 +129,7 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
     /**
      * 组装 wire payload：路由事实来自 Outbox 与角色快照，设置项来自任务级配置行。
      *
-     * <p>补写命令只带读回确认缺失的名称或简介，不读取头像或重复其它设置。</p>
+     * <p>补写只携带指定字段；简化新群的头像未确认时重发同一配置头像，并等待该轮成功。</p>
      */
     private ProtocolPullTaskGroupProfilePayload payload(
             ProtocolCommandOutbox row,
@@ -136,6 +140,9 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
             PullTaskStandardGroupSetting setting) {
         Repair repair = reference.repair();
         boolean fullProfile = repair == null;
+        var task = taskMapper.selectLifecycle(reference.pullTaskId());
+        boolean simple = task != null && PullTaskCreationMode.fromNullable(task.getCreationMode()).isSimplifiedNewGroup();
+        boolean applyMemberPermissions = simple && (fullProfile || repair.memberPermissions());
         return new ProtocolPullTaskGroupProfilePayload(
                 reference.tenantId(),
                 reference.pullTaskId(),
@@ -150,12 +157,12 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
                 TIMEOUT_MS,
                 reference.source(),
                 fullProfile || repair.subject() ? subject(setting, execution) : null,
-                fullProfile ? avatar(reference.tenantId(), setting) : null,
+                fullProfile || simple && repair.avatar() ? avatar(reference.tenantId(), setting) : null,
                 fullProfile || repair.description() ? trimToNull(setting.getGroupDescription()) : null,
                 fullProfile ? sendMessagesAllowed(setting.getMuteMode()) : null,
                 fullProfile ? editGroupSettingsAllowed(setting.getEditPermissionMode()) : null,
-                addMembersAllowed(),
-                joinApprovalEnabled(),
+                applyMemberPermissions ? Boolean.TRUE : null,
+                applyMemberPermissions ? Boolean.FALSE : null,
                 fullProfile ? ephemeralDurationSeconds(setting.getDisappearingMessageMode()) : null);
     }
 
@@ -226,27 +233,6 @@ public class PullTaskGroupProfilePayloadHydrator implements ProtocolCommandPaylo
             case ALLOW -> Boolean.TRUE;
             case DISALLOW -> Boolean.FALSE;
         };
-    }
-
-    /**
-     * 加人权限：契约保留该字段，但拉群任务表单目前没有这一项，因此恒为留空（不下发）。
-     *
-     * <p>不要把它接到 {@code link_permission_mode}：那一列是「谁能拿群邀请链接」，与「谁能加人」
-     * 不是一回事，接上等于替运营下发一个他没表达过的权限变更。表单补上该项后在这里接上即可，
-     * 协议侧契约不用改。</p>
-     */
-    private static Boolean addMembersAllowed() {
-        return null;
-    }
-
-    /**
-     * 入群审批：契约保留该字段，但拉群任务表单目前没有这一项。
-     *
-     * <p>{@code pull_task_standard_group_setting} 没有对应列，取不到值，因此恒为留空（不下发）。
-     * 表单补上该项后在这里接上即可，协议侧契约不用改。</p>
-     */
-    private static Boolean joinApprovalEnabled() {
-        return null;
     }
 
     /** 限时消息：各档折算成秒；关闭档为 0，「不操作」留空。 */

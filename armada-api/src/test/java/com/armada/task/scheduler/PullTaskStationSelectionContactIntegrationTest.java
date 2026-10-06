@@ -126,9 +126,10 @@ class PullTaskStationSelectionContactIntegrationTest {
         TenantContext.clear();
     }
 
-    @Test
-    void directModeKeepsStationsWithoutSavingEitherContactDirection() throws SQLException {
-        execute("UPDATE pull_task SET creation_mode='DIRECT_LINK' WHERE id=100");
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"DIRECT_LINK", "SIMPLE_NEW_GROUP"})
+    void directModeKeepsStationsWithoutSavingEitherContactDirection(String mode) throws SQLException {
+        execute("UPDATE pull_task SET creation_mode='" + mode + "' WHERE id=100");
         ProtocolAccountRef stationRef = account(911L, "8613800000911");
         when(accountLookup.findOnlinePullTaskAccountsByGroupId(90L)).thenReturn(List.of(stationRef));
         assertThat(stationSelectionService.select(execution(), setting(), call.getId(), 580L).sufficient()).isTrue();

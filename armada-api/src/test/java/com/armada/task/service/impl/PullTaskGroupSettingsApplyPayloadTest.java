@@ -68,11 +68,22 @@ class PullTaskGroupSettingsApplyPayloadTest {
             mock(PullTaskStandardGroupSettingMapper.class);
     private final PullTaskGroupAvatarService avatarService =
             mock(PullTaskGroupAvatarService.class);
+    private final com.armada.task.mapper.PullTaskMapper tasks = mock(com.armada.task.mapper.PullTaskMapper.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final PullTaskGroupProfilePayloadHydrator hydrator =
             new PullTaskGroupProfilePayloadHydrator(
                     actionMapper, accountMapper, executionMapper, groupSettingMapper,
-                    avatarService, objectMapper);
+                    avatarService, objectMapper, tasks);
+
+    @Test
+    void simpleNewGroupSetsMemberAddAndClosesApprovalAsPartOfCreatorProfile() throws Exception {
+        var task = new com.armada.task.model.entity.PullTask();
+        task.setCreationMode(com.armada.task.model.enums.PullTaskCreationMode.SIMPLE_NEW_GROUP);
+        when(tasks.selectLifecycle(100L)).thenReturn(task);
+        var payload = hydrate(enabledSetting(), "料子.txt");
+        assertThat(payload.get("addMembersAllowed").asBoolean()).isTrue();
+        assertThat(payload.get("joinApprovalEnabled").asBoolean()).isFalse();
+    }
 
     // ---------- 断言 3：整块群资料走自己的命令，不蹭建群那条 ----------
 
@@ -245,9 +256,19 @@ class PullTaskGroupSettingsApplyPayloadTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"true,false", "false,true", "true,true"})
-    @DisplayName("资料补写只携带确认缺失的名称或简介，不重复头像与权限设置")
-    void repairPayloadOnlyContainsMissingProfileFields(boolean subject, boolean description) throws Exception {
+    @CsvSource({"true,false,false,false,false", "false,true,false,false,false", "true,true,false,false,false",
+            "true,false,true,false,false", "false,true,true,false,false", "true,true,true,false,false",
+            "false,false,true,true,false", "true,false,true,true,false", "false,false,false,true,false",
+            "false,false,true,false,true", "false,false,true,true,true", "true,true,true,false,true",
+            "true,false,false,false,true"})
+    @DisplayName("补写只携带读回明确不符的资料或成员权限，不重复其它设置")
+    void repairPayloadOnlyContainsMissingProfileFields(
+            boolean subject, boolean description, boolean simple, boolean memberPermissions, boolean avatar) throws Exception {
+        if (simple) {
+            var task = new com.armada.task.model.entity.PullTask();
+            task.setCreationMode(com.armada.task.model.enums.PullTaskCreationMode.SIMPLE_NEW_GROUP);
+            when(tasks.selectLifecycle(100L)).thenReturn(task);
+        }
         PullTaskStandardGroupSetting setting = enabledSetting();
         setting.setAvatarFileKey(AVATAR_FILE_KEY);
         when(actionMapper.selectByCommandId("cmd-profile-1"))
@@ -255,11 +276,15 @@ class PullTaskGroupSettingsApplyPayloadTest {
         when(accountMapper.selectById(501L)).thenReturn(manager());
         when(executionMapper.selectById(11L)).thenReturn(execution());
         when(groupSettingMapper.selectByTaskId(100L)).thenReturn(setting);
+        if (simple && avatar) {
+            when(avatarService.content(7L, AVATAR_FILE_KEY))
+                    .thenReturn(new PullTaskGroupAvatarContent("image/png", AVATAR_SOURCE_PNG));
+        }
         JsonNode reference = objectMapper.readTree("""
                 {"tenantId":7,"pullTaskId":100,"groupExecutionId":11,
                  "actionId":811,"source":"pull_task_group_profile",
-                 "repair":{"subject":%s,"description":%s}}
-                """.formatted(subject, description));
+                 "repair":{"subject":%s,"description":%s,"memberPermissions":%s,"avatar":%s}}
+                """.formatted(subject, description, memberPermissions, avatar));
 
         JsonNode payload = hydrator.hydrate(outbox(), reference);
 
@@ -271,14 +296,27 @@ class PullTaskGroupSettingsApplyPayloadTest {
         if (description) {
             assertThat(payload.path("description").asText()).isEqualTo(setting.getGroupDescription());
         }
-        assertEmpty(payload, "avatar");
+        if (simple && avatar) {
+            assertThat(payload.path("avatar").path("mimetype").asText()).isEqualTo("image/jpeg");
+            assertThat(payload.path("avatar").path("base64").asText()).isEqualTo(
+                    Base64.getEncoder().encodeToString(PullTaskGroupAvatarJpegTranscoder.toSquareJpeg(AVATAR_SOURCE_PNG)));
+            org.mockito.Mockito.verify(avatarService).content(7L, AVATAR_FILE_KEY);
+        } else {
+            assertEmpty(payload, "avatar");
+            verifyNoInteractions(avatarService);
+        }
         assertEmpty(payload, "sendMessagesAllowed");
         assertEmpty(payload, "editGroupSettingsAllowed");
-        assertEmpty(payload, "addMembersAllowed");
-        assertEmpty(payload, "joinApprovalEnabled");
+        if (simple && memberPermissions) {
+            assertThat(payload.path("addMembersAllowed").asBoolean()).isTrue();
+            assertThat(payload.path("joinApprovalEnabled").asBoolean()).isFalse();
+            assertThat(payload.has("joinApprovalEnabled")).isTrue();
+        } else {
+            assertEmpty(payload, "addMembersAllowed");
+            assertEmpty(payload, "joinApprovalEnabled");
+        }
         assertEmpty(payload, "ephemeralDurationSeconds");
         assertEmpty(payload, "repair");
-        verifyNoInteractions(avatarService);
     }
 
     /** 「留空」= 字段整个不出现；出现即视为要求协议层去改这一项，显式 null 同样不允许。 */

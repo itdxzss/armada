@@ -5,12 +5,13 @@ import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.model.entity.PullTaskGroupAccount;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-/** 新群链接模式完成时，将本执行行仍占用的已入群拉手归入完成分组。 */
+/** 简化执行模式完成时归档已入群拉手；简化新群同时归档接管管理。 */
 @Service
 public class PullTaskDirectLinkFinishArchiveService {
 
@@ -32,21 +33,31 @@ public class PullTaskDirectLinkFinishArchiveService {
      *
      * @param executionId 正在正常收口的执行行 ID
      * @param setting 任务冻结配置；未选择完成分组时不迁移
+     * @param mode 冻结创建模式，只有简化新群额外处理管理完成分组
      */
     @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
-    public void archive(long executionId, PullTaskStandardSetting setting) {
-        if (setting == null || setting.getPullerFinishGroupId() == null) {
+    public void archive(long executionId, PullTaskStandardSetting setting, PullTaskCreationMode mode) {
+        if (setting == null) {
             return;
         }
-        List<Long> accountIds = groupAccountMapper.selectByExecutionAndRole(
-                        executionId, PullTaskGroupAccountRole.PULLER.code()).stream()
-                .filter(row -> row.getReleasedAt() == null && row.getJoinedAt() != null)
-                .map(PullTaskGroupAccount::getAccountId)
-                .distinct()
-                .sorted()
-                .toList();
-        if (!accountIds.isEmpty()) {
-            accountService.migrateGroup(accountIds, setting.getPullerFinishGroupId());
+        List<PullTaskGroupAccountRole> roles = mode.isSimplifiedNewGroup()
+                ? List.of(PullTaskGroupAccountRole.MANAGER, PullTaskGroupAccountRole.PULLER)
+                : List.of(PullTaskGroupAccountRole.PULLER);
+        for (PullTaskGroupAccountRole role : roles) {
+            Long targetGroup = role == PullTaskGroupAccountRole.MANAGER
+                    ? setting.getManagerFinishGroupId() : setting.getPullerFinishGroupId();
+            if (targetGroup == null) {
+                continue;
+            }
+            List<Long> accountIds = groupAccountMapper.selectByExecutionAndRole(executionId, role.code()).stream()
+                    .filter(row -> row.getReleasedAt() == null && row.getJoinedAt() != null)
+                    .map(PullTaskGroupAccount::getAccountId)
+                    .distinct()
+                    .sorted()
+                    .toList();
+            if (!accountIds.isEmpty()) {
+                accountService.migrateGroup(accountIds, targetGroup);
+            }
         }
     }
 }

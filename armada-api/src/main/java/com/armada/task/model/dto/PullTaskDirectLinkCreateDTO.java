@@ -25,7 +25,7 @@ public record PullTaskDirectLinkCreateDTO(
         Integer concurrentGroupCount,
         Long pullerGroupId,
         Long stationGroupId,
-        Long pullerFinishGroupId) {
+        Long pullerFinishGroupId) implements PullTaskDirectCreateRequest {
 
     /** 只复用冻结配置写入器；无草稿 ID，禁用配置由服务端给定。 */
     public PullTaskStandardCreateDTO frozenSettings() {

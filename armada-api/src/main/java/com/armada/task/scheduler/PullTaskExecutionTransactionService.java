@@ -266,7 +266,7 @@ public class PullTaskExecutionTransactionService {
                 || (row.getExecutionStatus() == PullTaskExecutionStatus.WAIT_START.code()
                 && (row.getStage() == PullTaskExecutionStage.MANAGER_JOIN.code()
                 || row.getStage() == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code()
-                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()));
+                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()));
         return supportedStatus && supportedStage
                 && lockOwner != null && lockOwner.equals(row.getLockOwner());
     }

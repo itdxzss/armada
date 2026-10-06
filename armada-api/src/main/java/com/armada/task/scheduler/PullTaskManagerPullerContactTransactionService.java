@@ -15,6 +15,7 @@ import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.entity.PullTaskStandardSetting;
 import com.armada.task.model.PullTaskPullerSlotPolicy;
 import com.armada.task.model.enums.PullTaskAccountActionType;
+import com.armada.task.model.enums.PullTaskCreationMode;
 import com.armada.task.model.enums.PullTaskGroupSettingTiming;
 import com.armada.task.service.impl.PullTaskGroupProfileDispatcher;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
@@ -83,7 +84,7 @@ public class PullTaskManagerPullerContactTransactionService {
         this.groupProfileDispatcher = groupProfileDispatcher;
     }
 
-    /** 在短事务内占用拉手、补齐双向动作，并提交一条尚未执行的动作。 */
+    /** 简化新群在建群设置已核验后直接进入拉手入群；旧模式占用拉手并提交双向联系人动作。 */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult prepare(
             PullTaskGroupExecution candidate, String lockOwner, long now) {
@@ -97,6 +98,12 @@ public class PullTaskManagerPullerContactTransactionService {
             if (!isDispatchable(parent, candidate, lockOwner)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskExecutionDispatchResult.LOST;
+            }
+            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isSimplifiedNewGroup()) {
+                if (!hasVerifiedCreatorSettings(candidate)) {
+                    return deferGroupSettings(candidate, PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, now);
+                }
+                return advance(candidate, PullTaskExecutionStage.DIRECT_PULLER_JOIN, now);
             }
             PullTaskStandardSetting setting = settingMapper.selectByTaskId(candidate.getTaskId());
             if (setting == null) {
@@ -122,7 +129,7 @@ public class PullTaskManagerPullerContactTransactionService {
      *
      * <p>本方法不做任何协议调用：命令写入 outbox 后由 dispatcher 事务外发布，结果由
      * {@code PullTaskGroupSettingsResultService} 收敛并唤醒执行行。加人权限确认之前
-     * 绝不占用拉手。</p>
+     * 绝不占用拉手。简化新群复用建群号真实回读的权限证明，不再由管理号改权限。</p>
      */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskGroupSettingsGate ensureGroupSettings(
@@ -137,6 +144,11 @@ public class PullTaskManagerPullerContactTransactionService {
             if (!isDispatchable(parent, candidate, lockOwner)) {
                 resources.executionMapper().releaseLock(candidate.getId(), lockOwner, now);
                 return PullTaskGroupSettingsGate.waiting(PullTaskExecutionDispatchResult.LOST);
+            }
+            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isSimplifiedNewGroup()) {
+                return hasVerifiedCreatorSettings(candidate) ? PullTaskGroupSettingsGate.open()
+                        : PullTaskGroupSettingsGate.waiting(deferGroupSettings(candidate,
+                                PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, now));
             }
             // 管理员轮换会让本执行行留下多行加人权限动作（唯一键含 actor），因此按整个集合判断：
             // 任一行成功即视为权限已放开，任一行在途即等待，都不成立才提交新一轮。
@@ -283,7 +295,7 @@ public class PullTaskManagerPullerContactTransactionService {
     }
 
     /**
-     * 为新群链接模式复用拉手名额与选号规则，仅冻结踩链接角色，不执行管理或联系人动作。
+     * 为简化执行模式复用拉手名额与选号规则，仅冻结踩链接角色，不执行管理或联系人动作。
      * @param candidate 已由调用方验证租户和租约的执行行
      * @param now 当前毫秒时间
      * @return 本行当前可用的拉手；没有冻结配置或资源时返回空集合
@@ -534,7 +546,7 @@ public class PullTaskManagerPullerContactTransactionService {
             return submit(candidate, action, account, now);
         }
         if (actions.stream().allMatch(PullTaskManagerPullerContactTransactionService::terminal)) {
-            return advance(candidate, now);
+            return advance(candidate, PullTaskExecutionStage.PULLER_INVITE, now);
         }
         return actions.stream().anyMatch(PullTaskManagerPullerContactTransactionService::awaitingResult)
                 ? deferSubmitted(candidate, now)
@@ -652,16 +664,22 @@ public class PullTaskManagerPullerContactTransactionService {
     }
 
     private PullTaskExecutionDispatchResult advance(
-            PullTaskGroupExecution candidate, long now) {
+            PullTaskGroupExecution candidate, PullTaskExecutionStage stage, long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(PullTaskExecutionStage.PULLER_INVITE.code());
+        update.setStage(stage.code());
         update.setGroupJid(candidate.getGroupJid());
         if (resources.executionMapper().transitionClaimed(
                 update, PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()) != 1) {
             return PullTaskExecutionDispatchResult.LOST;
         }
         return PullTaskExecutionDispatchResult.ADVANCED;
+    }
+
+    private static boolean hasVerifiedCreatorSettings(PullTaskGroupExecution execution) {
+        return execution.getProfileVerifiedAt() != null && execution.getProfileVerifiedAt() > 0
+                && execution.getProfileVerifiedCommandId() != null
+                && !execution.getProfileVerifiedCommandId().isBlank();
     }
 
     private List<PullTaskAccountAction> contactActions(long executionId) {

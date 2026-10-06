@@ -65,11 +65,11 @@ public final class PullTaskNewGroupModeValidator {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "建群初始站台数量大于 0 时必须选择站台分组");
         }
-        validateProfile(request.groupSetting());
+        validateProfile(request.groupSetting(), request.creationMode().isSimplifiedNewGroup());
         validatePullParameters(request);
     }
 
-    private static void validateProfile(PullTaskStandardGroupSettingDTO setting) {
+    private static void validateProfile(PullTaskStandardGroupSettingDTO setting, boolean simple) {
         if (setting == null || !Boolean.TRUE.equals(setting.enabled())
                 || setting.settingTiming() != PullTaskGroupSettingTiming.BEFORE_PULL) {
             throw new BusinessException(ErrorCode.VALIDATION,
@@ -83,8 +83,9 @@ public final class PullTaskNewGroupModeValidator {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "新群模式群名称长度需在 1-" + GROUP_NAME_MAX_LENGTH + " 字符之间");
         }
-        if (setting.groupDescription() == null || setting.groupDescription().trim().isEmpty()
-                || setting.groupDescription().trim().length() > GROUP_DESCRIPTION_MAX_LENGTH) {
+        if ((!simple && (setting.groupDescription() == null || setting.groupDescription().trim().isEmpty()))
+                || setting.groupDescription() != null
+                && setting.groupDescription().trim().length() > GROUP_DESCRIPTION_MAX_LENGTH) {
             throw new BusinessException(ErrorCode.VALIDATION,
                     "新群模式群描述长度需在 1-" + GROUP_DESCRIPTION_MAX_LENGTH + " 字符之间");
         }

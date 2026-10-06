@@ -77,8 +77,9 @@ public class PullTaskClosingTransactionService {
                 return PullTaskExecutionDispatchResult.LOST;
             }
             PullTaskStandardSetting setting = settingMapper.selectByTaskId(parent.getId());
-            if (PullTaskCreationMode.fromNullable(parent.getCreationMode()).isDirectLink()) {
-                resources.directLinkFinishArchiveService().archive(candidate.getId(), setting);
+            PullTaskCreationMode mode = PullTaskCreationMode.fromNullable(parent.getCreationMode());
+            if (mode.usesDirectPullerFlow()) {
+                resources.directLinkFinishArchiveService().archive(candidate.getId(), setting, mode);
             }
             accountMapper.releaseAllPullersOfExecution(candidate.getId(), now);
             Long sourceGroupFolderId = setting == null ? null : setting.getSourceGroupFolderId();

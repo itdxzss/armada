@@ -16,7 +16,7 @@
 - POST /api/pull-tasks/standard/simple-new-group，multipart request(JSON)+files(TXT)，创建成功直接正式 WAIT_START 或自动启动，无草稿。
 - 每份 TXT/数据包生成一个 GROUP_CREATE 执行行；群名按现有“名称-序号”冻结，追加序号后长度不得超过100。
 - 新入口接受基本任务参数、数据包、建群/管理/拉手/可选站台分组、管理/拉手完成归档、简单群名/头像/公告和 creatorDeleteAfterTakeover。未知字段拒绝；所有移除行为由服务端固定禁用。
-- 人数范围1–3、间隔10–15秒沿用已有新群约束；从第一次开始使用人数范围，前期固定次数为0。公告和头像可留空。
+- 2026-10-07 按用户要求放开新群参数：单次人数为 1–50 的有序整数范围，间隔为非负整数秒的有序范围；1–3 人、10–15 秒仅为默认值。从第一次开始使用人数范围，前期固定次数为0。公告和头像可留空。
 - isNewGroup()表达建群来源；isDirectLink()仅指无管理链接模式；usesDirectPullerFlow()仅用于两种精简模式的普通拉手/跳互加/跳料子提权。禁止用最后一个判断去掉 SIMPLE_NEW_GROUP 的管理和注销门槛。
 - 复用当前直接创建的 TXT/数据包解析、幂等请求、事务及启动逻辑，复用建群、接管注销、拉人和结算，不新建一套调度系统。
 - 现有列可容纳枚举，无新增表/列；迁移仅更新 creation_mode 注释。注销开关继续存 pull_task.is_creator_delete_after_takeover，禁止另存一份。

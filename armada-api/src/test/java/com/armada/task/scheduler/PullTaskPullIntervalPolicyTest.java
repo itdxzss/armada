@@ -11,11 +11,14 @@ class PullTaskPullIntervalPolicyTest {
 
     @Test
     void samplesBothInclusiveBounds() {
-        PullTaskStandardSetting setting = range(10, 15);
+        PullTaskStandardSetting setting = range(5, 30);
         assertThat(PullTaskPullIntervalPolicy.nextSubmissionAt(setting, 1_000L, (min, max) -> min))
-                .isEqualTo(11_000L);
+                .isEqualTo(6_000L);
         assertThat(PullTaskPullIntervalPolicy.nextSubmissionAt(setting, 1_000L, (min, max) -> max))
-                .isEqualTo(16_000L);
+                .isEqualTo(31_000L);
+        assertThat(PullTaskPullIntervalPolicy.nextSubmissionAt(range(0, 0), 1_000L,
+                (min, max) -> { throw new AssertionError("固定间隔不应重新采样"); }))
+                .isEqualTo(1_000L);
     }
 
     @Test

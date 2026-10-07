@@ -122,8 +122,9 @@ class PullTaskDirectLinkCreateInMemoryTest {
     @Test
     void simpleNewGroupCreatesWithoutLinksAndFreezesTakeoverButNoContactsOrPromotion() {
         var request = new PullTaskSimpleNewGroupCreateDTO(UUID.randomUUID().toString(), "精简建群", null, 0,
-                List.of(), 1, 0, 1, 3, 10, 2, 0, 1, 12L, null, 12L,
-                13L, 14L, 14L, true, "业务群", null, null, 15);
+                List.of(), 1, 0, 10, 50, 20, 2, 0, 1, 12L, null, 12L,
+                13L, 14L, 14L, true, "业务群", null, null, 30);
+        PullTaskDirectLinkPlanner.validate(request);
         var plan = row();
         plan.execution().setNormalizedLink(null);
         plan.execution().setInviteCode(null);
@@ -140,6 +141,10 @@ class PullTaskDirectLinkCreateInMemoryTest {
         var setting = settings.selectByTaskId(created.getId());
         assertThat(setting.getManagerGroupId()).isEqualTo(14L);
         assertThat(setting.getCreatorGroupId()).isEqualTo(13L);
+        assertThat(setting.getPullCountMin()).isEqualTo(10);
+        assertThat(setting.getPullCountMax()).isEqualTo(50);
+        assertThat(setting.getPullIntervalSeconds()).isEqualTo(20);
+        assertThat(setting.getPullIntervalMaxSeconds()).isEqualTo(30);
         assertThat(setting.getCreatorLeaveAfterPull()).isZero();
         assertThat(setting.getClearExistingMembers()).isZero();
         assertThat(setting.getPullerJoinByLink()).isEqualTo(1);

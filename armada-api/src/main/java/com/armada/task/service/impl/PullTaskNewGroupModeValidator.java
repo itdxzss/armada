@@ -21,9 +21,7 @@ public final class PullTaskNewGroupModeValidator {
     private static final int GROUP_NAME_MAX_LENGTH = 100;
     private static final int GROUP_DESCRIPTION_MAX_LENGTH = 1024;
     private static final int PULL_COUNT_MIN = 1;
-    private static final int PULL_COUNT_MAX = 3;
-    private static final int INTERVAL_MIN_SECONDS = 10;
-    private static final int INTERVAL_MAX_SECONDS = 15;
+    private static final int PULL_COUNT_MAX = 50;
 
     /** 工具类不实例化；测试为可读性保留 new，故构造器不设为 private。 */
     PullTaskNewGroupModeValidator() {
@@ -98,14 +96,13 @@ public final class PullTaskNewGroupModeValidator {
         if (request.pullCountMin() == null || request.pullCountMax() == null
                 || request.pullCountMin() < PULL_COUNT_MIN || request.pullCountMax() > PULL_COUNT_MAX
                 || request.pullCountMin() > request.pullCountMax()) {
-            throw new BusinessException(ErrorCode.VALIDATION, "新群模式单次拉人数必须在 1-3 人范围内");
+            throw new BusinessException(ErrorCode.VALIDATION, "新群模式单次拉人数必须在 1-50 人范围内");
         }
         Integer minimum = request.pullIntervalSeconds();
         Integer maximum = request.pullIntervalMaxSeconds() == null
                 ? minimum : request.pullIntervalMaxSeconds();
-        if (minimum == null || minimum < INTERVAL_MIN_SECONDS
-                || maximum > INTERVAL_MAX_SECONDS || maximum < minimum) {
-            throw new BusinessException(ErrorCode.VALIDATION, "新群模式拉人间隔必须在 10-15 秒范围内");
+        if (minimum == null || minimum < 0 || maximum < minimum) {
+            throw new BusinessException(ErrorCode.VALIDATION, "拉人间隔必须为非负整数，且上限不能小于下限");
         }
     }
 

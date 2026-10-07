@@ -50,14 +50,32 @@ class PullTaskNewGroupModeValidatorTest {
     void rejectsOutOfRangeCountsIntervalsAndEarlyOverride() throws Exception {
         for (String patch : new String[] {
                 "{\"earlyPullCallCount\":2}", "{\"pullCountMin\":0}",
-                "{\"pullCountMax\":4}", "{\"pullCountMin\":3,\"pullCountMax\":2}",
-                "{\"pullIntervalSeconds\":9}", "{\"pullIntervalMaxSeconds\":16}",
+                "{\"pullCountMax\":51}", "{\"pullCountMin\":3,\"pullCountMax\":2}",
+                "{\"pullCountMin\":null}", "{\"pullCountMax\":null}",
+                "{\"pullIntervalSeconds\":-1}", "{\"pullIntervalSeconds\":null}",
                 "{\"pullIntervalSeconds\":14,\"pullIntervalMaxSeconds\":13}"}) {
             ObjectNode json = objectMapper.valueToTree(request(PullTaskCreationMode.NEW_GROUP, 21L, 0));
             json.setAll((ObjectNode) objectMapper.readTree(patch));
             PullTaskStandardCreateDTO changed = objectMapper.treeToValue(json, PullTaskStandardCreateDTO.class);
             assertThatThrownBy(() -> PullTaskNewGroupModeValidator.validateRequest(changed))
                     .isInstanceOf(BusinessException.class);
+        }
+    }
+
+    @Test
+    void acceptsUpToFiftyMembersAndCustomIntervalsInBothNewGroupModes() throws Exception {
+        for (var mode : new PullTaskCreationMode[] {
+                PullTaskCreationMode.NEW_GROUP, PullTaskCreationMode.SIMPLE_NEW_GROUP}) {
+            for (String patch : new String[] {
+                    "{\"pullCountMin\":10,\"pullCountMax\":15,\"pullIntervalSeconds\":5,\"pullIntervalMaxSeconds\":8}",
+                    "{\"pullCountMin\":1,\"pullCountMax\":50,\"pullIntervalSeconds\":20,\"pullIntervalMaxSeconds\":30}",
+                    "{\"pullCountMin\":50,\"pullCountMax\":50,\"pullIntervalSeconds\":0,\"pullIntervalMaxSeconds\":0}",
+                    "{\"pullIntervalSeconds\":60,\"pullIntervalMaxSeconds\":null}"}) {
+                ObjectNode json = objectMapper.valueToTree(request(mode, 21L, 0));
+                json.setAll((ObjectNode) objectMapper.readTree(patch));
+                PullTaskNewGroupModeValidator.validateRequest(
+                        objectMapper.treeToValue(json, PullTaskStandardCreateDTO.class));
+            }
         }
     }
 

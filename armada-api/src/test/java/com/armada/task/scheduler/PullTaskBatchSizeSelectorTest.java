@@ -10,8 +10,8 @@ class PullTaskBatchSizeSelectorTest {
     void fixedRangeUsesConfiguredCountAndFinalRemainderUsesAllRemaining() {
         PullTaskBatchSizeSelector selector = new PullTaskBatchSizeSelector((minimum, maximum) -> 3);
 
-        assertThat(selector.select(3, 3, 10)).isEqualTo(3);
-        assertThat(selector.select(3, 5, 2)).isEqualTo(2);
+        assertThat(selector.select(50, 50, 100)).isEqualTo(50);
+        assertThat(selector.select(50, 50, 2)).isEqualTo(2);
     }
 
     @Test
@@ -23,5 +23,7 @@ class PullTaskBatchSizeSelectorTest {
 
         assertThat(upper.select(2, 5, 4)).isEqualTo(4);
         assertThat(lower.select(2, 5, 4)).isEqualTo(2);
+        assertThat(upper.select(1, 50, 100)).isEqualTo(50);
+        assertThat(lower.select(1, 50, 100)).isEqualTo(1);
     }
 }

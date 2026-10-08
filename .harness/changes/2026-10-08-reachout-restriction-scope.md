@@ -542,3 +542,9 @@ protocol-layer/src/worker/event-bridge.test.ts
 结论：perf2 四项新制品已生效，部署后独立核验通过；原部署脚本最后的 SSH 断连仍按失败保留。原先全量测试的既有失败没有因此消失；没有新做真实 WhatsApp 账号操作或限制事件业务验收，不能将健康检查等同于业务验收。未 push。
 
 完整命令输出：`/private/tmp/reachout-release-20261008/{dry-run,precheck,backup,backup-android,deploy,verify,verify-backend,postcheck}.log`。部署脚本测试日志：`/private/tmp/reachout-deploy-script-tests.log`、`/private/tmp/reachout-package-script-tests.log`。回滚文件仅留在对应 perf2 主机，不包含本地 PEM 外发。
+
+### Worktree 清理结果
+
+部署记录提交 `a6b0bc1b` 已 fast-forward 合入后端主分支。随后在每个主仓执行 `git worktree remove <仓库>/.worktrees/reachout-restriction-scope`，四条命令均 **exit 0**，无需 force。删除前每个 worktree 均干净，HEAD 都已被对应主分支包含；删除后目录不存在且 `git worktree list --porcelain` 不再列出它们。临时 Android 本地 clone/archive 源码目录一并清理，日志与回滚副本保留；功能分支仍保留供追溯。
+
+清理后重新核验主目录：原脏文件哈希保持一致，`useAccountListPage.ts` 原未提交补丁增删行完全一致。证据：`/private/tmp/reachout-release-20261008/cleanup.log`、`/private/tmp/reachout-release-20261008/main-preservation.log`。仅此清理回执在 worktree 删除后单独提交到主分支，未暂存他人代码。

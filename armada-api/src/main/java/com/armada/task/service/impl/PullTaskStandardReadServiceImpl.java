@@ -275,6 +275,7 @@ public class PullTaskStandardReadServiceImpl implements PullTaskStandardReadServ
                 row.getLastBusinessExecutedAt(), materialSummary(aggregate),
                 resource(aggregate, ResourceRole.MANAGER),
                 resource(aggregate, ResourceRole.PULLER),
+                aggregate == null ? null : aggregate.getCumulativeAssignedPullerCount(),
                 resource(aggregate, ResourceRole.STATION), observation,
                 deletion == null ? null : Arrays.stream(PullTaskCreatorDeletionStatus.values())
                     .filter(status -> Objects.equals(status.code(), deletion.getStatus()))

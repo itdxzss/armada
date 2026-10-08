@@ -27,6 +27,7 @@ import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -148,6 +149,67 @@ class PullTaskStandardReadMapperInMemoryTest {
         assertThat(row.getPlannedStationCount()).isEqualTo(3);
         assertThat(row.getCurrentPullerCount()).isEqualTo(1);
         assertThat(row.getSuccessfulMemberCount()).isEqualTo(2);
+    }
+
+    @Test
+    void cumulativeAssignedPullersRetainHistoryAcrossReleaseRecoveryAndReplacement() throws SQLException {
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isZero();
+        execute("INSERT INTO pull_task_group_account "
+                + "(tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, membership_status, availability_status, "
+                + "occupied_at, created_at, updated_at) VALUES "
+                + "(7, 100, 13, 601, '601', 2, 1, 0, 1, 1, 1, 1)");
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isEqualTo(1);
+        assertThat(executionAggregate(13L).getCurrentPullerCount()).isZero();
+
+        execute("UPDATE pull_task_group_account SET released_at=2 WHERE account_id=601");
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isEqualTo(1);
+        execute("UPDATE pull_task_group_account SET released_at=NULL, occupied_at=3, "
+                + "membership_status=2 WHERE account_id=601");
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isEqualTo(1);
+        execute("UPDATE pull_task_group_account SET availability_status=4, released_at=4, "
+                + "unavailable_reason_code='ACCOUNT_BANNED' WHERE account_id=601");
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isEqualTo(1);
+
+        execute("INSERT INTO pull_task_group_account "
+                + "(tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, membership_status, availability_status, "
+                + "unavailable_reason_code, occupied_at, released_at, created_at, updated_at) VALUES "
+                + "(7, 100, 13, 602, '602', 2, 2, 2, 4, 'PULLER_REPLACED', 1, 4, 1, 4),"
+                + "(7, 100, 13, 603, '603', 2, 3, 2, 4, 'ACCOUNT_UNBOUND', 1, 4, 1, 4),"
+                + "(7, 100, 13, 604, '604', 2, 4, 3, 3, 'ACCOUNT_OFFLINE', 1, NULL, 1, 4),"
+                + "(7, 100, 13, 605, '605', 2, 5, 2, 2, 'RATE_LIMITED', 1, NULL, 1, 4),"
+                + "(7, 100, 13, 606, '606', 2, 6, 0, 1, NULL, 1, NULL, 1, 4)");
+
+        // 角色历史自带账号身份；账号表中不存在这些账号也必须保留累计数。
+        assertThat(executionAggregate(13L).getCumulativeAssignedPullerCount()).isEqualTo(6);
+        assertThat(executionAggregate(13L).getCurrentPullerCount()).isZero();
+    }
+
+    @Test
+    void cumulativeAssignedPullersExcludeOtherRolesExecutionsAndTenants() throws SQLException {
+        execute("INSERT INTO pull_task_group_account "
+                + "(tenant_id, task_id, group_execution_id, account_id, account_phone, "
+                + "role_type, role_seq, membership_status, availability_status, "
+                + "occupied_at, created_at, updated_at) VALUES "
+                + "(7, 100, 13, 610, '610', 1, 1, 2, 1, NULL, 1, 1),"
+                + "(7, 100, 13, 611, '611', 3, 1, 2, 1, NULL, 1, 1),"
+                + "(7, 100, 13, 612, '612', 4, 1, 2, 1, NULL, 1, 1),"
+                + "(7, 100, 13, 613, '613', 5, 1, 2, 1, NULL, 1, 1),"
+                + "(8, 200, 13, 614, '614', 2, 1, 2, 1, 1, 1, 1)");
+
+        assertThat(mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(11L, 12L, 13L, 21L))))
+                .extracting(PullTaskStandardExecutionAggregate::getExecutionId,
+                        PullTaskStandardExecutionAggregate::getCumulativeAssignedPullerCount)
+                .containsExactly(org.assertj.core.api.Assertions.tuple(11L, 1),
+                        org.assertj.core.api.Assertions.tuple(12L, 1),
+                        org.assertj.core.api.Assertions.tuple(13L, 0));
+    }
+
+    private PullTaskStandardExecutionAggregate executionAggregate(long executionId) {
+        return mapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(executionId))).get(0);
     }
 
     @Test
@@ -356,6 +418,11 @@ class PullTaskStandardReadMapperInMemoryTest {
         @Bean
         DataSource dataSource() {
             return PullTaskNormalLinkH2Support.dataSource("pull_task_standard_read_test");
+        }
+
+        @Bean
+        DataSourceTransactionManager transactionManager(DataSource dataSource) {
+            return new DataSourceTransactionManager(dataSource);
         }
 
         @Bean

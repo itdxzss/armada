@@ -222,6 +222,7 @@
            setting_row.station_count_per_call AS plannedStationCount,
            COALESCE(account_facts.current_manager_count, 0) AS currentManagerCount,
            COALESCE(account_facts.current_puller_count, 0) AS currentPullerCount,
+           COALESCE(account_facts.cumulative_assigned_puller_count, 0) AS cumulativeAssignedPullerCount,
            COALESCE(account_facts.current_station_count, 0) AS currentStationCount
     FROM pull_task_group_execution execution_row
     JOIN pull_task_standard_setting setting_row
@@ -280,6 +281,8 @@
                            AND account_row.membership_status = #{criteria.account.inGroup}
                            AND account_row.released_at IS NULL
                       THEN 1 ELSE 0 END) AS current_puller_count,
+             COUNT(DISTINCT CASE WHEN account_row.role_type = #{criteria.account.pullerRole}
+                                 THEN account_row.account_id END) AS cumulative_assigned_puller_count,
              SUM(CASE WHEN account_row.role_type = #{criteria.account.stationRole}
                            AND account_row.availability_status = #{criteria.account.available}
                            AND account_row.membership_status = #{criteria.account.inGroup}

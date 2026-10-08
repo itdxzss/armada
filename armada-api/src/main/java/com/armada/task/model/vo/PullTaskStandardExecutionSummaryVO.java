@@ -19,6 +19,7 @@ package com.armada.task.model.vo;
  * @param reasonCode      当前原因码
  * @param reasonMessage   当前脱敏原因
  * @param lastBusinessExecutedAt 最近业务执行时间
+ * @param cumulativeAssignedPullerCount 本执行行累计分配拉手账号数，含未入群及已退出资源的账号；缺少聚合事实时为空
  * @param observation 当前快照运行说明；独立于业务状态，不参与调度
  */
 public record PullTaskStandardExecutionSummaryVO(
@@ -41,6 +42,7 @@ public record PullTaskStandardExecutionSummaryVO(
         PullTaskStandardMaterialSummaryVO materialSummary,
         PullTaskStandardResourceCountVO managers,
         PullTaskStandardResourceCountVO pullers,
+        Integer cumulativeAssignedPullerCount,
         PullTaskStandardResourceCountVO stations,
         PullTaskExecutionObservationVO observation,
         String creatorDeletionStatus,
@@ -62,6 +64,6 @@ public record PullTaskStandardExecutionSummaryVO(
             Long lastBusinessExecutedAt) {
         this(executionId, seq, normalizedLink, groupJid, null, null, executionStatus, stage,
                 null, null, manualPaused, null, validMemberCount, reasonCode, reasonMessage,
-                lastBusinessExecutedAt, null, null, null, null, null, null, null, null);
+                lastBusinessExecutedAt, null, null, null, null, null, null, null, null, null);
     }
 }

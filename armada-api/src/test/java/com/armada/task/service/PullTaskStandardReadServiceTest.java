@@ -176,6 +176,7 @@ class PullTaskStandardReadServiceTest {
         assertThat(detail.execution().sourceFileName()).isEqualTo("印度料子包.txt");
         assertThat(detail.execution().createStep()).isEqualTo(4);
         assertThat(detail.execution().groupSubject()).isEqualTo("印度料子包");
+        assertThat(detail.execution().cumulativeAssignedPullerCount()).isEqualTo(6);
         assertThat(detail.roles()).hasSize(4)
                 .filteredOn(row -> row.roleType() == PullTaskGroupAccountRole.STATION.code())
                 .singleElement()
@@ -276,7 +277,27 @@ class PullTaskStandardReadServiceTest {
                     assertThat(row.materialSummary().unconfirmedAttemptCount()).isEqualTo(5L);
                     assertThat(row.materialSummary().lastSuccessfulAt()).isEqualTo(500L);
                     assertThat(row.managers().missingCount()).isZero();
+                    assertThat(row.cumulativeAssignedPullerCount()).isEqualTo(6);
                 });
+    }
+
+    @Test
+    void executionSummaryPreservesZeroAndMissingCumulativeAssignmentFacts() {
+        PullTaskStandardExecutionQuery query = new PullTaskStandardExecutionQuery();
+        PullTaskStandardExecutionFilter filter = query.toFilter(100L);
+        when(taskMapper.selectLifecycle(100L)).thenReturn(task());
+        when(readMapper.countExecutions(filter)).thenReturn(2L);
+        when(readMapper.selectExecutionPage(filter, 0, query.getPageSize()))
+                .thenReturn(List.of(execution(11L), execution(12L)));
+        PullTaskStandardExecutionAggregate aggregate = executionAggregate();
+        aggregate.setCumulativeAssignedPullerCount(0);
+        when(readMapper.selectExecutionAggregates(
+                PullTaskStandardExecutionAggregateCriteria.fromEnums(List.of(11L, 12L))))
+                .thenReturn(List.of(aggregate));
+
+        assertThat(service.executions(100L, query).list())
+                .extracting(row -> row.cumulativeAssignedPullerCount())
+                .containsExactly(0, null);
     }
 
     private static PullTask task() {
@@ -364,6 +385,7 @@ class PullTaskStandardReadServiceTest {
         row.setPlannedStationCount(1);
         row.setCurrentManagerCount(1);
         row.setCurrentPullerCount(1);
+        row.setCumulativeAssignedPullerCount(6);
         row.setCurrentStationCount(1);
         return row;
     }

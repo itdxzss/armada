@@ -1,6 +1,6 @@
 package com.armada.task.model.vo;
 
-/** 单执行行的料子结果与管理员、拉手、站台当前数/计划数投影。 */
+/** 单执行行的料子结果、当前资源与累计分配拉手数投影。 */
 public class PullTaskStandardExecutionAggregate {
 
     private Long executionId;
@@ -24,6 +24,8 @@ public class PullTaskStandardExecutionAggregate {
     private Integer plannedStationCount;
     private Integer currentManagerCount;
     private Integer currentPullerCount;
+    /** 本执行行累计分配过的拉手账号数，按账号去重，包含已释放和不可用角色。 */
+    private Integer cumulativeAssignedPullerCount;
     private Integer currentStationCount;
 
     public Long getExecutionId() { return executionId; }
@@ -60,6 +62,8 @@ public class PullTaskStandardExecutionAggregate {
     public void setCurrentManagerCount(Integer value) { currentManagerCount = value; }
     public Integer getCurrentPullerCount() { return currentPullerCount; }
     public void setCurrentPullerCount(Integer value) { currentPullerCount = value; }
+    public Integer getCumulativeAssignedPullerCount() { return cumulativeAssignedPullerCount; }
+    public void setCumulativeAssignedPullerCount(Integer value) { cumulativeAssignedPullerCount = value; }
     public Integer getCurrentStationCount() { return currentStationCount; }
     public void setCurrentStationCount(Integer value) { currentStationCount = value; }
 }

@@ -98,13 +98,19 @@ public class AccountListVoRow {
     /** 账号操作限制统一截止时间(epoch 毫秒)。 */
     private Long cooldownUntil;
 
-    /** 超链消息发送限制的当前有效截止时间(epoch 毫秒)。 */
+    /** 消息发送限制的当前有效截止时间(epoch 毫秒)。 */
     private Long messageRestrictionUntil;
 
-    /** 拉手拉人限制的截止时间(epoch 毫秒)。 */
+    /** 平台限制生效时的截止时间(epoch 毫秒)，未生效时为 null。 */
+    private Long platformMessageRestrictionUntil;
+
+    /** 系统推断消息发送限制的截止时间(epoch 毫秒)。 */
+    private Long fallbackMessageRestrictionUntil;
+
+    /** 进群拉人限制的截止时间(epoch 毫秒)。 */
     private Long pullingRestrictionUntil;
 
-    /** 操作限制:1消息发送 2拉人 3消息发送和拉人;NULL=未受限。 */
+    /** 操作限制:1消息发送 2进群拉人 3消息发送和进群拉人;NULL=未受限。 */
     private Integer muteStatus;
 
     /** 最近一次操作限制原因码。 */
@@ -386,6 +392,26 @@ public class AccountListVoRow {
 
     public void setMessageRestrictionUntil(Long value) {
         messageRestrictionUntil = value;
+    }
+
+    /** @return 平台限制生效时的截止时间 */
+    public Long getPlatformMessageRestrictionUntil() {
+        return platformMessageRestrictionUntil;
+    }
+
+    /** @param value 平台限制生效时的截止时间 */
+    public void setPlatformMessageRestrictionUntil(Long value) {
+        platformMessageRestrictionUntil = value;
+    }
+
+    /** @return 系统推断消息限制截止时间 */
+    public Long getFallbackMessageRestrictionUntil() {
+        return fallbackMessageRestrictionUntil;
+    }
+
+    /** @param value 系统推断消息限制截止时间 */
+    public void setFallbackMessageRestrictionUntil(Long value) {
+        fallbackMessageRestrictionUntil = value;
     }
 
     public Long getPullingRestrictionUntil() {

@@ -951,6 +951,9 @@
              CASE WHEN s.platform_message_restriction_active = 1
                THEN COALESCE(s.platform_message_restriction_until, 0)
                ELSE 0 END), 0) AS messageRestrictionUntil,
+           CASE WHEN s.platform_message_restriction_active = 1
+             THEN s.platform_message_restriction_until ELSE NULL END AS platformMessageRestrictionUntil,
+           s.fallback_message_restriction_until AS fallbackMessageRestrictionUntil,
            s.pulling_restriction_until AS pullingRestrictionUntil,
            s.restriction_reason_code AS restrictionReasonCode,
            s.restriction_reported_at AS restrictionReportedAt,

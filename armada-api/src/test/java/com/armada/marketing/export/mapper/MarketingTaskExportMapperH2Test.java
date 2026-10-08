@@ -9,6 +9,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.plugins.InterceptorIgnoreHelper;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -25,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
@@ -41,6 +43,21 @@ class MarketingTaskExportMapperH2Test {
 
     @Autowired
     private MarketingTaskExportMapper mapper;
+
+    @Test
+    void accountRestrictionLabelsDescribeJoinAndPullCapabilities() throws Exception {
+        String xml = new ClassPathResource("mapper/marketing/MarketingTaskExportMapper.xml")
+                .getContentAsString(StandardCharsets.UTF_8);
+        int statusBranch = xml.indexOf("WHEN account_state.mute_status = 1");
+        String statusExpression = xml.substring(xml.lastIndexOf("CASE", statusBranch),
+                xml.indexOf("END AS accountStatus", statusBranch) + "END AS accountStatus".length());
+        executeSql("CREATE TABLE account_state (mute_status TINYINT, account_state TINYINT)",
+                "INSERT INTO account_state VALUES (1, 2), (2, 2), (3, 2)");
+
+        assertThat(new JdbcTemplate(dataSource).queryForList(
+                "SELECT " + statusExpression + " FROM account_state ORDER BY mute_status", String.class))
+                .containsExactly("消息发送受限", "进群拉人受限", "消息发送和进群拉人受限");
+    }
 
     @BeforeEach
     void setUp() throws SQLException {

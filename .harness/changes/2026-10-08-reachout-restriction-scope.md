@@ -485,7 +485,7 @@ protocol-layer/src/worker/event-bridge.test.ts
 ```
 
 ## 部署
-- 本次不部署。部署前需用户确认目标环境。
+- 初始实施阶段不部署。2026-10-08 用户追加授权：合并主仓库、部署第二套环境（perf2）、删除本次 worktree。部署执行结果记录于下方追加章节。
 
 ## 遗留 / 跟进
 - **验证遗留**：前端标准 `pnpm test` 未通过，现有 loader 下 8 个失败已在基线复现；Android `go test ./...` 未通过，含沙箱端口限制及基线同样的 8 个 Noise 失败；后端隔离全量 5199 tests / 20 failures / 24 errors（并排除 89 个源码类）；恢复基线生产代码的定向复测重现除外部 DTD 一例外的相同失败/错误。不能标注“四仓全量全绿”。
@@ -495,5 +495,50 @@ protocol-layer/src/worker/event-bridge.test.ts
 - **文档细化 / 出入**：W2 补充裸数值 `463` 的进群规范化（原先仅认错误文本），并覆盖 HTTP join/add 和 worker commands 两条入口；普通建群 429 原约定未改，promote/remove 不补查。
 - **Android schema 不再阻塞**：可信本地客户端 wire store 与两个真实样本均完成逐字节往返；原登录通知链保留。无手写字节匹配、无截止时间猜 active、无协议 query ID 升级。
 - **外部 DTD 事实**：后端旧 `MarketingGroupBanMapperH2Test` 解析 XML 时尝试解析 `mybatis.org`，DNS 失败、未连接成功；发现后从后续基线/定向执行中排除。不能宣称所有测试都没有外连尝试。
-- **范围保持**：未修改平台解除时清推断限制、平台事实直接写拉人限制、进群任务选号过滤、拉人 401/412 映射、历史数据、数据库结构或部署逻辑。未使用 PEM、未查改真库、未部署、未推送、未执行远程命令；没有线上账号验收。
+- **初始实施阶段范围保持**：未修改平台解除时清推断限制、平台事实直接写拉人限制、进群任务选号过滤、拉人 401/412 映射、历史数据、数据库结构或部署逻辑。初始实施阶段未使用 PEM、未查改真库、未部署、未推送、未执行远程命令；后续部署追加授权与执行结果见下方。没有线上账号业务验收。
 - **回退**：仅按需 revert 本表相应仓库本次提交，不重置主工作区、不回滚他人在途改动。
+
+
+## 追加授权与主仓合并（2026-10-08）
+
+用户追加要求：“速度合并进入到主仓库，然后部署到第二套环境，这个worktree删掉”。本节是初始不部署约束之后的新授权和执行记录；只针对 perf2，未推送远程 Git，未操作 test1 / Athena。
+
+- 四仓主工作区均为 `1.0.3-snapshot`，执行 `git merge --ff-only codex/reachout-restriction-scope-20261008`，全部成功：后端 `6004cb5e`、前端 `0753fc3a`、Android `a80cde6`、Web `a3731c8`。
+- 主目录原有未提交文件按 SHA-256 逐一核对未改。前端仅临时 stash 冲突路径 `useAccountListPage.ts`，fast-forward 后恢复；恢复前后的原补丁增删行完全一致，仅行号偏移。本次没有覆盖对方文件；只删除本任务创建的临时 stash。
+- 原主目录未跟踪的任务文档已有更完整的分支版本；原文件保留在 `/private/tmp/reachout-merge-backup-20261008/armada-overlap-backup`。其他未跟踪工作保留。
+- 发布源码：后端/前端/Web 使用本次干净 worktree；Android 使用本地 Git clone 的 detached `a80cde6`，避免 rsync 把 worktree 的 `.git` 指针文件带到远端。四份实际发布源码状态均为 `clean`，没有发布主目录中他人未提交的改动。
+
+### 部署前真实命令与输出
+
+以下本地日志目录为 `/private/tmp/reachout-release-20261008`。`run-deploy.sh` 只设置四仓源码目录、对应 perf2 SSH key 路径和构建环境变量，再调用本次后端 worktree 的 `armada-deploy/deploy-test.sh --env perf2`；没有硬编码凭据内容。
+
+| 命令 | 真实结果 |
+| --- | --- |
+| `bash -n armada-deploy/deploy-test.sh armada-deploy/deploy-test.test.sh` | exit 0 |
+| `bash armada-deploy/deploy-test.test.sh` | exit 0；`OK deploy-test.sh protocol and zhuan tests passed` |
+| `bash armada-deploy/package-prod.test.sh` | exit 1；`FAIL expected file to exist: .../armada-deploy/prod/scripts/inspect-production-host.sh`；缺少生产离线包脚本，未修改该无关范围，不能标为通过 |
+| `bash /private/tmp/reachout-release-20261008/run-deploy.sh --full --dry-run` | exit 0；四份 clean 源码和 perf2 目标一致；`OK dry-run 完成` |
+| `bash /private/tmp/reachout-release-20261008/run-deploy.sh --check` | exit 0；Armada / Baileys / Kafka / Zhuan / Cross-component 均 OK；`OK 只读深度检查通过` |
+
+部署前留存回滚：Armada 远端 `/home/app/reachout-backup-20261008/artifacts.tgz`；Web 远端 `/home/ec2-user/reachout-backup-20261008/protocol.tgz`；Android 远端同目录 `android-source.tgz`。保留镜像标签 `reachout-rollback/armada-backend:20261008`、`reachout-rollback/armada-nginx:20261008`、`reachout-rollback/android-zhuan:20261008`。Android 初次源码归档因只读权限不可访问 `deploy/isolated` 失败，按正式同步本就排除的相同边界排除后重跑 exit 0；未读取或变更 isolated 环境。
+
+### perf2 发布与补验结果
+
+执行：`bash /private/tmp/reachout-release-20261008/run-deploy.sh --full --yes`。
+
+- 本地构建与四项远端更新均完成；Web `SUCCESS`、Android `SUCCESS`。后端/前端容器已成功重建启动，但最终验活读取运行 JAR 时 SSH 输出 `Connection closed by 3.110.124.52 port 22`，部署脚本因此 **exit 1**，摘要 Backend / Frontend 为 FAILED。没有将该脚本写为 exit 0，也没有为这次短暂断连重复重启服务。
+- 随后独立执行 `python3 /private/tmp/reachout-release-20261008/verify-perf2.py`：**exit 0**，`ARTIFACT AND RUNTIME VERIFICATION PASSED`。Web 本次 15 个改动文件、Android 4 个改动文件远端 SHA-256 均与提交内容一致。Web 5 个协议进程与看板 online、Node `24.16.0`，`/readyz` 返回 `{"ok":true}`。
+- `python3 /private/tmp/reachout-release-20261008/verify-backend.py`：**exit 0**，运行 JAR 与本地构建匹配；HTTP 前端内容与容器/local index 哈希一致；API `/api/account-groups` 返回预期鉴权码 `40104`；环境标题“第二套环境”；后端启动成功 marker 1，启动/迁移失败 marker 0。两次容器核对中 backend/nginx 均 running、restarts=0。
+- `bash /private/tmp/reachout-release-20261008/run-deploy.sh --check` 再次执行：**exit 0**。`Armada / Baileys / Kafka / Zhuan / Cross-component` 全部 OK，`OK 只读深度检查通过`。Kafka 10 个环境主题及 8 个消费组验证通过，消费组均 Stable。
+- Android 三容器 `callback-zhuan`、`whatsapp-android-zhuan`、`traffic-dashboard-zhuan` 均 running/healthy、restarts=0；Swagger HTTP 200。原迁移检查两项都输出“不需要执行”，没有新增迁移。Compose 提示的既有 device-ingest orphan 容器未删除。
+
+| 运行制品 | SHA-256 |
+| --- | --- |
+| 后端 `/app/app.jar`，与本地构建和上传文件相同 | `c902bf2a084812e6c7676486fbfaec0ea53b4eb241a6816d8caf3aee2de663fe` |
+| 前端 `index.html`，本地、nginx 容器与 HTTP 响应相同 | `7b748c8fda44849ae74dee024fad45ed0adf4619147089bfdd0c61a622e0d7a4` |
+| Android 新镜像 | `77eead0b40c137a327b8ea85869a32c027e8724e436b25407f6d781ab4962c56` |
+| Android 运行二进制 `/app/whatsapp-server` | `8cbafac58a3ccf68ed475545276139aa9d47b2ebe30a2da4a6c35df98b157a8d` |
+
+结论：perf2 四项新制品已生效，部署后独立核验通过；原部署脚本最后的 SSH 断连仍按失败保留。原先全量测试的既有失败没有因此消失；没有新做真实 WhatsApp 账号操作或限制事件业务验收，不能将健康检查等同于业务验收。未 push。
+
+完整命令输出：`/private/tmp/reachout-release-20261008/{dry-run,precheck,backup,backup-android,deploy,verify,verify-backend,postcheck}.log`。部署脚本测试日志：`/private/tmp/reachout-deploy-script-tests.log`、`/private/tmp/reachout-package-script-tests.log`。回滚文件仅留在对应 perf2 主机，不包含本地 PEM 外发。

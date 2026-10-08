@@ -16,9 +16,19 @@ import com.armada.shared.trace.TraceContext;
 import java.util.Locale;
 import org.springframework.stereotype.Service;
 
-/** 将三类协议风控信号保存为不可覆盖历史，并只投影账号级外联限制。 */
+/**
+ * 将协议风控信号保存为不可覆盖历史，并按被拒的操作投影账号能力限制。
+ *
+ * <p>触达受限的消息发送/回执写消息限制，进群写进群拉人限制，其它结果仅记录事件。
+ * 拉人结果由业务处理器负责限制写入及粘性拉手失效，入口不得抢先写入。
+ * 平台 account.restricted 的权威事实仍走独立的生效/解除路径。</p>
+ */
 @Service
 public class ProtocolRiskEventSinkAdapter implements ProtocolRiskEventSink {
+
+    private static final String MESSAGE_SEND = "MESSAGE_SEND";
+    private static final String MESSAGE_ACK = "MESSAGE_ACK";
+    private static final String GROUP_JOIN = "GROUP_JOIN";
 
     private final ProtocolRiskEventMapper eventMapper;
     private final AccountMapper accountMapper;
@@ -67,8 +77,14 @@ public class ProtocolRiskEventSinkAdapter implements ProtocolRiskEventSink {
                     eventMapper.insertIdempotent(row);
                     if (signal == ProtocolRiskSignal.ACCOUNT_REACHOUT_RESTRICTED
                             && row.getAccountId() != null) {
-                        restrictionService.restrictMessageSending(
-                                row.getAccountId(), signal.name(), row.getOccurredAt(), receivedAt);
+                        if (MESSAGE_SEND.equals(row.getOperationType())
+                                || MESSAGE_ACK.equals(row.getOperationType())) {
+                            restrictionService.restrictMessageSending(
+                                    row.getAccountId(), signal.name(), row.getOccurredAt(), receivedAt);
+                        } else if (GROUP_JOIN.equals(row.getOperationType())) {
+                            restrictionService.restrictPulling(
+                                    row.getAccountId(), signal.name(), row.getOccurredAt(), receivedAt);
+                        }
                     }
                 }));
     }

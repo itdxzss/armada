@@ -21,6 +21,9 @@ import com.armada.shared.exception.BusinessException;
 import com.armada.shared.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 class ProtocolRiskEventSinkAdapterTest {
@@ -83,12 +86,13 @@ class ProtocolRiskEventSinkAdapterTest {
                 captor.getValue().getReceivedAt());
     }
 
-    @Test
-    void messageReachoutFailureProjectsOnlyTheAccountScopedSignal() {
+    @ParameterizedTest
+    @ValueSource(strings = {"MESSAGE_SEND", "MESSAGE_ACK", " message_send "})
+    void messageReachoutFailureProjectsOnlyTheAccountScopedSignal(String operationType) {
         when(accountMapper.selectActiveByProtocolAccountId("acc-17"))
                 .thenReturn(account(17L, "ANDROID"));
         adapter.handleResult(result(
-                "evt-message-reachout", "message.send_result_reported", "MESSAGE_SEND",
+                "evt-message-reachout", "message.send_result_reported", operationType,
                 17L, "acc-17", "ANDROID", "hyperlink_task", 8L, 10L,
                 "hl:7:8:10", null, "PRIVATE", null, "463",
                 "ACCOUNT_REACHOUT_RESTRICTED", "reachout", 3_000L));
@@ -99,6 +103,45 @@ class ProtocolRiskEventSinkAdapterTest {
         verify(restrictionService).restrictMessageSending(
                 17L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L,
                 captor.getValue().getReceivedAt());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"GROUP_JOIN", " group_join "})
+    void groupJoinReachoutFailureRestrictsPullingOnly(String operationType) {
+        when(accountMapper.selectActiveByProtocolAccountId("acc-17"))
+                .thenReturn(account(17L, "ANDROID"));
+        adapter.handleResult(result(
+                "evt-join-reachout", "group.join_result_reported", operationType,
+                17L, "acc-17", "ANDROID", "pull_task", 8L, 10L,
+                "cmd-join", null, "GROUP", null, "463",
+                "ACCOUNT_REACHOUT_RESTRICTED", "reachout", 3_000L));
+
+        ArgumentCaptor<ProtocolRiskEvent> captor = ArgumentCaptor.forClass(ProtocolRiskEvent.class);
+        verify(eventMapper).insertIdempotent(captor.capture());
+        assertThat(captor.getValue().getOperationType()).isEqualTo("GROUP_JOIN");
+        verify(restrictionService).restrictPulling(
+                17L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L,
+                captor.getValue().getReceivedAt());
+        org.mockito.Mockito.verifyNoMoreInteractions(restrictionService);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"PARTICIPANT_ADD", "GROUP_CREATE", "CONTACT_PREPARE",
+            "ACCOUNT_STATE", "GROUP_MEMBERS_QUERY", "GROUP_HEALTH", "UNKNOWN", " "})
+    void otherReachoutFailuresOnlyRecordTheEvent(String operationType) {
+        when(accountMapper.selectActiveByProtocolAccountId("acc-17"))
+                .thenReturn(account(17L, "WEB"));
+        adapter.handleResult(result(
+                "evt-other-reachout", "group.action_result_reported", operationType,
+                17L, "acc-17", "WEB", "pull_task", 8L, 10L,
+                "cmd-other", null, "GROUP", null, "463",
+                "ACCOUNT_REACHOUT_RESTRICTED", "reachout", 3_000L));
+
+        ArgumentCaptor<ProtocolRiskEvent> captor = ArgumentCaptor.forClass(ProtocolRiskEvent.class);
+        verify(eventMapper).insertIdempotent(captor.capture());
+        assertThat(captor.getValue().getSignalCode()).isEqualTo("ACCOUNT_REACHOUT_RESTRICTED");
+        verifyNoInteractions(restrictionService);
     }
 
     @Test

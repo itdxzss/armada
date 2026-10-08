@@ -8,6 +8,7 @@ import com.armada.account.model.vo.AccountOperationRestrictionClearVO;
 import com.armada.account.model.vo.AccountPullerRestrictionSnapshot;
 import com.armada.account.model.vo.AccountPullerRestrictionSummary;
 import com.armada.account.service.AccountOperationRestrictionService;
+import com.armada.platform.protocol.risk.model.ProtocolRiskSignal;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.LinkedHashMap;
@@ -40,13 +41,23 @@ public class AccountOperationRestrictionServiceImpl implements AccountOperationR
     /** {@inheritDoc} */
     @Override
     public boolean restrictPulling(Long accountId, String reasonCode, long occurredAt, long now) {
+        String normalizedReason = normalizeReasonCode(
+                reasonCode, AccountOperationRestrictionStatus.PULLING_RESTRICTED);
         long candidateUntil = fallbackUntil(occurredAt);
+        if (accountId != null && occurredAt > 0 && now > 0
+                && ProtocolRiskSignal.ACCOUNT_REACHOUT_RESTRICTED.name().equals(normalizedReason)) {
+            AccountState state = stateMapper.selectByAccountId(accountId);
+            if (state != null && Boolean.TRUE.equals(state.getPlatformMessageRestrictionActive())
+                    && state.getPlatformMessageRestrictionUntil() != null
+                    && state.getPlatformMessageRestrictionUntil() > Math.max(occurredAt, now)) {
+                candidateUntil = state.getPlatformMessageRestrictionUntil();
+            }
+        }
         if (!validRestriction(accountId, occurredAt, candidateUntil, now)) {
             return false;
         }
         return stateMapper.markPullingRestricted(
-                accountId, normalizeReasonCode(
-                        reasonCode, AccountOperationRestrictionStatus.PULLING_RESTRICTED),
+                accountId, normalizedReason,
                 occurredAt, candidateUntil, now) == 1;
     }
 

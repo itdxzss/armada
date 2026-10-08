@@ -20,6 +20,8 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -109,6 +111,52 @@ class AccountPullerRestrictionServiceH2Test {
                 .isEqualTo(AccountPullerRestrictionStatus.RESTRICTED.code());
         assertThat(restrictions.get(11L).status())
                 .isEqualTo(AccountPullerRestrictionStatus.ALLOWED.code());
+    }
+
+    @Test
+    void reachoutPullingRestrictionUsesActivePlatformDeadlineAndKeepsLaterExistingDeadline() {
+        assertThat(service.restrictPlatformMessageSending(
+                10L, "ACCOUNT_REACHOUT_RESTRICTED", 500L, 20_000L, 1_000L)).isTrue();
+
+        assertThat(service.restrictPulling(
+                10L, " account_reachout_restricted ", 1_000L, 2_000L)).isTrue();
+
+        assertThat(sourceUntil("pulling_restriction_until", 10L)).isEqualTo(20_000L);
+        assertThat(sourceUntil("fallback_message_restriction_until", 10L)).isNull();
+        assertThat(status(1L, 10L)).isEqualTo(
+                AccountOperationRestrictionStatus.MESSAGE_SENDING_AND_PULLING_RESTRICTED.code());
+        assertThat(reason(1L, 10L)).isEqualTo("ACCOUNT_REACHOUT_RESTRICTED");
+
+        assertThat(service.restrictPulling(10L, "RATE_LIMITED", 2_000L, 3_000L)).isTrue();
+        assertThat(service.restrictPulling(
+                10L, "ACCOUNT_REACHOUT_RESTRICTED", 3_000L, 4_000L)).isTrue();
+        assertThat(sourceUntil("pulling_restriction_until", 10L)).isEqualTo(2_000L + DAY_MILLIS);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"1, 2000, 1000, 2000", "1, 1000, 2000, 1000",
+            "0, 20000, 1000, 2000", ", 20000, 1000, 2000", "1, , 1000, 2000"})
+    void inactiveMissingOrExpiredPlatformDeadlineFallsBackToTwentyFourHours(
+            Integer active, Long platformUntil, long occurredAt, long now) {
+        jdbc.update("UPDATE account_state SET platform_message_restriction_active = ?, "
+                + "platform_message_restriction_until = ? WHERE tenant_id = 1 AND account_id = 10",
+                active, platformUntil);
+
+        assertThat(service.restrictPulling(
+                10L, "ACCOUNT_REACHOUT_RESTRICTED", occurredAt, now)).isTrue();
+
+        assertThat(sourceUntil("pulling_restriction_until", 10L))
+                .isEqualTo(occurredAt + DAY_MILLIS);
+    }
+
+    @Test
+    void rateLimitedPullingKeepsTwentyFourHoursDespiteActivePlatformDeadline() {
+        assertThat(service.restrictPlatformMessageSending(
+                10L, "ACCOUNT_REACHOUT_RESTRICTED", 500L, 20_000L, 1_000L)).isTrue();
+
+        assertThat(service.restrictPulling(10L, " rate_limited ", 1_000L, 2_000L)).isTrue();
+
+        assertThat(sourceUntil("pulling_restriction_until", 10L)).isEqualTo(1_000L + DAY_MILLIS);
     }
 
     @Test

@@ -11,8 +11,8 @@ public class AccountDeleteGateRow {
     private Long id;
 
     /**
-     * 账号状态:1新增 2正常 3封禁 4导出 5解绑 6被抢登 7抢登中 8账号受限;NULL=未上报(step1 导入态)。
-     * 仅 3/4/5/6 且 dispatched_at IS NULL 才允许删除。
+     * 账号状态:1新增 2正常 3封禁 4导出 5解绑 6被抢登 7抢登中 8账号受限 9注销;NULL=未上报(step1 导入态)。
+     * 仅 3/4/5/6/9 且 dispatched_at IS NULL 才允许删除。
      */
     private Integer accountState;
 

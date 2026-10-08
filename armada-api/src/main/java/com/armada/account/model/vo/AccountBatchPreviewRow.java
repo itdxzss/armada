@@ -10,6 +10,8 @@ public class AccountBatchPreviewRow {
     private long matched;
     private long banned;
     private long unbound;
+    /** 已确认注销的账号数量，上下线均跳过。 */
+    private long deregistered;
     private long takingOver;
     private long alreadyPending;
     private long alreadyOnline;
@@ -37,6 +39,16 @@ public class AccountBatchPreviewRow {
 
     public void setUnbound(long unbound) {
         this.unbound = unbound;
+    }
+
+    /** 返回已确认注销账号数量。 */
+    public long getDeregistered() {
+        return deregistered;
+    }
+
+    /** 保存 SQL 聚合得到的已确认注销账号数量。 */
+    public void setDeregistered(long deregistered) {
+        this.deregistered = deregistered;
     }
 
     public long getTakingOver() {

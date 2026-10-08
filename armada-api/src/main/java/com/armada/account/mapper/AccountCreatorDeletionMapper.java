@@ -35,7 +35,7 @@ public interface AccountCreatorDeletionMapper {
     int complete(@Param("binding") CreatorDeletionBinding binding, @Param("now") long now);
     /** 禁止自动上线并记录注销生命周期来源。 */
     int freezeOnline(@Param("tenantId") long tenantId, @Param("accountId") long accountId, @Param("now") long now);
-    /** 完成注销时更新实际离线状态。 */
+    /** 完成核验后标记账号已注销并保持实际离线。 */
     int markOffline(@Param("tenantId") long tenantId, @Param("accountId") long accountId, @Param("now") long now);
     /** 保留角色审计，只释放本执行行建群角色的资源占用。 */
     int releaseCreator(@Param("binding") CreatorDeletionBinding binding, @Param("now") long now);

@@ -112,7 +112,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
             row = accountMapper.previewBatchTargetsByQuery(normalizeQuery(request.query()).toAccountQuery());
         }
         AccountBatchPreviewVO result = request.operation() == AccountBatchOperation.OFFLINE
-                ? offlinePreview(row.getMatched())
+                ? offlinePreview(row)
                 : onlinePreview(row);
         log.info("账号批量预估完成 operation={} scope={} matched={} executable={} skipped={}",
                 request.operation(), request.scope(), result.matched(), result.executable(), result.skipped());
@@ -122,7 +122,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     /**
      * 对明确选择的账号执行批量登录编排。
      *
-     * <p>封禁、解绑、抢登中、缺凭据、已待上线/VERIFYING 和已在线账号在 Armada 内跳过，
+     * <p>封禁、解绑、注销、抢登中、缺凭据、已待上线/VERIFYING 和已在线账号在 Armada 内跳过，
      * 避免相同上线请求重复分配代理及请求协议层。最多接收 2,000 个 ID，内部按 500 个账号分片。</p>
      *
      * @param ids 当前租户明确选择的账号 ID
@@ -137,11 +137,11 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     /**
      * 对明确选择的账号执行批量离线编排。
      *
-     * <p>离线命令不读取凭据，也不按账号生命周期状态跳过。最多接收 2,000 个 ID，
+     * <p>离线命令不读取凭据，仅跳过已确认注销账号。最多接收 2,000 个 ID，
      * 内部按 1,000 个账号分片。</p>
      *
      * @param ids 当前租户明确选择的账号 ID
-     * @return 所有离线内部批次的受理和失败汇总
+     * @return 所有离线内部批次的受理、跳过和失败汇总
      * @throws BusinessException 当 ID 为空、重复、超过上限或目标不属于当前租户时抛出
      */
     @Override
@@ -167,11 +167,11 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     /**
      * 按账号列表已生效筛选条件执行全部匹配账号的批量离线编排。
      *
-     * <p>目标由后端在当前租户内按稳定 ID 游标扫描，不读取分页参数。离线不套用登录跳过规则，
+     * <p>目标由后端在当前租户内按稳定 ID 游标扫描，不读取分页参数。离线仅跳过已确认注销账号，
      * 内部命令批次失败后继续扫描后续账号。</p>
      *
      * @param query 已生效且不含分页语义的筛选条件；null 等价于空条件
-     * @return 全部匹配账号的受理和失败汇总，不返回无界单账号明细
+     * @return 全部匹配账号的受理、跳过和失败汇总，不返回无界单账号明细
      * @throws BusinessException 当稳定 ID 游标无法继续向前推进时抛出
      */
     @Override
@@ -189,6 +189,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         Map<String, Long> skipReasons = new LinkedHashMap<>();
         putPositive(skipReasons, AccountBatchSkipReason.BANNED, row.getBanned());
         putPositive(skipReasons, AccountBatchSkipReason.UNBOUND, row.getUnbound());
+        putPositive(skipReasons, AccountBatchSkipReason.DEREGISTERED, row.getDeregistered());
         putPositive(skipReasons, AccountBatchSkipReason.TAKING_OVER, row.getTakingOver());
         putPositive(skipReasons, AccountBatchSkipReason.ALREADY_PENDING, row.getAlreadyPending());
         putPositive(skipReasons, AccountBatchSkipReason.ALREADY_ONLINE, row.getAlreadyOnline());
@@ -209,8 +210,10 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         }
     }
 
-    private AccountBatchPreviewVO offlinePreview(long matched) {
-        return new AccountBatchPreviewVO(matched, matched, 0L, Map.of());
+    private AccountBatchPreviewVO offlinePreview(AccountBatchPreviewRow row) {
+        long skipped = row.getDeregistered();
+        return new AccountBatchPreviewVO(row.getMatched(), row.getMatched() - skipped, skipped,
+                skipped > 0 ? Map.of(AccountBatchSkipReason.DEREGISTERED.name(), skipped) : Map.of());
     }
 
     /**
@@ -250,9 +253,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
             }
             afterId = nextAfterId;
             accumulator.addRequested(targets.size());
-            List<Long> executableIds = operation == AccountBatchOperation.ONLINE
-                    ? classifyOnlineTargets(targets, accumulator)
-                    : targetIds(targets);
+            List<Long> executableIds = classifyTargets(targets, operation, accumulator);
             executeChunks(executableIds, operation, accumulator);
             log.info("账号批量游标批次已扫描 operation={} cursorIndex={} scanned={} afterId={}",
                     operation, cursorIndex, targets.size(), afterId);
@@ -297,9 +298,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         }
 
         BatchAccumulator accumulator = new BatchAccumulator(ids.size(), true);
-        List<Long> executableIds = operation == AccountBatchOperation.ONLINE
-                ? classifyOnlineTargets(targets, accumulator)
-                : targetIds(targets);
+        List<Long> executableIds = classifyTargets(targets, operation, accumulator);
         executeChunks(executableIds, operation, accumulator);
         AccountBatchCommandResultVO result = accumulator.toVO();
         log.info("账号批量编排完成 operation={} scope=IDS requested={} submitted={} accepted={} skipped={} failed={}",
@@ -326,12 +325,17 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         return List.copyOf(uniqueIds);
     }
 
-    private List<Long> classifyOnlineTargets(
+    private List<Long> classifyTargets(
             List<AccountBatchTargetRow> targets,
+            AccountBatchOperation operation,
             BatchAccumulator accumulator) {
         List<Long> executableIds = new ArrayList<>(targets.size());
         for (AccountBatchTargetRow target : targets) {
-            AccountBatchSkipReason skipReason = onlineSkipReason(target);
+            AccountBatchSkipReason skipReason = Integer.valueOf(AccountStateCode.DEREGISTERED)
+                    .equals(target.getAccountState()) ? AccountBatchSkipReason.DEREGISTERED : null;
+            if (skipReason == null && operation == AccountBatchOperation.ONLINE) {
+                skipReason = onlineSkipReason(target);
+            }
             if (skipReason == null) {
                 executableIds.add(target.getId());
             } else {
@@ -362,10 +366,6 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
             return AccountBatchSkipReason.MISSING_CREDENTIAL;
         }
         return null;
-    }
-
-    private List<Long> targetIds(List<AccountBatchTargetRow> targets) {
-        return targets.stream().map(AccountBatchTargetRow::getId).toList();
     }
 
     /**
@@ -484,7 +484,7 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         /** 所有内部命令批次累计耗时，单位毫秒。 */
         private long elapsedMs;
 
-        /** 因登录业务规则未进入命令服务的账号数。 */
+        /** 因业务跳过规则未进入命令服务的账号数。 */
         private int skipped;
 
         /** 未被 outbox 受理或内部命令批次异常的账号数。 */

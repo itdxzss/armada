@@ -1,7 +1,7 @@
 package com.armada.account.model.enums;
 
 /**
- * 批量登录跳过原因。
+ * 批量账号上下线跳过原因。
  *
  * <p>枚举名直接作为前后端统计 key，禁止随意改名。</p>
  */
@@ -12,6 +12,9 @@ public enum AccountBatchSkipReason {
 
     /** 账号已解绑，不再发起登录。 */
     UNBOUND,
+
+    /** 账号已确认注销，不再发起上线或离线命令。 */
+    DEREGISTERED,
 
     /** 账号处于抢登中，普通批量登录不得干扰抢登流程。 */
     TAKING_OVER,

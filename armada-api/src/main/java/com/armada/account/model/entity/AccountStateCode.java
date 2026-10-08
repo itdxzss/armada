@@ -50,4 +50,9 @@ public final class AccountStateCode {
      * 账号受限:WhatsApp 限制账号主动触达、建群或拉人,不可继续派单。
      */
     public static final int RESTRICTED = 8;
+
+    /**
+     * 注销:建群账号已完成永久注销核验，保持离线并允许从账号列表软删除。
+     */
+    public static final int DEREGISTERED = 9;
 }

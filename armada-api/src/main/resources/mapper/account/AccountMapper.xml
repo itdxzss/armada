@@ -990,7 +990,7 @@
 
   <!--
     批量操作与账号列表复用 filter，保证未勾选时的目标范围和当前列表一致。
-    跳过原因按封禁 -> 解绑 -> 抢登中 -> 待上线 -> 在线 -> 缺凭据的顺序互斥计数。
+    跳过原因按封禁 -> 解绑 -> 注销 -> 抢登中 -> 待上线 -> 在线 -> 缺凭据的顺序互斥计数。
     EXISTS 只判断凭据行是否存在，不读取或投影 creds_json。
   -->
   <sql id="batchTargetJoins">
@@ -1002,20 +1002,22 @@
   </sql>
 
   <sql id="batchPreviewColumns">
+    <bind name="deregisteredState" value="@com.armada.account.model.entity.AccountStateCode@DEREGISTERED"/>
     COUNT(DISTINCT a.id) AS matched,
     COUNT(DISTINCT CASE WHEN s.account_state = 3 THEN a.id END) AS banned,
     COUNT(DISTINCT CASE WHEN s.account_state = 5 THEN a.id END) AS unbound,
+    COUNT(DISTINCT CASE WHEN s.account_state = #{deregisteredState} THEN a.id END) AS deregistered,
     COUNT(DISTINCT CASE WHEN s.account_state = 7 THEN a.id END) AS takingOver,
     COUNT(DISTINCT CASE
-      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7))
+      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7, #{deregisteredState}))
         AND s.login_state = 3
       THEN a.id END) AS alreadyPending,
     COUNT(DISTINCT CASE
-      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7))
+      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7, #{deregisteredState}))
         AND s.login_state = 1
       THEN a.id END) AS alreadyOnline,
     COUNT(DISTINCT CASE
-      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7))
+      WHEN (s.account_state IS NULL OR s.account_state NOT IN (3, 5, 7, #{deregisteredState}))
         AND (s.login_state IS NULL OR s.login_state NOT IN (1, 3))
         AND NOT EXISTS (
           SELECT 1

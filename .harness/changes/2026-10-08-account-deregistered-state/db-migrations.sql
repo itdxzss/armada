@@ -1,0 +1,3 @@
+-- 唯一可执行迁移：armada-api/src/main/resources/db/migration/V214__account_deregistered_state.sql。
+-- 扩充账号状态注释为 9=注销；仅回填同租户、同账号且 DELETED/completed_at 非空的已确认注销记录。
+-- 保留原登录状态、更新时间及全部注销账本。本文件仅作变更索引，不复制或执行迁移。

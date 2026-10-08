@@ -27,9 +27,12 @@ import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.shared.exception.BusinessException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -104,6 +107,54 @@ class AccountBatchLifecycleServiceImplTest {
                 .hasMessageContaining("一次最多 2000 个账号");
 
         verifyNoInteractions(accountMapper, commandService);
+    }
+
+    @ParameterizedTest
+    @EnumSource(AccountBatchOperation.class)
+    void mixedIdsSkipDeregisteredAccountWithoutSubmittingIt(AccountBatchOperation operation) {
+        List<Long> ids = List.of(1L, 2L);
+        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(List.of(
+                target(1L, AccountStateCode.DEREGISTERED, AccountLoginStateCode.OFFLINE, true),
+                target(2L, AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, true)));
+        if (operation == AccountBatchOperation.ONLINE) {
+            when(commandService.onlineBatch(List.of(2L))).thenReturn(accepted(List.of(2L)));
+        } else {
+            when(commandService.offlineBatch(List.of(2L))).thenReturn(accepted(List.of(2L)));
+        }
+
+        AccountBatchCommandResultVO result = operation == AccountBatchOperation.ONLINE
+                ? service.onlineByIds(ids) : service.offlineByIds(ids);
+
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.submitted()).isEqualTo(1);
+        assertThat(result.accepted()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(result.skipReasons()).containsExactlyEntriesOf(Map.of("DEREGISTERED", 1));
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId).containsExactly(2L);
+    }
+
+    @ParameterizedTest
+    @EnumSource(AccountBatchOperation.class)
+    void mixedQuerySkipsDeregisteredAccountWithoutFailingOtherAccounts(AccountBatchOperation operation) {
+        when(accountMapper.selectBatchTargetsAfterId(any())).thenReturn(List.of(
+                target(1L, AccountStateCode.DEREGISTERED, AccountLoginStateCode.OFFLINE, true),
+                target(2L, AccountStateCode.NORMAL, AccountLoginStateCode.OFFLINE, true)));
+        if (operation == AccountBatchOperation.ONLINE) {
+            when(commandService.onlineBatch(List.of(2L))).thenReturn(accepted(List.of(2L)));
+        } else {
+            when(commandService.offlineBatch(List.of(2L))).thenReturn(accepted(List.of(2L)));
+        }
+
+        AccountBatchCommandResultVO result = operation == AccountBatchOperation.ONLINE
+                ? service.onlineByQuery(emptyQuery()) : service.offlineByQuery(emptyQuery());
+
+        assertThat(result.requested()).isEqualTo(2);
+        assertThat(result.submitted()).isEqualTo(1);
+        assertThat(result.accepted()).isEqualTo(1);
+        assertThat(result.failed()).isZero();
+        assertThat(result.skipped()).isEqualTo(1);
+        assertThat(result.skipReasons()).containsExactlyEntriesOf(Map.of("DEREGISTERED", 1));
     }
 
     @Test

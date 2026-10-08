@@ -112,7 +112,8 @@
     WHERE tenant_id=#{tenantId} AND account_id=#{accountId}
   </update>
   <update id="markOffline">
-    UPDATE account_state SET desired_login_state=2,login_state=2,state_source='CREATOR_DELETED',
+    <bind name="deregisteredState" value="@com.armada.account.model.entity.AccountStateCode@DEREGISTERED"/>
+    UPDATE account_state SET account_state=#{deregisteredState},desired_login_state=2,login_state=2,state_source='CREATOR_DELETED',
       invalidated_at=#{now},updated_at=#{now}
     WHERE tenant_id=#{tenantId} AND account_id=#{accountId}
   </update>

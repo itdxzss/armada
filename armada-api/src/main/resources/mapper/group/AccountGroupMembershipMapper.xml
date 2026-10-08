@@ -315,7 +315,7 @@
         <foreach collection="executableAccountStates" item="executableState"
                  open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
-      AND (s.mute_status IS NULL OR s.mute_status = 1)
+      <!-- mute_status 只约束营销发送与普通拉人；提权不拉人，拉人受限的在线群主仍可提权。 -->
     ORDER BY CASE
                WHEN REPLACE(SUBSTRING_INDEX(a.ws_phone, '@', 1), '+', '')
                     = REPLACE(SUBSTRING_INDEX(legacy_preview.owner_phone, '@', 1), '+', '')
@@ -416,7 +416,7 @@
         <foreach collection="executableAccountStates" item="executableState"
                  open="(" separator="," close=")">#{executableState}</foreach>
       AND (s.risk_status IS NULL OR s.risk_status = 1)
-      AND (s.mute_status IS NULL OR s.mute_status = 1)
+      <!-- 定点成员查询不涉及发送或拉人，与提权候选一致不按 mute_status 排除。 -->
     ORDER BY a.id ASC
     LIMIT #{limit}
   </select>

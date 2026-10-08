@@ -283,6 +283,43 @@ public class GroupMembershipCountSemanticsMapperH2Test {
     }
 
     @Test
+    void pullTaskAdminCandidatesIgnoreOperationRestrictionButKeepOnlineAndRiskGates()
+            throws SQLException {
+        // 消息发送/拉人受限只约束对应能力；在群群管提权与成员定点查询仍可执行。
+        for (int muteStatus : new int[] {1, 2, 3}) {
+            execute("UPDATE account_state SET mute_status = " + muteStatus
+                    + " WHERE tenant_id = 7 AND account_id = 501");
+            assertThat(accountGroupMembershipMapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                            TENANT_ID, "in-group@g.us", 999L))
+                    .extracting(GroupExecutionAccount::accountId)
+                    .as("promoter mute_status=%s", muteStatus)
+                    .containsExactly(501L);
+            assertThat(accountGroupMembershipMapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                            TENANT_ID, "in-group@g.us", 999L, 10))
+                    .extracting(GroupExecutionAccount::accountId)
+                    .as("discovery mute_status=%s", muteStatus)
+                    .containsExactly(501L);
+        }
+
+        execute("UPDATE account_state SET risk_status = 2 WHERE tenant_id = 7 AND account_id = 501");
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                TENANT_ID, "in-group@g.us", 999L)).isEmpty();
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                TENANT_ID, "in-group@g.us", 999L, 10)).isEmpty();
+
+        execute("UPDATE account_state SET risk_status = 1, login_state = 2"
+                + " WHERE tenant_id = 7 AND account_id = 501");
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                TENANT_ID, "in-group@g.us", 999L)).isEmpty();
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminDiscoveryCandidatesByTenant(
+                TENANT_ID, "in-group@g.us", 999L, 10)).isEmpty();
+
+        execute("UPDATE account_state SET login_state = 1 WHERE tenant_id = 7 AND account_id = 501");
+        assertThat(accountGroupMembershipMapper.selectPullTaskAdminPromoterCandidatesByTenant(
+                TENANT_ID, "in-group@g.us", 501L)).isEmpty();
+    }
+
+    @Test
     void groupHandleExecutionQueriesReadCanonicalBindingAndParticipant() {
         assertThat(accountGroupMembershipMapper.selectGroupExecutionAccounts(
                         2001L, 1, GroupExecutableAccountStates.executable(), 10))

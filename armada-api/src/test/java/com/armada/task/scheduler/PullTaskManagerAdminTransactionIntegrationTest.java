@@ -160,6 +160,42 @@ class PullTaskManagerAdminTransactionIntegrationTest {
     }
 
     @Test
+    void newGroupCreatorPromoterRoleIsReusedForFirstPromotion() {
+        PullTaskGroupAccount creator = manager();
+        creator.setAccountId(906L);
+        creator.setAccountPhone("8613800000906");
+        creator.setRoleType(PullTaskGroupAccountRole.PROMOTER.code());
+        creator.setAdminStatus(PullTaskGroupAccountAdminStatus.NOT_APPLICABLE.code());
+        accountMapper.insertInitialized(creator);
+        when(outboxService.enqueuePullTaskManagerAdminCommands(anyList()))
+                .thenReturn(new com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult(
+                        "pull-task:100", List.of("cmd-promote-creator"), 1));
+
+        PullTaskManagerAdminPreparation preparation =
+                service.prepare(claim("worker-1", 600L), "worker-1", 600L);
+
+        assertThat(preparation.ready()).isTrue();
+        assertThat(preparation.work().promoterRole().getId()).isEqualTo(creator.getId());
+        assertThat(service.submitOrDefer(preparation.work(), 610L))
+                .isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+        TenantContext.set(7L);
+        assertThat(accountMapper.selectByExecutionAndRole(
+                executionId, PullTaskGroupAccountRole.PROMOTER.code()))
+                .extracting(PullTaskGroupAccount::getId)
+                .containsExactly(creator.getId());
+        assertThat(actionMapper.selectByExecutionAndType(
+                executionId, PullTaskAccountActionType.PROMOTE_MANAGER.code()))
+                .singleElement()
+                .satisfies(action -> {
+                    assertThat(action.getActorGroupAccountId()).isEqualTo(creator.getId());
+                    assertThat(action.getActionStatus())
+                            .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+                    assertThat(action.getCommandId()).isEqualTo("cmd-promote-creator");
+                });
+        verify(outboxService).enqueuePullTaskManagerAdminCommands(anyList());
+    }
+
+    @Test
     void lostLeaseDoesNotCommitObservedPermissionFacts() throws SQLException {
         PullTaskGroupExecution candidate = claim("worker-1", 600L);
         PullTaskManagerAdminWork work = service.prepare(candidate, "worker-1", 600L).work();

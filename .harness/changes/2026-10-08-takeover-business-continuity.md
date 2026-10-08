@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-10-08 / `1.0.3-snapshot` / 主仓库 `/Users/daishuaishuai/IdeaProjects/armada`；用户明确要求不创建 worktree、不切分支。
 - 需求来源: 用户本轮实施指令及 `docs/superpowers/specs/2026-10-08-takeover-account-business-continuity-design.md` r2。
-- 状态: 进行中；阶段 1 完成，准备阶段 2。用户确认的 7.2 重读门禁及终止直返约束已写入设计。
+- 状态: 进行中；阶段 1、2 完成，准备阶段 3。用户确认的 7.2 重读门禁及终止直返约束已写入设计。
 
 ## 目标（一句话）
 
@@ -11,7 +11,7 @@
 ## 缺口拆解 / 任务清单
 
 - [x] 阶段 1：V215 数据结构、两个配置类及全 profile 装配、离线起点维护、真实 Mapper H2 测试、设计文档提交。
-- [ ] 阶段 2：自动抢登、熔断、补偿扫描、状态与意图保护、提交后续上线。
+- [x] 阶段 2：自动抢登、熔断、补偿扫描、状态与意图保护、提交后续上线。
 - [ ] 阶段 3：角色可用性、建群人/预留建群人恢复、拉手超时与自动补号、上线唤醒。
 - [ ] 阶段 4：管理宽限、两个开关回归、全量测试。
 
@@ -70,7 +70,30 @@ JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Conte
 
 ## 部署
 
-- commit / 环境 / 部署后验证结果: 尚未提交；用户禁止 push、部署与真实环境访问。
+- 阶段 1 commit: `7b294fa91dd448714101a57b74f9a4d8164dfbcb`（22 files changed, 1659 insertions, 4 deletions）。暂存路径逐项核对，无受保护 API 文件；设计文档依用户授权一并提交。
+- 环境 / 部署后验证结果: 用户禁止 push、部署与真实环境访问，均未执行。
+
+### 阶段 2：自动抢登（完成）
+
+- 固定窗口熔断使用持久账号行锁保护首次插入和人工清零；窗口期满只能重开未熔断窗口，已熔断记录必须人工清零。
+- 状态事件开启时保留终态、期望离线和禁言防线；预留建群人计数但不走全局上线。关闭时保留原同步事件分支。
+- 开启时提交后在 REQUIRES_NEW 中续上线，捕获并恢复事件租户；代理失败不影响已提交状态。扫描逐账号隔离异常并恢复调用方租户。
+- 自动入口和启用状态下的续上线统一先锁 account、后锁 account_state，与熔断事件、outbox 的锁顺序一致。人工入口复用原抢登体，只有开启时清零熔断，失败整笔回滚。
+- `AccountOnlineCommandServiceImpl.java` 仅新增策略依赖、自动入口、续上线防线及原抢登体提取；既有 `loadAccounts`、`updateDesiredLoginStateOrThrow` 等他人方法体未改。
+- 既有未跟踪 `AccountBatchLifecycleTransactionH2Test.java` 因新增构造依赖只增加一个 disabled Policy mock 参数；仍不暂存、不提交该文件，其他内容保持不变。
+- RED：`/private/tmp/armada-takeover-phase2-red.log`，testCompile 缺少 Breaker/Policy/Lookup 等 12 errors，退出 1，BUILD FAILURE（3.437 s）。
+- 首轮执行：`/private/tmp/armada-takeover-phase2-green1.log`，120 tests / 4 failures / 24 errors。真实租户插件暴露 FOR UPDATE 被错误移至 ORDER BY/LIMIT 前；熔断排序锁改为显式 tenantId 加方法级忽略，状态锁删除冗余 LIMIT，保留真实行锁/租户并发验证。
+- 第二轮：`/private/tmp/armada-takeover-phase2-green2.log`，123 tests / 4 failures / 6 errors；策略 20 例和扫描 11 例全部通过，剩余均为存量代理快照 `UPDATE ... JOIN` 的 H2 方言错误。
+- 对该存量语句只在 test support 做精确方言转换，仍加载真实 Mapper XML 并保留租户插件及事务；新增原 SQL 解析、批量跨租户更新和回滚测试。原 SQL 结构检查通过，另两项在第二轮真实报错，作为适配的 RED。生产 SQL 不因测试库方言而改变。
+- 最终 GREEN：`/private/tmp/armada-takeover-phase2-green3.log`，123 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS（19.410 s）。新增 60 项（策略 20、扫描 11、事件 20、上线 6、方言 3），既有回归 63 项。
+
+```bash
+cd armada-api
+JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home mvn -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest='AccountTakeoverPolicyH2Test,AccountAutoTakeoverDispatcherH2Test,AccountTakeoverStateEventH2Test,AccountAutoTakeoverOnlineH2Test,AccountTakeoverProxySnapshotDialectTest,AccountOnlineCommandServiceImplTest,AccountStateEventServiceImplTest,AccountStateEventServiceConcurrencyH2Test,AccountBatchLifecycleTransactionH2Test' test
+```
+
+- 必须核实 5.3 的 F29 已通过：真实 REQUIRED 代理池事务抛错，账号状态和熔断仍提交，保持 7/离线，无 outbox；后续扫描可补偿。关闭账号开关时保留旧同步回滚行为。
+- 残余验证边界：H2 不代表 MySQL InnoDB 间隙锁与优化器；没有连接真实库。两个功能开关均关闭的完整矩阵继续在阶段 3、4 补齐。
 
 ## 遗留 / 跟进
 

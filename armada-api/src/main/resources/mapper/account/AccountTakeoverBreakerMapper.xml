@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.mapper.AccountTakeoverBreakerMapper">
+  <!-- 账号行始终存在；不能只锁尚不存在的 breaker 行来保护首次并发计数。 -->
+  <select id="lockAccountIds" resultType="long">
+    SELECT id FROM account
+    WHERE tenant_id = #{tenantId} AND deleted_at IS NULL AND id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">#{accountId}</foreach>
+    ORDER BY id FOR UPDATE
+  </select>
+
+  <sql id="columns">
+    id, tenant_id, account_id, window_started_at, kick_count, tripped_at, created_at, updated_at
+  </sql>
+
+  <select id="selectByAccountId" resultType="com.armada.account.model.entity.AccountTakeoverBreaker">
+    SELECT <include refid="columns"/> FROM account_takeover_breaker WHERE account_id = #{accountId}
+  </select>
+
+  <select id="selectForUpdateByAccountId" resultType="com.armada.account.model.entity.AccountTakeoverBreaker">
+    SELECT <include refid="columns"/> FROM account_takeover_breaker WHERE account_id = #{accountId} FOR UPDATE
+  </select>
+
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO account_takeover_breaker
+      (account_id, window_started_at, kick_count, tripped_at, created_at, updated_at)
+    VALUES (#{accountId}, #{windowStartedAt}, #{kickCount}, #{trippedAt}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <update id="update">
+    UPDATE account_takeover_breaker
+    SET window_started_at = #{windowStartedAt}, kick_count = #{kickCount}, tripped_at = #{trippedAt},
+        updated_at = #{updatedAt}
+    WHERE id = #{id} AND account_id = #{accountId}
+  </update>
+
+  <update id="reset">
+    UPDATE account_takeover_breaker
+    SET window_started_at = NULL, kick_count = 0, tripped_at = NULL, updated_at = #{now}
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">#{accountId}</foreach>
+  </update>
+</mapper>

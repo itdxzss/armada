@@ -40,6 +40,20 @@
     LIMIT 1
   </select>
 
+  <select id="lockTakeoverAccount" resultType="long">
+    SELECT id FROM account
+    WHERE id = #{accountId} AND deleted_at IS NULL
+    FOR UPDATE
+  </select>
+
+  <!-- tenant_id + account_id 唯一，无需 LIMIT，避免租户 SQL 重写后把 LIMIT 移到 FOR UPDATE 后。 -->
+  <select id="selectByAccountIdForUpdate" resultType="com.armada.account.model.entity.AccountState">
+    SELECT * FROM account_state
+    WHERE account_id = #{accountId}
+    <include refid="notCreatorDeleting"/>
+    FOR UPDATE
+  </select>
+
   <select id="selectByAccountIds" resultType="com.armada.account.model.entity.AccountState">
     SELECT account_id, account_state, login_state, mute_status, last_state_sync_time
     FROM account_state
@@ -232,6 +246,30 @@
       AND s.state_source = #{stateSource}
       AND (s.desired_login_state IS NULL OR s.desired_login_state != #{desiredOfflineState})
       AND s.last_state_sync_time &lt;= #{eligibleBefore}
+    ORDER BY s.last_state_sync_time ASC, s.id ASC
+    LIMIT #{limit}
+  </select>
+
+  <!-- 预留建群人由所属执行行恢复；全局扫描排除其全部生命周期和同身份别名。 -->
+  <select id="selectAutoTakeoverCandidates"
+          resultType="com.armada.account.model.AccountAutoTakeoverCandidate">
+    <bind name="offlineState" value="@com.armada.account.model.entity.AccountLoginStateCode@OFFLINE" />
+    <bind name="replacedState" value="@com.armada.account.model.entity.AccountStateCode@LOGIN_REPLACED" />
+    <bind name="takingOverState" value="@com.armada.account.model.entity.AccountStateCode@TAKING_OVER" />
+    SELECT s.tenant_id AS tenantId, s.account_id AS accountId, s.account_state AS accountState
+    FROM account_state s
+    INNER JOIN account a
+      ON a.id = s.account_id AND a.tenant_id = s.tenant_id AND a.deleted_at IS NULL
+    LEFT JOIN account_takeover_breaker b
+      ON b.tenant_id = s.tenant_id AND b.account_id = s.account_id
+    WHERE NOT EXISTS (SELECT 1 FROM account_creator_deletion d
+      WHERE d.account_id = s.account_id OR d.creator_phone = a.creator_deletion_identity_phone)
+      AND s.login_state = #{offlineState}
+      AND s.mute_status IS NULL
+      AND (s.desired_login_state IS NULL OR s.desired_login_state &lt;&gt; #{offlineState})
+      AND b.tripped_at IS NULL
+      AND (s.account_state = #{replacedState}
+        OR (s.account_state = #{takingOverState} AND s.last_state_sync_time &lt;= #{stuckBefore}))
     ORDER BY s.last_state_sync_time ASC, s.id ASC
     LIMIT #{limit}
   </select>

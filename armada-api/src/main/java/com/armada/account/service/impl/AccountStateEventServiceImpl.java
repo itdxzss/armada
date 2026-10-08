@@ -9,6 +9,7 @@ import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.account.state.AccountStateChangedSideEffect;
+import com.armada.account.takeover.AccountTakeoverPolicy;
 import com.armada.resource.service.IpProxyService;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
@@ -80,6 +81,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private final AccountStateMapper stateMapper;
     private final IpProxyService ipProxyService;
     private final List<AccountStateChangedSideEffect> sideEffects;
+    /** 自动抢登开关与被挤事件的生命周期决策。 */
+    private final AccountTakeoverPolicy takeoverPolicy;
 
     /**
      * 创建账号协议事件落库服务。
@@ -88,15 +91,18 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
      * @param stateMapper    账号状态子表 mapper
      * @param ipProxyService IP 代理池服务
      * @param sideEffects    账号状态收敛后的业务结算扩展点
+     * @param takeoverPolicy 自动抢登及熔断准入策略
      */
     public AccountStateEventServiceImpl(AccountMapper accountMapper,
                                         AccountStateMapper stateMapper,
                                         IpProxyService ipProxyService,
-                                        List<AccountStateChangedSideEffect> sideEffects) {
+                                        List<AccountStateChangedSideEffect> sideEffects,
+                                        AccountTakeoverPolicy takeoverPolicy) {
         this.accountMapper = accountMapper;
         this.stateMapper = stateMapper;
         this.ipProxyService = ipProxyService;
         this.sideEffects = List.copyOf(sideEffects);
+        this.takeoverPolicy = takeoverPolicy;
     }
 
     /**
@@ -207,6 +213,16 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                                              long occurredAt,
                                              long updatedAt) {
         if (isLoginReplaced(event)) {
+            if (takeoverPolicy.isEnabled()) {
+                switch (takeoverPolicy.onLoginReplaced(account, currentState, occurredAt)) {
+                    case KEEP_LIFECYCLE -> stateMapper.updateLoginState(updateRow(account.getId(),
+                            AccountLoginStateCode.OFFLINE, null, SOURCE_LOGIN_REPLACED, null, occurredAt, updatedAt));
+                    case LOGIN_REPLACED -> markLoginReplaced(account, occurredAt, updatedAt);
+                    case TAKING_OVER -> markTakingOverLogin(account, AccountLoginStateCode.OFFLINE,
+                            stateSource, occurredAt, updatedAt);
+                }
+                return true;
+            }
             if (isTakingOver(currentState)) {
                 markTakingOverLogin(account, AccountLoginStateCode.OFFLINE, stateSource, occurredAt, updatedAt);
             } else {
@@ -219,7 +235,8 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 markTakingOverLogin(account, AccountLoginStateCode.ONLINE, stateSource, occurredAt, updatedAt);
                 return true;
             }
-            if (isUserOfflineStop(event)) {
+            if (isUserOfflineStop(event) || (takeoverPolicy.isEnabled()
+                    && isTakeoverContinuableOffline(event) && takeoverPolicy.desiredOffline(currentState))) {
                 stateMapper.updateLoginAndAccountState(updateRow(account.getId(), AccountLoginStateCode.OFFLINE,
                         AccountStateCode.LOGIN_REPLACED, SOURCE_LOGIN_REPLACED, null, occurredAt, updatedAt));
                 return true;

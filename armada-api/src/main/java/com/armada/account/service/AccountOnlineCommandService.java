@@ -50,6 +50,14 @@ public interface AccountOnlineCommandService {
     AccountBatchOnlineVO takeoverBatch(List<Long> accountIds);
 
     /**
+     * 补偿扫描自动抢登一个被抢登账号，不清除人工确认前应保持的熔断记录。
+     *
+     * @param accountId 当前租户账号主键
+     * @return 重新核实资格后的受理结果；开关关闭或资格变化时返回零计数
+     */
+    AccountBatchOnlineVO autoTakeover(Long accountId);
+
+    /**
      * 抢登中账号在再次离线或被抢登后自动续上线。
      *
      * <p>实现必须重新读取账号状态并检查禁言与短窗口冷却,确保用户手动停止或状态变化后不再重投。</p>

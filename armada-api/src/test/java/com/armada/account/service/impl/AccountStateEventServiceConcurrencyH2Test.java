@@ -23,6 +23,7 @@ import com.armada.platform.protocol.service.ProtocolCommandOutboxService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.account.service.AccountStateEventService;
 import com.armada.account.state.AccountStateChangedSideEffect;
+import com.armada.account.takeover.AccountTakeoverPolicy;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.resource.service.IpProxyService;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -422,7 +423,8 @@ class AccountStateEventServiceConcurrencyH2Test {
                 AccountOnlineAttemptLogService attemptLogService) {
             return new AccountStateEventServiceImpl(
                     accountMapper, stateMapper, ipProxyService,
-                    List.of(sideEffect, new ProxyFailureContextSideEffect(attemptLogService)));
+                    List.of(sideEffect, new ProxyFailureContextSideEffect(attemptLogService)),
+                    Mockito.mock(AccountTakeoverPolicy.class));
         }
 
         @Bean

@@ -16,6 +16,7 @@ import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.service.AccountStateChangedEvent;
 import com.armada.account.state.AccountStateChangedSideEffect;
+import com.armada.account.takeover.AccountTakeoverPolicy;
 import com.armada.resource.service.IpProxyService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ class AccountStateEventServiceImplTest {
 
     @Mock
     private AccountStateChangedSideEffect sideEffect;
+
+    @Mock
+    private AccountTakeoverPolicy takeoverPolicy;
 
     @Test
     void exportedAccountRetainsLifecycleButStillRecordsRealOnlineState() {
@@ -198,7 +202,7 @@ class AccountStateEventServiceImplTest {
                 accountMapper,
                 stateMapper,
                 ipProxyService,
-                List.of(sideEffect));
+                List.of(sideEffect), takeoverPolicy);
 
         service.applyStateChanged(event);
 
@@ -212,7 +216,7 @@ class AccountStateEventServiceImplTest {
                 accountMapper,
                 stateMapper,
                 ipProxyService,
-                List.of(sideEffect));
+                List.of(sideEffect), takeoverPolicy);
     }
 
     private static Account account() {
@@ -276,7 +280,7 @@ class AccountStateEventServiceImplTest {
                 accountMapper,
                 stateMapper,
                 ipProxyService,
-                List.of(sideEffect));
+                List.of(sideEffect), takeoverPolicy);
 
         service.applyStateChanged(event);
 

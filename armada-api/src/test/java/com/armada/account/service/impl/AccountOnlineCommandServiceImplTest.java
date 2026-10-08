@@ -102,6 +102,9 @@ class AccountOnlineCommandServiceImplTest {
     @Mock
     private AccountTakeoverReonlineCooldown takeoverReonlineCooldown;
 
+    @Mock
+    private com.armada.account.takeover.AccountTakeoverPolicy takeoverPolicy;
+
     @InjectMocks
     private AccountOnlineCommandServiceImpl service;
 

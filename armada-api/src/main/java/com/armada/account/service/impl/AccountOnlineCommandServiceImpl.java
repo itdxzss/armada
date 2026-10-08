@@ -21,6 +21,7 @@ import com.armada.account.model.vo.AccountOnlineVO;
 import com.armada.account.service.AccountOnlineAttemptLogService;
 import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.OnlineAttemptIdGenerator;
+import com.armada.account.takeover.AccountTakeoverPolicy;
 import com.armada.platform.country.service.CountryService;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
@@ -91,6 +92,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private final OnlineAttemptIdGenerator onlineAttemptIdGenerator;
     private final AccountOnlineAttemptLogService accountOnlineAttemptLogService;
     private final AccountTakeoverReonlineCooldown takeoverReonlineCooldown;
+    private final AccountTakeoverPolicy takeoverPolicy;
 
     /**
      * 创建账号上线编排服务。
@@ -105,7 +107,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                                            ProtocolCommandOutboxService protocolCommandOutboxService,
                                            OnlineAttemptIdGenerator onlineAttemptIdGenerator,
                                            AccountOnlineAttemptLogService accountOnlineAttemptLogService,
-                                           AccountTakeoverReonlineCooldown takeoverReonlineCooldown) {
+                                           AccountTakeoverReonlineCooldown takeoverReonlineCooldown,
+                                           AccountTakeoverPolicy takeoverPolicy) {
         this.accountMapper = accountMapper;
         this.credentialMapper = credentialMapper;
         this.stateMapper = stateMapper;
@@ -115,6 +118,7 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         this.onlineAttemptIdGenerator = onlineAttemptIdGenerator;
         this.accountOnlineAttemptLogService = accountOnlineAttemptLogService;
         this.takeoverReonlineCooldown = takeoverReonlineCooldown;
+        this.takeoverPolicy = takeoverPolicy;
     }
 
     /**
@@ -153,6 +157,31 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     @Transactional(rollbackFor = Exception.class)
     public AccountBatchOnlineVO takeoverBatch(List<Long> accountIds) {
         List<Long> ids = normalizeBatchAccountIds(accountIds);
+        if (takeoverPolicy.isEnabled()) {
+            takeoverPolicy.reset(ids, System.currentTimeMillis());
+        }
+        return takeover(ids);
+    }
+
+    /** 自动入口锁定并复核状态，不覆盖人工停号意图，也不重置熔断。 */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountBatchOnlineVO autoTakeover(Long accountId) {
+        if (accountId == null || !takeoverPolicy.isEnabled()) {
+            return emptyBatchVO();
+        }
+        // 与熔断事件和 outbox 统一先锁账号、后锁状态，避免并发时出现相反锁序。
+        if (stateMapper.lockTakeoverAccount(accountId) == null) {
+            return emptyBatchVO();
+        }
+        AccountState state = stateMapper.selectByAccountIdForUpdate(accountId);
+        if (!takeoverPolicy.canAutoTakeover(accountId, state)) {
+            return emptyBatchVO();
+        }
+        return takeover(List.of(accountId));
+    }
+
+    private AccountBatchOnlineVO takeover(List<Long> ids) {
         loadAccounts(ids);
         requireDeviceLogoutConfirmed(ids);
         validateTakeoverStates(ids);
@@ -179,11 +208,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
      * <p>调用方通常是状态事件 side effect。这里再次读取账号状态,确保用户手动离线、禁言或状态变化后不会继续写 outbox。</p>
      */
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public AccountOnlineVO reonlineForTakeover(Long accountId, String failedOnlineAttemptId, String source) {
         if (accountId == null) {
             return skippedTakeoverVO(null);
         }
-        AccountState state = stateMapper.selectByAccountId(accountId);
+        if (takeoverPolicy.isEnabled() && stateMapper.lockTakeoverAccount(accountId) == null) {
+            return skippedTakeoverVO(accountId);
+        }
+        AccountState state = takeoverPolicy.isEnabled()
+                ? stateMapper.selectByAccountIdForUpdate(accountId) : stateMapper.selectByAccountId(accountId);
         if (!isTakeoverEligible(state)) {
             log.info("抢登续上线跳过:账号不满足抢登中离线条件或已禁言 accountId={} source={}", accountId, source);
             return skippedTakeoverVO(accountId);
@@ -482,13 +516,15 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         }
     }
 
-    private static boolean isTakeoverEligible(AccountState state) {
+    private boolean isTakeoverEligible(AccountState state) {
         return state != null
                 && state.getAccountState() != null
                 && state.getAccountState() == AccountStateCode.TAKING_OVER
                 && state.getLoginState() != null
                 && state.getLoginState() == AccountLoginStateCode.OFFLINE
-                && state.getMuteStatus() == null;
+                && state.getMuteStatus() == null
+                && (!takeoverPolicy.isEnabled()
+                    || takeoverPolicy.canReonline(state.getAccountId(), state));
     }
 
     private Optional<AccountOnlineVO> manualOnlineIdempotentResult(Account account, String source) {

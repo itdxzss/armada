@@ -28,6 +28,14 @@
   <select id="byExecution" resultType="com.armada.account.model.entity.AccountCreatorDeletion">
     SELECT * FROM account_creator_deletion WHERE tenant_id=#{tenantId} AND group_execution_id=#{executionId}
   </select>
+  <!-- 账号入口严格限当前租户；全局身份记录保留原租户，不能伪装为当前账号所属执行行。 -->
+  <select id="selectReservationByAccount" resultType="com.armada.account.model.AccountCreatorReservation">
+    SELECT d.tenant_id, d.lifecycle, d.task_id, d.group_execution_id
+    FROM account a INNER JOIN account_creator_deletion d
+      ON d.account_id=a.id OR d.creator_phone=a.creator_deletion_identity_phone
+    WHERE a.tenant_id=#{tenantId} AND a.id=#{accountId} AND a.deleted_at IS NULL
+    LIMIT 1
+  </select>
   <insert id="insert">
     INSERT INTO account_creator_deletion(account_id,tenant_id,task_id,group_execution_id,identity_hash,
       creator_phone,protocol_account_id,create_operation_id,lifecycle,created_at,updated_at)

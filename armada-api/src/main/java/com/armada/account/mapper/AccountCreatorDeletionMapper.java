@@ -2,6 +2,7 @@ package com.armada.account.mapper;
 
 import com.armada.account.model.dto.CreatorDeletionBinding;
 import com.armada.account.model.dto.CreatorActiveScriptBinding;
+import com.armada.account.model.AccountCreatorReservation;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCreatorDeletion;
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
@@ -23,6 +24,9 @@ public interface AccountCreatorDeletionMapper {
     int supportedGroupCount(@Param("tenantId") long tenantId, @Param("groupId") long groupId);
     /** 查询本执行行冻结记录。 */
     AccountCreatorDeletion byExecution(@Param("tenantId") long tenantId, @Param("executionId") long executionId);
+    /** 当前租户账号按账号本身或全局规范化身份查询归属，返回记录原始租户供恢复时复核。 */
+    AccountCreatorReservation selectReservationByAccount(@Param("tenantId") long tenantId,
+                                                         @Param("accountId") long accountId);
     /** 插入全局身份唯一的账号预留；冲突由数据库拒绝。 */
     int insert(AccountCreatorDeletion row);
     /** 同一事务持有全部身份账号锁后执行当前读；仅返回活跃依赖，不暴露其他租户数据。 */

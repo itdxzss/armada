@@ -1,6 +1,7 @@
 package com.armada.account.mapper;
 
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
+import com.armada.account.model.AccountAutoTakeoverCandidate;
 import com.armada.account.model.AccountProxyFailedRecoveryCandidate;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
@@ -39,6 +40,22 @@ public interface AccountStateMapper {
      * @return 对应的账号状态行;不存在时返回 null
      */
     AccountState selectByAccountId(@Param("accountId") Long accountId);
+
+    /**
+     * 先锁本租户有效账号身份，再锁状态，保持自动抢登与 outbox 入队的锁顺序一致。
+     *
+     * @param accountId 账号主键
+     * @return 锁定的账号 ID；不存在、已删除或不属当前租户时返回 null
+     */
+    Long lockTakeoverAccount(@Param("accountId") Long accountId);
+
+    /**
+     * 在当前事务锁定本租户账号状态，串行化自动抢登和用户下线。
+     *
+     * @param accountId 账号主键
+     * @return 当前状态；不存在、不属当前租户或正在注销时返回 null
+     */
+    AccountState selectByAccountIdForUpdate(@Param("accountId") Long accountId);
 
     /**
      * 批量读取账号状态行。
@@ -295,6 +312,19 @@ public interface AccountStateMapper {
             @Param("desiredOfflineState") int desiredOfflineState,
             @Param("eligibleBefore") long eligibleBefore,
             @Param("limit") int limit);
+
+    /**
+     * 跨租户只读扫描可自动恢复的被抢登和超时未恢复的抢登中离线账号。
+     *
+     * <p>参照代理失败补偿的后台查询绕过租户插件；命令执行前由上线服务在所属租户再次复核。</p>
+     *
+     * @param stuckBefore 抢登中账号允许恢复的状态同步时间上限(epoch 毫秒)
+     * @param limit 本轮候选数上限
+     * @return 按状态同步时间、状态行 ID 排序的跨租户候选
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountAutoTakeoverCandidate> selectAutoTakeoverCandidates(
+            @Param("stuckBefore") long stuckBefore, @Param("limit") int limit);
 
     /** 在当前租户内单调延长拉人限制，并重算兼容状态投影。 */
     int markPullingRestricted(

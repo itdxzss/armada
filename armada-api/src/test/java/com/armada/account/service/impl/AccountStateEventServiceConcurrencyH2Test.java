@@ -91,6 +91,7 @@ class AccountStateEventServiceConcurrencyH2Test {
                   account_id BIGINT NOT NULL,
                   account_state TINYINT,
                   login_state TINYINT,
+                  offline_since BIGINT,
                   desired_login_state TINYINT,
                   block_reason VARCHAR(255),
                   state_source VARCHAR(64),

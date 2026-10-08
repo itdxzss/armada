@@ -114,7 +114,7 @@
   <update id="markOffline">
     <bind name="deregisteredState" value="@com.armada.account.model.entity.AccountStateCode@DEREGISTERED"/>
     UPDATE account_state SET account_state=#{deregisteredState},desired_login_state=2,login_state=2,state_source='CREATOR_DELETED',
-      invalidated_at=#{now},updated_at=#{now}
+      offline_since=COALESCE(offline_since,#{now}),invalidated_at=#{now},updated_at=#{now}
     WHERE tenant_id=#{tenantId} AND account_id=#{accountId}
   </update>
   <update id="releaseCreator">

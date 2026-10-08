@@ -67,6 +67,7 @@ class AccountPullerRestrictionServiceH2Test {
                   account_id BIGINT NOT NULL,
                   account_state TINYINT,
                   login_state TINYINT,
+                  offline_since BIGINT,
                   risk_status TINYINT,
                   risk_end_time BIGINT,
                   mute_status TINYINT,

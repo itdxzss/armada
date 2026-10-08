@@ -73,7 +73,7 @@ class AccountExportServiceH2Test {
         jdbc.execute("CREATE TABLE account_group(id BIGINT PRIMARY KEY, tenant_id BIGINT, marketing_occupancy_task_id BIGINT)");
         jdbc.execute("CREATE TABLE account(id BIGINT PRIMARY KEY, tenant_id BIGINT, account_group_id BIGINT, owner_user_id BIGINT, dispatched_at BIGINT, deleted_at BIGINT, updated_at BIGINT, ws_phone VARCHAR(32))");
         com.armada.testsupport.CreatorDeletionH2Schema.installIdentityIndex(dataSource);
-        jdbc.execute("CREATE TABLE account_state(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, account_state INT, login_state INT, desired_login_state INT, state_source VARCHAR(40), updated_at BIGINT, last_state_sync_time BIGINT)");
+        jdbc.execute("CREATE TABLE account_state(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, account_state INT, login_state INT, offline_since BIGINT, desired_login_state INT, state_source VARCHAR(40), updated_at BIGINT, last_state_sync_time BIGINT)");
         jdbc.execute("CREATE TABLE account_credential(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, deleted_at BIGINT, updated_at BIGINT)");
         jdbc.execute("CREATE TABLE account_import_batch(id BIGINT PRIMARY KEY, tenant_id BIGINT, import_format INT, device_os INT)");
         jdbc.execute("CREATE TABLE account_import_detail(id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT, account_id BIGINT, batch_id BIGINT, parse_result INT, raw_payload TEXT)");

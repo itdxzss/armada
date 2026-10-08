@@ -17,7 +17,7 @@ CREATE TABLE account (
 );
 CREATE TABLE account_state (
   id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id BIGINT NOT NULL, account_id BIGINT NOT NULL,
-  proxy_failure_count INT, pull_into_group_count INT, login_state TINYINT,
+  proxy_failure_count INT, pull_into_group_count INT, login_state TINYINT, offline_since BIGINT,
   created_at BIGINT, updated_at BIGINT, UNIQUE(tenant_id, account_id)
 );
 CREATE TABLE account_credential (

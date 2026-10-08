@@ -53,6 +53,7 @@
   <update id="markPendingOnlineInternal">
     UPDATE account_state
     SET login_state = #{pendingLoginState},
+        offline_since = COALESCE(offline_since, #{updatedAt}),
         last_state_sync_time = #{updatedAt},
         state_source = #{stateSource},
         updated_at = #{updatedAt}
@@ -67,6 +68,7 @@
   <update id="claimPendingOnlineInternal">
     UPDATE account_state
     SET login_state = #{pendingLoginState},
+        offline_since = COALESCE(offline_since, #{updatedAt}),
         last_state_sync_time = #{updatedAt},
         state_source = #{stateSource},
         updated_at = #{updatedAt}
@@ -98,6 +100,7 @@
   <update id="claimProxyFailedReonlineInternal">
     UPDATE account_state
     SET login_state = #{pendingLoginState},
+        offline_since = COALESCE(offline_since, #{updatedAt}),
         last_state_sync_time = #{updatedAt},
         state_source = #{targetStateSource},
         updated_at = #{updatedAt}
@@ -111,8 +114,11 @@
 
   <!-- account.state_changed 普通状态:只更新登录态与同步元数据,不改 account_state 生命周期列。 -->
   <update id="updateLoginState">
+    <bind name="onlineLoginState" value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE" />
     UPDATE account_state
     SET login_state = #{loginState},
+        offline_since = CASE WHEN #{loginState} = #{onlineLoginState}
+          THEN NULL ELSE COALESCE(offline_since, #{lastStateSyncTime}) END,
         last_state_sync_time = #{lastStateSyncTime},
         state_source = CASE WHEN account_state = 4 THEN state_source ELSE #{stateSource} END,
         updated_at = #{updatedAt}
@@ -122,8 +128,11 @@
 
   <!-- 抢登中状态保持/停止:同时写登录态和账号状态,不改代理展示快照。 -->
   <update id="updateLoginAndAccountState">
+    <bind name="onlineLoginState" value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE" />
     UPDATE account_state
     SET login_state = #{loginState},
+        offline_since = CASE WHEN #{loginState} = #{onlineLoginState}
+          THEN NULL ELSE COALESCE(offline_since, #{lastStateSyncTime}) END,
         account_state = #{accountState},
         last_state_sync_time = #{lastStateSyncTime},
         state_source = #{stateSource},
@@ -147,8 +156,11 @@
 
   <!-- account.state_changed 终态:封禁/解绑需要同时更新 login_state、account_state 与失效时间。 -->
   <update id="updateLifecycleState">
+    <bind name="onlineLoginState" value="@com.armada.account.model.entity.AccountLoginStateCode@ONLINE" />
     UPDATE account_state
     SET login_state = #{loginState},
+        offline_since = CASE WHEN #{loginState} = #{onlineLoginState}
+          THEN NULL ELSE COALESCE(offline_since, #{lastStateSyncTime}) END,
         account_state = #{accountState},
         invalidated_at = CASE
           WHEN #{accountState} = 2 THEN NULL

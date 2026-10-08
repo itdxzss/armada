@@ -141,6 +141,10 @@ armada:
         recovery-delay-ms: ${PROMOTION_CAPI_RECOVERY_DELAY_MS:60000}
   # 进群专用调度线程只做到期扫描和 outbox 入队；batch-size 是单轮上限，不是账号并行上限。
   task:
+    offline-role-wait:
+      enabled: ${PULL_TASK_OFFLINE_ROLE_WAIT_ENABLED:true}
+      replaceable-grace-ms: ${PULL_TASK_REPLACEABLE_ROLE_GRACE_MS:30000}
+      creator-grace-ms: ${PULL_TASK_CREATOR_GRACE_MS:180000}
     join-dispatcher:
       # 紧急停派开关：关闭后不再产生新命令，已提交 outbox 仍由通用 dispatcher 处理。
       enabled: ${JOIN_TASK_DISPATCHER_ENABLED:true}
@@ -275,6 +279,15 @@ armada:
     ready-poll-interval-ms: ${ARMADA_PROTOCOL_RESTART_READY_POLL_INTERVAL_MS:1000}
     ready-request-timeout-ms: ${ARMADA_PROTOCOL_RESTART_READY_REQUEST_TIMEOUT_MS:2000}
   account:
+    auto-takeover:
+      enabled: ${ACCOUNT_AUTO_TAKEOVER_ENABLED:true}
+      breaker-window-ms: ${ACCOUNT_AUTO_TAKEOVER_BREAKER_WINDOW_MS:600000}
+      breaker-max-kicks: ${ACCOUNT_AUTO_TAKEOVER_BREAKER_MAX_KICKS:10}
+      scan:
+        enabled: ${ACCOUNT_AUTO_TAKEOVER_SCAN_ENABLED:true}
+        fixed-delay-ms: ${ACCOUNT_AUTO_TAKEOVER_SCAN_FIXED_DELAY_MS:60000}
+        batch-size: ${ACCOUNT_AUTO_TAKEOVER_SCAN_BATCH_SIZE:20}
+        stuck-taking-over-ms: ${ACCOUNT_AUTO_TAKEOVER_STUCK_MS:30000}
     import-online-dispatcher:
       scheduler:
         enabled: ${ACCOUNT_IMPORT_ONLINE_DISPATCH_SCHEDULER_ENABLED:true}

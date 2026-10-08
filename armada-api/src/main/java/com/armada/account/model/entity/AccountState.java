@@ -22,6 +22,9 @@ public class AccountState {
     /** 登录状态:1在线 2离线 3待上线;NULL=未上报/未发起上线。 */
     private Integer loginState;
 
+    /** 本次连续离线起点(epoch 毫秒);在线时为 NULL，重连及待上线期间保留原起点。 */
+    private Long offlineSince;
+
     /** 期望登录状态:1在线 2离线;NULL=历史未建立显式意图。 */
     private Integer desiredLoginState;
 
@@ -135,6 +138,16 @@ public class AccountState {
 
     public void setLoginState(Integer loginState) {
         this.loginState = loginState;
+    }
+
+    /** @return 本次连续离线起点(epoch 毫秒)，在线时为 NULL */
+    public Long getOfflineSince() {
+        return offlineSince;
+    }
+
+    /** @param offlineSince 本次连续离线起点(epoch 毫秒)，在线时传 NULL */
+    public void setOfflineSince(Long offlineSince) {
+        this.offlineSince = offlineSince;
     }
 
     public Integer getDesiredLoginState() {

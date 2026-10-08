@@ -40,6 +40,7 @@ import com.armada.task.model.enums.PullTaskProtocolOutcome;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +76,8 @@ class PullTaskProtocolResultCallbackServiceImplTest {
                         actionMapper, callMapper,
                         mock(PullTaskPullCallMemberAttemptMapper.class),
                         materialMapper, accountMapper),
-                executionMapper, participantResultService, delayPolicy);
+                executionMapper, participantResultService, delayPolicy,
+                disabledOfflineRoleWait());
     }
 
     @Test
@@ -265,6 +267,12 @@ class PullTaskProtocolResultCallbackServiceImplTest {
         assertThat(change.getValue().targetStatus())
                 .isEqualTo(PullTaskMaterialAdminStatus.SUCCESS.code());
         verify(executionMapper, never()).transitionProtocolResult(any());
+    }
+
+    private static PullTaskOfflineRoleWaitProperties disabledOfflineRoleWait() {
+        PullTaskOfflineRoleWaitProperties properties = new PullTaskOfflineRoleWaitProperties();
+        properties.setEnabled(false);
+        return properties;
     }
 
     private void stubAccounts(long executionId, List<PullTaskGroupAccount> rows) {

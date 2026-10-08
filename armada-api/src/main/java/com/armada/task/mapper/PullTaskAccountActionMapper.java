@@ -146,6 +146,20 @@ public interface PullTaskAccountActionMapper {
                       @Param("now") long now);
 
     /**
+     * 明确离线拒绝后的原动作重试；旧存储序号 0 已作为协议第 1 次执行，重发从 2 开始。
+     * 仅由任务离线等待开关开启的调用方使用，其他提交仍保持原来的计数与字段行为。
+     * @param id 原动作 ID
+     * @param expectedStatuses 允许重发的当前状态
+     * @param commandId 新协议命令 ID
+     * @param now 提交时间，毫秒
+     * @return 1 表示提交成功；0 表示状态或离线拒绝事实已变化
+     */
+    int submitOfflineRetryAttempt(@Param("id") long id,
+                                  @Param("expectedStatuses") List<Integer> expectedStatuses,
+                                  @Param("commandId") String commandId,
+                                  @Param("now") long now);
+
+    /**
      * 按 commandId 与 attemptNo 收敛管理员设置结果，拒绝迟到旧尝试覆盖当前状态。
      *
      * @return 1 表示结果生效；0 表示命令、尝试序号或状态已变化

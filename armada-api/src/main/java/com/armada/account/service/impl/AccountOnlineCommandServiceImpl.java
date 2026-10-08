@@ -235,11 +235,44 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         return !SOURCE_LOGIN_REPLACED_TAKEOVER.equals(source);
     }
 
+    /** 所属执行行专用恢复入口；占用、代理和带归属的 outbox 命令在同一事务提交。 */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public AccountOnlineVO reonlineReservedCreator(long accountId, long pullTaskId, long groupExecutionId) {
+        if (!takeoverPolicy.isEnabled() || stateMapper.lockTakeoverAccount(accountId) == null) {
+            return skippedTakeoverVO(accountId);
+        }
+        AccountState state = stateMapper.selectByAccountIdForUpdate(accountId);
+        if (!takeoverPolicy.canReonlineReservedCreator(accountId, pullTaskId, groupExecutionId, state)
+                || stateMapper.claimReservedCreatorReonline(accountId, System.currentTimeMillis()) != 1) {
+            return skippedTakeoverVO(accountId);
+        }
+        return onlineWithSource(accountId, new OnlineSourceContext(SOURCE_LOGIN_REPLACED_TAKEOVER,
+                null, null, null, new ReservedCreatorOwnership(pullTaskId, groupExecutionId)));
+    }
+
+    /** 可空的预留归属只供执行行恢复命令透传，不影响普通账号 payload。 */
+    private record ReservedCreatorOwnership(long taskId, long executionId) { }
+
+    /** 上线来源、代理失败事实和可选预留归属，避免增加上线方法的位置参数。 */
+    private record OnlineSourceContext(String source, String failedOnlineAttemptId, Long failedProxyId,
+                                       Long failedAt, ReservedCreatorOwnership ownership) { }
+
     private AccountOnlineVO onlineWithSource(Long accountId,
                                              String source,
                                              String failedOnlineAttemptId,
                                              Long failedProxyId,
                                              Long failedAt) {
+        return onlineWithSource(accountId, new OnlineSourceContext(source, failedOnlineAttemptId,
+                failedProxyId, failedAt, null));
+    }
+
+    private AccountOnlineVO onlineWithSource(Long accountId, OnlineSourceContext context) {
+        String source = context.source();
+        String failedOnlineAttemptId = context.failedOnlineAttemptId();
+        Long failedProxyId = context.failedProxyId();
+        Long failedAt = context.failedAt();
+        ReservedCreatorOwnership ownership = context.ownership();
         log.info("账号上线开始 accountId={}", accountId);
 
         // 1. 只允许未软删账号继续上线,并读取它对应的自托管凭据。
@@ -289,7 +322,9 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
                     isBusinessAccount(account),
                     declaredAccountType(account),
                     shouldDetectAccountType(account),
-                    deviceOs(account));
+                    deviceOs(account),
+                    ownership == null ? null : ownership.taskId(),
+                    ownership == null ? null : ownership.executionId());
             int snapshotUpdated = updateProxySnapshots(List.of(new IpProxyAccountAllocation(
                     account.getId(), allocation.proxyId(), allocation.endpoint(), allocation.proxySource())));
             if (snapshotUpdated != 1) {

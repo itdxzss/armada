@@ -2,7 +2,7 @@
 
 - 日期 / 分支 / worktree: 2026-10-08 / `1.0.3-snapshot` / 主仓库 `/Users/daishuaishuai/IdeaProjects/armada`；用户明确要求不创建 worktree、不切分支。
 - 需求来源: 用户本轮实施指令及 `docs/superpowers/specs/2026-10-08-takeover-account-business-continuity-design.md` r2。
-- 状态: 进行中；阶段 1、2 完成，准备阶段 3。用户确认的 7.2 重读门禁及终止直返约束已写入设计。
+- 状态: 进行中；阶段 1–3 完成，准备阶段 4。用户确认的 7.2 重读门禁及终止直返约束已写入设计。
 
 ## 目标（一句话）
 
@@ -12,7 +12,7 @@
 
 - [x] 阶段 1：V215 数据结构、两个配置类及全 profile 装配、离线起点维护、真实 Mapper H2 测试、设计文档提交。
 - [x] 阶段 2：自动抢登、熔断、补偿扫描、状态与意图保护、提交后续上线。
-- [ ] 阶段 3：角色可用性、建群人/预留建群人恢复、拉手超时与自动补号、上线唤醒。
+- [x] 阶段 3：角色可用性、建群人/预留建群人恢复、拉手超时与自动补号、上线唤醒。
 - [ ] 阶段 4：管理宽限、两个开关回归、全量测试。
 
 ## 关键设计决策
@@ -98,3 +98,30 @@ JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Conte
 ## 遗留 / 跟进
 
 - 设计“必须核实”项如与代码不符，按用户要求暂停并报告差异与建议，获得确认后再继续。
+
+### 阶段 3：建群人、拉手与预留恢复（完成）
+
+- 角色可用性批量查询真实 account/state/breaker/reservation，以终态、用户下线、熔断优先；预留查询匹配账号和身份手机别名。
+- 预留恢复锁定账号/状态并原子抢占待上线，只透传所属 task/execution；普通上线 payload 的逐字节一致性 H2 验证通过。
+- 建群及新群提权共用固定建群人闸门；等待成功提交后用新事务发起预留恢复，异常保留等待事实；终止后直返并同事务释放原 RESERVED。
+- 拉手实际超时移出后，先重读角色避免恢复 REMOVED，再重读并锁定执行行，复核状态/阶段/暂停/租约，后续 CAS 使用新 version。任一复核失败整笔回滚。
+- `PULLER_OFFLINE_TIMEOUT` 已加入粘性失效原因；真实 H2 同组覆盖 G30–G34。自动补号验证新角色插入及原 wave/call/attempt 的重绑定，排除历史账号。
+- ONLINE 事件在拉手资格判断之前唤醒建群人/管理员等待；任务开关关闭完全不发新增 wake SQL。
+- 7.4 审查：管理/拉手进群、管理员提权和迟到料子提权明确离线拒绝保留待执行事实；建群拒绝不加 attempt。标准拉人 UNKNOWN/NOT_STARTED 原实现已扣除未执行尝试、不计失败，无需改动；FAILED/STARTED 的执行事实不被原因字符串覆盖。通用 handleAccountAction 在生产无调用，未扩大遗留路径改动。
+- E27 文案与旧实现核对：原 failCreate 的 ACCOUNT_NOT_ONLINE 属 DEFINITELY_NOT_CREATED，实际 reason 为 GROUP_CREATE_FAILED 且 attempt+1；GROUP_CREATOR_UNAVAILABLE 是旧建群后闸门。遵循用户最高约束“关闭与改动前一致”，关闭回归保留真实原值，设计 E27 同步澄清。
+- 类长度边界：存量 GroupCreateTransactionService 已超过 800 行，本次新判断集中在独立 Gate，只在既有入口增加门控，没有无关拆分或重排。
+- RED：账号快照缺类 3 errors（3.021 s）；任务 Gate/Policy 缺类 4 errors（9.708 s）；离线回调新增依赖缺构造 3 errors（18.774 s）；迟到料子结果新增依赖缺构造 1 error（21.358 s）。完整日志位于 `/private/tmp/armada-takeover-phase3-{account-red,task-red,offline-result-red,late-red}.log`。
+- 中间失败全部保留：green1 缺原因枚举导致 compile 失败；green2 遗漏既有手动构造导致 testCompile 失败；green3 113 tests / 1 failure / 18 errors（fixture 缺必填列，及迟到进群阶段回退）；green4 60 tests / 3 failures / 0 errors（建群拒绝计数及在线终态拉手恢复顺序），对应真实行为已修复。
+- 扩展回归 green5：540 tests / 9 failures / 0 errors，失败均来自既有 EndToEnd 参数化闭环；新测试均通过，仍在定位，不将本轮报告为通过。日志 `/private/tmp/armada-takeover-phase3-green5.log`。
+
+- green5 的 9 个 EndToEnd 失败定位为既有 fixture：HEAD 中 `findOnlineProtocolRefs(anyList())` 永远仅返回 manager，而未修改的 PullerInvite 会校验拉手在线。fixture 改为按请求 ID 返回已设定的 manager/puller/station，原业务断言不变；green6 EndToEnd 17 项全部通过。
+- 重发闭环新增 RED：13 tests / 4 failures / 0 errors（`phase3-retry-red.log`，18.194 s），分别复现同步结果未标 retryable、新旧动作未递增代次及未清元数据。开启路径复用原 action，独立 `submitOfflineRetryAttempt` 更新命令/代次并清理由，原 `submitAttempt` SQL 逐字保留；关闭路径仍用 `markSubmitted`，覆盖开关回滚时遗留离线 PENDING 数据。
+- green6：30 tests / 0 failures / 0 errors / 0 skipped（23.846 s），包含原动作重发与端到端回归；随后补充关闭路径及专用 SQL 隔离，纳入最终阶段回归。
+
+- 阶段 2 commit：`67f88972d1a66427750143d08b667979a0b4bf6a`。
+- 阶段 3 最终 GREEN：543 tests / 0 failures / 0 errors / 0 skipped，BUILD SUCCESS（30.143 s）。新 9 个测试类合计 123 项；完整日志 `/private/tmp/armada-takeover-phase3-green7.log`。全部 5 份新增/修改 Mapper XML 经 xmllint，git diff --check 通过。
+
+```bash
+cd armada-api
+JAVA_HOME=/Users/daishuaishuai/Library/Java/JavaVirtualMachines/ms-17.0.19/Contents/Home mvn -DargLine=-javaagent:/Users/daishuaishuai/.m2/repository/net/bytebuddy/byte-buddy-agent/1.14.19/byte-buddy-agent-1.14.19.jar -Dtest='AccountRoleAvailabilityH2Test,AccountCreatorReservationReleaseH2Test,AccountReservedCreatorReonlineH2Test,PullTaskRoleReconnectWakeH2Test,PullTaskOfflineRoleWaitPolicyTest,PullTaskCreatorOfflineGateH2Test,PullTaskOfflineResourceRecoveryH2Test,PullTaskManagerJoinOfflineH2Test,PullTaskLateMaterialAdminOfflineH2Test,AccountProtocolLookupServiceTest,AccountCreatorDeletionServiceInMemoryTest,PullTaskGroupCreateTransactionIntegrationTest,PullTaskResourceRecoveryTransactionIntegrationTest,PullTaskExecutionEndToEndIntegrationTest,PullTaskStickyPullerTransactionServiceTest,PullTaskPullerAccountStateServiceImplTest,PullTaskPullerOnlineWindowIntegrationTest,PullTaskManagerJoinResultServiceImplTest,PullTaskManagerJoinTransactionIntegrationTest,PullTaskManagerJoinTransactionServiceTest,PullTaskManagerAdminResultServiceImplTest,PullTaskProtocolResultCallbackServiceImplTest,PullTaskStandardExecutionLifecycleServiceTest,ProtocolCommandOutboxServiceImplTest,AccountTakeoverPolicyH2Test,AccountAutoTakeoverDispatcherH2Test,AccountTakeoverStateEventH2Test,AccountAutoTakeoverOnlineH2Test,AccountTakeoverProxySnapshotDialectTest,AccountOnlineCommandServiceImplTest,AccountStateEventServiceImplTest,AccountStateEventServiceConcurrencyH2Test,AccountBatchLifecycleTransactionH2Test' test
+```

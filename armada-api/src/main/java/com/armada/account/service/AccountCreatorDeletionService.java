@@ -9,6 +9,13 @@ public interface AccountCreatorDeletionService {
     void validateCreatorGroup(Long groupId);
     /** 原子预留；其它任务、角色或注销记录占用时返回 false。 */
     boolean reserve(CreatorReservationRequest request);
+    /**
+     * 任务放弃建群人时解除当前租户、本任务执行行尚未开始注销的预留。
+     * @param taskId 原预留任务
+     * @param executionId 原预留执行行
+     * @return 仅成功释放 RESERVED 时为 true；不存在、归属不符或已开始注销时为 false
+     */
+    boolean releaseReservation(long taskId, long executionId);
     /** 返回当前租户本执行行已冻结且尚未注销的账号引用。 */
     Optional<ProtocolAccountRef> findReservedCreator(long executionId);
     /** 计算规范化账号身份哈希，不记录号码。 */

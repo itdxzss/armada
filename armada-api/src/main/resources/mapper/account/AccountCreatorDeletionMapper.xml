@@ -42,6 +42,11 @@
     VALUES(#{accountId},#{tenantId},#{taskId},#{groupExecutionId},#{identityHash},#{creatorPhone},
       #{protocolAccountId},#{createOperationId},#{lifecycle},#{createdAt},#{updatedAt})
   </insert>
+  <delete id="releaseReservation">
+    DELETE FROM account_creator_deletion
+    WHERE tenant_id=#{tenantId} AND task_id=#{taskId} AND group_execution_id=#{executionId}
+      AND lifecycle='RESERVED'
+  </delete>
   <!-- 所有账号别名一并复核。仅返回布尔值；不把跨租户身份或任务内容暴露给业务。 -->
   <sql id="sameIdentityIds">
     SELECT id FROM account WHERE creator_deletion_identity_phone=#{creatorPhone}

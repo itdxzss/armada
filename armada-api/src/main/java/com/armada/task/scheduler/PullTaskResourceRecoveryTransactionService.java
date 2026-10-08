@@ -1,5 +1,7 @@
 package com.armada.task.scheduler;
 
+import com.armada.account.model.AccountRoleAvailability;
+import com.armada.task.model.PullTaskOfflineRoleWaitPolicy;
 import com.armada.task.model.enums.PullTaskAccountEntryMode;
 import com.armada.task.model.enums.PullTaskSelectionMode;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
@@ -30,6 +32,7 @@ import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.model.PullTaskPullerSlotPolicy;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
@@ -88,7 +91,19 @@ public class PullTaskResourceRecoveryTransactionService {
                 release(candidate, lockOwner, now);
                 return PullTaskExecutionDispatchResult.LOST;
             }
-            ResourceCheck check = check(candidate, parent, setting, now);
+            ResourceCheck check = check(candidate, parent, setting, now, retryDelayMs);
+            if (check.terminalResult() != null) {
+                return check.terminalResult();
+            }
+            if (check.pullerExpired()) {
+                PullTaskGroupExecution refreshed = resources.executionMapper()
+                        .selectByIdForUpdate(candidate.getId());
+                if (!validAfterExpiration(refreshed, candidate, lockOwner, now)) {
+                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                    return PullTaskExecutionDispatchResult.LOST;
+                }
+                candidate = refreshed;
+            }
             if (!check.ready()) {
                 return defer(candidate, check, now, retryDelayMs);
             }
@@ -97,7 +112,7 @@ public class PullTaskResourceRecoveryTransactionService {
                     setting.getConcurrentGroupCount(), now)) {
                 return deferForSlot(candidate, now, retryDelayMs);
             }
-            return resume(candidate, parent, now);
+            return resume(candidate, parent, check.needsPullerEntry(), now);
         } finally {
             restoreTenant(previousTenant);
         }
@@ -107,14 +122,15 @@ public class PullTaskResourceRecoveryTransactionService {
             PullTaskGroupExecution candidate,
             PullTask parent,
             PullTaskStandardSetting setting,
-            long now) {
+            long now,
+            long retryDelayMs) {
         if (Objects.equals(candidate.getWaitResourceType(),
                 PullTaskWaitResourceType.MANAGER.code())) {
-            return managerCheck(candidate, setting, creatorAccountIds(parent, candidate.getId()), now);
+            return managerCheck(candidate, parent, setting, now);
         }
         if (Objects.equals(candidate.getWaitResourceType(),
                 PullTaskWaitResourceType.PULLER.code())) {
-            return pullerCheck(candidate, setting, now);
+            return pullerCheck(candidate, setting, now, retryDelayMs);
         }
         if (Objects.equals(candidate.getWaitResourceType(),
                 PullTaskWaitResourceType.STATION.code())) {
@@ -126,9 +142,10 @@ public class PullTaskResourceRecoveryTransactionService {
 
     private ResourceCheck managerCheck(
             PullTaskGroupExecution candidate,
+            PullTask parent,
             PullTaskStandardSetting setting,
-            Set<Long> creatorAccountIds,
             long now) {
+        Set<Long> creatorAccountIds = creatorAccountIds(parent, candidate.getId());
         List<PullTaskGroupAccount> stored = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.MANAGER.code());
         // 建群人不参与次管理员后续执行；旧版本生成的冲突角色也必须退出，保留其建群人事实。
@@ -161,7 +178,7 @@ public class PullTaskResourceRecoveryTransactionService {
             return ResourceCheck.available();
         }
         if (candidate.getStage() == PullTaskExecutionStage.MANAGER_ADMIN.code()) {
-            return managerAdminCheck(candidate, usable, eligibleIds);
+            return managerAdminCheck(candidate, parent, usable, eligibleIds, now);
         }
         return usable.stream().anyMatch(row -> managerSupportsStage(row, candidate.getStage()))
                 ? ResourceCheck.available() : managerWaiting(0);
@@ -221,8 +238,10 @@ public class PullTaskResourceRecoveryTransactionService {
 
     private ResourceCheck managerAdminCheck(
             PullTaskGroupExecution candidate,
+            PullTask parent,
             List<PullTaskGroupAccount> managers,
-            List<Long> activeIds) {
+            List<Long> activeIds,
+            long now) {
         PullTaskGroupAccount manager = managers.stream()
                 .filter(row -> activeIds.contains(row.getAccountId()))
                 .filter(row -> Objects.equals(row.getAvailabilityStatus(),
@@ -247,6 +266,16 @@ public class PullTaskResourceRecoveryTransactionService {
         if (selectable) {
             return ResourceCheck.available();
         }
+        if ((candidates == null || candidates.isEmpty()) && resources.creatorGate().isEnabled()
+                && PullTaskCreationMode.fromNullable(parent.getCreationMode()).isNewGroup()) {
+            PullTaskCreatorOfflineGate.Result creator = resources.creatorGate().evaluate(candidate, now);
+            if (creator.kind() == PullTaskCreatorOfflineGate.Kind.GIVE_UP) {
+                return ResourceCheck.terminal(resources.creatorGate().terminate(candidate, now));
+            }
+            if (creator.kind() == PullTaskCreatorOfflineGate.Kind.WAIT) {
+                return ResourceCheck.waitingCreator(creator);
+            }
+        }
         PullTaskExecutionReasonCode reason = candidates == null || candidates.isEmpty()
                 ? PullTaskExecutionReasonCode.MANAGER_ADMIN_ACTOR_UNAVAILABLE
                 : PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED;
@@ -256,7 +285,8 @@ public class PullTaskResourceRecoveryTransactionService {
     private ResourceCheck pullerCheck(
             PullTaskGroupExecution candidate,
             PullTaskStandardSetting setting,
-            long now) {
+            long now,
+            long retryDelayMs) {
         List<PullTaskGroupAccount> stored = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
         List<ProtocolAccountRef> validated = setting.getPullerGroupId() == null
@@ -276,6 +306,12 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(Objects::nonNull)
                 .map(ProtocolAccountRef::armadaAccountId)
                 .toList());
+        // 旧在线资格查询不包含停号意图和熔断；先判定离线角色，不能先恢复后跳过终态。
+        PullerExpiration expiration = expireOfflinePullers(stored, now);
+        if (expiration.expired()) {
+            stored = accountMapper.selectByExecutionAndRole(
+                    candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
+        }
         restoreValidatedPullers(stored, validatedIds, now);
         List<PullTaskGroupAccount> refreshed = accountMapper.selectByExecutionAndRole(
                 candidate.getId(), PullTaskGroupAccountRole.PULLER.code());
@@ -286,17 +322,66 @@ public class PullTaskResourceRecoveryTransactionService {
                 == PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
                 || candidate.getStage() == PullTaskExecutionStage.DIRECT_PULLER_JOIN.code();
         long occupied = refreshed.stream().filter(row -> PullTaskPullerSlotPolicy.occupiesSlot(row, validatedIds)).count();
-        boolean ready = available > 0 || stageCanSelect && occupied < planned && !validatedIds.isEmpty();
+        Set<Long> attempted = new LinkedHashSet<>(refreshed.stream()
+                .map(PullTaskGroupAccount::getAccountId).toList());
+        boolean hasSelectable = validated.stream().filter(Objects::nonNull)
+                .anyMatch(ref -> !attempted.contains(ref.armadaAccountId()));
+        boolean needsEntry = resources.offlineRoleWaitProperties().isEnabled()
+                && occupied < planned && hasSelectable;
+        boolean ready = available > 0 || (resources.offlineRoleWaitProperties().isEnabled()
+                ? (stageCanSelect || candidate.getStage() == PullTaskExecutionStage.PULL_EXECUTION.code())
+                    && needsEntry
+                : stageCanSelect && occupied < planned && !validatedIds.isEmpty());
         if (ready) {
-            return ResourceCheck.available();
+            return ResourceCheck.available(expiration.expired(), needsEntry);
         }
         int missing = Math.max(planned - available, 0);
         if (refreshed.stream().anyMatch(PullTaskPullerSlotPolicy::waitingForOnline)) {
+            Long nextRunAt = expiration.waitUntil() == null ? null
+                    : Math.min(Math.addExact(now, retryDelayMs), expiration.waitUntil());
             return ResourceCheck.waiting(PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name(),
-                    PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.message());
+                    PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.message(), nextRunAt, expiration.expired());
         }
         return ResourceCheck.waiting(
-                "PULLER_UNAVAILABLE", "当前没有可用拉手，缺口人数=" + missing);
+                "PULLER_UNAVAILABLE", "当前没有可用拉手，缺口人数=" + missing, null, expiration.expired());
+    }
+
+    private PullerExpiration expireOfflinePullers(List<PullTaskGroupAccount> pullers, long now) {
+        if (!resources.offlineRoleWaitProperties().isEnabled()) {
+            return new PullerExpiration(false, null);
+        }
+        List<PullTaskGroupAccount> waiting = pullers.stream()
+                .filter(PullTaskPullerSlotPolicy::waitingForOnline)
+                .filter(row -> !PullTaskPullerSlotPolicy.awaitingJoinResult(row)).toList();
+        if (waiting.isEmpty()) {
+            return new PullerExpiration(false, null);
+        }
+        Map<Long, AccountRoleAvailability> availability = resources.accountLookup().findRoleAvailability(
+                waiting.stream().map(PullTaskGroupAccount::getAccountId).distinct().toList());
+        boolean expired = false;
+        Long waitUntil = null;
+        for (PullTaskGroupAccount row : waiting) {
+            PullTaskOfflineRoleWaitPolicy.Decision decision = PullTaskOfflineRoleWaitPolicy.decide(
+                    availability == null ? null : availability.get(row.getAccountId()),
+                    resources.offlineRoleWaitProperties().getReplaceableGraceMs(), now);
+            if (decision.kind() == PullTaskOfflineRoleWaitPolicy.Kind.GIVE_UP) {
+                resources.pullerAccountStates().expireOfflineRole(row, now);
+                expired = true;
+            } else if (decision.kind() == PullTaskOfflineRoleWaitPolicy.Kind.WAIT) {
+                waitUntil = waitUntil == null ? decision.waitUntil() : Math.min(waitUntil, decision.waitUntil());
+            }
+        }
+        return new PullerExpiration(expired, waitUntil);
+    }
+
+    private static boolean validAfterExpiration(PullTaskGroupExecution current,
+            PullTaskGroupExecution claimed, String lockOwner, long now) {
+        return current != null
+                && Objects.equals(current.getExecutionStatus(), PullTaskExecutionStatus.WAIT_RESOURCE.code())
+                && Objects.equals(current.getStage(), claimed.getStage())
+                && Objects.equals(current.getManualPaused(), 0)
+                && lockOwner != null && lockOwner.equals(current.getLockOwner())
+                && current.getLockExpiresAt() != null && current.getLockExpiresAt() > now;
     }
 
     private ResourceCheck stationCheck(
@@ -372,15 +457,15 @@ public class PullTaskResourceRecoveryTransactionService {
     }
 
     private PullTaskExecutionDispatchResult resume(
-            PullTaskGroupExecution candidate, PullTask parent, long now) {
+            PullTaskGroupExecution candidate, PullTask parent, boolean needsPullerEntry, long now) {
         PullTaskGroupExecution update = transition(candidate, now);
         update.setExecutionStatus(PullTaskExecutionStatus.EXECUTING.code());
-        update.setStage(recoveryStage(candidate, parent));
+        update.setStage(recoveryStage(candidate, parent, needsPullerEntry));
         update.setNextRunAt(0L);
         return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.ADVANCED);
     }
 
-    private int recoveryStage(PullTaskGroupExecution candidate, PullTask parent) {
+    private int recoveryStage(PullTaskGroupExecution candidate, PullTask parent, boolean needsPullerEntry) {
         if (Objects.equals(candidate.getWaitResourceType(), PullTaskWaitResourceType.MANAGER.code())) {
             boolean needsEntry = accountMapper.selectByExecutionAndRole(candidate.getId(),
                             PullTaskGroupAccountRole.MANAGER.code()).stream()
@@ -405,7 +490,7 @@ public class PullTaskResourceRecoveryTransactionService {
                         || Objects.equals(row.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.JOIN_FAILED.code())
                         && PullTaskPullerSlotPolicy.isTemporaryOfflineReason(row.getMembershipReasonCode())
                         || PullTaskPullerSlotPolicy.awaitingJoinResult(row));
-        if (!needsEntry) {
+        if (!needsEntry && !needsPullerEntry) {
             return candidate.getStage();
         }
         return PullTaskCreationMode.fromNullable(parent.getCreationMode()).usesDirectPullerFlow()
@@ -461,8 +546,13 @@ public class PullTaskResourceRecoveryTransactionService {
         update.setWaitResourceType(candidate.getWaitResourceType());
         update.setReasonCode(check.reasonCode());
         update.setReasonMessage(check.reasonMessage());
-        update.setNextRunAt(Math.addExact(now, retryDelayMs));
-        return transitionWaiting(update, candidate.getStage(), PullTaskExecutionDispatchResult.DEFERRED);
+        update.setNextRunAt(check.nextRunAt() == null ? Math.addExact(now, retryDelayMs) : check.nextRunAt());
+        PullTaskExecutionDispatchResult result = transitionWaiting(
+                update, candidate.getStage(), PullTaskExecutionDispatchResult.DEFERRED);
+        if (result == PullTaskExecutionDispatchResult.DEFERRED && check.creatorWait() != null) {
+            resources.creatorGate().requestRecoveryAfterCommit(candidate, check.creatorWait());
+        }
+        return result;
     }
 
     private PullTaskExecutionDispatchResult transitionWaiting(
@@ -565,14 +655,40 @@ public class PullTaskResourceRecoveryTransactionService {
     private record ResourceCheck(
             boolean ready,
             String reasonCode,
-            String reasonMessage) {
+            String reasonMessage,
+            Long nextRunAt,
+            boolean pullerExpired,
+            boolean needsPullerEntry,
+            PullTaskCreatorOfflineGate.Result creatorWait,
+            PullTaskExecutionDispatchResult terminalResult) {
 
         private static ResourceCheck available() {
-            return new ResourceCheck(true, null, null);
+            return available(false, false);
+        }
+
+        private static ResourceCheck available(boolean pullerExpired, boolean needsEntry) {
+            return new ResourceCheck(true, null, null, null, pullerExpired, needsEntry, null, null);
         }
 
         private static ResourceCheck waiting(String reasonCode, String reasonMessage) {
-            return new ResourceCheck(false, reasonCode, reasonMessage);
+            return waiting(reasonCode, reasonMessage, null, false);
         }
+
+        private static ResourceCheck waiting(String reasonCode, String reasonMessage, Long nextRunAt, boolean expired) {
+            return new ResourceCheck(false, reasonCode, reasonMessage, nextRunAt, expired, false, null, null);
+        }
+
+        private static ResourceCheck waitingCreator(PullTaskCreatorOfflineGate.Result creator) {
+            return new ResourceCheck(false, PullTaskExecutionReasonCode.GROUP_CREATOR_RECONNECTING.name(),
+                    PullTaskExecutionReasonCode.GROUP_CREATOR_RECONNECTING.message(), creator.waitUntil(),
+                    false, false, creator, null);
+        }
+
+        private static ResourceCheck terminal(PullTaskExecutionDispatchResult result) {
+            return new ResourceCheck(false, null, null, null, false, false, null, result);
+        }
+    }
+
+    private record PullerExpiration(boolean expired, Long waitUntil) {
     }
 }

@@ -72,6 +72,21 @@ public class AccountCreatorDeletionServiceImpl implements AccountCreatorDeletion
         }
     }
 
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean releaseReservation(long taskId, long executionId) {
+        long tenantId = currentTenant();
+        AccountCreatorDeletion row = mapper.byExecution(tenantId, executionId);
+        if (row == null || !Objects.equals(row.getTaskId(), taskId)
+                || !AccountCreatorDeletionLifecycle.RESERVED.name().equals(row.getLifecycle())) {
+            return false;
+        }
+        // 与预留、开始注销采用相同身份账号锁顺序；DELETE 再以当前读复核不可逆生命周期。
+        mapper.lockIdentityAliases(row.getCreatorPhone());
+        return mapper.releaseReservation(tenantId, taskId, executionId) == 1;
+    }
+
     @Override
     public Optional<ProtocolAccountRef> findReservedCreator(long executionId) {
         long tenantId = currentTenant();

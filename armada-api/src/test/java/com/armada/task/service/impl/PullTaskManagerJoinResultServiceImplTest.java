@@ -35,6 +35,7 @@ import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -52,7 +53,7 @@ class PullTaskManagerJoinResultServiceImplTest {
     private final GroupInviteLinkService inviteLinkService = mock(GroupInviteLinkService.class);
     private final PullTaskManagerJoinResultServiceImpl service = new PullTaskManagerJoinResultServiceImpl(
             actionMapper, accountMapper, executionMapper, completionService, properties,
-            delayPolicy, inviteLinkService);
+            delayPolicy, inviteLinkService, new PullTaskOfflineRoleWaitProperties());
 
     @AfterEach
     void clearTenant() {

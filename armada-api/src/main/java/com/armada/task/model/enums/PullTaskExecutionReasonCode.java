@@ -6,6 +6,12 @@ public enum PullTaskExecutionReasonCode {
     /** 建群人分组当前没有可用于同步建群调用的在线可用账号。 */
     GROUP_CREATOR_UNAVAILABLE("当前没有可用建群人"),
 
+    /** 固定建群人在连续离线宽限期内，保留角色等待恢复。 */
+    GROUP_CREATOR_RECONNECTING("建群人掉线，等待重新上线"),
+
+    /** 固定建群人超时或不可恢复，终止本群执行。 */
+    GROUP_CREATOR_OFFLINE("建群人离线超时或不可恢复，本群执行失败"),
+
     /** 协议明确确认本次没有创建群，可继续复用同一幂等键重试。 */
     GROUP_CREATE_FAILED("建群明确失败，稍后重试"),
 
@@ -35,6 +41,9 @@ public enum PullTaskExecutionReasonCode {
 
     /** 管理分组当前没有可执行协议动作的在线可用账号。 */
     MANAGER_UNAVAILABLE("当前没有可用管理员"),
+
+    /** 管理员在连续离线宽限期内，保留原账号等待恢复。 */
+    MANAGER_RECONNECTING("管理员掉线，等待重新上线"),
 
     /** 资源已通过本轮复核，但尚未获得父任务的并发执行名额。 */
     EXECUTION_SLOT_UNAVAILABLE("资源已就绪，等待任务并发执行名额"),

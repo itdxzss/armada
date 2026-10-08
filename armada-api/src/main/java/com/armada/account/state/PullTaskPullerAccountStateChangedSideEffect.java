@@ -52,6 +52,7 @@ public class PullTaskPullerAccountStateChangedSideEffect
             AccountStateChangedEvent event,
             long occurredAt) {
         if (STATE_ONLINE.equals(normalized(event.to()))) {
+            pullTasks.wakeRoleWaiters(event.tenantId(), account.getId(), occurredAt);
             boolean eligible = accountLookup.findEligiblePullerProtocolRefs(List.of(account.getId()))
                     .stream().anyMatch(ref -> Objects.equals(ref.armadaAccountId(), account.getId()));
             if (eligible) {

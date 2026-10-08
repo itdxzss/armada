@@ -431,7 +431,7 @@ WHERE e.execution_status IN (2, 3)
 **E. 开关回归（缺口 1 回归）**
 
 26. 账号侧开关关闭：2 号账号被挤 → 落 6；7 号账号被挤 → 保持 7 并续上线（旧行为）；3 号账号被挤 → 落 6（旧行为）；不写熔断表；扫描返回 0；`takeoverBatch` 不调用 reset；`reonlineReservedCreator` 跳过。
-27. 任务侧开关关闭：建群人离线时仍发建群命令，失败后 defer `GROUP_CREATOR_UNAVAILABLE`（旧行为）；建群后建群人离线时无限 defer；拉手不会超时移出；`PULL_EXECUTION` 不自动补号；管理离线立即换号；上线事件不触发新的唤醒 SQL。
+27. 任务侧开关关闭：建群人离线时仍发建群命令，明确离线拒绝后仍按旧实现增加 attempt 并 defer `GROUP_CREATE_FAILED`；建群后建群人离线时无限 defer `GROUP_CREATOR_UNAVAILABLE`（按真实基线澄清原简述）；拉手不会超时移出；`PULL_EXECUTION` 不自动补号；管理离线立即换号；上线事件不触发新的唤醒 SQL。
 28. 两个开关都关闭：对 A–D 中的代表性场景各跑一遍，结果与 2026-10-08 主干一致。
 
 **F. 事务安全**

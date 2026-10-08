@@ -1447,7 +1447,9 @@ public class ProtocolCommandOutboxServiceImpl
                 command.isBusiness(),
                 command.declaredAccountType(),
                 command.detectAccountType(),
-                command.deviceOs());
+                command.deviceOs(),
+                command.pullTaskId(),
+                command.groupExecutionId());
         try {
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException ex) {
@@ -2280,7 +2282,11 @@ public class ProtocolCommandOutboxServiceImpl
             boolean isBusiness,
             Integer declaredAccountType,
             boolean detectAccountType,
-            Integer deviceOs
+            Integer deviceOs,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Long pullTaskId,
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            Long groupExecutionId
     ) {
     }
 

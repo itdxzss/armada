@@ -26,6 +26,7 @@ import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskProtocolOutcome;
 import com.armada.task.scheduler.PullTaskUnknownResultResources;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.service.PullTaskProtocolResultCallbackService;
 import java.util.List;
 import java.util.Objects;
@@ -66,17 +67,20 @@ public class PullTaskProtocolResultCallbackServiceImpl
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskPullCallParticipantResultService participantResultService;
     private final PullTaskOperationDelayPolicy delayPolicy;
+    private final PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties;
 
     /** 构造协议回调收敛服务。 */
     public PullTaskProtocolResultCallbackServiceImpl(
             PullTaskUnknownResultResources resources,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskPullCallParticipantResultService participantResultService,
-            PullTaskOperationDelayPolicy delayPolicy) {
+            PullTaskOperationDelayPolicy delayPolicy,
+            PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties) {
         this.resources = resources;
         this.executionMapper = executionMapper;
         this.participantResultService = participantResultService;
         this.delayPolicy = delayPolicy;
+        this.offlineRoleWaitProperties = offlineRoleWaitProperties;
     }
 
     @Override
@@ -217,6 +221,12 @@ public class PullTaskProtocolResultCallbackServiceImpl
                     manager.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
                     callback.reasonCode(), null, callback.occurredAt()) != 1) {
                 return false;
+            }
+            if (offlineRoleWaitProperties.isEnabled()) {
+                return resources.materialMapper().returnAdminToPending(
+                        material.getId(), material.getAdminStatus(),
+                        PullTaskMaterialAdminStatus.PENDING.code(), callback.reasonCode(),
+                        callback.occurredAt()) == 1;
             }
         } else if (!ADMIN_ACTOR_UNCONFIRMED.equals(callback.reasonCode())
                 && !markManagerAdmin(manager, PullTaskGroupAccountAdminStatus.SUCCESS,

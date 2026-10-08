@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.armada.account.service.AccountCreatorDeletionService;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
 import com.armada.task.mapper.PullTaskMaterialMemberMapper;
@@ -47,7 +49,8 @@ class PullTaskGroupExecutionFailureServiceTest {
                                 executionMapper, callMapper, attemptMapper, waveMapper,
                                 new PullTaskGroupExecutionFailureParticipants(
                                         materialMapper, accountMapper)),
-                        completion);
+                        completion, mock(AccountCreatorDeletionService.class),
+                        new PullTaskOfflineRoleWaitProperties());
 
         service.terminate(
                 7L, 21L, PullTaskExecutionReasonCode.GROUP_UNAVAILABLE, 5_000L);

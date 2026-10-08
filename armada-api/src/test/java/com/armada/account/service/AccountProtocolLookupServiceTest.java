@@ -7,6 +7,7 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountOperationRestrictionStatus;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
+import com.armada.account.takeover.AccountAutoTakeoverProperties;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import java.util.List;
@@ -31,7 +32,7 @@ class AccountProtocolLookupServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new AccountProtocolLookupServiceImpl(accountMapper);
+        service = new AccountProtocolLookupServiceImpl(accountMapper, new AccountAutoTakeoverProperties());
     }
 
     @Test

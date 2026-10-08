@@ -650,6 +650,21 @@
     LIMIT 1
   </select>
 
+  <!-- 预留身份全局排他；返回其原始 tenant，避免别名账号冒充预留执行行发起恢复。 -->
+  <select id="selectRoleAvailabilitySnapshots" resultType="com.armada.account.model.dto.AccountRoleAvailabilitySnapshot">
+    SELECT a.id AS account_id, s.account_state, s.login_state, s.desired_login_state, s.mute_status,
+      s.offline_since, b.tripped_at, d.tenant_id AS reservation_tenant_id,
+      d.lifecycle AS reservation_lifecycle, d.task_id AS reservation_task_id,
+      d.group_execution_id AS reservation_group_execution_id
+    FROM account a
+    LEFT JOIN account_state s ON s.account_id=a.id AND s.tenant_id=a.tenant_id
+    LEFT JOIN account_takeover_breaker b ON b.account_id=a.id AND b.tenant_id=a.tenant_id
+    LEFT JOIN account_creator_deletion d
+      ON d.account_id=a.id OR d.creator_phone=a.creator_deletion_identity_phone
+    WHERE a.tenant_id=#{tenantId} AND a.deleted_at IS NULL AND a.id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+
   <select id="selectActiveByIds" resultType="com.armada.account.model.entity.Account">
     <if test="ids != null and ids.size() &gt; 0">
     SELECT * FROM account

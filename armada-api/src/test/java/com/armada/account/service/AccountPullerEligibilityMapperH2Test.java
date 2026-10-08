@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.armada.account.mapper.AccountMapper;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
+import com.armada.account.takeover.AccountAutoTakeoverProperties;
 import com.armada.boot.config.MyBatisConfig;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
@@ -263,7 +264,7 @@ class AccountPullerEligibilityMapperH2Test {
 
         @Bean
         AccountProtocolLookupService accountProtocolLookupService(AccountMapper mapper) {
-            return new AccountProtocolLookupServiceImpl(mapper);
+            return new AccountProtocolLookupServiceImpl(mapper, new AccountAutoTakeoverProperties());
         }
     }
 }

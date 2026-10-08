@@ -85,6 +85,26 @@
                open="(" separator="," close=")">#{status}</foreach>
   </update>
 
+  <!-- 独立入口确保关闭任务开关时，所有旧 submitAttempt 调用保持逐字原行为。 -->
+  <update id="submitOfflineRetryAttempt">
+    UPDATE pull_task_account_action
+    SET action_status = 2,
+        command_id = #{commandId},
+        attempt_no = GREATEST(attempt_no, 1) + 1,
+        retryable = NULL,
+        reason_code = NULL,
+        reason_message = NULL,
+        submitted_at = #{now},
+        result_at = NULL,
+        updated_at = #{now}
+    WHERE id = #{id}
+      AND command_id IS NOT NULL
+      AND reason_code = 'ACCOUNT_NOT_ONLINE'
+      AND action_status IN
+      <foreach collection="expectedStatuses" item="status"
+               open="(" separator="," close=")">#{status}</foreach>
+  </update>
+
   <update id="transitionManagerAdminResult">
     UPDATE pull_task_account_action
     SET action_status = #{targetStatus},

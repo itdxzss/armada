@@ -256,7 +256,8 @@ class PullTaskPullerOnlineWindowIntegrationTest {
         @Bean PullTaskPullerAccountStateService service(PullTaskGroupAccountMapper accounts,
                 PullTaskGroupExecutionMapper executions, PullTaskStickyPullerTransactionService sticky,
                 ApplicationEventPublisher events, PullTaskExecutionDispatchTrigger trigger) {
-            return new PullTaskPullerAccountStateServiceImpl(accounts, executions, sticky, events, trigger);
+            return new PullTaskPullerAccountStateServiceImpl(accounts, executions, sticky, events, trigger,
+                    new com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties());
         }
     }
 }

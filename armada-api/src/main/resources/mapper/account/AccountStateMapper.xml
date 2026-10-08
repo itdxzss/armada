@@ -63,6 +63,24 @@
     </foreach>
   </select>
 
+  <!-- 归属与熔断由持账号锁的服务复核；重复调用不能从 ONLINE/PENDING 再占用。 -->
+  <update id="claimReservedCreatorReonline">
+    <bind name="offline" value="@com.armada.account.model.entity.AccountLoginStateCode@OFFLINE" />
+    <bind name="pending" value="@com.armada.account.model.entity.AccountLoginStateCode@PENDING_ONLINE" />
+    <bind name="normal" value="@com.armada.account.model.entity.AccountStateCode@NORMAL" />
+    <bind name="replaced" value="@com.armada.account.model.entity.AccountStateCode@LOGIN_REPLACED" />
+    UPDATE account_state
+    SET login_state = #{pending},
+        offline_since = COALESCE(offline_since, #{now}),
+        last_state_sync_time = #{now},
+        state_source = 'RESERVED_CREATOR_REONLINE',
+        updated_at = #{now}
+    WHERE account_id = #{accountId} AND login_state = #{offline}
+      AND account_state IN (#{normal}, #{replaced}) AND mute_status IS NULL
+      AND (desired_login_state IS NULL OR desired_login_state &lt;&gt; #{offline})
+    <include refid="notCreatorDeleting"/>
+  </update>
+
   <!-- Armada 上线命令成功进入 outbox 后,本地标记等待协议层最终回传。 -->
   <update id="markPendingOnlineInternal">
     UPDATE account_state

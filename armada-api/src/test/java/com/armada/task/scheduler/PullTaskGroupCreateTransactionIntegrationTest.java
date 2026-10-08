@@ -969,7 +969,8 @@ class PullTaskGroupCreateTransactionIntegrationTest {
         @Bean PullTaskGroupCreateTransactionService transactions(
                 PullTaskGroupCreatePersistence persistence,
                 PullTaskGroupCreateResources resources) {
-            return new PullTaskGroupCreateTransactionService(persistence, resources, org.mockito.Mockito.mock(PullTaskCreatorDeletionTransactionService.class));
+            return new PullTaskGroupCreateTransactionService(persistence, resources, org.mockito.Mockito.mock(PullTaskCreatorDeletionTransactionService.class),
+                    org.mockito.Mockito.mock(PullTaskCreatorOfflineGate.class));
         }
     }
 }

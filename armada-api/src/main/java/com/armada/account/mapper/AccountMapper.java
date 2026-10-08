@@ -3,6 +3,7 @@ package com.armada.account.mapper;
 import com.armada.account.model.dto.AccountBatchTargetQuery;
 import com.armada.account.model.dto.AccountHyperlinkCandidateQuery;
 import com.armada.account.model.dto.AccountQuery;
+import com.armada.account.model.dto.AccountRoleAvailabilitySnapshot;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountDeleteGateRow;
 import com.armada.account.model.entity.AccountState;
@@ -244,6 +245,18 @@ public interface AccountMapper {
      * @return 活跃账号列表;不存在或已软删账号不会返回
      */
     List<Account> selectActiveByIds(@Param("ids") List<Long> ids);
+
+    /**
+     * 批量读取当前租户角色账号的可用性事实；保留注销中的账号用于明确返回终态。
+     *
+     * <p>账号、状态、熔断显式同租户关联；全局身份预留保留记录原租户以供归属复核。</p>
+     * @param tenantId 服务从当前上下文读取的租户
+     * @param ids 非空、已去重账号 ID
+     * @return 当前租户未软删账号的事实快照
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    List<AccountRoleAvailabilitySnapshot> selectRoleAvailabilitySnapshots(@Param("tenantId") long tenantId,
+                                                                          @Param("ids") List<Long> ids);
 
     /**
      * 批量读取未软删账号的当前登录态。

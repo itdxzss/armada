@@ -470,6 +470,9 @@ public interface PullTaskGroupExecutionMapper {
                             @Param("parentStatus") String parentStatus,
                             @Param("offlineReason") String offlineReason);
 
+    /** 只提前未暂停、无租约且仍持有上线管理/建群角色的离线等待行。 */
+    int wakeForReconnectedRole(@Param("accountId") long accountId, @Param("now") long now);
+
     /** 成员查询尚未完成时，以当前有效租约释放执行行直到查询截止时间。 */
     int deferForMemberQuery(@Param("defer") PullTaskMemberQueryDefer defer);
 

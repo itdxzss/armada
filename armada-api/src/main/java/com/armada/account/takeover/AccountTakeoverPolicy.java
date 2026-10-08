@@ -5,7 +5,9 @@ import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountState;
 import com.armada.account.model.entity.AccountStateCode;
 import com.armada.account.model.enums.AccountCreatorDeletionLifecycle;
+import com.armada.shared.tenant.TenantContext;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -122,6 +124,29 @@ public class AccountTakeoverPolicy {
                 && Integer.valueOf(AccountStateCode.LOGIN_REPLACED).equals(state.getAccountState())
                 && Integer.valueOf(AccountLoginStateCode.OFFLINE).equals(state.getLoginState())
                 && state.getMuteStatus() == null && canReonline(accountId, state);
+    }
+
+    /**
+     * 预留账号仅允许原租户、原任务和执行行恢复；不进入全局抢登态。
+     * @param accountId 当前租户账号
+     * @param taskId 预留任务
+     * @param executionId 预留执行行
+     * @param state 当前锁定的账号状态
+     * @return 是否允许原子抢占待上线
+     */
+    public boolean canReonlineReservedCreator(long accountId, long taskId, long executionId, AccountState state) {
+        if (!isEnabled() || state == null || state.getMuteStatus() != null || desiredOffline(state)
+                || !Integer.valueOf(AccountLoginStateCode.OFFLINE).equals(state.getLoginState())
+                || !(Integer.valueOf(AccountStateCode.NORMAL).equals(state.getAccountState())
+                    || Integer.valueOf(AccountStateCode.LOGIN_REPLACED).equals(state.getAccountState()))
+                || breaker.isTripped(accountId)) {
+            return false;
+        }
+        return reservations.find(accountId).filter(reservation ->
+                AccountCreatorDeletionLifecycle.RESERVED.name().equals(reservation.lifecycle())
+                        && Objects.equals(reservation.tenantId(), TenantContext.get())
+                        && Objects.equals(reservation.taskId(), taskId)
+                        && Objects.equals(reservation.groupExecutionId(), executionId)).isPresent();
     }
 
     /**

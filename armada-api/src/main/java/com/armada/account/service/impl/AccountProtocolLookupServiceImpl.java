@@ -1,26 +1,36 @@
 package com.armada.account.service.impl;
 
 import com.armada.account.mapper.AccountMapper;
+import com.armada.account.model.AccountCreatorReservation;
+import com.armada.account.model.AccountRoleAvailability;
 import com.armada.account.model.PullTaskAccountEligibility;
+import com.armada.account.model.dto.AccountRoleAvailabilitySnapshot;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountLoginStateCode;
 import com.armada.account.model.entity.AccountStateCode;
+import com.armada.account.model.enums.AccountCreatorDeletionLifecycle;
 import com.armada.account.model.enums.AccountOperationRestrictionStatus;
 import com.armada.account.service.AccountProtocolLookupService;
+import com.armada.account.takeover.AccountAutoTakeoverProperties;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.ErrorCode;
+import com.armada.shared.tenant.TenantContext;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * 从账号主表批量解析协议命令所需的最小账号引用。
+ * 从账号域批量解析协议命令所需的最小引用和任务角色可用性。
  *
  * <p>查询仍由账号域执行，MyBatis 租户插件和软删除条件负责限定可见范围。返回顺序按调用方传入的
  * 账号顺序重建，避免数据库返回顺序改变任务派发与命令 ID 的对应关系。</p>
@@ -33,16 +43,75 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
     /** 风险允许：account_state.risk_status 未风控。NULL 同样由 SQL 视为允许。 */
     private static final int RISK_ALLOWED = 1;
 
+    /** 这些生命周期即使短暂残留在线登录态，也不能作为恢复中的任务角色。 */
+    private static final Set<Integer> TERMINAL_STATES = Set.of(AccountStateCode.BANNED, AccountStateCode.EXPORTED,
+            AccountStateCode.UNBOUND, AccountStateCode.RESTRICTED, AccountStateCode.DEREGISTERED);
+
     /** 账号域持久化入口，用于批量读取当前租户可见的有效账号。 */
     private final AccountMapper accountMapper;
+
+    /** 关闭账号自动恢复时，被挤离线账号不再进入任务等待。 */
+    private final AccountAutoTakeoverProperties takeoverProperties;
 
     /**
      * 创建账号协议身份查询服务。
      *
      * @param accountMapper 账号域 Mapper
+     * @param takeoverProperties 账号自动恢复开关
      */
-    public AccountProtocolLookupServiceImpl(AccountMapper accountMapper) {
+    public AccountProtocolLookupServiceImpl(AccountMapper accountMapper, AccountAutoTakeoverProperties takeoverProperties) {
         this.accountMapper = accountMapper;
+        this.takeoverProperties = takeoverProperties;
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public Map<Long, AccountRoleAvailability> findRoleAvailability(Collection<Long> accountIds) {
+        List<Long> requestedIds = normalizeIds(accountIds);
+        if (requestedIds.isEmpty()) {
+            return Map.of();
+        }
+        Long tenantId = TenantContext.get();
+        if (tenantId == null) {
+            throw new BusinessException(ErrorCode.TENANT_MISSING, "缺少任务角色账号查询租户上下文");
+        }
+        Map<Long, AccountRoleAvailability> snapshots = new LinkedHashMap<>();
+        for (AccountRoleAvailabilitySnapshot row : accountMapper.selectRoleAvailabilitySnapshots(tenantId, requestedIds)) {
+            AccountCreatorReservation reservation = row.reservationLifecycle() == null ? null
+                    : new AccountCreatorReservation(row.reservationTenantId(), row.reservationLifecycle(),
+                            row.reservationTaskId(), row.reservationGroupExecutionId());
+            snapshots.put(row.accountId(), new AccountRoleAvailability(row.accountId(), availabilityKind(row),
+                    row.offlineSince(), row.loginState(), reservation));
+        }
+        Map<Long, AccountRoleAvailability> result = new LinkedHashMap<>();
+        for (Long accountId : requestedIds) {
+            if (snapshots.containsKey(accountId)) {
+                result.put(accountId, snapshots.get(accountId));
+            }
+        }
+        return Collections.unmodifiableMap(result);
+    }
+
+    private AccountRoleAvailability.Kind availabilityKind(AccountRoleAvailabilitySnapshot row) {
+        if (hasTerminalRoleFact(row)) {
+            return AccountRoleAvailability.Kind.TERMINAL;
+        }
+        if (Integer.valueOf(AccountLoginStateCode.ONLINE).equals(row.loginState())) {
+            return AccountRoleAvailability.Kind.ONLINE;
+        }
+        if (row.muteStatus() != null || (!takeoverProperties.isEnabled()
+                && Integer.valueOf(AccountStateCode.LOGIN_REPLACED).equals(row.accountState()))) {
+            return AccountRoleAvailability.Kind.TERMINAL;
+        }
+        return AccountRoleAvailability.Kind.RECOVERING;
+    }
+
+    private static boolean hasTerminalRoleFact(AccountRoleAvailabilitySnapshot row) {
+        return AccountCreatorDeletionLifecycle.DELETING.name().equals(row.reservationLifecycle())
+                || AccountCreatorDeletionLifecycle.DELETED.name().equals(row.reservationLifecycle())
+                || (row.accountState() != null && TERMINAL_STATES.contains(row.accountState()))
+                || Integer.valueOf(AccountLoginStateCode.OFFLINE).equals(row.desiredLoginState())
+                || row.trippedAt() != null;
     }
 
     /** {@inheritDoc} */
@@ -320,7 +389,7 @@ public class AccountProtocolLookupServiceImpl implements AccountProtocolLookupSe
                 .flatMap(Optional::stream).toList();
     }
 
-    private static List<Long> normalizeIds(List<Long> accountIds) {
+    private static List<Long> normalizeIds(Collection<Long> accountIds) {
         if (accountIds == null || accountIds.isEmpty()) {
             return List.of();
         }

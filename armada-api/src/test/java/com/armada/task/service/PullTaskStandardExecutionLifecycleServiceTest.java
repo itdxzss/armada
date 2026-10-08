@@ -387,7 +387,8 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 lifecycleResources.executionMapper(), completionService,
                 new com.armada.task.scheduler.PullTaskExecutionDispatchProperties(),
                 new com.armada.task.scheduler.PullTaskOperationDelayPolicy(),
-                mock(com.armada.group.service.GroupInviteLinkService.class));
+                mock(com.armada.group.service.GroupInviteLinkService.class),
+                new com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties());
         var callback = new com.armada.task.model.dto.PullTaskManagerJoinCallback(
                 7L, 1L, 11L, 303L, "approval-join",
                 com.armada.task.model.enums.PullTaskManagerJoinProtocolOutcome.PENDING_APPROVAL,

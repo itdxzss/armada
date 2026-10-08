@@ -57,6 +57,9 @@ public interface AccountStateMapper {
      */
     AccountState selectByAccountIdForUpdate(@Param("accountId") Long accountId);
 
+    /** 归属与熔断经账号事务复核后，只从可恢复离线态原子占用待上线，保留离线起点。 */
+    int claimReservedCreatorReonline(@Param("accountId") long accountId, @Param("now") long now);
+
     /**
      * 批量读取账号状态行。
      *

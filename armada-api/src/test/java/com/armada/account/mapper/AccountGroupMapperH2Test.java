@@ -13,6 +13,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.armada.account.service.impl.AccountProtocolLookupServiceImpl;
+import com.armada.account.takeover.AccountAutoTakeoverProperties;
 import java.util.List;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -166,7 +167,8 @@ class AccountGroupMapperH2Test {
         insertAccount(9, "10009", "web-9", "WEB", AccountStateCode.LOGIN_REPLACED, AccountLoginStateCode.ONLINE);
         execute("UPDATE account SET tenant_id=8 WHERE id=9");
         execute("UPDATE account_state SET tenant_id=8 WHERE account_id=9");
-        AccountProtocolLookupServiceImpl service = new AccountProtocolLookupServiceImpl(accountMapper);
+        AccountProtocolLookupServiceImpl service = new AccountProtocolLookupServiceImpl(
+                accountMapper, new AccountAutoTakeoverProperties());
 
         assertThat(service.findOnlineStrictByGroupId(10L))
                 .extracting(ref -> ref.armadaAccountId()).containsExactly(1L, 2L, 3L, 6L);

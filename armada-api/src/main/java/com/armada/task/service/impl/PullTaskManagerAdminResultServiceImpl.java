@@ -19,8 +19,10 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAdminStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
+import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.service.PullTaskManagerAdminResultService;
 import java.util.List;
 import java.util.Objects;
@@ -44,6 +46,8 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskExecutionDispatchProperties properties;
     private final PullTaskOperationDelayPolicy delayPolicy;
+    /** 明确离线拒绝必须保留原提权动作，交给角色资源恢复继续执行。 */
+    private final PullTaskOfflineRoleWaitProperties offlineWaitProperties;
 
     /** 创建任务管理员提权结果状态机。 */
     public PullTaskManagerAdminResultServiceImpl(
@@ -51,12 +55,14 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskExecutionDispatchProperties properties,
-            PullTaskOperationDelayPolicy delayPolicy) {
+            PullTaskOperationDelayPolicy delayPolicy,
+            PullTaskOfflineRoleWaitProperties offlineWaitProperties) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.properties = properties;
         this.delayPolicy = delayPolicy;
+        this.offlineWaitProperties = offlineWaitProperties;
     }
 
     /** {@inheritDoc} */
@@ -93,17 +99,22 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                     callback.occurredAt()) != 1) {
                 throw new IllegalStateException("任务管理员权限事实写入不完整");
             }
+            boolean offline = offlineRetry(callback);
+            if (offline && accountMapper.markUnavailable(actor.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                    callback.reasonCode(), null, callback.occurredAt()) != 1) {
+                throw new IllegalStateException("离线提权账号等待事实写入不完整");
+            }
             PullTaskManagerJoinResultTransition transition = new PullTaskManagerJoinResultTransition(
                     execution.getId(), execution.getTaskId(), execution.getVersion(),
                     new PullTaskManagerJoinResultTransition.Expected(
                             PullTaskExecutionStatus.EXECUTING.code(),
                             PullTaskExecutionStage.MANAGER_ADMIN.code()),
                     new PullTaskManagerJoinResultTransition.Target(
-                            PullTaskExecutionStatus.EXECUTING.code(),
+                            offline ? PullTaskExecutionStatus.WAIT_RESOURCE.code() : PullTaskExecutionStatus.EXECUTING.code(),
                             callback.outcome() == PullTaskManagerAdminProtocolOutcome.SUCCESS
                                     ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT.code()
                                     : PullTaskExecutionStage.MANAGER_ADMIN.code(),
-                            null, null, target.executionReason() == null
+                            null, offline ? PullTaskWaitResourceType.MANAGER.code() : null, target.executionReason() == null
                             ? null : target.executionReason().name(),
                             target.executionMessage(), delayPolicy.maxDeadline(
                             target.nextRunAt(), callback.occurredAt()), null),
@@ -132,6 +143,12 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                     PullTaskExecutionReasonCode.MANAGER_ADMIN_UNCONFIRMED,
                     safeMessage, callback.occurredAt() + properties.getRetryDelayMs());
         }
+        if (offlineRetry(callback)) {
+            return new ResultTarget(PullTaskActionStatus.PENDING.code(), true, safeMessage,
+                    PullTaskGroupAccountAdminStatus.PENDING.code(),
+                    PullTaskExecutionReasonCode.MANAGER_ADMIN_ACTOR_UNAVAILABLE,
+                    safeMessage, Math.addExact(callback.occurredAt(), properties.getRetryDelayMs()));
+        }
         boolean retryable = callback.retryable();
         return new ResultTarget(
                 PullTaskActionStatus.FAILED.code(), retryable, safeMessage,
@@ -139,6 +156,12 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                 PullTaskExecutionReasonCode.MANAGER_ADMIN_SETUP_FAILED,
                 safeMessage,
                 retryable ? callback.occurredAt() + properties.getRetryDelayMs() : 0L);
+    }
+
+    private boolean offlineRetry(PullTaskManagerAdminCallback callback) {
+        return offlineWaitProperties.isEnabled()
+                && callback.outcome() == PullTaskManagerAdminProtocolOutcome.FAILED
+                && PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name().equals(callback.reasonCode());
     }
 
     private static boolean matchesAction(

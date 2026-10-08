@@ -392,7 +392,7 @@ class PullTaskManagerJoinTransactionIntegrationTest {
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskManagerJoinResources(
                     executionMapper, accountLookup, parentCompletionService,
-                    outboxService, properties);
+                    outboxService, properties, new PullTaskOfflineRoleWaitProperties());
         }
 
         @Bean

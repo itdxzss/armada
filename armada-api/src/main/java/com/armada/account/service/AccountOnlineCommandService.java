@@ -58,6 +58,16 @@ public interface AccountOnlineCommandService {
     AccountBatchOnlineVO autoTakeover(Long accountId);
 
     /**
+     * 由所属执行行恢复预留建群人，原子占用登录态并携带任务归属通过 outbox 隔离。
+     *
+     * @param accountId 当前租户账号
+     * @param pullTaskId 唯一所属任务
+     * @param groupExecutionId 唯一所属执行行
+     * @return 条件不符或开关关闭时 accepted=false；代理或入队失败抛异常并回滚占用
+     */
+    AccountOnlineVO reonlineReservedCreator(long accountId, long pullTaskId, long groupExecutionId);
+
+    /**
      * 抢登中账号在再次离线或被抢登后自动续上线。
      *
      * <p>实现必须重新读取账号状态并检查禁言与短窗口冷却,确保用户手动停止或状态变化后不再重投。</p>

@@ -114,6 +114,10 @@ public class PullTaskManagerJoinTransactionService {
         TenantContext.set(work.tenantId());
         try {
             PullTaskGroupExecution update = completionTransition(work, outcome, now);
+            if (offlineRetry(outcome)) {
+                update.setReasonMessage("管理员暂时离线，等待原账号恢复后重试入群");
+                update.setNextRunAt(Math.addExact(now, resources.properties().getRetryDelayMs()));
+            }
             if (resources.executionMapper().transitionClaimed(
                     update, PullTaskExecutionStage.MANAGER_JOIN.code()) != 1) {
                 return PullTaskExecutionDispatchResult.LOST;
@@ -268,7 +272,14 @@ public class PullTaskManagerJoinTransactionService {
                                 candidate.getTenantId(), candidate.getTaskId(), candidate.getId(),
                                 action.getId(), account)));
         String commandId = singleCommandId(enqueued);
-        if (actionMapper.markSubmitted(action.getId(), commandId, now) != 1
+        // 只有已被明确离线拒绝的动作需要新尝试；关闭开关沿用原单次提交路径。
+        boolean offlineRetry = resources.offlineWaitProperties().isEnabled()
+                && PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name().equals(action.getReasonCode());
+        int submitted = offlineRetry
+                ? actionMapper.submitOfflineRetryAttempt(action.getId(),
+                        List.of(PullTaskActionStatus.PENDING.code()), commandId, now)
+                : actionMapper.markSubmitted(action.getId(), commandId, now);
+        if (submitted != 1
                 || groupAccountMapper.updateMembership(
                         manager.getId(), PullTaskGroupAccountMembershipStatus.JOINING.code(),
                         null, now) != 1) {
@@ -400,14 +411,19 @@ public class PullTaskManagerJoinTransactionService {
             PullTaskManagerJoinWork work,
             PullTaskManagerJoinOutcome outcome,
             long now) {
-        int status = switch (outcome.kind()) {
+        int status = offlineRetry(outcome) ? PullTaskActionStatus.PENDING.code() : switch (outcome.kind()) {
             case CONFIRMED -> PullTaskActionStatus.SUCCESS.code();
             case PENDING_APPROVAL -> PullTaskActionStatus.PENDING_APPROVAL.code();
             case MANAGER_FAILED, EXECUTION_FAILED -> PullTaskActionStatus.FAILED.code();
             case UNCONFIRMED -> PullTaskActionStatus.UNKNOWN.code();
         };
-        if (actionMapper.writeBackResult(work.actionId(), status,
-                outcome.reasonCode(), outcome.reasonMessage(), now) != 1) {
+        int changed = offlineRetry(outcome)
+                ? actionMapper.transitionManagerAdminObservation(work.actionId(),
+                        List.of(PullTaskActionStatus.SUBMITTED.code()), status, true,
+                        outcome.reasonCode(), outcome.reasonMessage(), now)
+                : actionMapper.writeBackResult(work.actionId(), status,
+                        outcome.reasonCode(), outcome.reasonMessage(), now);
+        if (changed != 1) {
             throw new IllegalStateException("管理员踩链接结果回写失败");
         }
     }
@@ -416,7 +432,8 @@ public class PullTaskManagerJoinTransactionService {
             PullTaskManagerJoinWork work,
             PullTaskManagerJoinOutcome outcome,
             long now) {
-        int membership = switch (outcome.kind()) {
+        int membership = offlineRetry(outcome) ? PullTaskGroupAccountMembershipStatus.NOT_JOINED.code()
+                : switch (outcome.kind()) {
             case CONFIRMED -> PullTaskGroupAccountMembershipStatus.IN_GROUP.code();
             case PENDING_APPROVAL -> PullTaskGroupAccountMembershipStatus.PENDING_APPROVAL.code();
             case MANAGER_FAILED, EXECUTION_FAILED ->
@@ -435,6 +452,12 @@ public class PullTaskManagerJoinTransactionService {
                 throw new IllegalStateException("管理员可用状态回写失败");
             }
         }
+    }
+
+    private boolean offlineRetry(PullTaskManagerJoinOutcome outcome) {
+        return resources.offlineWaitProperties().isEnabled()
+                && outcome.kind() == PullTaskManagerJoinOutcome.Kind.MANAGER_FAILED
+                && PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name().equals(outcome.reasonCode());
     }
 
     private static PullTaskGroupExecution baseTransition(

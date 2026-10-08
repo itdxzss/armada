@@ -29,6 +29,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskManagerAdminProtocolOutcome;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -42,7 +43,8 @@ class PullTaskManagerAdminResultServiceImplTest {
     private final PullTaskOperationDelayPolicy delayPolicy = delayPolicy();
     private final PullTaskManagerAdminResultServiceImpl service =
             new PullTaskManagerAdminResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, properties, delayPolicy);
+                    actionMapper, accountMapper, executionMapper, properties, delayPolicy,
+                    new PullTaskOfflineRoleWaitProperties());
 
     @AfterEach
     void clearTenant() {

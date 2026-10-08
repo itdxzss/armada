@@ -1,6 +1,7 @@
 package com.armada.platform.protocol.model.command;
 
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 /**
  * 协议账号上线 outbox 命令请求。
@@ -20,6 +21,8 @@ import com.armada.platform.protocol.model.enums.ProtocolBackend;
  * @param declaredAccountType 导入申报账号类型:1个人 2商业
  * @param detectAccountType 本次 ONLINE 后是否执行一次轻量类型校验
  * @param deviceOs           主设备平台:1 Android 2 iOS
+ * @param pullTaskId         预留建群人唯一所属任务；普通账号为空
+ * @param groupExecutionId   预留建群人唯一所属执行行；普通账号为空
  */
 public record ProtocolOnlineCommandRequest(
         Long accountId,
@@ -33,8 +36,28 @@ public record ProtocolOnlineCommandRequest(
         boolean isBusiness,
         Integer declaredAccountType,
         boolean detectAccountType,
-        Integer deviceOs
+        Integer deviceOs,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long pullTaskId,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Long groupExecutionId
 ) {
+
+    /** 普通上线命令保留原构造契约，空归属字段不会进入 payload。 */
+    public ProtocolOnlineCommandRequest(Long accountId,
+                                        String protocolAccountId,
+                                        CredentialFormat credentialFormat,
+                                        Long proxyId,
+                                        String source,
+                                        String onlineAttemptId,
+                                        String previousOnlineAttemptId,
+                                        ProtocolBackend protocolBackend,
+                                        boolean isBusiness,
+                                        Integer declaredAccountType,
+                                        boolean detectAccountType,
+                                        Integer deviceOs) {
+        this(accountId, protocolAccountId, credentialFormat, proxyId, source, onlineAttemptId,
+                previousOnlineAttemptId, protocolBackend, isBusiness, declaredAccountType,
+                detectAccountType, deviceOs, null, null);
+    }
 
     public ProtocolOnlineCommandRequest(Long accountId,
                                         String protocolAccountId,

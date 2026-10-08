@@ -4,6 +4,7 @@ import com.armada.account.service.AccountProtocolLookupService;
 import com.armada.group.service.GroupExecutionAccountSelector;
 import com.armada.task.mapper.PullTaskAccountActionMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
+import com.armada.task.service.PullTaskPullerAccountStateService;
 import org.springframework.stereotype.Component;
 
 /** SC-05 资源等待恢复的执行行、账号域与站台候选依赖。 */
@@ -14,5 +15,8 @@ public record PullTaskResourceRecoveryResources(
         PullTaskStationSelectionService stationSelectionService,
         GroupExecutionAccountSelector promoterSelector,
         PullTaskAccountActionMapper actionMapper,
-        PullTaskManagerAdminCandidateSelector managerAdminCandidateSelector) {
+        PullTaskManagerAdminCandidateSelector managerAdminCandidateSelector,
+        PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties,
+        PullTaskPullerAccountStateService pullerAccountStates,
+        PullTaskCreatorOfflineGate creatorGate) {
 }

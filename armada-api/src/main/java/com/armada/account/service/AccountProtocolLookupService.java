@@ -1,6 +1,8 @@
 package com.armada.account.service;
 
+import com.armada.account.model.AccountRoleAvailability;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -12,6 +14,13 @@ import java.util.Optional;
  * 统一判断。本服务作为跨域边界，只暴露协议路由所需字段，不把账号实体泄露给任务域。</p>
  */
 public interface AccountProtocolLookupService {
+
+    /**
+     * 查询任务角色账号的连接可用性，供离线等待和换号判断；不替代角色执行资格检查。
+     * @param accountIds 当前租户账号 ID，允许空值和重复值
+     * @return 按输入首次出现顺序排列的快照；不存在、软删或其他租户账号不返回
+     */
+    Map<Long, AccountRoleAvailability> findRoleAvailability(Collection<Long> accountIds);
 
     /**
      * 查询当前租户指定活跃账号的完整协议引用。

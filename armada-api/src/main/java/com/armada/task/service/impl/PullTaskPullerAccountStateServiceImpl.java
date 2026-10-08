@@ -12,6 +12,7 @@ import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskStandardStatus;
 import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
 import com.armada.task.service.PullTaskPullerAccountStateService;
 import java.util.List;
@@ -29,6 +30,8 @@ public class PullTaskPullerAccountStateServiceImpl
     private final PullTaskStickyPullerTransactionService stickyPullers;
     private final ApplicationEventPublisher eventPublisher;
     private final PullTaskExecutionDispatchTrigger dispatchTrigger;
+    /** 任务侧关闭时不执行新增角色唤醒 SQL。 */
+    private final PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties;
 
     /**
      * @param accountMapper 任务角色账号 Mapper
@@ -36,18 +39,21 @@ public class PullTaskPullerAccountStateServiceImpl
      * @param stickyPullers 粘性拉手事务服务
      * @param eventPublisher 事务后名单核实事件发布器
      * @param dispatchTrigger 提交后调度唤醒器
+     * @param offlineRoleWaitProperties 任务侧离线等待开关
      */
     public PullTaskPullerAccountStateServiceImpl(
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
             PullTaskStickyPullerTransactionService stickyPullers,
             ApplicationEventPublisher eventPublisher,
-            PullTaskExecutionDispatchTrigger dispatchTrigger) {
+            PullTaskExecutionDispatchTrigger dispatchTrigger,
+            PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties) {
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
         this.stickyPullers = stickyPullers;
         this.eventPublisher = eventPublisher;
         this.dispatchTrigger = dispatchTrigger;
+        this.offlineRoleWaitProperties = offlineRoleWaitProperties;
     }
 
     /**
@@ -89,9 +95,29 @@ public class PullTaskPullerAccountStateServiceImpl
                     PullTaskGroupAccountAvailability.OFFLINE.code(), unavailability.reasonCode());
             return;
         }
+        removeRole(puller, unavailability.reasonCode(), occurredAt);
+    }
+
+    /** 与资源恢复共用事务，角色移出、粘性失效和后续推进必须一起提交。 */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void expireOfflineRole(PullTaskGroupAccount row, long now) {
+        if (row == null || row.getTenantId() == null || row.getId() == null) {
+            throw new IllegalArgumentException("离线拉手角色身份不完整");
+        }
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(row.getTenantId());
+        try {
+            removeRole(row, Unavailability.OFFLINE_TIMEOUT.reasonCode(), now);
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    private void removeRole(PullTaskGroupAccount puller, String reasonCode, long occurredAt) {
         if (accountMapper.markUnavailable(
                 puller.getId(), PullTaskGroupAccountAvailability.REMOVED.code(),
-                unavailability.reasonCode(), null, occurredAt) != 1) {
+                reasonCode, null, occurredAt) != 1) {
             throw new IllegalStateException("账号状态事件更新拉手可用性失败");
         }
         PullTaskGroupExecution execution = executionMapper.selectById(
@@ -100,7 +126,7 @@ public class PullTaskPullerAccountStateServiceImpl
             return;
         }
         stickyPullers.invalidateCurrentRole(
-                execution, puller, unavailability.reasonCode(), occurredAt);
+                execution, puller, reasonCode, occurredAt);
         eventPublisher.publishEvent(new PullTaskPullerUnavailableEvent(
                 execution.getTenantId(), execution.getId(), puller.getId(), occurredAt));
     }
@@ -130,6 +156,24 @@ public class PullTaskPullerAccountStateServiceImpl
                 }
             }
             if (wake) {
+                dispatchTrigger.dispatchAfterCommit();
+            }
+        } finally {
+            restoreTenant(previousTenant);
+        }
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void wakeRoleWaiters(long tenantId, long accountId, long occurredAt) {
+        if (!offlineRoleWaitProperties.isEnabled()) {
+            return;
+        }
+        Long previousTenant = TenantContext.get();
+        TenantContext.set(tenantId);
+        try {
+            if (executionMapper.wakeForReconnectedRole(accountId, occurredAt) > 0) {
                 dispatchTrigger.dispatchAfterCommit();
             }
         } finally {

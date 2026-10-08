@@ -44,6 +44,7 @@ public class PullTaskStickyPullerTransactionService {
             "NEED_REAUTH",
             "ACCOUNT_BANNED",
             "ACCOUNT_UNBOUND",
+            "PULLER_OFFLINE_TIMEOUT",
             "ACCOUNT_REACHOUT_RESTRICTED",
             "RATE_LIMITED",
             "GROUP_PERMISSION_DENIED");

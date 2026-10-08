@@ -649,6 +649,23 @@
       )
   </update>
 
+  <update id="wakeForReconnectedRole">
+    <bind name="executing" value="@com.armada.task.model.enums.PullTaskExecutionStatus@EXECUTING.code()" />
+    <bind name="waiting" value="@com.armada.task.model.enums.PullTaskExecutionStatus@WAIT_RESOURCE.code()" />
+    <bind name="manager" value="@com.armada.task.model.enums.PullTaskGroupAccountRole@MANAGER.code()" />
+    <bind name="promoter" value="@com.armada.task.model.enums.PullTaskGroupAccountRole@PROMOTER.code()" />
+    <bind name="removed" value="@com.armada.task.model.enums.PullTaskGroupAccountAvailability@REMOVED.code()" />
+    UPDATE pull_task_group_execution e
+    SET next_run_at = LEAST(e.next_run_at, #{now}), version = version + 1, updated_at = #{now}
+    WHERE e.execution_status IN (#{executing}, #{waiting})
+      AND e.reason_code IN ('GROUP_CREATOR_RECONNECTING', 'MANAGER_RECONNECTING')
+      AND e.manual_paused = 0 AND e.lock_owner IS NULL
+      AND EXISTS (SELECT 1 FROM pull_task_group_account ga
+        WHERE ga.group_execution_id = e.id AND ga.tenant_id = e.tenant_id
+          AND ga.account_id = #{accountId} AND ga.role_type IN (#{manager}, #{promoter})
+          AND ga.availability_status &lt;&gt; #{removed})
+  </update>
+
   <update id="deferForMemberQuery">
     UPDATE pull_task_group_execution
     SET next_run_at = #{defer.nextRunAt},

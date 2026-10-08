@@ -12,5 +12,6 @@ public record PullTaskManagerJoinResources(
         AccountProtocolLookupService accountLookup,
         PullTaskParentCompletionService parentCompletionService,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchProperties properties) {
+        PullTaskExecutionDispatchProperties properties,
+        PullTaskOfflineRoleWaitProperties offlineWaitProperties) {
 }

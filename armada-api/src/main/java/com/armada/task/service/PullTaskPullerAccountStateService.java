@@ -1,5 +1,7 @@
 package com.armada.task.service;
 
+import com.armada.task.model.entity.PullTaskGroupAccount;
+
 /** 接收账号域在线、终态或离线事实，同步普通拉群任务内的拉手可用性。 */
 public interface PullTaskPullerAccountStateService {
 
@@ -10,7 +12,9 @@ public interface PullTaskPullerAccountStateService {
         /** 账号封禁：从本执行行后续派发中移除。 */
         BANNED("ACCOUNT_BANNED"),
         /** 账号解绑：从本执行行后续派发中移除。 */
-        UNBOUND("ACCOUNT_UNBOUND");
+        UNBOUND("ACCOUNT_UNBOUND"),
+        /** 离线宽限已到期或账号已不可恢复：释放角色名额。 */
+        OFFLINE_TIMEOUT("PULLER_OFFLINE_TIMEOUT");
 
         private final String reasonCode;
 
@@ -50,4 +54,19 @@ public interface PullTaskPullerAccountStateService {
      * @param occurredAt 上线事件发生时间(epoch 毫秒)
      */
     void markOnline(long tenantId, long accountId, long occurredAt);
+
+    /**
+     * 移出已超过离线宽限或已不可恢复的拉手，清除其粘性指针并触发旧调用名单核实。
+     * @param row 当前租户的离线拉手角色事实
+     * @param now 本次资源检查时间
+     */
+    void expireOfflineRole(PullTaskGroupAccount row, long now);
+
+    /**
+     * 账号上线先唤醒建群人和管理员离线等待，不依赖该账号是否具备拉手资格。
+     * @param tenantId 上线账号所属租户
+     * @param accountId 上线账号主键
+     * @param occurredAt 上线时间；仅提前等待且无租约的执行行
+     */
+    void wakeRoleWaiters(long tenantId, long accountId, long occurredAt);
 }

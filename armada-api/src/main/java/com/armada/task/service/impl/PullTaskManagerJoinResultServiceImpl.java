@@ -27,6 +27,7 @@ import com.armada.task.model.enums.PullTaskWaitResourceType;
 import com.armada.task.scheduler.PullTaskExecutionDispatchProperties;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
 import com.armada.task.scheduler.PullTaskOperationDelayPolicy;
+import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.service.PullTaskManagerJoinResultService;
 import java.util.List;
 import java.util.Objects;
@@ -68,6 +69,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
     private final PullTaskExecutionDispatchProperties properties;
     private final PullTaskOperationDelayPolicy delayPolicy;
     private final GroupInviteLinkService inviteLinkService;
+    /** 明确离线拒绝保留原角色及待执行动作的任务侧开关。 */
+    private final PullTaskOfflineRoleWaitProperties offlineWaitProperties;
 
     /**
      * 创建管理员踩链接结果状态机。
@@ -79,6 +82,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
      * @param properties 调度重试配置
      * @param delayPolicy 协议动作间隔策略
      * @param inviteLinkService 当前群邀请链接事实服务
+     * @param offlineWaitProperties 任务角色离线等待开关
      */
     public PullTaskManagerJoinResultServiceImpl(
             PullTaskAccountActionMapper actionMapper,
@@ -87,7 +91,8 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             PullTaskParentCompletionService completionService,
             PullTaskExecutionDispatchProperties properties,
             PullTaskOperationDelayPolicy delayPolicy,
-            GroupInviteLinkService inviteLinkService) {
+            GroupInviteLinkService inviteLinkService,
+            PullTaskOfflineRoleWaitProperties offlineWaitProperties) {
         this.actionMapper = actionMapper;
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
@@ -95,6 +100,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         this.properties = properties;
         this.delayPolicy = delayPolicy;
         this.inviteLinkService = inviteLinkService;
+        this.offlineWaitProperties = offlineWaitProperties;
     }
 
     /**
@@ -127,6 +133,11 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                     || Objects.equals(execution.getReasonCode(),
                     PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name()))) {
                 return false;
+            }
+            if (offlineWaitProperties.isEnabled()
+                    && callback.outcome() == PullTaskManagerJoinProtocolOutcome.FAILED
+                    && PullTaskExecutionReasonCode.ACCOUNT_NOT_ONLINE.name().equals(callback.reasonCode())) {
+                return waitForOfflineRole(action, account, execution, callback);
             }
             ResultKind kind = directPuller ? classifyDirectPuller(execution, callback)
                     : puller ? classifyPuller(callback) : classify(callback);
@@ -190,6 +201,54 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
         } finally {
             restoreTenant(previousTenant);
         }
+    }
+
+    private boolean waitForOfflineRole(PullTaskAccountAction action, PullTaskGroupAccount account,
+            PullTaskGroupExecution execution, PullTaskManagerJoinCallback callback) {
+        if (!isRoleJoinStage(account, execution)) {
+            return false;
+        }
+        if (Objects.equals(action.getActionStatus(), PullTaskActionStatus.PENDING.code())
+                && Objects.equals(account.getMembershipStatus(), PullTaskGroupAccountMembershipStatus.NOT_JOINED.code())
+                && Objects.equals(account.getAvailabilityStatus(), PullTaskGroupAccountAvailability.OFFLINE.code())) {
+            return true;
+        }
+        if (!Objects.equals(execution.getExecutionStatus(), PullTaskExecutionStatus.EXECUTING.code())) {
+            return false;
+        }
+        boolean puller = Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.PULLER.code());
+        String message = puller ? "拉手暂时离线，等待原账号恢复后重试入群" : "管理员暂时离线，等待原账号恢复后重试入群";
+        if (actionMapper.transitionManagerAdminResult(action.getId(), callback.commandId(),
+                action.getAttemptNo() == null ? 0 : action.getAttemptNo(), ACTION_OPEN,
+                PullTaskActionStatus.PENDING.code(), true, callback.reasonCode(), message, callback.occurredAt()) != 1) {
+            return false;
+        }
+        if (accountMapper.transitionMembership(new PullTaskFactTransition(account.getId(), MEMBERSHIP_OPEN,
+                PullTaskGroupAccountMembershipStatus.NOT_JOINED.code(),
+                PullTaskFactResult.reason(callback.reasonCode(), message), callback.occurredAt())) != 1
+                || accountMapper.markUnavailable(account.getId(), PullTaskGroupAccountAvailability.OFFLINE.code(),
+                callback.reasonCode(), null, callback.occurredAt()) != 1) {
+            throw new IllegalStateException("离线进群角色等待事实写入不完整");
+        }
+        var transition = new PullTaskManagerJoinResultTransition(execution.getId(), execution.getTaskId(),
+                execution.getVersion(), new PullTaskManagerJoinResultTransition.Expected(
+                PullTaskExecutionStatus.EXECUTING.code(), execution.getStage()),
+                new PullTaskManagerJoinResultTransition.Target(PullTaskExecutionStatus.WAIT_RESOURCE.code(),
+                        execution.getStage(), null, puller ? PullTaskWaitResourceType.PULLER.code()
+                        : PullTaskWaitResourceType.MANAGER.code(), callback.reasonCode(), message,
+                        Math.addExact(callback.occurredAt(), properties.getRetryDelayMs()), null), callback.occurredAt());
+        if (executionMapper.transitionManagerJoinResult(transition) != 1) {
+            throw new IllegalStateException("离线进群执行行等待 CAS 失败");
+        }
+        return true;
+    }
+
+    private static boolean isRoleJoinStage(PullTaskGroupAccount account, PullTaskGroupExecution execution) {
+        if (Objects.equals(account.getRoleType(), PullTaskGroupAccountRole.MANAGER.code())) {
+            return Objects.equals(execution.getStage(), PullTaskExecutionStage.MANAGER_JOIN.code());
+        }
+        return Objects.equals(execution.getStage(), PullTaskExecutionStage.PULLER_INVITE.code())
+                || Objects.equals(execution.getStage(), PullTaskExecutionStage.DIRECT_PULLER_JOIN.code());
     }
 
     private long nextRunAt(

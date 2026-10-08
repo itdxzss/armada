@@ -1097,8 +1097,13 @@ class PullTaskExecutionEndToEndIntegrationTest {
                     .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
                             ? List.of(manager()) : List.of());
             when(lookup.findOnlineProtocolRefs(anyList()))
-                    .thenAnswer(invocation -> MANAGER_AVAILABLE.get()
-                            ? List.of(manager()) : List.of());
+                    .thenAnswer(invocation -> {
+                        List<Long> requested = invocation.getArgument(0);
+                        return List.of(manager(), puller(), station()).stream()
+                                .filter(ref -> requested.contains(ref.armadaAccountId()))
+                                .filter(ref -> ref.armadaAccountId() != 901L || MANAGER_AVAILABLE.get())
+                                .toList();
+                    });
             return lookup;
         }
 
@@ -1210,7 +1215,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskExecutionDispatchProperties properties,
                 PullTaskExecutionTransactionService executionTransactions) {
             PullTaskManagerJoinResources resources = new PullTaskManagerJoinResources(
-                    executionMapper, lookup, parentCompletion, outboxService, properties);
+                    executionMapper, lookup, parentCompletion, outboxService, properties,
+                    new PullTaskOfflineRoleWaitProperties());
             PullTaskManagerJoinTransactionService transactions =
                     new PullTaskManagerJoinTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources);
@@ -1270,7 +1276,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 GroupInviteLinkService inviteLinkService) {
             return new PullTaskManagerJoinResultServiceImpl(
                     actionMapper, accountMapper, executionMapper, completionService, properties,
-                    delayPolicy, inviteLinkService);
+                    delayPolicy, inviteLinkService, new PullTaskOfflineRoleWaitProperties());
         }
 
         @Bean PullTaskManagerAdminResultService managerAdminResultService(
@@ -1280,7 +1286,8 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskExecutionDispatchProperties properties,
                 PullTaskOperationDelayPolicy delayPolicy) {
             return new PullTaskManagerAdminResultServiceImpl(
-                    actionMapper, accountMapper, executionMapper, properties, delayPolicy);
+                    actionMapper, accountMapper, executionMapper, properties, delayPolicy,
+                    new PullTaskOfflineRoleWaitProperties());
         }
 
         @Bean PullTaskGroupSettingsResultService groupSettingsResultService(
@@ -1516,9 +1523,11 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 PullTaskPullCallParticipantResultService participantResultService,
                 PullTaskOperationDelayPolicy delayPolicy) {
+            PullTaskOfflineRoleWaitProperties properties = new PullTaskOfflineRoleWaitProperties();
+            properties.setEnabled(false);
             return new PullTaskProtocolResultCallbackServiceImpl(
                     resources, executionMapper,
-                    participantResultService, delayPolicy);
+                    participantResultService, delayPolicy, properties);
         }
 
         @Bean PullTaskPullCallParticipantResultService participantResultService(
@@ -1647,12 +1656,16 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskGroupExecutionMapper executionMapper,
                 AccountProtocolLookupService lookup,
                 PullTaskStationSelectionService stationSelection) {
+            PullTaskOfflineRoleWaitProperties waitProperties = new PullTaskOfflineRoleWaitProperties();
+            waitProperties.setEnabled(false);
             PullTaskResourceRecoveryResources resources =
                     new PullTaskResourceRecoveryResources(
                             executionMapper, lookup, stationSelection,
                             mock(com.armada.group.service.GroupExecutionAccountSelector.class),
                             mock(PullTaskAccountActionMapper.class),
-                            new PullTaskManagerAdminCandidateSelector());
+                            new PullTaskManagerAdminCandidateSelector(), waitProperties,
+                            mock(com.armada.task.service.PullTaskPullerAccountStateService.class),
+                            mock(PullTaskCreatorOfflineGate.class));
             return new PullTaskResourceRecoveryTransactionService(
                     taskMapper, settingMapper, accountMapper, resources);
         }

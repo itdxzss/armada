@@ -71,7 +71,7 @@ class PullTaskManagerJoinTransactionServiceTest {
                     groupAccountMapper, actionMapper,
                     new PullTaskManagerJoinResources(
                             executionMapper, accountLookup, parentCompletionService,
-                            outboxService, properties));
+                            outboxService, properties, new PullTaskOfflineRoleWaitProperties()));
 
     @AfterEach
     void clearTenant() {

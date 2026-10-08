@@ -60,14 +60,17 @@ public class PullTaskGroupCreateTransactionService {
     private final PullTaskGroupCreatePersistence persistence;
     private final PullTaskGroupCreateResources resources;
     private final PullTaskCreatorDeletionTransactionService creatorDeletionTransactions;
+    private final PullTaskCreatorOfflineGate creatorOfflineGate;
 
     public PullTaskGroupCreateTransactionService(
             PullTaskGroupCreatePersistence persistence,
             PullTaskGroupCreateResources resources,
-            PullTaskCreatorDeletionTransactionService creatorDeletionTransactions) {
+            PullTaskCreatorDeletionTransactionService creatorDeletionTransactions,
+            PullTaskCreatorOfflineGate creatorOfflineGate) {
         this.persistence = persistence;
         this.resources = resources;
         this.creatorDeletionTransactions = creatorDeletionTransactions;
+        this.creatorOfflineGate = creatorOfflineGate;
     }
 
     /** 步骤 1：冻结建群角色和幂等键，沿用提交时的群名；历史任务在此冻结原名。 */
@@ -180,6 +183,10 @@ public class PullTaskGroupCreateTransactionService {
             if (creatorRef != null && !frozenCreatorMatches(candidate, creatorRef)) {
                 return GroupCreatePreparation.completed(pauseInvalid(candidate, now));
             }
+            if (creatorOfflineGate.isEnabled()) {
+                PullTaskExecutionDispatchResult gated = deferOfflineCreator(candidate, now + retryDelayMs, now);
+                if (gated != null) { return GroupCreatePreparation.completed(gated); }
+            }
             if (creatorRef == null) {
                 return GroupCreatePreparation.completed(defer(
                         candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE,
@@ -238,6 +245,14 @@ public class PullTaskGroupCreateTransactionService {
             ProtocolException failure,
             long retryDelayMs,
             long now) {
+        if (failure != null && failure.errorCode() == ProtocolErrorCode.ACCOUNT_NOT_ONLINE
+                && creatorOfflineGate.isEnabled()) {
+            return withTenant(candidate.getTenantId(), () -> {
+                PullTaskExecutionDispatchResult gated = deferOfflineCreator(candidate, now + retryDelayMs, now);
+                return gated != null ? gated : defer(candidate,
+                        PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE, now + retryDelayMs, now);
+            });
+        }
         if (failure != null && DEFINITELY_NOT_CREATED.contains(failure.errorCode())) {
             return withTenant(candidate.getTenantId(), () -> {
                 int attempts = Math.addExact(value(candidate.getCreateAttemptCount()), 1);
@@ -294,6 +309,10 @@ public class PullTaskGroupCreateTransactionService {
                     || !hasText(candidate.getGroupSubject())
                     || candidate.getGroupSubject().length() > GROUP_SUBJECT_MAX_LENGTH) {
                 return ProfilePreparation.completed(pauseInvalid(candidate, now));
+            }
+            if (creatorOfflineGate.isEnabled()) {
+                PullTaskExecutionDispatchResult gated = deferOfflineCreator(candidate, now + retryDelayMs, now);
+                if (gated != null) { return ProfilePreparation.completed(gated); }
             }
             ProtocolAccountRef creator = onlineProfileCreator(candidate).orElse(null);
             if (creator == null) {
@@ -391,6 +410,10 @@ public class PullTaskGroupCreateTransactionService {
     private PullTaskExecutionDispatchResult repairProfile(
             PullTaskGroupExecution candidate, PullTaskAccountAction action,
             ProtocolPullTaskGroupProfileCommandRequest.Repair repair, long nextRunAt, long now) {
+        if (creatorOfflineGate.isEnabled()) {
+            PullTaskExecutionDispatchResult gated = deferOfflineCreator(candidate, nextRunAt, now);
+            if (gated != null) { return gated; }
+        }
         ProtocolAccountRef creator = onlineProfileCreator(candidate).orElse(null);
         if (creator == null) {
             return defer(candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE, nextRunAt, now);
@@ -402,6 +425,23 @@ public class PullTaskGroupCreateTransactionService {
                 PullTaskExecutionReasonCode.GROUP_PROFILE_UNCONFIRMED, nextRunAt, now);
         if (result == PullTaskExecutionDispatchResult.LOST) {
             throw new IllegalStateException("群资料补写后执行行状态写入不完整");
+        }
+        return result;
+    }
+
+    /** 只在任务开关开启时使用；等待 CAS 成功后才注册预留建群人的提交后恢复。 */
+    private PullTaskExecutionDispatchResult deferOfflineCreator(
+            PullTaskGroupExecution candidate, long nextRunAt, long now) {
+        PullTaskCreatorOfflineGate.Result gate = creatorOfflineGate.evaluate(candidate, now);
+        if (gate.kind() == PullTaskCreatorOfflineGate.Kind.READY) { return null; }
+        if (gate.kind() == PullTaskCreatorOfflineGate.Kind.GIVE_UP) {
+            return creatorOfflineGate.terminate(candidate, now);
+        }
+        PullTaskExecutionDispatchResult result = defer(candidate,
+                PullTaskExecutionReasonCode.GROUP_CREATOR_RECONNECTING,
+                Math.min(nextRunAt, gate.waitUntil()), now);
+        if (result == PullTaskExecutionDispatchResult.DEFERRED) {
+            creatorOfflineGate.requestRecoveryAfterCommit(candidate, gate);
         }
         return result;
     }
@@ -490,6 +530,10 @@ public class PullTaskGroupCreateTransactionService {
                     ? resources.accountLookup().findActiveProtocolRef(
                             creators.get(0).getAccountId()).orElse(null)
                     : null;
+            if (creatorOfflineGate.isEnabled()) {
+                PullTaskExecutionDispatchResult gated = deferOfflineCreator(candidate, now + retryDelayMs, now);
+                if (gated != null) { return InvitePreparation.completed(gated); }
+            }
             if (creator == null || !hasText(candidate.getGroupJid())) {
                 return InvitePreparation.completed(defer(
                         candidate, PullTaskExecutionReasonCode.GROUP_CREATOR_UNAVAILABLE,

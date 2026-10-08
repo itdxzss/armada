@@ -824,9 +824,14 @@ class PullTaskResourceRecoveryTransactionIntegrationTest {
                 GroupExecutionAccountSelector promoterSelector,
                 PullTaskAccountActionMapper actionMapper,
                 PullTaskManagerAdminCandidateSelector candidateSelector) {
+            // 旧资源恢复基线保持关闭；启用路径由 OfflineResourceRecoveryH2Test 单独验证。
+            PullTaskOfflineRoleWaitProperties waitProperties = new PullTaskOfflineRoleWaitProperties();
+            waitProperties.setEnabled(false);
             return new PullTaskResourceRecoveryResources(
                     mapper, lookup, stationSelection, promoterSelector,
-                    actionMapper, candidateSelector);
+                    actionMapper, candidateSelector, waitProperties,
+                    mock(com.armada.task.service.PullTaskPullerAccountStateService.class),
+                    mock(PullTaskCreatorOfflineGate.class));
         }
 
         @Bean PullTaskAccountActionMapper actionMapper() {

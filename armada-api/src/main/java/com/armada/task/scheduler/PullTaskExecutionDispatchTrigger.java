@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -10,8 +11,8 @@ public class PullTaskExecutionDispatchTrigger {
 
     private final PullTaskExecutionDispatchScheduler scheduler;
 
-    /** @param scheduler 共享调度器 */
-    public PullTaskExecutionDispatchTrigger(PullTaskExecutionDispatchScheduler scheduler) {
+    /** @param scheduler 仅在提交后唤醒时解析，避免调度恢复链反向依赖角色状态服务形成构造环 */
+    public PullTaskExecutionDispatchTrigger(@Lazy PullTaskExecutionDispatchScheduler scheduler) {
         this.scheduler = scheduler;
     }
 

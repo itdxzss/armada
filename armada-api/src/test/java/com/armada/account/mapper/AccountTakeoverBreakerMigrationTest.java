@@ -120,6 +120,31 @@ class AccountTakeoverBreakerMigrationTest {
     }
 
     @Test
+    void nextMigrationAddsNullableDedupWatermarkWithoutChangingExistingWindows() throws Exception {
+        jdbc.execute(breakerDdl(migration()));
+        jdbc.update("INSERT INTO account_takeover_breaker"
+                + "(tenant_id,account_id,window_started_at,kick_count,tripped_at,created_at,updated_at)"
+                + " VALUES(7,100,1000,10,1010,1000,1010)");
+        String sql = Files.readString(Path.of(
+                "src/main/resources/db/migration/V216__account_takeover_kick_dedup.sql"), StandardCharsets.UTF_8);
+
+        assertThat(sql).contains("information_schema.columns", "table_schema = DATABASE()",
+                "table_name = 'account_takeover_breaker'", "column_name = 'last_kicked_at'",
+                "PREPARE stmt FROM @sql", "EXECUTE stmt", "DEALLOCATE PREPARE stmt",
+                "最近一次已计数被挤事件的发生时间(epoch毫秒),用于重投去重");
+        assertThat(sql).containsPattern("(?s)IF\\(\\s*@last_kicked_at_col_exists = 0,.*?'SELECT 1'");
+        String quoted = extract(sql, "'ALTER TABLE account_takeover_breaker.*?',\\s*'SELECT 1'");
+        jdbc.execute(quoted.substring(1, quoted.lastIndexOf("',")).replace("''", "'"));
+
+        assertThat(jdbc.queryForObject("SELECT is_nullable FROM information_schema.columns"
+                + " WHERE table_name='account_takeover_breaker' AND column_name='last_kicked_at'", String.class))
+                .isEqualTo("YES");
+        assertThat(jdbc.queryForObject("SELECT last_kicked_at FROM account_takeover_breaker", Long.class)).isNull();
+        assertThat(jdbc.queryForObject("SELECT kick_count FROM account_takeover_breaker", Integer.class)).isEqualTo(10);
+        assertThat(jdbc.queryForObject("SELECT tripped_at FROM account_takeover_breaker", Long.class)).isEqualTo(1010L);
+    }
+
+    @Test
     void rollbackRemovesOnlyTheNewStructuresAndKeepsExistingAccountFacts() throws Exception {
         String sql = migration();
         jdbc.execute(offlineColumnDdl(sql));

@@ -73,8 +73,9 @@ class PullTaskRoleReconnectWakeH2Test {
         scheduler = mock(PullTaskExecutionDispatchScheduler.class);
         properties = new PullTaskOfflineRoleWaitProperties();
         var service = new PullTaskPullerAccountStateServiceImpl(sessions.getMapper(PullTaskGroupAccountMapper.class),
-                sessions.getMapper(PullTaskGroupExecutionMapper.class), null, event -> { },
-                new PullTaskExecutionDispatchTrigger(scheduler), properties);
+                sessions.getMapper(PullTaskGroupExecutionMapper.class), new PullTaskPullerAccountStateResources(
+                        null, event -> { }, new PullTaskExecutionDispatchTrigger(scheduler), properties,
+                        mock(AccountProtocolLookupService.class)));
         var proxy = new ProxyFactory(service);
         proxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
         sideEffect = new PullTaskPullerAccountStateChangedSideEffect(

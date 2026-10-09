@@ -209,9 +209,11 @@ class PullTaskOfflineResourceRecoveryH2Test {
     @ValueSource(strings = {"PASTED_LINK", "DIRECT_LINK", "SIMPLE_NEW_GROUP"})
     void automaticEntryActuallyInsertsReplacementAndRebindsTheExistingPlannedCall(String mode) {
         jdbc.update("UPDATE pull_task SET creation_mode=? WHERE id=100", mode);
-        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=1 WHERE task_id=100");
+        jdbc.update("UPDATE pull_task_standard_setting SET puller_count_per_group=2 WHERE task_id=100");
         jdbc.update("UPDATE pull_task_group_execution SET invite_code='AAAA',normalized_link='chat.whatsapp.com/AAAA' WHERE id=200");
         PullTaskGroupAccount old = offlinePuller(901L, 1);
+        PullTaskGroupAccount removed = offlinePuller(906L, 2);
+        roles.markUnavailable(removed.getId(), PullTaskGroupAccountAvailability.REMOVED.code(), "ACCOUNT_UNBOUND", null, NOW - 1L);
         activePlan(old);
         PullTaskGroupAccount manager = role(905L, PullTaskGroupAccountRole.MANAGER, 1);
         jdbc.update("UPDATE pull_task_group_account SET admin_status=? WHERE id=?",
@@ -239,12 +241,13 @@ class PullTaskOfflineResourceRecoveryH2Test {
                 ? contacts.prepare(entry, OWNER, NOW + 1L) : invites.prepare(entry, OWNER, NOW + 1L);
         assertThat(prepared).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
         List<PullTaskGroupAccount> pullers = roles.selectByExecutionAndRole(EXECUTION_ID, PullTaskGroupAccountRole.PULLER.code());
-        assertThat(pullers).hasSize(2);
+        assertThat(pullers).hasSize(3);
         PullTaskGroupAccount replacement = pullers.stream().filter(row -> row.getAccountId().equals(902L)).findFirst().orElseThrow();
-        assertThat(replacement.getRoleSeq()).isEqualTo(2);
+        assertThat(replacement.getRoleSeq()).isEqualTo(3);
         assertThat(replacement.getReleasedAt()).isNull();
         assertThat(replacement.getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
         assertRemoved(old);
+        assertThat(roles.selectById(removed.getId()).getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.REMOVED.code());
         assertThat(saved().getActivePullWaveId()).isEqualTo(501L);
         assertThat(calls.selectByExecution(EXECUTION_ID)).singleElement().satisfies(call -> {
             assertThat(call.getId()).isEqualTo(601L);
@@ -396,34 +399,60 @@ class PullTaskOfflineResourceRecoveryH2Test {
     void onlineTerminalAccountIsExpiredBeforeLegacyEligibilityCanRestoreIt(String terminalFact) {
         PullTaskGroupAccount old = offlinePuller(901L, 1);
         activePlan(old);
-        jdbc.execute("ALTER TABLE account ADD COLUMN account_group_id BIGINT DEFAULT 89");
-        jdbc.execute("ALTER TABLE account ADD COLUMN protocol_id VARCHAR(32) DEFAULT 'WEB'");
-        jdbc.execute("ALTER TABLE account ADD COLUMN deleted_at BIGINT");
-        jdbc.execute("CREATE TABLE account_state (account_id BIGINT PRIMARY KEY,tenant_id BIGINT,account_state INT,"
-                + "login_state INT,desired_login_state INT,mute_status INT,offline_since BIGINT)");
-        jdbc.execute("CREATE TABLE account_takeover_breaker (account_id BIGINT PRIMARY KEY,tenant_id BIGINT,tripped_at BIGINT)");
-        jdbc.update("INSERT INTO account_state VALUES (901,7,2,1,?,NULL,NULL)",
-                "desired-offline".equals(terminalFact) ? 2 : 1);
-        if ("tripped-breaker".equals(terminalFact)) {
-            jdbc.update("INSERT INTO account_takeover_breaker VALUES (901,7,99000)");
-        }
-        AccountProtocolLookupService realAccounts = new AccountProtocolLookupServiceImpl(
-                accountMapper, new AccountAutoTakeoverProperties());
-        // 真实账号 SQL 证明旧资格查询仍包含此号，但新角色可用性明确为 TERMINAL。
-        assertThat(realAccounts.findOnlineEligiblePullersByGroupId(89L)).extracting(ProtocolAccountRef::armadaAccountId)
-                .containsExactly(901L);
-        assertThat(realAccounts.findRoleAvailability(List.of(901L)).get(901L).kind()).isEqualTo(AccountRoleAvailability.Kind.TERMINAL);
-        when(accounts.findOnlineEligiblePullersByGroupId(89L)).thenAnswer(invocation -> realAccounts.findOnlineEligiblePullersByGroupId(89L));
-        when(accounts.findEligiblePullerProtocolRefs(anyList())).thenAnswer(invocation ->
-                realAccounts.findEligiblePullerProtocolRefs(invocation.getArgument(0)));
-        when(accounts.findRoleAvailability(anyCollection())).thenAnswer(invocation ->
-                realAccounts.findRoleAvailability(invocation.getArgument(0)));
+        terminalOnlinePullerLookup(terminalFact);
 
         assertThat(recovery.recover(candidate(), OWNER, NOW, 30_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
         assertRemoved(old);
         assertThat(saved().getActivePullerGroupAccountId()).isNull();
         assertThat(saved().getReasonCode()).isEqualTo("PULLER_UNAVAILABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"desired-offline", "tripped-breaker"})
+    void terminalOnlinePullerWithPendingJoinIsNotRestored(String terminalFact) {
+        PullTaskGroupAccount old = offlinePuller(901L, 1);
+        jdbc.update("UPDATE pull_task_group_account SET membership_status=? WHERE id=?",
+                PullTaskGroupAccountMembershipStatus.JOINING.code(), old.getId());
+        terminalOnlinePullerLookup(terminalFact);
+
+        assertThat(recovery.recover(candidate(), OWNER, NOW, 30_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(boundary.events).isZero();
+        assertThat(roles.selectById(old.getId()).getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.OFFLINE.code());
+        assertThat(roles.selectById(old.getId()).getMembershipStatus()).isEqualTo(PullTaskGroupAccountMembershipStatus.JOINING.code());
+        assertThat(saved().getReasonCode()).isEqualTo("ACCOUNT_NOT_ONLINE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"desired-offline", "tripped-breaker"})
+    void terminalOnlineReleasedPullerIsNotReoccupied(String terminalFact) {
+        PullTaskGroupAccount old = role(901L, PullTaskGroupAccountRole.PULLER, 1);
+        jdbc.update("UPDATE pull_task_group_account SET released_at=90000 WHERE id=?", old.getId());
+        terminalOnlinePullerLookup(terminalFact);
+
+        assertThat(recovery.recover(candidate(), OWNER, NOW, 30_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
+
+        assertThat(boundary.events).isZero();
+        assertThat(roles.selectById(old.getId()).getReleasedAt()).isEqualTo(90_000L);
+        assertThat(saved().getReasonCode()).isEqualTo("PULLER_UNAVAILABLE");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void disabledFeatureKeepsLegacyRestoreAndReoccupyWithoutTerminalLookup(boolean released) {
+        properties.setEnabled(false);
+        PullTaskGroupAccount old = released ? role(901L, PullTaskGroupAccountRole.PULLER, 1) : offlinePuller(901L, 1);
+        if (released) {
+            jdbc.update("UPDATE pull_task_group_account SET released_at=90000 WHERE id=?", old.getId());
+        }
+        terminalOnlinePullerLookup("tripped-breaker");
+
+        assertThat(recovery.recover(candidate(), OWNER, NOW, 30_000L)).isEqualTo(PullTaskExecutionDispatchResult.ADVANCED);
+
+        verify(accounts, never()).findRoleAvailability(anyCollection());
+        assertThat(roles.selectById(old.getId()).getAvailabilityStatus()).isEqualTo(PullTaskGroupAccountAvailability.AVAILABLE.code());
+        assertThat(roles.selectById(old.getId()).getReleasedAt()).isNull();
     }
 
     @Test
@@ -501,8 +530,33 @@ class PullTaskOfflineResourceRecoveryH2Test {
 
         assertThat(recovery.recover(candidate(), OWNER, NOW, 30_000L)).isEqualTo(PullTaskExecutionDispatchResult.DEFERRED);
 
-        verify(accounts, never()).findRoleAvailability(anyCollection());
+        verify(accounts).findRoleAvailability(List.of(901L));
         assertThat(saved().getReasonCode()).isEqualTo("MANAGER_ADMIN_ACTOR_UNAVAILABLE");
+    }
+
+    private void terminalOnlinePullerLookup(String terminalFact) {
+        jdbc.execute("ALTER TABLE account ADD COLUMN account_group_id BIGINT DEFAULT 89");
+        jdbc.execute("ALTER TABLE account ADD COLUMN protocol_id VARCHAR(32) DEFAULT 'WEB'");
+        jdbc.execute("ALTER TABLE account ADD COLUMN deleted_at BIGINT");
+        jdbc.execute("CREATE TABLE account_state (account_id BIGINT PRIMARY KEY,tenant_id BIGINT,account_state INT,"
+                + "login_state INT,desired_login_state INT,mute_status INT,offline_since BIGINT)");
+        jdbc.execute("CREATE TABLE account_takeover_breaker (account_id BIGINT PRIMARY KEY,tenant_id BIGINT,tripped_at BIGINT)");
+        jdbc.update("INSERT INTO account_state VALUES (901,7,2,1,?,NULL,NULL)",
+                "desired-offline".equals(terminalFact) ? 2 : 1);
+        if ("tripped-breaker".equals(terminalFact)) {
+            jdbc.update("INSERT INTO account_takeover_breaker VALUES (901,7,99000)");
+        }
+        AccountProtocolLookupService realAccounts = new AccountProtocolLookupServiceImpl(
+                accountMapper, new AccountAutoTakeoverProperties());
+        // 真实账号 SQL 证明旧资格查询仍包含此号，但新角色可用性明确为 TERMINAL。
+        assertThat(realAccounts.findOnlineEligiblePullersByGroupId(89L)).extracting(ProtocolAccountRef::armadaAccountId)
+                .containsExactly(901L);
+        assertThat(realAccounts.findRoleAvailability(List.of(901L)).get(901L).kind()).isEqualTo(AccountRoleAvailability.Kind.TERMINAL);
+        when(accounts.findOnlineEligiblePullersByGroupId(89L)).thenAnswer(invocation -> realAccounts.findOnlineEligiblePullersByGroupId(89L));
+        when(accounts.findEligiblePullerProtocolRefs(anyList())).thenAnswer(invocation ->
+                realAccounts.findEligiblePullerProtocolRefs(invocation.getArgument(0)));
+        when(accounts.findRoleAvailability(anyCollection())).thenAnswer(invocation ->
+                realAccounts.findRoleAvailability(invocation.getArgument(0)));
     }
 
     private void managerAdmin(String mode) {
@@ -637,6 +691,7 @@ class PullTaskOfflineResourceRecoveryH2Test {
     @EnableTransactionManagement
     @Import({MyBatisConfig.class, PullTaskResourceRecoveryTransactionService.class,
             PullTaskStickyPullerTransactionService.class, PullTaskPullerAccountStateServiceImpl.class,
+            com.armada.task.service.impl.PullTaskPullerAccountStateResources.class,
             PullTaskCreatorOfflineGate.class, PullTaskGroupExecutionFailureServiceImpl.class,
             PullTaskParentCompletionService.class, PullTaskManagerPullerContactTransactionService.class,
             PullTaskPullerInviteTransactionService.class})
@@ -706,8 +761,8 @@ class PullTaskOfflineResourceRecoveryH2Test {
 
         @Bean PullTaskManagerPullerContactResources contactResources(PullTaskGroupExecutionMapper executions,
                 AccountProtocolLookupService accounts, ProtocolCommandOutboxService outbox,
-                PullTaskExecutionDispatchProperties properties) {
-            return new PullTaskManagerPullerContactResources(executions, accounts, outbox, properties);
+                PullTaskExecutionDispatchProperties properties, PullTaskOfflineRoleWaitProperties waitProperties) {
+            return new PullTaskManagerPullerContactResources(executions, accounts, outbox, properties, waitProperties);
         }
 
         @Bean PullTaskPullerInviteResources inviteResources(PullTaskGroupExecutionMapper executions,

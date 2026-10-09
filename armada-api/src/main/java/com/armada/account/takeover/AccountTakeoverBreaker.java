@@ -7,12 +7,16 @@ import com.armada.shared.exception.ErrorCode;
 import com.armada.shared.tenant.TenantContext;
 import java.util.List;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 以账号行锁串行化固定窗口计数和人工清零，熔断后不随时间自动恢复。 */
 @Service
 public class AccountTakeoverBreaker {
+
+    private static final Logger log = LoggerFactory.getLogger(AccountTakeoverBreaker.class);
 
     /** 一次被挤事实更新后的自动恢复决策。 */
     public enum KickResult {
@@ -38,17 +42,24 @@ public class AccountTakeoverBreaker {
      * 在当前账号状态事务内累计一次被挤；首个计数行尚不存在时也用账号行实现互斥。
      *
      * @param account 当前租户的存续账号
-     * @param kickedAt 被挤事实发生时间，毫秒
+     * @param kickedAt 协议原始被挤时间，毫秒；缺失时不计数
      * @return 计数后是否熔断
      * @throws BusinessException 账号不属当前租户、已删除或事实写入未命中
      */
     @Transactional(rollbackFor = Exception.class)
-    public KickResult recordKick(Account account, long kickedAt) {
+    public KickResult recordKick(Account account, Long kickedAt) {
         Long tenantId = requireAccount(account);
         if (mapper.lockAccountIds(tenantId, List.of(account.getId())).isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "抢登熔断账号不存在或已删除");
         }
         var row = mapper.selectForUpdateByAccountId(account.getId());
+        if (kickedAt == null) {
+            log.warn("被挤事件未计数,缺少发生时间 tenantId={} accountId={}", tenantId, account.getId());
+            return KickResult.CONTINUE;
+        }
+        if (row != null && row.getLastKickedAt() != null && kickedAt <= row.getLastKickedAt()) {
+            return row.getTrippedAt() == null ? KickResult.CONTINUE : KickResult.TRIPPED;
+        }
         if (row != null && row.getTrippedAt() != null) {
             return KickResult.TRIPPED;
         }
@@ -69,6 +80,7 @@ public class AccountTakeoverBreaker {
         if (row.getKickCount() >= properties.getBreakerMaxKicks()) {
             row.setTrippedAt(kickedAt);
         }
+        row.setLastKickedAt(kickedAt);
         row.setUpdatedAt(now);
         int changed = insert ? mapper.insert(row) : mapper.update(row);
         if (changed != 1) {
@@ -90,7 +102,7 @@ public class AccountTakeoverBreaker {
     }
 
     /**
-     * 清零人工选择账号的窗口和熔断；与正在处理的被挤事件用相同账号锁串行。
+     * 清零人工选择账号的窗口和熔断，保留已计数时间水位；与被挤事件用相同账号锁串行。
      * @param accountIds 当前租户选择的账号
      * @param now 清零时间，毫秒
      */

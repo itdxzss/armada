@@ -156,6 +156,71 @@ class AccountTakeoverStateEventH2Test {
     }
 
     @Test
+    void replayingSameReservedCreatorKickTenTimesCountsOnceWithoutTripping() {
+        h.account(101L, 2, 1, 1, null);
+        h.reserve(101L);
+        AccountStateChangedEvent sameEvent = replaced();
+
+        for (int replay = 0; replay < 10; replay++) {
+            events.applyStateChanged(sameEvent);
+        }
+
+        assertThat(kicks()).isOne();
+        assertThat(h.jdbc.queryForObject(
+                "SELECT tripped_at FROM account_takeover_breaker WHERE account_id=101", Long.class)).isNull();
+        assertThat(state()).isEqualTo(6);
+        assertThat(login()).isEqualTo(2);
+        assertThat(outboxCount()).isZero();
+        verify(h.ipProxyMock, never()).allocateOnlineEndpoint(any());
+    }
+
+    @Test
+    void reservedCreatorKicksOneMillisecondApartBothCount() {
+        h.account(101L, 2, 1, 1, null);
+        h.reserve(101L);
+        AccountStateChangedEvent first = replaced();
+        AccountStateChangedEvent second = replaced();
+        assertThat(second.occurredAt() - first.occurredAt()).isOne();
+
+        events.applyStateChanged(first);
+        events.applyStateChanged(second);
+
+        assertThat(kicks()).isEqualTo(2);
+        assertThat(h.jdbc.queryForObject("SELECT tripped_at FROM account_takeover_breaker", Long.class)).isNull();
+    }
+
+    @Test
+    void missingKickTimeDoesNotCountButStillConvergesTheState() {
+        h.account(101L, 2, 1, 1, null);
+        h.reserve(101L);
+        var event = new AccountStateChangedEvent(1L, 101L, "account-101", "ONLINE", "LOGIN_REPLACED",
+                null, "LOGIN_REPLACED", 440, "protocol", "failed-attempt", null);
+
+        assertThat(events.applyStateChanged(event)).isTrue();
+
+        assertThat(kickRows()).isZero();
+        assertThat(state()).isEqualTo(6);
+        assertThat(login()).isEqualTo(2);
+        assertThat(h.states.selectByAccountId(101L).getLastStateSyncTime()).isNotNull();
+    }
+
+    @Test
+    void disabledAccountSwitchNeverCountsRepeatedKickEvents() {
+        h.properties.setEnabled(false);
+        h.account(101L, 2, 1, 1, null);
+        h.reserve(101L);
+        AccountStateChangedEvent sameEvent = replaced();
+
+        for (int replay = 0; replay < 10; replay++) {
+            events.applyStateChanged(sameEvent);
+        }
+
+        assertThat(kickRows()).isZero();
+        assertThat(state()).isEqualTo(6);
+        assertThat(outboxCount()).isZero();
+    }
+
+    @Test
     void proxyAllocationFailureCannotRollBackCommittedTakingOverState() throws Exception {
         h.account(101L, 2, 1, 1, null);
         when(h.ipProxyMock.allocateOnlineEndpoint(any()))

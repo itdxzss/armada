@@ -676,6 +676,11 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
             return new PullTaskExecutionDispatchProperties();
         }
 
+        @Bean
+        PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties() {
+            return new PullTaskOfflineRoleWaitProperties();
+        }
+
         /** 取下限，消掉随机拉人数对断言的干扰。 */
         @Bean
         PullTaskBatchSizeSelector batchSizeSelector() {

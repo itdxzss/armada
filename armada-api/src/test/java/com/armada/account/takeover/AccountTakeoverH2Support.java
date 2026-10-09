@@ -194,5 +194,11 @@ public final class AccountTakeoverH2Support {
             int start = migration.indexOf("CREATE TABLE IF NOT EXISTS account_takeover_breaker");
             jdbc.execute(migration.substring(start, migration.indexOf(" ENGINE=", start)));
         }
+        try (var stream = new ClassPathResource("db/migration/V216__account_takeover_kick_dedup.sql").getInputStream()) {
+            String migration = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            int start = migration.indexOf("'ALTER TABLE account_takeover_breaker") + 1;
+            int end = migration.indexOf("',", start);
+            jdbc.execute(migration.substring(start, end).replace("''", "'"));
+        }
     }
 }

@@ -58,10 +58,10 @@ public class AccountTakeoverPolicy {
      * 按终态、注销归属、用户意图和熔断优先级决定被挤后生命周期。
      * @param account 当前租户账号
      * @param state 被挤事件前的账号状态
-     * @param occurredAt 被挤事实时间，毫秒
+     * @param occurredAt 协议原始被挤事实时间，毫秒；缺失时不计数
      * @return 应保留或写入的生命周期决定
      */
-    public ReplacedDecision onLoginReplaced(Account account, AccountState state, long occurredAt) {
+    public ReplacedDecision onLoginReplaced(Account account, AccountState state, Long occurredAt) {
         Integer lifecycle = state == null ? null : state.getAccountState();
         if (!isEnabled()) {
             return Integer.valueOf(AccountStateCode.TAKING_OVER).equals(lifecycle)

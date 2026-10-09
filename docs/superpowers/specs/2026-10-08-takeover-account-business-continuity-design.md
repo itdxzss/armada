@@ -1,7 +1,7 @@
 # 抢登账号业务连续性设计（自动抢登 + 熔断 + 拉群角色离线等待）
 
 - 日期：2026-10-08（修订版 r2，同日）
-- 状态：待实现（Claude 起草，交 Codex 实现）
+- 状态：四阶段已实现；含 2026-10-09 用户确认的去重与恢复终态检查，真实测试及失败分类见 change 记录
 - 适用仓库：`armada/armada-api`（只改后端；Android 协议层已正确上报 303 → `LOGIN_REPLACED`，不改）
 - 证据环境：perf2（`armada_perf`），只读排查结论见第 1 节
 
@@ -19,7 +19,7 @@ r1 经源码复核发现 4 处技术缺口，本版已补齐：
 > **给实现者（Codex）的硬性要求**
 > 1. 开工前先读 `armada/AGENTS.md`、`.harness/rules/编码规范.md`、`.harness/rules/工程结构.md`、`.harness/rules/数据模型规范.md`、`.harness/rules/开发流程规范.md`。
 > 2. 按 `.harness/changes/_TEMPLATE.md` 新建 `.harness/changes/2026-10-08-takeover-business-continuity.md`，持续更新进度和“必须核实”项的结论。
-> 3. **主目录有其他会话的未提交修改**：`AccountOnlineCommandServiceImpl.java`、`AccountBatchLifecycleServiceImpl.java`、`ProtocolCommandOutboxServiceImpl.java` 及其测试，以及新文件 `ProtocolAccountCommandRejectedException.java`。**在独立 worktree 实现**，不得覆盖、回退或格式化主目录的这些改动。合并前先确认那批改动是否已提交，并在其基础上 rebase，因为 5.6 与 `ProtocolCommandOutboxServiceImpl.insertPendingRows` 的拒绝逻辑相关。
+> 3. **主目录有其他会话的未提交修改**：`AccountOnlineCommandServiceImpl.java`、`AccountBatchLifecycleServiceImpl.java`、`ProtocolCommandOutboxServiceImpl.java` 及其测试，以及新文件 `ProtocolAccountCommandRejectedException.java`。按用户覆盖指令在主仓库 `1.0.3-snapshot` 直接开发，不切分支，不覆盖、回退或格式化这些改动，混合文件只暂存本任务 hunk。2026-10-09 另授权两个指定 detached worktree 仅做基线测试，用完删除。
 > 4. 严格按第 9 节的阶段顺序实现。每个阶段先写失败测试再实现（TDD），测试默认用 H2 内存库加真实 Mapper XML（模板见第 8 节）。
 > 5. 不要发明新的协议命令 `source` 值，上线命令统一复用现有常量 `login_replaced_takeover`。
 > 6. 所有数值和开关都从配置读取，禁止写死（第 6 节）。
@@ -134,10 +134,19 @@ CREATE TABLE IF NOT EXISTS account_takeover_breaker (
 新增组件（包 `com.armada.account.takeover`）：
 - `AccountAutoTakeoverProperties`：`@ConfigurationProperties(prefix = "armada.account.auto-takeover")`，写法参考 `task/scheduler/PullTaskExecutionDispatchProperties`（setter 校验参数大于 0）。
 - `AccountTakeoverBreakerMapper`（含 XML）：`recordKick(...)`、`selectByAccountId`、`reset(accountIds, now)`。如果 H2 不支持 upsert 语法，改为“先 `SELECT ... FOR UPDATE`，再 update 或 insert”两步。
-- `AccountTakeoverBreaker`（Service）：`KickResult recordKick(Account account, long kickedAt)` 返回 `CONTINUE` 或 `TRIPPED`；`boolean isTripped(accountId)`；`void reset(List<Long> accountIds, long now)`。
+- `AccountTakeoverBreaker`（Service）：`KickResult recordKick(Account account, Long kickedAt)` 返回 `CONTINUE` 或 `TRIPPED`；`boolean isTripped(accountId)`；`void reset(List<Long> accountIds, long now)`。
 - `AccountCreatorReservationLookup`（或在现有 Mapper 上新增方法）：判断账号是否存在 `account_creator_deletion` 记录，并返回 lifecycle、task_id、group_execution_id。匹配条件照抄 `creatorDeletionCommandBlocked`。
 
 把 `AccountStateEventServiceImpl.applyLifecycleTransition` 中的 `isLoginReplaced(event)` 分支改为：
+
+**被挤事件重投去重（2026-10-09 用户确认）**：已提交的 V215 不改，以新的 Flyway 迁移 V216 为 `account_takeover_breaker` 添加 `last_kicked_at BIGINT NULL`，注释为“最近一次已计数被挤事件的发生时间(epoch毫秒),用于重投去重”。不把 LOGIN_REPLACED 写入 `protocol_risk_event`，该表的 `signal_code` 只表达固定风控信号；不透传 eventId，也不做载荷摘要。
+
+`recordKick` 在 `SELECT ... FOR UPDATE` 拿到熔断行后按以下顺序处理：
+- 原始 `event.occurredAt()` 为 NULL：不计数，记录 warn，返回未触发熔断。状态写入可继续使用原有的归一化时间，但不能把该兜底时间传给熔断计数。
+- `occurredAt <= last_kicked_at`：不计数、不重开窗口，按当前 `tripped_at` 是否非空返回熔断结果。
+- 其余情况沿用原固定窗口及已熔断规则；实际计数时把 `last_kicked_at` 更新为本次发生时间。窗口重开、人工清零均保留这一去重水位。
+
+时间去重依据：比状态水位更早的事件已经由 `isStaleEvent` 过滤；同一账号被挤会断开连接，下一次真实被挤需先重连，用户提供的 perf2 实测间隔至少 2 秒以上，不存在同一毫秒内两次真实被挤。不同时间的事件（即使只差 1 毫秒）正常计数；载荷摘要对“无 ID 且完全相同的消息”同样无法区分。
 
 ```
 if (isLoginReplaced(event)) {
@@ -157,7 +166,7 @@ if (isLoginReplaced(event)) {
     // ④ 只有 NULL/1（新增）走旧逻辑：落 6，由 5.4 扫描接手
     if (!inStates(currentState, NORMAL, LOGIN_REPLACED, TAKING_OVER)) { markLoginReplaced(); return true; }
     // ⑤ 计熔断
-    KickResult r = breaker.recordKick(account, occurredAt);
+    KickResult r = breaker.recordKick(account, event.occurredAt());
     if (r == TRIPPED) { markLoginReplaced(); log.warn("自动抢登熔断 ..."); return true; }
     // ⑥ 预留建群人：全局路径不能发上线命令（会被 outbox 拒绝），保持 6，由所属执行行恢复（5.6）
     if (reservation != null) { markLoginReplaced(); return true; }
@@ -374,6 +383,14 @@ WHERE e.execution_status IN (2, 3)
 
 ### 7.3 管理（MANAGER，第 4 阶段）
 
+**恢复前终态检查（2026-10-09 用户确认，适用于所有角色恢复入口）**：任务侧开关开启时，凡把角色从 OFFLINE 恢复为 AVAILABLE，必须在恢复前批量调用 `findRoleAvailability`，过滤 TERMINAL，由现有替换或资源等待处理。不能仅依赖旧在线资格 SQL；账号在线但已熔断或期望离线同样属于 TERMINAL。具体覆盖：
+- `managerCheck` 的 `restoreOffline`；
+- `pullerCheck` 的 `restoreValidatedPullers` 和 `reoccupyValidatedPullers`，重新占用也复核终态；
+- `PullTaskPullerAccountStateServiceImpl.markOnline`；
+- `PullTaskManagerPullerContactTransactionService.refreshAssignedAvailability`（过滤后的资格集合也用于后续重新占用）。
+
+任务侧开关关闭时不调用新增可用性查询，原调用顺序与 SQL 路径保持不变。分组新选号 `findOnlineEligible*ByGroupId` 本期不修改，限制见第 11 节。
+
 任务侧开关开启时，`managerCheck` 在 `usable.isEmpty()` 的情况下，先查询未 REMOVED、admin 未 FAILED 的已存管理员的可用性：
 - 任一为 WAIT → waiting `MANAGER_RECONNECTING`，nextRunAt 取最早的 waitUntil，不调用 `replaceManager`；
 - 全部为 GIVE_UP → 走现有 `replaceManager`。
@@ -446,6 +463,13 @@ WHERE e.execution_status IN (2, 3)
 33. 任务侧开关关闭：不执行超时移出，也不执行新增的重读路径。
 34. `managerAdminCheck` 因建群人不可恢复终止执行行：`recover()` 直接返回终止结果，FAILED 及 `GROUP_CREATOR_OFFLINE` 一起提交，不再 defer 或 resume。
 
+**H. 被挤事件重投与全部恢复入口终态防线（2026-10-09 补充）**
+
+35. 同一被挤事件重投 10 次：`kick_count=1`，不熔断；两次事件相差 1 毫秒：计数为 2。
+36. 原始 `occurredAt=NULL`：不计数，按未熔断继续；账号侧开关关闭：不写熔断表。
+37. 窗口过期并重开后重投上一条事件：不计数，也不重开窗口；人工清零保留去重水位；已熔断的重复事件仍返回熔断结果。
+38. 7.3 列出的每个恢复点各用真实 Mapper H2 验证：在线但已熔断，或在线但期望离线，不恢复 AVAILABLE、不重新占用。关闭任务开关保留原恢复及 SQL 查询路径。
+
 验证命令：`cd armada-api && mvn -Dtest='<相关测试类>' test`，全部完成后跑 `mvn test`。改 Mapper XML 前先 `xmllint --noout`。没有真实输出，不得宣称测试通过。
 
 ## 9. 实现顺序（每个阶段单独提交、可单独验证）
@@ -471,6 +495,7 @@ WHERE e.execution_status IN (2, 3)
 
 ## 11. 不在本期范围
 
+- 已知限制：从分组里挑新账号的 `findOnlineEligible*ByGroupId` SQL 本期不扩展熔断判定；已熔断账号只有被人工普通上线后才可能再次被选中。既有角色恢复仍受 7.3 的终态检查保护。
 - 普通链接模式下提权执行者（PROMOTER）的离线等待；站台（STATION）角色；`CREATOR_DELETE` 及之后阶段建群人离线的处理。
 - 建群前建群人超时后自动改选其他建群人（本期直接失败）。
 - 熔断后定时自动恢复。

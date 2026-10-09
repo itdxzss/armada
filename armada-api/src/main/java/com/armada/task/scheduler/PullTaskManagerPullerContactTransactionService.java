@@ -1,5 +1,6 @@
 package com.armada.task.scheduler;
 
+import com.armada.account.model.AccountRoleAvailability;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.command.ProtocolPullTaskContactSaveCommandRequest;
 import com.armada.platform.protocol.model.result.ProtocolCommandOutboxEnqueueResult;
@@ -384,6 +385,12 @@ public class PullTaskManagerPullerContactTransactionService {
                 .map(ProtocolAccountRef::armadaAccountId).collect(java.util.stream.Collectors.toSet());
         Set<Long> onlineIds = resources.accountLookup().findOnlineProtocolRefs(assignedIds).stream()
                 .map(ProtocolAccountRef::armadaAccountId).collect(java.util.stream.Collectors.toSet());
+        if (resources.offlineRoleWaitProperties().isEnabled() && !assignedIds.isEmpty()) {
+            Map<Long, AccountRoleAvailability> availability = resources.accountLookup().findRoleAvailability(assignedIds);
+            // 旧在线资格不含熔断和人工停号事实；恢复与后续重新占用共用本次复核结果。
+            eligibleIds.removeIf(accountId -> availability.get(accountId) != null
+                    && availability.get(accountId).kind() == AccountRoleAvailability.Kind.TERMINAL);
+        }
         for (PullTaskGroupAccount row : existing) {
             if (PullTaskPullerSlotPolicy.waitingForOnline(row) && eligibleIds.contains(row.getAccountId())) {
                 groupAccountMapper.restoreOccupiedOfflinePuller(row, now,

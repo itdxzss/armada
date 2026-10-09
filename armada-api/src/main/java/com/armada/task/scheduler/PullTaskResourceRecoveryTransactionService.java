@@ -170,6 +170,11 @@ public class PullTaskResourceRecoveryTransactionService {
                 .filter(row -> !Objects.equals(row.getAdminStatus(), PullTaskGroupAccountAdminStatus.FAILED.code()))
                 .toList();
         if (usable.isEmpty()) {
+            Long waitUntil = managerWaitUntil(refreshed, now);
+            if (waitUntil != null) {
+                return ResourceCheck.waiting(PullTaskExecutionReasonCode.MANAGER_RECONNECTING.name(),
+                        PullTaskExecutionReasonCode.MANAGER_RECONNECTING.message(), waitUntil, false);
+            }
             return replaceManager(candidate, setting, refreshed, creatorAccountIds, now);
         }
         // 健康账号的未知进群结果必须先核实，不能因尚未确认在群而消耗下一个账号。
@@ -182,6 +187,30 @@ public class PullTaskResourceRecoveryTransactionService {
         }
         return usable.stream().anyMatch(row -> managerSupportsStage(row, candidate.getStage()))
                 ? ResourceCheck.available() : managerWaiting(0);
+    }
+
+    private Long managerWaitUntil(List<PullTaskGroupAccount> managers, long now) {
+        if (!resources.offlineRoleWaitProperties().isEnabled()) {
+            return null;
+        }
+        List<Long> retainedIds = managers.stream()
+                .filter(row -> !Objects.equals(row.getAvailabilityStatus(), PullTaskGroupAccountAvailability.REMOVED.code()))
+                .filter(row -> !Objects.equals(row.getAdminStatus(), PullTaskGroupAccountAdminStatus.FAILED.code()))
+                .map(PullTaskGroupAccount::getAccountId).filter(Objects::nonNull).distinct().toList();
+        if (retainedIds.isEmpty()) {
+            return null;
+        }
+        Map<Long, AccountRoleAvailability> availability = resources.accountLookup().findRoleAvailability(retainedIds);
+        Long waitUntil = null;
+        for (Long accountId : retainedIds) {
+            PullTaskOfflineRoleWaitPolicy.Decision decision = PullTaskOfflineRoleWaitPolicy.decide(
+                    availability == null ? null : availability.get(accountId),
+                    resources.offlineRoleWaitProperties().getReplaceableGraceMs(), now);
+            if (decision.kind() == PullTaskOfflineRoleWaitPolicy.Kind.WAIT) {
+                waitUntil = waitUntil == null ? decision.waitUntil() : Math.min(waitUntil, decision.waitUntil());
+            }
+        }
+        return waitUntil;
     }
 
     private Set<Long> creatorAccountIds(PullTask parent, long executionId) {
@@ -398,6 +427,9 @@ public class PullTaskResourceRecoveryTransactionService {
     }
 
     private void restoreValidatedPullers(List<PullTaskGroupAccount> stored, Set<Long> validatedIds, long now) {
+        if (resources.offlineRoleWaitProperties().isEnabled()) {
+            validatedIds = new LinkedHashSet<>(nonTerminalAccounts(List.copyOf(validatedIds)));
+        }
         for (PullTaskGroupAccount row : stored) {
             if (!validatedIds.contains(row.getAccountId()) || !PullTaskPullerSlotPolicy.waitingForOnline(row)) {
                 continue;
@@ -417,6 +449,9 @@ public class PullTaskResourceRecoveryTransactionService {
 
     private void restoreOffline(
             List<Long> validatedIds, PullTaskGroupAccountRole role, long now) {
+        if (resources.offlineRoleWaitProperties().isEnabled()) {
+            validatedIds = nonTerminalAccounts(validatedIds);
+        }
         if (validatedIds.isEmpty()) {
             return;
         }
@@ -429,6 +464,9 @@ public class PullTaskResourceRecoveryTransactionService {
             List<PullTaskGroupAccount> stored,
             Set<Long> eligibleIds,
             long now) {
+        if (resources.offlineRoleWaitProperties().isEnabled()) {
+            eligibleIds = new LinkedHashSet<>(nonTerminalAccounts(List.copyOf(eligibleIds)));
+        }
         int available = 0;
         for (PullTaskGroupAccount row : stored) {
             if (Objects.equals(row.getMembershipStatus(),
@@ -454,6 +492,17 @@ public class PullTaskResourceRecoveryTransactionService {
             }
         }
         return available;
+    }
+
+    private List<Long> nonTerminalAccounts(List<Long> accountIds) {
+        if (accountIds.isEmpty()) {
+            return accountIds;
+        }
+        // 旧在线资格不含人工停号和熔断事实；三个恢复入口统一复核后才允许恢复角色或占用。
+        Map<Long, AccountRoleAvailability> availability = resources.accountLookup().findRoleAvailability(accountIds);
+        return accountIds.stream().filter(accountId -> availability == null
+                || availability.get(accountId) == null
+                || availability.get(accountId).kind() != AccountRoleAvailability.Kind.TERMINAL).toList();
     }
 
     private PullTaskExecutionDispatchResult resume(

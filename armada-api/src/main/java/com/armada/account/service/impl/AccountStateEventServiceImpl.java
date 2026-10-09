@@ -214,7 +214,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                                              long updatedAt) {
         if (isLoginReplaced(event)) {
             if (takeoverPolicy.isEnabled()) {
-                switch (takeoverPolicy.onLoginReplaced(account, currentState, occurredAt)) {
+                switch (takeoverPolicy.onLoginReplaced(account, currentState, event.occurredAt())) {
                     case KEEP_LIFECYCLE -> stateMapper.updateLoginState(updateRow(account.getId(),
                             AccountLoginStateCode.OFFLINE, null, SOURCE_LOGIN_REPLACED, null, occurredAt, updatedAt));
                     case LOGIN_REPLACED -> markLoginReplaced(account, occurredAt, updatedAt);

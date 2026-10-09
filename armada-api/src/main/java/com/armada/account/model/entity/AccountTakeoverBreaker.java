@@ -11,6 +11,8 @@ public class AccountTakeoverBreaker {
     private Long accountId;
     /** 固定窗口内首次被挤的时间，毫秒。 */
     private Long windowStartedAt;
+    /** 最近一次已计数被挤事件的发生时间，毫秒；跨窗口保留用于重投去重。 */
+    private Long lastKickedAt;
     /** 当前窗口内累计被挤次数。 */
     private Integer kickCount;
     /** 熔断触发时间，非空时必须人工清零才能恢复。 */
@@ -36,6 +38,10 @@ public class AccountTakeoverBreaker {
     public Long getWindowStartedAt() { return windowStartedAt; }
     /** @param windowStartedAt 固定窗口起点，毫秒 */
     public void setWindowStartedAt(Long windowStartedAt) { this.windowStartedAt = windowStartedAt; }
+    /** @return 最近一次已计数被挤事件时间，毫秒 */
+    public Long getLastKickedAt() { return lastKickedAt; }
+    /** @param lastKickedAt 最近一次已计数被挤事件时间，毫秒 */
+    public void setLastKickedAt(Long lastKickedAt) { this.lastKickedAt = lastKickedAt; }
     /** @return 当前窗口累计被挤次数 */
     public Integer getKickCount() { return kickCount; }
     /** @param kickCount 当前窗口累计被挤次数 */

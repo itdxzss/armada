@@ -10,7 +10,7 @@
   </select>
 
   <sql id="columns">
-    id, tenant_id, account_id, window_started_at, kick_count, tripped_at, created_at, updated_at
+    id, tenant_id, account_id, window_started_at, last_kicked_at, kick_count, tripped_at, created_at, updated_at
   </sql>
 
   <select id="selectByAccountId" resultType="com.armada.account.model.entity.AccountTakeoverBreaker">
@@ -23,13 +23,14 @@
 
   <insert id="insert" useGeneratedKeys="true" keyProperty="id">
     INSERT INTO account_takeover_breaker
-      (account_id, window_started_at, kick_count, tripped_at, created_at, updated_at)
-    VALUES (#{accountId}, #{windowStartedAt}, #{kickCount}, #{trippedAt}, #{createdAt}, #{updatedAt})
+      (account_id, window_started_at, last_kicked_at, kick_count, tripped_at, created_at, updated_at)
+    VALUES (#{accountId}, #{windowStartedAt}, #{lastKickedAt}, #{kickCount}, #{trippedAt}, #{createdAt}, #{updatedAt})
   </insert>
 
   <update id="update">
     UPDATE account_takeover_breaker
-    SET window_started_at = #{windowStartedAt}, kick_count = #{kickCount}, tripped_at = #{trippedAt},
+    SET window_started_at = #{windowStartedAt}, last_kicked_at = #{lastKickedAt},
+        kick_count = #{kickCount}, tripped_at = #{trippedAt},
         updated_at = #{updatedAt}
     WHERE id = #{id} AND account_id = #{accountId}
   </update>

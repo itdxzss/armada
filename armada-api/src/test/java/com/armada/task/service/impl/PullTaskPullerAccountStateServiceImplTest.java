@@ -34,8 +34,10 @@ class PullTaskPullerAccountStateServiceImplTest {
             mock(PullTaskExecutionDispatchTrigger.class);
     private final PullTaskPullerAccountStateServiceImpl service =
             new PullTaskPullerAccountStateServiceImpl(
-                    accountMapper, executionMapper, stickyPullers, eventPublisher, dispatchTrigger,
-                    new com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties());
+                    accountMapper, executionMapper, new PullTaskPullerAccountStateResources(
+                            stickyPullers, eventPublisher, dispatchTrigger,
+                            new com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties(),
+                            mock(com.armada.account.service.AccountProtocolLookupService.class)));
 
     private final PullTaskGroupAccount puller = puller();
     private final PullTaskGroupExecution execution = execution();

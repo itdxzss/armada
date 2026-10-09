@@ -79,6 +79,13 @@ class AccountTakeoverPolicyH2Test {
                 Pattern.DOTALL).matcher(migration);
         assertThat(ddl.find()).isTrue();
         jdbc.execute(ddl.group().replaceFirst("\\s*ENGINE$", ""));
+        String dedupMigration = Files.readString(Path.of(
+                "src/main/resources/db/migration/V216__account_takeover_kick_dedup.sql"));
+        var dedupDdl = Pattern.compile("'ALTER TABLE account_takeover_breaker.*?',\\s*'SELECT 1'",
+                Pattern.DOTALL).matcher(dedupMigration);
+        assertThat(dedupDdl.find()).isTrue();
+        String quotedDdl = dedupDdl.group();
+        jdbc.execute(quotedDdl.substring(1, quotedDdl.lastIndexOf("',")).replace("''", "'"));
         jdbc.update("INSERT INTO account VALUES (100,7,NULL,'12345678900'),(200,8,NULL,'12345678900')");
         properties.setEnabled(true);
         properties.setBreakerWindowMs(600_000L);
@@ -115,6 +122,53 @@ class AccountTakeoverPolicyH2Test {
         assertThat(jdbc.queryForObject("SELECT window_started_at FROM account_takeover_breaker", Long.class))
                 .isEqualTo(601_000L);
         assertThat(breaker.isTripped(ACCOUNT_ID)).isFalse();
+    }
+
+    @Test
+    void replayOfPreviousWindowKickNeitherCountsNorReopensTheNewWindow() {
+        breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_000L);
+        breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 601_000L);
+        var newWindow = jdbc.queryForMap("SELECT * FROM account_takeover_breaker");
+
+        assertThat(breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_000L))
+                .isEqualTo(AccountTakeoverBreaker.KickResult.CONTINUE);
+
+        assertThat(kicks()).isOne();
+        assertThat(jdbc.queryForMap("SELECT * FROM account_takeover_breaker")).isEqualTo(newWindow);
+    }
+
+    @Test
+    void manualResetKeepsTheDedupWatermarkWithoutRecountingTheLastKick() {
+        breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_000L);
+        breaker.reset(List.of(ACCOUNT_ID), 2_000L);
+
+        assertThat(breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_000L))
+                .isEqualTo(AccountTakeoverBreaker.KickResult.CONTINUE);
+
+        assertThat(kicks()).isZero();
+        assertThat(jdbc.queryForObject("SELECT window_started_at FROM account_takeover_breaker", Long.class)).isNull();
+    }
+
+    @Test
+    void duplicateKickKeepsTheExistingTrippedDecisionAndRow() {
+        trip();
+        var tripped = jdbc.queryForMap("SELECT * FROM account_takeover_breaker");
+
+        assertThat(breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_010L))
+                .isEqualTo(AccountTakeoverBreaker.KickResult.TRIPPED);
+
+        assertThat(jdbc.queryForMap("SELECT * FROM account_takeover_breaker")).isEqualTo(tripped);
+    }
+
+    @Test
+    void missingKickTimeDoesNotChangeAnExistingTripAndReturnsContinue() {
+        trip();
+        var tripped = jdbc.queryForMap("SELECT * FROM account_takeover_breaker");
+
+        assertThat(breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), null))
+                .isEqualTo(AccountTakeoverBreaker.KickResult.CONTINUE);
+
+        assertThat(jdbc.queryForMap("SELECT * FROM account_takeover_breaker")).isEqualTo(tripped);
     }
 
     @Test
@@ -173,7 +227,7 @@ class AccountTakeoverPolicyH2Test {
     }
 
     @Test
-    void concurrentFirstKicksWaitForTheAccountLockAndDoNotLoseCounts() throws Exception {
+    void concurrentCopiesOfFirstKickWaitForTheAccountLockAndCountOnlyOnce() throws Exception {
         var executor = Executors.newFixedThreadPool(10);
         var locked = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -191,10 +245,9 @@ class AccountTakeoverPolicyH2Test {
             }));
             assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
             for (int kick = 2; kick <= 10; kick++) {
-                long occurredAt = 1_000L + kick;
                 futures.add(executor.submit(() -> {
                     TenantContext.set(TENANT_ID);
-                    try { breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), occurredAt); }
+                    try { breaker.recordKick(account(ACCOUNT_ID, TENANT_ID), 1_001L); }
                     finally { TenantContext.clear(); }
                 }));
             }
@@ -204,8 +257,9 @@ class AccountTakeoverPolicyH2Test {
             for (Future<?> future : futures) {
                 future.get(5, TimeUnit.SECONDS);
             }
-            assertThat(kicks()).isEqualTo(10);
-            assertThat(breaker.isTripped(ACCOUNT_ID)).isTrue();
+            assertThat(kicks()).isOne();
+            assertThat(breaker.isTripped(ACCOUNT_ID)).isFalse();
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account_takeover_breaker", Integer.class)).isOne();
         } finally {
             release.countDown();
             executor.shutdownNow();

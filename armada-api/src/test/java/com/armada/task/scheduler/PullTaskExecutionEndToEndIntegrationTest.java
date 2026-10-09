@@ -1327,7 +1327,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 PullTaskExecutionDispatchProperties properties) {
             PullTaskManagerPullerContactResources resources =
                     new PullTaskManagerPullerContactResources(
-                            executionMapper, lookup, outboxService, properties);
+                            executionMapper, lookup, outboxService, properties, new PullTaskOfflineRoleWaitProperties());
             return new PullTaskManagerPullerContactTransactionService(
                             taskMapper, settingMapper, accountMapper, actionMapper, resources,
                             mock(PullTaskGroupProfileDispatcher.class));

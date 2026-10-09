@@ -11,5 +11,6 @@ public record PullTaskManagerPullerContactResources(
         PullTaskGroupExecutionMapper executionMapper,
         AccountProtocolLookupService accountLookup,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchProperties properties) {
+        PullTaskExecutionDispatchProperties properties,
+        PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties) {
 }

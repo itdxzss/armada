@@ -1,5 +1,6 @@
 package com.armada.task.service.impl;
 
+import com.armada.account.model.AccountRoleAvailability;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.mapper.PullTaskGroupAccountMapper;
 import com.armada.task.mapper.PullTaskGroupExecutionMapper;
@@ -11,12 +12,8 @@ import com.armada.task.model.enums.PullTaskExecutionStatus;
 import com.armada.task.model.enums.PullTaskGroupAccountAvailability;
 import com.armada.task.model.enums.PullTaskGroupAccountRole;
 import com.armada.task.model.enums.PullTaskStandardStatus;
-import com.armada.task.scheduler.PullTaskExecutionDispatchTrigger;
-import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
-import com.armada.task.scheduler.PullTaskStickyPullerTransactionService;
 import com.armada.task.service.PullTaskPullerAccountStateService;
 import java.util.List;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,33 +24,21 @@ public class PullTaskPullerAccountStateServiceImpl
 
     private final PullTaskGroupAccountMapper accountMapper;
     private final PullTaskGroupExecutionMapper executionMapper;
-    private final PullTaskStickyPullerTransactionService stickyPullers;
-    private final ApplicationEventPublisher eventPublisher;
-    private final PullTaskExecutionDispatchTrigger dispatchTrigger;
-    /** 任务侧关闭时不执行新增角色唤醒 SQL。 */
-    private final PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties;
+    /** 角色恢复与移出使用同一组账号事实和提交后通知依赖。 */
+    private final PullTaskPullerAccountStateResources resources;
 
     /**
      * @param accountMapper 任务角色账号 Mapper
      * @param executionMapper 群执行行 Mapper
-     * @param stickyPullers 粘性拉手事务服务
-     * @param eventPublisher 事务后名单核实事件发布器
-     * @param dispatchTrigger 提交后调度唤醒器
-     * @param offlineRoleWaitProperties 任务侧离线等待开关
+     * @param resources 账号查询、粘性处理和提交后通知依赖
      */
     public PullTaskPullerAccountStateServiceImpl(
             PullTaskGroupAccountMapper accountMapper,
             PullTaskGroupExecutionMapper executionMapper,
-            PullTaskStickyPullerTransactionService stickyPullers,
-            ApplicationEventPublisher eventPublisher,
-            PullTaskExecutionDispatchTrigger dispatchTrigger,
-            PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties) {
+            PullTaskPullerAccountStateResources resources) {
         this.accountMapper = accountMapper;
         this.executionMapper = executionMapper;
-        this.stickyPullers = stickyPullers;
-        this.eventPublisher = eventPublisher;
-        this.dispatchTrigger = dispatchTrigger;
-        this.offlineRoleWaitProperties = offlineRoleWaitProperties;
+        this.resources = resources;
     }
 
     /**
@@ -125,22 +110,31 @@ public class PullTaskPullerAccountStateServiceImpl
         if (execution == null) {
             return;
         }
-        stickyPullers.invalidateCurrentRole(
+        resources.stickyPullers().invalidateCurrentRole(
                 execution, puller, reasonCode, occurredAt);
-        eventPublisher.publishEvent(new PullTaskPullerUnavailableEvent(
+        resources.eventPublisher().publishEvent(new PullTaskPullerUnavailableEvent(
                 execution.getTenantId(), execution.getId(), puller.getId(), occurredAt));
     }
 
-    /** 恢复原角色并只提前因离线产生的资源检查，不改变业务计划和在途请求。 */
+    /** 复核终态后恢复原角色，只提前离线资源检查，不改变业务计划和在途请求。 */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void markOnline(long tenantId, long accountId, long occurredAt) {
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
+            List<PullTaskGroupAccount> pullers = accountMapper.selectOccupiedByAccountAndRole(
+                    accountId, PullTaskGroupAccountRole.PULLER.code());
+            if (resources.offlineRoleWaitProperties().isEnabled()
+                    && pullers.stream().anyMatch(PullTaskPullerSlotPolicy::waitingForOnline)) {
+                AccountRoleAvailability availability = resources.accountLookup()
+                        .findRoleAvailability(List.of(accountId)).get(accountId);
+                if (availability != null && availability.kind() == AccountRoleAvailability.Kind.TERMINAL) {
+                    return;
+                }
+            }
             boolean wake = false;
-            for (PullTaskGroupAccount puller : accountMapper.selectOccupiedByAccountAndRole(
-                    accountId, PullTaskGroupAccountRole.PULLER.code())) {
+            for (PullTaskGroupAccount puller : pullers) {
                 if (!PullTaskPullerSlotPolicy.waitingForOnline(puller)) {
                     continue;
                 }
@@ -156,7 +150,7 @@ public class PullTaskPullerAccountStateServiceImpl
                 }
             }
             if (wake) {
-                dispatchTrigger.dispatchAfterCommit();
+                resources.dispatchTrigger().dispatchAfterCommit();
             }
         } finally {
             restoreTenant(previousTenant);
@@ -167,14 +161,14 @@ public class PullTaskPullerAccountStateServiceImpl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void wakeRoleWaiters(long tenantId, long accountId, long occurredAt) {
-        if (!offlineRoleWaitProperties.isEnabled()) {
+        if (!resources.offlineRoleWaitProperties().isEnabled()) {
             return;
         }
         Long previousTenant = TenantContext.get();
         TenantContext.set(tenantId);
         try {
             if (executionMapper.wakeForReconnectedRole(accountId, occurredAt) > 0) {
-                dispatchTrigger.dispatchAfterCommit();
+                resources.dispatchTrigger().dispatchAfterCommit();
             }
         } finally {
             restoreTenant(previousTenant);

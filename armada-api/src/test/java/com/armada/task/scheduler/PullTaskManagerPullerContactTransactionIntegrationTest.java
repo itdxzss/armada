@@ -936,7 +936,7 @@ class PullTaskManagerPullerContactTransactionIntegrationTest {
                 ProtocolCommandOutboxService outboxService,
                 PullTaskExecutionDispatchProperties properties) {
             return new PullTaskManagerPullerContactResources(
-                    executionMapper, accountLookup, outboxService, properties);
+                    executionMapper, accountLookup, outboxService, properties, new PullTaskOfflineRoleWaitProperties());
         }
 
         @Bean ProtocolCommandOutboxService outboxService() {

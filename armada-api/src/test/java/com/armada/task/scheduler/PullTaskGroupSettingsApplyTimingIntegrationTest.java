@@ -578,6 +578,11 @@ class PullTaskGroupSettingsApplyTimingIntegrationTest {
             PullTaskGroupProfileDispatcher.class
     })
     static class TestConfig {
+        // 本套聚焦原业务，预留释放的真实事务在 PullTaskCreatorDeletionReleaseH2Test 验证。
+        @Bean com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService creatorReleaseTransactions() {
+            return org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService.class);
+        }
+
 
         @Bean
         DataSource dataSource() {

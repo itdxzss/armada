@@ -34,6 +34,13 @@ public interface AccountBatchLifecycleService {
     AccountBatchCommandResultVO onlineByIds(List<Long> ids);
 
     /**
+     * 一键抢登按账号隔离生命周期拒绝，其余异常整批失败、不重试。
+     * @param ids 当前租户账号 ID，最多 1,000 个
+     * @return 复用批量上线受理结构，包含 failed 和 batchErrors
+     */
+    AccountBatchCommandResultVO takeoverByIds(List<Long> ids);
+
+    /**
      * 对明确选择的账号发起批量离线。
      *
      * @param ids 当前租户账号 ID，最多 2,000 个

@@ -1,0 +1,321 @@
+[
+  {
+    "class": "com.armada.boot.config.GrizzlySmsConfigurationTest",
+    "tests": 5,
+    "failures": 0,
+    "errors": 5,
+    "details": [
+      {
+        "test": "doesNotReplayGetAfterServiceUnavailableWithRetryAfterHeader",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "doesNotReplayGetAfterServerClosesConnectionWithoutResponse",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "springBindsQueriesSeparatelyFromOrderMutations",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "doesNotFollowRedirectThatCouldForwardCredentials",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "springCreatesDisabledClientWithoutCredentialsOrNetworkAccess",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.group.HistoricalGroupPreviewSchemaSqlTest",
+    "tests": 2,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "previewUpsertPersistsCreatedAtWithoutErasingKnownValueWithNull",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.group.mapper.GroupMembershipCountSemanticsMapperH2Test",
+    "tests": 15,
+    "failures": 0,
+    "errors": 2,
+    "details": [
+      {
+        "test": "accountListReadsCurrentBindingWhileMarketingTreeKeepsItsOwnCountSemantics",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"a.declared_account_type\" not found; SQL statement:"
+      },
+      {
+        "test": "accountGroupSyncRotationAndWatermarkUseCurrentSyncState",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Table \"account_creator_deletion\" not found; SQL statement:"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.group.mapper.GroupParticipantRolePrecedenceSqlTest",
+    "tests": 3,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "lowerTrustSourceCannotDowngradeKnownRole",
+        "kind": "failure",
+        "reason": "[已有非未知角色时，低可信来源即使事实时间更晚也不得覆盖] "
+      }
+    ]
+  },
+  {
+    "class": "com.armada.group.service.impl.HistoricalGroupPullWorkerImplTest",
+    "tests": 5,
+    "failures": 2,
+    "errors": 0,
+    "details": [
+      {
+        "test": "usesOneRandomPullerPersistedLinkMarketingFirstBatchesAndAddBasedStatistics",
+        "kind": "failure",
+        "reason": ""
+      },
+      {
+        "test": "addBatchExceptionFailsThatBatchAndContinuesNextBatchWithoutRetry",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.marketing.grouppull.service.GroupPullMarketingMaterialEntryServiceTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 1,
+    "details": [
+      {
+        "test": "explicitGroupBanFailsExecutionWithoutSchedulingAnotherMaterialAttempt",
+        "kind": "error",
+        "reason": "保存逐料重试进度时状态已变化"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.marketing.mapper.GroupCreationMarketingTaskMapperSqlShapeTest",
+    "tests": 2,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "accountRetryMapperStatementsKeepItemRetryScopedToOneItem",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.marketing.mapper.MarketingGroupBanMapperH2Test",
+    "tests": 3,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "detailReadsCurrentBanSeparatelyFromSuccessfulAttempt",
+        "kind": "failure",
+        "reason": "Caused by: java.net.UnknownHostException: mybatis.org"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.platform.protocol.process.HttpProtocolReadyProbeTest",
+    "tests": 2,
+    "failures": 0,
+    "errors": 2,
+    "details": [
+      {
+        "test": "probe_returnsNotReadyForUnavailableStatus",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "probe_returnsReadyForTwoHundredStatus",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.promotion.channel.service.impl.HttpFacebookCapiClientTest",
+    "tests": 4,
+    "failures": 0,
+    "errors": 2,
+    "details": [
+      {
+        "test": "preservesLegacyProbePayloadButClassifiesProductionHttpFailures",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      },
+      {
+        "test": "sendsFormalEventWithHashedPhoneAndWithoutTestCodeOrPlainPhone",
+        "kind": "error",
+        "reason": "Operation not permitted"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.security.BusinessControllerAuthorizationContractTest",
+    "tests": 3,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "permitsOnlyBusinessMenusThatActuallyUseSharedReadEndpoints",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.mapper.PullTaskGroupMarketingGroupMapperInMemoryTest",
+    "tests": 11,
+    "failures": 1,
+    "errors": 7,
+    "details": [
+      {
+        "test": "managerPhoneFilterDoesNotMatchOrdinaryMemberRelations",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "rollsBackInsertedWaitingWhenExternalCountryAssemblyFails",
+        "kind": "failure",
+        "reason": ""
+      },
+      {
+        "test": "filtersBySourceAndKeepsOtherTenantsOut",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "currentBindingsOverrideStaleLegacyMembershipForCandidateEligibility",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "showsMemberOnlyGroupOnlyWhenExplicitlyRequestedAndNeverMakesItEligible",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "concurrentServicesAllowExactlyOnePoolToOccupyTheSameGroup",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "serviceRoundTripUsesRealTransactionsAndMockedCountryReference",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      },
+      {
+        "test": "deduplicatesGroupAndAggregatesEligibleManagersAcrossAccounts",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"current_group.group_classification\" not found; SQL statement:"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.mapper.PullTaskLifecycleMapperInMemoryTest",
+    "tests": 7,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "lifecycleMapperDoesNotUseExplicitForUpdate",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.mapper.PullTaskMapperBusinessConditionTest",
+    "tests": 1,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "businessStatusConditionsMustComeFromJavaParameters",
+        "kind": "failure",
+        "reason": "[PullTaskGroupExecutionMapper.xml contains a hardcoded equality status condition] "
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.mapper.PullTaskNormalLinkSchemaSelfTest",
+    "tests": 9,
+    "failures": 1,
+    "errors": 0,
+    "details": [
+      {
+        "test": "allElevenTablesAreCreated",
+        "kind": "failure",
+        "reason": ""
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.service.PullTaskStandardCreateServiceTest",
+    "tests": 30,
+    "failures": 0,
+    "errors": 2,
+    "details": [
+      {
+        "test": "newGroupModeAllowsNoManagerGroupAndPersistsNullSnapshot",
+        "kind": "error",
+        "reason": "管理、拉手账号分组不能为空"
+      },
+      {
+        "test": "linkModesStillRejectNoManagerGroupWithoutFreezingDraft",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLIntegrityConstraintViolationException: Unique index or primary key violation: \"public.uq_pull_task_execution_seq_INDEX_8 ON public.pull_task_group_execution(tenant_id NULLS FIRST, task_id NULLS FIRST, seq NULLS FIRST, attempt_no NULLS FIRST) VALUES ( /* key:1 */ CAST(7 AS BIGINT), CAST(1 AS BIGINT), 1, 1)\"; SQL statement:"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.task.service.PullTaskStandardSettingWriterTest",
+    "tests": 8,
+    "failures": 0,
+    "errors": 1,
+    "details": [
+      {
+        "test": "newGroupModeAllowsNoManagerButStillValidatesASelectedGroup",
+        "kind": "error",
+        "reason": "管理账号分组不能为空"
+      }
+    ]
+  },
+  {
+    "class": "com.armada.testsupport.MysqlModeMapperInMemoryTest",
+    "tests": 19,
+    "failures": 0,
+    "errors": 2,
+    "details": [
+      {
+        "test": "groupFolderMapperExecutesRealXmlAndKeepsTenantBoundary",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Column \"f.system_builtin\" not found; SQL statement:"
+      },
+      {
+        "test": "groupFolderAssignmentLocksAndUpdatesOnlyCurrentTenantGroups",
+        "kind": "error",
+        "reason": "Caused by: org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement \"SELECT *\\000a    FROM group_link FORCE [*]INDEX (PRIMARY)\\000a    WHERE tenant_id = ?\\000a      AND deleted_at IS NULL\\000a      AND id IN\\000a     (  ? , ? ) \\000a    ORDER BY id\\000a    FOR UPDATE\"; SQL statement:"
+      }
+    ]
+  }
+]

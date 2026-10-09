@@ -786,7 +786,7 @@ class PullTaskStandardExecutionLifecycleServiceTest {
                 PullTaskStandardExecutionLifecycleResources resources,
                 GroupFolderService groupFolderService, PullTaskExecutionDispatchTrigger dispatchTrigger) {
             return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), new com.armada.task.service.impl.PullTaskGroupRetryService(
-                    taskMapper, resources, groupFolderService, dispatchTrigger));
+                    taskMapper, resources, groupFolderService, dispatchTrigger), org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService.class));
         }
 
         @Bean

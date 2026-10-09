@@ -2,6 +2,7 @@ package com.armada.task.scheduler;
 
 import com.armada.account.model.dto.CreatorDeletionBinding;
 import com.armada.account.model.dto.CreatorReservationRequest;
+import com.armada.account.model.dto.CreatorReleaseRequest;
 import com.armada.platform.protocol.model.command.ProtocolAccountRef;
 import com.armada.platform.protocol.model.enums.ProtocolBackend;
 import com.armada.platform.protocol.model.result.CreatorDeletionObservation;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** 永久注销账本和执行行的短事务；只有首次发送意图允许 POST，恢复仅查询。 */
 @Service
 public class PullTaskCreatorDeletionTransactionService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(PullTaskCreatorDeletionTransactionService.class);
     private static final long VERIFICATION_WINDOW_MS = 30 * 60_000L;
     private static final long INITIAL_BACKOFF_MS = 15_000L;
     private static final long MAX_BACKOFF_MS = 120_000L;
@@ -47,6 +49,52 @@ public class PullTaskCreatorDeletionTransactionService {
         this.deletions = deletions;
         this.gate = gate;
         this.resources = resources;
+    }
+
+    /**
+     * 在执行行终态事务中释放从未提交注销的预留；失败或不满足判据时保留保护。
+     * 锁序是提交路径的子序列：执行行、账本、身份别名、账号，不反向获取父任务锁。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean releaseIfTerminalUnsubmitted(long tenantId, long executionId, String reason, long now) {
+        return tenant(tenantId, () -> {
+            PullTaskGroupExecution execution = resources.executions().selectByIdForUpdate(executionId);
+            if (execution == null || !Objects.equals(execution.getTenantId(), tenantId)
+                    || !List.of(PullTaskExecutionStatus.COMPLETED.code(), PullTaskExecutionStatus.FAILED.code(),
+                            PullTaskExecutionStatus.ABANDONED.code()).contains(execution.getExecutionStatus())) return false;
+            PullTaskCreatorDeletion row = deletions.selectByExecutionIdForUpdate(executionId);
+            if (row == null) {
+                if (resources.lifecycle().hasReservation(executionId)) {
+                    log.warn("终态执行缺少建群注销账本，保留预留 tenantId={} taskId={} executionId={}",
+                            tenantId, execution.getTaskId(), executionId);
+                }
+                return false;
+            }
+            if (!Objects.equals(row.getTenantId(), tenantId) || !Objects.equals(row.getTaskId(), execution.getTaskId())
+                    || !Objects.equals(row.getStatus(), PullTaskCreatorDeletionStatus.RESERVED.code())
+                    || row.getSubmittedAt() != null) return false;
+            // 账本锁持续到提交；释放和 claimSubmission 不能交错，CAS 失败必须回滚账号归档。
+            if (!resources.lifecycle().releaseUnsubmitted(new CreatorReleaseRequest(binding(row),
+                    execution.getExecutionStatus(), reason, now))) return false;
+            if (deletions.releaseUnsubmitted(row, now) != 1) {
+                throw new IllegalStateException("建群账号预留释放账本竞争失败");
+            }
+            resources.roles().releaseCreatorReservation(row, now);
+            log.info("建群账号预留已释放 tenantId={} taskId={} executionId={} accountId={} reason={}",
+                    tenantId, row.getTaskId(), executionId, row.getCreatorAccountId(), reason);
+            return true;
+        });
+    }
+
+    /** 父任务结束后的同步收口，只遍历本任务实际存在的注销账本。 */
+    @Transactional(rollbackFor = Exception.class)
+    public void releaseTerminalByTask(long tenantId, long taskId, long now) {
+        tenant(tenantId, () -> {
+            for (Long executionId : deletions.selectExecutionIdsByTask(taskId)) {
+                releaseIfTerminalUnsubmitted(tenantId, executionId, "TASK_ENDED", now);
+            }
+            return true;
+        });
     }
 
     /** 在选号事务内跨任务排他占用，并冻结创建者，不能从后续 PROMOTER 角色推断。 */

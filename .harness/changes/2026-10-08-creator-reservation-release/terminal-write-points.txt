@@ -1,0 +1,7 @@
+armada-api/src/main/java/com/armada/task/mapper/PullTaskGroupExecutionMapper.java:498:    int transitionTerminal(
+armada-api/src/main/java/com/armada/task/service/impl/PullTaskStandardExecutionLifecycleServiceImpl.java:145:        if (resources.executionMapper().transitionTerminal(transition) != 1) {
+armada-api/src/main/java/com/armada/task/service/impl/PullTaskStandardExecutionLifecycleServiceImpl.java:182:        if (resources.executionMapper().transitionTerminal(transition) != 1) {
+armada-api/src/main/java/com/armada/task/service/impl/PullTaskGroupExecutionFailureServiceImpl.java:69:            if (resources.executionMapper().transitionTerminal(transition) != 1) {
+armada-api/src/main/java/com/armada/task/scheduler/PullTaskManagerJoinTransactionService.java:385:            update.setExecutionStatus(PullTaskExecutionStatus.FAILED.code());
+armada-api/src/main/java/com/armada/task/scheduler/PullTaskClosingTransactionService.java:107:        update.setExecutionStatus(PullTaskExecutionStatus.COMPLETED.code());
+armada-api/src/main/java/com/armada/task/scheduler/PullTaskPullerInviteTransactionService.java:374:        update.setExecutionStatus(PullTaskExecutionStatus.FAILED.code());

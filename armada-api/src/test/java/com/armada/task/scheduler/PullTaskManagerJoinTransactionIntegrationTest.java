@@ -409,7 +409,7 @@ class PullTaskManagerJoinTransactionIntegrationTest {
         PullTaskParentCompletionService parentCompletionService(
                 PullTaskMapper taskMapper,
                 PullTaskGroupExecutionMapper executionMapper) {
-            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), org.mockito.Mockito.mock(com.armada.task.service.impl.PullTaskGroupRetryService.class));
+            return new PullTaskParentCompletionService(taskMapper, executionMapper, org.mockito.Mockito.mock(com.armada.task.service.GroupDataPackageTaskProjectionService.class), org.mockito.Mockito.mock(com.armada.task.service.impl.PullTaskGroupRetryService.class), org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService.class));
         }
 
         @Bean

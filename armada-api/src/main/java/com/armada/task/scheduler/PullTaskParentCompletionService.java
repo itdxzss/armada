@@ -20,6 +20,7 @@ public class PullTaskParentCompletionService {
     private final PullTaskGroupExecutionMapper executionMapper;
     private final GroupDataPackageTaskProjectionService dataPackages;
     private final PullTaskGroupRetryService groupRetryService;
+    private final PullTaskCreatorDeletionTransactionService creatorDeletions;
 
     /**
      * @param taskMapper 父任务 Mapper
@@ -31,11 +32,13 @@ public class PullTaskParentCompletionService {
             PullTaskMapper taskMapper,
             PullTaskGroupExecutionMapper executionMapper,
             GroupDataPackageTaskProjectionService dataPackages,
-            PullTaskGroupRetryService groupRetryService) {
+            PullTaskGroupRetryService groupRetryService,
+            PullTaskCreatorDeletionTransactionService creatorDeletions) {
         this.taskMapper = taskMapper;
         this.executionMapper = executionMapper;
         this.dataPackages = dataPackages;
         this.groupRetryService = groupRetryService;
+        this.creatorDeletions = creatorDeletions;
     }
 
     /** 先为可换群的失败建立下一次执行；否则结算当前执行并聚合父任务终态。 */
@@ -44,6 +47,9 @@ public class PullTaskParentCompletionService {
         PullTaskGroupExecution execution = executionMapper.selectByIdForUpdate(executionId);
         if (execution == null || execution.getTaskId() == null) {
             throw new IllegalStateException("终态执行行不存在");
+        }
+        if (terminal(execution)) {
+            creatorDeletions.releaseIfTerminalUnsubmitted(execution.getTenantId(), executionId, "EXECUTION_TERMINAL", now);
         }
         if (groupRetryService.retryIfEligible(execution, now)) {
             return;

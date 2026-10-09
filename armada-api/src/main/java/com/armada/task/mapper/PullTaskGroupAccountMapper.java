@@ -396,4 +396,7 @@ public interface PullTaskGroupAccountMapper {
             @Param("expectedAdminStatuses") List<Integer> expectedAdminStatuses,
             @Param("adminStatus") int adminStatus,
             @Param("now") long now);
+    /** 只释放原执行行的建群角色；此状态不代表账号注销。 */
+    int releaseCreatorReservation(@Param("row") com.armada.task.model.entity.PullTaskCreatorDeletion row,
+            @Param("now") long now);
 }

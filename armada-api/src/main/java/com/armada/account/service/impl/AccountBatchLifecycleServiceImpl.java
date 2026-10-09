@@ -19,6 +19,7 @@ import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.service.AccountBatchLifecycleService;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.platform.protocol.exception.ProtocolAccountCommandRejectedException;
 import com.armada.shared.exception.BusinessException;
 import com.armada.shared.exception.ErrorCode;
 import java.util.ArrayList;
@@ -40,7 +41,8 @@ import org.springframework.stereotype.Service;
  * 分配事务和协议 outbox 的安全批次。筛选范围由 Mapper 在当前租户内使用稳定 ID 游标扫描，
  * 不依赖前端当前页数据。</p>
  *
- * <p>本服务不创建覆盖整个外部请求的事务；每个内部命令批次独立提交并单独汇总错误，
+ * <p>本服务不创建覆盖整个外部请求的事务；每个内部命令批次独立提交并单独汇总错误。
+ * 生命周期受限账号在命令事务回滚后单独计为失败，其余账号重新提交，
  * 因此前一批已受理命令不会因后一批失败回滚。返回的 accepted 只代表命令已写入 outbox，
  * 不代表账号已经达到最终 ONLINE/OFFLINE 状态。</p>
  */
@@ -132,6 +134,18 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
     @Override
     public AccountBatchCommandResultVO onlineByIds(List<Long> ids) {
         return executeByIds(ids, AccountBatchOperation.ONLINE);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    public AccountBatchCommandResultVO takeoverByIds(List<Long> inputIds) {
+        List<Long> ids = normalizeIds(inputIds);
+        if (ids.size() > OFFLINE_CHUNK_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION, "批量一键抢登一次最多 1000 个账号");
+        }
+        BatchAccumulator accumulator = new BatchAccumulator(ids.size(), true);
+        executeChunk(ids, "TAKEOVER", accumulator.nextChunkIndex(), accumulator, commandService::takeoverBatch);
+        return accumulator.toVO();
     }
 
     /**
@@ -385,15 +399,17 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
         for (int start = 0; start < executableIds.size(); start += chunkSize) {
             int end = Math.min(start + chunkSize, executableIds.size());
             int chunkIndex = accumulator.nextChunkIndex();
-            executeChunk(executableIds.subList(start, end), operation, chunkIndex, accumulator);
+            executeChunk(executableIds.subList(start, end), operation.name(), chunkIndex, accumulator,
+                    operation == AccountBatchOperation.ONLINE ? commandService::onlineBatch : commandService::offlineBatch);
         }
     }
 
     /**
      * 独立提交一个内部命令批次并累加受理结果。
      *
-     * <p>单批运行时异常只影响该批账号：整批计为失败并保留有界错误摘要，随后继续处理后续批次。
-     * 不重新抛出异常，避免已受理的前序 outbox 命令被外层误判为整体回滚。</p>
+     * <p>明确的账号生命周期拒绝在命令事务回滚后按账号隔离，其余账号使用新事务重新提交。
+     * 仅此类插入前的拒绝允许重新提交；数据库等其他异常仍将剩余批次计为失败，避免对发送结果
+     * 不明确的操作盲目重试。已受理的前序批次不会被后续失败回滚。</p>
      *
      * @param chunk 当前安全批次的账号 ID
      * @param operation 批量登录或批量离线
@@ -402,24 +418,44 @@ public class AccountBatchLifecycleServiceImpl implements AccountBatchLifecycleSe
      */
     private void executeChunk(
             List<Long> chunk,
-            AccountBatchOperation operation,
+            String operation,
             int chunkIndex,
-            BatchAccumulator accumulator) {
+            BatchAccumulator accumulator,
+            java.util.function.Function<List<Long>, AccountBatchOnlineVO> submit) {
         accumulator.submitted += chunk.size();
-        try {
-            AccountBatchOnlineVO result = operation == AccountBatchOperation.ONLINE
-                    ? commandService.onlineBatch(chunk)
-                    : commandService.offlineBatch(chunk);
-            accumulator.accept(result, chunk.size());
-            log.info("账号批量内部批次已处理 operation={} chunkIndex={} requested={} accepted={}",
-                    operation, chunkIndex, chunk.size(), result.accepted());
-        } catch (RuntimeException exception) {
-            // 前序批次可能已经独立写入 outbox；这里只记录本批失败，不能回滚或中断后续批次。
-            accumulator.failed += chunk.size();
-            String error = safeBatchError(exception);
-            accumulator.addBatchError(error);
-            log.warn("账号批量内部批次失败 operation={} chunkIndex={} requested={} errorType={} error={}",
-                    operation, chunkIndex, chunk.size(), exception.getClass().getSimpleName(), error);
+        List<Long> remaining = chunk;
+        while (!remaining.isEmpty()) {
+            try {
+                AccountBatchOnlineVO result = submit.apply(remaining);
+                accumulator.accept(result, remaining.size());
+                log.info("账号批量内部批次已处理 operation={} chunkIndex={} requested={} accepted={}",
+                        operation, chunkIndex, remaining.size(), result.accepted());
+                return;
+            } catch (ProtocolAccountCommandRejectedException exception) {
+                Set<Long> rejected = new LinkedHashSet<>(exception.getAccountIds());
+                // 拒绝信息必须属于本批且每次缩小范围，避免异常数据导致无限重试或重复统计。
+                if (rejected.isEmpty() || !remaining.containsAll(rejected)) {
+                    accumulator.failed += remaining.size();
+                    accumulator.addBatchError("账号生命周期拒绝结果与当前批次不一致");
+                    log.error("账号批量生命周期拒绝结果不一致 operation={} chunkIndex={}", operation, chunkIndex);
+                    return;
+                }
+                accumulator.failed += rejected.size();
+                String error = safeBatchError(exception);
+                for (Long accountId : rejected) {
+                    accumulator.addBatchError("账号 " + accountId + "：" + error);
+                }
+                remaining = remaining.stream().filter(id -> !rejected.contains(id)).toList();
+                log.warn("账号批量生命周期受限 operation={} chunkIndex={} rejected={} remaining={}",
+                        operation, chunkIndex, rejected.size(), remaining.size());
+            } catch (RuntimeException exception) {
+                accumulator.failed += remaining.size();
+                String error = safeBatchError(exception);
+                accumulator.addBatchError(error);
+                log.warn("账号批量内部批次失败 operation={} chunkIndex={} requested={} errorType={} error={}",
+                        operation, chunkIndex, remaining.size(), exception.getClass().getSimpleName(), error);
+                return;
+            }
         }
     }
 

@@ -1,6 +1,5 @@
 package com.armada.task.service.impl;
 
-import com.armada.account.service.AccountCreatorDeletionService;
 import com.armada.shared.tenant.TenantContext;
 import com.armada.task.model.dto.PullTaskExecutionTerminalTransition;
 import com.armada.task.model.entity.PullTaskGroupExecution;
@@ -14,7 +13,6 @@ import com.armada.task.model.enums.PullTaskParticipantExecutionState;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskPullWaveStatus;
 import com.armada.task.scheduler.PullTaskParentCompletionService;
-import com.armada.task.scheduler.PullTaskOfflineRoleWaitProperties;
 import com.armada.task.service.PullTaskGroupExecutionFailureService;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -29,24 +27,16 @@ public class PullTaskGroupExecutionFailureServiceImpl
 
     private final PullTaskGroupExecutionFailureResources resources;
     private final PullTaskParentCompletionService completionService;
-    private final AccountCreatorDeletionService creatorDeletions;
-    private final PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties;
 
     /**
      * @param resources 群级失败持久化依赖
      * @param completionService 父任务完成聚合服务
-     * @param creatorDeletions 建群人预留释放服务
-     * @param offlineRoleWaitProperties 任务侧离线等待配置
      */
     public PullTaskGroupExecutionFailureServiceImpl(
             PullTaskGroupExecutionFailureResources resources,
-            PullTaskParentCompletionService completionService,
-            AccountCreatorDeletionService creatorDeletions,
-            PullTaskOfflineRoleWaitProperties offlineRoleWaitProperties) {
+            PullTaskParentCompletionService completionService) {
         this.resources = resources;
         this.completionService = completionService;
-        this.creatorDeletions = creatorDeletions;
-        this.offlineRoleWaitProperties = offlineRoleWaitProperties;
     }
 
     /** 终止非终态执行行，只取消仍为 PLANNED 的调用和 attempt。 */
@@ -87,10 +77,6 @@ public class PullTaskGroupExecutionFailureServiceImpl
                     PullTaskPullWaveStatus.CANCELED.code(), now);
             resources.participants().accountMapper().releaseAllPullersOfExecution(
                     executionId, PullTaskGroupAccountRole.PULLER.code(), now);
-            if (offlineRoleWaitProperties.isEnabled()
-                    && reasonCode == PullTaskExecutionReasonCode.GROUP_CREATOR_OFFLINE) {
-                creatorDeletions.releaseReservation(execution.getTaskId(), executionId);
-            }
             completionService.completeIfTerminalByExecutionId(executionId, now);
         } finally {
             restoreTenant(previousTenant);

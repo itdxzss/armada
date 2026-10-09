@@ -42,10 +42,36 @@
     VALUES(#{accountId},#{tenantId},#{taskId},#{groupExecutionId},#{identityHash},#{creatorPhone},
       #{protocolAccountId},#{createOperationId},#{lifecycle},#{createdAt},#{updatedAt})
   </insert>
-  <delete id="releaseReservation">
-    DELETE FROM account_creator_deletion
-    WHERE tenant_id=#{tenantId} AND task_id=#{taskId} AND group_execution_id=#{executionId}
-      AND lifecycle='RESERVED'
+  <select id="lockAccountForRelease" resultType="com.armada.account.model.entity.Account">
+    SELECT * FROM account WHERE tenant_id=#{tenantId} AND id=#{accountId} FOR UPDATE
+  </select>
+  <select id="byExecutionForUpdate" resultType="com.armada.account.model.entity.AccountCreatorDeletion">
+    SELECT * FROM account_creator_deletion
+    WHERE tenant_id=#{tenantId} AND group_execution_id=#{executionId} FOR UPDATE
+  </select>
+  <!-- 非终态码对应 PENDING/LOCKED/DISPATCHING/CANCEL_REQUESTED；载荷由服务核实任务归属。 -->
+  <select id="selectReleaseBlockingPayloads" resultType="string">
+    SELECT payload_json FROM protocol_command_outbox
+    WHERE tenant_id=#{tenantId} AND protocol_account_id=#{protocolAccountId}
+      AND deleted_at IS NULL AND status IN (0,1,5,6) FOR UPDATE
+  </select>
+  <sql id="unsubmittedReleaseBinding">
+    tenant_id=#{binding.tenantId} AND task_id=#{binding.taskId}
+    AND group_execution_id=#{binding.executionId} AND account_id=#{binding.accountId}
+    AND identity_hash=#{binding.identityHash} AND create_operation_id=#{binding.createOperationId}
+    AND lifecycle='RESERVED' AND operation_id IS NULL
+  </sql>
+  <insert id="archiveRelease">
+    INSERT INTO account_creator_deletion_release(account_id,tenant_id,task_id,group_execution_id,
+      identity_hash,creator_phone,protocol_account_id,create_operation_id,operation_id,lifecycle,
+      created_at,updated_at,completed_at,released_at,release_reason,execution_status_at_release)
+    SELECT account_id,tenant_id,task_id,group_execution_id,identity_hash,creator_phone,
+      protocol_account_id,create_operation_id,operation_id,lifecycle,created_at,updated_at,
+      completed_at,#{now},#{reason},#{executionStatus}
+    FROM account_creator_deletion WHERE <include refid="unsubmittedReleaseBinding"/>
+  </insert>
+  <delete id="deleteUnsubmitted">
+    DELETE FROM account_creator_deletion WHERE <include refid="unsubmittedReleaseBinding"/>
   </delete>
   <!-- 所有账号别名一并复核。仅返回布尔值；不把跨租户身份或任务内容暴露给业务。 -->
   <sql id="sameIdentityIds">

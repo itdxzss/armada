@@ -168,14 +168,14 @@ public class AccountController {
     /**
      * A4.0 批量发起一键抢登。
      *
-     * <p>只允许全部为“被抢登”的账号进入抢登中并写入上线 outbox。最终在线状态仍由 Kafka 回写。</p>
+     * <p>被抢登账号进入抢登中并写入上线 outbox；预留或注销受限账号单独失败。最终在线状态仍由 Kafka 回写。</p>
      *
      * @param request 账号 ID 列表
      * @return outbox 批量上线命令受理汇总
      */
     @PostMapping("/batch-takeover")
-    public ApiResponse<AccountBatchOnlineVO> batchTakeover(@RequestBody AccountIdsDTO request) {
-        return ApiResponse.ok(accountOnlineCommandService.takeoverBatch(request.ids()));
+    public ApiResponse<AccountBatchCommandResultVO> batchTakeover(@RequestBody AccountIdsDTO request) {
+        return ApiResponse.ok(accountBatchLifecycleService.takeoverByIds(request.ids()));
     }
 
     /**

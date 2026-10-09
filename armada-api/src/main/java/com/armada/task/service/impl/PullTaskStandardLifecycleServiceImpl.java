@@ -144,6 +144,7 @@ public class PullTaskStandardLifecycleServiceImpl
                 PullTaskExecutionStatus.ABANDONED.code(), NOT_PAUSED, now, now));
         cancelNotSubmitted(taskId, now);
         releasePullers(taskId, now);
+        resources.creatorDeletions().releaseTerminalByTask(task.getTenantId(), taskId, now);
         resources.pull().dataPackages().synchronizeTask(taskId);
     }
 

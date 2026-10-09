@@ -102,8 +102,6 @@ class PullTaskCreatorOfflineGateH2Test {
         online = mock(AccountOnlineCommandService.class);
         profiles = mock(PullTaskGroupProfileDispatcher.class);
         completion = mock(PullTaskParentCompletionService.class);
-        var deletions = transactional(new AccountCreatorDeletionServiceImpl(
-                sql.getMapper(AccountCreatorDeletionMapper.class)), AccountCreatorDeletionService.class);
         failures = transactional(new PullTaskGroupExecutionFailureServiceImpl(
                 new PullTaskGroupExecutionFailureResources(executions,
                         sql.getMapper(PullTaskPullCallMapper.class),
@@ -111,7 +109,7 @@ class PullTaskCreatorOfflineGateH2Test {
                         sql.getMapper(PullTaskPullWaveMapper.class),
                         new PullTaskGroupExecutionFailureParticipants(
                                 sql.getMapper(PullTaskMaterialMemberMapper.class), roles)),
-                completion, deletions, properties), PullTaskGroupExecutionFailureService.class);
+                completion), PullTaskGroupExecutionFailureService.class);
         gate = new PullTaskCreatorOfflineGate(roles, lookup, online, properties, manager, failures);
         creates = transactional(new PullTaskGroupCreateTransactionService(
                 new PullTaskGroupCreatePersistence(sql.getMapper(PullTaskMapper.class),
@@ -152,13 +150,15 @@ class PullTaskCreatorOfflineGateH2Test {
         assertWaiting(NOW + 1_000L);
     }
 
-    @Test void timeoutFailsExecutionAndReleasesOnlyReservedCreator() {
+    @Test void timeoutFailsExecutionAndDelegatesTerminalReleaseToCompletion() {
         reserve("RESERVED");
         availability(AccountRoleAvailability.Kind.RECOVERING, NOW - 180_000, reservation(7, 1, 11), 2);
         assertThat(creates.prepareCreate(candidate(), NOW, RETRY).completedResult())
                 .isEqualTo(PullTaskExecutionDispatchResult.FAILED);
         assertFailed();
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account_creator_deletion", Integer.class)).isZero();
+        verify(completion).completeIfTerminalByExecutionId(11L, NOW);
+        // 此测试隔离父任务聚合服务；释放事务和缺账本保护由 CreatorDeletionReleaseH2Test 真跑。
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM account_creator_deletion", Integer.class)).isOne();
     }
 
     @Test void terminalCreatorImmediatelyFailsAndPreservesDeletingRecord() {

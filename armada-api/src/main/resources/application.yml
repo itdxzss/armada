@@ -109,6 +109,9 @@ armada:
       tenant-requests-per-minute: ${NORMAL_GROUP_CREATION_TENANT_REQUESTS_PER_MINUTE:10}
       user-requests-per-minute: ${NORMAL_GROUP_CREATION_USER_REQUESTS_PER_MINUTE:5}
   pull-task:
+    creator-release:
+      enabled: ${ARMADA_PULL_TASK_CREATOR_RELEASE_ENABLED:true}
+      fixed-delay-ms: ${ARMADA_PULL_TASK_CREATOR_RELEASE_FIXED_DELAY_MS:60000}
     avatar:
       storage-dir: ${ARMADA_PULL_TASK_AVATAR_STORAGE_DIR:/app/data/pull-task-avatars}
       cleanup-fixed-delay-ms: ${ARMADA_PULL_TASK_AVATAR_CLEANUP_FIXED_DELAY_MS:3600000}

@@ -212,6 +212,11 @@ class GroupDataPackageTaskResourceH2Test {
             GroupDataPackageTaskProjectionServiceImpl.class, PullTaskDataPackageSourceService.class,
             com.armada.task.scheduler.PullTaskParentCompletionService.class})
     static class Config {
+        // 本套聚焦原业务，预留释放的真实事务在 PullTaskCreatorDeletionReleaseH2Test 验证。
+        @Bean com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService creatorReleaseTransactions() {
+            return org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService.class);
+        }
+
         // 换群决策在专门的生命周期集成测试验证；本套聚焦资源领取及终态归还。
         @Bean PullTaskGroupRetryService groupRetry() {
             return org.mockito.Mockito.mock(PullTaskGroupRetryService.class);

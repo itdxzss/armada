@@ -24,6 +24,7 @@ import com.armada.account.model.vo.AccountBatchPreviewRow;
 import com.armada.account.model.vo.AccountBatchPreviewVO;
 import com.armada.account.model.vo.AccountBatchTargetRow;
 import com.armada.account.service.AccountOnlineCommandService;
+import com.armada.platform.protocol.exception.ProtocolAccountCommandRejectedException;
 import com.armada.shared.exception.BusinessException;
 import java.util.Arrays;
 import java.util.List;
@@ -198,6 +199,80 @@ class AccountBatchLifecycleServiceImplTest {
         assertThat(result.submitted()).isEqualTo(2_000);
         assertThat(result.skipped()).isZero();
         assertThat(result.accepted()).isEqualTo(2_000);
+    }
+
+    @Test
+    void offlineByIdsIsolatesReservedAccountWithoutFailingOther281Accounts() {
+        List<Long> ids = range(1, 282);
+        List<Long> allowed = ids.stream().filter(id -> id != 155L).toList();
+        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(targets(ids, null, false));
+        when(commandService.offlineBatch(ids))
+                .thenThrow(new ProtocolAccountCommandRejectedException(List.of(155L)));
+        when(commandService.offlineBatch(allowed)).thenReturn(accepted(allowed));
+
+        AccountBatchCommandResultVO result = service.offlineByIds(ids);
+
+        assertThat(result.requested()).isEqualTo(282);
+        assertThat(result.submitted()).isEqualTo(282);
+        assertThat(result.accepted()).isEqualTo(281);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.error()).isEqualTo(1);
+        assertThat(result.batchErrors()).singleElement().asString().contains("155", "预留");
+        assertThat(result.results()).extracting(AccountBatchOnlineItemVO::accountId)
+                .containsExactlyElementsOf(allowed);
+        verify(commandService, times(2)).offlineBatch(any());
+    }
+
+    @Test
+    void onlineByQueryIsolatesLifecycleConflictAndCountsOnlyUniqueAccounts() {
+        List<Long> ids = List.of(1L, 2L, 3L);
+        when(accountMapper.selectBatchTargetsAfterId(any())).thenReturn(targets(ids, null, true));
+        when(commandService.onlineBatch(ids))
+                .thenThrow(new ProtocolAccountCommandRejectedException(List.of(2L)));
+        when(commandService.onlineBatch(List.of(1L, 3L)))
+                .thenReturn(accepted(List.of(1L, 3L)));
+
+        AccountBatchCommandResultVO result = service.onlineByQuery(emptyQuery());
+
+        assertThat(result.requested()).isEqualTo(3);
+        assertThat(result.submitted()).isEqualTo(3);
+        assertThat(result.accepted()).isEqualTo(2);
+        assertThat(result.failed()).isEqualTo(1);
+        assertThat(result.batchErrors()).singleElement().asString().contains("账号 2", "预留");
+        assertThat(result.results()).isEmpty();
+    }
+
+    @Test
+    void offlineByIdsReportsAllRejectedAccountsWithoutRetryingThem() {
+        List<Long> ids = List.of(1L, 2L);
+        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(targets(ids, null, false));
+        when(commandService.offlineBatch(ids))
+                .thenThrow(new ProtocolAccountCommandRejectedException(ids));
+
+        AccountBatchCommandResultVO result = service.offlineByIds(ids);
+
+        assertThat(result.accepted()).isZero();
+        assertThat(result.failed()).isEqualTo(2);
+        assertThat(result.batchErrors()).hasSize(2);
+        verify(commandService).offlineBatch(ids);
+    }
+
+    @Test
+    void offlineByIdsHandlesNewReservationBetweenAttemptsWithoutResubmittingRejectedAccounts() {
+        List<Long> ids = List.of(1L, 2L, 3L);
+        when(accountMapper.selectBatchTargetsByIds(ids)).thenReturn(targets(ids, null, false));
+        when(commandService.offlineBatch(ids))
+                .thenThrow(new ProtocolAccountCommandRejectedException(List.of(2L)));
+        when(commandService.offlineBatch(List.of(1L, 3L)))
+                .thenThrow(new ProtocolAccountCommandRejectedException(List.of(3L)));
+        when(commandService.offlineBatch(List.of(1L))).thenReturn(accepted(List.of(1L)));
+
+        AccountBatchCommandResultVO result = service.offlineByIds(ids);
+
+        assertThat(result.submitted()).isEqualTo(3);
+        assertThat(result.accepted()).isEqualTo(1);
+        assertThat(result.failed()).isEqualTo(2);
+        verify(commandService, times(3)).offlineBatch(any());
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.armada.account.model.dto.CreatorDeletionBinding;
 import com.armada.account.model.dto.CreatorReservationRequest;
+import com.armada.account.model.dto.CreatorReleaseRequest;
 import com.armada.account.model.entity.Account;
 import com.armada.account.model.entity.AccountCreatorDeletion;
 import com.armada.account.model.enums.AccountCreatorDeletionLifecycle;
@@ -75,16 +76,27 @@ public class AccountCreatorDeletionServiceImpl implements AccountCreatorDeletion
     /** {@inheritDoc} */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public boolean releaseReservation(long taskId, long executionId) {
-        long tenantId = currentTenant();
-        AccountCreatorDeletion row = mapper.byExecution(tenantId, executionId);
-        if (row == null || !Objects.equals(row.getTaskId(), taskId)
-                || !AccountCreatorDeletionLifecycle.RESERVED.name().equals(row.getLifecycle())) {
-            return false;
-        }
-        // 与预留、开始注销采用相同身份账号锁顺序；DELETE 再以当前读复核不可逆生命周期。
+    public boolean releaseUnsubmitted(CreatorReleaseRequest request) {
+        CreatorDeletionBinding binding = request.binding();
+        requireTenant(binding.tenantId());
+        AccountCreatorDeletion row = mapper.byExecution(binding.tenantId(), binding.executionId());
+        if (!matches(row, binding)) return false;
         mapper.lockIdentityAliases(row.getCreatorPhone());
-        return mapper.releaseReservation(tenantId, taskId, executionId) == 1;
+        mapper.lockAccountForRelease(binding.tenantId(), binding.accountId());
+        // 当前读避免沿用外层事务在等待身份锁之前建立的 RR 快照；软删账号也允许收口。
+        row = mapper.byExecutionForUpdate(binding.tenantId(), binding.executionId());
+        if (!matches(row, binding)
+                || !AccountCreatorDeletionLifecycle.RESERVED.name().equals(row.getLifecycle())
+                || row.getOperationId() != null || hasReleaseBlockingOutbox(row)) return false;
+        if (mapper.archiveRelease(request) != 1 || mapper.deleteUnsubmitted(request) != 1) {
+            throw new BusinessException(ErrorCode.CONFLICT, "建群账号预留释放发生并发变化");
+        }
+        return true;
+    }
+
+    @Override
+    public boolean hasReservation(long executionId) {
+        return mapper.byExecution(currentTenant(), executionId) != null;
     }
 
     @Override
@@ -152,6 +164,26 @@ public class AccountCreatorDeletionServiceImpl implements AccountCreatorDeletion
         }
         mapper.markOffline(binding.tenantId(), binding.accountId(), now);
         mapper.releaseCreator(binding, now);
+    }
+
+    /** 锁定路由上所有未收口命令，归属在轻量 JSON 中；损坏载荷不能证明安全，保守跳过。 */
+    private boolean hasReleaseBlockingOutbox(AccountCreatorDeletion row) {
+        for (String payload : mapper.selectReleaseBlockingPayloads(row)) {
+            try {
+                JsonNode reference = payload == null ? null : JSON.readTree(payload);
+                if (reference == null || !reference.isObject()) return true;
+                JsonNode taskId = reference.path("pullTaskId");
+                JsonNode executionId = reference.path("groupExecutionId");
+                if (!taskId.isIntegralNumber() || !taskId.canConvertToLong() || taskId.longValue() <= 0
+                        || !executionId.isIntegralNumber() || !executionId.canConvertToLong()
+                        || executionId.longValue() <= 0) return true;
+                if (taskId.longValue() == row.getTaskId()
+                        && executionId.longValue() == row.getGroupExecutionId()) return true;
+            } catch (java.io.IOException invalid) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 未发送的未来步骤也可能已绑定该身份；只按冻结 ID 比较，不做文本模糊匹配。 */

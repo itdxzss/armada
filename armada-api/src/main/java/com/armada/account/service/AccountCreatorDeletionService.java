@@ -10,12 +10,14 @@ public interface AccountCreatorDeletionService {
     /** 原子预留；其它任务、角色或注销记录占用时返回 false。 */
     boolean reserve(CreatorReservationRequest request);
     /**
-     * 任务放弃建群人时解除当前租户、本任务执行行尚未开始注销的预留。
-     * @param taskId 原预留任务
-     * @param executionId 原预留执行行
-     * @return 仅成功释放 RESERVED 时为 true；不存在、归属不符或已开始注销时为 false
+     * 归档并释放终态执行中从未提交注销的账号预留，不改变账号状态。
+     * 调用者须在同一事务持有执行行、未提交注销账本锁，并原子收口账本和角色。
+     * @param request 锁内确认的身份、终态和释放原因
+     * @return 仅满足账号侧预留与无在途命令判据时返回 true
      */
-    boolean releaseReservation(long taskId, long executionId);
+    boolean releaseUnsubmitted(com.armada.account.model.dto.CreatorReleaseRequest request);
+    /** 判断本租户执行行是否仍有账号预留记录，用于核对缺失的任务账本。 */
+    boolean hasReservation(long executionId);
     /** 返回当前租户本执行行已冻结且尚未注销的账号引用。 */
     Optional<ProtocolAccountRef> findReservedCreator(long executionId);
     /** 计算规范化账号身份哈希，不记录号码。 */

@@ -457,4 +457,11 @@
       (SELECT route.creator_deletion_identity_phone FROM account route WHERE route.id=#{accountId})
       ORDER BY a.id FOR UPDATE
   </select>
+  <update id="releaseCreatorReservation">
+    UPDATE pull_task_group_account SET released_at=#{now},availability_status=4,
+      unavailable_reason_code='CREATOR_RESERVATION_RELEASED',updated_at=#{now}
+    WHERE tenant_id=#{row.tenantId} AND task_id=#{row.taskId}
+      AND group_execution_id=#{row.groupExecutionId} AND account_id=#{row.creatorAccountId}
+      AND role_type=4 AND released_at IS NULL
+  </update>
 </mapper>

@@ -49,8 +49,7 @@ class PullTaskGroupExecutionFailureServiceTest {
                                 executionMapper, callMapper, attemptMapper, waveMapper,
                                 new PullTaskGroupExecutionFailureParticipants(
                                         materialMapper, accountMapper)),
-                        completion, mock(AccountCreatorDeletionService.class),
-                        new PullTaskOfflineRoleWaitProperties());
+                        completion);
 
         service.terminate(
                 7L, 21L, PullTaskExecutionReasonCode.GROUP_UNAVAILABLE, 5_000L);

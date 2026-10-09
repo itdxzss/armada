@@ -23,6 +23,7 @@ import com.armada.account.service.AccountOnlineCommandService;
 import com.armada.account.service.OnlineAttemptIdGenerator;
 import com.armada.account.takeover.AccountTakeoverPolicy;
 import com.armada.platform.country.service.CountryService;
+import com.armada.platform.protocol.exception.ProtocolAccountCommandRejectedException;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.ProtocolOfflineCommandRequest;
 import com.armada.platform.protocol.model.command.ProtocolOnlineCommandRequest;
@@ -514,10 +515,16 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
         for (Account account : accountMapper.selectActiveByIds(ids)) {
             accountsById.put(account.getId(), account);
         }
-        for (Long id : ids) {
-            if (!accountsById.containsKey(id)) {
-                throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + id);
+        List<Long> missingIds = ids.stream().filter(id -> !accountsById.containsKey(id)).toList();
+        if (!missingIds.isEmpty()) {
+            // 普通账号查询会隐藏正在注销和已注销的身份；列表目标查询仅排除软删和其他租户。
+            // 仍属于本租户的活跃目标单独报告为生命周期受限，不能误判整批账号不存在。
+            List<Long> rejectedIds = accountMapper.selectBatchTargetsByIds(missingIds).stream()
+                    .map(row -> row.getId()).toList();
+            if (!rejectedIds.isEmpty()) {
+                throw new ProtocolAccountCommandRejectedException(rejectedIds);
             }
+            throw new BusinessException(ErrorCode.NOT_FOUND, "账号不存在或已删除: " + missingIds.get(0));
         }
         return accountsById;
     }
@@ -623,6 +630,8 @@ public class AccountOnlineCommandServiceImpl implements AccountOnlineCommandServ
     private void updateDesiredLoginStateOrThrow(List<Long> accountIds, int desiredLoginState, long updatedAt) {
         int updated = stateMapper.updateDesiredLoginState(accountIds, desiredLoginState, updatedAt);
         if (updated != accountIds.size()) {
+            // 上线 UPDATE 同样排除注销身份；在回滚前识别这些账号，供批量编排单独隔离。
+            loadAccounts(accountIds);
             throw new BusinessException(
                     ErrorCode.CONFLICT,
                     "账号期望登录状态更新数量不一致: expected=" + accountIds.size() + " updated=" + updated);

@@ -310,6 +310,28 @@ class AccountCreatorDeletionServiceInMemoryTest {
         assertThat(tx.<Boolean>execute(s -> service.reserve(request(1, 100, 500)))).isTrue();
     }
 
+    @Test
+    void releasedAccountAndSamePhoneAliasCanBeReservedByNewTasks() throws Exception {
+        String migration = new org.springframework.core.io.ClassPathResource(
+                "db/migration/V217__account_creator_deletion_release.sql")
+                .getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        db.execute(migration.substring(migration.indexOf("CREATE TABLE"), migration.indexOf(';')));
+        db.execute("ALTER TABLE protocol_command_outbox ADD payload_json VARCHAR(4000)");
+        assertThat(tx.<Boolean>execute(s -> service.reserve(request(1, 100, 500)))).isTrue();
+        assertThat(tx.<Boolean>execute(s -> service.releaseUnsubmitted(
+                new com.armada.account.model.dto.CreatorReleaseRequest(binding(null), 6, "TEST", 2)))).isTrue();
+        assertThat(tx.<Boolean>execute(s -> service.reserve(request(1, 101, 501)))).isTrue();
+        var second = new CreatorDeletionBinding(7, 101, 501, 1, service.identityHash(ref(1)), "create-501", null);
+        assertThat(tx.<Boolean>execute(s -> service.releaseUnsubmitted(
+                new com.armada.account.model.dto.CreatorReleaseRequest(second, 6, "TEST", 3)))).isTrue();
+        account(2, 8, "12345678901");
+        TenantContext.set(8L);
+        assertThat(tx.<Boolean>execute(s -> service.reserve(
+                new CreatorReservationRequest(8, 102, 502, ref(2), "create-502", 4)))).isTrue();
+        assertThat(mapper.byExecution(8, 502).getAccountId()).isEqualTo(2L);
+        assertThat(db.queryForObject("SELECT COUNT(*) FROM account_creator_deletion_release", Integer.class)).isEqualTo(2);
+    }
+
     private ProtocolAccountRef ref(long id) {
         return new ProtocolAccountRef(id, ProtocolBackend.ANDROID, "acc_12345678901", "12345678901");
     }

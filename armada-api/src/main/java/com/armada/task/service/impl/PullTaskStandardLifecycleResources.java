@@ -15,5 +15,6 @@ public record PullTaskStandardLifecycleResources(
         PullTaskMemberQueryMapper memberQueryMapper,
         PullTaskLifecyclePullResources pull,
         ProtocolCommandOutboxService outboxService,
-        PullTaskExecutionDispatchTrigger dispatchTrigger) {
+        PullTaskExecutionDispatchTrigger dispatchTrigger,
+        com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService creatorDeletions) {
 }

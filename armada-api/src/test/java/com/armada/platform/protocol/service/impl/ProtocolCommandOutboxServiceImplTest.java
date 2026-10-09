@@ -15,6 +15,7 @@ import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
+import com.armada.platform.protocol.exception.ProtocolAccountCommandRejectedException;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
 import com.armada.platform.protocol.model.command.ProtocolAccountGroupSyncCommandRequest;
@@ -94,6 +95,38 @@ class ProtocolCommandOutboxServiceImplTest {
                     groupSnapshotCommand(ProtocolBackend.ANDROID, 5002L, 101L, "acc-android"))))
                     .isInstanceOf(BusinessException.class).hasMessageContaining("永久注销");
             verify(mapper).lockCreatorDeletionCommandAccounts(1L, "acc-android");
+            verify(mapper, never()).batchInsertPending(anyList());
+            verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+        } finally { TenantContext.clear(); }
+    }
+
+    @Test
+    void lifecycleCommandsReportAllRejectedAccountIdsBeforeInsertOrDispatch() {
+        var service = newService(List.of("cmd-a", "cmd-b", "cmd-c"), List.of("batch-blocked"));
+        when(mapper.creatorDeletionCommandBlocked(1L, "acc_101", null, null)).thenReturn(true);
+        when(mapper.creatorDeletionCommandBlocked(1L, "acc_103", null, null)).thenReturn(true);
+        TenantContext.set(1L);
+        try {
+            assertThatThrownBy(() -> service.enqueueOfflineCommands(List.of(
+                    offlineCommand(101L, "acc_101"), offlineCommand(102L, "acc_102"),
+                    offlineCommand(103L, "acc_103"))))
+                    .isInstanceOfSatisfying(ProtocolAccountCommandRejectedException.class,
+                            error -> assertThat(error.getAccountIds()).containsExactly(101L, 103L));
+            verify(mapper, never()).batchInsertPending(anyList());
+            verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
+        } finally { TenantContext.clear(); }
+    }
+
+    @Test
+    void onlineLifecycleConflictIdentifiesAccountBeforeInsertOrDispatch() {
+        var service = newService(List.of("cmd-online"), List.of());
+        when(mapper.creatorDeletionCommandBlocked(1L, "acc_101", null, null)).thenReturn(true);
+        TenantContext.set(1L);
+        try {
+            assertThatThrownBy(() -> service.enqueueOnlineCommands(List.of(
+                    onlineCommand(101L, "acc_101", CredentialFormat.BAILEYS_JSON, 7L))))
+                    .isInstanceOfSatisfying(ProtocolAccountCommandRejectedException.class,
+                            error -> assertThat(error.getAccountIds()).containsExactly(101L));
             verify(mapper, never()).batchInsertPending(anyList());
             verify(dispatchTrigger, never()).dispatchAfterCommit(anyList());
         } finally { TenantContext.clear(); }

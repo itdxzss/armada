@@ -29,9 +29,16 @@ public interface AccountCreatorDeletionMapper {
                                                          @Param("accountId") long accountId);
     /** 插入全局身份唯一的账号预留；冲突由数据库拒绝。 */
     int insert(AccountCreatorDeletion row);
-    /** 只解除当前租户原任务执行行的未注销预留；不可逆生命周期不允许释放。 */
-    int releaseReservation(@Param("tenantId") long tenantId, @Param("taskId") long taskId,
-                           @Param("executionId") long executionId);
+    /** 锁定包含软删账号的原身份，只用于安全释放。 */
+    Account lockAccountForRelease(@Param("tenantId") long tenantId, @Param("accountId") long accountId);
+    /** 身份锁后的当前读，避免外层事务旧快照。 */
+    AccountCreatorDeletion byExecutionForUpdate(@Param("tenantId") long tenantId, @Param("executionId") long executionId);
+    /** 当前读核对本执行尚未收口的协议命令。 */
+    List<String> selectReleaseBlockingPayloads(AccountCreatorDeletion row);
+    /** 原样归档满足判据的预留，业务唯一键不复制到历史表。 */
+    int archiveRelease(com.armada.account.model.dto.CreatorReleaseRequest request);
+    /** 归档后条件删除；必须影响一行，否则整个释放事务回滚。 */
+    int deleteUnsubmitted(com.armada.account.model.dto.CreatorReleaseRequest request);
     /** 同一事务持有全部身份账号锁后执行当前读；仅返回活跃依赖，不暴露其他租户数据。 */
     boolean hasOtherDependencies(AccountCreatorDeletion row);
     /** 持有身份账号锁后的当前读；只核对活跃剧本冻结角色，不以模板或账号组代替依赖。 */

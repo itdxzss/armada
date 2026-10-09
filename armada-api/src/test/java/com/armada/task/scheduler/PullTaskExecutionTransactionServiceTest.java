@@ -682,7 +682,7 @@ class PullTaskExecutionTransactionServiceTest {
             PullTaskStandardLifecycleResources resources = new PullTaskStandardLifecycleResources(
                     executionMapper, template.getMapper(PullTaskAccountActionMapper.class),
                     template.getMapper(PullTaskMemberQueryMapper.class), pull,
-                    mock(ProtocolCommandOutboxService.class), mock(PullTaskExecutionDispatchTrigger.class));
+                    mock(ProtocolCommandOutboxService.class), mock(PullTaskExecutionDispatchTrigger.class), org.mockito.Mockito.mock(com.armada.task.scheduler.PullTaskCreatorDeletionTransactionService.class));
             return new PullTaskStandardLifecycleServiceImpl(taskMapper, resources,
                     mock(PullTaskParentCompletionService.class), () -> 600L);
         }

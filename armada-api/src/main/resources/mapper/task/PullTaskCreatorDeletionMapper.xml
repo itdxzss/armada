@@ -20,6 +20,25 @@
   <select id="selectByExecutionIdForUpdate" resultType="com.armada.task.model.entity.PullTaskCreatorDeletion">
     SELECT * FROM pull_task_creator_deletion WHERE group_execution_id = #{executionId} FOR UPDATE
   </select>
+  <select id="selectReleaseCandidates" resultType="com.armada.task.model.entity.PullTaskCreatorDeletion">
+    SELECT p.* FROM pull_task_creator_deletion p
+    INNER JOIN pull_task_group_execution e ON e.id=p.group_execution_id AND e.tenant_id=p.tenant_id
+      AND e.task_id=p.task_id
+    INNER JOIN account_creator_deletion d ON d.tenant_id=p.tenant_id AND d.task_id=p.task_id
+      AND d.group_execution_id=p.group_execution_id AND d.account_id=p.creator_account_id
+    WHERE p.id &gt; #{afterId} AND p.status=0 AND p.submitted_at IS NULL
+      AND e.execution_status IN (4,5,6) AND d.lifecycle='RESERVED' AND d.operation_id IS NULL
+    ORDER BY p.id LIMIT #{limit}
+  </select>
+  <select id="selectExecutionIdsByTask" resultType="long">
+    SELECT group_execution_id FROM pull_task_creator_deletion WHERE task_id=#{taskId} ORDER BY group_execution_id
+  </select>
+  <update id="releaseUnsubmitted">
+    UPDATE pull_task_creator_deletion SET status=6, reason_code='CREATOR_RESERVATION_RELEASED',
+      reason_message='执行已结束且未提交注销，建群账号预留已释放',updated_at=#{now}
+    WHERE id=#{row.id} AND tenant_id=#{row.tenantId} AND task_id=#{row.taskId}
+      AND group_execution_id=#{row.groupExecutionId} AND status=0 AND submitted_at IS NULL
+  </update>
   <update id="claimSubmission">
     UPDATE pull_task_creator_deletion
     SET status = 1, manager_account_id = #{row.managerAccountId}, group_jid = #{row.groupJid},
@@ -38,6 +57,6 @@
         result_identity_hash = #{row.resultIdentityHash}, evidence_json = #{row.evidenceJson},
         observed_at = #{row.observedAt}, completed_at = #{row.completedAt},
         reason_code = #{row.reasonCode}, reason_message = #{row.reasonMessage}, updated_at = #{row.updatedAt}
-    WHERE id = #{row.id} AND operation_id = #{row.operationId} AND status != 5
+    WHERE id = #{row.id} AND operation_id = #{row.operationId} AND status IN (1,2,3,4)
   </update>
 </mapper>

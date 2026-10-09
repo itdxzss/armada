@@ -30,6 +30,12 @@ class AccountCreatorReservationReleaseH2Test {
         service = h.transactional(new AccountCreatorDeletionServiceImpl(mapper), AccountCreatorDeletionService.class);
         h.account(1, 6, 2, 1, null);
         h.reserve(1);
+        h.jdbc.update("UPDATE account_creator_deletion SET create_operation_id='create'");
+        h.jdbc.execute("CREATE TABLE pull_task_creator_deletion(status TINYINT NOT NULL DEFAULT 0)");
+        try (var connection = h.dataSource.getConnection()) {
+            org.springframework.jdbc.datasource.init.ScriptUtils.executeSqlScript(connection,
+                    new org.springframework.core.io.ClassPathResource("db/migration/V217__account_creator_deletion_release.sql"));
+        }
     }
 
     @AfterEach
@@ -37,8 +43,8 @@ class AccountCreatorReservationReleaseH2Test {
 
     @Test
     void releasesOnlyTheMatchingReservationAndPreservesAccountFacts() {
-        assertThat(service.releaseReservation(11, 111)).isTrue();
-        assertThat(service.releaseReservation(11, 111)).isFalse();
+        assertThat(service.releaseUnsubmitted(request(11, 111))).isTrue();
+        assertThat(service.releaseUnsubmitted(request(11, 111))).isFalse();
         assertThat(reservationCount()).isZero();
         assertThat(h.jdbc.queryForObject("SELECT COUNT(*) FROM account", Integer.class)).isOne();
         assertThat(h.jdbc.queryForObject("SELECT account_state FROM account_state", Integer.class)).isEqualTo(6);
@@ -47,10 +53,11 @@ class AccountCreatorReservationReleaseH2Test {
 
     @Test
     void wrongTaskExecutionOrTenantCannotReleaseTheOwner() {
-        assertThat(service.releaseReservation(12, 111)).isFalse();
-        assertThat(service.releaseReservation(11, 112)).isFalse();
+        assertThat(service.releaseUnsubmitted(request(12, 111))).isFalse();
+        assertThat(service.releaseUnsubmitted(request(11, 112))).isFalse();
         TenantContext.set(2L);
-        assertThat(service.releaseReservation(11, 111)).isFalse();
+        assertThatThrownBy(() -> service.releaseUnsubmitted(request(11, 111)))
+                .isInstanceOf(com.armada.shared.exception.BusinessException.class);
         assertThat(reservationCount()).isOne();
     }
 
@@ -58,7 +65,7 @@ class AccountCreatorReservationReleaseH2Test {
     @ValueSource(strings = {"DELETING", "DELETED"})
     void irreversibleDeletionLifecyclesAreNeverReleased(String lifecycle) {
         h.jdbc.update("UPDATE account_creator_deletion SET lifecycle=?", lifecycle);
-        assertThat(service.releaseReservation(11, 111)).isFalse();
+        assertThat(service.releaseUnsubmitted(request(11, 111))).isFalse();
         assertThat(reservationCount()).isOne();
         assertThat(h.jdbc.queryForObject("SELECT lifecycle FROM account_creator_deletion", String.class))
                 .isEqualTo(lifecycle);
@@ -67,7 +74,7 @@ class AccountCreatorReservationReleaseH2Test {
     @Test
     void failedTaskTransactionRollsBackReservationRelease() {
         assertThatThrownBy(() -> h.transactions.executeWithoutResult(status -> {
-            assertThat(service.releaseReservation(11, 111)).isTrue();
+            assertThat(service.releaseUnsubmitted(request(11, 111))).isTrue();
             throw new IllegalStateException("task termination failed");
         })).isInstanceOf(IllegalStateException.class);
         assertThat(reservationCount()).isOne();
@@ -93,7 +100,7 @@ class AccountCreatorReservationReleaseH2Test {
             assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
             var freeing = executor.submit(() -> {
                 TenantContext.set(1L);
-                try { return service.releaseReservation(11, 111); }
+                try { return service.releaseUnsubmitted(request(11, 111)); }
                 finally { TenantContext.clear(); }
             });
             assertThatThrownBy(() -> freeing.get(150, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
@@ -107,6 +114,12 @@ class AccountCreatorReservationReleaseH2Test {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    private com.armada.account.model.dto.CreatorReleaseRequest request(long taskId, long executionId) {
+        return new com.armada.account.model.dto.CreatorReleaseRequest(
+                new com.armada.account.model.dto.CreatorDeletionBinding(1, taskId, executionId, 1,
+                        "identity-1", "create", null), 6, "TEST_TERMINAL", 2000);
     }
 
     private int reservationCount() {

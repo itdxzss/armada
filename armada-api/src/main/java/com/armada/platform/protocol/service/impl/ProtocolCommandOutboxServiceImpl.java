@@ -5,6 +5,7 @@ import com.armada.platform.kafka.config.ProtocolAccountCommandProperties;
 import com.armada.platform.kafka.config.ProtocolAndroidCommandProperties;
 import com.armada.platform.kafka.config.ProtocolMasterCommandProperties;
 import com.armada.platform.kafka.dispatch.ProtocolCommandDispatchTrigger;
+import com.armada.platform.protocol.exception.ProtocolAccountCommandRejectedException;
 import com.armada.platform.protocol.mapper.ProtocolCommandOutboxMapper;
 import com.armada.platform.protocol.model.command.CredentialFormat;
 import com.armada.platform.protocol.model.command.MessageSendCommand;
@@ -808,6 +809,7 @@ public class ProtocolCommandOutboxServiceImpl
     private ProtocolCommandOutboxEnqueueResult insertPendingRows(String batchId,
                                                                  List<String> commandIds,
                                                                  List<ProtocolCommandOutbox> rows) {
+        List<Long> rejectedAccountIds = new ArrayList<>();
         for (ProtocolCommandOutbox row : rows) {
             mapper.lockCreatorDeletionCommandAccounts(row.getTenantId(), row.getProtocolAccountId());
             try {
@@ -816,11 +818,20 @@ public class ProtocolCommandOutboxServiceImpl
                 Long executionId = reference.hasNonNull("groupExecutionId")
                         ? reference.get("groupExecutionId").longValue() : null;
                 if (mapper.creatorDeletionCommandBlocked(row.getTenantId(), row.getProtocolAccountId(), taskId, executionId)) {
-                    throw new BusinessException(ErrorCode.CONFLICT, "账号已被一次性建群任务预留或进入永久注销流程");
+                    if (COMMAND_TYPE_ACCOUNT_ONLINE_REQUESTED.equals(row.getCommandType())
+                            || COMMAND_TYPE_ACCOUNT_OFFLINE_REQUESTED.equals(row.getCommandType())) {
+                        rejectedAccountIds.add(row.getAggregateId());
+                    } else {
+                        throw new BusinessException(ErrorCode.CONFLICT, "账号已被一次性建群任务预留或进入永久注销流程");
+                    }
                 }
             } catch (JsonProcessingException invalid) {
                 throw new BusinessException(ErrorCode.VALIDATION, "协议命令账号生命周期校验失败");
             }
+        }
+        // 先收集本批全部受限账号再回滚；编排层可以排除它们后重新提交其余账号。
+        if (!rejectedAccountIds.isEmpty()) {
+            throw new ProtocolAccountCommandRejectedException(rejectedAccountIds);
         }
         assignTraceIds(rows);
         int inserted;

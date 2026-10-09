@@ -68,18 +68,18 @@ class PullTaskCreatorDeletionTransactionServiceTest {
 
     @Test void rejectedResultShowsSafeSpecificReasonButNeverRawAuthorizationOrPhone() {
         var work=fixture();
-        service.record(work,new CreatorDeletionResult("op","hash","REJECTED","iq","error","server_rejected"),null,1000);
+        service.record(work,new CreatorDeletionResult("op","hash","REJECTED","iq","error","server_rejected"),null,1000,1000);
         assertThat(work.deletion().getReasonMessage()).contains("WhatsApp 拒绝注销请求", "SERVER_REJECTED");
         assertThat(work.deletion().getStatus()).isEqualTo(PullTaskCreatorDeletionStatus.FAILED.code());
         var other=fixture();
-        service.record(other,new CreatorDeletionResult("op","hash","NOT_SENT","iq","error","authorization=secret phone=12345678"),null,1000);
+        service.record(other,new CreatorDeletionResult("op","hash","NOT_SENT","iq","error","authorization=secret phone=12345678"),null,1000,1000);
         assertThat(other.deletion().getReasonMessage()).contains("DETAIL_REDACTED")
                 .doesNotContain("secret", "12345678", "authorization");
     }
 
     @Test void acceptedButCreatorStillPresentDefersAtVerificationStage() {
         var work=fixture();
-        service.record(work,accepted(),proof(true),1000);
+        service.record(work,accepted(),proof(true),1000,1000);
         var update=ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions).transitionCreatorDeletion(update.capture(),eq(12));
         assertThat(update.getValue().getStage()).isEqualTo(12);
@@ -87,9 +87,100 @@ class PullTaskCreatorDeletionTransactionServiceTest {
         assertThat(update.getValue().getManualPaused()).isZero();
         verify(lifecycle,never()).completeDeletion(any(),anyLong());
     }
+    @Test void firstAcceptanceStartsFastPollingAfterProtocolReturnsRatherThanSubmission() {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        work.execution().setLockExpiresAt(200000L);
+
+        service.record(work, accepted(), null, 120000L, 126000L);
+
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getValue().getNextRunAt()).isEqualTo(136000L);
+        assertThat(update.getValue().getManualPaused()).isZero();
+        assertThat(work.deletion().getDeadlineAt()).isEqualTo(1801000L);
+        verify(lifecycle, never()).completeDeletion(any(), anyLong());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"10000,10000", "359999,10000", "360000,120000", "480000,120000"})
+    void acceptedPollingWindowSurvivesReloadAndStopsAtSixMinutes(long elapsed, long interval) {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        service.record(work, accepted(), null, 1000L, 7000L);
+        var reloaded = new ObjectMapper().convertValue(work.deletion(), PullTaskCreatorDeletion.class);
+        reloaded.setAttempts(4);
+        when(deletions.selectByExecutionIdForUpdate(3)).thenReturn(reloaded);
+        long recordedAt = 7000L + elapsed;
+        work.execution().setLockExpiresAt(recordedAt + 5000L);
+
+        service.record(work, accepted(), null, recordedAt - 1000L, recordedAt);
+
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions, times(2)).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getValue().getNextRunAt()).isEqualTo(recordedAt + interval);
+        assertThat(update.getValue().getStage()).isEqualTo(12);
+        assertThat(update.getValue().getManualPaused()).isZero();
+        assertThat(reloaded.getDeadlineAt()).isEqualTo(1801000L);
+        verify(lifecycle, never()).completeDeletion(any(), anyLong());
+    }
+
+    @Test void temporaryMissingResultDoesNotResetAcceptedWindow() {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        work.execution().setLockExpiresAt(500000L);
+        service.record(work, accepted(), null, 1000L, 1000L);
+        service.record(work, null, null, 11000L, 11000L);
+        work.deletion().setAttempts(4);
+
+        service.record(work, accepted(), null, 361000L, 361000L);
+
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions, times(3)).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getAllValues().get(1).getManualPaused()).isEqualTo(1);
+        assertThat(update.getValue().getNextRunAt()).isEqualTo(481000L);
+        verify(deletions, never()).claimSubmission(any());
+    }
+
+    @Test void historicalAcceptanceWithoutTimestampDoesNotRestartFastWindow() {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        work.deletion().setDeletionResultStatus("ACCEPTED");
+        work.deletion().setEvidenceJson("{\"deletionResult\":{\"state\":\"ACCEPTED\"}}");
+        work.deletion().setAttempts(4);
+        work.execution().setLockExpiresAt(500000L);
+
+        service.record(work, accepted(), null, 361000L, 361000L);
+
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getValue().getNextRunAt()).isEqualTo(481000L);
+    }
+
+    @Test void acceptedButUncleanedStillPausesAtOriginalThirtyMinuteDeadline() {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        work.execution().setLockExpiresAt(1900000L);
+        service.record(work, accepted(), null, 1000L, 1000L);
+
+        service.record(work, accepted(), null, 1801000L, 1801000L);
+
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions, times(2)).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getValue().getManualPaused()).isEqualTo(1);
+        assertThat(update.getValue().getReasonCode()).isEqualTo("CREATOR_DELETE_VERIFICATION_TIMEOUT");
+        assertThat(work.deletion().getDeadlineAt()).isEqualTo(1801000L);
+        verify(lifecycle, never()).completeDeletion(any(), anyLong());
+    }
+
     @Test void allIndependentEvidenceIsRequiredAndCompletionSurvivesExpiredDeadline() {
         var work=fixture();work.deletion().setDeadlineAt(900L);
-        service.record(work,accepted(),proof(false),1000);
+        service.record(work,accepted(),proof(false),1000,1000);
         var update=ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions).transitionCreatorDeletion(update.capture(),eq(12));
         assertThat(update.getValue().getStage()).isEqualTo(4);
@@ -102,7 +193,7 @@ class PullTaskCreatorDeletionTransactionServiceTest {
         replacement.setAvailabilityStatus(PullTaskGroupAccountAvailability.AVAILABLE.code());
         replacement.setMembershipStatus(PullTaskGroupAccountMembershipStatus.IN_GROUP.code());
         when(roles.selectByExecutionAndRole(3,PullTaskGroupAccountRole.MANAGER.code())).thenReturn(List.of(replacement));
-        service.record(work,accepted(),proof(false),1000);
+        service.record(work,accepted(),proof(false),1000,1000);
         var update=ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions).transitionCreatorDeletion(update.capture(),eq(12));
         assertThat(update.getValue().getStage()).isEqualTo(12);
@@ -112,7 +203,7 @@ class PullTaskCreatorDeletionTransactionServiceTest {
     }
     @Test void timeoutUnknownPausesWithoutCreatingAnyNewOperation() {
         var work=fixture();work.deletion().setDeadlineAt(999L);
-        service.record(work,null,null,1000);
+        service.record(work,null,null,1000,1000);
         var update=ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions).transitionCreatorDeletion(update.capture(),eq(12));
         assertThat(update.getValue().getManualPaused()).isEqualTo(1);
@@ -122,7 +213,7 @@ class PullTaskCreatorDeletionTransactionServiceTest {
     }
     @Test void unknownResultPausesImmediatelyBeforeDeadlineAndPreservesOriginalOperation() {
         var work=fixture();
-        service.record(work,new CreatorDeletionResult("op","hash","UNKNOWN",null,null,"timeout"),null,1000);
+        service.record(work,new CreatorDeletionResult("op","hash","UNKNOWN",null,null,"timeout"),null,1000,1000);
         var update=ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions).transitionCreatorDeletion(update.capture(),eq(12));
         assertThat(update.getValue().getManualPaused()).isEqualTo(1);
@@ -135,7 +226,7 @@ class PullTaskCreatorDeletionTransactionServiceTest {
     @Test void stoppedTaskRejectsLateCallbackAndKeepsNoNewCommands() {
         var work=fixture();var parent=new PullTask();parent.setCreationMode(PullTaskCreationMode.NEW_GROUP);parent.setStatus("ENDED");
         when(tasks.selectLifecycleForUpdate(2)).thenReturn(parent);
-        assertThat(service.record(work,accepted(),proof(false),1000)).isEqualTo(PullTaskExecutionDispatchResult.LOST);
+        assertThat(service.record(work,accepted(),proof(false),1000,1000)).isEqualTo(PullTaskExecutionDispatchResult.LOST);
         verify(deletions,never()).updateObservation(any());
         verifyNoInteractions(lifecycle);
     }

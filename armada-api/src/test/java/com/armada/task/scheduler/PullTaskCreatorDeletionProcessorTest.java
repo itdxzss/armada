@@ -9,7 +9,10 @@ import com.armada.task.model.entity.PullTaskCreatorDeletion;
 import com.armada.task.model.entity.PullTaskGroupExecution;
 import com.armada.task.model.enums.PullTaskCreatorDeletionStatus;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -47,7 +50,7 @@ class PullTaskCreatorDeletionProcessorTest {
         when(dispatch.send(any(),any())).thenThrow(new IllegalStateException("timeout"));
         processor.process(work.execution(),"lease",1000);
         verify(dispatch,times(1)).send(eq(work),argThat(command -> command.creator().armadaAccountId().equals(7L)));
-        verify(transactions).record(work,null,null,1000);
+        verify(transactions).record(eq(work),isNull(),isNull(),eq(1000L),anyLong());
         work.deletion().setStatus(PullTaskCreatorDeletionStatus.UNKNOWN.code());
         processor.process(work.execution(),"lease",1000);
         verify(dispatch,times(1)).send(any(),any());
@@ -56,11 +59,32 @@ class PullTaskCreatorDeletionProcessorTest {
     @Test void acceptedQueriesFreshCleanupButDoesNotAdvanceItself() {
         var work = prepared(PullTaskCreatorDeletionStatus.ACCEPTED);
         var accepted = new CreatorDeletionResult("original","hash","ACCEPTED","iq","result",null);
+        var observedAt = new AtomicLong();
         when(protocol.query(any())).thenReturn(accepted);
-        when(protocol.observe(any())).thenReturn(proof(true));
+        when(protocol.observe(any())).thenAnswer(invocation -> {
+            observedAt.set(System.currentTimeMillis());
+            return proof(true);
+        });
         processor.process(work.execution(),"lease",1000);
-        verify(transactions).record(work,accepted,proof(true),1000);
+        var recordedAt = ArgumentCaptor.forClass(Long.class);
+        verify(transactions).record(eq(work),eq(accepted),eq(proof(true)),eq(1000L),recordedAt.capture());
+        assertThat(recordedAt.getValue()).isBetween(observedAt.get(), System.currentTimeMillis());
         verify(dispatch,never()).send(any(),any());
+    }
+    @Test void firstAcceptanceRecordsTimeAfterDeletionResponseInsteadOfRoundStart() {
+        var work = prepared(PullTaskCreatorDeletionStatus.RESERVED);
+        var accepted = new CreatorDeletionResult("original","hash","ACCEPTED","iq","result",null);
+        var returnedAt = new AtomicLong();
+        when(protocol.observe(any())).thenReturn(proof(true));
+        when(transactions.claimSubmission(eq(work),any(),eq(1000L))).thenReturn(true);
+        when(dispatch.send(any(),any())).thenAnswer(invocation -> {
+            returnedAt.set(System.currentTimeMillis());
+            return accepted;
+        });
+        processor.process(work.execution(),"lease",1000);
+        var recordedAt = ArgumentCaptor.forClass(Long.class);
+        verify(transactions).record(eq(work),eq(accepted),isNull(),eq(1000L),recordedAt.capture());
+        assertThat(recordedAt.getValue()).isBetween(returnedAt.get(), System.currentTimeMillis());
     }
     private PullTaskCreatorDeletionWork prepared(PullTaskCreatorDeletionStatus status) {
         var work = work(status); when(transactions.prepare(work.execution(),1000)).thenReturn(Optional.of(work)); return work;

@@ -65,7 +65,7 @@ public class PullTaskCreatorDeletionProcessor {
             // 删除异常可能已写入 socket，不记录包含授权/号码的异常正文，也绝不重发。
             log.info("永久注销提交结果未知 executionId={}，后续仅查询原操作", work.execution().getId());
         }
-        return transactions.record(work, result, null, now);
+        return transactions.record(work, result, null, now, System.currentTimeMillis());
     }
 
     private PullTaskExecutionDispatchResult reconcile(PullTaskCreatorDeletionWork work, long now) {
@@ -79,7 +79,7 @@ public class PullTaskCreatorDeletionProcessor {
         } catch (RuntimeException exception) {
             log.info("永久注销对账查询暂不可用 executionId={}", work.execution().getId());
         }
-        return transactions.record(work, result, observation, now);
+        return transactions.record(work, result, observation, now, System.currentTimeMillis());
     }
 
     private static CreatorDeletionCommand command(PullTaskCreatorDeletionWork work) {

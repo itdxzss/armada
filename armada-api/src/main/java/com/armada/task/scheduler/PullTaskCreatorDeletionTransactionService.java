@@ -39,6 +39,8 @@ public class PullTaskCreatorDeletionTransactionService {
     private static final long VERIFICATION_WINDOW_MS = 30 * 60_000L;
     private static final long INITIAL_BACKOFF_MS = 15_000L;
     private static final long MAX_BACKOFF_MS = 120_000L;
+    private static final long ACCEPTED_FAST_POLL_WINDOW_MS = 6 * 60_000L;
+    private static final long ACCEPTED_FAST_POLL_INTERVAL_MS = 10_000L;
     private final PullTaskCreatorDeletionMapper deletions;
     private final PullTaskCreatorDeletionGate gate;
     private final PullTaskCreatorDeletionResources resources;
@@ -214,10 +216,13 @@ public class PullTaskCreatorDeletionTransactionService {
         });
     }
 
-    /** 将协议结果和独立证明保存；只有完整证明才原子标记已注销并推进联系人阶段。 */
+    /**
+     * 将协议结果和独立证明保存；只有完整证明才原子标记已注销并推进联系人阶段。
+     * now 保留本轮查询开始时的证明新鲜度基准，recordedAt 用于接受计时及查询完成后的排期。
+     */
     @Transactional(rollbackFor = Exception.class)
     public PullTaskExecutionDispatchResult record(PullTaskCreatorDeletionWork work,
-            CreatorDeletionResult result, CreatorDeletionObservation observation, long now) {
+            CreatorDeletionResult result, CreatorDeletionObservation observation, long now, long recordedAt) {
         return tenant(work.execution().getTenantId(), () -> {
             PullTaskGroupExecution current = current(work.execution(), now);
             if (current == null) {
@@ -228,12 +233,13 @@ public class PullTaskCreatorDeletionTransactionService {
                 return PullTaskExecutionDispatchResult.LOST;
             }
             boolean match = PullTaskCreatorDeletionProof.matches(row, result);
+            boolean accepted = match && result.accepted();
+            long firstAcceptedAt = firstAcceptedAt(row, accepted, recordedAt);
             if (match) {
                 row.setDeletionResultStatus(result.state());
                 row.setResultOperationId(result.operationId());
                 row.setResultIdentityHash(result.accountHash());
             }
-            boolean accepted = match && result.accepted();
             boolean failed = match && result.state() != null
                     && java.util.Set.of("FAILED", "REJECTED", "NOT_SENT").contains(result.state());
             boolean managerChanged = accepted && !Objects.equals(manager(current, row), work.manager());
@@ -245,7 +251,7 @@ public class PullTaskCreatorDeletionTransactionService {
                     : PullTaskCreatorDeletionStatus.UNKNOWN.code());
             row.setAttempts(row.getAttempts() + 1);
             if (result != null || observation != null) {
-                row.setEvidenceJson(json(new Evidence(result, observation)));
+                row.setEvidenceJson(json(new Evidence(result, observation, firstAcceptedAt)));
             }
             if (observation != null) { row.setObservedAt(observation.queriedAt()); }
             row.setCompletedAt(complete ? now : null);
@@ -270,7 +276,7 @@ public class PullTaskCreatorDeletionTransactionService {
             return transition(current, new Transition(complete ? PullTaskExecutionStage.MANAGER_PULLER_CONTACT
                     : PullTaskExecutionStage.CREATOR_DELETE_VERIFY, row.getReasonCode(),
                     row.getReasonMessage(), !complete && (failed || expired || !accepted || managerChanged),
-                    complete ? 0 : now + backoff(row.getAttempts())), now);
+                    complete ? 0 : recordedAt + backoff(row.getAttempts(), accepted, firstAcceptedAt, recordedAt)), now);
         });
     }
 
@@ -392,10 +398,31 @@ public class PullTaskCreatorDeletionTransactionService {
         };
     }
 
-    /** 查询失败不抹去上次新鲜证据，完整结果保留 IQ 身份供审计。 */
-    private record Evidence(CreatorDeletionResult deletionResult, CreatorDeletionObservation observation) { }
+    /** 查询失败不抹去上次新鲜证据；首次接受时间持久化后不随轮询或重启重置。 */
+    private record Evidence(CreatorDeletionResult deletionResult, CreatorDeletionObservation observation,
+            long firstAcceptedAt) { }
 
-    private static long backoff(int attempt) {
+    private long firstAcceptedAt(PullTaskCreatorDeletion row, boolean accepted, long recordedAt) {
+        if (hasText(row.getEvidenceJson())) {
+            try {
+                long persisted = resources.json().readTree(row.getEvidenceJson()).path("firstAcceptedAt").asLong();
+                if (persisted > 0) { return persisted; }
+            } catch (JsonProcessingException exception) {
+                log.warn("注销核验计时证据无法解析 executionId={}", row.getGroupExecutionId());
+            }
+        }
+        // 旧记录没有首次接受时间，沿用提交时间，避免上线后为已等待多时的任务重开快查窗口。
+        if ("ACCEPTED".equals(row.getDeletionResultStatus()) && row.getSubmittedAt() != null) {
+            return row.getSubmittedAt();
+        }
+        return accepted ? recordedAt : 0;
+    }
+
+    private static long backoff(int attempt, boolean accepted, long firstAcceptedAt, long recordedAt) {
+        if (accepted && firstAcceptedAt > 0 && recordedAt >= firstAcceptedAt
+                && recordedAt - firstAcceptedAt < ACCEPTED_FAST_POLL_WINDOW_MS) {
+            return ACCEPTED_FAST_POLL_INTERVAL_MS;
+        }
         return Math.min(MAX_BACKOFF_MS, INITIAL_BACKOFF_MS * (1L << Math.min(attempt - 1, 3)));
     }
 

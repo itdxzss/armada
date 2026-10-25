@@ -207,7 +207,7 @@
           AND running_execution.task_id = pull_task.id
           AND running_execution.id != #{claim.candidate.executionId}
           AND running_execution.execution_status = #{claim.policy.runningExecutionStatus}
-          AND running_execution.manual_paused = 0
+          AND running_execution.manual_paused = #{claim.policy.runningManualPaused}
       ) &lt; #{claim.policy.concurrentLimit}
   </select>
 

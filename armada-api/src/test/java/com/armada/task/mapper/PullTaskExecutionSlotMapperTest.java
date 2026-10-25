@@ -241,7 +241,7 @@ class PullTaskExecutionSlotMapperTest {
                 new PullTaskExecutionSlotClaim.Candidate(100, id, status, 2,
                         new PullTaskExecutionLease("worker", 1)),
                 new PullTaskExecutionSlotClaim.Parent(version, "STANDARD", "NORMAL_LINK", "EXECUTING"),
-                new PullTaskExecutionSlotClaim.Policy(2, limit), 600);
+                new PullTaskExecutionSlotClaim.Policy(2, 0, limit), 600);
     }
 
     private int running() {

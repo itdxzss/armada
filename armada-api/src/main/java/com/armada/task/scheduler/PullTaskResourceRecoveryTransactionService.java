@@ -45,6 +45,8 @@ import org.springframework.transaction.interceptor.TransactionAspectSupport;
 public class PullTaskResourceRecoveryTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
+    /** manual_paused 未暂停取值；暂停行不占并发名额。 */
+    private static final int NOT_PAUSED = 0;
     private static final int REQUIRED_MANAGER_COUNT = 1;
     private static final List<Integer> OFFLINE_AVAILABILITY =
             List.of(PullTaskGroupAccountAvailability.OFFLINE.code());
@@ -564,7 +566,7 @@ public class PullTaskResourceRecoveryTransactionService {
                         parent.getVersion(), PullTaskType.STANDARD.name(), NORMAL_LINK_MODE,
                         PullTaskStandardStatus.EXECUTING.name()),
                 new PullTaskExecutionSlotClaim.Policy(
-                        PullTaskExecutionStatus.EXECUTING.code(), concurrentLimit),
+                        PullTaskExecutionStatus.EXECUTING.code(), NOT_PAUSED, concurrentLimit),
                 now);
         return taskMapper.acquireExecutionSlot(claim) == 1;
     }

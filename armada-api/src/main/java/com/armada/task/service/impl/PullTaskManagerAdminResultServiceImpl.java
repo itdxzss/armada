@@ -120,7 +120,7 @@ public class PullTaskManagerAdminResultServiceImpl implements PullTaskManagerAdm
                             target.nextRunAt(), callback.occurredAt()), null),
                     callback.occurredAt());
             if (executionMapper.transitionManagerJoinResult(transition) != 1) {
-                throw new IllegalStateException("管理员设置执行行唤醒 CAS 失败");
+                throw PullTaskExecutionCasFailure.of(execution, "管理员设置执行行唤醒 CAS 失败");
             }
             return true;
         } finally {

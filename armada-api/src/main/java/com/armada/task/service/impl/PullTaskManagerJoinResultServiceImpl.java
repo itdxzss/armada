@@ -174,7 +174,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                 if (executionWrite != 1
                         && (actionWrite == WriteResult.UPDATED
                         || membershipWrite == WriteResult.UPDATED)) {
-                    throw new IllegalStateException("拉手踩链接执行行唤醒 CAS 失败");
+                    throw PullTaskExecutionCasFailure.of(execution, "拉手踩链接执行行唤醒 CAS 失败");
                 }
                 return true;
             }
@@ -187,7 +187,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
             if (advanced != 1
                     && (actionWrite == WriteResult.UPDATED
                     || membershipWrite == WriteResult.UPDATED)) {
-                throw new IllegalStateException("管理员踩链接执行行结果 CAS 失败");
+                throw PullTaskExecutionCasFailure.of(execution, "管理员踩链接执行行结果 CAS 失败");
             }
             if (advanced == 1 && kind == ResultKind.SUCCESS
                     && execution.getGroupLinkId() != null) {
@@ -238,7 +238,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                         : PullTaskWaitResourceType.MANAGER.code(), callback.reasonCode(), message,
                         Math.addExact(callback.occurredAt(), properties.getRetryDelayMs()), null), callback.occurredAt());
         if (executionMapper.transitionManagerJoinResult(transition) != 1) {
-            throw new IllegalStateException("离线进群执行行等待 CAS 失败");
+            throw PullTaskExecutionCasFailure.of(execution, "离线进群执行行等待 CAS 失败");
         }
         return true;
     }
@@ -288,7 +288,7 @@ public class PullTaskManagerJoinResultServiceImpl implements PullTaskManagerJoin
                         reasonCode, executionMessage,
                         nextRunAt, failed ? callback.occurredAt() : null), callback.occurredAt());
         if (executionMapper.transitionManagerJoinResult(transition) != 1) {
-            throw new IllegalStateException("新群链接拉手入群结果 CAS 失败");
+            throw PullTaskExecutionCasFailure.of(execution, "新群链接拉手入群结果 CAS 失败");
         }
         if (kind == ResultKind.SUCCESS && execution.getGroupLinkId() != null) {
             inviteLinkService.bindGroupJid(execution.getGroupLinkId(), callback.groupJid(), callback.occurredAt());

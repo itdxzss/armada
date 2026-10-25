@@ -163,7 +163,7 @@ public class PullTaskGroupSettingsResultServiceImpl implements PullTaskGroupSett
                         reason == null ? null : reason.message(),
                         nextRunAt, null),
                 callback.occurredAt())) != 1) {
-            throw new IllegalStateException("群设置执行行唤醒 CAS 失败");
+            throw PullTaskExecutionCasFailure.of(execution, "群设置执行行唤醒 CAS 失败");
         }
         log.info("拉群加人权限结果收敛 taskId={} executionId={} actionId={} commandId={} "
                         + "attemptNo={} outcome={} reasonCode={}",

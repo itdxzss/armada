@@ -91,7 +91,7 @@ public class PullTaskPullerInviteResultServiceImpl implements PullTaskPullerInvi
             if (executionWrite != 1
                     && (actionWrite == WriteResult.UPDATED
                     || membershipWrite == WriteResult.UPDATED)) {
-                throw new IllegalStateException("拉手邀请执行行唤醒 CAS 失败");
+                throw PullTaskExecutionCasFailure.of(execution, "拉手邀请执行行唤醒 CAS 失败");
             }
             return true;
         } finally {

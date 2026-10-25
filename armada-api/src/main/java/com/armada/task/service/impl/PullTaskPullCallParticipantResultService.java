@@ -573,7 +573,7 @@ public class PullTaskPullCallParticipantResultService {
                 PullTaskExecutionStage.PULL_EXECUTION.code(),
                 PullTaskExecutionStage.PULL_EXECUTION.code(),
                 null, now, now)) != 1) {
-            throw new IllegalStateException("历史逐号码批次收口后唤醒执行行失败");
+            throw PullTaskExecutionCasFailure.of(execution, "历史逐号码批次收口后唤醒执行行失败");
         }
     }
 

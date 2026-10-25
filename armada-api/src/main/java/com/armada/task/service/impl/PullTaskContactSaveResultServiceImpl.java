@@ -95,7 +95,7 @@ public class PullTaskContactSaveResultServiceImpl implements PullTaskContactSave
                     delayPolicy.nextSideEffectAt(callback.occurredAt()),
                     callback.occurredAt()));
             if (executionWrite != 1 && actionWrite == WriteResult.UPDATED) {
-                throw new IllegalStateException("联系人结果执行行唤醒 CAS 失败");
+                throw PullTaskExecutionCasFailure.of(execution, "联系人结果执行行唤醒 CAS 失败");
             }
             return true;
         } finally {

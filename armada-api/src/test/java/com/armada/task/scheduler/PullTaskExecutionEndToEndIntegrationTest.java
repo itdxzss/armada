@@ -534,6 +534,34 @@ class PullTaskExecutionEndToEndIntegrationTest {
                 .isEqualTo(outboxBefore);
     }
 
+    /** 调度器持有本行租约时到达的回调整体回滚，并归类为可长退避重试的暂时冲突。 */
+    @Test
+    void managerJoinWhileDispatcherHoldsTheLeaseIsARetryableConflict() throws SQLException {
+        coordinator.dispatchOnce(1_000L);
+        sendPendingOutbox(1_050L);
+        PullTaskGroupExecution execution = executionMapper.selectByTaskId(100L).get(0);
+        PullTaskAccountAction action = actionMapper.selectByExecutionAndType(
+                execution.getId(), PullTaskAccountActionType.JOIN_BY_LINK.code()).get(0);
+        execute("UPDATE pull_task_group_execution SET lock_owner='dispatcher-2', "
+                + "lock_expires_at=99999 WHERE id=" + execution.getId());
+        PullTaskManagerJoinCallback success = new PullTaskManagerJoinCallback(
+                7L, 100L, execution.getId(), action.getId(), action.getCommandId(),
+                PullTaskManagerJoinProtocolOutcome.JOINED, GROUP_JID,
+                null, null, false, 1_300L);
+
+        assertThatThrownBy(() -> managerJoinResultService.apply(success))
+                .isInstanceOf(com.armada.shared.exception.RetryableConflictException.class)
+                .hasMessageContaining("执行行结果 CAS 失败");
+
+        assertThat(actionMapper.selectByCommandId(action.getCommandId()).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUBMITTED.code());
+        execute("UPDATE pull_task_group_execution SET lock_owner=NULL, lock_expires_at=NULL "
+                + "WHERE id=" + execution.getId());
+        assertThat(managerJoinResultService.apply(success)).isTrue();
+        assertThat(actionMapper.selectByCommandId(action.getCommandId()).getActionStatus())
+                .isEqualTo(PullTaskActionStatus.SUCCESS.code());
+    }
+
     /** PL-S04 现状复现：终态后首个 SENT 回调整个回滚，协议事实不可审计。 */
     @Test
     void lateManagerJoinAfterTerminalCurrentlyRollsBackProtocolFact() throws SQLException {
@@ -556,6 +584,7 @@ class PullTaskExecutionEndToEndIntegrationTest {
 
         assertThatThrownBy(() -> managerJoinResultService.apply(lateSuccess))
                 .isInstanceOf(IllegalStateException.class)
+                .isNotInstanceOf(com.armada.shared.exception.RetryableConflictException.class)
                 .hasMessageContaining("执行行结果 CAS 失败");
 
         PullTaskGroupExecution stillTerminal = executionMapper.selectById(execution.getId());

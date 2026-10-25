@@ -43,7 +43,7 @@ public record PullTaskExecutionSlotClaim(
     }
 
     /**
-     * @param runningExecutionStatus 占用父任务槽位的执行行状态码
+     * @param runningExecutionStatus 占用父任务槽位的执行行状态码；该状态下暂停的行不占槽位
      * @param concurrentLimit        最大并发执行行数
      */
     public record Policy(int runningExecutionStatus, int concurrentLimit) {

@@ -40,6 +40,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class PullTaskExecutionTransactionService {
 
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
+    /** manual_paused 未暂停取值；暂停行不占并发名额。 */
+    private static final int NOT_PAUSED = 0;
+    /**
+     * 待启动行没抢到并发名额时的退避时长。待启动行的 next_run_at 恒为 0，原样放回会在下一轮
+     * 仍按 id 排在启动池最前，老任务的等待行长期占住启动池，后建任务的行永远轮不到。
+     */
+    static final long SLOT_WAIT_BACKOFF_MS = 5_000L;
     private static final Logger log = LoggerFactory.getLogger(PullTaskExecutionTransactionService.class);
 
     private final PullTaskMapper taskMapper;
@@ -94,11 +101,13 @@ public class PullTaskExecutionTransactionService {
                 PullTaskStandardSetting setting =
                         settingMapper.selectByTaskId(candidate.getTaskId());
                 boolean runtimeGroupRequired = requiresRuntimeGroup(parent, candidate, setting);
-                // 无并发名额时只等待本任务在途执行，不能据此把尚未轮到的 TXT 判成群耗尽。
+                // 无并发名额时只等待本任务在途执行，不能据此把尚未轮到的 TXT 判成群耗尽；
+                // 推后本行，让启动池轮到其他任务的待启动行。
                 if (!hasConcurrentPolicy(setting)
                         || !acquireExecutionSlot(
                         parent, candidate, setting.getConcurrentGroupCount(), now)) {
-                    release(candidate.getId(), lockOwner, now);
+                    executionMapper.releaseLockWithBackoff(candidate.getId(), lockOwner, now,
+                            Math.addExact(now, SLOT_WAIT_BACKOFF_MS));
                     return Optional.empty();
                 }
                 candidate.setStartedAt(now);
@@ -217,7 +226,7 @@ public class PullTaskExecutionTransactionService {
                         parent.getVersion(), PullTaskType.STANDARD.name(), NORMAL_LINK_MODE,
                         PullTaskStandardStatus.EXECUTING.name()),
                 new PullTaskExecutionSlotClaim.Policy(
-                        PullTaskExecutionStatus.EXECUTING.code(), concurrentLimit),
+                        PullTaskExecutionStatus.EXECUTING.code(), NOT_PAUSED, concurrentLimit),
                 now);
         return taskMapper.acquireExecutionSlot(claim) == 1;
     }

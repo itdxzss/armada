@@ -279,7 +279,7 @@ public class PullTaskProtocolResultCallbackServiceImpl
                 PullTaskExecutionStatus.EXECUTING.code(),
                 PullTaskExecutionStage.MATERIAL_ADMIN.code(), targetStage,
                 null, nextRunAt, now)) != 1) {
-            throw new IllegalStateException("料子提权执行行推进 CAS 失败");
+            throw PullTaskExecutionCasFailure.of(execution, "料子提权执行行推进 CAS 失败");
         }
     }
 

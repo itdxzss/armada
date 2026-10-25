@@ -15,7 +15,7 @@ import com.armada.task.model.enums.PullTaskMaterialPullStatus;
 import com.armada.task.model.enums.PullTaskParticipantAttemptStatus;
 import com.armada.task.model.enums.PullTaskPullCallStatus;
 import com.armada.task.model.enums.PullTaskType;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
@@ -29,6 +29,16 @@ public class PullTaskUnknownResultReconciliationCoordinator {
     private static final Logger log = LoggerFactory.getLogger(
             PullTaskUnknownResultReconciliationCoordinator.class);
     private static final String NORMAL_LINK_MODE = "NORMAL_LINK";
+    /** 仍在推进或等待推进的执行行，未知结果必须优先收敛，否则会卡住当前群。 */
+    private static final List<Integer> ACTIVE_STATUSES = List.of(
+            PullTaskExecutionStatus.WAIT_START.code(),
+            PullTaskExecutionStatus.EXECUTING.code(),
+            PullTaskExecutionStatus.WAIT_RESOURCE.code());
+    /** 已结束的执行行，只用批次剩余额度补收敛晚到的结果。 */
+    private static final List<Integer> TERMINAL_STATUSES = List.of(
+            PullTaskExecutionStatus.COMPLETED.code(),
+            PullTaskExecutionStatus.FAILED.code(),
+            PullTaskExecutionStatus.ABANDONED.code());
 
     private final PullTaskGroupExecutionMapper executionMapper;
     private final PullTaskUnknownResultReconciliationService service;
@@ -61,8 +71,17 @@ public class PullTaskUnknownResultReconciliationCoordinator {
         long cutoff = Math.subtractExact(now, properties.getResultReconciliationDelayMs());
         long participantCutoff = Math.subtractExact(
                 now, properties.getParticipantResultTimeoutMs());
-        List<PullTaskGroupExecution> candidates = executionMapper
-                .selectUnknownResultCandidates(criteria(cutoff, participantCutoff));
+        int limit = properties.getResultReconciliationBatchSize();
+        // 终态行上的 UNKNOWN 多为永久事实（如联系人、群设置），按 id 升序会一直排在批次前面，
+        // 历史行一多就挤掉进行中的行。进行中的行先占批次，剩余额度再给终态行。
+        List<PullTaskGroupExecution> candidates = new ArrayList<>(executionMapper
+                .selectUnknownResultCandidates(
+                        criteria(ACTIVE_STATUSES, limit, cutoff, participantCutoff)));
+        int remaining = limit - candidates.size();
+        if (remaining > 0) {
+            candidates.addAll(executionMapper.selectUnknownResultCandidates(
+                    criteria(TERMINAL_STATUSES, remaining, cutoff, participantCutoff)));
+        }
         Counter total = new Counter();
         for (PullTaskGroupExecution execution : candidates) {
             reconcile(execution, cutoff, participantCutoff, now, total);
@@ -92,15 +111,13 @@ public class PullTaskUnknownResultReconciliationCoordinator {
     }
 
     private PullTaskUnknownReconciliationCriteria criteria(
+            List<Integer> executionStatuses,
+            int limit,
             long cutoff,
             long participantCutoff) {
-        List<Integer> executionStatuses = Arrays.stream(PullTaskExecutionStatus.values())
-                .filter(status -> status != PullTaskExecutionStatus.DRAFT)
-                .map(PullTaskExecutionStatus::code).toList();
         return new PullTaskUnknownReconciliationCriteria(
                 new PullTaskUnknownReconciliationCriteria.Scope(
-                        properties.getResultReconciliationBatchSize(), cutoff,
-                        participantCutoff),
+                        limit, cutoff, participantCutoff),
                 executionStatuses,
                 List.of(PullTaskExecutionReasonCode.GROUP_BANNED.name(),
                         PullTaskExecutionReasonCode.GROUP_JOIN_APPROVAL_REQUIRED.name()),

@@ -1,6 +1,7 @@
 package com.armada.platform.kafka.config;
 
 import com.armada.shared.exception.BusinessException;
+import com.armada.shared.exception.RetryableConflictException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +22,8 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.ExponentialBackOff;
 import org.springframework.util.backoff.FixedBackOff;
 
 /**
@@ -52,6 +55,14 @@ public class ProtocolKafkaConfiguration {
 
     private static final int DISPATCH_EXECUTOR_POOL_SIZE = 1;
     private static final int DISPATCH_EXECUTOR_QUEUE_CAPACITY = 1_000;
+    /** 暂时性并发冲突首次退避。 */
+    private static final long CONFLICT_RETRY_INITIAL_MS = 1_000L;
+    /** 暂时性并发冲突退避倍数。 */
+    private static final double CONFLICT_RETRY_MULTIPLIER = 2.0D;
+    /** 暂时性并发冲突单次最长退避。 */
+    private static final long CONFLICT_RETRY_MAX_INTERVAL_MS = 10_000L;
+    /** 暂时性并发冲突累计退避上限；需覆盖拉群调度一轮持有执行行租约的时长。 */
+    private static final long CONFLICT_RETRY_MAX_ELAPSED_MS = 60_000L;
 
     /**
      * 启动时校验新建普群三条专用 topic 不与任何既有命令/事件 topic 共用。
@@ -96,7 +107,9 @@ public class ProtocolKafkaConfiguration {
      * <p>Spring Boot 会把唯一的 {@link CommonErrorHandler} 自动装配到默认
      * {@code kafkaListenerContainerFactory}。listener 抛出的数据库异常等运行时错误会按固定间隔重试,
      * 超过次数后投递到 {@code 原 topic + deadLetterTopicSuffix};消息格式校验失败使用
-     * {@link BusinessException} 表达,这类毒消息不重试,直接交给 recoverer,避免反复打日志和占用分区。</p>
+     * {@link BusinessException} 表达,这类毒消息不重试,直接交给 recoverer,避免反复打日志和占用分区。
+     * {@link RetryableConflictException} 表示数据暂被调度租约占用,改用指数退避覆盖一轮调度的持锁时长,
+     * 避免回调在调度轮次较慢时几秒内就进死信。</p>
      *
      * @param kafkaTemplateProvider KafkaTemplate provider,测试切片未加载 Kafka auto config 时可为空
      * @param properties            协议账号事件 consumer 配置
@@ -132,7 +145,36 @@ public class ProtocolKafkaConfiguration {
                     retryIntervalMs, maxRetryAttempts, deadLetterTopicSuffix);
         }
         errorHandler.addNotRetryableExceptions(BusinessException.class);
+        BackOff conflictBackOff = conflictRetryBackOff();
+        errorHandler.setBackOffFunction(
+                (record, exception) -> retryBackOff(exception, backOff, conflictBackOff));
         return errorHandler;
+    }
+
+    /**
+     * 按异常选择退避：原因链上有暂时性并发冲突时用冲突退避，其余用固定退避。
+     *
+     * @param exception       listener 抛出的异常（通常被容器包装过）
+     * @param defaultBackOff  常规固定退避
+     * @param conflictBackOff 并发冲突退避
+     * @return 本条消息使用的退避
+     */
+    static BackOff retryBackOff(Exception exception, BackOff defaultBackOff, BackOff conflictBackOff) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof RetryableConflictException) {
+                return conflictBackOff;
+            }
+        }
+        return defaultBackOff;
+    }
+
+    /** @return 暂时性并发冲突的指数退避 */
+    static BackOff conflictRetryBackOff() {
+        ExponentialBackOff backOff = new ExponentialBackOff(
+                CONFLICT_RETRY_INITIAL_MS, CONFLICT_RETRY_MULTIPLIER);
+        backOff.setMaxInterval(CONFLICT_RETRY_MAX_INTERVAL_MS);
+        backOff.setMaxElapsedTime(CONFLICT_RETRY_MAX_ELAPSED_MS);
+        return backOff;
     }
 
     /**

@@ -140,9 +140,29 @@ class PullTaskCreatorDeletionTransactionServiceTest {
 
         var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
         verify(executions, times(3)).transitionCreatorDeletion(update.capture(), eq(12));
-        assertThat(update.getAllValues().get(1).getManualPaused()).isEqualTo(1);
+        // 已接受后一次查询暂不可用不再暂停群，只继续按退避核验。
+        assertThat(update.getAllValues().get(1).getManualPaused()).isZero();
+        assertThat(update.getAllValues().get(1).getReasonCode()).isEqualTo("CREATOR_DELETE_WAIT_CLEANUP");
         assertThat(update.getValue().getNextRunAt()).isEqualTo(481000L);
         verify(deletions, never()).claimSubmission(any());
+    }
+
+    @Test void queryUnavailableAfterAcceptanceKeepsAcceptedUntilTheDeadline() {
+        var work = fixture();
+        work.deletion().setSubmittedAt(1000L);
+        work.deletion().setDeadlineAt(1801000L);
+        work.execution().setLockExpiresAt(5000000L);
+        service.record(work, accepted(), null, 1000L, 1000L);
+
+        service.record(work, null, null, 11000L, 11000L);
+        assertThat(work.deletion().getStatus()).isEqualTo(PullTaskCreatorDeletionStatus.ACCEPTED.code());
+
+        service.record(work, null, null, 1801000L, 1801000L);
+        var update = ArgumentCaptor.forClass(PullTaskGroupExecution.class);
+        verify(executions, times(3)).transitionCreatorDeletion(update.capture(), eq(12));
+        assertThat(update.getAllValues().get(1).getManualPaused()).isZero();
+        assertThat(update.getValue().getManualPaused()).isEqualTo(1);
+        assertThat(update.getValue().getReasonCode()).isEqualTo("CREATOR_DELETE_VERIFICATION_TIMEOUT");
     }
 
     @Test void historicalAcceptanceWithoutTimestampDoesNotRestartFastWindow() {

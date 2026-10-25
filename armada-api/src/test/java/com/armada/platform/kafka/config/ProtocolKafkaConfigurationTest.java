@@ -4,12 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.armada.shared.exception.RetryableConflictException;
 import java.util.concurrent.Executor;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.kafka.listener.CommonErrorHandler;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.listener.ListenerExecutionFailedException;
+import org.springframework.util.backoff.BackOff;
+import org.springframework.util.backoff.BackOffExecution;
+import org.springframework.util.backoff.FixedBackOff;
 
 /**
  * 协议命令 Kafka 装配测试。
@@ -73,6 +78,34 @@ class ProtocolKafkaConfigurationTest {
                     assertThat(context).hasSingleBean(CommonErrorHandler.class);
                     assertThat(context.getBean(CommonErrorHandler.class)).isInstanceOf(DefaultErrorHandler.class);
                 });
+    }
+
+    @Test
+    void retryableConflictAnywhereInTheCauseChainSelectsTheConflictBackOff() {
+        BackOff fixed = new FixedBackOff(1_000L, 3L);
+        BackOff conflict = ProtocolKafkaConfiguration.conflictRetryBackOff();
+        Exception wrapped = new ListenerExecutionFailedException("listener failed",
+                new RetryableConflictException("执行行正被调度租约占用"));
+
+        assertThat(ProtocolKafkaConfiguration.retryBackOff(wrapped, fixed, conflict)).isSameAs(conflict);
+        assertThat(ProtocolKafkaConfiguration.retryBackOff(
+                new ListenerExecutionFailedException("listener failed",
+                        new IllegalStateException("执行行已终态")), fixed, conflict)).isSameAs(fixed);
+    }
+
+    @Test
+    void conflictBackOffOutlastsOneDispatchLeaseAndThenStops() {
+        BackOffExecution execution = ProtocolKafkaConfiguration.conflictRetryBackOff().start();
+        long total = 0L;
+        int attempts = 0;
+        for (long next = execution.nextBackOff(); next != BackOffExecution.STOP;
+                next = execution.nextBackOff()) {
+            assertThat(next).isLessThanOrEqualTo(10_000L);
+            total += next;
+            attempts++;
+        }
+        assertThat(attempts).isBetween(5, 12);
+        assertThat(total).isBetween(30_000L, 70_000L);
     }
 
     @Test

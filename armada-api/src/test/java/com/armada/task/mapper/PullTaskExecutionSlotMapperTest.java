@@ -101,6 +101,14 @@ class PullTaskExecutionSlotMapperTest {
     }
 
     @Test
+    void pausedRunningRowsDoNotHoldTheSlot() {
+        jdbc.update("UPDATE pull_task_group_execution SET execution_status=2, manual_paused=1 WHERE id=1");
+        assertThat(start(2, 1, 1, 1)).isEqualTo(1);
+        assertThat(start(3, 1, 2, 1)).isZero();
+        assertThat(running()).isEqualTo(2);
+    }
+
+    @Test
     void staleParentVersionCannotAuthorizeAnotherStartAfterConcurrentCommit() {
         var stale = claim(2, 1, 1, 1);
         assertThat(start(1, 1, 1, 1)).isEqualTo(1);
@@ -233,7 +241,7 @@ class PullTaskExecutionSlotMapperTest {
                 new PullTaskExecutionSlotClaim.Candidate(100, id, status, 2,
                         new PullTaskExecutionLease("worker", 1)),
                 new PullTaskExecutionSlotClaim.Parent(version, "STANDARD", "NORMAL_LINK", "EXECUTING"),
-                new PullTaskExecutionSlotClaim.Policy(2, limit), 600);
+                new PullTaskExecutionSlotClaim.Policy(2, 0, limit), 600);
     }
 
     private int running() {

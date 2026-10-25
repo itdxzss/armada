@@ -183,7 +183,8 @@
   </sql>
 
   <!-- 必须是独立的普通 SELECT：UPDATE 的跨表子查询会在 RR 下锁住执行索引范围，
-       与封群事务更新旧执行并 INSERT 后继形成死锁。父版本和运行数使用同一快照。 -->
+       与封群事务更新旧执行并 INSERT 后继形成死锁。父版本和运行数使用同一快照。
+       暂停行（人工暂停或建群/资料/注销等自动暂停）不推进，不占名额；否则暂停数达到上限后整个任务停摆。 -->
   <select id="countAvailableExecutionSlot" resultType="int">
     SELECT COUNT(*) FROM pull_task
     <include refid="ExecutionSlotParentConditions"/>
@@ -206,6 +207,7 @@
           AND running_execution.task_id = pull_task.id
           AND running_execution.id != #{claim.candidate.executionId}
           AND running_execution.execution_status = #{claim.policy.runningExecutionStatus}
+          AND running_execution.manual_paused = #{claim.policy.runningManualPaused}
       ) &lt; #{claim.policy.concurrentLimit}
   </select>
 

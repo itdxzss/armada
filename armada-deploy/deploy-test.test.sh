@@ -1543,7 +1543,7 @@ test_main_orchestrator_uses_armada_module() {
   assert_contains "${script_content}" "armada_prepare_remote"
   assert_contains "${script_content}" "armada_start"
   assert_contains "${script_content}" 'armada_verify_selected "${BUILD_BE}" "${BUILD_FE}"'
-  assert_not_contains "${script_content}" "find_jdk17()"
+  assert_not_contains "${script_content}" "find_jdk21()"
 }
 
 test_armada_compose_passes_android_base_url_to_backend() {

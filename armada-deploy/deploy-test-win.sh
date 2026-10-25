@@ -295,21 +295,21 @@ cleanup_branch_worktree() {
   esac
 }
 
-armada_find_jdk17() {
+armada_find_jdk21() {
   local candidate javac_path
   local candidates=(
-    "${JAVA17_HOME:-}"
+    "${JAVA21_HOME:-}"
     "${JAVA_HOME:-}"
-    /usr/lib/jvm/java-17-openjdk-*
-    /usr/lib/jvm/temurin-17-*
-    /usr/lib/jvm/jdk-17*
+    /usr/lib/jvm/java-21-openjdk-*
+    /usr/lib/jvm/temurin-21-*
+    /usr/lib/jvm/jdk-21*
   )
 
   # WSL 必须使用 Linux JDK；Windows 的 java.exe 不能作为 Linux Maven 的 JAVA_HOME。
   for candidate in "${candidates[@]}"; do
     [ -n "${candidate}" ] || continue
     [ -x "${candidate}/bin/javac" ] || continue
-    if "${candidate}/bin/javac" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+    if "${candidate}/bin/javac" -version 2>&1 | grep -Eq '^javac 21([. ]|$)'; then
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -317,7 +317,7 @@ armada_find_jdk17() {
 
   javac_path="$(command -v javac 2>/dev/null || true)"
   if [ -n "${javac_path}" ] && javac_path="$(readlink -f "${javac_path}")" \
-    && "${javac_path}" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+    && "${javac_path}" -version 2>&1 | grep -Eq '^javac 21([. ]|$)'; then
     printf '%s\n' "${javac_path%/bin/javac}"
     return 0
   fi
@@ -686,9 +686,9 @@ if [ "${BUILD_BE}" = 1 ]; then
   configure_windows_maven
 fi
 
-JDK17_HOME=""
+JDK21_HOME=""
 if [ "${BUILD_BE}" = 1 ]; then
-  JDK17_HOME="$(armada_find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
+  JDK21_HOME="$(armada_find_jdk21)" || die "需要 JDK 21。请安装 JDK 21 或设置 JAVA21_HOME。"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
@@ -879,7 +879,7 @@ print_plan() {
     fi
   fi
   if [ "${BUILD_BE}" = 1 ]; then
-    printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
+    printf '  后端 JDK      : %s\n' "${JDK21_HOME}"
   fi
   if [ "${BUILD_FE}" = 1 ]; then
     printf '  前端构建      : %s\n' "${FRONTEND_BUILD_MODE}"
@@ -900,7 +900,7 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将检查 Zhuan SSH 连通性"
   fi
   [ -n "${DEPLOY_BRANCH}" ] && info "[dry-run] 实际部署时将 fetch origin/${DEPLOY_BRANCH} 并创建临时 worktree"
-  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -Dmaven.test.skip=true clean package)"
+  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK21_HOME} mvn -q -Dmaven.test.skip=true clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
     if [ "${PNPM_AVAILABLE}" = 1 ]; then
       info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"

@@ -502,9 +502,9 @@ fi
 [ -n "${SERVICES}" ] && COMPOSE_UP_ARGS="${COMPOSE_UP_ARGS} ${SERVICES}"
 COMPOSE_UP_COMMAND="docker compose ${COMPOSE_UP_ARGS}"
 
-JDK17_HOME=""
+JDK21_HOME=""
 if [ "${BUILD_BE}" = 1 ]; then
-  JDK17_HOME="$(armada_find_jdk17)" || die "需要 JDK 17。请安装 JDK 17 或设置 JAVA17_HOME。"
+  JDK21_HOME="$(armada_find_jdk21)" || die "需要 JDK 21。请安装 JDK 21 或设置 JAVA21_HOME。"
 fi
 
 if [ "${BUILD_BE}" = 1 ] || [ "${BUILD_FE}" = 1 ]; then
@@ -701,7 +701,7 @@ print_plan() {
     fi
   fi
   if [ "${BUILD_BE}" = 1 ]; then
-    printf '  后端 JDK      : %s\n' "${JDK17_HOME}"
+    printf '  后端 JDK      : %s\n' "${JDK21_HOME}"
   fi
   if [ "${BUILD_FE}" = 1 ]; then
     printf '  前端构建      : %s\n' "${FRONTEND_BUILD_MODE}"
@@ -722,7 +722,7 @@ if [ "${DRY_RUN}" = 1 ]; then
     info "[dry-run] 将检查 Zhuan SSH 连通性"
   fi
   [ -n "${DEPLOY_BRANCH}" ] && info "[dry-run] 实际部署时将 fetch origin/${DEPLOY_BRANCH} 并创建临时 worktree"
-  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK17_HOME} mvn -q -Dmaven.test.skip=true clean package)"
+  [ "${BUILD_BE}" = 1 ] && info "[dry-run] 将执行: (cd ${API_DIR} && JAVA_HOME=${JDK21_HOME} mvn -q -Dmaven.test.skip=true clean package)"
   if [ "${BUILD_FE}" = 1 ]; then
     if [ "${PNPM_AVAILABLE}" = 1 ]; then
       info "[dry-run] 将执行: (cd ${FRONTEND_DIR} && pnpm install --frozen-lockfile && pnpm build)"

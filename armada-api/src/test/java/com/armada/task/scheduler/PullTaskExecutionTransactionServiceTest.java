@@ -134,6 +134,10 @@ class PullTaskExecutionTransactionServiceTest {
         assertThat(executionMapper.selectByTaskId(100L))
                 .extracting(PullTaskGroupExecution::getExecutionStatus)
                 .containsExactly(2, 2, 1);
+        PullTaskGroupExecution waiting = executionMapper.selectById(claimed.get(2).getId());
+        assertThat(waiting.getNextRunAt())
+                .isEqualTo(600L + PullTaskExecutionTransactionService.SLOT_WAIT_BACKOFF_MS);
+        assertThat(waiting.getLockOwner()).isNull();
     }
 
     @Test

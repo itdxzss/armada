@@ -35,13 +35,13 @@ public class PullTaskCreatorDeletionDispatchService {
             TenantContext.set(work.execution().getTenantId());
             PullTask parent = resources.tasks().selectLifecycleForUpdate(work.execution().getTaskId());
             PullTaskGroupExecution current = resources.executions().selectByIdForUpdate(work.execution().getId());
-            // 外部群查询可能耗尽租约，必须在取得最终行锁后读取本机当前时间。
-            long dispatchAt = System.currentTimeMillis();
+            // 持有最终行锁后复核接管：租约持有者每个进程唯一，持有者与版本都未变就说明没有其他实例接管，
+            // 行锁覆盖整个 POST。不再用本机时间比对“轮开始 + 租约时长”：调度轮次一慢租约必然显示过期，
+            // 会把未发送的注销伪造成 UNKNOWN，账本却已写成已提交，群被误判暂停。
             if (parent == null || !PullTaskStandardStatus.EXECUTING.name().equals(parent.getStatus())
                     || current == null || !Objects.equals(current.getManualPaused(), 0)
                     || !Objects.equals(current.getVersion(), work.execution().getVersion())
-                    || !Objects.equals(current.getLockOwner(), work.execution().getLockOwner())
-                    || current.getLockExpiresAt() == null || current.getLockExpiresAt() <= dispatchAt) {
+                    || !Objects.equals(current.getLockOwner(), work.execution().getLockOwner())) {
                 return new CreatorDeletionResult(command.operationId(), command.identityHash(),
                         "UNKNOWN", null, null, "TASK_STOPPED_OR_LEASE_LOST");
             }

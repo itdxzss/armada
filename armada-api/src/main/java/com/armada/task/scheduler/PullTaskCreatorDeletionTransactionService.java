@@ -233,7 +233,11 @@ public class PullTaskCreatorDeletionTransactionService {
                 return PullTaskExecutionDispatchResult.LOST;
             }
             boolean match = PullTaskCreatorDeletionProof.matches(row, result);
-            boolean accepted = match && result.accepted();
+            // 已接受的注销在核验期遇到查询暂不可用（没有结果）时保持已接受、继续按退避核验；
+            // 否则一次查询异常就会把已接受改写成未知并暂停群。核验总窗口到期仍按超时暂停。
+            boolean stillAccepted = result == null
+                    && Objects.equals(row.getStatus(), PullTaskCreatorDeletionStatus.ACCEPTED.code());
+            boolean accepted = (match && result.accepted()) || stillAccepted;
             long firstAcceptedAt = firstAcceptedAt(row, accepted, recordedAt);
             if (match) {
                 row.setDeletionResultStatus(result.state());

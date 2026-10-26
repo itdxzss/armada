@@ -19,6 +19,8 @@ import org.springframework.stereotype.Service;
 public class AccountImportLoginResultSettler implements AccountStateChangedSideEffect {
 
     private static final int WA_CODE_FORBIDDEN = 403;
+    /** 客户端版本过期，不代表凭据失效。 */
+    private static final int WA_CODE_CLIENT_OUTDATED = 405;
     private static final int REASON_MAX_LENGTH = 255;
     private static final String STATE_ONLINE = "ONLINE";
     private static final String STATE_OFFLINE = "OFFLINE";
@@ -26,6 +28,7 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
     private static final String STATE_LOGGED_OUT = "LOGGED_OUT";
     private static final String STATE_DEVICE_REMOVED = "DEVICE_REMOVED";
     private static final String REASON_FORBIDDEN = "FORBIDDEN";
+    private static final String REASON_CLIENT_OUTDATED = "CLIENT_OUTDATED";
 
     private final AccountImportDetailMapper detailMapper;
 
@@ -82,7 +85,7 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
      * 将协议层状态事件映射为导入明细的首次登录结果。
      *
      * <p>只有能代表“本次上线尝试已有终态”的事件才返回结算结果:
-     * ONLINE 记成功;NEED_REAUTH+403 记封禁;认证失效类状态记密钥异常;
+     * ONLINE 记成功;405 记版本过期的上线失败;NEED_REAUTH+403 记封禁;认证失效类状态记密钥异常;
      * OFFLINE 记上线失败。PROXY_FAILED 会触发换 IP 重试,不在这里冻结导入结果。
      * RECONNECTING、CONNECTING 等中间态返回 null,等待后续终态。</p>
      *
@@ -94,6 +97,11 @@ public class AccountImportLoginResultSettler implements AccountStateChangedSideE
         String semantic = normalize(event.semantic());
         if (STATE_ONLINE.equals(to)) {
             return new LoginSettlement(AccountImportLoginResult.SUCCESS, null);
+        }
+        // 兼容升级前已发出的 NEED_REAUTH+405；不回写已冻结的历史明细。
+        if ((STATE_NEED_REAUTH.equals(to) || STATE_OFFLINE.equals(to))
+                && Integer.valueOf(WA_CODE_CLIENT_OUTDATED).equals(event.rawCode())) {
+            return new LoginSettlement(AccountImportLoginResult.FAILED, REASON_CLIENT_OUTDATED);
         }
         if (STATE_NEED_REAUTH.equals(to) && isForbidden(event.rawCode())) {
             return new LoginSettlement(AccountImportLoginResult.BANNED, REASON_FORBIDDEN);

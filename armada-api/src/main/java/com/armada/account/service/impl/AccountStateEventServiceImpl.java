@@ -37,6 +37,10 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     private static final int BLOCK_REASON_MAX_LENGTH = 255;
     /** WhatsApp forbidden 断线码,按封禁处理。 */
     private static final int WA_CODE_FORBIDDEN = 403;
+    /** WhatsApp 客户端版本过期，保留账号生命周期及凭据。 */
+    private static final int WA_CODE_CLIENT_OUTDATED = 405;
+    /** 客户端版本过期的失败来源。 */
+    private static final String SEMANTIC_CLIENT_OUTDATED = "CLIENT_OUTDATED";
     /** WhatsApp connectionReplaced 断线码,按被抢登处理。 */
     private static final int WA_CODE_LOGIN_REPLACED = 440;
     /** 协议层在线状态。 */
@@ -115,6 +119,7 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
     @Transactional(rollbackFor = Exception.class)
     public boolean applyStateChanged(AccountStateChangedEvent event) {
         validate(event);
+        event = normalizeLegacyClientOutdated(event);
         Long previousTenant = TenantContext.get();
         try {
             TenantContext.set(event.tenantId());
@@ -126,6 +131,22 @@ public class AccountStateEventServiceImpl implements AccountStateEventService {
                 TenantContext.set(previousTenant);
             }
         }
+    }
+
+    /**
+     * 兼容滚动发布期间的旧版 405 事件，让状态和全部副作用都按普通离线收敛。
+     *
+     * @param event 已校验的协议状态事件
+     * @return 保留关联字段、时间和原始拒绝码的离线事件，或不需要转换的原事件
+     */
+    private static AccountStateChangedEvent normalizeLegacyClientOutdated(AccountStateChangedEvent event) {
+        if (!STATE_NEED_REAUTH.equalsIgnoreCase(event.to())
+                || !Integer.valueOf(WA_CODE_CLIENT_OUTDATED).equals(event.rawCode())) {
+            return event;
+        }
+        return new AccountStateChangedEvent(event.tenantId(), event.accountId(), event.protocolAccountId(),
+                event.from(), STATE_OFFLINE, event.occurredAt(), SEMANTIC_CLIENT_OUTDATED, event.rawCode(),
+                event.source(), event.onlineAttemptId(), event.proxyId());
     }
 
     /**

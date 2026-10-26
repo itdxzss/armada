@@ -44,6 +44,8 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -129,6 +131,29 @@ class AccountStateEventServiceConcurrencyH2Test {
         account.setId(ACCOUNT_ID);
         account.setProtocolAccountId(PROTOCOL_ACCOUNT_ID);
         when(accountMapper.selectActiveById(ACCOUNT_ID)).thenReturn(account);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"OFFLINE,CLIENT_OUTDATED", "NEED_REAUTH,LOGIN_FAILED"})
+    void outdatedClientPreservesLifecycleAndOnlyMarksOffline(String to, String semantic) {
+        AccountStateChangedEvent event = new AccountStateChangedEvent(1L, ACCOUNT_ID,
+                PROTOCOL_ACCOUNT_ID, "VERIFYING", to, 2_000L, semantic, 405,
+                "import", "attempt-405", 7L);
+
+        assertThat(service.applyStateChanged(event)).isTrue();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject("SELECT account_state FROM account_state", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT login_state FROM account_state", Integer.class))
+                .isEqualTo(AccountLoginStateCode.OFFLINE);
+        assertThat(jdbc.queryForObject("SELECT state_source FROM account_state", String.class))
+                .isEqualTo("CLIENT_OUTDATED");
+        var captor = org.mockito.ArgumentCaptor.forClass(AccountStateChangedEvent.class);
+        verify(sideEffect).afterStateChanged(org.mockito.ArgumentMatchers.any(), captor.capture(),
+                org.mockito.ArgumentMatchers.eq(2_000L));
+        assertThat(captor.getValue().to()).isEqualTo("OFFLINE");
+        assertThat(captor.getValue().rawCode()).isEqualTo(405);
+        assertThat(captor.getValue().onlineAttemptId()).isEqualTo("attempt-405");
     }
 
     @Test

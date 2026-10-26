@@ -1,0 +1,1556 @@
+{
+  "observedAtUTC": "2026-10-26T11:01:05.064499+00:00",
+  "versionSource": "https://www.whatsapp.com/download/android",
+  "version": "2.26.32.84",
+  "windowAnchor": "first personal-version deployment at 2026-10-26T10:00:33Z; final classification deployment at 10:21:01Z",
+  "preHour": {
+    "startUTC": "2026-10-26 09:00:33",
+    "endUTC": "2026-10-26 10:00:33",
+    "counts": {
+      "401": 7,
+      "405": 13
+    },
+    "rejections": [
+      {
+        "timeUTC": "2026-10-26 09:04:36.780",
+        "phone": "6288200564334",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:36.942",
+        "phone": "2347013625547",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:36.978",
+        "phone": "923004843124",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:37.036",
+        "phone": "6285705600170",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:37.276",
+        "phone": "6285380652987",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:37.858",
+        "phone": "6289534497820",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:38.055",
+        "phone": "6283861061793",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:38.173",
+        "phone": "201003523949",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:38.182",
+        "phone": "923153809009",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:38.834",
+        "phone": "6285717313411",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:39.303",
+        "phone": "6281217375109",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:39.340",
+        "phone": "6289563456458",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:39.427",
+        "phone": "923042478541",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:39.661",
+        "phone": "201008712230",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:39.785",
+        "phone": "201068754906",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:40.194",
+        "phone": "6289541598695",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:40.250",
+        "phone": "27659407745",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:40.625",
+        "phone": "2348032130956",
+        "reasonCode": "405"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:41.082",
+        "phone": "6289532978457",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:44.826",
+        "phone": "6289580325105",
+        "reasonCode": "401"
+      }
+    ],
+    "profiles": [
+      {
+        "timeUTC": "2026-10-26 09:04:33.993",
+        "accountRef": "sha256:1a82ceb7b909",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.002",
+        "accountRef": "sha256:290bf1cb4209",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.008",
+        "accountRef": "sha256:ae818d2c281b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.011",
+        "accountRef": "sha256:cbd819ea48d8",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.013",
+        "accountRef": "sha256:d829a3413284",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.016",
+        "accountRef": "sha256:474df0764cad",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.018",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.020",
+        "accountRef": "sha256:f27bad74f42f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.024",
+        "accountRef": "sha256:0fcf6099b898",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.037",
+        "accountRef": "sha256:6387bfe8aa88",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.038",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.043",
+        "accountRef": "sha256:6cc41203c45d",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.043",
+        "accountRef": "sha256:270b430a3bec",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.046",
+        "accountRef": "sha256:3348c37b5bf1",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.047",
+        "accountRef": "sha256:5201b143313b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.049",
+        "accountRef": "sha256:25bb2a456aa8",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.050",
+        "accountRef": "sha256:2a5084e3eddb",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.052",
+        "accountRef": "sha256:41906923745b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.057",
+        "accountRef": "sha256:00b6e10bd1eb",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:34.151",
+        "accountRef": "sha256:ead6212e4fd1",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:04:41.188",
+        "accountRef": "sha256:1a82ceb7b909",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.23.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:19:14.015",
+        "accountRef": "sha256:9acf3cf775b0",
+        "requestedPlatform": "android",
+        "wirePlatform": "PLATFORM_10",
+        "business": true,
+        "appVersion": "2.26.25.74"
+      },
+      {
+        "timeUTC": "2026-10-26 09:46:30.134",
+        "accountRef": "sha256:6197a2c989b6",
+        "requestedPlatform": "android",
+        "wirePlatform": "PLATFORM_10",
+        "business": true,
+        "appVersion": "2.26.25.74"
+      }
+    ]
+  },
+  "postHour": {
+    "startUTC": "2026-10-26 10:00:33",
+    "endUTC": "2026-10-26 11:00:33",
+    "counts": {
+      "403": 3,
+      "401": 3
+    },
+    "rejections": [
+      {
+        "timeUTC": "2026-10-26 10:34:37.369",
+        "phone": "201008712230",
+        "reasonCode": "403"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:48.448",
+        "phone": "27659407745",
+        "reasonCode": "403"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:49.233",
+        "phone": "2348032130956",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 10:35:04.300",
+        "phone": "923004843124",
+        "reasonCode": "401"
+      },
+      {
+        "timeUTC": "2026-10-26 10:35:06.900",
+        "phone": "923042478541",
+        "reasonCode": "403"
+      },
+      {
+        "timeUTC": "2026-10-26 10:37:15.141",
+        "phone": "2347013625547",
+        "reasonCode": "401"
+      }
+    ],
+    "profiles": [
+      {
+        "timeUTC": "2026-10-26 10:30:26.450",
+        "accountRef": "sha256:d92b812663c9",
+        "requestedPlatform": "ios",
+        "wirePlatform": "PLATFORM_12",
+        "business": true,
+        "appVersion": "2.26.33.73"
+      },
+      {
+        "timeUTC": "2026-10-26 10:33:18.736",
+        "accountRef": "sha256:6197a2c989b6",
+        "requestedPlatform": "android",
+        "wirePlatform": "PLATFORM_10",
+        "business": true,
+        "appVersion": "2.26.25.74"
+      },
+      {
+        "timeUTC": "2026-10-26 10:33:46.583",
+        "accountRef": "sha256:9acf3cf775b0",
+        "requestedPlatform": "android",
+        "wirePlatform": "PLATFORM_10",
+        "business": true,
+        "appVersion": "2.26.25.74"
+      },
+      {
+        "timeUTC": "2026-10-26 10:33:53.810",
+        "accountRef": "sha256:c9024049c3fe",
+        "requestedPlatform": "android",
+        "wirePlatform": "PLATFORM_10",
+        "business": true,
+        "appVersion": "2.26.25.74"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:31.031",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:33.788",
+        "accountRef": "sha256:0fcf6099b898",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:36.563",
+        "accountRef": "sha256:5201b143313b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:42.096",
+        "accountRef": "sha256:d829a3413284",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:44.820",
+        "accountRef": "sha256:270b430a3bec",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:47.567",
+        "accountRef": "sha256:ae818d2c281b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:53.054",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:56.871",
+        "accountRef": "sha256:2a5084e3eddb",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:34:59.410",
+        "accountRef": "sha256:41906923745b",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:35:02.182",
+        "accountRef": "sha256:6387bfe8aa88",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:35:04.932",
+        "accountRef": "sha256:474df0764cad",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:35:18.454",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:36:11.736",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:36:26.661",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:37:10.282",
+        "accountRef": "sha256:25bb2a456aa8",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:37:45.901",
+        "accountRef": "sha256:b5356d9fa30f",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:37:57.081",
+        "accountRef": "sha256:6cc41203c45d",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:39:15.334",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:39:20.519",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:48:37.720",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:48:47.326",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      },
+      {
+        "timeUTC": "2026-10-26 10:59:06.681",
+        "accountRef": "sha256:f7fc75bc8abc",
+        "requestedPlatform": "android",
+        "wirePlatform": "ANDROID",
+        "business": false,
+        "appVersion": "2.26.32.84"
+      }
+    ]
+  },
+  "targetAccounts": [
+    {
+      "accountId": 2813,
+      "phone": "201003523949",
+      "protocol": {
+        "phone": "201003523949",
+        "code": 0,
+        "status": "账号 201003523949 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 7,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:31.031",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:39:15.334",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:39:20.519",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:48:37.720",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:48:47.326",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:59:06.681",
+          "accountRef": "sha256:f7fc75bc8abc",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2828,
+      "phone": "201008712230",
+      "protocol": {
+        "phone": "201008712230",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 3,
+        "state_source": "BANNED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:33.788",
+          "accountRef": "sha256:0fcf6099b898",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:34:37.369",
+          "phone": "201008712230",
+          "reasonCode": "403"
+        }
+      ]
+    },
+    {
+      "accountId": 2827,
+      "phone": "201068754906",
+      "protocol": {
+        "phone": "201068754906",
+        "code": 0,
+        "status": "账号 201068754906 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 2,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:36.563",
+          "accountRef": "sha256:5201b143313b",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2823,
+      "phone": "2347013625547",
+      "protocol": {
+        "phone": "2347013625547",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 5,
+        "state_source": "UNBOUND"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:37:10.282",
+          "accountRef": "sha256:25bb2a456aa8",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:37:15.141",
+          "phone": "2347013625547",
+          "reasonCode": "401"
+        }
+      ]
+    },
+    {
+      "accountId": 2815,
+      "phone": "2348032130956",
+      "protocol": {
+        "phone": "2348032130956",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 5,
+        "state_source": "UNBOUND"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:42.096",
+          "accountRef": "sha256:d829a3413284",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:34:49.233",
+          "phone": "2348032130956",
+          "reasonCode": "401"
+        }
+      ]
+    },
+    {
+      "accountId": 2821,
+      "phone": "27659407745",
+      "protocol": {
+        "phone": "27659407745",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 3,
+        "state_source": "BANNED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:44.820",
+          "accountRef": "sha256:270b430a3bec",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:34:48.448",
+          "phone": "27659407745",
+          "reasonCode": "403"
+        }
+      ]
+    },
+    {
+      "accountId": 2825,
+      "phone": "6283861061793",
+      "protocol": {
+        "phone": "6283861061793",
+        "code": 0,
+        "status": "账号 6283861061793 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 2,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:47.567",
+          "accountRef": "sha256:ae818d2c281b",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2817,
+      "phone": "6285380652987",
+      "protocol": {
+        "phone": "6285380652987",
+        "code": 1003,
+        "status": null,
+        "message": "账号 6285380652987 离线, 状态 Offline"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 6,
+        "state_source": "LOGIN_REPLACED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:37:57.081",
+          "accountRef": "sha256:6cc41203c45d",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2820,
+      "phone": "6285705600170",
+      "protocol": {
+        "phone": "6285705600170",
+        "code": 0,
+        "status": "账号 6285705600170 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 7,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:53.054",
+          "accountRef": "sha256:b5356d9fa30f",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:35:18.454",
+          "accountRef": "sha256:b5356d9fa30f",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:36:11.736",
+          "accountRef": "sha256:b5356d9fa30f",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:36:26.661",
+          "accountRef": "sha256:b5356d9fa30f",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        },
+        {
+          "timeUTC": "2026-10-26 10:37:45.901",
+          "accountRef": "sha256:b5356d9fa30f",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2816,
+      "phone": "6285717313411",
+      "protocol": {
+        "phone": "6285717313411",
+        "code": 0,
+        "status": "账号 6285717313411 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 2,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:56.871",
+          "accountRef": "sha256:2a5084e3eddb",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    },
+    {
+      "accountId": 2812,
+      "phone": "923004843124",
+      "protocol": {
+        "phone": "923004843124",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 5,
+        "state_source": "UNBOUND"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:34:59.410",
+          "accountRef": "sha256:41906923745b",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:35:04.300",
+          "phone": "923004843124",
+          "reasonCode": "401"
+        }
+      ]
+    },
+    {
+      "accountId": 2831,
+      "phone": "923042478541",
+      "protocol": {
+        "phone": "923042478541",
+        "code": 1003,
+        "status": null,
+        "message": "账号不存在或已下线"
+      },
+      "db": {
+        "login_state": 2,
+        "account_state": 3,
+        "state_source": "BANNED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:35:02.182",
+          "accountRef": "sha256:6387bfe8aa88",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": [
+        {
+          "timeUTC": "2026-10-26 10:35:06.900",
+          "phone": "923042478541",
+          "reasonCode": "403"
+        }
+      ]
+    },
+    {
+      "accountId": 2818,
+      "phone": "923153809009",
+      "protocol": {
+        "phone": "923153809009",
+        "code": 0,
+        "status": "账号 923153809009 在线",
+        "message": ""
+      },
+      "db": {
+        "login_state": 1,
+        "account_state": 2,
+        "state_source": "STATE_CHANGED"
+      },
+      "profiles": [
+        {
+          "timeUTC": "2026-10-26 10:35:04.932",
+          "accountRef": "sha256:474df0764cad",
+          "requestedPlatform": "android",
+          "wirePlatform": "ANDROID",
+          "business": false,
+          "appVersion": "2.26.32.84"
+        }
+      ],
+      "rejections": []
+    }
+  ],
+  "restoredAccounts": [
+    {
+      "phone": "19107208629",
+      "code": 0,
+      "status": "账号 19107208629 在线",
+      "message": ""
+    },
+    {
+      "phone": "5491157803145",
+      "code": 0,
+      "status": "账号 5491157803145 在线",
+      "message": ""
+    },
+    {
+      "phone": "593989174171",
+      "code": 0,
+      "status": "账号 593989174171 在线",
+      "message": ""
+    },
+    {
+      "phone": "573224083969",
+      "code": 0,
+      "status": "账号 573224083969 在线",
+      "message": ""
+    }
+  ],
+  "originalSeven401Unchanged": true,
+  "batch113FrozenResultsUnchanged": true,
+  "zhuanSchema": {
+    "counts": [
+      {
+        "columns_count": 432,
+        "tables_count": 70
+      }
+    ],
+    "version_columns": [
+      {
+        "COLUMN_NAME": "os_version",
+        "TABLE_NAME": "wa_devices"
+      }
+    ]
+  },
+  "stateRepair": {
+    "accountIds": [
+      2813,
+      2828,
+      2827,
+      2823,
+      2815,
+      2821,
+      2825,
+      2817,
+      2820,
+      2816,
+      2812,
+      2831,
+      2818
+    ],
+    "changedColumn": "account_state",
+    "before": 5,
+    "after": 1,
+    "backupSHA256": "ccb9cf4b24d2a5bbf57b7dc3a6fc9b7a6f9fbee74d2ca84fa10a9d1a890b3579",
+    "otherColumnsUnchangedAtRepair": true
+  },
+  "backendStateEvents": [
+    {
+      "timeUTC": "2026-10-26 10:29:56.474",
+      "accountId": 2660,
+      "to": "OFFLINE",
+      "loginState": "2",
+      "stateSource": "STATE_CHANGED",
+      "occurredAt": "1793010596387"
+    },
+    {
+      "timeUTC": "2026-10-26 10:30:28.365",
+      "accountId": 2660,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010628307"
+    },
+    {
+      "timeUTC": "2026-10-26 10:32:48.049",
+      "accountId": 2809,
+      "to": "OFFLINE",
+      "loginState": "2",
+      "stateSource": "STATE_CHANGED",
+      "occurredAt": "1793010768016"
+    },
+    {
+      "timeUTC": "2026-10-26 10:33:20.974",
+      "accountId": 2809,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010800937"
+    },
+    {
+      "timeUTC": "2026-10-26 10:33:44.090",
+      "accountId": 2810,
+      "to": "OFFLINE",
+      "loginState": "2",
+      "stateSource": "STATE_CHANGED",
+      "occurredAt": "1793010824059"
+    },
+    {
+      "timeUTC": "2026-10-26 10:33:48.898",
+      "accountId": 2810,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010828865"
+    },
+    {
+      "timeUTC": "2026-10-26 10:33:51.332",
+      "accountId": 2811,
+      "to": "OFFLINE",
+      "loginState": "2",
+      "stateSource": "STATE_CHANGED",
+      "occurredAt": "1793010831305"
+    },
+    {
+      "timeUTC": "2026-10-26 10:33:55.792",
+      "accountId": 2811,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010835762"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:33.240",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010873199"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:37.407",
+      "accountId": 2828,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "403",
+      "occurredAt": "1793010877371"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:38.706",
+      "accountId": 2827,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010878594"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:48.478",
+      "accountId": 2821,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "403",
+      "occurredAt": "1793010888450"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:49.262",
+      "accountId": 2815,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "401",
+      "occurredAt": "1793010889235"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:51.673",
+      "accountId": 2825,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010891630"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:55.248",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010895201"
+    },
+    {
+      "timeUTC": "2026-10-26 10:34:58.853",
+      "accountId": 2816,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010898818"
+    },
+    {
+      "timeUTC": "2026-10-26 10:35:04.327",
+      "accountId": 2812,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "401",
+      "occurredAt": "1793010904301"
+    },
+    {
+      "timeUTC": "2026-10-26 10:35:06.551",
+      "accountId": 2818,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010906514"
+    },
+    {
+      "timeUTC": "2026-10-26 10:35:06.935",
+      "accountId": 2831,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "403",
+      "occurredAt": "1793010906901"
+    },
+    {
+      "timeUTC": "2026-10-26 10:35:18.375",
+      "accountId": 2820,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793010918341"
+    },
+    {
+      "timeUTC": "2026-10-26 10:35:20.748",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010920719"
+    },
+    {
+      "timeUTC": "2026-10-26 10:36:11.667",
+      "accountId": 2820,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793010971633"
+    },
+    {
+      "timeUTC": "2026-10-26 10:36:13.906",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010973879"
+    },
+    {
+      "timeUTC": "2026-10-26 10:36:26.600",
+      "accountId": 2820,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793010986573"
+    },
+    {
+      "timeUTC": "2026-10-26 10:36:30.040",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793010989987"
+    },
+    {
+      "timeUTC": "2026-10-26 10:37:15.178",
+      "accountId": 2823,
+      "to": "NEED_REAUTH",
+      "semantic": "LOGIN_FAILED",
+      "rawCode": "401",
+      "occurredAt": "1793011035142"
+    },
+    {
+      "timeUTC": "2026-10-26 10:37:45.814",
+      "accountId": 2820,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793011065779"
+    },
+    {
+      "timeUTC": "2026-10-26 10:37:48.344",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011068317"
+    },
+    {
+      "timeUTC": "2026-10-26 10:37:59.021",
+      "accountId": 2817,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011078987"
+    },
+    {
+      "timeUTC": "2026-10-26 10:39:15.258",
+      "accountId": 2813,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793011155227"
+    },
+    {
+      "timeUTC": "2026-10-26 10:39:17.693",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011157665"
+    },
+    {
+      "timeUTC": "2026-10-26 10:39:20.457",
+      "accountId": 2813,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793011160432"
+    },
+    {
+      "timeUTC": "2026-10-26 10:39:22.194",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011162167"
+    },
+    {
+      "timeUTC": "2026-10-26 10:45:27.690",
+      "accountId": 2660,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011527661"
+    },
+    {
+      "timeUTC": "2026-10-26 10:45:30.782",
+      "accountId": 2660,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011530753"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:20.072",
+      "accountId": 2809,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011700045"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:22.401",
+      "accountId": 2809,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011702370"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:37.641",
+      "accountId": 2813,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793011717613"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:39.791",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011719760"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:47.264",
+      "accountId": 2813,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793011727239"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:47.809",
+      "accountId": 2810,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011727776"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:49.414",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011729387"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:50.713",
+      "accountId": 2810,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011730685"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:54.813",
+      "accountId": 2811,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011734792"
+    },
+    {
+      "timeUTC": "2026-10-26 10:48:57.470",
+      "accountId": 2811,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011737441"
+    },
+    {
+      "timeUTC": "2026-10-26 10:49:37.894",
+      "accountId": 2827,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011777863"
+    },
+    {
+      "timeUTC": "2026-10-26 10:49:40.590",
+      "accountId": 2827,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011780563"
+    },
+    {
+      "timeUTC": "2026-10-26 10:49:49.481",
+      "accountId": 2825,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011789454"
+    },
+    {
+      "timeUTC": "2026-10-26 10:49:52.081",
+      "accountId": 2825,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011792053"
+    },
+    {
+      "timeUTC": "2026-10-26 10:49:58.071",
+      "accountId": 2816,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011798049"
+    },
+    {
+      "timeUTC": "2026-10-26 10:50:00.452",
+      "accountId": 2816,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011800423"
+    },
+    {
+      "timeUTC": "2026-10-26 10:50:05.770",
+      "accountId": 2818,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011805749"
+    },
+    {
+      "timeUTC": "2026-10-26 10:50:08.999",
+      "accountId": 2818,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011808971"
+    },
+    {
+      "timeUTC": "2026-10-26 10:52:47.460",
+      "accountId": 2820,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011967430"
+    },
+    {
+      "timeUTC": "2026-10-26 10:52:50.144",
+      "accountId": 2820,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011970116"
+    },
+    {
+      "timeUTC": "2026-10-26 10:52:58.302",
+      "accountId": 2817,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793011978281"
+    },
+    {
+      "timeUTC": "2026-10-26 10:53:00.752",
+      "accountId": 2817,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793011980721"
+    },
+    {
+      "timeUTC": "2026-10-26 10:55:22.507",
+      "accountId": 2817,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793012122476"
+    },
+    {
+      "timeUTC": "2026-10-26 10:59:06.592",
+      "accountId": 2813,
+      "to": "LOGIN_REPLACED",
+      "semantic": "LOGIN_REPLACED",
+      "rawCode": "303",
+      "occurredAt": "1793012346557"
+    },
+    {
+      "timeUTC": "2026-10-26 10:59:08.367",
+      "accountId": 2813,
+      "to": "ONLINE",
+      "semantic": "null",
+      "rawCode": "200",
+      "occurredAt": "1793012348339"
+    },
+    {
+      "timeUTC": "2026-10-26 11:00:29.918",
+      "accountId": 2660,
+      "to": "RECONNECTING",
+      "loginState": "2",
+      "stateSource": "RECONNECTING",
+      "occurredAt": "1793012429892"
+    }
+  ],
+  "zhuanRuntime": "/whatsapp-android-zhuan sha256:62c2624cb0c63e9584337ec7fd4c8aeaeb3d52a68b2adc7f23d9d3810e3c9b6b 2026-10-26T10:21:01.987366739Z restart=0 status=running health=healthy\n/callback-zhuan sha256:62c2624cb0c63e9584337ec7fd4c8aeaeb3d52a68b2adc7f23d9d3810e3c9b6b 2026-10-26T10:20:44.882634386Z restart=0 status=running health=healthy\n/traffic-dashboard-zhuan sha256:62c2624cb0c63e9584337ec7fd4c8aeaeb3d52a68b2adc7f23d9d3810e3c9b6b 2026-10-26T10:21:03.494234447Z restart=0 status=running health=healthy\n",
+  "backendRuntime": "sha256:c18bb0febb9d58d57947a65dc9831b02e7d5bb9f696604d8f2add4ad3ef95f36 2026-10-26T10:17:19.779857557Z restart=0 status=running health=\n"
+}

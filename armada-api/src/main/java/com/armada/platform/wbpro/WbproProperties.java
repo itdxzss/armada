@@ -22,7 +22,7 @@ public class WbproProperties {
     /** 原始目标配置串。 */
     private String targets = "";
     /** 单次请求超时。 */
-    private Duration timeout = Duration.ofSeconds(10);
+    private Duration timeout = Duration.ofSeconds(30);
 
     public String getTargets() {
         return targets;

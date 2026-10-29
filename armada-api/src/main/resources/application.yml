@@ -50,7 +50,8 @@ armada:
   # 可导入安卓号分身的 WB 环境（WB 切片 46）：envId|显示名|https://域名|clientId|secret，多个用分号分隔；为空表示不对接。
   wbpro:
     targets: ${WB_TARGETS:}
-    timeout: ${WB_TIMEOUT:10s}
+    # WB 发起一次导入配对要等协议层建连，实测 2.5–15 秒；超时短于 WB 自身的 15 秒会把成功的发起误判为失败。
+    timeout: ${WB_TIMEOUT:30s}
   registration:
     cobalt:
       enabled: ${COBALT_CLIENT_ENABLED:false}

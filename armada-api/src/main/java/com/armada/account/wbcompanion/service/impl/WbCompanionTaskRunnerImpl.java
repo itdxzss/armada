@@ -33,8 +33,8 @@ import org.springframework.stereotype.Service;
 public class WbCompanionTaskRunnerImpl implements WbCompanionTaskRunner {
 
     private static final Logger log = LoggerFactory.getLogger(WbCompanionTaskRunnerImpl.class);
-    /** 推进租约：一次推进最长的网络耗时，过期后其他实例可接手。 */
-    private static final long LEASE_MILLIS = 30_000L;
+    /** 推进租约：要长于一次推进最长的网络耗时（WB 请求超时 30 秒），过期后其他实例可接手。 */
+    private static final long LEASE_MILLIS = 60_000L;
     /** WB 发起后等关联设备的配对请求到达安卓主设备，再第一次输入配对码。 */
     private static final long FIRST_CODE_DELAY_MILLIS = 1_500L;
     /** 安卓返回 NO_PENDING（请求未到）时的重试窗口和间隔。 */

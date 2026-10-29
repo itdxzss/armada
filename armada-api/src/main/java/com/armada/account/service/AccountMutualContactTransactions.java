@@ -21,7 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 /** 每次只提交一条账号方向操作，行锁下同时检查跨任务在途状态。 */
 @Service
 public class AccountMutualContactTransactions implements ProtocolMutualContactResultSink {
-    private static final int MAX_IN_FLIGHT_PER_TASK = 8;
+    /** 单任务同时在途上限；同一账号仍串行，两组各 50 个号可全部同时执行。 */
+    private static final int MAX_IN_FLIGHT_PER_TASK = 100;
     private static final long RATE_LIMIT_DELAY_MS = 60_000L;
     private final AccountMutualContactMapper mapper;
     private final ProtocolMutualContactCommandService outbox;
@@ -121,7 +122,7 @@ public class AccountMutualContactTransactions implements ProtocolMutualContactRe
                 TenantContext.set(previous);
         }
     }
-    /** 无回执只转待确认并阻止该账号后继派发，不猜测失败。 */
+    /** 无回执只转待确认，不猜测失败；待确认不阻止该账号继续派发后继方向。 */
     @Transactional(rollbackFor = Exception.class)
     public void expire(Long taskId, long deadline, long now) {
         var task = mapper.lockTask(taskId);

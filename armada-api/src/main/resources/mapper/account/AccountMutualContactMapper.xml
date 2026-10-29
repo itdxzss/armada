@@ -48,7 +48,7 @@
  <select id="items" resultType="com.armada.account.model.entity.AccountMutualContactItem">SELECT * FROM account_mutual_contact_item WHERE <include refid="itemFilter"/> ORDER BY id LIMIT #{q.pageSize} OFFSET #{q.offset}</select>
  <select id="item" resultType="com.armada.account.model.entity.AccountMutualContactItem">SELECT * FROM account_mutual_contact_item WHERE id=#{id}</select>
  <select id="firstPending" resultType="com.armada.account.model.entity.AccountMutualContactItem">SELECT * FROM account_mutual_contact_item WHERE task_id=#{taskId} AND actor_id=#{actorId} AND status=1 ORDER BY id LIMIT 1</select>
- <select id="actorBlocked" resultType="long">SELECT COUNT(*) FROM account_mutual_contact_item WHERE actor_id=#{actorId} AND (status IN (2,5) OR next_execute_at&gt;#{now})</select>
+ <select id="actorBlocked" resultType="long">SELECT COUNT(*) FROM account_mutual_contact_item WHERE actor_id=#{actorId} AND (status=2 OR next_execute_at&gt;#{now})</select>
  <update id="updateItem">UPDATE account_mutual_contact_item SET status=#{status},command_id=#{commandId},attempt_no=#{attemptNo},retryable=#{retryable},reason_code=#{reasonCode},submitted_at=#{submittedAt},result_at=#{resultAt},next_execute_at=#{nextExecuteAt},updated_at=#{updatedAt} WHERE id=#{id}</update>
  <update id="setTaskStatus">UPDATE account_mutual_contact_task SET status=#{status},updated_at=#{now} WHERE id=#{id}</update>
  <update id="cancelPending">UPDATE account_mutual_contact_item SET status=6,reason_code='TASK_STOPPED',updated_at=#{now} WHERE task_id=#{taskId} AND status=1</update>
@@ -58,7 +58,7 @@
   SELECT i.tenant_id,i.task_id,i.actor_id FROM account_mutual_contact_item i
   INNER JOIN account_mutual_contact_task t ON t.id=i.task_id AND t.tenant_id=i.tenant_id
   WHERE t.status IN (1,4) AND i.status=1 AND NOT EXISTS
-   (SELECT 1 FROM account_mutual_contact_item b WHERE b.tenant_id=i.tenant_id AND b.actor_id=i.actor_id AND (b.status IN (2,5) OR b.next_execute_at&gt;#{now}))
+   (SELECT 1 FROM account_mutual_contact_item b WHERE b.tenant_id=i.tenant_id AND b.actor_id=i.actor_id AND (b.status=2 OR b.next_execute_at&gt;#{now}))
   GROUP BY i.tenant_id,i.task_id,i.actor_id ORDER BY MIN(i.updated_at),MIN(i.id) LIMIT #{limit}
  </select>
  <select id="expired" resultType="com.armada.account.model.dto.AccountMutualContactWork">

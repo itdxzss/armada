@@ -165,6 +165,30 @@ class AccountMutualContactH2Test {
         assertThat(mapper.task(id).getStatus()).isEqualTo(2);
     }
     @Test
+    void unknownResultDoesNotBlockActorFromNextDirection() {
+        long id = create(0);
+        var work = new AccountMutualContactWork(7L, id, 1L);
+        tx.executeWithoutResult(s -> runner.dispatch(work, 1000));
+        tx.executeWithoutResult(s -> runner.expire(id, 1001, 2000));
+        assertThat(mapper.stats(id).unknown()).isEqualTo(1);
+        assertThat(mapper.scan(32, 2000)).anyMatch(w -> w.actorId() == 1L);
+        tx.executeWithoutResult(s -> runner.dispatch(work, 2000));
+        verify(outbox, times(2)).enqueue(any());
+    }
+    @Test
+    void sameTaskDispatchesEveryIdleActorInParallel() {
+        for (long id = 6; id <= 12; id++) {
+            jdbc.update("INSERT INTO account VALUES(?,7,10,12,?,?,'WEB',NULL)", id, "9190000001" + id, "acc_" + id);
+            jdbc.update("INSERT INTO account_state VALUES(?,7,2,1,1,NULL)", id);
+        }
+        long id = create(0);
+        for (long actor = 1; actor <= 12; actor++) {
+            long a = actor;
+            tx.executeWithoutResult(s -> runner.dispatch(new AccountMutualContactWork(7L, id, a), 1000));
+        }
+        assertThat(mapper.stats(id).submitted()).isEqualTo(12);
+    }
+    @Test
     void rollbackRemovesBothTaskAndDirectionsAndPagingIsSql() {
         tx.executeWithoutResult(s -> {
             create(0);

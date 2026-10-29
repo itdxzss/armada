@@ -4,7 +4,7 @@
 - 需求来源: 用户 2026-10-29 会话原文——"armada 的安卓协议登录的六段号，能把分身设备登录到我们 wbpro 的 web 协议上""可以指定 wbpro 的用户，页面可以看到安卓协议登录上来的设备""支持多分身设备……最多支持四个分身""armada 编排""按推荐定（多环境）""写完任务书就开始开发"
 - 对端任务书: WB v2 `docs/切片/46-安卓导入分身.md`（集成接口、签名、错误码以它为准）
 - 原型: `docs/prototypes/安卓号登录WB分身.html`
-- 状态: 本机实现完成，未提交、未部署（2026-10-29）
+- 状态: 已提交 `c67518f2`（前端 `d8022462`）并推送；已部署 test1、perf2（2026-10-29）
 
 ## 目标（一句话）
 
@@ -60,7 +60,11 @@ Armada 选一个在线的安卓号和一个 WB 会员，串行发起 1–4 条�
 - 跨仓签名一致性：Armada `HttpWbproIntegrationClientTest.signatureMatchesWbVector` 与 WB `DeviceImportIntegrationTest.signatureMatchesArmadaVector` 使用同一组固定向量，两边均通过。
 
 ## 部署
-- 未部署。上线顺序：WB 先发版（V35）、配 `WBPRO_ENV_ID` 和 `WBPRO_INTEGRATION_CLIENTS`（含本 Armada 环境的 clientId 与密钥）、打开 `importEnabled` → Armada 发版（V219）、在 `.env` 写 `WB_TARGETS`、在环境档案 `envs/<env>.conf` 写 `EXPECTED_WB_TARGET_ENVS`（逗号分隔 envId）。两边密钥必须一致，只放各自 `.env`，不进仓库。
+- 2026-10-29 用户授权"armada 部署到一二套测试环境"。命令：`JAVA21_HOME=<JDK21> ./armada-deploy/deploy-test.sh --env <test1|perf2> --all --branch 1.0.3-snapshot --yes`，后端 `c67518f2`、前端 `d8022462`。
+  - test1：退出码 0，Backend/Frontend SUCCESS；容器 running、restarts=0；Flyway `Successfully applied 1 migration ... now at version v219`；启动后 10 分钟 ERROR/Exception 计数 0；`WB_TARGETS` 已透传（为空，功能未接通）。
+  - perf2：退出码 0，Backend/Frontend SUCCESS；容器 running、restarts=0；`armada_perf` 到 v219；ERROR/Exception 计数 0。
+  - 未做：登录后的页面验收、真实协议联调（两套都还没有配置 WB 目标）。
+- 上线顺序（备忘）：上线顺序：WB 先发版（V35）、配 `WBPRO_ENV_ID` 和 `WBPRO_INTEGRATION_CLIENTS`（含本 Armada 环境的 clientId 与密钥）、打开 `importEnabled` → Armada 发版（V219）、在 `.env` 写 `WB_TARGETS`、在环境档案 `envs/<env>.conf` 写 `EXPECTED_WB_TARGET_ENVS`（逗号分隔 envId）。两边密钥必须一致，只放各自 `.env`，不进仓库。
 - 推荐对应（用户 10-29 定）：test1、perf2 → WB test1；prod → wb-prod / customer1 / customer2 中逐个指定。
 
 ## 遗留 / 跟进

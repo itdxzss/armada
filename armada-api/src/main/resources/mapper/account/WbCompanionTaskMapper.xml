@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.wbcompanion.mapper.WbCompanionTaskMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO wb_companion_task
+      (account_id, ws_phone, wb_env_id, wb_member_id, wb_username, base_count, target_count, succeeded_count,
+       status, step, next_run_at, created_by, created_at, updated_at)
+    VALUES
+      (#{accountId}, #{wsPhone}, #{wbEnvId}, #{wbMemberId}, #{wbUsername}, #{baseCount}, #{targetCount},
+       #{succeededCount}, #{status}, #{step}, #{nextRunAt}, #{createdBy}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <sql id="columns">
+    id, tenant_id AS tenantId, account_id AS accountId, ws_phone AS wsPhone, wb_env_id AS wbEnvId,
+    wb_member_id AS wbMemberId, wb_username AS wbUsername, base_count AS baseCount, target_count AS targetCount,
+    succeeded_count AS succeededCount, status, step, wb_pairing_id AS wbPairingId, wb_role AS wbRole,
+    pair_code AS pairCode, step_deadline AS stepDeadline, next_run_at AS nextRunAt, error_code AS errorCode,
+    created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt, finished_at AS finishedAt
+  </sql>
+
+  <select id="selectById" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionTask">
+    SELECT <include refid="columns"/> FROM wb_companion_task WHERE id = #{id}
+  </select>
+
+  <select id="selectDue" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionTask">
+    SELECT id, tenant_id AS tenantId, next_run_at AS nextRunAt FROM wb_companion_task
+    WHERE status = 1 AND next_run_at &lt;= #{now}
+    ORDER BY next_run_at, id
+    LIMIT #{limit}
+  </select>
+
+  <update id="claim">
+    UPDATE wb_companion_task SET next_run_at = #{leaseUntil}, updated_at = #{now}
+    WHERE id = #{id} AND status = 1 AND next_run_at = #{expected}
+  </update>
+
+  <update id="updateProgress">
+    UPDATE wb_companion_task
+    SET succeeded_count = #{succeededCount}, status = #{status}, step = #{step}, wb_pairing_id = #{wbPairingId},
+        wb_role = #{wbRole}, pair_code = #{pairCode}, step_deadline = #{stepDeadline}, next_run_at = #{nextRunAt},
+        error_code = #{errorCode}, updated_at = #{updatedAt}, finished_at = #{finishedAt}
+    WHERE id = #{id} AND status = 1
+  </update>
+
+  <update id="stop">
+    UPDATE wb_companion_task
+    SET status = 4, pair_code = NULL, error_code = 'STOPPED', finished_at = #{now}, updated_at = #{now}
+    WHERE id = #{id} AND status = 1
+  </update>
+
+  <select id="selectRecentByAccount" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionTask">
+    SELECT <include refid="columns"/> FROM wb_companion_task
+    WHERE account_id = #{accountId}
+    ORDER BY id DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="selectRunningByAccountIds" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionTask">
+    SELECT <include refid="columns"/> FROM wb_companion_task
+    WHERE status = 1 AND account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">#{accountId}</foreach>
+  </select>
+</mapper>

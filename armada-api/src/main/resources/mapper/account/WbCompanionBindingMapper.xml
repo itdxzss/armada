@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.armada.account.wbcompanion.mapper.WbCompanionBindingMapper">
+  <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+    INSERT INTO wb_companion_binding
+      (account_id, wb_env_id, wb_member_id, wb_username, wb_device_id, connection_count, online_count,
+       synced_at, created_at, updated_at)
+    VALUES
+      (#{accountId}, #{wbEnvId}, #{wbMemberId}, #{wbUsername}, #{wbDeviceId}, #{connectionCount}, #{onlineCount},
+       #{syncedAt}, #{createdAt}, #{updatedAt})
+  </insert>
+
+  <sql id="columns">
+    id, tenant_id AS tenantId, account_id AS accountId, wb_env_id AS wbEnvId, wb_member_id AS wbMemberId,
+    wb_username AS wbUsername, wb_device_id AS wbDeviceId, connection_count AS connectionCount,
+    online_count AS onlineCount, synced_at AS syncedAt, created_at AS createdAt, updated_at AS updatedAt
+  </sql>
+
+  <select id="selectByAccountId" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionBinding">
+    SELECT <include refid="columns"/> FROM wb_companion_binding WHERE account_id = #{accountId}
+  </select>
+
+  <select id="selectByAccountIds" resultType="com.armada.account.wbcompanion.model.entity.WbCompanionBinding">
+    SELECT <include refid="columns"/> FROM wb_companion_binding
+    WHERE account_id IN
+    <foreach collection="accountIds" item="accountId" open="(" separator="," close=")">#{accountId}</foreach>
+  </select>
+
+  <update id="updateSnapshot">
+    UPDATE wb_companion_binding
+    SET wb_device_id = #{wbDeviceId}, connection_count = #{connectionCount}, online_count = #{onlineCount},
+        synced_at = #{syncedAt}, updated_at = #{updatedAt}
+    WHERE account_id = #{accountId}
+  </update>
+
+  <delete id="deleteByAccountId">
+    DELETE FROM wb_companion_binding WHERE account_id = #{accountId}
+  </delete>
+</mapper>

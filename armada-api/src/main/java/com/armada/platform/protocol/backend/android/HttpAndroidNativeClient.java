@@ -11,6 +11,7 @@ import java.util.List;
 public final class HttpAndroidNativeClient implements AndroidNativeClient {
 
     private static final String STATUS_URI_PREFIX = "/ws/v1/auth/status/";
+    private static final String PAIR_CODE_INPUT_URI = "/ws/v1/auth/paircode/input";
     private static final String JOIN_URI_PREFIX = "/ws/v1/groups/invite/";
     private static final String MEMBERS_URI_PREFIX = "/ws/v1/groups/members/";
     private static final String GROUPS_URI_PREFIX = "/ws/v1/groups/list/";
@@ -47,6 +48,13 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
      */
     public HttpAndroidNativeClient(ProtocolHttpExecutor httpExecutor) {
         this.httpExecutor = httpExecutor;
+    }
+
+    @Override
+    public AndroidResponseEnvelope pairCodeInput(String wsPhone, String pairingCode) {
+        return httpExecutor.postTyped(PAIR_CODE_INPUT_URI,
+                new PairCodeInputRequest(requireDigits(wsPhone), requireText(pairingCode, "pairingCode")),
+                AndroidResponseEnvelope.class);
     }
 
     @Override
@@ -355,6 +363,13 @@ public final class HttpAndroidNativeClient implements AndroidNativeClient {
         return values.stream()
                 .map(value -> requireText(value, field + " item"))
                 .toList();
+    }
+
+    private record PairCodeInputRequest(String phone, String pairingCode) {
+        @Override
+        public String toString() {
+            return "PairCodeInputRequest[redacted]";
+        }
     }
 
     private record JoinRequest(@JsonProperty("Code") String code) {

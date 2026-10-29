@@ -47,6 +47,10 @@ server:
   port: 8080
 
 armada:
+  # 可导入安卓号分身的 WB 环境（WB 切片 46）：envId|显示名|https://域名|clientId|secret，多个用分号分隔；为空表示不对接。
+  wbpro:
+    targets: ${WB_TARGETS:}
+    timeout: ${WB_TIMEOUT:10s}
   registration:
     cobalt:
       enabled: ${COBALT_CLIENT_ENABLED:false}

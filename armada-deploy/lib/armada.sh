@@ -182,6 +182,17 @@ armada_verify_backend_runtime() {
     expected_line="$(shell_single_quote "${expected_contract}")"
     ssh_run "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' armada-backend | grep -Fx '${expected_line}' >/dev/null"
   done
+  armada_verify_wb_targets
+}
+
+# WB 切片 46：容器里配置的 WB 目标环境必须与档案登记的完全一致（档案未登记时必须为空），防止测试环境连到生产 WB。
+armada_verify_wb_targets() {
+  local expected actual
+  expected="$(printf '%s' "${EXPECTED_WB_TARGET_ENVS:-}" | tr ',' '\n' | sed '/^$/d' | sort | paste -sd, -)"
+  actual="$(ssh_run "docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' armada-backend | sed -n 's/^WB_TARGETS=//p'" \
+    | tr ';' '\n' | sed '/^[[:space:]]*$/d' | cut -d'|' -f1 | tr -d ' ' | sort | paste -sd, -)"
+  [ "${actual}" = "${expected}" ] \
+    || die "WB_TARGETS 环境为 [${actual}]，档案 EXPECTED_WB_TARGET_ENVS 为 [${expected}]"
 }
 
 armada_verify_frontend() {

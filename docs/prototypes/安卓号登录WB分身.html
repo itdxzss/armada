@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>安卓号登录 WB 分身</title>
+<!-- 评审原型：单文件，数据为示例。样式按 wheel-saas-pure-web（pure-admin + Element Plus）的观感手写；虚线橙框是本次新增的元素。 -->
+<style>
+  :root {
+    --bg: #f0f2f5; --card: #ffffff; --line: #ebeef5; --line-dark: #dcdfe6; --text: #303133; --regular: #606266; --muted: #909399;
+    --primary: #409eff; --primary-soft: #ecf5ff; --ok: #67c23a; --ok-soft: #f0f9eb; --warn: #e6a23c; --warn-soft: #fdf6ec;
+    --bad: #f56c6c; --bad-soft: #fef0f0; --info-soft: #f4f4f5; --side: #001529; --new: #f08c00;
+    --f-body: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif;
+    --f-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 var(--f-body); padding: 28px 16px 64px; }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 40px; }
+  h1 { font-size: 24px; margin: 0; } h2 { font-size: 18px; margin: 0; } h3 { font-size: 15px; margin: 0; }
+  p { margin: 0; }
+  .lead { color: var(--regular); max-width: 76ch; }
+  .eyebrow { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+  .section { display: grid; gap: 12px; }
+  .section > header { display: grid; gap: 4px; }
+  .mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+  .note { border-left: 3px solid var(--primary); background: var(--card); padding: 10px 14px; border-radius: 4px; color: var(--regular); }
+  .note ul { margin: 4px 0 0; padding-left: 18px; }
+
+  .new { outline: 2px dashed var(--new); outline-offset: 3px; border-radius: 4px; position: relative; }
+  .new-tag { display: inline-block; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 3px; background: var(--new); color: #fff; margin-left: 6px; vertical-align: middle; font-weight: 500; }
+
+  /* 流程 */
+  .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+  .flow .step { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: grid; gap: 4px; min-width: 0; }
+  .flow .who { font-size: 12px; color: var(--muted); }
+  .flow .num { font-weight: 700; color: var(--primary); }
+  .flow .loop { grid-column: 2 / 5; text-align: center; font-size: 12px; color: var(--warn); border: 1px dashed var(--warn); border-radius: 8px; padding: 4px; background: var(--warn-soft); }
+
+  /* 后台框架 */
+  .app { display: grid; grid-template-columns: 180px minmax(0, 1fr); border-radius: 8px; overflow: hidden; border: 1px solid var(--line-dark); background: var(--bg); min-height: 420px; }
+  .side { background: var(--side); color: #a6adb4; padding: 14px 0; font-size: 13px; }
+  .side .logo { color: #fff; font-weight: 700; padding: 0 18px 14px; }
+  .side .item { padding: 9px 18px; }
+  .side .item.on { background: var(--primary); color: #fff; }
+  .main { padding: 14px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .panel { background: var(--card); border-radius: 4px; padding: 14px; min-width: 0; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .btn { font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 4px; border: 1px solid var(--line-dark); background: #fff; color: var(--regular); cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .btn.plain-primary { color: var(--primary); border-color: #a0cfff; background: var(--primary-soft); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  .link { color: var(--primary); cursor: pointer; margin-right: 10px; white-space: nowrap; }
+  .link.danger { color: var(--bad); }
+  .link.off { color: var(--muted); cursor: not-allowed; }
+  .dd-wrap { position: relative; display: inline-block; }
+  .dropdown { position: absolute; right: 0; top: 36px; background: #fff; border: 1px solid var(--line); box-shadow: 0 6px 16px rgba(0,0,0,.08); border-radius: 4px; padding: 6px 0; width: 210px; z-index: 2; font-size: 13px; }
+  .dropdown div { padding: 6px 16px; color: var(--regular); }
+  .dropdown .sep { border-top: 1px solid var(--line); margin: 4px 0; padding: 0; }
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; background: #fafafa; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; height: 22px; border-radius: 4px; font-size: 12px; border: 1px solid transparent; white-space: nowrap; }
+  .tag.ok { background: var(--ok-soft); color: var(--ok); border-color: #e1f3d8; }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); border-color: #faecd8; }
+  .tag.bad { background: var(--bad-soft); color: var(--bad); border-color: #fde2e2; }
+  .tag.info { background: var(--info-soft); color: var(--muted); border-color: #e9e9eb; }
+  .tag.pri { background: var(--primary-soft); color: var(--primary); border-color: #d9ecff; }
+  .dots { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 6px; }
+  .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .dots i.off { background: var(--bad); }
+  .dots i.empty { background: transparent; border: 1px dashed var(--line-dark); }
+  .sub { font-size: 12px; color: var(--muted); }
+
+  /* 弹窗 */
+  .stage { background: rgba(0,0,0,.45); border-radius: 8px; padding: 28px 16px; display: grid; justify-items: center; }
+  .dialog { background: #fff; border-radius: 6px; width: min(560px, 100%); box-shadow: 0 12px 32px rgba(0,0,0,.2); }
+  .dialog.wide { width: min(720px, 100%); }
+  .dialog .hd { padding: 16px 20px 10px; display: flex; justify-content: space-between; align-items: center; }
+  .dialog .hd h3 { font-size: 16px; }
+  .dialog .bd { padding: 6px 20px 10px; display: grid; gap: 14px; }
+  .dialog .ft { padding: 10px 20px 16px; display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+  .x { color: var(--muted); cursor: pointer; }
+  .form-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .form-row > label { color: var(--regular); text-align: right; padding-top: 6px; }
+  .input { border: 1px solid var(--line-dark); border-radius: 4px; padding: 6px 10px; color: var(--text); background: #fff; display: flex; justify-content: space-between; gap: 8px; }
+  .input .ph { color: #a8abb2; }
+  .member { border: 1px solid #a0cfff; background: var(--primary-soft); border-radius: 4px; padding: 8px 12px; display: grid; gap: 2px; margin-top: 8px; }
+  .radio-group { display: inline-flex; border: 1px solid var(--line-dark); border-radius: 4px; overflow: hidden; }
+  .radio-group span { padding: 5px 16px; border-left: 1px solid var(--line-dark); color: var(--regular); }
+  .radio-group span:first-child { border-left: 0; }
+  .radio-group span.on { background: var(--primary); color: #fff; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .alert { border-radius: 4px; padding: 8px 12px; font-size: 13px; }
+  .alert.warn { background: var(--warn-soft); color: #b88230; }
+  .alert.info { background: var(--info-soft); color: var(--regular); }
+  .alert.bad { background: var(--bad-soft); color: #c45656; }
+  .slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .slot { border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: 12px; display: grid; gap: 2px; min-width: 0; }
+  .slot b { font-size: 13px; }
+  .slot.have { background: var(--ok-soft); border-color: #e1f3d8; }
+  .slot.todo { border-style: dashed; border-color: #a0cfff; background: var(--primary-soft); }
+
+  .progress { display: grid; gap: 8px; }
+  .prow { display: grid; grid-template-columns: 34px 88px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; }
+  .prow .idx { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--info-soft); color: var(--muted); }
+  .prow.done .idx { background: var(--ok); color: #fff; }
+  .prow.run .idx { background: var(--primary); color: #fff; }
+  .prow.fail .idx { background: var(--bad); color: #fff; }
+  .substeps { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .substeps span::before { content: "○ "; }
+  .substeps span.ok { color: var(--ok); } .substeps span.ok::before { content: "✓ "; }
+  .substeps span.cur { color: var(--primary); font-weight: 500; } .substeps span.cur::before { content: "◌ "; }
+  .substeps span.err { color: var(--bad); } .substeps span.err::before { content: "✕ "; }
+
+  .drawer-stage { background: rgba(0,0,0,.45); border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) min(620px, 100%); min-height: 380px; overflow: hidden; }
+  .drawer { background: #fff; padding: 18px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .tabs { display: flex; gap: 22px; border-bottom: 2px solid var(--line); font-size: 14px; overflow-x: auto; }
+  .tabs span { padding: 6px 0; color: var(--regular); white-space: nowrap; }
+  .tabs span.on { color: var(--primary); border-bottom: 2px solid var(--primary); margin-bottom: -2px; }
+  .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .kv div { background: #fafafa; border-radius: 4px; padding: 8px 10px; min-width: 0; }
+  .kv .k { font-size: 12px; color: var(--muted); }
+
+  .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+
+  @media (max-width: 760px) {
+    .flow { grid-template-columns: minmax(0, 1fr); }
+    .flow .loop { grid-column: auto; }
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .side { display: none; }
+    .slots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .prow { grid-template-columns: 30px minmax(0, 1fr); }
+    .prow > :nth-child(n+3) { grid-column: 2; }
+    .drawer-stage { grid-template-columns: minmax(0, 1fr); }
+    .drawer-stage > .mask { display: none; }
+    .kv { grid-template-columns: minmax(0, 1fr); }
+    .grid2 { grid-template-columns: minmax(0, 1fr); }
+    .form-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .form-row > label { text-align: left; padding-top: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="section">
+    <span class="eyebrow">ARMADA · 评审原型 · 数据为示例</span>
+    <h1>安卓号登录到 WB 分身</h1>
+    <p class="lead">把 Armada 已登录的六段安卓号，以关联设备的形式挂到指定的 WB 用户名下：第 1 条成为 WB 主设备，第 2–4 条成为影子。安卓号继续在 Armada 正常使用（已确认）。虚线橙框<span class="new-tag">新增</span>是本次新增的界面元素。</p>
+  </header>
+
+  <section class="section">
+    <header><h2>0. 流程</h2><p class="lead">Armada 编排，每个号一次只做一条连接，前一条成功了才做下一条。</p></header>
+    <div class="flow">
+      <div class="step"><span class="who">Armada</span><span class="num">① 检查</span><span>安卓号在线；WB 用户存在、名额够</span></div>
+      <div class="step"><span class="who">Armada → WB</span><span class="num">② 发起配对</span><span>生成 8 位配对码，WB 用这个码发起 Web 配对</span></div>
+      <div class="step"><span class="who">Armada → 安卓协议</span><span class="num">③ 输入配对码</span><span>安卓号作为主设备确认，没收到请求就短暂重试</span></div>
+      <div class="step"><span class="who">WB</span><span class="num">④ 写入设备</span><span>第 1 条为主设备，之后为影子；按 WB 规则计酬</span></div>
+      <div class="step"><span class="who">Armada</span><span class="num">⑤ 记录</span><span>成功后做下一条，任何一条失败就停下整批</span></div>
+      <div class="loop">②–⑤ 按目标数量重复，最多 4 次（主设备 + 3 个影子）</div>
+    </div>
+  </section>
+
+  <section class="section">
+    <header><h2>1. 账号列表</h2><p class="lead">新增一列“WB 分身”，每行增加“登录到WB”操作，批量操作菜单里也加一项。批量时每个号各自串行，号和号之间可以同时进行。</p></header>
+    <div class="app">
+      <aside class="side">
+        <div class="logo">Armada</div>
+        <div class="item">工作台</div>
+        <div class="item on">账号列表</div>
+        <div class="item">账号导入</div>
+        <div class="item">群组管理</div>
+        <div class="item">任务中心</div>
+      </aside>
+      <div class="main">
+        <div class="panel">
+          <div class="toolbar">
+            <h3>账号列表</h3>
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+              <button class="btn">列设置</button>
+              <span class="dd-wrap">
+                <button class="btn">批量操作 (2)</button>
+                <div class="dropdown">
+                  <div>迁移到分组</div>
+                  <div>批量登录</div>
+                  <div>批量离线</div>
+                  <div>一键抢登</div>
+                  <div>导出WS号</div>
+                  <div class="new" style="color:var(--primary)">登录到 WB 分身<span class="new-tag">新增</span></div>
+                  <div class="sep"></div>
+                  <div>手动移除风控时间限制</div>
+                  <div>批量删除</div>
+                </div>
+              </span>
+            </div>
+          </div>
+          <div class="table-scroll" style="padding-top:220px; margin-top:-210px">
+          <table>
+            <thead><tr>
+              <th><input type="checkbox"></th><th>账号</th><th>分组</th><th>账号状态</th><th>登录</th><th>协议</th>
+              <th class="new">WB 分身<span class="new-tag">新增</span></th><th>入库时间</th><th>操作</th>
+            </tr></thead>
+            <tbody>
+              <tr>
+                <td><input type="checkbox" checked></td>
+                <td class="mono">🇮🇩 +62 812 3456 7801</td><td>印尼-A组</td><td><span class="tag ok">正常</span></td><td><span class="tag ok">在线</span></td><td>安卓</td>
+                <td><span class="dots"><i></i><i></i><i></i><i></i></span>4/4 <span class="sub">· wb_jack01</span></td>
+                <td class="mono">2026-10-21 14:02</td>
+                <td><span class="link">下线</span><span class="link">WB 分身</span><span class="link danger">删除</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox" checked></td>
+                <td class="mono">🇮🇩 +62 813 2200 5512</td><td>印尼-A组</td><td><span class="tag ok">正常</span></td><td><span class="tag ok">在线</span></td><td>安卓</td>
+                <td><span class="dots"><i></i><i></i><i class="off"></i><i class="empty"></i></span>3/4 <span class="sub">· wb_jack01</span> <span class="tag warn">1 条掉线</span></td>
+                <td class="mono">2026-10-21 14:05</td>
+                <td><span class="link">下线</span><span class="link">WB 分身</span><span class="link danger">删除</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="mono">🇧🇷 +55 11 98765 4321</td><td>巴西-B组</td><td><span class="tag ok">正常</span></td><td><span class="tag ok">在线</span></td><td>安卓</td>
+                <td><span class="tag pri">进行中 2/4</span></td>
+                <td class="mono">2026-10-25 09:40</td>
+                <td><span class="link">下线</span><span class="link">WB 分身</span><span class="link danger">删除</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="mono">🇮🇩 +62 857 1100 3344</td><td>印尼-C组</td><td><span class="tag ok">正常</span></td><td><span class="tag ok">在线</span></td><td>安卓</td>
+                <td><span class="sub">—</span></td>
+                <td class="mono">2026-10-26 18:12</td>
+                <td><span class="link">下线</span><span class="link new">登录到WB</span><span class="link danger">删除</span></td>
+              </tr>
+              <tr>
+                <td><input type="checkbox"></td>
+                <td class="mono">🇮🇩 +62 878 9000 1122</td><td>印尼-C组</td><td><span class="tag ok">正常</span></td><td><span class="tag info">离线</span></td><td>Web</td>
+                <td><span class="sub">—</span></td>
+                <td class="mono">2026-10-27 10:30</td>
+                <td><span class="link">上线</span><span class="link off" title="只有在线的安卓号可以登录到 WB">登录到WB</span><span class="link danger">删除</span></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+          <p class="hint">“WB 分身”列：圆点依次是主连接和影子 1–3，绿色在线、红色掉线、虚线空位；后面是 WB 用户。数据来自 WB 的设备查询接口，列表页每 30 秒刷新一次。没挂分身的行显示“登录到WB”，挂过的显示“WB 分身”，点开都是第 2、3 节的弹窗。Web 号和离线的号置灰。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <header><h2>2. 登录到 WB：选用户和数量</h2><p class="lead">WB 用户按账号或手机号精确查找（WB 规定不做模糊搜索）。如果这个号在 WB 已经有连接，就补齐到目标数量。</p></header>
+    <div class="grid2">
+      <div class="stage">
+        <div class="dialog new">
+          <div class="hd"><h3>登录到 WB 分身</h3><span class="x">✕</span></div>
+          <div class="bd">
+            <div class="form-row"><label>安卓号</label><div style="padding-top:6px"><span class="mono">+62 857 1100 3344</span> <span class="tag ok">在线</span></div></div>
+            <div class="form-row"><label>WB 用户</label>
+              <div>
+                <div class="input"><span>wb_jack01</span><span class="ph">查找</span></div>
+                <div class="member">
+                  <b>wb_jack01</b>
+                  <span class="sub">注册 2026-09-02 · 主设备 6/10 · 影子连接已开启</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-row"><label>分身数量</label>
+              <div>
+                <div class="radio-group"><span>1</span><span>2</span><span>3</span><span class="on">4</span></div>
+                <div class="hint">第 1 个是 WB 主设备，其余是它的影子。这个号最多能关联 4 台设备，已在别处关联的话最后几个会失败。</div>
+              </div>
+            </div>
+            <div class="form-row"><label>将要创建</label>
+              <div class="slots">
+                <div class="slot todo"><b>主设备</b><span>新建</span></div>
+                <div class="slot todo"><b>影子 1</b><span>新建</span></div>
+                <div class="slot todo"><b>影子 2</b><span>新建</span></div>
+                <div class="slot todo"><b>影子 3</b><span>新建</span></div>
+              </div>
+            </div>
+            <div class="alert info">预计每条 30–90 秒，4 条约 2–6 分钟。可以关掉弹窗，进度在列表和详情里继续显示。</div>
+          </div>
+          <div class="ft"><button class="btn">取消</button><button class="btn primary">开始登录</button></div>
+        </div>
+      </div>
+
+      <div style="display:grid; gap:16px">
+        <div class="stage">
+          <div class="dialog">
+            <div class="hd"><h3>WB 分身 · 补齐</h3><span class="x">✕</span></div>
+            <div class="bd">
+              <div class="form-row"><label>安卓号</label><div style="padding-top:6px"><span class="mono">+62 813 2200 5512</span></div></div>
+              <div class="form-row"><label>WB 用户</label><div style="padding-top:6px">wb_jack01 <span class="sub">（已绑定，不能更换）</span></div></div>
+              <div class="form-row"><label>当前</label>
+                <div class="slots">
+                  <div class="slot have"><b>主设备</b><span>在线</span></div>
+                  <div class="slot have"><b>影子 1</b><span>在线</span></div>
+                  <div class="slot" style="background:var(--bad-soft)"><b>影子 2</b><span>掉线</span></div>
+                  <div class="slot todo"><b>影子 3</b><span>补上</span></div>
+                </div>
+              </div>
+              <div class="alert warn">掉线的连接不会在这里重新配对，WB 会自动重连；授权失效的会被 WB 删掉，删掉后这里就能补上。</div>
+            </div>
+            <div class="ft"><button class="btn">取消</button><button class="btn primary">补齐 1 个</button></div>
+          </div>
+        </div>
+        <div class="note">换 WB 用户：要先在 WB 删除这个号的设备（或者到第 4 节点“全部解绑”），再重新选用户登录。不支持直接改归属，因为收益和发送记录挂在原用户的设备上。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <header><h2>3. 登录进度</h2><p class="lead">每条连接分三小步：WB 发起配对、安卓号输入配对码、WB 确认上线。前一条成功才开始下一条。</p></header>
+    <div class="grid2">
+      <div class="stage">
+        <div class="dialog wide new">
+          <div class="hd"><h3>登录到 WB 分身 · +62 857 1100 3344 → wb_jack01</h3><span class="x">✕</span></div>
+          <div class="bd">
+            <div class="progress">
+              <div class="prow done"><span class="idx">1</span><b>主设备</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="ok">WB 已上线</span></div><span class="tag ok">成功 · 41s</span></div>
+              <div class="prow done"><span class="idx">2</span><b>影子 1</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="ok">WB 已上线</span></div><span class="tag ok">成功 · 37s</span></div>
+              <div class="prow run"><span class="idx">3</span><b>影子 2</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="cur">等待 WB 确认上线</span></div><span class="tag pri">进行中</span></div>
+              <div class="prow"><span class="idx">4</span><b>影子 3</b>
+                <div class="substeps"><span>WB 发起</span><span>输入配对码</span><span>WB 已上线</span></div><span class="tag info">排队</span></div>
+            </div>
+          </div>
+          <div class="ft"><button class="btn">后台运行</button><button class="btn">停止剩余</button></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="dialog wide">
+          <div class="hd"><h3>登录到 WB 分身 · +55 11 98765 4321 → wb_rita</h3><span class="x">✕</span></div>
+          <div class="bd">
+            <div class="progress">
+              <div class="prow done"><span class="idx">1</span><b>主设备</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="ok">WB 已上线</span></div><span class="tag ok">成功</span></div>
+              <div class="prow done"><span class="idx">2</span><b>影子 1</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="ok">WB 已上线</span></div><span class="tag ok">成功</span></div>
+              <div class="prow fail"><span class="idx">3</span><b>影子 2</b>
+                <div class="substeps"><span class="ok">WB 发起</span><span class="ok">输入配对码</span><span class="err">WB 未上线</span></div><span class="tag bad">失败</span></div>
+              <div class="prow"><span class="idx">4</span><b>影子 3</b>
+                <div class="substeps"><span>未开始</span></div><span class="tag info">已停止</span></div>
+            </div>
+            <div class="alert bad">影子 2 失败：这个号关联的设备已满。安卓号可能在别处还关联着设备；已成功的 2 条保留。<br>同一个号失败后要等 2 分钟才能重试（<span class="mono">01:42</span>）。</div>
+          </div>
+          <div class="ft"><button class="btn">关闭</button><button class="btn primary" disabled>补齐剩余 2 个 (01:42)</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <header><h2>4. 账号详情 · WB 分身</h2><p class="lead">在账号详情抽屉里加一个标签页：显示连接的实时状态和每次登录任务的记录。</p></header>
+    <div class="drawer-stage">
+      <div class="mask"></div>
+      <div class="drawer">
+        <h3>+62 813 2200 5512</h3>
+        <div class="tabs"><span>基本信息</span><span>好友 / 群</span><span>风控</span><span class="on new">WB 分身<span class="new-tag">新增</span></span></div>
+        <div class="kv">
+          <div><div class="k">WB 用户</div><b>wb_jack01</b></div>
+          <div><div class="k">WB 设备 ID</div><b class="mono">10482</b></div>
+          <div><div class="k">首次登录</div><b class="mono">2026-10-21 14:09</b></div>
+        </div>
+        <div class="table-scroll">
+        <table>
+          <thead><tr><th>连接</th><th>状态</th><th>WB 侧 ID</th><th>挂上时间</th></tr></thead>
+          <tbody>
+            <tr><td>主设备</td><td><span class="tag ok">在线</span></td><td class="mono">device 10482</td><td class="mono">10-21 14:09</td></tr>
+            <tr><td>影子 1</td><td><span class="tag ok">在线</span></td><td class="mono">shadow 3307</td><td class="mono">10-21 14:10</td></tr>
+            <tr><td>影子 2</td><td><span class="tag bad">掉线</span></td><td class="mono">shadow 3308</td><td class="mono">10-21 14:11</td></tr>
+            <tr><td>影子 3</td><td><span class="tag info">空位</span></td><td class="sub">—</td><td class="sub">—</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <button class="btn primary">补齐到 4 个</button>
+          <button class="btn">刷新</button>
+          <button class="btn" style="color:var(--bad); border-color:#fbc4c4">全部解绑</button>
+        </div>
+        <h3 style="margin-top:4px">登录记录</h3>
+        <div class="table-scroll">
+        <table>
+          <thead><tr><th>时间</th><th>操作人</th><th>目标</th><th>结果</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">10-28 09:12</td><td>ops_li</td><td>补齐 1</td><td><span class="tag bad">失败</span></td><td>WB 未上线（超时）</td></tr>
+            <tr><td class="mono">10-21 14:08</td><td>ops_li</td><td>4</td><td><span class="tag warn">部分成功 3/4</span></td><td>影子 3：关联设备已满</td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p class="hint">“全部解绑”：让 WB 删除这台设备和它的影子，各连接会退出关联；WB 那边已经计入的收益不受影响。会员在 WB 自己删除时，这里刷新后就显示为空位。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <header><h2>5. 下线、删除前的提醒</h2><p class="lead">安卓号是这些分身的主设备。它一下线，WB 的连接会全部掉线；它被删除或退出登录，WB 的连接会被 WhatsApp 全部移除。</p></header>
+    <div class="grid2">
+      <div class="stage">
+        <div class="dialog">
+          <div class="hd"><h3>下线账号？</h3><span class="x">✕</span></div>
+          <div class="bd">
+            <p>+62 812 3456 7801 在 WB（wb_jack01）挂着 <b>4</b> 个分身。</p>
+            <div class="alert warn">下线期间 WB 的这 4 条连接都会掉线、停止发送；重新上线后 WB 会自动重连。</div>
+          </div>
+          <div class="ft"><button class="btn">取消</button><button class="btn primary">仍然下线</button></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="dialog">
+          <div class="hd"><h3>删除账号？</h3><span class="x">✕</span></div>
+          <div class="bd">
+            <p>+62 812 3456 7801 在 WB（wb_jack01）挂着 <b>4</b> 个分身。</p>
+            <div class="alert bad">删除后这 4 个分身会被 WhatsApp 移除，WB 用户 wb_jack01 的这台设备不能再发送，也无法恢复。</div>
+          </div>
+          <div class="ft"><button class="btn">取消</button><button class="btn danger">删除并移除分身</button></div>
+        </div>
+      </div>
+    </div>
+    <p class="hint">批量下线、批量删除也一样提醒，会列出其中挂着 WB 分身的号码数量。</p>
+  </section>
+
+  <section class="section">
+    <header><h2>6. 失败提示对照</h2></header>
+    <div class="panel table-scroll">
+      <table>
+        <thead><tr><th>界面提示</th><th>来源</th><th>能否重试</th></tr></thead>
+        <tbody>
+          <tr><td>安卓号不在线，先上线再登录</td><td>安卓 ACCOUNT_OFFLINE / 预检</td><td>上线后重试</td></tr>
+          <tr><td>WB 用户的设备名额已满（10 台）</td><td>WB DEVICE_LIMIT_REACHED</td><td>换用户，或让用户删设备</td></tr>
+          <tr><td>WB 未开启影子连接，只能登录 1 个</td><td>WB SHADOW_DISABLED</td><td>WB 管理端开启后补齐</td></tr>
+          <tr><td>这个号在该用户下是会员自己绑定的设备，不能导入</td><td>WB 来源冲突</td><td>否</td></tr>
+          <tr><td>这个号正在 WB 别的设备上用狂暴模式</td><td>WB BRUTAL_DUPLICATE</td><td>否</td></tr>
+          <tr><td>关联设备已满</td><td>WB 影子满 / WhatsApp 拒绝</td><td>到别处退出关联后补齐</td></tr>
+          <tr><td>同时有多个配对在进行，已停止</td><td>安卓 AMBIGUOUS</td><td>2 分钟后重试</td></tr>
+          <tr><td>配对码发送失败</td><td>安卓 SEND_FAILED</td><td>2 分钟后整条重来，不重提</td></tr>
+          <tr><td>WB 未上线（超时）</td><td>WB 配对 180 秒期限到</td><td>2 分钟后重试</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

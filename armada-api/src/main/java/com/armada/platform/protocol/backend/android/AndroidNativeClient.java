@@ -162,4 +162,13 @@ public interface AndroidNativeClient {
 
     /** 使用 Android 原生接口退出群组。 */
     AndroidResponseEnvelope leaveGroup(String wsPhone, String groupJid);
+
+    /**
+     * 让在线的安卓主设备输入关联设备（分身）的配对码，不指定 pairingRef，由安卓层选取唯一未开始的配对请求。
+     *
+     * @param wsPhone 不带加号的纯数字 WhatsApp 手机号
+     * @param pairingCode 8 位配对码，不得写入日志
+     * @return Android 原生响应包；失败原因在 Data.reason
+     */
+    AndroidResponseEnvelope pairCodeInput(String wsPhone, String pairingCode);
 }

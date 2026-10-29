@@ -1,5 +1,7 @@
 package com.armada.platform.protocol.config;
 
+import com.armada.platform.protocol.backend.android.AndroidNativeCompanionPairCodeAdapter;
+import com.armada.platform.protocol.port.CompanionPairCodePort;
 import com.armada.platform.protocol.routing.GroupApprovalBackend;
 import com.armada.platform.protocol.routing.RoutingGroupApprovalPort;
 import com.armada.platform.protocol.http.group.HttpGroupApprovalAdapter;
@@ -760,6 +762,18 @@ public class ProtocolConfiguration {
     @Bean
     public GroupLeaveBackend webGroupLeaveBackend(ProtocolHttpExecutorRegistry registry) {
         return new HttpGroupLeaveAdapter(registry.required(ProtocolBackend.WEB));
+    }
+
+    /**
+     * 注册安卓主设备确认关联设备配对码的端口；只有安卓协议账号能当主设备。
+     *
+     * @param client Android 原生 client
+     * @param decoder Android 原生响应 decoder
+     * @return 关联设备配对码端口
+     */
+    @Bean
+    public CompanionPairCodePort companionPairCodePort(AndroidNativeClient client, AndroidResponseDecoder decoder) {
+        return new AndroidNativeCompanionPairCodeAdapter(client, decoder);
     }
 
     @Bean

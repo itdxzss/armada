@@ -18,7 +18,7 @@ description: Use when preparing, dry-running, executing, or verifying an Armada 
 ./armada-deploy/deploy-test.sh --dry-run
 ```
 
-4. 后端部署脚本会在 `armada-api/` 执行 JDK 17 的 `mvn -q -DskipTests clean package`；部署前仍须独立完成与改动相称的测试。
+4. 后端部署脚本会在 `armada-api/` 执行 JDK 21 的 `mvn -q -DskipTests clean package`；部署前仍须独立完成与改动相称的测试。
 
 ## 部署前验证
 

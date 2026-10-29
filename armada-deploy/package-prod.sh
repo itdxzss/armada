@@ -111,13 +111,13 @@ PROTOCOL_IMAGE="armada/protocol:${VERSION}"
 APP_PACKAGE="${OUTPUT_DIR}/armada-app-prod-${VERSION}.tar.gz"
 PROTOCOL_PACKAGE="${OUTPUT_DIR}/armada-protocol-prod-${VERSION}.tar.gz"
 
-find_jdk17() {
+find_jdk21() {
   local candidate=""
   if command -v /usr/libexec/java_home >/dev/null 2>&1; then
-    candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+    candidate="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
   fi
   if [ -z "${candidate}" ]; then
-    candidate="${JAVA17_HOME:-${JAVA_HOME:-}}"
+    candidate="${JAVA21_HOME:-${JAVA_HOME:-}}"
   fi
   if [ -n "${candidate}" ] && [ -x "${candidate}/bin/javac" ]; then
     printf '%s\n' "${candidate}"
@@ -187,11 +187,11 @@ require_protocol_files() {
 }
 
 build_backend() {
-  local jdk17_home
-  jdk17_home="$(find_jdk17)" || die "JDK 17 is required. Install it or set JAVA17_HOME."
+  local jdk21_home
+  jdk21_home="$(find_jdk21)" || die "JDK 21 is required. Install it or set JAVA21_HOME."
   command -v mvn >/dev/null 2>&1 || die "mvn is required to build backend"
   info "building backend jar"
-  (cd "${API_DIR}" && JAVA_HOME="${jdk17_home}" mvn -q -DskipTests clean package)
+  (cd "${API_DIR}" && JAVA_HOME="${jdk21_home}" mvn -q -DskipTests clean package)
   JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
     || die "unique backend jar not found after build: ${API_DIR}/target"
 }

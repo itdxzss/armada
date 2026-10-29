@@ -4,7 +4,7 @@
 
 ## 项目边界
 
-- `armada-api/`：Java 17 + Spring Boot 3.3.5 单 Maven 工程，包根 `com.armada`。
+- `armada-api/`：Java 21 + Spring Boot 3.3.5 单 Maven 工程，包根 `com.armada`。
 - `armada-deploy/`：测试环境部署与生产离线包脚本。
 - `docs/`：业务设计、实施方案和运维文档。
 - 前端在同级 `wheel-saas-pure-web/`，协议层在同级 `armada-protocol/`；跨仓修改前进入对应仓库并读取其 `AGENTS.md`。

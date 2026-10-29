@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 
-armada_find_jdk17() {
+armada_find_jdk21() {
   local candidate javac_path
   local candidates=()
 
   if command -v /usr/libexec/java_home >/dev/null 2>&1; then
-    candidate="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"
+    candidate="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
     [ -z "${candidate}" ] || candidates+=("${candidate}")
   fi
 
   candidates+=(
-    "${JAVA17_HOME:-}"
+    "${JAVA21_HOME:-}"
     "${JAVA_HOME:-}"
-    /usr/lib/jvm/java-17-openjdk-*
-    /usr/lib/jvm/temurin-17-*
-    /usr/lib/jvm/jdk-17*
+    /usr/lib/jvm/java-21-openjdk-*
+    /usr/lib/jvm/temurin-21-*
+    /usr/lib/jvm/jdk-21*
   )
   for candidate in "${candidates[@]}"; do
     [ -n "${candidate}" ] || continue
     [ -x "${candidate}/bin/javac" ] || continue
-    if "${candidate}/bin/javac" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+    if "${candidate}/bin/javac" -version 2>&1 | grep -Eq '^javac 21([. ]|$)'; then
       printf '%s\n' "${candidate}"
       return 0
     fi
@@ -28,7 +28,7 @@ armada_find_jdk17() {
   # 兼容发行版只把 javac 注册到 PATH、但 JDK 目录名称不在上方列表中的情况。
   javac_path="$(command -v javac 2>/dev/null || true)"
   if [ -n "${javac_path}" ] && javac_path="$(readlink -f "${javac_path}")" \
-    && "${javac_path}" -version 2>&1 | grep -Eq '^javac 17([. ]|$)'; then
+    && "${javac_path}" -version 2>&1 | grep -Eq '^javac 21([. ]|$)'; then
     printf '%s\n' "${javac_path%/bin/javac}"
     return 0
   fi
@@ -38,7 +38,7 @@ armada_find_jdk17() {
 armada_build_backend() {
   info "构建后端 jar..."
   # 部署包不应被仓库中与当前发布无关的测试源码编译错误阻断；测试由发布前验证阶段单独执行。
-  (cd "${API_DIR}" && JAVA_HOME="${JDK17_HOME}" mvn -q -Dmaven.test.skip=true clean package)
+  (cd "${API_DIR}" && JAVA_HOME="${JDK21_HOME}" mvn -q -Dmaven.test.skip=true clean package)
   JAR_PATH="$(armada_resolve_backend_jar "${API_DIR}/target")" \
     || die "构建后无法确定唯一后端 jar: ${API_DIR}/target"
   [ -f "${JAR_PATH}" ] || die "构建后未找到后端 jar: ${JAR_PATH}"
